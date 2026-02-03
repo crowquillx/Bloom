@@ -32,6 +32,12 @@ Bloom connects to a Jellyfin server and provides a TV-friendly interface for bro
 - mpv (in PATH or configured)
 - libsecret (Linux) for credential storage
 
+## Installation
+
+### Windows
+
+Download the latest release from the [Releases](https://github.com/yourusername/Bloom/releases) page.
+
 ## Building
 
 ### Using Docker (recommended)
