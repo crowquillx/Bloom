@@ -260,8 +260,8 @@ bool SessionManager::migrateToken(const QString &oldDeviceId, const QString &new
 
     // Get current session info
     auto session = m_configManager->getJellyfinSession();
-    if (!session.isValid() || session.accessToken.isEmpty()) {
-        // No active token to migrate
+    if (!session.isValid()) {
+        // No active session to migrate
         return true;
     }
 
@@ -272,11 +272,13 @@ bool SessionManager::migrateToken(const QString &oldDeviceId, const QString &new
     QString oldAccount = accountKey(serverUrl, username, oldDeviceId);
     QString newAccount = accountKey(serverUrl, username, newDeviceId);
 
-    // Get token from old account
+    // Get token from SecretStore using old device ID account key
+    // Note: Token is stored in SecretStore, not ConfigManager (accessToken is always empty)
     QString token = m_secretStore->getSecret("Bloom/Jellyfin", oldAccount);
     if (token.isEmpty()) {
-        qWarning() << "SessionManager: No token found for old device ID";
-        return false;
+        // No token in SecretStore for old device ID - nothing to migrate
+        qDebug() << "SessionManager: No token found for old device ID, nothing to migrate";
+        return true;
     }
 
     // Store token under new account
