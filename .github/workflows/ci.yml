@@ -54,7 +54,7 @@ jobs:
       shell: pwsh
     
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       with:
         tag_name: dev-latest
@@ -67,6 +67,7 @@ jobs:
         files: |
           Bloom-Windows.zip
         fail_on_unmatched_files: true
+        force: true
     
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
