@@ -93,6 +93,7 @@ FocusScope {
         Button {
             id: connectButton
             text: "Connect"
+            enabled: serverField.text.length > 0
             font.pixelSize: 24
             font.family: Theme.fontPrimary
             Layout.fillWidth: true
