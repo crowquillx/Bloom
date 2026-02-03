@@ -20,6 +20,8 @@ class SeriesDetailsViewModel;
 class ISecretStore;
 class SidebarSettings;
 class UiSoundController;
+class SessionManager;
+class SessionService;
 
 class ApplicationInitializer : public QObject
 {
@@ -60,4 +62,6 @@ private:
     std::unique_ptr<SeriesDetailsViewModel> m_seriesDetailsViewModel;
     std::unique_ptr<SidebarSettings> m_sidebarSettings;
     std::unique_ptr<UiSoundController> m_uiSoundController;
+    std::unique_ptr<SessionManager> m_sessionManager;
+    std::unique_ptr<SessionService> m_sessionService;
 };

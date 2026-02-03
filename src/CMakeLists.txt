@@ -22,6 +22,10 @@ qt_add_executable(Bloom
     network/PlaybackService.cpp
     network/Types.h
     network/Types.cpp
+    network/SessionManager.h
+    network/SessionManager.cpp
+    network/SessionService.h
+    network/SessionService.cpp
     utils/ConfigManager.cpp
     utils/ConfigManager.h
     utils/TrackPreferencesManager.cpp
@@ -104,6 +108,7 @@ qt_add_qml_module(Bloom
         ui/MediaInfoPanel.qml
         ui/ToastNotification.qml
         ui/RoundedImage.qml
+        ui/ActiveSessionsScreen.qml
 )
 
 target_link_libraries(Bloom
