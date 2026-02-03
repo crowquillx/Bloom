@@ -25,8 +25,7 @@ FocusScope {
         TextField {
             id: serverField
             focus: true  // Default focus
-            placeholderText: "Server URL (e.g. http://192.168.1.10:8096)"
-            text: "http://localhost:8096"
+            placeholderText: "http://localhost:8096"
             Layout.fillWidth: true
             font.pixelSize: 18
             font.family: Theme.fontPrimary
@@ -94,6 +93,7 @@ FocusScope {
         Button {
             id: connectButton
             text: "Connect"
+            enabled: serverField.text.length > 0
             font.pixelSize: 24
             font.family: Theme.fontPrimary
             Layout.fillWidth: true
