@@ -1,0 +1,7 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource prefix="/">
+        <file>fonts/MaterialSymbolsOutlined.ttf</file>
+        <file>fonts/Material-Design-Iconic-Font.ttf</file>
+    </qresource>
+</RCC>

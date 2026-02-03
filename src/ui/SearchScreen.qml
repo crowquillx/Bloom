@@ -1,0 +1,538 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import QtQuick.Effects
+import BloomUI
+
+/**
+ * SearchScreen - Search for movies and TV shows
+ * 
+ * Features:
+ * - Search input field with keyboard focus
+ * - Random suggestions when no search term is entered
+ * - Categorized results (TV Shows and Movies)
+ * - Full keyboard navigation
+ * - Escape returns to home screen
+ */
+FocusScope {
+    id: root
+    focus: true
+    property string navigationId: "search"
+    
+    // Navigation signals
+    signal navigateToMovie(var movieData)
+    signal navigateToSeries(var seriesId)
+    
+    // ========================================
+    // Properties
+    // ========================================
+    
+    property string searchTerm: ""
+    property var suggestions: []
+    property var movieResults: []
+    property var seriesResults: []
+    property bool isSearching: false
+    property bool hasSearched: false
+    
+    // Debounce timer for search input
+    Timer {
+        id: searchDebounce
+        interval: 300
+        repeat: false
+        onTriggered: {
+            if (searchTerm.trim().length > 0) {
+                isSearching = true
+                LibraryService.search(searchTerm.trim())
+            } else {
+                hasSearched = false
+                movieResults = []
+                seriesResults = []
+            }
+        }
+    }
+    
+    // ========================================
+    // Initialization
+    // ========================================
+    
+    Component.onCompleted: {
+        // Load random suggestions
+        LibraryService.getRandomItems(20)
+        // Focus search input
+        searchInput.forceActiveFocus()
+    }
+    
+    StackView.onStatusChanged: {
+        if (StackView.status === StackView.Active) {
+            searchInput.forceActiveFocus()
+        }
+    }
+    
+    // ========================================
+    // API Connections
+    // ========================================
+    
+    Connections {
+        target: LibraryService
+        
+        function onRandomItemsLoaded(items) {
+            suggestions = []
+            for (var i = 0; i < items.length; i++) {
+                suggestions.push(items[i])
+            }
+            suggestionsChanged()
+        }
+        
+        function onSearchResultsLoaded(term, movies, series) {
+            if (term === searchTerm.trim()) {
+                isSearching = false
+                hasSearched = true
+                
+                movieResults = []
+                for (var i = 0; i < movies.length; i++) {
+                    movieResults.push(movies[i])
+                }
+                movieResultsChanged()
+                
+                seriesResults = []
+                for (var j = 0; j < series.length; j++) {
+                    seriesResults.push(series[j])
+                }
+                seriesResultsChanged()
+            }
+        }
+    }
+    
+    // ========================================
+    // Background
+    // ========================================
+    
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.backgroundPrimary
+    }
+    
+    // ========================================
+    // Main Content
+    // ========================================
+    
+    ColumnLayout {
+        anchors.fill: parent
+        anchors.topMargin: Theme.spacingLarge
+        spacing: Theme.spacingLarge
+        
+        // Search Input Container
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: 60
+            Layout.leftMargin: Theme.spacingXLarge
+            Layout.rightMargin: Theme.spacingXLarge
+            
+            // Center the search bar
+            RowLayout {
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: Math.min(parent.width, 700)
+                height: parent.height
+                spacing: Theme.spacingMedium
+                
+                // Search input field
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 50
+                    radius: Theme.radiusMedium
+                    color: Theme.inputBackground
+                    border.color: searchInput.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                    border.width: searchInput.activeFocus ? 2 : 1
+                    
+                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                    
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingMedium
+                        anchors.rightMargin: Theme.spacingMedium
+                        spacing: Theme.spacingSmall
+                        
+                        TextField {
+                            id: searchInput
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            placeholderText: "Search..."
+                            placeholderTextColor: Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            background: null
+                            focus: true
+                            
+                            onTextChanged: {
+                                searchTerm = text
+                                searchDebounce.restart()
+                            }
+                            
+                            Keys.onDownPressed: {
+                                // Navigate to results or suggestions
+                                if (hasSearched && seriesResults.length > 0) {
+                                    seriesGrid.forceActiveFocus()
+                                    seriesGrid.currentIndex = 0
+                                } else if (hasSearched && movieResults.length > 0) {
+                                    moviesGrid.forceActiveFocus()
+                                    moviesGrid.currentIndex = 0
+                                } else if (!hasSearched && suggestions.length > 0) {
+                                    suggestionsColumn.children[0].forceActiveFocus()
+                                }
+                            }
+                        }
+                        
+                        // Search icon
+                        Text {
+                            text: Icons.search
+                            font.pixelSize: Theme.fontSizeIcon
+                            font.family: Theme.fontIcon
+                            color: Theme.textSecondary
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Content Area (scrollable)
+        Flickable {
+            id: contentFlickable
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            contentWidth: width
+            contentHeight: contentColumn.height
+            clip: true
+            
+            ColumnLayout {
+                id: contentColumn
+                width: parent.width
+                spacing: Theme.spacingLarge
+                
+                // ========================================
+                // Suggestions (shown when no search)
+                // ========================================
+                
+                Item {
+                    id: suggestionsSection
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: suggestionsInner.height
+                    visible: !hasSearched && suggestions.length > 0
+                    
+                    ColumnLayout {
+                        id: suggestionsInner
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        spacing: Theme.spacingMedium
+                        
+                        // Title
+                        Text {
+                            text: "Suggestions"
+                            font.pixelSize: Theme.fontSizeTitle
+                            font.family: Theme.fontPrimary
+                            font.weight: Font.DemiBold
+                            color: Theme.textPrimary
+                            Layout.alignment: Qt.AlignHCenter
+                        }
+                        
+                        // Suggestions list (centered, vertical list of titles)
+                        ColumnLayout {
+                            id: suggestionsColumn
+                            Layout.alignment: Qt.AlignHCenter
+                            spacing: Theme.spacingSmall
+                            
+                            Repeater {
+                                model: suggestions
+                                
+                                ItemDelegate {
+                                    id: suggestionDelegate
+                                    required property var modelData
+                                    required property int index
+                                    
+                                    Layout.alignment: Qt.AlignHCenter
+                                    Layout.preferredWidth: Math.max(suggestionText.implicitWidth + Theme.spacingLarge * 2, 200)
+                                    implicitHeight: 40
+                                
+                                background: Rectangle {
+                                    radius: Theme.radiusSmall
+                                    color: suggestionDelegate.activeFocus ? Theme.cardBackgroundFocused 
+                                         : (suggestionDelegate.hovered ? Theme.cardBackgroundHover : "transparent")
+                                    border.color: suggestionDelegate.activeFocus ? Theme.focusBorder : "transparent"
+                                    border.width: suggestionDelegate.activeFocus ? 2 : 0
+                                    
+                                    Behavior on color { ColorAnimation { duration: 100 } }
+                                }
+                                
+                                contentItem: Item {
+                                    implicitWidth: suggestionText.implicitWidth
+                                    implicitHeight: suggestionText.implicitHeight
+                                    
+                                    Text {
+                                        id: suggestionText
+                                        anchors.centerIn: parent
+                                        text: suggestionDelegate.modelData.Name || ""
+                                        font.pixelSize: Theme.fontSizeBody
+                                        font.family: Theme.fontPrimary
+                                        color: suggestionDelegate.activeFocus ? Theme.accentPrimary : Theme.textPrimary
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                }
+                                
+                                onClicked: {
+                                    var item = modelData
+                                    if (item.Type === "Series") {
+                                        root.navigateToSeries(item.Id)
+                                    } else if (item.Type === "Movie") {
+                                        root.navigateToMovie(item)
+                                    }
+                                }
+                                
+                                Keys.onReturnPressed: clicked()
+                                Keys.onEnterPressed: clicked()
+                                
+                                Keys.onUpPressed: {
+                                    if (index > 0) {
+                                        suggestionsColumn.children[index - 1].forceActiveFocus()
+                                    } else {
+                                        searchInput.forceActiveFocus()
+                                    }
+                                }
+                                
+                                Keys.onDownPressed: {
+                                    if (index < suggestions.length - 1) {
+                                        suggestionsColumn.children[index + 1].forceActiveFocus()
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    }
+                }
+                
+                // ========================================
+                // Search Results
+                // ========================================
+                
+                // Loading indicator
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 100
+                    visible: isSearching
+                    
+                    BusyIndicator {
+                        anchors.centerIn: parent
+                        running: isSearching
+                    }
+                }
+                
+                // No results message
+                Text {
+                    text: "No results found"
+                    font.pixelSize: Theme.fontSizeTitle
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: hasSearched && !isSearching && seriesResults.length === 0 && movieResults.length === 0
+                }
+                
+                // TV Shows section
+                ColumnLayout {
+                    id: seriesSection
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.spacingXLarge
+                    Layout.rightMargin: Theme.spacingXLarge
+                    spacing: Theme.spacingMedium
+                    visible: hasSearched && seriesResults.length > 0
+                    
+                    Text {
+                        text: "TV Shows"
+                        font.pixelSize: Theme.fontSizeTitle
+                        font.family: Theme.fontPrimary
+                        font.weight: Font.DemiBold
+                        color: Theme.textPrimary
+                    }
+                    
+                    GridView {
+                        id: seriesGrid
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.ceil(count / Math.floor(width / cellWidth)) * cellHeight
+                        
+                        cellWidth: Math.round(220 * Theme.dpiScale)
+                        cellHeight: Math.round(380 * Theme.dpiScale)
+                        
+                        interactive: false
+                        
+                        model: seriesResults
+                        
+                        delegate: FocusScope {
+                            id: seriesDelegateScope
+                            width: seriesGrid.cellWidth
+                            height: seriesGrid.cellHeight
+                            
+                            required property var modelData
+                            required property int index
+                            
+                            SearchResultCard {
+                                id: seriesCard
+                                anchors.fill: parent
+                                anchors.margins: Theme.spacingSmall
+                                
+                                itemData: seriesDelegateScope.modelData
+                                isFocused: seriesDelegateScope.activeFocus
+                                
+                                onClicked: {
+                                    root.navigateToSeries(seriesDelegateScope.modelData.Id)
+                                }
+                            }
+                            
+                            Keys.onReturnPressed: seriesCard.clicked()
+                            Keys.onEnterPressed: seriesCard.clicked()
+                            
+                            Keys.onUpPressed: {
+                                var columns = Math.floor(seriesGrid.width / seriesGrid.cellWidth)
+                                if (index < columns) {
+                                    searchInput.forceActiveFocus()
+                                } else {
+                                    seriesGrid.currentIndex = index - columns
+                                }
+                            }
+                            
+                            Keys.onDownPressed: {
+                                var columns = Math.floor(seriesGrid.width / seriesGrid.cellWidth)
+                                if (index + columns < seriesResults.length) {
+                                    seriesGrid.currentIndex = index + columns
+                                } else if (movieResults.length > 0) {
+                                    moviesGrid.forceActiveFocus()
+                                    moviesGrid.currentIndex = 0
+                                }
+                            }
+                            
+                            Keys.onLeftPressed: {
+                                if (index % Math.floor(seriesGrid.width / seriesGrid.cellWidth) > 0) {
+                                    seriesGrid.currentIndex = index - 1
+                                }
+                            }
+                            
+                            Keys.onRightPressed: {
+                                var columns = Math.floor(seriesGrid.width / seriesGrid.cellWidth)
+                                if ((index + 1) % columns !== 0 && index + 1 < seriesResults.length) {
+                                    seriesGrid.currentIndex = index + 1
+                                }
+                            }
+                        }
+                        
+                        onCurrentIndexChanged: {
+                            if (currentItem) {
+                                currentItem.forceActiveFocus()
+                            }
+                        }
+                    }
+                }
+                
+                // Movies section
+                ColumnLayout {
+                    id: moviesSection
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.spacingXLarge
+                    Layout.rightMargin: Theme.spacingXLarge
+                    spacing: Theme.spacingMedium
+                    visible: hasSearched && movieResults.length > 0
+                    
+                    Text {
+                        text: "Movies"
+                        font.pixelSize: Theme.fontSizeTitle
+                        font.family: Theme.fontPrimary
+                        font.weight: Font.DemiBold
+                        color: Theme.textPrimary
+                    }
+                    
+                    GridView {
+                        id: moviesGrid
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.ceil(count / Math.floor(width / cellWidth)) * cellHeight
+                        
+                        cellWidth: Math.round(220 * Theme.dpiScale)
+                        cellHeight: Math.round(380 * Theme.dpiScale)
+                        
+                        interactive: false
+                        
+                        model: movieResults
+                        
+                        delegate: FocusScope {
+                            id: movieDelegateScope
+                            width: moviesGrid.cellWidth
+                            height: moviesGrid.cellHeight
+                            
+                            required property var modelData
+                            required property int index
+                            
+                            SearchResultCard {
+                                id: movieCard
+                                anchors.fill: parent
+                                anchors.margins: Theme.spacingSmall
+                                
+                                itemData: movieDelegateScope.modelData
+                                isFocused: movieDelegateScope.activeFocus
+                                
+                                onClicked: {
+                                    root.navigateToMovie(movieDelegateScope.modelData)
+                                }
+                            }
+                            
+                            Keys.onReturnPressed: movieCard.clicked()
+                            Keys.onEnterPressed: movieCard.clicked()
+                            
+                            Keys.onUpPressed: {
+                                var columns = Math.floor(moviesGrid.width / moviesGrid.cellWidth)
+                                if (index < columns) {
+                                    if (seriesResults.length > 0) {
+                                        seriesGrid.forceActiveFocus()
+                                        seriesGrid.currentIndex = Math.min(seriesResults.length - 1, 
+                                            seriesResults.length - (seriesResults.length % columns) + index)
+                                    } else {
+                                        searchInput.forceActiveFocus()
+                                    }
+                                } else {
+                                    moviesGrid.currentIndex = index - columns
+                                }
+                            }
+                            
+                            Keys.onDownPressed: {
+                                var columns = Math.floor(moviesGrid.width / moviesGrid.cellWidth)
+                                if (index + columns < movieResults.length) {
+                                    moviesGrid.currentIndex = index + columns
+                                }
+                            }
+                            
+                            Keys.onLeftPressed: {
+                                if (index % Math.floor(moviesGrid.width / moviesGrid.cellWidth) > 0) {
+                                    moviesGrid.currentIndex = index - 1
+                                }
+                            }
+                            
+                            Keys.onRightPressed: {
+                                var columns = Math.floor(moviesGrid.width / moviesGrid.cellWidth)
+                                if ((index + 1) % columns !== 0 && index + 1 < movieResults.length) {
+                                    moviesGrid.currentIndex = index + 1
+                                }
+                            }
+                        }
+                        
+                        onCurrentIndexChanged: {
+                            if (currentItem) {
+                                currentItem.forceActiveFocus()
+                            }
+                        }
+                    }
+                }
+                
+                // Bottom padding
+                Item {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Theme.spacingXLarge
+                }
+            }
+        }
+    }
+}

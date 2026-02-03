@@ -1,0 +1,228 @@
+# Bloom .gitignore
+# This file excludes build artifacts, generated files, and binaries from version control
+.gemini/
+# ===========================
+# Build Directories
+# ===========================
+build/
+build-docker/
+build-windows/
+cmake-build-*/
+out/
+_codeql_build_dir/
+
+# ===========================
+# CMake Generated Files
+# ===========================
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+*.cmake.in
+
+# ===========================
+# Qt Generated Files
+# ===========================
+# Qt MOC (Meta-Object Compiler)
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+
+# Qt UI
+ui_*.h
+
+# Qt Resource Compiler
+*.qrc.depends
+
+# Qt Creator
+*.pro.user
+*.pro.user.*
+*.qbs.user
+*.qbs.user.*
+*.autosave
+CMakeLists.txt.user*
+
+# Qt QML Cache
+*.jsc
+*.qmlc
+.qmake.stash
+.qmlcache/
+.rcc/
+.qt/
+
+# ===========================
+# C++ Build Artifacts
+# ===========================
+# Object files
+*.o
+*.obj
+*.ko
+*.elf
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.so.*
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.a
+*.la
+*.lo
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+*.x86_64
+*.i*86
+Bloom
+Bloom.exe
+
+# ===========================
+# Debug and Core Dumps
+# ===========================
+*.dSYM/
+*.su
+*.idb
+*.pdb
+core
+core.*
+vgcore.*
+
+# ===========================
+# Source Code Exceptions
+# ===========================
+# Allow src/core directory (don't match core dumps in src/)
+!src/core/
+!src/core/**
+
+# ===========================
+# IDE and Editor Files
+# ===========================
+# Visual Studio / Visual Studio Code
+.vs/
+.vscode/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# CLion / IntelliJ
+.idea/
+cmake-build-*/
+
+# Qt Creator
+*.autosave
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# ===========================
+# Configuration Files (Keep Example)
+# ===========================
+# Keep example configs but ignore actual user configs
+config/app.json
+!config/app.example.json
+
+# ===========================
+# Operating System Files
+# ===========================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
+
+# ===========================
+# Temporary Files
+# ===========================
+*.log
+*.tmp
+*.temp
+*.bak
+*.cache
+*.pid
+*.seed
+*.pid.lock
+
+# ===========================
+# Package Managers
+# ===========================
+# Conan
+conanfile.txt.user
+conaninfo.txt
+conanbuildinfo.*
+*.pyc
+
+# vcpkg
+vcpkg_installed/
+
+# ===========================
+# Testing
+# ===========================
+# Test binaries and results
+test_*
+*_test
+Testing/
+CTestTestfile.cmake
+
+# ===========================
+# Documentation Build
+# ===========================
+docs/_build/
+docs/.doctrees/
+html/
+latex/
+
+# ===========================
+# Windows Build & Packaging
+# ===========================
+install-windows/
+Bloom-Windows/
+*.exe
+*.msi
+*.nsi.bak
+
+# ===========================
+# Nix
+# ===========================
+result
+result-*
+.direnv/
+_codeql_detected_source_root

@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: '6.8.1'
+        host: 'windows'
+        target: 'desktop'
+        arch: 'win64_msvc2022_64'
+        modules: 'qtmultimedia qtshadertools qtimageformats qt5compat'
+        cache: true
+        setup-python: false
+    
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+    
+    - name: Build
+      run: |
+        mkdir build
+        cd build
+        cmake .. -DCMAKE_BUILD_TYPE=Release
+        cmake --build . --config Release
+    
+    - name: Package App
+      run: |
+        mkdir Bloom-Windows
+        cp build/src/Release/Bloom.exe Bloom-Windows/
+        windeployqt Bloom-Windows/Bloom.exe --qmldir src/ui --release --no-translations
+    
+    - name: Create ZIP Archive and Hash
+      id: archive
+      run: |
+        Compress-Archive -Path Bloom-Windows/* -DestinationPath Bloom-Windows.zip -Force
+        $hash = (Get-FileHash Bloom-Windows.zip -Algorithm SHA256).Hash
+        echo "zip_hash=$hash" >> $env:GITHUB_OUTPUT
+        echo "ZIP Hash: $hash"
+      shell: pwsh
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      with:
+        tag_name: dev-latest
+        name: Development Build
+        body: |
+          Latest development build from main branch.
+          
+          SHA256: `${{ steps.archive.outputs.zip_hash }}`
+        prerelease: true
+        files: |
+          Bloom-Windows.zip
+        fail_on_unmatched_files: true
+    
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Bloom-Windows-Portable
+        path: Bloom-Windows/

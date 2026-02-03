@@ -1,0 +1,39 @@
+{
+    "version": 4,
+    "settings": {
+        "mpv": {
+            "path": "mpv",
+            "extra_flags": [
+                "--vo=gpu-next",
+                "--fullscreen"
+            ],
+            "test_video_url": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+        },
+        "jellyfin": {
+            "server_url": "",
+            "user_id": "",
+            "access_token": "",
+            "username": ""
+        },
+        "playback": {
+            "completion_threshold": 90,
+            "autoplay_next_episode": true,
+            "audio_delay": 0,
+            "theme_song_volume": 0,
+            "theme_song_loop": false
+        },
+        "ui": {
+            "backdrop_rotation_interval": 30000
+        },
+        "video": {
+            "enable_hdr": false,
+            "enable_framerate_matching": false,
+            "linux_refresh_rate_command": "xrandr --output HDMI-1 --rate {RATE}",
+            "linux_hdr_command": "",
+            "windows_custom_hdr_command": ""
+        },
+        "cache": {
+            "image_cache_size_mb": 500
+        }
+    }
+}

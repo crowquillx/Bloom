@@ -1,0 +1,6 @@
+<RCC>
+    <qresource prefix="/scripts">
+        <file alias="thumbfast.lua">scripts/thumbfast.lua</file>
+        <file alias="modernx.lua">scripts/modernx.lua</file>
+    </qresource>
+</RCC>

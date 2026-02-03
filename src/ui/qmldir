@@ -1,0 +1,34 @@
+module BloomUI
+singleton Theme 1.0 Theme.qml
+singleton Icons 1.0 Icons.qml
+Main 1.0 Main.qml
+LoginScreen 1.0 LoginScreen.qml
+LibraryScreen 1.0 LibraryScreen.qml
+SeriesDetailsView 1.0 SeriesDetailsView.qml
+SeasonView 1.0 SeasonView.qml
+SeriesSeasonEpisodeView 1.0 SeriesSeasonEpisodeView.qml
+MovieDetailsView 1.0 MovieDetailsView.qml
+HomeScreen 1.0 HomeScreen.qml
+SettingsScreen 1.0 SettingsScreen.qml
+SearchScreen 1.0 SearchScreen.qml
+SearchResultCard 1.0 SearchResultCard.qml
+UnwatchedBadge 1.0 UnwatchedBadge.qml
+Sidebar 1.0 Sidebar.qml
+MediaProgressBar 1.0 MediaProgressBar.qml
+MpvProfileEditor 1.0 MpvProfileEditor.qml
+TrackSelector 1.0 TrackSelector.qml
+MediaInfoPanel 1.0 MediaInfoPanel.qml
+ToastNotification 1.0 ToastNotification.qml
+A11yButton 1.0 A11yButton.qml
+RetryButton 1.0 RetryButton.qml
+singleton AccessibilityHelpers 1.0 AccessibilityHelpers.qml
+
+
+
+
+
+
+
+
+
+

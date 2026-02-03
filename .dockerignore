@@ -1,0 +1,37 @@
+# Build artifacts
+build/
+build-docker/
+build-windows/
+install-windows/
+Bloom-Windows/
+
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# Qt autogen
+*_autogen/
+*.qrc.depends
+*_qmltyperegistrations.cpp
+
+# Nix
+result
+result-*
+.direnv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore

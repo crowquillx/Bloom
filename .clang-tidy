@@ -1,0 +1,7 @@
+---
+Checks:          'bugprone-*,performance-*,readability-*,qt-*'
+WarningsAsErrors: 'qt-*'
+CheckOptions:
+  - key:             readability-identifier-naming.ClassCase
+    value:           CamelCase
+...

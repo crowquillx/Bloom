@@ -1,0 +1,137 @@
+#include "WindowManager.h"
+#include "core/ApplicationInitializer.h"
+#include "utils/ConfigManager.h"
+#include "ui/ImageCacheProvider.h"
+#include "utils/GpuMemoryTrimmer.h"
+#include "utils/DisplayManager.h"
+#include "utils/SidebarSettings.h"
+#include "utils/InputModeManager.h"
+#include "ui/UiSoundController.h"
+#include "player/PlayerController.h"
+#include "player/ThemeSongManager.h"
+#include "viewmodels/LibraryViewModel.h"
+#include "viewmodels/SeriesDetailsViewModel.h"
+#include "network/AuthenticationService.h"
+#include "network/LibraryService.h"
+#include "network/PlaybackService.h"
+#include "core/ServiceLocator.h"
+
+#include <QQmlContext>
+#include <QQuickStyle>
+
+using namespace Qt::StringLiterals;
+
+WindowManager::WindowManager(QGuiApplication* app, QObject *parent)
+    : QObject(parent)
+    , m_app(app)
+{
+    // Set Qt Quick Controls style to "Basic" is done in main() before QGuiApplication
+    
+    // Add qrc root to import path
+    m_engine.addImportPath("qrc:/");
+}
+
+WindowManager::~WindowManager()
+{
+    // Stack allocated in main or parented to this, so auto cleanup
+}
+
+void WindowManager::setup(ConfigManager* configManager)
+{
+    // ImageCacheProvider
+    m_imageCacheProvider = new ImageCacheProvider(configManager->getImageCacheSizeMB());
+    const QString roundedMode = configManager->getRoundedImageMode();
+    const bool roundedPreprocessEnabled = configManager->getRoundedImagePreprocessEnabled()
+        && roundedMode != "shader";
+    m_imageCacheProvider->setRoundedPreprocessEnabled(roundedPreprocessEnabled);
+
+    connect(configManager, &ConfigManager::roundedImagePreprocessEnabledChanged,
+            m_imageCacheProvider, [configManager, this]() {
+        const bool enabled = configManager->getRoundedImagePreprocessEnabled()
+            && configManager->getRoundedImageMode() != "shader";
+        m_imageCacheProvider->setRoundedPreprocessEnabled(enabled);
+    });
+    
+    connect(configManager, &ConfigManager::roundedImageModeChanged,
+            m_imageCacheProvider, [configManager, this]() {
+        const bool enabled = configManager->getRoundedImagePreprocessEnabled()
+            && configManager->getRoundedImageMode() != "shader";
+        m_imageCacheProvider->setRoundedPreprocessEnabled(enabled);
+    });
+
+    m_engine.addImageProvider("cached", m_imageCacheProvider);
+    m_engine.rootContext()->setContextProperty("ImageCacheProvider", m_imageCacheProvider);
+
+    // GpuMemoryTrimmer
+    m_gpuMemoryTrimmer = new GpuMemoryTrimmer(configManager, m_imageCacheProvider);
+    ServiceLocator::registerService<GpuMemoryTrimmer>(m_gpuMemoryTrimmer);
+    m_gpuMemoryTrimmer->setPerformanceModeEnabled(configManager->getPerformanceModeEnabled());
+    
+    connect(configManager, &ConfigManager::performanceModeEnabledChanged,
+            [this, configManager]() {
+        m_gpuMemoryTrimmer->setPerformanceModeEnabled(configManager->getPerformanceModeEnabled());
+    });
+    
+    // Connect objectCreated to setup window in trimmer
+    connect(&m_engine, &QQmlApplicationEngine::objectCreated,
+            m_app, [this](QObject *obj, const QUrl &) {
+        if (auto *window = qobject_cast<QQuickWindow *>(obj)) {
+            m_gpuMemoryTrimmer->setWindow(window);
+        }
+    }, Qt::QueuedConnection);
+
+    // Connect PlayerController to GpuMemoryTrimmer
+    auto* playerController = ServiceLocator::get<PlayerController>();
+    connect(playerController, &PlayerController::isPlaybackActiveChanged,
+            [this, configManager, playerController]() {
+        m_gpuMemoryTrimmer->setPerformanceModeEnabled(configManager->getPerformanceModeEnabled());
+        m_gpuMemoryTrimmer->onPlaybackActiveChanged(playerController->isPlaybackActive());
+    });
+}
+
+void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
+{
+    // Expose services to QML
+    QQmlContext* context = m_engine.rootContext();
+    
+    context->setContextProperty("PlayerController", ServiceLocator::get<PlayerController>());
+    context->setContextProperty("LibraryViewModel", ServiceLocator::get<LibraryViewModel>());
+    context->setContextProperty("SeriesDetailsViewModel", ServiceLocator::get<SeriesDetailsViewModel>());
+    context->setContextProperty("ThemeSongManager", ServiceLocator::get<ThemeSongManager>());
+    context->setContextProperty("InputModeManager", ServiceLocator::get<InputModeManager>());
+    context->setContextProperty("SidebarSettings", ServiceLocator::get<SidebarSettings>());
+    context->setContextProperty("ConfigManager", ServiceLocator::get<ConfigManager>());
+    context->setContextProperty("DisplayManager", ServiceLocator::get<DisplayManager>());
+    
+    // Helpers
+    // Note: UiSoundController is not a ServiceLocator service in the original code, 
+    // it was just a local variable. We need to handle it.
+    // Ideally it should be part of AppInitializer or ServiceLocator.
+    // For now, I'll access it via ServiceLocator if I register it there, or passed in.
+    // The original code passed `&uiSoundController` to context property.
+    // I will register `UiSoundController` in `ApplicationInitializer` to make this clean.
+    context->setContextProperty("UiSoundController", ServiceLocator::get<UiSoundController>());
+
+    context->setContextProperty("AuthenticationService", ServiceLocator::get<AuthenticationService>());
+    context->setContextProperty("LibraryService", ServiceLocator::get<LibraryService>());
+    context->setContextProperty("PlaybackService", ServiceLocator::get<PlaybackService>());
+}
+
+void WindowManager::load()
+{
+    const QUrl url(u"qrc:/BloomUI/ui/Main.qml"_s);
+    
+    connect(&m_engine, &QQmlApplicationEngine::objectCreated,
+            m_app, [url](QObject *obj, const QUrl &objUrl) {
+        if (!obj && url == objUrl)
+            QCoreApplication::exit(-1);
+    }, Qt::QueuedConnection);
+
+    m_engine.load(url);
+    
+    if (!m_engine.rootObjects().isEmpty()) {
+        if (auto *window = qobject_cast<QQuickWindow *>(m_engine.rootObjects().constFirst())) {
+            m_gpuMemoryTrimmer->setWindow(window);
+        }
+    }
+}
