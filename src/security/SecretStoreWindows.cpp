@@ -100,4 +100,44 @@ QString SecretStoreWindows::lastError() const
     return m_lastError;
 }
 
+QStringList SecretStoreWindows::listAccounts(const QString &service)
+{
+    m_lastError.clear();
+    QStringList accounts;
+
+    // Use CredEnumerate to list all credentials with our prefix
+    QString filter = QString("Bloom:%1:*").arg(service);
+    PCREDENTIALW *pcreds = nullptr;
+    DWORD count = 0;
+
+    if (!CredEnumerateW((LPCWSTR)filter.utf16(), CRED_ENUMERATE_ALL_CREDENTIALS, &count, &pcreds)) {
+        DWORD errorCode = GetLastError();
+        if (errorCode == ERROR_NOT_FOUND) {
+            // No credentials found - not an error
+            return accounts;
+        }
+        m_lastError = QString("Failed to enumerate credentials (error %1)").arg(errorCode);
+        qWarning() << "SecretStoreWindows::listAccounts:" << m_lastError;
+        return accounts;
+    }
+
+    // Extract account names from matching credentials
+    QString prefix = QString("Bloom:%1:").arg(service);
+    for (DWORD i = 0; i < count; ++i) {
+        QString targetName = QString::fromWCharArray(pcreds[i]->TargetName);
+        if (targetName.startsWith(prefix)) {
+            // Extract account part after the prefix
+            QString account = targetName.mid(prefix.length());
+            if (!account.isEmpty()) {
+                accounts.append(account);
+            }
+        }
+    }
+
+    CredFree(pcreds);
+
+    qDebug() << "SecretStoreWindows: Listed" << accounts.size() << "accounts for service=" << service;
+    return accounts;
+}
+
 #endif // Q_OS_WIN

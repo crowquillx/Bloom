@@ -18,6 +18,8 @@
 #include "ui/UiSoundController.h"
 #include "utils/GpuMemoryTrimmer.h"
 #include "utils/Logger.h"
+#include "network/SessionManager.h"
+#include "network/SessionService.h"
 
 #include <QGuiApplication>
 #include <QDebug>
@@ -172,6 +174,14 @@ void ApplicationInitializer::registerServices()
     // 9. UI Sound Controller
     m_uiSoundController = std::make_unique<UiSoundController>(m_configManager.get());
     ServiceLocator::registerService<UiSoundController>(m_uiSoundController.get());
+
+    // 10. SessionManager - Depends on ConfigManager and SecretStore
+    m_sessionManager = std::make_unique<SessionManager>(m_configManager.get(), m_secretStore.get());
+    ServiceLocator::registerService<SessionManager>(m_sessionManager.get());
+
+    // 11. SessionService - Depends on AuthenticationService
+    m_sessionService = std::make_unique<SessionService>(m_authService.get());
+    ServiceLocator::registerService<SessionService>(m_sessionService.get());
 }
 
 void ApplicationInitializer::initializeServices()
@@ -242,4 +252,7 @@ void ApplicationInitializer::initializeServices()
     
     // Session Restoration & Migration
     m_authService->initialize(m_configManager.get());
+
+    // Initialize SessionManager for device ID rotation checks
+    m_sessionManager->initialize();
 }

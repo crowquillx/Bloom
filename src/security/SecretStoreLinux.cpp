@@ -129,4 +129,45 @@ QString SecretStoreLinux::lastError() const
     return m_lastError;
 }
 
+QStringList SecretStoreLinux::listAccounts(const QString &service)
+{
+    m_lastError.clear();
+    QStringList accounts;
+
+    GError *error = nullptr;
+    GList *items = secret_password_search_sync(
+        &bloom_schema,
+        static_cast<SecretSearchFlags>(SECRET_SEARCH_ALL | SECRET_SEARCH_UNLOCK | SECRET_SEARCH_LOAD_SECRETS),
+        nullptr,  // cancellable
+        &error,
+        "service", service.toUtf8().constData(),
+        nullptr
+    );
+
+    if (error) {
+        m_lastError = QString("Failed to list accounts: %1").arg(error->message);
+        qWarning() << "SecretStoreLinux::listAccounts:" << m_lastError;
+        g_error_free(error);
+        return accounts;
+    }
+
+    for (GList *l = items; l != nullptr; l = l->next) {
+        SecretRetrievable *item = SECRET_RETRIEVABLE(l->data);
+        GHashTable *attributes = secret_retrievable_get_attributes(item);
+
+        const gchar *account = static_cast<const gchar *>(g_hash_table_lookup(attributes, "account"));
+        if (account) {
+            accounts.append(QString::fromUtf8(account));
+        }
+
+        g_hash_table_unref(attributes);
+        g_object_unref(item);
+    }
+
+    g_list_free(items);
+
+    qDebug() << "SecretStoreLinux: Listed" << accounts.size() << "accounts for service=" << service;
+    return accounts;
+}
+
 #endif // Q_OS_LINUX

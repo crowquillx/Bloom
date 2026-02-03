@@ -45,4 +45,11 @@ public:
      * @return Human-readable error description
      */
     virtual QString lastError() const = 0;
+
+    /**
+     * @brief List all account keys for a service
+     * @param service Service identifier
+     * @return List of account keys, or empty list if none/error
+     */
+    virtual QStringList listAccounts(const QString &service) = 0;
 };

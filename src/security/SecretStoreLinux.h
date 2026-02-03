@@ -17,6 +17,7 @@ public:
     QString getSecret(const QString &service, const QString &account) override;
     bool deleteSecret(const QString &service, const QString &account) override;
     QString lastError() const override;
+    QStringList listAccounts(const QString &service) override;
 
 private:
     QString m_lastError;
