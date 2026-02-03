@@ -140,25 +140,4 @@ QStringList SecretStoreWindows::listAccounts(const QString &service)
     return accounts;
 }
 
-// Context structure for callback-based enumeration
-struct EnumContext {
-    QString service;
-    QStringList accounts;
-};
-
-BOOL CALLBACK SecretStoreWindows::enumCredentialsCallback(PCREDENTIALW pcred, PVOID context)
-{
-    EnumContext *ctx = static_cast<EnumContext *>(context);
-    QString targetName = QString::fromWCharArray(pcred->TargetName);
-    QString prefix = QString("Bloom:%1:").arg(ctx->service);
-
-    if (targetName.startsWith(prefix)) {
-        QString account = targetName.mid(prefix.length());
-        if (!account.isEmpty()) {
-            ctx->accounts.append(account);
-        }
-    }
-    return TRUE;  // Continue enumeration
-}
-
 #endif // Q_OS_WIN

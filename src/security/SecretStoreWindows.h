@@ -22,7 +22,4 @@ public:
 private:
     QString m_lastError;
     QString makeTargetName(const QString &service, const QString &account) const;
-#ifdef Q_OS_WIN
-    static BOOL CALLBACK enumCredentialsCallback(PCREDENTIALW pcred, PVOID context);
-#endif
 };
