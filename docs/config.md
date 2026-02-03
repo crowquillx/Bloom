@@ -36,3 +36,7 @@ When adding settings
 
 Cache settings
 - `settings.cache.image_cache_size_mb` controls the disk image cache size in megabytes. Default 500; minimum enforced at 50MB; config-only (no UI).
+
+UI settings
+- `settings.ui.launch_in_fullscreen` (Q_PROPERTY `launchInFullscreen`): When true, the application starts in fullscreen mode. Default false; configurable via Settings > Display > Launch in Fullscreen.
+- `settings.ui.backdrop_rotation_interval`: Backdrop rotation interval in milliseconds. Default 30000 (30 seconds).

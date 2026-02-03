@@ -16,6 +16,12 @@ Window {
         console.log("=== Main.qml: Window Component.onCompleted ===")
         console.log("Main.qml: AuthenticationService =", AuthenticationService)
         console.log("Main.qml: AuthenticationService.authenticated =", AuthenticationService.authenticated)
+
+        // Apply fullscreen setting on startup
+        if (ConfigManager.launchInFullscreen) {
+            console.log("Main.qml: Launching in fullscreen mode")
+            showFullScreen()
+        }
     }
     
     // ========================================

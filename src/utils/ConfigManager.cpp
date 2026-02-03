@@ -910,6 +910,39 @@ int ConfigManager::getBackdropRotationInterval() const
     return 30000; // Default 30 seconds
 }
 
+void ConfigManager::setLaunchInFullscreen(bool enabled)
+{
+    if (enabled == getLaunchInFullscreen()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject ui;
+    if (settings.contains("ui") && settings["ui"].isObject()) {
+        ui = settings["ui"].toObject();
+    }
+    ui["launch_in_fullscreen"] = enabled;
+    settings["ui"] = ui;
+    m_config["settings"] = settings;
+    save();
+    emit launchInFullscreenChanged();
+}
+
+bool ConfigManager::getLaunchInFullscreen() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("ui") && settings["ui"].isObject()) {
+            QJsonObject ui = settings["ui"].toObject();
+            if (ui.contains("launch_in_fullscreen")) {
+                return ui["launch_in_fullscreen"].toBool();
+            }
+        }
+    }
+    return false; // Default to windowed mode
+}
+
 void ConfigManager::setEnableFramerateMatching(bool enabled)
 {
     if (enabled == getEnableFramerateMatching()) return;
@@ -1251,6 +1284,23 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV7ToV8(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 8;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject ui = settings.value("ui").toObject();
+
+        if (!ui.contains("launch_in_fullscreen")) {
+            ui["launch_in_fullscreen"] = false;
+        }
+
+        settings["ui"] = ui;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -1318,6 +1368,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 7) {
+            m_config = ConfigMigrator::migrateV7ToV8(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -1368,7 +1426,13 @@ QJsonObject ConfigManager::defaultConfig() const
     cache["rounded_image_mode"] = "auto";
     cache["rounded_preprocess_enabled"] = true;
     settings["cache"] = cache;
-    
+
+    // UI Settings
+    QJsonObject ui;
+    ui["backdrop_rotation_interval"] = 30000;
+    ui["launch_in_fullscreen"] = false;
+    settings["ui"] = ui;
+
     // MPV Profiles
     settings["mpv_profiles"] = defaultMpvProfiles();
     settings["default_profile"] = "Default";

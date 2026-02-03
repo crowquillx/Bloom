@@ -1026,7 +1026,23 @@ FocusScope {
                                 }
                                 
                                 KeyNavigation.up: themeSongLoopToggle
-                                KeyNavigation.down: backdropSlider
+                                KeyNavigation.down: fullscreenToggle
+                            }
+                        }
+
+                        // Launch in Fullscreen Toggle
+                        SettingsToggleRow {
+                            id: fullscreenToggle
+                            label: qsTr("Launch in Fullscreen")
+                            description: qsTr("Start the application in fullscreen mode")
+                            checked: ConfigManager.launchInFullscreen
+                            Layout.fillWidth: true
+
+                            KeyNavigation.up: themeCombo
+                            KeyNavigation.down: backdropSlider
+
+                            onToggled: function(value) {
+                                ConfigManager.launchInFullscreen = value
                             }
                         }
 
@@ -1042,16 +1058,16 @@ FocusScope {
                             unit: "s"
                             Layout.fillWidth: true
                             
-                            KeyNavigation.up: themeCombo
+                            KeyNavigation.up: fullscreenToggle
                             KeyNavigation.down: framerateMatchingSwitch
-                            
+
                             onSliderValueChanged: function(newValue) {
                                 ConfigManager.backdropRotationInterval = newValue * 1000
                             }
                         }
                     }
                 }
-                
+
                 // ========================================
                 // Video Section
                 // ========================================

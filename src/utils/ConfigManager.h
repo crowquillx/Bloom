@@ -62,6 +62,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(int audioDelay READ getAudioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
     Q_PROPERTY(bool autoplayNextEpisode READ getAutoplayNextEpisode WRITE setAutoplayNextEpisode NOTIFY autoplayNextEpisodeChanged)
     Q_PROPERTY(int backdropRotationInterval READ getBackdropRotationInterval WRITE setBackdropRotationInterval NOTIFY backdropRotationIntervalChanged)
+    Q_PROPERTY(bool launchInFullscreen READ getLaunchInFullscreen WRITE setLaunchInFullscreen NOTIFY launchInFullscreenChanged)
     Q_PROPERTY(int themeSongVolume READ getThemeSongVolume WRITE setThemeSongVolume NOTIFY themeSongVolumeChanged)
     Q_PROPERTY(bool themeSongLoop READ getThemeSongLoop WRITE setThemeSongLoop NOTIFY themeSongLoopChanged)
     Q_PROPERTY(bool uiSoundsEnabled READ getUiSoundsEnabled WRITE setUiSoundsEnabled NOTIFY uiSoundsEnabledChanged)
@@ -157,7 +158,11 @@ public:
     // Backdrop Rotation Interval (milliseconds)
     void setBackdropRotationInterval(int ms);
     int getBackdropRotationInterval() const;
-    
+
+    // Launch in Fullscreen
+    void setLaunchInFullscreen(bool enabled);
+    bool getLaunchInFullscreen() const;
+
     // Video Settings
     void setEnableFramerateMatching(bool enabled);
     bool getEnableFramerateMatching() const;
@@ -281,6 +286,7 @@ public:
 
 signals:
     void backdropRotationIntervalChanged();
+    void launchInFullscreenChanged();
     void enableFramerateMatchingChanged();
     void enableHDRChanged();
     void linuxRefreshRateCommandChanged();
@@ -310,6 +316,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 7;
+    static constexpr int kCurrentConfigVersion = 8;
     QJsonObject defaultConfig() const;
 };
