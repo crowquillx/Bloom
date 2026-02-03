@@ -95,7 +95,8 @@ void SessionService::revokeAllOtherSessions()
     fetchActiveSessions();
 
     // Wait for sessions to load, then revoke all except current
-    connect(this, &SessionService::sessionsLoaded, this, [this]() {
+    QMetaObject::Connection* conn = new QMetaObject::Connection();
+    *conn = connect(this, &SessionService::sessionsLoaded, this, [this, conn]() {
         int revokedCount = 0;
         for (const QVariant &var : m_sessions) {
             QVariantMap session = var.toMap();
@@ -107,7 +108,9 @@ void SessionService::revokeAllOtherSessions()
             }
         }
         emit allOtherSessionsRevoked(revokedCount);
-    }, Qt::SingleShotConnection);
+        disconnect(*conn);
+        delete conn;
+    });
 }
 
 void SessionService::identifyCurrentSession()
