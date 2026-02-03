@@ -124,11 +124,26 @@ bool SecretStoreLinux::deleteSecret(const QString &service, const QString &accou
     return true;
 }
 
+/**
+ * @brief Retrieve the last error message produced by the secret store.
+ *
+ * @return QString The last error message recorded by this instance, or an empty QString if no error has been recorded.
+ */
 QString SecretStoreLinux::lastError() const
 {
     return m_lastError;
 }
 
+/**
+ * @brief Retrieve all account names that have stored secrets for a given service.
+ *
+ * Searches the secret store for entries matching the provided service and returns
+ * the associated account names as a QStringList. If an error occurs or no matches
+ * are found, an empty list is returned.
+ *
+ * @param service Service identifier used to filter stored secrets.
+ * @return QStringList Account names (UTF-8 converted) associated with the service, or an empty list if none or on error.
+ */
 QStringList SecretStoreLinux::listAccounts(const QString &service)
 {
     m_lastError.clear();

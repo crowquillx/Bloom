@@ -95,11 +95,29 @@ bool SecretStoreWindows::deleteSecret(const QString &service, const QString &acc
     return true;
 }
 
+/**
+ * @brief Retrieves the most recent error message recorded by the secret store.
+ *
+ * @return QString The last recorded error message, or an empty string if no error has been recorded.
+ */
 QString SecretStoreWindows::lastError() const
 {
     return m_lastError;
 }
 
+/**
+ * @brief Returns the account names that have stored secrets for a given service.
+ *
+ * Enumerates stored credentials whose TargetName matches the prefix "Bloom:<service>:" and
+ * returns the account portion following that prefix. If no credentials exist for the service,
+ * an empty list is returned.
+ *
+ * @param service Service identifier used to filter stored credentials.
+ * @return QStringList List of account names associated with the specified service.
+ *
+ * On error during enumeration, the function returns an empty list and records a descriptive
+ * message in m_lastError.
+ */
 QStringList SecretStoreWindows::listAccounts(const QString &service)
 {
     m_lastError.clear();
@@ -146,6 +164,13 @@ struct EnumContext {
     QStringList accounts;
 };
 
+/**
+ * Processes a single credential and appends any account name matching the configured service to the provided enumeration context.
+ *
+ * @param pcred Pointer to the credential being examined; its TargetName is checked for the service prefix.
+ * @param context Pointer to an EnumContext instance used to collect matching account names (cast to EnumContext*).
+ * @return BOOL `TRUE` to continue enumeration, `FALSE` to stop.
+ */
 BOOL CALLBACK SecretStoreWindows::enumCredentialsCallback(PCREDENTIALW pcred, PVOID context)
 {
     EnumContext *ctx = static_cast<EnumContext *>(context);

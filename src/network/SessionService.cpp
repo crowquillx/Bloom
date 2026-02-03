@@ -8,6 +8,16 @@
 #include <QJsonObject>
 #include <QDebug>
 
+/**
+ * @brief Serializes the session fields into a QVariantMap.
+ *
+ * The returned map contains the session properties using the following keys:
+ * `id`, `deviceId`, `deviceName`, `client`, `clientVersion`, `userId`, `userName`,
+ * `lastActivityDate`, `lastPlaybackCheckIn`, `isRemoteSession`, `supportsRemoteControl`,
+ * `playState`, and `hasCustomDeviceName`.
+ *
+ * @return QVariantMap Mapping of session property names to their values.
+ */
 QVariantMap SessionInfo::toVariantMap() const
 {
     QVariantMap map;
@@ -27,6 +37,17 @@ QVariantMap SessionInfo::toVariantMap() const
     return map;
 }
 
+/**
+ * @brief Constructs a SessionService and prepares network/auth state.
+ *
+ * Stores the provided AuthenticationService pointer, creates a QNetworkAccessManager
+ * owned by this object, and initializes the local device ID when an
+ * AuthenticationService is supplied.
+ *
+ * @param authService Optional authentication service used for creating
+ *                    authenticated requests and deriving the device ID.
+ * @param parent QObject parent for ownership and lifetime management.
+ */
 SessionService::SessionService(AuthenticationService *authService, QObject *parent)
     : QObject(parent)
     , m_authService(authService)
@@ -37,6 +58,15 @@ SessionService::SessionService(AuthenticationService *authService, QObject *pare
     }
 }
 
+/**
+ * @brief Requests the server for the list of active sessions and updates service state.
+ *
+ * If the service is not authenticated, sets the error string and emits `operationFailed`.
+ * Otherwise clears any existing error, marks the service as loading, and issues an authenticated
+ * GET request to the "/Sessions" endpoint. The network response is handled asynchronously by
+ * `onFetchSessionsFinished`, which updates the internal session list and emits the appropriate
+ * signals (e.g., `sessionsChanged`, `sessionsLoaded`, or error signals).
+ */
 void SessionService::fetchActiveSessions()
 {
     if (!m_authService || !m_authService->isAuthenticated()) {
@@ -56,6 +86,18 @@ void SessionService::fetchActiveSessions()
     });
 }
 
+/**
+ * @brief Revokes (logs out) the session with the given session ID on the server.
+ *
+ * Validates authentication and the presence of a session ID, sets the loading state,
+ * and sends a logout request for the specified session. On validation failure emits
+ * `operationFailed`. While the network request is pending the service's loading state
+ * is set; completion will result in either `sessionRevoked` for a remote session
+ * or `selfSessionRevoked` if the current session was revoked, or `operationFailed`
+ * on error.
+ *
+ * @param sessionId ID of the session to revoke; must not be empty.
+ */
 void SessionService::revokeSession(const QString &sessionId)
 {
     if (!m_authService || !m_authService->isAuthenticated()) {
@@ -83,6 +125,18 @@ void SessionService::revokeSession(const QString &sessionId)
     });
 }
 
+/**
+ * @brief Revokes all active sessions except the current one.
+ *
+ * If not authenticated, sets an error string and emits operationFailed. Otherwise
+ * refreshes the server session list, revokes each session whose id differs
+ * from the current session id, and emits `allOtherSessionsRevoked` with the
+ * number of sessions revoked.
+ *
+ * Signals:
+ * - Emits `operationFailed(const QString &)` when authentication is missing.
+ * - Emits `allOtherSessionsRevoked(int)` after revocation attempts complete.
+ */
 void SessionService::revokeAllOtherSessions()
 {
     if (!m_authService || !m_authService->isAuthenticated()) {
@@ -110,6 +164,14 @@ void SessionService::revokeAllOtherSessions()
     }, Qt::SingleShotConnection);
 }
 
+/**
+ * @brief Locate and mark the session that corresponds to this device.
+ *
+ * Ensures the local deviceId is available, then searches the cached sessions for a session
+ * whose deviceId matches it. If a matching session is found and its id differs from the
+ * stored current session id, updates m_currentSessionId and emits currentSessionIdChanged().
+ * Does nothing if deviceId is unavailable or no matching session is present.
+ */
 void SessionService::identifyCurrentSession()
 {
     if (m_deviceId.isEmpty()) {
@@ -136,6 +198,16 @@ void SessionService::identifyCurrentSession()
     }
 }
 
+/**
+ * @brief Attempts to set a human-readable name for the current device session.
+ *
+ * If the client is not authenticated or `name` is empty, this function does nothing.
+ * Currently there is no server-side API to rename an existing session; this method
+ * is a placeholder and does not modify the session name on the server. It will
+ * record the attempt locally (debug output) for future/diagnostic purposes.
+ *
+ * @param name Desired device name to apply to the current session.
+ */
 void SessionService::setDeviceName(const QString &name)
 {
     if (!m_authService || !m_authService->isAuthenticated() || name.isEmpty()) {
@@ -151,11 +223,27 @@ void SessionService::setDeviceName(const QString &name)
     qDebug() << "SessionService: Device name set to" << name;
 }
 
+/**
+ * @brief Checks whether the given session ID corresponds to the currently identified session.
+ *
+ * @param sessionId The session ID to check.
+ * @return `true` if the provided `sessionId` equals the current session ID, `false` otherwise.
+ */
 bool SessionService::isCurrentSession(const QString &sessionId) const
 {
     return sessionId == m_currentSessionId;
 }
 
+/**
+ * @brief Processes the completed /Sessions network reply, updates the cached session list, and emits state signals.
+ *
+ * Parses the JSON array returned by the server into SessionInfo entries, replaces the internal session list,
+ * calls identifyCurrentSession(), and emits sessionsChanged() and sessionsLoaded().
+ *
+ * If the reply contains a network error or an unexpected response format, sets the error string and emits operationFailed().
+ *
+ * @param reply QNetworkReply produced by the request to fetch active sessions.
+ */
 void SessionService::onFetchSessionsFinished(QNetworkReply *reply)
 {
     reply->deleteLater();
@@ -230,6 +318,17 @@ void SessionService::onFetchSessionsFinished(QNetworkReply *reply)
     qDebug() << "SessionService: Loaded" << m_sessions.size() << "sessions, current:" << m_currentSessionId;
 }
 
+/**
+ * @brief Handle the network reply for a session revocation request and update local state.
+ *
+ * Processes the finished revoke reply: clears the loading state, reports an error and emits
+ * operationFailed() when the request failed, emits selfSessionRevoked() if the revoked session
+ * matches the current session, or removes the session from the local list and emits
+ * sessionsChanged() and sessionRevoked(sessionId) on success.
+ *
+ * @param reply The finished QNetworkReply for the revoke request.
+ * @param sessionId The identifier of the session that was requested to be revoked.
+ */
 void SessionService::onRevokeSessionFinished(QNetworkReply *reply, QString sessionId)
 {
     reply->deleteLater();
@@ -268,6 +367,13 @@ void SessionService::onRevokeSessionFinished(QNetworkReply *reply, QString sessi
     qDebug() << "SessionService: Revoked session" << sessionId;
 }
 
+/**
+ * @brief Updates the service's loading state and notifies listeners when it changes.
+ *
+ * Emits isLoadingChanged() if the provided value differs from the current state.
+ *
+ * @param loading true to mark the service as loading, false otherwise.
+ */
 void SessionService::setIsLoading(bool loading)
 {
     if (m_isLoading == loading) return;
@@ -275,6 +381,14 @@ void SessionService::setIsLoading(bool loading)
     emit isLoadingChanged();
 }
 
+/**
+ * @brief Update the service's error message and notify observers when it changes.
+ *
+ * Sets the internal error string to the provided value and emits errorStringChanged()
+ * if the new value differs from the current one.
+ *
+ * @param error New error message; an empty string clears any existing error.
+ */
 void SessionService::setErrorString(const QString &error)
 {
     if (m_errorString == error) return;
@@ -282,6 +396,14 @@ void SessionService::setErrorString(const QString &error)
     emit errorStringChanged();
 }
 
+/**
+ * @brief Retrieves the device identifier from the authentication configuration.
+ *
+ * Queries the associated AuthenticationService's ConfigManager for the current device ID.
+ *
+ * @return QString The device identifier, or an empty QString if no AuthenticationService
+ *         or ConfigManager is available or the device ID is not set.
+ */
 QString SessionService::getDeviceId() const
 {
     // Get device ID from the AuthenticationService's ConfigManager
@@ -291,6 +413,15 @@ QString SessionService::getDeviceId() const
     return QString();
 }
 
+/**
+ * @brief Create an authenticated network request for the specified API endpoint.
+ *
+ * Builds a QNetworkRequest for the given endpoint and applies the current authentication
+ * configuration (headers, tokens, etc.) so it can be used for authenticated server calls.
+ *
+ * @param endpoint Endpoint path or URL to request (for example, "/Sessions").
+ * @return QNetworkRequest Configured request with authentication applied.
+ */
 QNetworkRequest SessionService::createAuthenticatedRequest(const QString &endpoint) const
 {
     QNetworkRequest request = m_authService->createRequest(endpoint);

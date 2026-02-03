@@ -23,6 +23,28 @@ class UiSoundController;
 class SessionManager;
 class SessionService;
 
+/**
+ * Initialize the ApplicationInitializer with the given QGuiApplication.
+ * @param app Pointer to the QGuiApplication instance that the initializer will use.
+ * @param parent Optional QObject parent for ownership; defaults to nullptr.
+ */
+
+/**
+ * Clean up and release owned service resources.
+ */
+
+/**
+ * Register application services and components so they can be discovered or wired.
+ */
+
+/**
+ * Initialize registered services to their ready/started state.
+ */
+
+/**
+ * Access the managed ConfigManager instance.
+ * @returns Pointer to the managed ConfigManager, or `nullptr` if it has not been created.
+ */
 class ApplicationInitializer : public QObject
 {
     Q_OBJECT

@@ -84,6 +84,19 @@ ApplicationInitializer::~ApplicationInitializer()
     ServiceLocator::clear();
 }
 
+/**
+ * @brief Initialize and register core application services with the ServiceLocator.
+ *
+ * Creates and registers the application's fundamental managers and services in dependency order:
+ * initializes logging and installs the Qt message handler; constructs and registers ConfigManager
+ * (loads configuration and installs bundled scripts), DisplayManager, TrackPreferencesManager,
+ * PlayerProcessManager, platform SecretStore, AuthenticationService, LibraryService, PlaybackService,
+ * PlayerController, ThemeSongManager, InputModeManager, LibraryViewModel, SeriesDetailsViewModel,
+ * SidebarSettings, UiSoundController, SessionManager, and SessionService.
+ *
+ * The function ensures services that other components depend on (for example, logging and configuration)
+ * are initialized first so downstream services can read required settings.
+ */
 void ApplicationInitializer::registerServices()
 {
     // 0. Logger - Initialize logging system first (before any services)
@@ -184,6 +197,15 @@ void ApplicationInitializer::registerServices()
     ServiceLocator::registerService<SessionService>(m_sessionService.get());
 }
 
+/**
+ * @brief Wires authentication and playback signals, performs session restoration, and initializes session checks.
+ *
+ * Connects AuthenticationService signals to persist or clear session data in ConfigManager and to trigger logout
+ * when a session expires. Connects PlayerController playback stop events to prompt AuthenticationService to
+ * verify any pending session expiry. Leaves GPU memory trimmer wiring to the WindowManager (which owns the
+ * QML-specific ImageCacheProvider). Finally, initializes AuthenticationService (restoration/migration) and
+ * initializes the SessionManager for device ID rotation and related checks.
+ */
 void ApplicationInitializer::initializeServices()
 {
     // Connect authentication signals to persist/clear session
