@@ -576,9 +576,9 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
 
     const bool sameSeries = (seriesId == m_seriesId && !m_seriesId.isEmpty());
 
-    // Clear only when navigating to a different series; keep stale artwork to avoid backdrop flash
+    // Clear only when navigating to a different series
     if (!sameSeries) {
-        clear(/*preserveArtwork*/true);
+        clear();
     } else {
         clearError();
     }

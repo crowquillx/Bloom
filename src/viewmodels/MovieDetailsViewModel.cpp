@@ -171,7 +171,7 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
 
     // Clear only when navigating to a different movie
     if (!sameMovie) {
-        clear(/*preserveArtwork*/true);
+        clear();
     } else {
         clearError();
     }
