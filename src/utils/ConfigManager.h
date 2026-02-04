@@ -96,6 +96,9 @@ class ConfigManager : public QObject
     Q_PROPERTY(QString roundedImageMode READ getRoundedImageMode WRITE setRoundedImageMode NOTIFY roundedImageModeChanged)
     Q_PROPERTY(bool roundedImagePreprocessEnabled READ getRoundedImagePreprocessEnabled WRITE setRoundedImagePreprocessEnabled NOTIFY roundedImagePreprocessEnabledChanged)
     
+    // MDBList Integration
+    Q_PROPERTY(QString mdbListApiKey READ getMdbListApiKey WRITE setMdbListApiKey NOTIFY mdbListApiKeyChanged)
+    
 public:
     explicit ConfigManager(QObject *parent = nullptr);
     
@@ -284,6 +287,10 @@ public:
     void setRoundedImagePreprocessEnabled(bool enabled);
     bool getRoundedImagePreprocessEnabled() const;
 
+    // MDBList API Key
+    void setMdbListApiKey(const QString &key);
+    QString getMdbListApiKey() const;
+
 signals:
     void backdropRotationIntervalChanged();
     void launchInFullscreenChanged();
@@ -308,7 +315,9 @@ signals:
     void imageCacheSizeChanged();
     void roundedImageModeChanged();
     void roundedImagePreprocessEnabledChanged();
+
     void performanceModeEnabledChanged();
+    void mdbListApiKeyChanged();
 
 private:
     QString normalizeRoundedMode(const QString &raw) const;

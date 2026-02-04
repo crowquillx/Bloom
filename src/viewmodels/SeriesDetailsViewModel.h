@@ -8,6 +8,7 @@
 #include <QVector>
 #include <QElapsedTimer>
 #include <QSet>
+#include <QNetworkAccessManager>
 
 class LibraryService;
 
@@ -144,7 +145,15 @@ class SeriesDetailsViewModel : public BaseViewModel
     Q_PROPERTY(QString backdropUrl READ backdropUrl NOTIFY backdropUrlChanged)
     Q_PROPERTY(int productionYear READ productionYear NOTIFY productionYearChanged)
     Q_PROPERTY(bool isWatched READ isWatched NOTIFY isWatchedChanged)
+
     Q_PROPERTY(int seasonCount READ seasonCount NOTIFY seasonCountChanged)
+    Q_PROPERTY(QString officialRating READ officialRating NOTIFY officialRatingChanged)
+    Q_PROPERTY(int recursiveItemCount READ recursiveItemCount NOTIFY recursiveItemCountChanged)
+    Q_PROPERTY(QString status READ status NOTIFY statusChanged)
+    Q_PROPERTY(QDateTime endDate READ endDate NOTIFY endDateChanged)
+    
+    // MDBList Ratings
+    Q_PROPERTY(QVariantMap mdbListRatings READ mdbListRatings NOTIFY mdbListRatingsChanged)
 
     // Next episode properties
     Q_PROPERTY(QString nextEpisodeId READ nextEpisodeId NOTIFY nextEpisodeChanged)
@@ -177,7 +186,15 @@ public:
     QString backdropUrl() const { return m_backdropUrl; }
     int productionYear() const { return m_productionYear; }
     bool isWatched() const { return m_isWatched; }
+
     int seasonCount() const { return m_seasonCount; }
+    QString officialRating() const { return m_officialRating; }
+    int recursiveItemCount() const { return m_recursiveItemCount; }
+    QString status() const { return m_status; }
+    QDateTime endDate() const { return m_endDate; }
+    
+    // Property accessors - MDBList
+    QVariantMap mdbListRatings() const { return m_mdbListRatings; }
 
     // Property accessors - Next episode
     QString nextEpisodeId() const { return m_nextEpisodeId; }
@@ -264,6 +281,9 @@ public:
     QString seriesCachePath(const QString &seriesId) const;
     QString itemsCachePath(const QString &parentId) const;
     void clearCacheForTest(const QString &id);
+    
+    // MDBList
+    void fetchMdbListRatings(const QString &title, int year);
 
 signals:
     // Series metadata signals
@@ -275,7 +295,13 @@ signals:
     void backdropUrlChanged();
     void productionYearChanged();
     void isWatchedChanged();
+
     void seasonCountChanged();
+    void officialRatingChanged();
+    void recursiveItemCountChanged();
+    void statusChanged();
+    void endDateChanged();
+    void mdbListRatingsChanged();
 
     // Next episode signals
     void nextEpisodeChanged();
@@ -317,8 +343,17 @@ private:
     QString m_backdropUrl;
     int m_productionYear = 0;
     bool m_isWatched = false;
+
     int m_seasonCount = 0;
+    QString m_officialRating;
+    int m_recursiveItemCount = 0;
+    QString m_status;
+    QDateTime m_endDate;
     QJsonObject m_seriesData;
+    
+    // MDBList
+    QVariantMap m_mdbListRatings;
+    QNetworkAccessManager *m_networkManager = nullptr;
 
     // Next episode
     QString m_nextEpisodeId;

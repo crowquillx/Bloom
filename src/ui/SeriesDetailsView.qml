@@ -649,7 +649,129 @@ FocusScope {
                 }
             }
             
-            // Series Overview/Synopsis - NOT keyboard focusable, mouse-only "Read More" for overflow
+            // Metadata Row (Year, Rating, External Ratings, Counts)
+            Flow {
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+                
+                // Years
+                Text {
+                    id: yearText
+                    text: {
+                       var startYear = SeriesDetailsViewModel.productionYear
+                       var end = SeriesDetailsViewModel.endDate
+                       // Format year from date if valid
+                       var endYear = !isNaN(end.getTime()) ? end.getFullYear() : 0
+                       
+                       if (startYear > 0) {
+                           if (SeriesDetailsViewModel.status === "Ended" && endYear > 0) {
+                               return startYear + " - " + endYear
+                           }
+                           return startYear + " -"
+                       }
+                       return ""
+                    }
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    visible: text !== ""
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                // Content Rating Badge (e.g. TV-PG)
+                Rectangle {
+                    visible: SeriesDetailsViewModel.officialRating !== ""
+                    color: "transparent"
+                    border.color: Theme.textSecondary
+                    border.width: 1
+                    width: ratingText.implicitWidth + 12
+                    height: ratingText.implicitHeight + 4
+                    radius: 2
+                    
+                    Text {
+                        id: ratingText
+                        anchors.centerIn: parent
+                        text: SeriesDetailsViewModel.officialRating
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        color: Theme.textSecondary
+                    }
+                }
+                
+                // MDBList Ratings
+                Repeater {
+                    model: {
+                        var ratings = SeriesDetailsViewModel.mdbListRatings["ratings"] || []
+                        var list = []
+                        for (var i = 0; i < ratings.length; i++) {
+                            // Filter/map as needed. For now show all.
+                            list.push(ratings[i])
+                        }
+                        return list
+                    }
+                    
+                    delegate: RowLayout {
+                        spacing: 4
+                        property var rating: modelData
+                        property string source: rating.source || ""
+                        property var score: rating.score || rating.value
+                        
+                        // Brand color mapping
+                        readonly property color brandColor: {
+                            var s = source.toLowerCase()
+                            if (s === "imdb") return "#F5C518"
+                            if (s === "tomatoes") return "#FA320A" // Rotten Tomatoes
+                            if (s === "metacritic") return "#66CC33"
+                            if (s === "tmdb") return "#01B4E4"
+                            if (s === "trakt") return "#ED1C24"
+                            if (s === "letterboxd") return "#00E054"
+                            if (s === "mal") return "#2E51A2" // MyAnimeList
+                            if (s === "anilist") return "#02A9FF"
+                            return Theme.accentPrimary
+                        }
+                        
+                        // Source Label/Icon placeholder
+                        Text {
+                            text: {
+                                var s = source.toLowerCase()
+                                if (s === "imdb") return "IMDb"
+                                if (s === "tomatoes") return "RT"
+                                if (s === "metacritic") return "Meta"
+                                if (s.length > 4) return s.substring(0, 1).toUpperCase() + s.substring(1) // Capitalize
+                                return s.toUpperCase()
+                            }
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            font.bold: true
+                            color: brandColor
+                        }
+                        
+                        // Score
+                        Text {
+                            text: score
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+                    }
+                }
+                
+                // Season/Episode Counts
+                Text {
+                    text: {
+                        var seasons = SeriesDetailsViewModel.seasonCount
+                        var episodes = SeriesDetailsViewModel.recursiveItemCount
+                        var parts = []
+                        if (seasons > 0) parts.push(seasons + (seasons === 1 ? " Season" : " Seasons"))
+                        if (episodes > 0) parts.push(episodes + (episodes === 1 ? " Episode" : " Episodes"))
+                        return parts.join("  ")
+                    }
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    visible: text !== ""
+                }
+            }
             Item {
                 id: overviewContainer
                 Layout.fillWidth: true

@@ -807,8 +807,42 @@ bool ConfigManager::getPerformanceModeEnabled() const
             }
         }
     }
-    return false;
+    return false; // Default to disabled
 }
+
+void ConfigManager::setMdbListApiKey(const QString &key)
+{
+    if (key == getMdbListApiKey()) return;
+    
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject mdblist;
+    if (settings.contains("mdblist") && settings["mdblist"].isObject()) {
+        mdblist = settings["mdblist"].toObject();
+    }
+    mdblist["api_key"] = key;
+    settings["mdblist"] = mdblist;
+    m_config["settings"] = settings;
+    save();
+    emit mdbListApiKeyChanged();
+}
+
+QString ConfigManager::getMdbListApiKey() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("mdblist") && settings["mdblist"].isObject()) {
+            QJsonObject mdblist = settings["mdblist"].toObject();
+            if (mdblist.contains("api_key")) {
+                return mdblist["api_key"].toString();
+            }
+        }
+    }
+    return QString();
+}
+
 
 void ConfigManager::setUiSoundsEnabled(bool enabled)
 {

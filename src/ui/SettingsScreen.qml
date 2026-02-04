@@ -1909,6 +1909,65 @@ FocusScope {
                     }
                 }
                 
+                // ========================================
+                // Metadata Providers
+                // ========================================
+                
+                SettingsSection {
+                    title: qsTr("Metadata Providers")
+                    icon: Icons.cloud
+                    Layout.fillWidth: true
+                    
+                    ColumnLayout {
+                        spacing: Theme.spacingMedium
+                        Layout.fillWidth: true
+                        
+                        Text {
+                            text: qsTr("MDBList")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+                        
+                        Text {
+                            text: qsTr("Enter your MDBList API key to enable enhanced ratings (IMDb, Rotten Tomatoes, etc.) and additional metadata.")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                        
+                        TextField {
+                            id: mdbListApiKeyField
+                            placeholderText: qsTr("API Key")
+                            text: ConfigManager.mdbListApiKey
+                            Layout.fillWidth: true
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            echoMode: TextInput.Password
+                            
+                            // Ensure focus visibility
+                            onActiveFocusChanged: {
+                                if (activeFocus) flickable.ensureFocusVisible(this)
+                            }
+                            
+                            background: Rectangle {
+                                implicitHeight: Theme.buttonHeightSmall
+                                radius: Theme.radiusSmall
+                                color: Theme.inputBackground
+                                border.color: mdbListApiKeyField.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                border.width: mdbListApiKeyField.activeFocus ? 2 : 1
+                            }
+                            
+                            onEditingFinished: {
+                                ConfigManager.mdbListApiKey = text
+                            }
+                        }
+                    }
+                }
+                
                 // Bottom spacing
                 Item {
                     Layout.preferredHeight: Theme.spacingXLarge

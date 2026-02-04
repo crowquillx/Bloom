@@ -7,6 +7,9 @@
 #include <QFile>
 #include <QDebug>
 #include <QStandardPaths>
+#include <QNetworkRequest>
+#include <QNetworkReply>
+#include <QUrlQuery>
 
 namespace {
 constexpr qint64 kSeriesMemoryTtlMs = 5 * 60 * 1000;   // 5 minutes
@@ -518,6 +521,9 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
     // Set service on child models
     m_seasonsModel.setLibraryService(m_libraryService);
     m_episodesModel.setLibraryService(m_libraryService);
+
+    m_networkManager = new QNetworkAccessManager(this);
+    
     
     if (m_libraryService) {
         connect(m_libraryService, &LibraryService::seriesDetailsLoaded,
@@ -796,6 +802,55 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     emit nextEpisodeChanged();
     emit selectedSeasonIndexChanged();
     emit selectedSeasonIdChanged();
+    emit officialRatingChanged();
+    emit recursiveItemCountChanged();
+    emit statusChanged();
+    emit endDateChanged();
+    emit mdbListRatingsChanged();
+}
+
+void SeriesDetailsViewModel::fetchMdbListRatings(const QString &title, int year)
+{
+    auto *config = ServiceLocator::tryGet<ConfigManager>();
+    if (!config) return;
+    
+    QString apiKey = config->getMdbListApiKey();
+    if (apiKey.isEmpty()) return;
+    
+    if (title.isEmpty()) return;
+
+    qDebug() << "Fetching MDBList ratings for:" << title << "Year:" << year;
+    
+    QUrl url("https://mdblist.com/api/");
+    QUrlQuery query;
+    query.addQueryItem("apikey", apiKey);
+    query.addQueryItem("t", title);
+    if (year > 0) {
+        query.addQueryItem("y", QString::number(year));
+    }
+    query.addQueryItem("m", "show");
+    
+    // Add extra params from user script example if relevant, but basic should work.
+    // Script: params: { apikey: apikey, t: title, y: year, m: 'movie' }
+    
+    url.setQuery(query);
+    
+    QNetworkRequest request(url);
+    QNetworkReply *reply = m_networkManager->get(request);
+    
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (doc.isObject()) {
+                m_mdbListRatings = doc.object().toVariantMap();
+                emit mdbListRatingsChanged();
+                qDebug() << "MDBList ratings loaded, ratings count:" << m_mdbListRatings.value("ratings").toList().size();
+            }
+        } else {
+            qWarning() << "MDBList API error:" << reply->errorString();
+        }
+    });
 }
 
 QVariantMap SeriesDetailsViewModel::getSeriesData() const
@@ -1141,6 +1196,24 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
     m_isWatched = userData.value("Played").toBool();
     emit isWatchedChanged();
 
+    m_officialRating = data.value("OfficialRating").toString();
+    emit officialRatingChanged();
+
+    // Cumulative item count (episodes)
+    m_recursiveItemCount = data.value("RecursiveItemCount").toInt();
+    emit recursiveItemCountChanged();
+
+    m_status = data.value("Status").toString();
+    emit statusChanged();
+
+    // EndDate parsing
+    if (data.contains("EndDate")) {
+        m_endDate = QDateTime::fromString(data.value("EndDate").toString(), Qt::ISODate);
+    } else {
+        m_endDate = QDateTime();
+    }
+    emit endDateChanged();
+
     const QJsonObject imageTags = data.value("ImageTags").toObject();
 
     // Logo URL
@@ -1167,6 +1240,11 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
         m_backdropUrl.clear();
     }
     emit backdropUrlChanged();
+
+    // Trigger MDBList fetch
+    if (!m_title.isEmpty()) {
+        fetchMdbListRatings(m_title, m_productionYear);
+    }
 }
 
 void SeriesDetailsViewModel::updateNextEpisode(const QJsonObject &episodeData)
