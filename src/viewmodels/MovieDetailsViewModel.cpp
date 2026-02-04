@@ -12,6 +12,7 @@
 #include <QUrlQuery>
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QPointer>
 
 namespace {
 constexpr qint64 kMovieMemoryTtlMs = 5 * 60 * 1000;   // 5 minutes
@@ -242,8 +243,8 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     // Clear ratings data
     m_mdbListRatings.clear();
     m_rawMdbListRatings.clear();
-    m_aniListRating.clear();
-    m_currentAniListImdbId.clear();
+    // AniList ratings are cleared in fetchAniListRating if the ID changes
+    // avoiding premature clearing when reloading details for the same movie
 
     m_loadingMovie = false;
     setLoading(false);
@@ -447,7 +448,11 @@ void MovieDetailsViewModel::fetchAniListIdFromWikidata(const QString &imdbId, st
     request.setHeader(QNetworkRequest::UserAgentHeader, "Bloom/1.0 (Qt 6)");
 
     auto *reply = m_networkManager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [reply, callback]() {
+    QPointer<MovieDetailsViewModel> self = this;
+    connect(reply, &QNetworkReply::finished, this, [self, reply, callback]() {
+        reply->deleteLater();
+        if (!self) return;
+
         QString anilistId;
         if (reply->error() == QNetworkReply::NoError) {
             QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
@@ -458,7 +463,6 @@ void MovieDetailsViewModel::fetchAniListIdFromWikidata(const QString &imdbId, st
         } else {
             qWarning() << "Wikidata query failed:" << reply->errorString();
         }
-        reply->deleteLater();
         if (callback) callback(anilistId);
     });
 }
@@ -478,8 +482,11 @@ void MovieDetailsViewModel::queryAniListById(const QString &anilistId)
     json["query"] = query;
 
     auto *reply = m_networkManager->post(request, QJsonDocument(json).toJson());
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    QPointer<MovieDetailsViewModel> self = this;
+    connect(reply, &QNetworkReply::finished, this, [self, reply]() {
         reply->deleteLater();
+        if (!self) return;
+
         if (reply->error() != QNetworkReply::NoError) {
             qWarning() << "AniList API error:" << reply->errorString();
             return;
@@ -499,8 +506,8 @@ void MovieDetailsViewModel::queryAniListById(const QString &anilistId)
             aniRating["score"] = score;
             aniRating["url"] = media["siteUrl"].toString();
             
-            m_aniListRating = aniRating;
-            compileRatings();
+            self->m_aniListRating = aniRating;
+            self->compileRatings();
         }
     });
 }
@@ -536,16 +543,30 @@ void MovieDetailsViewModel::compileRatings()
     
     // Append AniList if valid
     if (!m_aniListRating.isEmpty()) {
-        // Remove existing AniList entry if present (to overwrite with ours which might be better?)
-        // Actually MDBList typically doesn't have AniList for movies/shows often, but check anyway
+        bool found = false;
         for (int i = 0; i < ratingsList.size(); ++i) {
             QVariantMap r = ratingsList[i].toMap();
             if (r["source"].toString().compare("AniList", Qt::CaseInsensitive) == 0) {
-                ratingsList.removeAt(i);
+                found = true;
+                
+                // Merge strategy: Keep the one with the higher score
+                int existingScore = r["score"].toInt();
+                if (existingScore <= 0) existingScore = r["value"].toInt();
+                
+                int newScore = m_aniListRating["score"].toInt();
+                if (newScore <= 0) newScore = m_aniListRating["value"].toInt();
+                
+                // If ours is better, replace it
+                if (newScore > existingScore) {
+                     ratingsList[i] = m_aniListRating;
+                }
                 break;
             }
         }
-        ratingsList.append(m_aniListRating);
+        
+        if (!found) {
+            ratingsList.append(m_aniListRating);
+        }
     }
     
     combined["ratings"] = ratingsList;
