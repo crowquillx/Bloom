@@ -14,6 +14,7 @@
 #include "utils/InputModeManager.h"
 #include "viewmodels/LibraryViewModel.h"
 #include "viewmodels/SeriesDetailsViewModel.h"
+#include "viewmodels/MovieDetailsViewModel.h"
 #include "utils/SidebarSettings.h"
 #include "ui/UiSoundController.h"
 #include "utils/GpuMemoryTrimmer.h"
@@ -166,6 +167,10 @@ void ApplicationInitializer::registerServices()
     // 7. SeriesDetailsViewModel
     m_seriesDetailsViewModel = std::make_unique<SeriesDetailsViewModel>();
     ServiceLocator::registerService<SeriesDetailsViewModel>(m_seriesDetailsViewModel.get());
+
+    // 7.5 MovieDetailsViewModel
+    m_movieDetailsViewModel = std::make_unique<MovieDetailsViewModel>();
+    ServiceLocator::registerService<MovieDetailsViewModel>(m_movieDetailsViewModel.get());
 
     // 8. SidebarSettings
     m_sidebarSettings = std::make_unique<SidebarSettings>();

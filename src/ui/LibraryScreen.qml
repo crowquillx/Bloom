@@ -350,7 +350,7 @@ FocusScope {
         id: movieDetailsComponent
         
         MovieDetailsView {
-            movieData: root.currentMovieData
+            movieId: root.currentMovieData ? root.currentMovieData.Id : ""
             
             onPlayRequested: function(itemId, startPositionTicks, framerate, isHDR) {
                 var streamUrl = LibraryService.getStreamUrl(itemId)

@@ -342,6 +342,64 @@ void LibraryService::getLatestMedia(const QString &parentId)
 }
 
 // ============================================================================
+// Generic Item Details
+// ============================================================================
+
+void LibraryService::getItem(const QString &itemId)
+{
+    if (!m_authService->isAuthenticated()) {
+        NetworkError error;
+        error.endpoint = "getItem";
+        error.code = -1;
+        error.userMessage = tr("Not authenticated");
+        emitError(error);
+        return;
+    }
+    
+    const QStringList fields = {
+        "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
+        "Genres", "Studios", "People", "UserData",
+        "ProductionYear", "PremiereDate", "OfficialRating",
+        "RunTimeTicks", "CommunityRating", "ProviderIds"
+    };
+    
+    QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
+        .arg(m_authService->getUserId(), itemId, fields.join(","));
+    
+    sendRequestWithRetry(endpoint,
+        [this, endpoint, itemId]() {
+            QNetworkRequest request = m_authService->createRequest(endpoint);
+            if (m_etags.contains(endpoint)) {
+                request.setRawHeader("If-None-Match", m_etags.value(endpoint).toUtf8());
+            }
+            if (m_lastModified.contains(endpoint)) {
+                request.setRawHeader("If-Modified-Since", m_lastModified.value(endpoint).toUtf8());
+            }
+            return m_authService->networkManager()->get(request);
+        },
+        [this, itemId, endpoint](QNetworkReply *reply) {
+            QByteArray data = reply->readAll();
+            int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (httpStatus == 304) {
+                emit itemNotModified(itemId);
+                return;
+            }
+
+            QByteArray etag = reply->rawHeader("ETag");
+            if (!etag.isEmpty()) {
+                m_etags[endpoint] = QString::fromUtf8(etag);
+            }
+            QByteArray lastMod = reply->rawHeader("Last-Modified");
+            if (!lastMod.isEmpty()) {
+                m_lastModified[endpoint] = QString::fromUtf8(lastMod);
+            }
+
+            QJsonDocument doc = QJsonDocument::fromJson(data);
+            emit itemLoaded(itemId, doc.object());
+        });
+}
+
+// ============================================================================
 // Series Details
 // ============================================================================
 

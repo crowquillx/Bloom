@@ -49,6 +49,9 @@ public:
     // Latest media for a library
     Q_INVOKABLE void getLatestMedia(const QString &parentId);
     
+    // Generic Item Details
+    Q_INVOKABLE void getItem(const QString &itemId);
+
     // Series details and episodes
     Q_INVOKABLE void getSeriesDetails(const QString &seriesId);
     Q_INVOKABLE void getNextUnplayedEpisode(const QString &seriesId);
@@ -79,6 +82,12 @@ signals:
     void itemsLoaded(const QString &parentId, const QJsonArray &items);
     void itemsLoadedWithTotal(const QString &parentId, const QJsonArray &items, int totalRecordCount);
     void itemsNotModified(const QString &parentId);
+    
+    // Generic Item Signals
+    void itemLoaded(const QString &itemId, const QJsonObject &data);
+    void itemNotModified(const QString &itemId);
+    void itemUserDataChanged(const QString &itemId, const QJsonObject &userData);
+
     void nextUpLoaded(const QJsonArray &items);
     void latestMediaLoaded(const QString &parentId, const QJsonArray &items);
     void seriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);

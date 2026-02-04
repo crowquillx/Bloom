@@ -11,6 +11,7 @@
 #include "player/ThemeSongManager.h"
 #include "viewmodels/LibraryViewModel.h"
 #include "viewmodels/SeriesDetailsViewModel.h"
+#include "viewmodels/MovieDetailsViewModel.h"
 #include "network/AuthenticationService.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
@@ -97,6 +98,7 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("PlayerController", ServiceLocator::get<PlayerController>());
     context->setContextProperty("LibraryViewModel", ServiceLocator::get<LibraryViewModel>());
     context->setContextProperty("SeriesDetailsViewModel", ServiceLocator::get<SeriesDetailsViewModel>());
+    context->setContextProperty("MovieDetailsViewModel", ServiceLocator::get<MovieDetailsViewModel>());
     context->setContextProperty("ThemeSongManager", ServiceLocator::get<ThemeSongManager>());
     context->setContextProperty("InputModeManager", ServiceLocator::get<InputModeManager>());
     context->setContextProperty("SidebarSettings", ServiceLocator::get<SidebarSettings>());
