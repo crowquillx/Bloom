@@ -17,6 +17,7 @@ class ThemeSongManager;
 class InputModeManager;
 class LibraryViewModel;
 class SeriesDetailsViewModel;
+class MovieDetailsViewModel;
 class ISecretStore;
 class SidebarSettings;
 class UiSoundController;
@@ -60,6 +61,7 @@ private:
     std::unique_ptr<InputModeManager> m_inputModeManager;
     std::unique_ptr<LibraryViewModel> m_libraryViewModel;
     std::unique_ptr<SeriesDetailsViewModel> m_seriesDetailsViewModel;
+    std::unique_ptr<MovieDetailsViewModel> m_movieDetailsViewModel;
     std::unique_ptr<SidebarSettings> m_sidebarSettings;
     std::unique_ptr<UiSoundController> m_uiSoundController;
     std::unique_ptr<SessionManager> m_sessionManager;

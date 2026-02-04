@@ -8,21 +8,26 @@ import BloomUI
 FocusScope {
     id: root
     
-    // Input properties - Movie data
-    property var movieData: null
-    property string movieId: movieData ? movieData.Id : ""
-    property string movieName: movieData ? movieData.Name : ""
-    property string overview: movieData ? (movieData.Overview || "") : ""
-    property var runtimeTicks: movieData ? (movieData.RunTimeTicks || 0) : 0
-    property var communityRating: movieData ? (movieData.CommunityRating || 0) : 0
-    property string premiereDate: movieData ? (movieData.PremiereDate || "") : ""
-    property int productionYear: movieData ? (movieData.ProductionYear || 0) : 0
-    property bool isPlayed: movieData ? (movieData.UserData ? movieData.UserData.Played : false) : false
-    property var playbackPositionTicks: movieData ? (movieData.UserData ? movieData.UserData.PlaybackPositionTicks : 0) : 0
-    property string officialRating: movieData ? (movieData.OfficialRating || "") : ""
-    property var genres: movieData ? (movieData.Genres || []) : []
+    // Input property
+    property string movieId: ""
+
+    // Bindings to ViewModel
+    readonly property string movieName: MovieDetailsViewModel.title
+    readonly property string overview: MovieDetailsViewModel.overview
+    readonly property var runtimeTicks: MovieDetailsViewModel.runtimeTicks
+    readonly property var communityRating: MovieDetailsViewModel.communityRating
+    readonly property string premiereDate: MovieDetailsViewModel.premiereDate
+    readonly property int productionYear: MovieDetailsViewModel.productionYear
+    readonly property bool isPlayed: MovieDetailsViewModel.isWatched
+    readonly property var playbackPositionTicks: MovieDetailsViewModel.playbackPositionTicks
+    readonly property string officialRating: MovieDetailsViewModel.officialRating
+    readonly property var genres: MovieDetailsViewModel.genres
     
-    // Playback info and media source state (for framerate)
+    readonly property string logoUrl: MovieDetailsViewModel.logoUrl
+    readonly property string posterUrl: MovieDetailsViewModel.posterUrl
+    readonly property string backdropUrl: MovieDetailsViewModel.backdropUrl
+    
+    // Playback info
     property var playbackInfo: null
     property var currentMediaSource: playbackInfo && playbackInfo.mediaSources && playbackInfo.mediaSources.length > 0 
                                      ? playbackInfo.mediaSources[0] : null
@@ -30,7 +35,29 @@ FocusScope {
     property int selectedAudioIndex: -1
     property int selectedSubtitleIndex: -1
     
-    // Signals for navigation and actions
+    // Load movie details when ID changes
+    onMovieIdChanged: {
+        if (movieId !== "") {
+            console.log("[MovieDetailsView] Loading movie details for:", movieId)
+            MovieDetailsViewModel.loadMovieDetails(movieId)
+            
+            // Also load playback info
+            playbackInfoLoading = true
+            playbackInfo = null
+            selectedAudioIndex = -1
+            selectedSubtitleIndex = -1
+            PlaybackService.getPlaybackInfo(movieId)
+        } else {
+            // Clear stale playback state when movieId is empty
+            MovieDetailsViewModel.clear()
+            playbackInfo = null
+            playbackInfoLoading = false
+            selectedAudioIndex = -1
+            selectedSubtitleIndex = -1
+        }
+    }
+
+    // Signals
     signal playRequested(string itemId, var startPositionTicks, double framerate, bool isHDR)
     signal playRequestedWithTracks(string itemId, var startPositionTicks, string mediaSourceId, 
                                     string playSessionId, int audioIndex, int subtitleIndex,
@@ -43,13 +70,8 @@ FocusScope {
         for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
             var stream = currentMediaSource.mediaStreams[i]
             if (stream.type === "Video") {
-                // Prefer RealFrameRate if available, otherwise use AverageFrameRate
-                if (stream.realFrameRate && stream.realFrameRate > 0) {
-                    return stream.realFrameRate
-                }
-                if (stream.averageFrameRate && stream.averageFrameRate > 0) {
-                    return stream.averageFrameRate
-                }
+                if (stream.realFrameRate && stream.realFrameRate > 0) return stream.realFrameRate
+                if (stream.averageFrameRate && stream.averageFrameRate > 0) return stream.averageFrameRate
             }
         }
         return 0.0
@@ -61,12 +83,8 @@ FocusScope {
         for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
             var stream = currentMediaSource.mediaStreams[i]
             if (stream.type === "Video" && stream.videoRange) {
-                // Check for HDR variants: HDR, HDR10, HDR10+, HLG, Dolby Vision
                 var range = stream.videoRange.toUpperCase()
-                if (range !== "SDR" && range !== "") {
-                    console.log("[MovieDetailsView] Detected HDR content, videoRange:", stream.videoRange)
-                    return true
-                }
+                if (range !== "SDR" && range !== "") return true
             }
         }
         return false
@@ -188,46 +206,7 @@ FocusScope {
         return date.toLocaleDateString(Qt.locale(), "MMMM d, yyyy")
     }
     
-    function getMovieBackdropUrl() {
-        if (!movieData) return ""
-        
-        var itemId = movieData.Id
-        var imageTags = movieData.BackdropImageTags || []
-        
-        // Try Backdrop first
-        if (imageTags.length > 0) {
-            return LibraryService.getCachedImageUrlWithWidth(itemId, "Backdrop", 1920)
-        }
-        // Fallback to Primary
-        if (movieData.ImageTags && movieData.ImageTags.Primary) {
-            return LibraryService.getCachedImageUrlWithWidth(itemId, "Primary", 1920)
-        }
-        return ""
-    }
-    
-    function getMoviePosterUrl() {
-        if (!movieData) return ""
-        
-        var itemId = movieData.Id
-        var imageTags = movieData.ImageTags || {}
-        
-        if (imageTags.Primary) {
-            return LibraryService.getCachedImageUrlWithWidth(itemId, "Primary", 400)
-        }
-        return ""
-    }
-    
-    function getMovieLogoUrl() {
-        if (!movieData) return ""
-        
-        var itemId = movieData.Id
-        var imageTags = movieData.ImageTags || {}
-        
-        if (imageTags.Logo) {
-            return LibraryService.getCachedImageUrlWithWidth(itemId, "Logo", 2000)
-        }
-        return ""
-    }
+
     
     // Movie Backdrop
     Rectangle {
@@ -241,7 +220,7 @@ FocusScope {
         Image {
             id: backdropImage
             anchors.fill: parent
-            source: getMovieBackdropUrl()
+            source: backdropUrl
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: true
@@ -281,15 +260,15 @@ FocusScope {
             // Movie Logo (if available)
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: getMovieLogoUrl() ? Math.round(Theme.seriesLogoHeight * 0.5) : 0
-                visible: getMovieLogoUrl() !== ""
+                Layout.preferredHeight: logoUrl ? Math.round(Theme.seriesLogoHeight * 0.5) : 0
+                visible: logoUrl !== ""
                 
                 Image {
                     id: logoImage
                     anchors.left: parent.left
                     width: Math.min(Math.round(Theme.seriesLogoMaxWidth * 0.5), parent.width)
                     height: parent.height
-                    source: getMovieLogoUrl()
+                    source: logoUrl
                     fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     cache: true
@@ -300,7 +279,7 @@ FocusScope {
             
             // Movie Title
             Text {
-                visible: getMovieLogoUrl() === ""
+                visible: logoUrl === ""
                 text: movieName
                 font.pixelSize: Theme.fontSizeDisplay
                 font.family: Theme.fontPrimary
@@ -355,6 +334,119 @@ FocusScope {
                     font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary
                     color: "#FFD700"
+                }
+
+                // MDBList Ratings
+                Repeater {
+                    model: {
+                        var ratings = MovieDetailsViewModel.mdbListRatings["ratings"] || []
+                        var list = []
+                        for (var i = 0; i < ratings.length; i++) {
+                            var r = ratings[i]
+                            var val = r.value
+                            var sc = r.score
+                            
+                            // Skip if no score or if score/value is effectively "0"
+                            if (val === undefined || val === null || val === "" || val == 0 || val === "0") continue
+                            if (sc === undefined && val === undefined) continue
+                            if (sc == 0 || sc === "0") continue
+                            
+                            list.push(r)
+                        }
+                        return list
+                    }
+                    
+                    delegate: RowLayout {
+                        spacing: 4
+                        property var rating: modelData
+                        property string originalSource: rating.source || ""
+                        property var score: rating.score || rating.value
+                        
+                        // Normalize source for matching
+                        readonly property string normalizedSource: {
+                            var s = originalSource.toLowerCase().replace(/\s+/g, '_')
+                            if (s.indexOf("tomatoes") !== -1) return s.indexOf("audience") !== -1 ? "audience" : "tomatoes" 
+                            if (s.indexOf("imdb") !== -1) return "imdb"
+                            if (s.indexOf("metacritic") !== -1) return "metacritic"
+                            if (s.indexOf("tmdb") !== -1) return "tmdb"
+                            if (s.indexOf("trakt") !== -1) return "trakt"
+                            if (s.indexOf("letterboxd") !== -1) return "letterboxd"
+                            if (s.indexOf("myanimelist") !== -1 || s === "mal") return "mal"
+                            if (s.indexOf("anilist") !== -1) return "anilist"
+                            return s
+                        }
+                        
+                        // Source Logo
+                        Image {
+                            Layout.preferredWidth: 48
+                            Layout.preferredHeight: 16
+                            fillMode: Image.PreserveAspectFit
+                            
+                            source: {
+                                var s = normalizedSource
+                                var val = parseFloat(score) || 0
+                                
+                                if (s === "imdb") return "qrc:/images/ratings/imdb.png"
+                                if (s === "tmdb") return "qrc:/images/ratings/tmdb.png"
+                                if (s === "mal") return "qrc:/images/ratings/mal.png"
+                                if (s === "anilist") return "qrc:/images/ratings/anilist.png"
+                                if (s === "trakt") return "qrc:/images/ratings/trakt.png"
+                                if (s === "letterboxd") return "qrc:/images/ratings/letterboxd.png"
+                                if (s === "metacritic") return "qrc:/images/ratings/metacritic.png"
+                                if (s === "rogerebert") return "qrc:/images/ratings/rogerebert.png"
+                                if (s === "kinopoisk") return "qrc:/images/ratings/kinopoisk.png"
+                                if (s === "douban") return "qrc:/images/ratings/douban.png"
+                                
+                                if (s === "tomatoes") {
+                                    if (val < 60) return "qrc:/images/ratings/tomatoes_rotten.png"
+                                    if (val >= 75) return "qrc:/images/ratings/tomatoes_certified.png"
+                                    return "qrc:/images/ratings/tomatoes.png"
+                                }
+                                
+                                if (s === "audience") {
+                                    if (val < 60) return "qrc:/images/ratings/audience_rotten.png"
+                                    return "qrc:/images/ratings/audience.png"
+                                }
+                                
+                                return ""
+                            }
+                            
+                            // Fallback text if no logo found
+                            Text {
+                                anchors.centerIn: parent
+                                visible: parent.status === Image.Error || parent.source == ""
+                                text: {
+                                    var s = normalizedSource
+                                    if (s === "imdb") return "IMDb"
+                                    if (s === "tomatoes") return "RT"
+                                    if (s === "audience") return "Popcorn"
+                                    if (s === "metacritic") return "Meta"
+                                    if (s === "mal") return "MAL"
+                                    if (s === "anilist") return "AniList"
+                                    return originalSource
+                                }
+                                font.pixelSize: 10
+                                font.family: Theme.fontPrimary
+                                font.bold: true
+                                color: Theme.textSecondary
+                            }
+                        }
+                        
+                        // Score
+                        Text {
+                            text: {
+                                var val = parseFloat(score) || 0
+                                var s = normalizedSource
+                                // Percentage for RT/Audience
+                                if (s === "tomatoes" || s === "audience" || s === "rogerebert") return val + "%"
+                                return val
+                            }
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            font.bold: true
+                            color: Theme.textPrimary
+                        }
+                    }
                 }
                 
                 Text {
@@ -458,8 +550,12 @@ FocusScope {
                     Keys.onEnterPressed: clicked()
                     
                     onClicked: {
-                        // TODO: Implement mark watched/unwatched
-                        console.log("Mark movie", isPlayed ? "unwatched" : "watched")
+                        console.log("Marking movie", isPlayed ? "unwatched" : "watched")
+                        if (isPlayed) {
+                            MovieDetailsViewModel.markAsUnwatched()
+                        } else {
+                            MovieDetailsViewModel.markAsWatched()
+                        }
                     }
                     
                     background: Rectangle {
@@ -661,7 +757,7 @@ FocusScope {
                     Image {
                         id: posterImage
                         anchors.fill: parent
-                        source: getMoviePosterUrl()
+                        source: posterUrl
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -761,24 +857,9 @@ FocusScope {
     }
     
     // Load playback info when movie changes
-    onMovieIdChanged: {
-        if (movieId) {
-            playbackInfoLoading = true
-            playbackInfo = null
-            selectedAudioIndex = -1
-            selectedSubtitleIndex = -1
-            PlaybackService.getPlaybackInfo(movieId)
-        }
-    }
+
     
-    // Watch for movieData changes to set focus when data becomes available
-    onMovieDataChanged: {
-        if (movieData && movieData.Id) {
-            console.log("[MovieDetailsView] Movie data loaded:", movieData.Name)
-            // Delay focus slightly to ensure UI is fully rendered
-            focusTimer.start()
-        }
-    }
+
     
     // Connection to receive playback info
     Connections {
@@ -832,14 +913,19 @@ FocusScope {
         }
     }
     
-    Component.onCompleted: {
-        // If data is already loaded (e.g., direct navigation), set focus via timer
-        if (movieData && movieData.Id) {
+    Connections {
+        target: MovieDetailsViewModel
+        function onMovieLoaded() {
             focusTimer.start()
         }
-        
+    }
+
+    Component.onCompleted: {
         // Load playback info if we have a movie
         if (movieId) {
+            // Trigger load if already set
+            MovieDetailsViewModel.loadMovieDetails(movieId)
+            
             playbackInfoLoading = true
             PlaybackService.getPlaybackInfo(movieId)
         }
