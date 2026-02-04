@@ -558,40 +558,23 @@ void MovieDetailsViewModel::fetchAniListRating(const QString &imdbId, const QStr
 
 void MovieDetailsViewModel::compileRatings()
 {
-    // Start with raw MDBList data
     QVariantMap combined = m_rawMdbListRatings;
-    QVariantList ratingsList = combined.value("ratings").toList();
-    
-    // Append AniList if valid
+    QVariantList ratings = combined.value("ratings").toList();
+
     if (!m_aniListRating.isEmpty()) {
         bool found = false;
-        for (int i = 0; i < ratingsList.size(); ++i) {
-            QVariantMap r = ratingsList[i].toMap();
-            if (r["source"].toString().compare("AniList", Qt::CaseInsensitive) == 0) {
+        auto getScore = [](const QVariantMap &m) { return m.value("score", m.value("value")).toInt(); };
+        for (QVariant &r : ratings) {
+            if (r.toMap()["source"].toString().compare("AniList", Qt::CaseInsensitive) == 0) {
+                if (getScore(m_aniListRating) > getScore(r.toMap())) r = m_aniListRating;
                 found = true;
-                
-                // Merge strategy: Keep the one with the higher score
-                int existingScore = r["score"].toInt();
-                if (existingScore <= 0) existingScore = r["value"].toInt();
-                
-                int newScore = m_aniListRating["score"].toInt();
-                if (newScore <= 0) newScore = m_aniListRating["value"].toInt();
-                
-                // If ours is better, replace it
-                if (newScore > existingScore) {
-                     ratingsList[i] = m_aniListRating;
-                }
                 break;
             }
         }
-        
-        if (!found) {
-            ratingsList.append(m_aniListRating);
-        }
+        if (!found) ratings.append(m_aniListRating);
     }
-    
-    combined["ratings"] = ratingsList;
-    
+
+    combined["ratings"] = ratings;
     if (m_mdbListRatings != combined) {
         m_mdbListRatings = combined;
         emit mdbListRatingsChanged();

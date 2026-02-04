@@ -872,21 +872,25 @@ void SeriesDetailsViewModel::fetchMdbListRatings(const QString &imdbId, const QS
 
 void SeriesDetailsViewModel::compileRatings()
 {
-    // Start with raw MDBList data
     QVariantMap combined = m_rawMdbListRatings;
-    QVariantList ratingsList = combined.value("ratings").toList();
-    
-    // Append AniList if valid
+    QVariantList ratings = combined.value("ratings").toList();
+
     if (!m_aniListRating.isEmpty()) {
-        ratingsList.append(m_aniListRating);
+        bool found = false;
+        auto getScore = [](const QVariantMap &m) { return m.value("score", m.value("value")).toInt(); };
+        for (QVariant &r : ratings) {
+            if (r.toMap()["source"].toString().compare("AniList", Qt::CaseInsensitive) == 0) {
+                if (getScore(m_aniListRating) > getScore(r.toMap())) r = m_aniListRating;
+                found = true;
+                break;
+            }
+        }
+        if (!found) ratings.append(m_aniListRating);
     }
-    
-    combined["ratings"] = ratingsList;
-    
+
+    combined["ratings"] = ratings;
     if (m_mdbListRatings != combined) {
         m_mdbListRatings = combined;
-        // Do NOT clear the source data here - we need to keep it for future merges
-        // if the other source updates later.
         emit mdbListRatingsChanged();
     }
 }
