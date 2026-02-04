@@ -35,14 +35,30 @@ jobs:
       run: choco install ninja -y
       shell: pwsh
 
+    - name: Cache sccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/sccache
+        key: ${{ runner.os }}-sccache-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-sccache-
+
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.6
+      run: |
+        $version = "v0.8.1"
+        $url = "https://github.com/mozilla/sccache/releases/download/$version/sccache-$version-x86_64-pc-windows-msvc.zip"
+        Invoke-WebRequest -Uri $url -OutFile sccache.zip
+        Expand-Archive sccache.zip -DestinationPath sccache
+        echo "$PWD\sccache\sccache-$version-x86_64-pc-windows-msvc" >> $env:GITHUB_PATH
+      shell: pwsh
 
     - name: Build
       env:
-        SCCACHE_GHA_ENABLED: "true"
+        SCCACHE_DIR: ~/.cache/sccache
+        SCCACHE_CACHE_SIZE: "2G"
       shell: pwsh
       run: |
+        sccache --start-server
         if (-Not (Test-Path build)) {
           New-Item -ItemType Directory -Path build
         }
@@ -50,6 +66,7 @@ jobs:
         cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
         cmake --build .
         sccache --show-stats
+        sccache --stop-server
     
     - name: Package App
       run: |
