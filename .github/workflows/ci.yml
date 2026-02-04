@@ -123,7 +123,7 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
-          $version = (Get-Date).ToString("yyyy.MM.dd")
+          $version = (Get-Date).ToString("yyyy.MM.dd.HHmm")
           $payload = @{
             event_type = "update-manifest"
             client_payload = @{
