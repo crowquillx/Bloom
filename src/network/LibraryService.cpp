@@ -143,6 +143,14 @@ void LibraryService::getViews()
                 watcher->setFuture(future);
             } else {
                 QJsonDocument doc = QJsonDocument::fromJson(data);
+                if (!doc.isObject()) {
+                    NetworkError error;
+                    error.endpoint = "getViews";
+                    error.code = -2;
+                    error.userMessage = tr("Invalid server response");
+                    emitError(error);
+                    return;
+                }
                 QJsonObject obj = doc.object();
                 QJsonArray items = obj["Items"].toArray();
                 emit viewsLoaded(items);
@@ -274,6 +282,14 @@ void LibraryService::getItems(const QString &parentId, int startIndex, int limit
                 watcher->setFuture(future);
             } else {
                 QJsonDocument doc = QJsonDocument::fromJson(data);
+                if (!doc.isObject()) {
+                    NetworkError error;
+                    error.endpoint = "getItems";
+                    error.code = -2;
+                    error.userMessage = tr("Invalid library response");
+                    emitError(error);
+                    return;
+                }
                 QJsonObject obj = doc.object();
                 QJsonArray items = obj["Items"].toArray();
                 int totalRecordCount = obj["TotalRecordCount"].toInt();
@@ -310,7 +326,11 @@ void LibraryService::getNextUp()
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
-                qCWarning(libraryService) << "getNextUp: Invalid JSON response";
+                NetworkError error;
+                error.endpoint = "getNextUp";
+                error.code = -2;
+                error.userMessage = tr("Invalid next up response");
+                emitError(error);
                 return;
             }
             QJsonObject obj = doc.object();
@@ -342,7 +362,11 @@ void LibraryService::getLatestMedia(const QString &parentId)
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isArray()) {
-                qCWarning(libraryService) << "getLatestMedia: Invalid JSON response for" << parentId;
+                NetworkError error;
+                error.endpoint = "getLatestMedia";
+                error.code = -2;
+                error.userMessage = tr("Invalid latest media response");
+                emitError(error);
                 return;
             }
             QJsonArray items = doc.array();
@@ -405,7 +429,11 @@ void LibraryService::getItem(const QString &itemId)
 
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
-                qCWarning(libraryService) << "getItem: Invalid JSON response for" << itemId;
+                NetworkError error;
+                error.endpoint = "getItem";
+                error.code = -2;
+                error.userMessage = tr("Invalid item response");
+                emitError(error);
                 return;
             }
             emit itemLoaded(itemId, doc.object());
@@ -466,7 +494,11 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
 
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
-                qCWarning(libraryService) << "getSeriesDetails: Invalid JSON response for" << seriesId;
+                NetworkError error;
+                error.endpoint = "getSeriesDetails";
+                error.code = -2;
+                error.userMessage = tr("Invalid series details response");
+                emitError(error);
                 return;
             }
             emit seriesDetailsLoaded(seriesId, doc.object());
@@ -496,7 +528,11 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId)
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
-                qCWarning(libraryService) << "getNextUnplayedEpisode: Invalid JSON response for" << seriesId;
+                NetworkError error;
+                error.endpoint = "getNextUnplayedEpisode";
+                error.code = -2;
+                error.userMessage = tr("Invalid next unplayed episode response");
+                emitError(error);
                 return;
             }
             QJsonArray items = doc.object()["Items"].toArray();
@@ -632,7 +668,11 @@ void LibraryService::getThemeSongs(const QString &seriesId)
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
-                qCWarning(libraryService) << "getThemeSongs: Invalid JSON response for" << seriesId;
+                NetworkError error;
+                error.endpoint = "getThemeSongs";
+                error.code = -2;
+                error.userMessage = tr("Invalid theme songs response");
+                emitError(error);
                 return;
             }
             QJsonArray items = doc.object()["Items"].toArray();
@@ -685,7 +725,11 @@ void LibraryService::search(const QString &searchTerm, int limit)
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
-                qCWarning(libraryService) << "search: Invalid JSON response for" << searchTerm;
+                NetworkError error;
+                error.endpoint = "search";
+                error.code = -2;
+                error.userMessage = tr("Invalid search response");
+                emitError(error);
                 return;
             }
             QJsonArray allItems = doc.object()["Items"].toArray();
@@ -729,7 +773,11 @@ void LibraryService::getRandomItems(int limit)
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
-                qCWarning(libraryService) << "getRandomItems: Invalid JSON response";
+                NetworkError error;
+                error.endpoint = "getRandomItems";
+                error.code = -2;
+                error.userMessage = tr("Invalid random items response");
+                emitError(error);
                 return;
             }
             emit randomItemsLoaded(doc.object()["Items"].toArray());
