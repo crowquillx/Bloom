@@ -1639,7 +1639,7 @@ FocusScope {
                                 if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(0).children[1].forceActiveFocus()
                                 } else {
-                                    flickable.scrollToBottom()
+                                    mdbListApiKeyRow.input.forceActiveFocus()
                                 }
                                 event.accepted = true
                             }
@@ -1745,7 +1745,7 @@ FocusScope {
                                                 if (libraryDelegate.index < libraryProfilesRepeater.count - 1) {
                                                     libraryProfilesRepeater.itemAt(libraryDelegate.index + 1).children[1].forceActiveFocus()
                                                 } else {
-                                                    flickable.scrollToBottom()
+                                                    mdbListApiKeyRow.input.forceActiveFocus()
                                                 }
                                                 event.accepted = true
                                             }
@@ -1905,6 +1905,58 @@ FocusScope {
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                             Layout.topMargin: Theme.spacingSmall
+                        }
+                    }
+                }
+                
+                // ========================================
+                // Metadata Providers
+                // ========================================
+                
+                SettingsSection {
+                    title: qsTr("Metadata Providers")
+                    icon: Icons.cloud
+                    Layout.fillWidth: true
+                    
+                    ColumnLayout {
+                        spacing: Theme.spacingMedium
+                        Layout.fillWidth: true
+                        
+                        Text {
+                            text: qsTr("MDBList")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+                        
+                        Text {
+                            text: qsTr("Enter your MDBList API key to enable enhanced ratings (IMDb, Rotten Tomatoes, etc.) and additional metadata.")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                        
+                        SettingsTextInputRow {
+                            id: mdbListApiKeyRow
+                            label: qsTr("MDBList API Key")
+                            text: ConfigManager.mdbListApiKey
+                            placeholderText: qsTr("API Key")
+                            echoMode: TextInput.Password
+                            Layout.fillWidth: true
+                            
+                            Keys.onUpPressed: {
+                                if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
+                                    libraryProfilesRepeater.itemAt(libraryProfilesRepeater.count - 1).children[1].forceActiveFocus()
+                                } else {
+                                    libraryProfilesToggle.forceActiveFocus()
+                                }
+                            }
+                            
+                            onEditingFinished: {
+                                ConfigManager.mdbListApiKey = text
+                            }
                         }
                     }
                 }
@@ -2261,14 +2313,13 @@ FocusScope {
     component SettingsTextInputRow: ColumnLayout {
         id: textInputRow
         
-        property string label: ""
-        property alias text: textField.text
-        property alias placeholderText: textField.placeholderText
+        property alias input: textField
         
         Accessible.role: Accessible.EditableText
         Accessible.name: label
         
         signal textEdited(string newText)
+        signal editingFinished()
         
         spacing: Theme.spacingSmall
         
@@ -2289,6 +2340,11 @@ FocusScope {
             color: Theme.textPrimary
             placeholderTextColor: Theme.textSecondary
             
+            // Ensure focus visibility
+            onActiveFocusChanged: {
+                if (activeFocus && typeof flickable !== "undefined") flickable.ensureFocusVisible(textInputRow)
+            }
+            
             background: Rectangle {
                 implicitHeight: Theme.buttonHeightSmall
                 radius: Theme.radiusSmall
@@ -2300,6 +2356,7 @@ FocusScope {
             }
             
             onTextEdited: textInputRow.textEdited(text)
+            onEditingFinished: textInputRow.editingFinished()
         }
     }
     

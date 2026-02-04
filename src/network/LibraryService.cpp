@@ -359,7 +359,7 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
     const QStringList fields = {
         "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
         "Genres", "Studios", "People", "ChildCount", "UserData",
-        "ProductionYear", "PremiereDate", "EndDate"
+        "ProductionYear", "PremiereDate", "EndDate", "ProviderIds"
     };
     
     QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
