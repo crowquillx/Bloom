@@ -9,6 +9,7 @@
 #include <QElapsedTimer>
 #include <QSet>
 #include <QNetworkAccessManager>
+#include <functional>
 
 class LibraryService;
 
@@ -283,7 +284,12 @@ public:
     void clearCacheForTest(const QString &id);
     
     // MDBList
-    void fetchMdbListRatings(const QString &title, int year);
+    void fetchMdbListRatings(const QString &imdbId, const QString &tmdbId, const QString &type = "show");
+    
+    // AniList
+    void fetchAniListRating(const QString &imdbId, const QString &title, int year);
+    void fetchAniListIdFromWikidata(const QString &imdbId, std::function<void(const QString&)> callback);
+    void queryAniListById(const QString &anilistId);
 
 signals:
     // Series metadata signals
@@ -353,6 +359,12 @@ private:
     
     // MDBList
     QVariantMap m_mdbListRatings;
+    QVariantMap m_rawMdbListRatings;
+    QVariantMap m_aniListRating;
+    QString m_currentAniListImdbId;
+
+    // ... helper
+    void compileRatings();
     QNetworkAccessManager *m_networkManager = nullptr;
 
     // Next episode

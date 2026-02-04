@@ -704,8 +704,16 @@ FocusScope {
                         var ratings = SeriesDetailsViewModel.mdbListRatings["ratings"] || []
                         var list = []
                         for (var i = 0; i < ratings.length; i++) {
-                            // Filter/map as needed. For now show all.
-                            list.push(ratings[i])
+                            var r = ratings[i]
+                            var val = r.value
+                            var sc = r.score
+                            
+                            // Skip if no score or if score/value is effectively "0"
+                            if (val === undefined || val === null || val === "" || val == 0 || val === "0") continue
+                            if (sc === undefined && val === undefined) continue
+                            if (sc == 0 || sc === "0") continue
+                            
+                            list.push(r)
                         }
                         return list
                     }
@@ -713,14 +721,29 @@ FocusScope {
                     delegate: RowLayout {
                         spacing: 4
                         property var rating: modelData
-                        property string source: rating.source || ""
+                        property string originalSource: rating.source || ""
                         property var score: rating.score || rating.value
+                        
+                        // Normalize source for matching
+                        readonly property string normalizedSource: {
+                            var s = originalSource.toLowerCase().replace(/\s+/g, '_')
+                            if (s.indexOf("tomatoes") !== -1) return s.indexOf("audience") !== -1 ? "audience" : "tomatoes" 
+                            if (s.indexOf("imdb") !== -1) return "imdb"
+                            if (s.indexOf("metacritic") !== -1) return "metacritic"
+                            if (s.indexOf("tmdb") !== -1) return "tmdb"
+                            if (s.indexOf("trakt") !== -1) return "trakt"
+                            if (s.indexOf("letterboxd") !== -1) return "letterboxd"
+                            if (s.indexOf("myanimelist") !== -1 || s === "mal") return "mal"
+                            if (s.indexOf("anilist") !== -1) return "anilist"
+                            return s
+                        }
                         
                         // Brand color mapping
                         readonly property color brandColor: {
-                            var s = source.toLowerCase()
+                            var s = normalizedSource
                             if (s === "imdb") return "#F5C518"
                             if (s === "tomatoes") return "#FA320A" // Rotten Tomatoes
+                            if (s === "audience") return "#FA320A" // Popcorn
                             if (s === "metacritic") return "#66CC33"
                             if (s === "tmdb") return "#01B4E4"
                             if (s === "trakt") return "#ED1C24"
@@ -733,12 +756,17 @@ FocusScope {
                         // Source Label/Icon placeholder
                         Text {
                             text: {
-                                var s = source.toLowerCase()
+                                var s = normalizedSource
                                 if (s === "imdb") return "IMDb"
                                 if (s === "tomatoes") return "RT"
+                                if (s === "audience") return "Popcorn"
                                 if (s === "metacritic") return "Meta"
-                                if (s.length > 4) return s.substring(0, 1).toUpperCase() + s.substring(1) // Capitalize
-                                return s.toUpperCase()
+                                if (s === "tmdb") return "TMDb"
+                                if (s === "mal") return "MAL"
+                                if (s === "anilist") return "AniList"
+                                // Capitalize first letter of fallback
+                                if (originalSource.length > 0) return originalSource
+                                return s
                             }
                             font.pixelSize: Theme.fontSizeSmall
                             font.family: Theme.fontPrimary

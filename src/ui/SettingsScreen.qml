@@ -1639,7 +1639,7 @@ FocusScope {
                                 if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(0).children[1].forceActiveFocus()
                                 } else {
-                                    flickable.scrollToBottom()
+                                    mdbListApiKeyRow.input.forceActiveFocus()
                                 }
                                 event.accepted = true
                             }
@@ -1745,7 +1745,7 @@ FocusScope {
                                                 if (libraryDelegate.index < libraryProfilesRepeater.count - 1) {
                                                     libraryProfilesRepeater.itemAt(libraryDelegate.index + 1).children[1].forceActiveFocus()
                                                 } else {
-                                                    flickable.scrollToBottom()
+                                                    mdbListApiKeyRow.input.forceActiveFocus()
                                                 }
                                                 event.accepted = true
                                             }
@@ -1938,27 +1938,20 @@ FocusScope {
                             Layout.fillWidth: true
                         }
                         
-                        TextField {
-                            id: mdbListApiKeyField
-                            placeholderText: qsTr("API Key")
+                        SettingsTextInputRow {
+                            id: mdbListApiKeyRow
+                            label: qsTr("MDBList API Key")
                             text: ConfigManager.mdbListApiKey
-                            Layout.fillWidth: true
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
+                            placeholderText: qsTr("API Key")
                             echoMode: TextInput.Password
+                            Layout.fillWidth: true
                             
-                            // Ensure focus visibility
-                            onActiveFocusChanged: {
-                                if (activeFocus) flickable.ensureFocusVisible(this)
-                            }
-                            
-                            background: Rectangle {
-                                implicitHeight: Theme.buttonHeightSmall
-                                radius: Theme.radiusSmall
-                                color: Theme.inputBackground
-                                border.color: mdbListApiKeyField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                                border.width: mdbListApiKeyField.activeFocus ? 2 : 1
+                            Keys.onUpPressed: {
+                                if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
+                                    libraryProfilesRepeater.itemAt(libraryProfilesRepeater.count - 1).children[1].forceActiveFocus()
+                                } else {
+                                    libraryProfilesToggle.forceActiveFocus()
+                                }
                             }
                             
                             onEditingFinished: {
@@ -2320,14 +2313,13 @@ FocusScope {
     component SettingsTextInputRow: ColumnLayout {
         id: textInputRow
         
-        property string label: ""
-        property alias text: textField.text
-        property alias placeholderText: textField.placeholderText
+        property alias input: textField
         
         Accessible.role: Accessible.EditableText
         Accessible.name: label
         
         signal textEdited(string newText)
+        signal editingFinished()
         
         spacing: Theme.spacingSmall
         
@@ -2348,6 +2340,11 @@ FocusScope {
             color: Theme.textPrimary
             placeholderTextColor: Theme.textSecondary
             
+            // Ensure focus visibility
+            onActiveFocusChanged: {
+                if (activeFocus && typeof flickable !== "undefined") flickable.ensureFocusVisible(textInputRow)
+            }
+            
             background: Rectangle {
                 implicitHeight: Theme.buttonHeightSmall
                 radius: Theme.radiusSmall
@@ -2359,6 +2356,7 @@ FocusScope {
             }
             
             onTextEdited: textInputRow.textEdited(text)
+            onEditingFinished: textInputRow.editingFinished()
         }
     }
     

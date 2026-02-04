@@ -809,7 +809,8 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     emit mdbListRatingsChanged();
 }
 
-void SeriesDetailsViewModel::fetchMdbListRatings(const QString &title, int year)
+// MDBList
+void SeriesDetailsViewModel::fetchMdbListRatings(const QString &imdbId, const QString &tmdbId, const QString &type)
 {
     auto *config = ServiceLocator::tryGet<ConfigManager>();
     if (!config) return;
@@ -817,21 +818,28 @@ void SeriesDetailsViewModel::fetchMdbListRatings(const QString &title, int year)
     QString apiKey = config->getMdbListApiKey();
     if (apiKey.isEmpty()) return;
     
-    if (title.isEmpty()) return;
+    if (imdbId.isEmpty() && tmdbId.isEmpty()) {
+        qWarning() << "No external IDs found for MDBList lookup";
+        return;
+    }
 
-    qDebug() << "Fetching MDBList ratings for:" << title << "Year:" << year;
+    qDebug() << "Fetching MDBList ratings for IMDb:" << imdbId << "TMDB:" << tmdbId;
     
-    QUrl url("https://mdblist.com/api/");
+    QUrl url;
     QUrlQuery query;
     query.addQueryItem("apikey", apiKey);
-    query.addQueryItem("t", title);
-    if (year > 0) {
-        query.addQueryItem("y", QString::number(year));
-    }
-    query.addQueryItem("m", "show");
     
-    // Add extra params from user script example if relevant, but basic should work.
-    // Script: params: { apikey: apikey, t: title, y: year, m: 'movie' }
+    // Script uses: https://api.mdblist.com/tmdb/{type}/{id}
+    // We try to match that pattern if we have a TMDB ID.
+    if (!tmdbId.isEmpty()) {
+        url = QUrl("https://api.mdblist.com/tmdb/" + type + "/" + tmdbId);
+    } else if (!imdbId.isEmpty()) {
+        // Fallback to IMDb endpoint if supported, or legacy search
+        url = QUrl("https://api.mdblist.com/imdb/" + imdbId);
+    } else {
+        qWarning() << "No IDs for MDBList request";
+        return;
+    }
     
     url.setQuery(query);
     
@@ -843,12 +851,124 @@ void SeriesDetailsViewModel::fetchMdbListRatings(const QString &title, int year)
         if (reply->error() == QNetworkReply::NoError) {
             QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             if (doc.isObject()) {
-                m_mdbListRatings = doc.object().toVariantMap();
-                emit mdbListRatingsChanged();
-                qDebug() << "MDBList ratings loaded, ratings count:" << m_mdbListRatings.value("ratings").toList().size();
+                m_rawMdbListRatings = doc.object().toVariantMap();
+                compileRatings();
+                
+                // Debug log
+                QVariantList ratingsList = m_mdbListRatings.value("ratings").toList();
+                qDebug() << "MDBList ratings updated, count:" << ratingsList.size();
             }
         } else {
             qWarning() << "MDBList API error:" << reply->errorString();
+        }
+    });
+}
+
+void SeriesDetailsViewModel::compileRatings()
+{
+    // Start with raw MDBList data
+    QVariantMap combined = m_rawMdbListRatings;
+    QVariantList ratingsList = combined.value("ratings").toList();
+    
+    // Append AniList if valid
+    if (!m_aniListRating.isEmpty()) {
+        ratingsList.append(m_aniListRating);
+    }
+    
+    combined["ratings"] = ratingsList;
+    
+    if (m_mdbListRatings != combined) {
+        m_mdbListRatings = combined;
+        m_rawMdbListRatings.clear();
+        m_aniListRating.clear();
+        m_currentAniListImdbId.clear();
+        emit mdbListRatingsChanged();
+    }
+}
+
+void SeriesDetailsViewModel::fetchAniListRating(const QString &imdbId, const QString &title, int year)
+{
+    if (imdbId.isEmpty()) {
+        return;
+    }
+
+    // Only force clear if requesting a DIFFERENT show.
+    // If it's the same show, we keep existing rating until new one arrives (or fails).
+    if (m_currentAniListImdbId != imdbId) {
+        m_aniListRating.clear();
+        compileRatings();
+        m_currentAniListImdbId = imdbId;
+    }
+
+    fetchAniListIdFromWikidata(imdbId, [this](const QString &anilistId) {
+        if (!anilistId.isEmpty()) {
+            queryAniListById(anilistId);
+        } else {
+            qDebug() << "AniList ID not found via Wikidata";
+        }
+    });
+}
+
+void SeriesDetailsViewModel::fetchAniListIdFromWikidata(const QString &imdbId, std::function<void(const QString&)> callback)
+{
+    QString sparql = QString("SELECT ?anilist WHERE { ?item wdt:P345 \"%1\" . ?item wdt:P8729 ?anilist . } LIMIT 1").arg(imdbId);
+    QUrl url("https://query.wikidata.org/sparql");
+    QUrlQuery query;
+    query.addQueryItem("format", "json");
+    query.addQueryItem("query", sparql);
+    url.setQuery(query);
+    
+    QNetworkRequest request(url);
+    QNetworkReply *reply = m_networkManager->get(request);
+    
+    connect(reply, &QNetworkReply::finished, this, [reply, callback]() {
+        reply->deleteLater();
+        QString anilistId;
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            QJsonObject root = doc.object();
+            QJsonArray bindings = root["results"].toObject()["bindings"].toArray();
+            if (!bindings.isEmpty()) {
+                anilistId = bindings[0].toObject()["anilist"].toObject()["value"].toString();
+            }
+        }
+        callback(anilistId);
+    });
+}
+
+void SeriesDetailsViewModel::queryAniListById(const QString &anilistId)
+{
+    QUrl url("https://graphql.anilist.co");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    
+    QJsonObject variables;
+    variables["id"] = anilistId.toInt();
+    
+    QJsonObject queryObj;
+    queryObj["query"] = "query($id:Int){ Media(id:$id,type:ANIME){ id meanScore } }";
+    queryObj["variables"] = variables;
+    
+    QNetworkReply *reply = m_networkManager->post(request, QJsonDocument(queryObj).toJson());
+    
+    connect(reply, &QNetworkReply::finished, this, [this, reply, anilistId]() {
+        reply->deleteLater();
+        if (reply->error() == QNetworkReply::NoError) {
+            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            QJsonObject media = doc.object()["data"].toObject()["Media"].toObject();
+            int score = media["meanScore"].toInt();
+            
+            if (score > 0) {
+                qDebug() << "AniList Score found:" << score;
+                
+                QVariantMap anilistRating;
+                anilistRating["source"] = "AniList";
+                anilistRating["value"] = score;
+                anilistRating["score"] = score;
+                
+                m_aniListRating = anilistRating;
+                compileRatings();
+            }
         }
     });
 }
@@ -1242,8 +1362,21 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
     emit backdropUrlChanged();
 
     // Trigger MDBList fetch
-    if (!m_title.isEmpty()) {
-        fetchMdbListRatings(m_title, m_productionYear);
+    QJsonObject providerIds = data.value("ProviderIds").toObject();
+    QString imdbId = providerIds.value("Imdb").toString();
+    QString tmdbId = providerIds.value("Tmdb").toString();
+    
+    if (!imdbId.isEmpty() || !tmdbId.isEmpty()) {
+        fetchMdbListRatings(imdbId, tmdbId, "show");
+    } else if (!m_title.isEmpty()) {
+        // Fallback to title search if no IDs?
+        // Maybe later. For now, rely on IDs.
+        qDebug() << "No IDs for MDBList, skipping.";
+    }
+    
+    // Trigger AniList fetch if we have IMDb ID
+    if (!imdbId.isEmpty()) {
+        fetchAniListRating(imdbId, m_title, m_productionYear);
     }
 }
 
