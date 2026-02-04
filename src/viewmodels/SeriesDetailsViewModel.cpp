@@ -769,6 +769,12 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_seasonCount = 0;
     m_seriesData = QJsonObject();
 
+    // Clear ratings data
+    m_mdbListRatings.clear();
+    m_rawMdbListRatings.clear();
+    m_aniListRating.clear();
+    m_currentAniListImdbId.clear();
+
     m_nextEpisodeId.clear();
     m_nextEpisodeName.clear();
     m_nextEpisodeNumber = 0;
@@ -879,9 +885,8 @@ void SeriesDetailsViewModel::compileRatings()
     
     if (m_mdbListRatings != combined) {
         m_mdbListRatings = combined;
-        m_rawMdbListRatings.clear();
-        m_aniListRating.clear();
-        m_currentAniListImdbId.clear();
+        // Do NOT clear the source data here - we need to keep it for future merges
+        // if the other source updates later.
         emit mdbListRatingsChanged();
     }
 }
