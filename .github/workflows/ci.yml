@@ -121,19 +121,23 @@ jobs:
 
       - name: Trigger Scoop Bucket Update
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
         run: |
-          curl -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer ${{ secrets.SCOOP_BUCKET_TOKEN }}" \
-            https://api.github.com/repos/crowquillx/scoop-bloom/dispatches \
-            -d '{
-              "event_type": "update-manifest",
-              "client_payload": {
-                "hash": "${{ steps.archive.outputs.zip_hash }}",
-                "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip",
-                "version": "'$(date +%Y.%m.%d)'"
-              }
-            }'
+          $version = (Get-Date).ToString("yyyy.MM.dd")
+          $payload = @{
+            event_type = "update-manifest"
+            client_payload = @{
+              hash = "${{ steps.archive.outputs.zip_hash }}"
+              url = "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
+              version = $version
+            }
+          } | ConvertTo-Json -Compress
+          
+          curl.exe -X POST `
+            -H "Accept: application/vnd.github+json" `
+            -H "Authorization: Bearer ${{ secrets.SCOOP_BUCKET_TOKEN }}" `
+            https://api.github.com/repos/crowquillx/scoop-bloom/dispatches `
+            -d $payload
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
