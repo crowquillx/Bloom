@@ -31,27 +31,30 @@ jobs:
     - name: Setup MSVC
       uses: ilammy/msvc-dev-cmd@v1
 
+    - name: Install Ninja
+      run: choco install ninja -y
+      shell: pwsh
+
     - name: Setup sccache
       uses: mozilla-actions/sccache-action@v0.0.6
 
     - name: Build
       env:
         SCCACHE_GHA_ENABLED: "true"
-        SCCACHE_LOG: "info"
       shell: pwsh
       run: |
         if (-Not (Test-Path build)) {
           New-Item -ItemType Directory -Path build
         }
         cd build
-        cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-        cmake --build . --config Release
+        cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+        cmake --build .
         sccache --show-stats
     
     - name: Package App
       run: |
         mkdir Bloom-Windows
-        cp build/src/Release/Bloom.exe Bloom-Windows/
+        cp build/src/Bloom.exe Bloom-Windows/
         windeployqt Bloom-Windows/Bloom.exe --qmldir src/ui --release --no-translations
     
     - name: Install NSIS
