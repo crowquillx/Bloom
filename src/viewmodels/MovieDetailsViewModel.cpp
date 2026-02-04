@@ -58,6 +58,7 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
                         QJsonObject userData = m_movieData["UserData"].toObject();
                         userData["Played"] = played;
                         m_movieData["UserData"] = userData;
+                        storeMovieCache(m_movieId, m_movieData);
                     }
                 });
     } else {
@@ -237,6 +238,7 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     m_communityRating = 0.0;
     m_genres.clear();
     m_playbackPositionTicks = 0;
+    m_premiereDate = QDateTime();
     
     m_movieData = QJsonObject();
 
@@ -254,6 +256,23 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     
     emit movieIdChanged();
     emit titleChanged();
+    emit overviewChanged();
+    
+    if (!preserveArtwork) {
+        emit logoUrlChanged();
+        emit posterUrlChanged();
+        emit backdropUrlChanged();
+    }
+    
+    emit productionYearChanged();
+    emit isWatchedChanged();
+    emit officialRatingChanged();
+    emit runtimeTicksChanged();
+    emit communityRatingChanged();
+    emit genresChanged();
+    emit premiereDateChanged();
+    emit playbackPositionTicksChanged();
+    emit mdbListRatingsChanged();
 }
 
 QVariantMap MovieDetailsViewModel::getMovieData() const
