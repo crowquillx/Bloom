@@ -102,10 +102,16 @@ Window {
             
             onCurrentItemChanged: {
                 console.log("[FocusDebug] StackView.currentItemChanged:", currentItem ? currentItem.toString() : "null", "sidebar.expanded:", sidebar.expanded)
-                // Ensure the current item has focus for keyboard navigation
+                // Let screens with restoreFocusState handle their own focus restoration
+                // This allows HomeScreen to restore focus to the previously selected item
                 if (currentItem && !sidebar.expanded) {
-                    console.log("[FocusDebug] Setting focus to currentItem (sidebar not expanded)")
-                    currentItem.forceActiveFocus()
+                    if (currentItem.restoreFocusState) {
+                        console.log("[FocusDebug] Screen has restoreFocusState, letting it handle focus")
+                        // Don't force focus here - let StackView.onStatusChanged in the screen handle it
+                    } else {
+                        console.log("[FocusDebug] Setting focus to currentItem (no restoreFocusState)")
+                        currentItem.forceActiveFocus()
+                    }
                 } else if (currentItem && sidebar.expanded) {
                     console.log("[FocusDebug] Skipping focus - sidebar is expanded, will restore later")
                 }
@@ -131,16 +137,25 @@ Window {
             // Handle navigation requests
             switch (navigationId) {
                 case "home":
+                    // Save focus state before navigating
+                    var homeScreen = stackView.find(function(item) { return item && item.navigationId === "home" })
+                    if (homeScreen) homeScreen.saveFocusState()
                     // Pop back to home screen
                     while (stackView.depth > 1) {
                         stackView.pop()
                     }
                     break
                 case "search":
+                    // Save focus state before navigating
+                    var homeForSearch = stackView.find(function(item) { return item && item.navigationId === "home" })
+                    if (homeForSearch) homeForSearch.saveFocusState()
                     // Navigate to search screen
                     pushSearchScreen()
                     break
                 case "settings":
+                    // Save focus state before navigating
+                    var homeForSettings = stackView.find(function(item) { return item && item.navigationId === "home" })
+                    if (homeForSettings) homeForSettings.saveFocusState()
                     // Navigate to settings screen
                     pushSettingsScreen()
                     break
@@ -151,6 +166,9 @@ Window {
             playPointerSelectSound()
             if (!libraryId)
                 return
+            // Save focus state before navigating
+            var homeScreenForLibrary = stackView.find(function(item) { return item && item.navigationId === "home" })
+            if (homeScreenForLibrary) homeScreenForLibrary.saveFocusState()
             stackView.push("LibraryScreen.qml", {
                 currentParentId: libraryId,
                 currentLibraryId: libraryId,

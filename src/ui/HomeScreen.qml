@@ -74,11 +74,101 @@ FocusScope {
     // Track if this is the first activation (don't refresh on initial load)
     property bool hasBeenActivated: false
     
+    // Focus state tracking for restoration
+    property string lastFocusedSection: "myMedia"
+    property int lastFocusedIndex: 0
+    property real lastContentY: 0  // Remember scroll position
+    
+    // Function to save current focus state before navigating away
+    function saveFocusState() {
+        var section = ""
+        var index = 0
+        
+        // Check which list has active focus
+        if (myMediaList.activeFocus) {
+            section = "myMedia"
+            index = myMediaList.currentIndex
+        } else if (nextUpList.activeFocus) {
+            section = "nextUp"
+            index = nextUpList.currentIndex
+        } else {
+            // Check recentlyAdded lists
+            for (var i = 0; i < recentlyAddedRepeater.count; i++) {
+                var list = recentlyAddedRepeater.itemAt(i)
+                if (list && list.children[1] && list.children[1].activeFocus) {
+                    section = "recentlyAdded:" + list.libraryId
+                    index = list.children[1].currentIndex
+                    break
+                }
+            }
+        }
+        
+        // Only update if we found a focused section
+        if (section !== "") {
+            lastFocusedSection = section
+            lastFocusedIndex = Math.max(0, index)
+            lastContentY = mainFlickable.contentY
+            console.log("[FocusDebug] Saved focus state:", section, "index:", index, "scroll:", lastContentY)
+        }
+    }
+    
+    // Function to restore focus state when returning to HomeScreen
+    function restoreFocusState() {
+        console.log("[FocusDebug] Restoring focus state:", lastFocusedSection, "index:", lastFocusedIndex)
+        
+        var targetList = null
+        var targetSection = null
+        
+        if (lastFocusedSection === "myMedia") {
+            targetList = myMediaList
+            targetSection = myMediaSection
+        } else if (lastFocusedSection === "nextUp") {
+            targetList = nextUpList
+            targetSection = nextUpSection
+        } else if (lastFocusedSection.indexOf("recentlyAdded:") === 0) {
+            var libraryId = lastFocusedSection.substring("recentlyAdded:".length)
+            for (var i = 0; i < recentlyAddedRepeater.count; i++) {
+                var list = recentlyAddedRepeater.itemAt(i)
+                if (list && list.libraryId === libraryId && list.children[1]) {
+                    targetList = list.children[1]
+                    targetSection = list
+                    break
+                }
+            }
+        }
+        
+        if (targetList && targetSection) {
+            // First scroll the section into view
+            ensureSectionVisible(targetSection)
+            
+            // Then set the current index and focus
+            targetList.currentIndex = Math.min(lastFocusedIndex, Math.max(0, targetList.count - 1))
+            
+            Qt.callLater(function() {
+                if (targetList && targetList.count > 0) {
+                    targetList.forceActiveFocus()
+                    // Make sure the horizontal list item is visible too
+                    ensureListItemVisible(targetList)
+                    console.log("[FocusDebug] Restored focus to:", lastFocusedSection, "currentIndex:", targetList.currentIndex)
+                }
+            })
+        } else {
+            // Fallback to myMediaList
+            console.log("[FocusDebug] Could not find target list, defaulting to myMediaList")
+            myMediaList.currentIndex = 0
+            Qt.callLater(function() {
+                myMediaList.forceActiveFocus()
+            })
+        }
+    }
+    
     StackView.onStatusChanged: {
         console.log("[FocusDebug] HomeScreen StackView.statusChanged:", status)
         if (StackView.status === StackView.Active) {
-            // FocusScope will restore last focus, or default to myMediaList (focus: true)
-            console.log("[FocusDebug] HomeScreen now active, myMediaList.activeFocus:", myMediaList.activeFocus, "currentIndex:", myMediaList.currentIndex)
+            console.log("[FocusDebug] HomeScreen now active, restoring focus state")
+            
+            // Restore focus state when returning to home screen
+            restoreFocusState()
             
             // Refresh dynamic content when returning to home screen (not on initial load)
             if (hasBeenActivated) {
@@ -1019,12 +1109,17 @@ FocusScope {
 
     function handleLibrarySelection(library) {
         console.log("Selected library: " + library.Name)
+        // Save focus state before navigating
+        saveFocusState()
         // Emit signal to navigate to library screen
         navigateToLibrary(library.Id, library.Name)
     }
     
     function handleNextUpSelection(item) {
         console.log("[Home] Next Up selected: " + item.Name + " - navigating to episode details")
+        
+        // Save focus state before navigating
+        saveFocusState()
         
         // Navigate to episode details view instead of playing directly
         var seriesId = item.SeriesId || ""
@@ -1040,6 +1135,9 @@ FocusScope {
     
     function handleRecentlyAddedSelection(item, libraryId) {
         console.log("[Home] Selected Recently Added:", item.Name, "Type:", item.Type, "Library:", libraryId)
+        
+        // Save focus state before navigating
+        saveFocusState()
         
         // Find the library name for this item
         var libraryName = ""
