@@ -48,5 +48,6 @@ See also:
 - docs/services.md  — ServiceLocator pattern & initialization order
 - docs/config.md    — ConfigManager Q_PROPERTY and runtime settings
 - docs/developer_notes.md — Conventions, focus, QML patterns, and best practices
+- docs/viewmodels.md — BaseViewModel patterns and MovieDetailsViewModel
 
 License: See `LICENSE`.

@@ -61,8 +61,31 @@ private:
 ```
 
 
+## MovieDetailsViewModel
+ViewModel for displaying movie metadata and external ratings.
 
+### Purpose
+Acts as the data source for `MovieDetailsView.qml`. It aggregates Jellyfin item metadata with external ratings from MDBList (IMDb, TMDB, Rotten Tomatoes, etc.) and AniList.
 
+### Public API
+- **Key Properties**:
+  - `title`, `overview`, `logoUrl`, `posterUrl`, `backdropUrl`: UI-ready metadata and image URLs.
+  - `isWatched`, `playbackPositionTicks`: Syncs with Jellyfin `UserData`.
+  - `mdbListRatings`: `QVariantMap` containing a list of ratings from various providers.
+- **Methods**:
+  - `loadMovieDetails(QString movieId)`: Fetches data from cache or network.
+  - `markAsWatched()` / `markAsUnwatched()`: Syncs played status to the server.
+  - `clear(bool preserveArtwork)`: Resets the model. Set `preserveArtwork=true` to maintain visual continuity while loading a new item.
+- **Signals**:
+  - `movieLoaded()`: Metadata is ready for display.
+  - `loadError(QString error)`: Standardized error notification.
 
+### Integration
+- **Services**: Retrieves `LibraryService` via `ServiceLocator` for Jellyfin interaction.
+- **Network**: Uses an internal `QNetworkAccessManager` for MDBList and Wikidata/AniList API lookups.
+- **Config**: Reads `ConfigManager` for API keys and storage paths.
 
-
+### Lifecycle & Side Effects
+- **Caching**: Implements two-layer caching (Memory/Disk). Disk cache resides in `<configDir>/cache/movies/` with a 1-hour TTL.
+- **Rating Fetching**: Automatically triggers external rating lookups (MDBList/AniList) upon successful item metadata load if provider IDs (IMDb/TMDB) are present.
+- **State Cleanup**: `clear()` should be called when navigating away from the view to prevent stale data display.
