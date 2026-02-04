@@ -38,7 +38,7 @@ jobs:
       env:
         SCCACHE_GHA_ENABLED: "true"
         SCCACHE_LOG: "info"
-      shell: bash
+      shell: pwsh
       run: |
         if (-Not (Test-Path build)) {
           New-Item -ItemType Directory -Path build
