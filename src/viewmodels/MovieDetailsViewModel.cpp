@@ -243,6 +243,8 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     // Clear ratings data
     m_mdbListRatings.clear();
     m_rawMdbListRatings.clear();
+    m_currentAniListImdbId.clear();
+    m_aniListRating.clear();
     // AniList ratings are cleared in fetchAniListRating if the ID changes
     // avoiding premature clearing when reloading details for the same movie
 
