@@ -242,13 +242,13 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     
     m_movieData = QJsonObject();
 
-    // Clear ratings data
-    m_mdbListRatings.clear();
-    m_rawMdbListRatings.clear();
-    m_currentAniListImdbId.clear();
-    m_aniListRating.clear();
-    // AniList ratings are cleared in fetchAniListRating if the ID changes
-    // avoiding premature clearing when reloading details for the same movie
+    if (!preserveArtwork) {
+        // Clear ratings data
+        m_mdbListRatings.clear();
+        m_rawMdbListRatings.clear();
+        m_currentAniListImdbId.clear();
+        m_aniListRating.clear();
+    }
 
     m_loadingMovie = false;
     setLoading(false);
@@ -272,7 +272,9 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     emit genresChanged();
     emit premiereDateChanged();
     emit playbackPositionTicksChanged();
-    emit mdbListRatingsChanged();
+    if (!preserveArtwork) {
+        emit mdbListRatingsChanged();
+    }
 }
 
 QVariantMap MovieDetailsViewModel::getMovieData() const

@@ -769,11 +769,13 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_seasonCount = 0;
     m_seriesData = QJsonObject();
 
-    // Clear ratings data
-    m_mdbListRatings.clear();
-    m_rawMdbListRatings.clear();
-    m_aniListRating.clear();
-    m_currentAniListImdbId.clear();
+    if (!preserveArtwork) {
+        // Clear ratings data
+        m_mdbListRatings.clear();
+        m_rawMdbListRatings.clear();
+        m_aniListRating.clear();
+        m_currentAniListImdbId.clear();
+    }
 
     m_nextEpisodeId.clear();
     m_nextEpisodeName.clear();
@@ -812,7 +814,9 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     emit recursiveItemCountChanged();
     emit statusChanged();
     emit endDateChanged();
-    emit mdbListRatingsChanged();
+    if (!preserveArtwork) {
+        emit mdbListRatingsChanged();
+    }
 }
 
 // MDBList
