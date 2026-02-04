@@ -1873,43 +1873,6 @@ FocusScope {
                 }
                 
                 // ========================================
-                // About Section
-                // ========================================
-                
-                SettingsSection {
-                    title: qsTr("About")
-                    icon: Icons.info
-                    Layout.fillWidth: true
-                    
-                    ColumnLayout {
-                        spacing: Theme.spacingMedium
-                        Layout.fillWidth: true
-                        
-                        SettingsInfoRow {
-                            label: qsTr("Version")
-                            value: "0.1.0-dev"
-                            Layout.fillWidth: true
-                        }
-                        
-                        SettingsInfoRow {
-                            label: qsTr("Qt Version")
-                            value: "6.x"
-                            Layout.fillWidth: true
-                        }
-                        
-                        Text {
-                            text: qsTr("Bloom is a modern Jellyfin client designed for the 10-foot TV experience.")
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
-                            Layout.topMargin: Theme.spacingSmall
-                        }
-                    }
-                }
-                
-                // ========================================
                 // Metadata Providers
                 // ========================================
                 
@@ -1957,6 +1920,43 @@ FocusScope {
                             onEditingFinished: {
                                 ConfigManager.mdbListApiKey = text
                             }
+                        }
+                    }
+                }
+                
+                // ========================================
+                // About Section
+                // ========================================
+                
+                SettingsSection {
+                    title: qsTr("About")
+                    icon: Icons.info
+                    Layout.fillWidth: true
+                    
+                    ColumnLayout {
+                        spacing: Theme.spacingMedium
+                        Layout.fillWidth: true
+                        
+                        SettingsInfoRow {
+                            label: qsTr("Version")
+                            value: "0.1.0-dev"
+                            Layout.fillWidth: true
+                        }
+                        
+                        SettingsInfoRow {
+                            label: qsTr("Qt Version")
+                            value: "6.x"
+                            Layout.fillWidth: true
+                        }
+                        
+                        Text {
+                            text: qsTr("Bloom is a modern Jellyfin client designed for the 10-foot TV experience.")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                            Layout.topMargin: Theme.spacingSmall
                         }
                     }
                 }
@@ -2314,6 +2314,10 @@ FocusScope {
         id: textInputRow
         
         property alias input: textField
+        property string label: ""
+        property alias text: textField.text
+        property alias placeholderText: textField.placeholderText
+        property alias echoMode: textField.echoMode
         
         Accessible.role: Accessible.EditableText
         Accessible.name: label
