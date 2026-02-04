@@ -32,21 +32,13 @@ jobs:
       uses: ilammy/msvc-dev-cmd@v1
 
     - name: Setup sccache
-      uses: mozilla-actions/sccache-action@v0.0.5
-      with:
-        version: "v0.5.4"
+      uses: mozilla-actions/sccache-action@v0.0.6
 
-    - name: Cache CMake Build
-      uses: actions/cache@v4
-      with:
-        path: build
-        key: ${{ runner.os }}-cmake-${{ hashFiles('**/CMakeLists.txt', 'src/**/*.cpp', 'src/**/*.h', 'src/**/*.hpp') }}
-        restore-keys: |
-          ${{ runner.os }}-cmake-
-    
     - name: Build
       env:
         SCCACHE_GHA_ENABLED: "true"
+        SCCACHE_LOG: "info"
+      shell: bash
       run: |
         if (-Not (Test-Path build)) {
           New-Item -ItemType Directory -Path build
@@ -54,6 +46,7 @@ jobs:
         cd build
         cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
         cmake --build . --config Release
+        sccache --show-stats
     
     - name: Package App
       run: |
