@@ -47,6 +47,13 @@ FocusScope {
             selectedAudioIndex = -1
             selectedSubtitleIndex = -1
             PlaybackService.getPlaybackInfo(movieId)
+        } else {
+            // Clear stale playback state when movieId is empty
+            MovieDetailsViewModel.clear()
+            playbackInfo = null
+            playbackInfoLoading = false
+            selectedAudioIndex = -1
+            selectedSubtitleIndex = -1
         }
     }
 

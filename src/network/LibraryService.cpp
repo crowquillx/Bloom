@@ -309,6 +309,10 @@ void LibraryService::getNextUp()
         [this](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isObject()) {
+                qCWarning(libraryService) << "getNextUp: Invalid JSON response";
+                return;
+            }
             QJsonObject obj = doc.object();
             QJsonArray items = obj["Items"].toArray();
             emit nextUpLoaded(items);
@@ -336,7 +340,12 @@ void LibraryService::getLatestMedia(const QString &parentId)
         },
         [this, parentId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
-            QJsonArray items = QJsonDocument::fromJson(data).array();
+            QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isArray()) {
+                qCWarning(libraryService) << "getLatestMedia: Invalid JSON response for" << parentId;
+                return;
+            }
+            QJsonArray items = doc.array();
             emit latestMediaLoaded(parentId, items);
         });
 }
@@ -395,6 +404,10 @@ void LibraryService::getItem(const QString &itemId)
             }
 
             QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isObject()) {
+                qCWarning(libraryService) << "getItem: Invalid JSON response for" << itemId;
+                return;
+            }
             emit itemLoaded(itemId, doc.object());
         });
 }
@@ -452,6 +465,10 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
             }
 
             QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isObject()) {
+                qCWarning(libraryService) << "getSeriesDetails: Invalid JSON response for" << seriesId;
+                return;
+            }
             emit seriesDetailsLoaded(seriesId, doc.object());
         });
 }
@@ -478,6 +495,10 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId)
         [this, seriesId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isObject()) {
+                qCWarning(libraryService) << "getNextUnplayedEpisode: Invalid JSON response for" << seriesId;
+                return;
+            }
             QJsonArray items = doc.object()["Items"].toArray();
             
             if (!items.isEmpty()) {
@@ -610,6 +631,10 @@ void LibraryService::getThemeSongs(const QString &seriesId)
         [this, seriesId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isObject()) {
+                qCWarning(libraryService) << "getThemeSongs: Invalid JSON response for" << seriesId;
+                return;
+            }
             QJsonArray items = doc.object()["Items"].toArray();
             
             QStringList urls;
@@ -659,6 +684,10 @@ void LibraryService::search(const QString &searchTerm, int limit)
         [this, searchTerm](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isObject()) {
+                qCWarning(libraryService) << "search: Invalid JSON response for" << searchTerm;
+                return;
+            }
             QJsonArray allItems = doc.object()["Items"].toArray();
             
             QJsonArray movies, series;
@@ -699,6 +728,10 @@ void LibraryService::getRandomItems(int limit)
         [this](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
+            if (!doc.isObject()) {
+                qCWarning(libraryService) << "getRandomItems: Invalid JSON response";
+                return;
+            }
             emit randomItemsLoaded(doc.object()["Items"].toArray());
         });
 }

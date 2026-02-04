@@ -66,6 +66,9 @@ FocusScope {
         if (seriesId !== "") {
             console.log("[SeriesDetailsView] Loading series details for:", seriesId)
             SeriesDetailsViewModel.loadSeriesDetails(seriesId)
+        } else {
+            console.log("[SeriesDetailsView] Clearing series details")
+            SeriesDetailsViewModel.clear()
         }
     }
     

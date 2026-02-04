@@ -226,4 +226,3 @@ result
 result-*
 .direnv/
 _codeql_detected_source_root
-.agent/rules/agents.md
