@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -15,145 +15,135 @@ jobs:
     name: Windows
     runs-on: windows-latest
     steps:
-    - uses: actions/checkout@v4
-    
-    - name: Install Qt
-      uses: jurplel/install-qt-action@v4
-      with:
-        version: '6.8.1'
-        host: 'windows'
-        target: 'desktop'
-        arch: 'win64_msvc2022_64'
-        modules: 'qtmultimedia qtshadertools qtimageformats qt5compat'
-        cache: true
-        setup-python: false
-    
-    - name: Setup MSVC
-      uses: ilammy/msvc-dev-cmd@v1
+      - uses: actions/checkout@v4
 
-    - name: Install Ninja
-      run: choco install ninja -y
-      shell: pwsh
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.8.1"
+          host: "windows"
+          target: "desktop"
+          arch: "win64_msvc2022_64"
+          modules: "qtmultimedia qtshadertools qtimageformats qt5compat"
+          cache: true
+          setup-python: false
 
-    - name: Cache sccache
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/sccache
-        key: ${{ runner.os }}-sccache-${{ github.sha }}
-        restore-keys: |
-          ${{ runner.os }}-sccache-
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
 
-    - name: Setup sccache
-      run: |
-        $version = "v0.8.1"
-        $url = "https://github.com/mozilla/sccache/releases/download/$version/sccache-$version-x86_64-pc-windows-msvc.zip"
-        Invoke-WebRequest -Uri $url -OutFile sccache.zip
-        Expand-Archive sccache.zip -DestinationPath sccache
-        echo "$PWD\sccache\sccache-$version-x86_64-pc-windows-msvc" >> $env:GITHUB_PATH
-      shell: pwsh
+      - name: Install Ninja
+        run: choco install ninja -y
+        shell: pwsh
 
-    - name: Build
-      env:
-        SCCACHE_DIR: ~/.cache/sccache
-        SCCACHE_CACHE_SIZE: "2G"
-      shell: pwsh
-      run: |
-        sccache --start-server
-        if (-Not (Test-Path build)) {
-          New-Item -ItemType Directory -Path build
-        }
-        cd build
-        cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
-        cmake --build .
-        sccache --show-stats
-        sccache --stop-server
-    
-    - name: Package App
-      run: |
-        mkdir Bloom-Windows
-        cp build/src/Bloom.exe Bloom-Windows/
-        windeployqt Bloom-Windows/Bloom.exe --qmldir src/ui --release --no-translations
-    
-    - name: Install NSIS
-      run: |
-        choco install nsis -y
-      shell: pwsh
-    
-    - name: Build Installer
-      run: |
-        & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
-      shell: pwsh
-    
-    - name: Create ZIP Archive and Hash
-      id: archive
-      run: |
-        Compress-Archive -Path Bloom-Windows/* -DestinationPath Bloom-Windows.zip -Force
-        $zipHash = (Get-FileHash Bloom-Windows.zip -Algorithm SHA256).Hash
-        echo "zip_hash=$zipHash" >> $env:GITHUB_OUTPUT
-        echo "ZIP Hash: $zipHash"
-        
-        if (Test-Path "Bloom-Setup-0.1.0.exe") {
-          $installerHash = (Get-FileHash Bloom-Setup-0.1.0.exe -Algorithm SHA256).Hash
-          echo "installer_hash=$installerHash" >> $env:GITHUB_OUTPUT
-          echo "Installer Hash: $installerHash"
-        }
-      shell: pwsh
-    
-    - name: Create Release
-      uses: softprops/action-gh-release@v2
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      with:
-        tag_name: dev-latest
-        name: Development Build
-        body: |
-          Latest development build from main branch.
-          
-          ## Portable ZIP
-          SHA256: `${{ steps.archive.outputs.zip_hash }}`
-          
-          ## Installer
-          SHA256: `${{ steps.archive.outputs.installer_hash }}`
-        prerelease: true
-        files: |
-          Bloom-Windows.zip
-          Bloom-Setup-0.1.0.exe
-        fail_on_unmatched_files: true
-    
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: Bloom-Windows-Portable
-        path: Bloom-Windows/
-    
-    - name: Upload Installer Artifact
-      uses: actions/upload-artifact@v4
-      if: hashFiles('Bloom-Setup-0.1.0.exe') != ''
-      with:
-        name: Bloom-Windows-Installer
-        path: Bloom-Setup-0.1.0.exe
+      - name: Cache sccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/sccache
+          key: ${{ runner.os }}-sccache-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-sccache-
 
-    - name: Checkout Scoop Repo
-      uses: actions/checkout@v4
-      with:
-        repository: crowquillx/scoop-bloom
-        path: scoop-bloom
-        token: ${{ secrets.SCOOP_REPO_TOKEN }}
-    
-    - name: Update Scoop Manifest
-      run: |
-        cd scoop-bloom
-        .\update-manifest.ps1 -Hash "${{ steps.archive.outputs.zip_hash }}" -Version "dev-latest" -Url "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
-      shell: pwsh
-      
-    - name: Push Scoop Updates
-      run: |
-        cd scoop-bloom
-        git config user.name "github-actions[bot]"
-        git config user.email "github-actions[bot]@users.noreply.github.com"
-        git add bloom-dev.json
-        # Only commit if there are changes
-        if (git status --porcelain) {
-            git commit -m "Update bloom-dev.json to ${{ steps.archive.outputs.zip_hash }}"
-            git push
-        }
-      shell: pwsh
+      - name: Setup sccache
+        run: |
+          $version = "v0.8.1"
+          $url = "https://github.com/mozilla/sccache/releases/download/$version/sccache-$version-x86_64-pc-windows-msvc.zip"
+          Invoke-WebRequest -Uri $url -OutFile sccache.zip
+          Expand-Archive sccache.zip -DestinationPath sccache
+          echo "$PWD\sccache\sccache-$version-x86_64-pc-windows-msvc" >> $env:GITHUB_PATH
+        shell: pwsh
+
+      - name: Build
+        env:
+          SCCACHE_DIR: ~/.cache/sccache
+          SCCACHE_CACHE_SIZE: "2G"
+        shell: pwsh
+        run: |
+          sccache --start-server
+          if (-Not (Test-Path build)) {
+            New-Item -ItemType Directory -Path build
+          }
+          cd build
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          cmake --build .
+          sccache --show-stats
+          sccache --stop-server
+
+      - name: Package App
+        run: |
+          mkdir Bloom-Windows
+          cp build/src/Bloom.exe Bloom-Windows/
+          windeployqt Bloom-Windows/Bloom.exe --qmldir src/ui --release --no-translations
+
+      - name: Install NSIS
+        run: |
+          choco install nsis -y
+        shell: pwsh
+
+      - name: Build Installer
+        run: |
+          & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
+        shell: pwsh
+
+      - name: Create ZIP Archive and Hash
+        id: archive
+        run: |
+          Compress-Archive -Path Bloom-Windows/* -DestinationPath Bloom-Windows.zip -Force
+          $zipHash = (Get-FileHash Bloom-Windows.zip -Algorithm SHA256).Hash
+          echo "zip_hash=$zipHash" >> $env:GITHUB_OUTPUT
+          echo "ZIP Hash: $zipHash"
+
+          if (Test-Path "Bloom-Setup-0.1.0.exe") {
+            $installerHash = (Get-FileHash Bloom-Setup-0.1.0.exe -Algorithm SHA256).Hash
+            echo "installer_hash=$installerHash" >> $env:GITHUB_OUTPUT
+            echo "Installer Hash: $installerHash"
+          }
+        shell: pwsh
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          tag_name: dev-latest
+          name: Development Build
+          body: |
+            Latest development build from main branch.
+
+            ## Portable ZIP
+            SHA256: `${{ steps.archive.outputs.zip_hash }}`
+
+            ## Installer
+            SHA256: `${{ steps.archive.outputs.installer_hash }}`
+          prerelease: true
+          files: |
+            Bloom-Windows.zip
+            Bloom-Setup-0.1.0.exe
+          fail_on_unmatched_files: true
+
+      - name: Trigger Scoop Bucket Update
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ secrets.SCOOP_BUCKET_TOKEN }}" \
+            https://api.github.com/repos/crowquillx/scoop-bloom/dispatches \
+            -d '{
+              "event_type": "update-manifest",
+              "client_payload": {
+                "hash": "${{ steps.archive.outputs.zip_hash }}",
+                "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip",
+                "version": "'$(date +%Y.%m.%d)'"
+              }
+            }'
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bloom-Windows-Portable
+          path: Bloom-Windows/
+
+      - name: Upload Installer Artifact
+        uses: actions/upload-artifact@v4
+        if: hashFiles('Bloom-Setup-0.1.0.exe') != ''
+        with:
+          name: Bloom-Windows-Installer
+          path: Bloom-Setup-0.1.0.exe
