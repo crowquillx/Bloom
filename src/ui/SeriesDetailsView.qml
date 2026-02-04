@@ -753,25 +753,62 @@ FocusScope {
                             return Theme.accentPrimary
                         }
                         
-                        // Source Label/Icon placeholder
-                        Text {
-                            text: {
+                        // Source Logo
+                        Image {
+                            Layout.preferredWidth: 48
+                            Layout.preferredHeight: 16
+                            fillMode: Image.PreserveAspectFit
+                            
+                            source: {
                                 var s = normalizedSource
-                                if (s === "imdb") return "IMDb"
-                                if (s === "tomatoes") return "RT"
-                                if (s === "audience") return "Popcorn"
-                                if (s === "metacritic") return "Meta"
-                                if (s === "tmdb") return "TMDb"
-                                if (s === "mal") return "MAL"
-                                if (s === "anilist") return "AniList"
-                                // Capitalize first letter of fallback
-                                if (originalSource.length > 0) return originalSource
-                                return s
+                                var val = parseFloat(score) || 0
+                                
+                                if (s === "imdb") return "qrc:/images/ratings/imdb.png"
+                                if (s === "tmdb") return "qrc:/images/ratings/tmdb.png"
+                                if (s === "mal") return "qrc:/images/ratings/mal.png"
+                                if (s === "anilist") return "qrc:/images/ratings/anilist.png"
+                                if (s === "trakt") return "qrc:/images/ratings/trakt.png"
+                                if (s === "letterboxd") return "qrc:/images/ratings/letterboxd.png"
+                                if (s === "metacritic") return "qrc:/images/ratings/metacritic.png"
+                                if (s === "rogerebert") return "qrc:/images/ratings/rogerebert.png"
+                                if (s === "kinopoisk") return "qrc:/images/ratings/kinopoisk.png"
+                                if (s === "douban") return "qrc:/images/ratings/douban.png"
+                                
+                                if (s === "tomatoes") {
+                                    if (val < 60) return "qrc:/images/ratings/tomatoes_rotten.png"
+                                    if (val >= 75) return "qrc:/images/ratings/tomatoes_certified.png"
+                                    return "qrc:/images/ratings/tomatoes.png"
+                                }
+                                
+                                if (s === "audience") {
+                                    if (val < 60) return "qrc:/images/ratings/audience_rotten.png"
+                                    return "qrc:/images/ratings/audience.png"
+                                }
+                                
+                                return ""
                             }
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            font.bold: true
-                            color: brandColor
+                            
+                            // Fallback text if no logo found
+                            Text {
+                                anchors.centerIn: parent
+                                visible: parent.status === Image.Error || parent.source == ""
+                                text: {
+                                    var s = normalizedSource
+                                    if (s === "imdb") return "IMDb"
+                                    if (s === "tomatoes") return "RT"
+                                    if (s === "audience") return "Popcorn"
+                                    if (s === "metacritic") return "Meta"
+                                    if (s === "tmdb") return "TMDb"
+                                    if (s === "mal") return "MAL"
+                                    if (s === "anilist") return "AniList"
+                                    if (originalSource.length > 0) return originalSource
+                                    return s
+                                }
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.family: Theme.fontPrimary
+                                font.bold: true
+                                color: brandColor
+                            }
                         }
                         
                         // Score

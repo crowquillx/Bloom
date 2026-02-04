@@ -9,6 +9,7 @@ qt_add_executable(Bloom
     resources/fonts.qrc
     resources/scripts.qrc
     resources/sounds.qrc
+    resources/images.qrc
     player/PlayerProcessManager.cpp
     player/PlayerController.cpp
     player/ThemeSongManager.cpp

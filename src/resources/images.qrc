@@ -1,0 +1,24 @@
+<RCC>
+    <qresource prefix="/images/ratings">
+        <file alias="imdb.png">images/ratings/imdb.png</file>
+        <file alias="tmdb.png">images/ratings/tmdb.png</file>
+        <file alias="tomatoes.png">images/ratings/tomatoes.png</file>
+        <file alias="tomatoes_rotten.png">images/ratings/tomatoes_rotten.png</file>
+        <file alias="tomatoes_certified.png">images/ratings/tomatoes_certified.png</file>
+        <file alias="audience.png">images/ratings/audience.png</file>
+        <file alias="audience_rotten.png">images/ratings/audience_rotten.png</file>
+        <file alias="rotten_ver.png">images/ratings/rotten_ver.png</file>
+        <file alias="metacritic.png">images/ratings/metacritic.png</file>
+        <file alias="metacriticms.png">images/ratings/metacriticms.png</file>
+        <file alias="metacriticus.png">images/ratings/metacriticus.png</file>
+        <file alias="rogerebert.png">images/ratings/rogerebert.png</file>
+        <file alias="trakt.png">images/ratings/trakt.png</file>
+        <file alias="letterboxd.png">images/ratings/letterboxd.png</file>
+        <file alias="kinopoisk.png">images/ratings/kinopoisk.png</file>
+        <file alias="mal.png">images/ratings/mal.png</file>
+        <file alias="anilist.png">images/ratings/anilist.png</file>
+        <file alias="allocine_crit.png">images/ratings/allocine_crit.png</file>
+        <file alias="allocine_user.png">images/ratings/allocine_user.png</file>
+        <file alias="douban.png">images/ratings/douban.png</file>
+    </qresource>
+</RCC>
