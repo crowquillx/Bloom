@@ -499,6 +499,7 @@ FocusScope {
                 id: episodesList
                 Layout.fillWidth: true
                 Layout.fillHeight: true
+                Layout.minimumHeight: Math.round(400 * Theme.dpiScale)
                 Layout.topMargin: 8
                 clip: true
                 spacing: 12
@@ -554,7 +555,7 @@ FocusScope {
                     required property var modelData
                     
                     width: episodesList.width
-                    height: Theme.episodeCardHeight
+                    height: Math.max(Theme.episodeCardHeight, Theme.episodeCardMinHeight)
                     
                     property bool isFocused: episodesList.currentIndex === index && episodesList.activeFocus
                     property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse

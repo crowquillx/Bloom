@@ -769,6 +769,7 @@ FocusScope {
                 Layout.maximumWidth: root.width * 0.7
                 Layout.preferredHeight: root.overviewExpanded ? Math.min(overviewText.implicitHeight + (readMoreButton.visible ? 48 : 0), 400) : Theme.seriesOverviewMaxHeight
                 Layout.minimumHeight: Theme.seriesOverviewMaxHeight
+                Layout.maximumHeight: Math.round(400 * Theme.dpiScale)
                 Layout.topMargin: Theme.spacingMedium
                 spacing: Theme.spacingSmall
                 visible: selectedEpisodeOverview !== ""
@@ -838,7 +839,8 @@ FocusScope {
         ListView {
             id: episodesList
             Layout.fillWidth: true
-            Layout.preferredHeight: 420
+            Layout.fillHeight: true
+            Layout.minimumHeight: Theme.episodeListMinHeight
             Layout.topMargin: Theme.spacingMedium
             orientation: ListView.Horizontal
             spacing: Theme.spacingLarge
