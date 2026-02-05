@@ -99,6 +99,9 @@ class ConfigManager : public QObject
     // MDBList Integration
     Q_PROPERTY(QString mdbListApiKey READ getMdbListApiKey WRITE setMdbListApiKey NOTIFY mdbListApiKeyChanged)
     
+    // Manual DPI Scale Override
+    Q_PROPERTY(qreal manualDpiScaleOverride READ getManualDpiScaleOverride WRITE setManualDpiScaleOverride NOTIFY manualDpiScaleOverrideChanged)
+    
 public:
     explicit ConfigManager(QObject *parent = nullptr);
     
@@ -290,6 +293,10 @@ public:
     // MDBList API Key
     void setMdbListApiKey(const QString &key);
     QString getMdbListApiKey() const;
+    
+    // Manual DPI Scale Override
+    void setManualDpiScaleOverride(qreal scale);
+    qreal getManualDpiScaleOverride() const;
 
 signals:
     void backdropRotationIntervalChanged();
@@ -318,6 +325,7 @@ signals:
 
     void performanceModeEnabledChanged();
     void mdbListApiKeyChanged();
+    void manualDpiScaleOverrideChanged();
 
 private:
     QString normalizeRoundedMode(const QString &raw) const;

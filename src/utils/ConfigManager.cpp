@@ -843,6 +843,42 @@ QString ConfigManager::getMdbListApiKey() const
     return QString();
 }
 
+void ConfigManager::setManualDpiScaleOverride(qreal scale)
+{
+    // Clamp to reasonable range (0.5 to 2.0)
+    qreal clamped = qBound(0.5, scale, 2.0);
+    
+    qreal current = getManualDpiScaleOverride();
+    qDebug() << "ConfigManager::setManualDpiScaleOverride called with:" << scale 
+             << "clamped to:" << clamped << "current value:" << current;
+    
+    if (qFuzzyCompare(clamped, current)) {
+        qDebug() << "ConfigManager: Value unchanged, skipping";
+        return;
+    }
+    
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    settings["manualDpiScaleOverride"] = clamped;
+    m_config["settings"] = settings;
+    save();
+    qDebug() << "ConfigManager: Emitting manualDpiScaleOverrideChanged() signal";
+    emit manualDpiScaleOverrideChanged();
+}
+
+qreal ConfigManager::getManualDpiScaleOverride() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("manualDpiScaleOverride")) {
+            return settings["manualDpiScaleOverride"].toDouble();
+        }
+    }
+    return 1.0; // Default: no override (1.0 = automatic)
+}
+
 
 void ConfigManager::setUiSoundsEnabled(bool enabled)
 {
@@ -1466,6 +1502,9 @@ QJsonObject ConfigManager::defaultConfig() const
     ui["backdrop_rotation_interval"] = 30000;
     ui["launch_in_fullscreen"] = false;
     settings["ui"] = ui;
+
+    // Manual DPI Scale Override
+    settings["manualDpiScaleOverride"] = 1.0;
 
     // MPV Profiles
     settings["mpv_profiles"] = defaultMpvProfiles();

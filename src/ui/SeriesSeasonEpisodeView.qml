@@ -862,8 +862,8 @@ FocusScope {
             
             delegate: ItemDelegate {
                 id: episodeDelegate
-                width: 560
-                height: 320
+                width: Theme.episodeThumbWidth
+                height: Math.round(Theme.episodeThumbWidth * 9 / 16)  // 16:9 aspect ratio
                 padding: 0
                 
                 // Expose model data for external access

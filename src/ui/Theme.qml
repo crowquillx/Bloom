@@ -10,6 +10,9 @@ QtObject {
     // The scale value comes from DisplayManager C++ class which detects screen resolution
     property real dpiScale: typeof DisplayManager !== 'undefined' ? DisplayManager.dpiScale : 1.0
     
+    // Manual DPI scale override from user settings (1.0 = automatic)
+    property real manualDpiScaleOverride: typeof ConfigManager !== 'undefined' ? ConfigManager.manualDpiScaleOverride : 1.0
+    
     // ============================
     // Theme System
     // ============================

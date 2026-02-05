@@ -40,3 +40,11 @@ Cache settings
 UI settings
 - `settings.ui.launch_in_fullscreen` (Q_PROPERTY `launchInFullscreen`): When true, the application starts in fullscreen mode. Default false; configurable via Settings > Display > Launch in Fullscreen.
 - `settings.ui.backdrop_rotation_interval`: Backdrop rotation interval in milliseconds. Default 30000 (30 seconds).
+
+Display settings
+- `settings.manualDpiScaleOverride` (Q_PROPERTY `manualDpiScaleOverride`): Manual DPI scale multiplier applied to automatic DPI detection. Range: 0.5 to 2.0. Default: 1.0 (automatic, no override).
+  - Values below 1.0 decrease content size (e.g., 0.8 = 20% smaller)
+  - Values above 1.0 increase content size (e.g., 1.2 = 20% larger)
+  - Useful for fine-tuning content size on high-DPI displays (4K@300% scaling), unusual display configurations, or accessibility needs
+  - Configurable via Settings > Video > DPI Scale Override slider
+  - The final DPI scale is calculated as: `baseScale * manualDpiScaleOverride`, where baseScale is determined by screen resolution and device pixel ratio
