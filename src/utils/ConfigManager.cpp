@@ -873,7 +873,7 @@ qreal ConfigManager::getManualDpiScaleOverride() const
     if (m_config.contains("settings") && m_config["settings"].isObject()) {
         QJsonObject settings = m_config["settings"].toObject();
         if (settings.contains("manualDpiScaleOverride")) {
-            return settings["manualDpiScaleOverride"].toDouble();
+            return qBound(0.5, settings["manualDpiScaleOverride"].toDouble(), 2.0);
         }
     }
     return 1.0; // Default: no override (1.0 = automatic)

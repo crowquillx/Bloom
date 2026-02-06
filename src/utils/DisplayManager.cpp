@@ -70,16 +70,23 @@ void DisplayManager::updateDpiScale()
              << "DPR:" << devicePixelRatio;
     
     qreal newScale;
-    
+
     // Detect high-DPI scenarios (Windows 4K@300% etc.)
+    bool usePhysicalHeight = false;
+#ifdef Q_OS_WIN
     if (devicePixelRatio > 1.5) {
+        usePhysicalHeight = true;
+    }
+#endif
+
+    if (usePhysicalHeight) {
         // Use physical height for calculation to avoid content appearing too small
         newScale = static_cast<qreal>(physicalHeight) / 1440.0;
-        qDebug() << "DisplayManager: High-DPI detected (DPR > 1.5), using physical height calculation";
+        qDebug() << "DisplayManager: High-DPI detected (Windows DPR > 1.5), using physical height calculation";
     } else {
-        // Use logical height for normal DPI scenarios
+        // Use logical height for normal DPI scenarios (and macOS/Linux)
         newScale = static_cast<qreal>(logicalHeight) / 1440.0;
-        qDebug() << "DisplayManager: Normal DPI (DPR <= 1.5), using logical height calculation";
+        qDebug() << "DisplayManager: Normal DPI (or non-Windows), using logical height calculation";
     }
     
     qDebug() << "DisplayManager: Base DPI scale (before override):" << newScale;

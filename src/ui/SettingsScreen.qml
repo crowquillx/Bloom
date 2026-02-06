@@ -1071,9 +1071,13 @@ FocusScope {
                             id: dpiScaleSlider
                             label: qsTr("Content Scale Override")
                             description: {
-                                var autoScale = (typeof DisplayManager !== 'undefined' ? DisplayManager.dpiScale : 1.0).toFixed(2)
-                                var override = ConfigManager.manualDpiScaleOverride.toFixed(2)
-                                var effective = (autoScale * override).toFixed(2)
+                                var overrideVal = ConfigManager.manualDpiScaleOverride
+                                var effectiveVal = (typeof DisplayManager !== 'undefined' ? DisplayManager.dpiScale : 1.0)
+                                var autoScaleVal = (effectiveVal / (overrideVal || 1.0))
+                                
+                                var autoScale = autoScaleVal.toFixed(2)
+                                var override = overrideVal.toFixed(2)
+                                var effective = effectiveVal.toFixed(2)
                                 return qsTr("Auto-detected: ") + autoScale + "x  |  Override: " + override + "x  |  Effective: " + effective + "x"
                             }
                             value: ConfigManager.manualDpiScaleOverride

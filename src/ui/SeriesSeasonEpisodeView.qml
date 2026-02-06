@@ -630,7 +630,7 @@ FocusScope {
             var viewportBottom = contentY + height
             
             if (itemBottom > viewportBottom - 80) {
-                contentY = Math.min(itemBottom - height + 80, contentHeight - height)
+                contentY = Math.max(0, Math.min(itemBottom - height + 80, contentHeight - height))
             } else if (itemPos.y < contentY + 50) {
                 contentY = Math.max(0, itemPos.y - 50)
             }

@@ -172,13 +172,13 @@ QtObject {
     // Content Dimensions (DPI-Scaled for different screen resolutions)
     // Baseline is 1440p (dpiScale=1.0) - dimensions multiply by dpiScale for higher resolutions
     // On 4K (dpiScale≈1.5), content gets 1.5x pixels to maintain the same visual size
-    // Min/max constraints for large content dimensions (DPI-scaled)
-    property int posterWidthLargeMin: Math.round(300 * dpiScale)
-    property int posterWidthLargeMax: Math.round(700 * dpiScale)
-    property int seasonPosterHeightMin: Math.round(480 * dpiScale)
-    property int seasonPosterHeightMax: Math.round(1100 * dpiScale)
-    property int episodeCardHeightMin: Math.round(280 * dpiScale)
-    property int episodeCardHeightMax: Math.round(700 * dpiScale)
+    // Min/max constraints for large content dimensions (Fixed pixel limits)
+    property int posterWidthLargeMin: 300
+    property int posterWidthLargeMax: 700
+    property int seasonPosterHeightMin: 480
+    property int seasonPosterHeightMax: 1100
+    property int episodeCardHeightMin: 280
+    property int episodeCardHeightMax: 700
 
     property int posterWidthLarge: Math.min(posterWidthLargeMax, Math.max(posterWidthLargeMin, Math.round(430 * dpiScale)))      // ~645px on 4K
     property int posterHeightLarge: Math.round(750 * dpiScale)     // ~1125px on 4K
@@ -191,7 +191,10 @@ QtObject {
     
     // Minimum dimensions to prevent content from becoming too small
     property int episodeCardMinHeight: Math.round(300 * dpiScale)
+    
+    // placeholder for future responsive rules
     property int episodeThumbMinWidth: Math.round(400 * dpiScale)
+    // placeholder for future responsive rules
     property int episodeListMinHeight: Math.round(280 * dpiScale)
     
     // Episode list height to accommodate full 16:9 cards with text labels
