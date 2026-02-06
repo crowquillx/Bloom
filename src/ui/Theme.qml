@@ -198,7 +198,7 @@ QtObject {
     property int episodeListMinHeight: Math.round(280 * dpiScale)
     
     // Episode list height to accommodate full 16:9 cards with text labels
-    property int episodeListHeight: Math.round(episodeThumbWidth * 9 / 16 + 80 * dpiScale)
+    property int episodeListHeight: Math.round(episodeThumbWidth * 9 / 16 + 50 * dpiScale)
     
     // Series Details View dimensions (DPI-scaled)
     property int seriesLogoHeight: Math.round(426 * dpiScale)      // Logo height (2x 1440p baseline)

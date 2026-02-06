@@ -968,7 +968,7 @@ FocusScope {
                     var columns = Math.max(1, Math.floor(width / cellWidth))
                     var rows = Math.ceil(count / columns)
                     // Extra padding: account for scale animation (1.05x) and ensure titles are visible (DPI-scaled)
-                    return rows * cellHeight + Math.round(240 * Theme.dpiScale)
+                    return rows * cellHeight + Math.round(180 * Theme.dpiScale)
                 }
                 cellWidth: Theme.seasonPosterWidth
                 cellHeight: Theme.seasonPosterHeight

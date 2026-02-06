@@ -869,7 +869,8 @@ FocusScope {
         ListView {
             id: episodesList
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.episodeListHeight
+            Layout.fillHeight: true
+            Layout.minimumHeight: Theme.episodeListHeight
             Layout.topMargin: Theme.spacingMedium
             orientation: ListView.Horizontal
             spacing: Theme.spacingLarge
