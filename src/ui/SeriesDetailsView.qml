@@ -966,7 +966,7 @@ FocusScope {
                     var columns = Math.max(1, Math.floor(width / cellWidth))
                     var rows = Math.ceil(count / columns)
                     // Extra padding: account for scale animation (1.05x) and ensure titles are visible (DPI-scaled)
-                    return rows * cellHeight + Math.round(140 * Theme.dpiScale)
+                    return rows * cellHeight + Math.round(160 * Theme.dpiScale)
                 }
                 cellWidth: Theme.seasonPosterWidth
                 cellHeight: Theme.seasonPosterHeight
@@ -1075,8 +1075,11 @@ FocusScope {
                         
                         // Use mapToItem for reliable coordinate calculation
                         var gridPosInContent = seasonsGrid.mapToItem(leftContentColumn, 0, 0)
-                        var itemY = gridPosInContent.y + (row * cellHeight)
-                        var itemBottom = itemY + cellHeight
+                        // Account for the 1.05x scale animation on focused items:
+                        // The scale is centered, so the item extends by (cellHeight * 0.05) / 2 above and below
+                        var scaleOffset = (cellHeight * 0.05) / 2
+                        var itemY = gridPosInContent.y + (row * cellHeight) - scaleOffset
+                        var itemBottom = itemY + (cellHeight * 1.05)
                         
                         // Ensure the item is visible in the parent Flickable
                         var viewportTop = leftContentFlickable.contentY
@@ -1086,17 +1089,17 @@ FocusScope {
                                     " viewportTop=" + viewportTop + " viewportBottom=" + viewportBottom +
                                     " contentHeight=" + leftContentFlickable.contentHeight)
                         
-                        if (itemBottom > viewportBottom - 40) {
-                            // Scroll down to show the item with padding
+                        if (itemBottom > viewportBottom - 60) {
+                            // Scroll down to show the scaled item with padding
                             var newContentY = Math.min(
-                                itemBottom - leftContentFlickable.height + 80,
+                                itemBottom - leftContentFlickable.height + 100,
                                 leftContentFlickable.contentHeight - leftContentFlickable.height
                             )
                             leftContentFlickable.contentY = Math.max(0, newContentY)
                             console.log("Scrolling down to contentY=" + newContentY)
-                        } else if (itemY < viewportTop + 40) {
-                            // Scroll up to show the item
-                            var newContentY = Math.max(itemY - 80, 0)
+                        } else if (itemY < viewportTop + 60) {
+                            // Scroll up to show the scaled item
+                            var newContentY = Math.max(itemY - 100, 0)
                             leftContentFlickable.contentY = newContentY
                             console.log("Scrolling up to contentY=" + newContentY)
                         }
@@ -1244,6 +1247,8 @@ FocusScope {
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignHCenter
                                 elide: Text.ElideRight
+                                wrapMode: Text.NoWrap
+                                maximumLineCount: 1
                             }
                             
                             Text {
@@ -1253,6 +1258,8 @@ FocusScope {
                                 color: Theme.textSecondary
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.NoWrap
+                                maximumLineCount: 1
                             }
                         }
                         
