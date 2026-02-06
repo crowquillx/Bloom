@@ -46,5 +46,5 @@ Display settings
   - Values below 1.0 decrease content size (e.g., 0.8 = 20% smaller)
   - Values above 1.0 increase content size (e.g., 1.2 = 20% larger)
   - Useful for fine-tuning content size on high-DPI displays (4K@300% scaling), unusual display configurations, or accessibility needs
-  - Configurable via Settings > Video > DPI Scale Override slider
+  - Configurable via Settings > Display > Content Scale Override slider
   - The final DPI scale is calculated as: `baseScale * manualDpiScaleOverride`, where baseScale is determined by screen resolution and device pixel ratio
