@@ -7,7 +7,7 @@ DPI-Aware Scaling
 - Content sizes (posters, cards, images) automatically scale based on screen DPI via `Theme.dpiScale`.
 - Baseline is 2K (1440p) resolution; 4K displays will show proportionally smaller content to maintain consistent visible size.
 - **High-DPI Detection**: On Windows displays with high DPI scaling (e.g., 4K@300%), the system automatically detects when `devicePixelRatio > 1.5` and uses physical screen height instead of logical height for scaling calculations. This ensures content appears at the correct size instead of becoming too small.
-- **Manual Override**: Users can fine-tune content size via Settings > Video > DPI Scale Override (range 0.5-2.0, default 1.0). Values below 1.0 make content smaller, values above 1.0 make it larger. This is useful for:
+- **Manual Override**: Users can fine-tune content size via Settings > Display > Content Scale Override (range 0.5-2.0, default 1.0). Values below 1.0 make content smaller, values above 1.0 make it larger. This is useful for:
   - Adjusting for unusual display configurations or viewing distances
   - Accessibility needs (larger content for better visibility)
   - Personal preference for content density
