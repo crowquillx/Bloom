@@ -1371,6 +1371,20 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV8ToV9(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 9;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        if (!settings.contains("manualDpiScaleOverride")) {
+            settings["manualDpiScaleOverride"] = 1.0;
+        }
+
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -1440,6 +1454,14 @@ bool ConfigManager::migrateConfig()
             }
         } else if (version == 7) {
             m_config = ConfigMigrator::migrateV7ToV8(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
+        } else if (version == 8) {
+            m_config = ConfigMigrator::migrateV8ToV9(m_config);
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {

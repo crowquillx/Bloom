@@ -333,6 +333,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 8;
+    static constexpr int kCurrentConfigVersion = 9;
     QJsonObject defaultConfig() const;
 };

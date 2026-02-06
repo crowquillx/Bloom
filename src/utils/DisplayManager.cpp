@@ -23,7 +23,9 @@ DisplayManager::DisplayManager(ConfigManager *config, QObject *parent)
     connect(qApp, &QGuiApplication::primaryScreenChanged, this, &DisplayManager::updateDpiScale);
     
     // Listen for manual DPI scale override changes
-    connect(m_config, &ConfigManager::manualDpiScaleOverrideChanged, this, &DisplayManager::updateDpiScale);
+    if (m_config) {
+        connect(m_config, &ConfigManager::manualDpiScaleOverrideChanged, this, &DisplayManager::updateDpiScale);
+    }
 }
 
 DisplayManager::~DisplayManager()
@@ -92,7 +94,7 @@ void DisplayManager::updateDpiScale()
     qDebug() << "DisplayManager: Base DPI scale (before override):" << newScale;
     
     // Apply manual override from ConfigManager if set
-    qreal manualOverride = m_config->getManualDpiScaleOverride();
+    qreal manualOverride = m_config ? m_config->getManualDpiScaleOverride() : 1.0;
     if (!qFuzzyCompare(manualOverride, 1.0)) {
         qDebug() << "DisplayManager: Applying manual DPI scale override:" << manualOverride;
         newScale *= manualOverride;
