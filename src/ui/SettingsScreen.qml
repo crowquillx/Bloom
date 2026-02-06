@@ -1070,7 +1070,12 @@ FocusScope {
                         SettingsSliderRow {
                             id: dpiScaleSlider
                             label: qsTr("Content Scale Override")
-                            description: qsTr("Manually adjust content size (posters, cards, media) - 1.0 = automatic based on display resolution")
+                            description: {
+                                var autoScale = (typeof DisplayManager !== 'undefined' ? DisplayManager.dpiScale : 1.0).toFixed(2)
+                                var override = ConfigManager.manualDpiScaleOverride.toFixed(2)
+                                var effective = (autoScale * override).toFixed(2)
+                                return qsTr("Auto-detected: ") + autoScale + "x  |  Override: " + override + "x  |  Effective: " + effective + "x"
+                            }
                             value: ConfigManager.manualDpiScaleOverride
                             from: 0.5
                             to: 2.0
