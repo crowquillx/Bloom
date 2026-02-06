@@ -21,6 +21,11 @@ DisplayManager::DisplayManager(ConfigManager *config, QObject *parent)
     
     // Listen for screen changes to update DPI scale
     connect(qApp, &QGuiApplication::primaryScreenChanged, this, &DisplayManager::updateDpiScale);
+    
+    // Listen for manual DPI scale override changes
+    if (m_config) {
+        connect(m_config, &ConfigManager::manualDpiScaleOverrideChanged, this, &DisplayManager::updateDpiScale);
+    }
 }
 
 DisplayManager::~DisplayManager()
@@ -53,10 +58,10 @@ void DisplayManager::updateDpiScale()
     // On higher resolutions, scale up proportionally so content maintains
     // the same screen proportion.
     //
-    // We use LOGICAL height (after OS DPI scaling) because:
-    // - Qt renders to the logical coordinate space
-    // - The OS handles final scaling to physical pixels
-    // - This ensures our UI elements scale appropriately regardless of OS DPI setting
+    // High-DPI Detection:
+    // - On Windows with 4K@300% scaling, Qt reports logical height of ~720px (2160/3)
+    // - This would incorrectly result in dpiScale ~0.5 instead of ~1.5
+    // - Solution: When devicePixelRatio > 1.5, use physical height for calculation
     
     qreal devicePixelRatio = screen->devicePixelRatio();
     int logicalHeight = screen->size().height(); // Logical (scaled) size
@@ -66,17 +71,47 @@ void DisplayManager::updateDpiScale()
              << "Logical height:" << logicalHeight
              << "DPR:" << devicePixelRatio;
     
-    // Use logical height for scaling - this works correctly with Qt's high-DPI support
-    // At 1440p logical = 1.0 scale, at 2160p logical (4K) = 1.5 scale, etc.
-    qreal newScale = static_cast<qreal>(logicalHeight) / 1440.0;
+    qreal newScale;
+
+    // Detect high-DPI scenarios (Windows 4K@300% etc.)
+    bool usePhysicalHeight = false;
+#ifdef Q_OS_WIN
+    if (devicePixelRatio > 1.5) {
+        usePhysicalHeight = true;
+    }
+#endif
+
+    if (usePhysicalHeight) {
+        // Use physical height for calculation to avoid content appearing too small
+        newScale = static_cast<qreal>(physicalHeight) / 1440.0;
+        qDebug() << "DisplayManager: High-DPI detected (Windows DPR > 1.5), using physical height calculation";
+    } else {
+        // Use logical height for normal DPI scenarios (and macOS/Linux)
+        newScale = static_cast<qreal>(logicalHeight) / 1440.0;
+        qDebug() << "DisplayManager: Normal DPI (or non-Windows), using logical height calculation";
+    }
     
-    // Clamp to reasonable range
-    newScale = qBound(0.5, newScale, 2.5);
+    qDebug() << "DisplayManager: Base DPI scale (before override):" << newScale;
     
-    if (!qFuzzyCompare(m_dpiScale, newScale)) {
+    // Apply manual override from ConfigManager if set
+    qreal manualOverride = m_config ? m_config->getManualDpiScaleOverride() : 1.0;
+    if (!qFuzzyCompare(manualOverride, 1.0)) {
+        qDebug() << "DisplayManager: Applying manual DPI scale override:" << manualOverride;
+        newScale *= manualOverride;
+        qDebug() << "DisplayManager: DPI scale after override:" << newScale;
+    }
+    
+    // Clamp to reasonable range (expanded to accommodate manual overrides)
+    newScale = qBound(0.3, newScale, 3.0);
+    
+    // Always update and emit signal to ensure UI updates in real-time
+    // Even small changes from manual override should trigger re-layout
+    if (m_dpiScale != newScale) {
         m_dpiScale = newScale;
-        qDebug() << "DisplayManager: DPI scale:" << m_dpiScale;
+        qDebug() << "DisplayManager: Final DPI scale:" << m_dpiScale;
         emit dpiScaleChanged();
+    } else {
+        qDebug() << "DisplayManager: DPI scale unchanged at:" << m_dpiScale;
     }
 }
 

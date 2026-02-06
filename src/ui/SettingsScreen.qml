@@ -1059,10 +1059,39 @@ FocusScope {
                             Layout.fillWidth: true
                             
                             KeyNavigation.up: fullscreenToggle
-                            KeyNavigation.down: framerateMatchingSwitch
+                            KeyNavigation.down: dpiScaleSlider
 
                             onSliderValueChanged: function(newValue) {
                                 ConfigManager.backdropRotationInterval = newValue * 1000
+                            }
+                        }
+
+                        // DPI Scale Override Slider
+                        SettingsSliderRow {
+                            id: dpiScaleSlider
+                            label: qsTr("Content Scale Override")
+                            description: {
+                                var overrideVal = ConfigManager.manualDpiScaleOverride
+                                var effectiveVal = (typeof DisplayManager !== 'undefined' ? DisplayManager.dpiScale : 1.0)
+                                var autoScaleVal = (effectiveVal / (overrideVal || 1.0))
+                                
+                                var autoScale = autoScaleVal.toFixed(2)
+                                var override = overrideVal.toFixed(2)
+                                var effective = effectiveVal.toFixed(2)
+                                return qsTr("Auto-detected: ") + autoScale + "x  |  Override: " + override + "x  |  Effective: " + effective + "x"
+                            }
+                            value: ConfigManager.manualDpiScaleOverride
+                            from: 0.5
+                            to: 2.0
+                            stepSize: 0.1
+                            unit: "x"
+                            Layout.fillWidth: true
+                            
+                            KeyNavigation.up: backdropSlider
+                            KeyNavigation.down: framerateMatchingSwitch
+                            
+                            onSliderValueChanged: function(newValue) {
+                                ConfigManager.manualDpiScaleOverride = newValue
                             }
                         }
                     }
@@ -1089,7 +1118,7 @@ FocusScope {
                             checked: ConfigManager.enableFramerateMatching
                             Layout.fillWidth: true
                             
-                            KeyNavigation.up: backdropSlider
+                            KeyNavigation.up: dpiScaleSlider
                             KeyNavigation.down: hdrSwitch
                             
                             onToggled: function(value) {
@@ -1113,6 +1142,7 @@ FocusScope {
                             }
                         }
                         
+
                         // Advanced Section Toggle Button
                         Button {
                             id: advancedToggle
@@ -1156,7 +1186,7 @@ FocusScope {
                                 Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
                             }
                             
-                            KeyNavigation.up: hdrSwitch
+                            KeyNavigation.up: dpiScaleSlider
                             KeyNavigation.down: defaultProfileCombo
                             
                             onClicked: advancedExpanded = !advancedExpanded

@@ -604,17 +604,46 @@ FocusScope {
         }
     }
     
-    // Main content
-    ColumnLayout {
+    // Main content wrapped in Flickable for scrollability on small viewports
+    Flickable {
+        id: mainContentFlickable
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
+        anchors.bottom: parent.bottom
         anchors.leftMargin: Theme.paddingLarge
         anchors.rightMargin: Theme.paddingLarge
         anchors.topMargin: 60
         anchors.bottomMargin: Theme.paddingLarge
-        spacing: Theme.spacingLarge
+        contentWidth: width
+        contentHeight: mainContentColumn.height
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
         z: 1
+        
+        // Scroll to ensure focused element is visible
+        function ensureVisible(item) {
+            if (!item) return
+            var itemPos = item.mapToItem(mainContentColumn, 0, 0)
+            var itemBottom = itemPos.y + item.height
+            var viewportBottom = contentY + height
+            
+            if (itemBottom > viewportBottom - 80) {
+                contentY = Math.max(0, Math.min(itemBottom - height + 80, contentHeight - height))
+            } else if (itemPos.y < contentY + 50) {
+                contentY = Math.max(0, itemPos.y - 50)
+            }
+        }
+        
+        Behavior on contentY {
+            NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+        }
+        
+        ColumnLayout {
+            id: mainContentColumn
+            width: mainContentFlickable.width
+            spacing: Theme.spacingLarge
         
         // Season tabs row
         ListView {
@@ -678,9 +707,10 @@ FocusScope {
         // Show logo or name
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: displayLogoUrl ? (parent.width * 0.18) : 100
-            Layout.maximumHeight: 280
-            Layout.minimumHeight: 160
+            Layout.preferredHeight: displayLogoUrl 
+                ? Math.min(root.height * 0.15, 180) 
+                : 60
+            Layout.minimumHeight: 60
             visible: displayLogoUrl || displayName
 
             Image {
@@ -767,8 +797,9 @@ FocusScope {
                 id: overviewContainer
                 Layout.fillWidth: true
                 Layout.maximumWidth: root.width * 0.7
-                Layout.preferredHeight: root.overviewExpanded ? Math.min(overviewText.implicitHeight + (readMoreButton.visible ? 48 : 0), 400) : Theme.seriesOverviewMaxHeight
-                Layout.minimumHeight: Theme.seriesOverviewMaxHeight
+                Layout.preferredHeight: root.overviewExpanded 
+                    ? Math.min(overviewText.implicitHeight + (readMoreButton.visible ? 48 : 0), root.height * 0.35) 
+                    : Math.min(Theme.seriesOverviewMaxHeight, root.height * 0.12)
                 Layout.topMargin: Theme.spacingMedium
                 spacing: Theme.spacingSmall
                 visible: selectedEpisodeOverview !== ""
@@ -838,7 +869,7 @@ FocusScope {
         ListView {
             id: episodesList
             Layout.fillWidth: true
-            Layout.preferredHeight: 420
+            Layout.preferredHeight: Theme.episodeListHeight
             Layout.topMargin: Theme.spacingMedium
             orientation: ListView.Horizontal
             spacing: Theme.spacingLarge
@@ -862,8 +893,8 @@ FocusScope {
             
             delegate: ItemDelegate {
                 id: episodeDelegate
-                width: 560
-                height: 320
+                width: Theme.episodeThumbWidth
+                height: Math.round(Theme.episodeThumbWidth * 9 / 16)  // 16:9 aspect ratio
                 padding: 0
                 
                 // Expose model data for external access
@@ -1010,8 +1041,16 @@ FocusScope {
         
         // Action buttons row
         RowLayout {
+            id: actionsRow
             Layout.fillWidth: true
             spacing: Theme.spacingMedium
+            
+            // Scroll action buttons into view when any child receives focus
+            onActiveFocusChanged: {
+                if (activeFocus) {
+                    mainContentFlickable.ensureVisible(actionsRow)
+                }
+            }
             
             Button {
                 id: playResumeButton
@@ -1256,7 +1295,8 @@ FocusScope {
             
             Item { Layout.fillWidth: true }
         }
-    }
+    }  // End of mainContentColumn ColumnLayout
+    }  // End of mainContentFlickable
     
     // Track selector popup (context menu)
     Popup {

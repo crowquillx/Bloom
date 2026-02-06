@@ -186,10 +186,10 @@ FocusScope {
                             " height=" + height + " contentHeight=" + contentHeight)
                 
                 // If seasons header is below or near bottom of viewport, scroll down to show it
-                // We want at least 200px of the seasons visible
-                if (seasonsY > contentY + height - 200) {
-                    // Scroll so seasons header is about 100px from top of viewport
-                    var targetY = Math.max(0, seasonsY - 100)
+                // We want at least 300px (DPI-scaled) of the seasons visible
+                if (seasonsY > contentY + height - Math.round(300 * Theme.dpiScale)) {
+                    // Scroll so seasons header is about 150px (DPI-scaled) from top of viewport
+                    var targetY = Math.max(0, seasonsY - Math.round(150 * Theme.dpiScale))
                     contentY = Math.min(targetY, contentHeight - height)
                     console.log("Scrolled to contentY=" + contentY)
                 }
@@ -259,7 +259,7 @@ FocusScope {
                 // Series Logo
                 Item {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: logoUrl ? Theme.seriesLogoHeight : 0
+                    Layout.preferredHeight: logoUrl ? Math.min(Theme.seriesLogoHeight, leftContentFlickable.height * 0.12) : 0
                     visible: logoUrl !== ""
                     
                     Image {
@@ -843,7 +843,9 @@ FocusScope {
             Item {
                 id: overviewContainer
                 Layout.fillWidth: true
-                Layout.preferredHeight: expanded ? Math.min(overviewText.implicitHeight + 8, 400) : Theme.seriesOverviewMaxHeight
+                Layout.preferredHeight: expanded 
+                    ? Math.min(overviewText.implicitHeight + 8, leftContentFlickable.height * 0.3) 
+                    : Math.min(Theme.seriesOverviewMaxHeight, leftContentFlickable.height * 0.15)
                 
                 // Track if expanded (via mouse click on "Read More")
                 property bool expanded: false
@@ -966,7 +968,7 @@ FocusScope {
                     var columns = Math.max(1, Math.floor(width / cellWidth))
                     var rows = Math.ceil(count / columns)
                     // Extra padding: account for scale animation (1.05x) and ensure titles are visible (DPI-scaled)
-                    return rows * cellHeight + Math.round(140 * Theme.dpiScale)
+                    return rows * cellHeight + Math.round(160 * Theme.dpiScale)
                 }
                 cellWidth: Theme.seasonPosterWidth
                 cellHeight: Theme.seasonPosterHeight
@@ -1069,39 +1071,42 @@ FocusScope {
                 // Ensure focused item is visible when navigating
                 onCurrentIndexChanged: {
                     if (activeFocus && currentIndex >= 0) {
-                        // Calculate the position of the current item relative to the Flickable's content
+                        // Calculate grid position and item location
                         var columns = Math.max(1, Math.floor(width / cellWidth))
                         var row = Math.floor(currentIndex / columns)
                         
-                        // Use mapToItem for reliable coordinate calculation
-                        var gridPosInContent = seasonsGrid.mapToItem(leftContentColumn, 0, 0)
-                        var itemY = gridPosInContent.y + (row * cellHeight)
-                        var itemBottom = itemY + cellHeight
+                        // Calculate item position within the grid (accounting for grid margins)
+                        var itemYInGrid = topMargin + (row * cellHeight)
+                        var itemBottomInGrid = itemYInGrid + cellHeight + bottomMargin
                         
-                        // Ensure the item is visible in the parent Flickable
+                        // Map grid position to Flickable content coordinates
+                        var gridPosInContent = seasonsGrid.mapToItem(leftContentColumn, 0, 0)
+                        var itemYInContent = gridPosInContent.y + itemYInGrid
+                        var itemBottomInContent = gridPosInContent.y + itemBottomInGrid
+                        
+                        // Get viewport bounds
                         var viewportTop = leftContentFlickable.contentY
                         var viewportBottom = viewportTop + leftContentFlickable.height
+                        var minPadding = cellHeight * 0.3  // Use cell-relative padding for proper visibility
                         
-                        console.log("Season scroll: itemY=" + itemY + " itemBottom=" + itemBottom + 
-                                    " viewportTop=" + viewportTop + " viewportBottom=" + viewportBottom +
-                                    " contentHeight=" + leftContentFlickable.contentHeight)
+                        // Determine if scrolling is needed
+                        var needsScrollDown = itemBottomInContent > viewportBottom - minPadding
+                        var needsScrollUp = itemYInContent < viewportTop + minPadding
                         
-                        if (itemBottom > viewportBottom - 40) {
-                            // Scroll down to show the item with padding
-                            var newContentY = Math.min(
-                                itemBottom - leftContentFlickable.height + 80,
+                        if (needsScrollDown) {
+                            // Scroll down: position item near bottom of viewport with padding
+                            var targetContentY = itemBottomInContent - leftContentFlickable.height + minPadding
+                            leftContentFlickable.contentY = Math.min(
+                                Math.max(0, targetContentY),
                                 leftContentFlickable.contentHeight - leftContentFlickable.height
                             )
-                            leftContentFlickable.contentY = Math.max(0, newContentY)
-                            console.log("Scrolling down to contentY=" + newContentY)
-                        } else if (itemY < viewportTop + 40) {
-                            // Scroll up to show the item
-                            var newContentY = Math.max(itemY - 80, 0)
-                            leftContentFlickable.contentY = newContentY
-                            console.log("Scrolling up to contentY=" + newContentY)
+                        } else if (needsScrollUp) {
+                            // Scroll up: position item near top of viewport with padding
+                            var targetContentY = Math.max(0, itemYInContent - minPadding)
+                            leftContentFlickable.contentY = targetContentY
                         }
-
-                        // Prefetch adjacent seasons to reduce episode load latency
+                        
+                        // Prefetch adjacent seasons
                         SeriesDetailsViewModel.prefetchSeasonsAround(currentIndex, 2)
                     }
                 }
@@ -1244,6 +1249,8 @@ FocusScope {
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignHCenter
                                 elide: Text.ElideRight
+                                wrapMode: Text.NoWrap
+                                maximumLineCount: 1
                             }
                             
                             Text {
@@ -1253,6 +1260,8 @@ FocusScope {
                                 color: Theme.textSecondary
                                 Layout.fillWidth: true
                                 horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.NoWrap
+                                maximumLineCount: 1
                             }
                         }
                         

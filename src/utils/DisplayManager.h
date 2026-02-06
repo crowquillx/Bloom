@@ -29,12 +29,13 @@ public:
      * @return Scale factor (1.0 for 1080p/1440p, ~1.3 for 4K)
      */
     qreal dpiScale() const;
-    
+
+public slots:
     /**
      * @brief Recalculates DPI scale based on current primary screen.
      * Call this when screen configuration changes.
      */
-    Q_INVOKABLE void updateDpiScale();
+    void updateDpiScale();
 
     /**
      * @brief Sets the display refresh rate to the specified Hz.

@@ -10,6 +10,9 @@ QtObject {
     // The scale value comes from DisplayManager C++ class which detects screen resolution
     property real dpiScale: typeof DisplayManager !== 'undefined' ? DisplayManager.dpiScale : 1.0
     
+    // Manual DPI scale override from user settings (1.0 = automatic)
+    property real manualDpiScaleOverride: typeof ConfigManager !== 'undefined' ? ConfigManager.manualDpiScaleOverride : 1.0
+    
     // ============================
     // Theme System
     // ============================
@@ -169,14 +172,33 @@ QtObject {
     // Content Dimensions (DPI-Scaled for different screen resolutions)
     // Baseline is 1440p (dpiScale=1.0) - dimensions multiply by dpiScale for higher resolutions
     // On 4K (dpiScale≈1.5), content gets 1.5x pixels to maintain the same visual size
-    property int posterWidthLarge: Math.round(430 * dpiScale)      // ~645px on 4K
+    // Min/max constraints for large content dimensions (Fixed pixel limits)
+    property int posterWidthLargeMin: 300
+    property int posterWidthLargeMax: 700
+    property int seasonPosterHeightMin: 480
+    property int seasonPosterHeightMax: 1100
+    property int episodeCardHeightMin: 280
+    property int episodeCardHeightMax: 700
+
+    property int posterWidthLarge: Math.min(posterWidthLargeMax, Math.max(posterWidthLargeMin, Math.round(430 * dpiScale)))      // ~645px on 4K
     property int posterHeightLarge: Math.round(750 * dpiScale)     // ~1125px on 4K
     property int seasonPosterWidth: Math.round(380 * dpiScale)     // ~570px on 4K
-    property int seasonPosterHeight: Math.round(640 * dpiScale)    // ~960px on 4K
-    property int episodeCardHeight: Math.round(373 * dpiScale)     // ~560px on 4K
+    property int seasonPosterHeight: Math.min(seasonPosterHeightMax, Math.max(seasonPosterHeightMin, Math.round(640 * dpiScale)))    // ~960px on 4K
+    property int episodeCardHeight: Math.min(episodeCardHeightMax, Math.max(episodeCardHeightMin, Math.round(373 * dpiScale)))     // ~560px on 4K
     property int episodeThumbWidth: Math.round(664 * dpiScale)     // ~996px on 4K
     property int nextUpHeight: Math.round(560 * dpiScale)          // ~840px on 4K
     property int nextUpImageHeight: Math.round(280 * dpiScale)     // ~420px on 4K
+    
+    // Minimum dimensions to prevent content from becoming too small
+    property int episodeCardMinHeight: Math.round(300 * dpiScale)
+    
+    // placeholder for future responsive rules
+    property int episodeThumbMinWidth: Math.round(400 * dpiScale)
+    // placeholder for future responsive rules
+    property int episodeListMinHeight: Math.round(280 * dpiScale)
+    
+    // Episode list height to accommodate full 16:9 cards with text labels
+    property int episodeListHeight: Math.round(episodeThumbWidth * 9 / 16 + 40 * dpiScale)
     
     // Series Details View dimensions (DPI-scaled)
     property int seriesLogoHeight: Math.round(426 * dpiScale)      // Logo height (2x 1440p baseline)
