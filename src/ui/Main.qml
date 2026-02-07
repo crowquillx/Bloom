@@ -94,6 +94,14 @@ Window {
                 event.accepted = false
             }
         }
+
+        // Explicitly forward focus to content when this scope receives it
+        onActiveFocusChanged: {
+            if (activeFocus && stackView.currentItem && !stackView.currentItem.activeFocus) {
+                console.log("[FocusDebug] mainContentArea got focus, forwarding to currentItem")
+                stackView.currentItem.forceActiveFocus()
+            }
+        }
         
         StackView {
             id: stackView
