@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
-import Qt5Compat.GraphicalEffects
+
 import BloomUI
 
 FocusScope {
@@ -761,22 +761,22 @@ FocusScope {
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
-                        visible: false
+                        visible: true
+
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            maskEnabled: true
+                            maskSource: posterMask
+                        }
                     }
 
                     Rectangle {
                         id: posterMask
                         anchors.fill: parent
                         radius: Theme.imageRadius
-                        color: "white"
                         visible: false
                         layer.enabled: true
-                    }
-
-                    OpacityMask {
-                        anchors.fill: parent
-                        source: posterImage
-                        maskSource: posterMask
+                        layer.smooth: true
                     }
                     
                     // Play icon overlay

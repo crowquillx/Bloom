@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
-import Qt5Compat.GraphicalEffects
+
 import BloomUI
 
 FocusScope {
@@ -872,7 +872,7 @@ FocusScope {
                         anchors.top: parent.top
                         width: grid.cellWidth - 48
                         height: grid.cellHeight - 80
-                        radius: Theme.radiusMedium
+                        radius: 24
                         antialiasing: true
                         color: delegateItem.isFocused ? Theme.cardBackgroundFocused : (delegateItem.isHovered ? Theme.cardBackgroundHover : Theme.cardBackground)
                         border.width: delegateItem.isFocused ? 2 : 1
@@ -891,6 +891,7 @@ FocusScope {
                             shadowVerticalOffset: delegateItem.isFocused ? 22 : 14
                             shadowBlur: delegateItem.isFocused ? 1.0 : 0.65
                             shadowColor: delegateItem.isFocused ? "#66000000" : "#44000000"
+                            autoPaddingEnabled: true
                         }
 
                         ColumnLayout {
@@ -903,11 +904,11 @@ FocusScope {
                                 id: imageContainer
                                 Layout.fillWidth: true
                                 // Cap height so scale/hover rounding never clips on 4K
-                                Layout.preferredHeight: Math.min(width * 1.5, grid.cellHeight - 180)
-                                radius: Theme.imageRadius
+                                Layout.preferredHeight: width * 1.5
+                                radius: 24
                                 antialiasing: true
                                 color: "transparent"
-                                clip: false
+                                clip: true
 
                                 // Mirror HomeScreen masking to ensure rounding without blocking render.
                                 Image {
@@ -918,7 +919,7 @@ FocusScope {
                                     cache: true
                                     mipmap: true
                                     smooth: true
-                                    visible: false
+                                    visible: true
                                     source: delegateItem.getImageSource()
                                     onStatusChanged: {
                                         if (status === Image.Error) {
@@ -930,25 +931,25 @@ FocusScope {
                                     }
                                 }
 
+                                    layer.enabled: true
+                                    layer.effect: MultiEffect {
+                                        maskEnabled: true
+                                        maskSource: coverMask
+                                    }
+
                                 Rectangle {
                                     id: coverMask
                                     anchors.fill: parent
-                                    radius: Theme.imageRadius
-                                    color: "white"
+                                    radius: 24
                                     visible: false
                                     layer.enabled: true
-                                }
-
-                                OpacityMask {
-                                    anchors.fill: parent
-                                    source: coverArt
-                                    maskSource: coverMask
+                                    layer.smooth: true
                                 }
 
                                 // Highlight overlay on focus/hover
                                 Rectangle {
                                     anchors.fill: parent
-                                    radius: Theme.imageRadius
+                                    radius: 24
                                     gradient: Gradient {
                                         GradientStop { position: 0.0; color: "#00ffffff" }
                                         GradientStop { position: 0.35; color: "#30ffffff" }
@@ -962,7 +963,7 @@ FocusScope {
                                 // Loading placeholder
                                 Rectangle {
                                     anchors.fill: parent
-                                    radius: Theme.imageRadius
+                                    radius: 24
                                     color: Qt.rgba(0.2, 0.2, 0.2, 0.5)
                                     visible: coverArt.status !== Image.Ready
                                     
@@ -1083,6 +1084,7 @@ FocusScope {
                                 elide: Text.ElideRight
                             }
                         }
+                    }
 
                         MouseArea {
                             id: mouseArea
@@ -1101,7 +1103,7 @@ FocusScope {
                     }
                 }
 
-                keyNavigationWraps: false
+
 
                 Keys.onReleased: (event) => {
                     if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
@@ -1113,15 +1115,15 @@ FocusScope {
                 }
 
                 Keys.onReturnPressed: (event) => {
-                    if (currentIndex >= 0 && currentIndex < LibraryViewModel.rowCount()) {
-                        handleSelection(LibraryViewModel.getItem(currentIndex))
+                    if (grid.currentIndex >= 0 && grid.currentIndex < LibraryViewModel.rowCount()) {
+                        handleSelection(LibraryViewModel.getItem(grid.currentIndex))
                         event.accepted = true
                     }
                 }
 
                 Keys.onEnterPressed: (event) => {
-                    if (currentIndex >= 0 && currentIndex < LibraryViewModel.rowCount()) {
-                        handleSelection(LibraryViewModel.getItem(currentIndex))
+                    if (grid.currentIndex >= 0 && grid.currentIndex < LibraryViewModel.rowCount()) {
+                        handleSelection(LibraryViewModel.getItem(grid.currentIndex))
                         event.accepted = true
                     }
                 }
@@ -1153,7 +1155,6 @@ FocusScope {
                 }
             }
         }
-    }
     } // End RowLayout
     } // End FocusScope - libraryGridComponent
 

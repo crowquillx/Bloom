@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
-import Qt5Compat.GraphicalEffects
+
 import BloomUI
 
 FocusScope {
@@ -163,7 +163,7 @@ FocusScope {
     }
     
     StackView.onStatusChanged: {
-        console.log("[FocusDebug] HomeScreen StackView.statusChanged:", status)
+        console.log("[FocusDebug] HomeScreen StackView.statusChanged:", StackView.status)
         if (StackView.status === StackView.Active) {
             console.log("[FocusDebug] HomeScreen now active, restoring focus state")
             
@@ -425,22 +425,22 @@ FocusScope {
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 cache: true
-                                visible: false
+                                visible: true
+
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    maskEnabled: true
+                                    maskSource: myMediaMask
+                                }
                             }
 
                             Rectangle {
                                 id: myMediaMask
                                 anchors.fill: parent
                                 radius: Theme.imageRadius
-                                color: "white"
                                 visible: false
                                 layer.enabled: true
-                            }
-
-                            OpacityMask {
-                                anchors.fill: parent
-                                source: myMediaImageSource
-                                maskSource: myMediaMask
+                                layer.smooth: true
                             }
 
                             // Loading placeholder
@@ -480,8 +480,10 @@ FocusScope {
 
                             // Outline on focus/hover
                             Rectangle {
-                                anchors.fill: parent
-                                radius: Theme.imageRadius
+                                anchors.centerIn: parent
+                                width: parent.width + border.width * 2
+                                height: parent.height + border.width * 2
+                                radius: Theme.imageRadius + border.width
                                 color: "transparent"
                                 border.width: isFocused ? 3 : (isHovered ? 2 : 0)
                                 border.color: Theme.accentPrimary
@@ -590,8 +592,7 @@ FocusScope {
                                 id: nextUpImageContainer
                                 width: parent.width
                                 height: homeCardHeight
-                                radius: Theme.radiusSmall
-                                clip: true
+                                radius: Theme.imageRadius
                                 color: "transparent"
                                     
                                 Image {
@@ -610,7 +611,13 @@ FocusScope {
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                     cache: true
-                                    visible: false
+                                    visible: true
+
+                                    layer.enabled: true
+                                    layer.effect: MultiEffect {
+                                        maskEnabled: true
+                                        maskSource: nextUpMask
+                                    }
 
                                     onStatusChanged: {
                                         if (status === Image.Error) {
@@ -630,16 +637,10 @@ FocusScope {
                                 Rectangle {
                                     id: nextUpMask
                                     anchors.fill: parent
-                                    radius: Theme.radiusSmall
-                                    color: "white"
+                                    radius: Theme.imageRadius
                                     visible: false
                                     layer.enabled: true
-                                }
-
-                                OpacityMask {
-                                    anchors.fill: parent
-                                    source: nextUpImage
-                                    maskSource: nextUpMask
+                                    layer.smooth: true
                                 }
 
                                 Rectangle {
@@ -656,8 +657,10 @@ FocusScope {
                                 }
 
                                 Rectangle {
-                                    anchors.fill: parent
-                                    radius: Theme.imageRadius
+                                    anchors.centerIn: parent
+                                    width: parent.width + border.width * 2
+                                    height: parent.height + border.width * 2
+                                    radius: Theme.imageRadius + border.width
                                     color: "transparent"
                                     border.width: isFocused ? 3 : (isHovered ? 2 : 0)
                                     border.color: Theme.accentPrimary
@@ -809,7 +812,7 @@ FocusScope {
                             spacing: 20
                             leftMargin: 40
                             rightMargin: 40
-                            clip: true
+                            clip: false
                             preferredHighlightBegin: 40
                             preferredHighlightEnd: width - 40
                             highlightRangeMode: ListView.StrictlyEnforceRange
@@ -851,12 +854,18 @@ FocusScope {
                                             fillMode: Image.PreserveAspectCrop
                                             asynchronous: true
                                             cache: true
-                                            visible: false
+                                            visible: true
                                             source: {
                                                 if (modelData.Type === "Episode" && modelData.SeriesId) {
                                                     return LibraryService.getCachedImageUrlWithWidth(modelData.SeriesId, "Primary", 640)
                                                 }
                                                 return LibraryService.getCachedImageUrlWithWidth(modelData.Id, "Primary", 640)
+                                            }
+
+                                            layer.enabled: true
+                                            layer.effect: MultiEffect {
+                                                maskEnabled: true
+                                                maskSource: recentMask
                                             }
 
                                             onStatusChanged: {
@@ -870,21 +879,17 @@ FocusScope {
                                             id: recentMask
                                             anchors.fill: parent
                                             radius: Theme.imageRadius
-                                            color: "white"
                                             visible: false
                                             layer.enabled: true
-                                        }
-
-                                        OpacityMask {
-                                            anchors.fill: parent
-                                            source: recentCoverArt
-                                            maskSource: recentMask
+                                            layer.smooth: true
                                         }
 
                                         // Focus border overlay
                                         Rectangle {
-                                            anchors.fill: parent
-                                            radius: Theme.imageRadius
+                                            anchors.centerIn: parent
+                                            width: parent.width + border.width * 2
+                                            height: parent.height + border.width * 2
+                                            radius: Theme.imageRadius + border.width
                                             color: "transparent"
                                             border.width: isFocused ? 3 : 0
                                             border.color: Theme.accentPrimary

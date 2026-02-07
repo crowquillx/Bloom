@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
-import Qt5Compat.GraphicalEffects
+
 import BloomUI
 
 FocusScope {
@@ -909,7 +909,7 @@ FocusScope {
                     border.width: parent.activeFocus ? 3 : 0
                     border.color: Theme.accentPrimary
                     
-                    // Hidden source image for masking
+                    // Thumbnail image with rounded corners
                     Image {
                         id: episodeThumbnailSource
                         anchors.fill: parent
@@ -918,7 +918,14 @@ FocusScope {
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
-                        visible: false
+                        visible: true
+                        opacity: 0.9
+
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            maskEnabled: true
+                            maskSource: episodeThumbnailMask
+                        }
                     }
                     
                     // Hidden mask rectangle for rounded corners
@@ -927,18 +934,9 @@ FocusScope {
                         anchors.fill: parent
                         anchors.margins: 2
                         radius: Theme.radiusMedium
-                        color: "white"
                         visible: false
                         layer.enabled: true
-                    }
-                    
-                    // Apply rounded corners using opacity mask
-                    OpacityMask {
-                        anchors.fill: parent
-                        anchors.margins: 2
-                        source: episodeThumbnailSource
-                        maskSource: episodeThumbnailMask
-                        opacity: 0.9
+                        layer.smooth: true
                     }
                     
                     // Gradient overlay for text readability
@@ -977,13 +975,12 @@ FocusScope {
                         
                         // Add a small shadow for better visibility on light backgrounds
                         layer.enabled: true
-                        layer.effect: DropShadow {
-                            transparentBorder: true
-                            horizontalOffset: 0
-                            verticalOffset: 1
-                            radius: 4
-                            samples: 8
-                            color: "black"
+                        layer.effect: MultiEffect {
+                            shadowEnabled: true
+                            shadowHorizontalOffset: 0
+                            shadowVerticalOffset: 1
+                            shadowBlur: 0.2  // equivalent to radius 4 / 20 roughly, tweaked for visual similarity
+                            shadowColor: "black"
                         }
                     }
                 }

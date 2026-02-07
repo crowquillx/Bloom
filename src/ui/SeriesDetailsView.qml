@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
-import Qt5Compat.GraphicalEffects
+
 import BloomUI
 
 FocusScope {
@@ -1183,22 +1183,22 @@ FocusScope {
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                     cache: true
-                                    visible: false
+                                    visible: true
+
+                                    layer.enabled: true
+                                    layer.effect: MultiEffect {
+                                        maskEnabled: true
+                                        maskSource: seasonMask
+                                    }
                                 }
 
                                 Rectangle {
                                     id: seasonMask
                                     anchors.fill: parent
                                     radius: Theme.imageRadius
-                                    color: "white"
                                     visible: false
                                     layer.enabled: true
-                                }
-
-                                OpacityMask {
-                                    anchors.fill: parent
-                                    source: seasonCoverArt
-                                    maskSource: seasonMask
+                                    layer.smooth: true
                                 }
 
                                 // Highlight overlay on focus/hover

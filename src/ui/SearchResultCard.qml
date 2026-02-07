@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
-import Qt5Compat.GraphicalEffects
+
 import BloomUI
 
 /**
@@ -85,7 +85,13 @@ Item {
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     smooth: true
-                    visible: false
+                    visible: true
+
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        maskEnabled: true
+                        maskSource: posterMask
+                    }
                     
                     // Fallback when no image
                     Rectangle {
@@ -107,15 +113,9 @@ Item {
                     id: posterMask
                     anchors.fill: parent
                     radius: Theme.imageRadius
-                    color: "white"
                     visible: false
                     layer.enabled: true
-                }
-
-                OpacityMask {
-                    anchors.fill: parent
-                    source: posterImage
-                    maskSource: posterMask
+                    layer.smooth: true
                 }
 
                 // Unwatched episode count badge (for Series)
