@@ -124,7 +124,7 @@ target_link_libraries(Bloom
     Qt6::Sql
     Qt6::Concurrent
     Qt6::Multimedia
-    Qt6::Core5Compat
+
 )
 
 qt6_add_translations(Bloom
