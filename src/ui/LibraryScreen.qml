@@ -390,13 +390,16 @@ FocusScope {
         
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 48
+        anchors.leftMargin: 48
+        anchors.rightMargin: 48
+        anchors.topMargin: 24
+        anchors.bottomMargin: 0
         spacing: 32
 
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 32
+            spacing: 12
 
             RowLayout {
                 Layout.fillWidth: true

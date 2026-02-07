@@ -204,8 +204,16 @@ if ($QtDir) {
         
         if ($ExePath) {
             # Use --qmldir to ensure all QML plugins (like QtQuick.Controls) are deployed
-            $QmlDir = Join-Path $PSScriptRoot "src\ui"
+            # Path should be relative to the root, not the script directory
+            $ProjectRoot = Get-Item -Path $PSScriptRoot | Select-Object -ExpandProperty Parent
+            $QmlDir = Join-Path $ProjectRoot.FullName "src\ui"
+            
+            Write-Host "QML Source Dir: $QmlDir" -ForegroundColor Gray
             & $Windeployqt $ExePath --qmldir $QmlDir
+            
+            if ($LASTEXITCODE -ne 0) {
+                Write-Error "windeployqt failed."
+            }
         }
     }
 }
