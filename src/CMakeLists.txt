@@ -62,6 +62,7 @@ qt_add_executable(Bloom
     security/SecretStoreLinux.cpp
     security/SecretStoreWindows.h
     security/SecretStoreWindows.cpp
+    resources/windows-icon.rc
 )
 
 
