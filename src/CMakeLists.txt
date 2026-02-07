@@ -156,3 +156,13 @@ install(TARGETS Bloom
     RUNTIME DESTINATION bin
     BUNDLE DESTINATION .
 )
+
+if(UNIX AND NOT APPLE)
+    install(FILES resources/linux/com.github.bloom.desktop
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/share/applications
+    )
+    install(FILES resources/images/app/logo_trans.svg
+        DESTINATION ${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/scalable/apps
+        RENAME com.github.bloom.svg
+    )
+endif()

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Bloom
+Comment=Jellyfin Client
+Exec=Bloom
+Icon=com.github.bloom
+Categories=AudioVideo;Video;Player;TV;
+Terminal=false
+StartupWMClass=Bloom
