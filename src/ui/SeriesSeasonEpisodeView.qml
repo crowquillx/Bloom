@@ -1384,9 +1384,55 @@ FocusScope {
             }
         }
         
+        delegate: MenuItem {
+            id: menuItem
+            implicitWidth: 240
+            implicitHeight: 40
+            
+            arrow: Canvas {
+                x: parent.width - width - 12
+                y: parent.height / 2 - height / 2
+                width: 12
+                height: 12
+                visible: menuItem.subMenu
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.fillStyle = menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
+                    ctx.moveTo(0, 0)
+                    ctx.lineTo(0, height)
+                    ctx.lineTo(width, height / 2)
+                    ctx.closePath()
+                    ctx.fill()
+                }
+            }
+            
+            contentItem: Text {
+                text: menuItem.text
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                color: menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: 12
+                rightPadding: menuItem.arrow.width + 12
+            }
+            
+            background: Rectangle {
+                implicitWidth: 240
+                implicitHeight: 40
+                opacity: enabled ? 1 : 0.3
+                color: menuItem.highlighted ? Theme.hoverOverlay : "transparent"
+                radius: Theme.radiusSmall
+            }
+        }
+        
         onOpened: {
             // Re-fetch tracks when menu opens
             console.log("[ContextMenu] Menu opened")
+            
+            // Focus the first item
+            currentIndex = 0
+            forceActiveFocus()
             
              // Apply saved track preferences for this season
             var seasonId = SeriesDetailsViewModel.selectedSeasonId
