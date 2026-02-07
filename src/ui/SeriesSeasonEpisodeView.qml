@@ -2,8 +2,10 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
+import QtQml
 
 import BloomUI
+import "TrackUtils.js" as TrackUtils
 
 FocusScope {
     id: root
@@ -102,8 +104,13 @@ FocusScope {
     }
     
     // Key handling for back navigation
-    Keys.onReleased: (event) => {
+    Keys.onPressed: (event) => {
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
+            if (contextMenu.opened) {
+                console.log("[SeriesSeasonEpisodeView] Ignoring Back/Escape - context menu is open")
+                event.accepted = true
+                return
+            }
             console.log("[SeriesSeasonEpisodeView] Back key pressed")
             root.backRequested()
             event.accepted = true
@@ -290,7 +297,7 @@ FocusScope {
     }
     
     // Open track selector with fresh playback info
-    property bool waitingForTrackSelectorInfo: false
+    property bool waitingForContextInfo: false
     
     function openTrackSelector() {
         if (!selectedEpisodeId) {
@@ -303,12 +310,12 @@ FocusScope {
         // If we already have playback info for this episode, open immediately
         if (playbackInfo && playbackInfo.mediaSources && playbackInfo.mediaSources.length > 0) {
             console.log("[SeriesSeasonEpisodeView] Opening track selector with cached playback info")
-            trackSelectorPopup.open()
+            contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
             return
         }
         
         // Otherwise, request playback info and open when ready
-        waitingForTrackSelectorInfo = true
+        waitingForContextInfo = true
         playbackInfoLoading = true
         PlaybackService.getPlaybackInfo(selectedEpisodeId)
         // The response will come through the Connections handler below
@@ -341,9 +348,9 @@ FocusScope {
                 }
                 
                 // Open the popup if we were waiting for this info
-                if (waitingForTrackSelectorInfo) {
-                    waitingForTrackSelectorInfo = false
-                    trackSelectorPopup.open()
+                if (waitingForContextInfo) {
+                    waitingForContextInfo = false
+                    contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
                 }
             }
         }
@@ -902,7 +909,52 @@ FocusScope {
                 readonly property bool isFavorite: model.isFavorite || false
                 readonly property string itemId: model.itemId || ""
                 readonly property var playbackPosition: model.playbackPositionTicks || 0
-                
+                // Connection to handle post-playback navigation to next episode
+    Connections {
+        target: PlayerController
+        
+        function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex) {
+            console.log("[Main] Navigating to next episode after playback:", 
+                        episodeData.SeriesName, "S" + episodeData.ParentIndexNumber + "E" + episodeData.IndexNumber,
+                        "Audio:", lastAudioIndex, "Subtitle:", lastSubtitleIndex)
+            
+            // Pop back to the root level (home screen) first, then navigate to the episode
+            while (stackView.depth > 1) {
+                stackView.pop(null)  // Pop without transition
+            }
+            
+            // Navigate to the episode view via LibraryScreen
+            // We use empty library info since we're coming from playback context
+            stackView.push("LibraryScreen.qml", {
+                currentParentId: "",
+                currentLibraryId: "",
+                currentLibraryName: "",
+                currentSeriesId: seriesId,
+                directNavigationMode: true,
+                // Pass the track preferences to be applied
+                pendingAudioTrackIndex: lastAudioIndex,
+                pendingSubtitleTrackIndex: lastSubtitleIndex
+            })
+            
+            // Load series details for context
+            LibraryService.getSeriesDetails(seriesId)
+            
+            // Defer calling showEpisodeDetails until screen is ready
+            Qt.callLater(function() {
+                var screen = stackView.currentItem
+                if (screen && screen.showEpisodeDetails) {
+                    screen.showEpisodeDetails(episodeData)
+                }
+            })
+        }
+        
+        ignoreUnknownSignals: true
+    }
+
+    // Helper functions for track formatting (ported from TrackSelector.qml)
+    // Now using TrackUtils.js
+
+
                 background: Rectangle {
                     radius: Theme.radiusMedium
                     color: Theme.cardBackground
@@ -1295,177 +1347,264 @@ FocusScope {
     }  // End of mainContentColumn ColumnLayout
     }  // End of mainContentFlickable
     
-    // Track selector popup (context menu)
-    Popup {
-        id: trackSelectorPopup
-        anchors.centerIn: parent
-        width: 700
-        height: 600
-        modal: true
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+    // Context Menu for Audio/Subtitle Selection
+    Menu {
+        id: contextMenu
+        
+        background: Rectangle {
+            implicitWidth: 280
+            color: Theme.cardBackground
+            radius: Theme.radiusMedium
+            border.color: Theme.cardBorder
+            border.width: 1
+            
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowHorizontalOffset: 0
+                shadowVerticalOffset: 4
+                shadowBlur: 0.5
+                shadowColor: "#44000000"
+            }
+        }
         
         onOpened: {
-            console.log("[TrackSelector] Popup opened")
-            // Re-fetch tracks when popup opens to ensure they're current
-            audioSelector.tracks = getAudioStreams()
-            subtitleSelector.tracks = getSubtitleStreams()
-            console.log("[TrackSelector] Audio tracks:", audioSelector.tracks.length, "Subtitle tracks:", subtitleSelector.tracks.length)
+            // Re-fetch tracks when menu opens
+            console.log("[ContextMenu] Menu opened")
             
-            // Apply saved track preferences for this season
+             // Apply saved track preferences for this season
             var seasonId = SeriesDetailsViewModel.selectedSeasonId
-            console.log("[TrackSelector] Season ID:", seasonId)
             if (seasonId && seasonId !== "") {
                 var lastAudio = PlayerController.getLastAudioTrackForSeason(seasonId)
                 var lastSubtitle = PlayerController.getLastSubtitleTrackForSeason(seasonId)
-                console.log("[TrackSelector] Last audio:", lastAudio, "Last subtitle:", lastSubtitle)
                 
-                // Find matching audio track
-                if (lastAudio >= 0) {
-                    var audioStreams = getAudioStreams()
-                    for (var i = 0; i < audioStreams.length; i++) {
-                        if (audioStreams[i].index === lastAudio) {
-                            selectedAudioIndex = lastAudio
-                            break
+                if (lastAudio >= 0) selectedAudioIndex = lastAudio
+                if (lastSubtitle >= 0) selectedSubtitleIndex = lastSubtitle
+            }
+        }
+        
+        Menu {
+            id: audioMenu
+            title: "Audio Tracks"
+            enabled: getAudioStreams().length > 0
+            
+            background: Rectangle {
+                implicitWidth: 280
+                color: Theme.cardBackground
+                radius: Theme.radiusMedium
+                border.color: Theme.cardBorder
+                border.width: 1
+            }
+            
+            Repeater {
+                model: getAudioStreams()
+                
+                MenuItem {
+                    id: audioMenuItem
+                    required property var modelData
+                    
+                    text: TrackUtils.formatTrackName(modelData)
+                    checkable: true
+                    checked: modelData.index === selectedAudioIndex
+                    
+                    indicator: Item {}
+                    
+                    contentItem: RowLayout {
+                        spacing: Theme.spacingSmall
+                        
+                        Text {
+                            text: audioMenuItem.checked ? "✓" : "  "
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.accentPrimary
+                            Layout.preferredWidth: 20
                         }
+                        
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: scrollingAudioText.height
+                            clip: true
+                            
+                            Text {
+                                id: scrollingAudioText
+                                text: audioMenuItem.text
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+                                
+                                SequentialAnimation on x {
+                                    running: scrollingAudioText.width > parent.width && audioMenuItem.highlighted
+                                    loops: Animation.Infinite
+                                    
+                                    PauseAnimation { duration: 1000 }
+                                    NumberAnimation {
+                                        to: -scrollingAudioText.width + parent.width
+                                        duration: Math.max(1000, (scrollingAudioText.width - parent.width) * 20)
+                                        easing.type: Easing.Linear
+                                    }
+                                    PauseAnimation { duration: 1000 }
+                                    NumberAnimation {
+                                        to: 0
+                                        duration: Math.max(1000, (scrollingAudioText.width - parent.width) * 20)
+                                        easing.type: Easing.Linear
+                                    }
+                                }
+                                
+                                // Reset position when not running
+                                onXChanged: {
+                                    if (!running && x !== 0) x = 0
+                                }
+                                property bool running: scrollingAudioText.width > parent.width && audioMenuItem.highlighted
+                            }
+                        }
+                    }
+                    
+                    background: Rectangle {
+                        color: parent.highlighted ? Theme.hoverOverlay : "transparent"
+                        radius: Theme.radiusSmall
+                    }
+                    
+                    onTriggered: {
+                        selectedAudioIndex = modelData.index
+                        console.log("[ContextMenu] Selected audio:", selectedAudioIndex)
+                        var seasonId = SeriesDetailsViewModel.selectedSeasonId
+                        if (seasonId) {
+                             PlayerController.saveAudioTrackPreference(seasonId, selectedAudioIndex)
+                        }
+                        contextMenu.close()
+                    }
+                }
+            }
+        }
+        
+        Menu {
+            id: subtitleMenu
+            title: "Subtitle Tracks"
+            
+            background: Rectangle {
+                implicitWidth: 280
+                color: Theme.cardBackground
+                radius: Theme.radiusMedium
+                border.color: Theme.cardBorder
+                border.width: 1
+            }
+            
+            MenuItem {
+                text: "None"
+                checkable: true
+                checked: selectedSubtitleIndex === -1
+                indicator: Item {}
+                
+                contentItem: RowLayout {
+                    spacing: Theme.spacingSmall
+                    
+                    Text {
+                        text: parent.checked ? "✓" : "  "
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        color: Theme.accentPrimary
+                        Layout.preferredWidth: 20
+                    }
+                    
+                    Text {
+                        text: parent.text
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: Theme.textPrimary
                     }
                 }
                 
-                // Find matching subtitle track
-                if (lastSubtitle >= 0) {
-                    var subtitleStreams = getSubtitleStreams()
-                    for (var j = 0; j < subtitleStreams.length; j++) {
-                        if (subtitleStreams[j].index === lastSubtitle) {
-                            selectedSubtitleIndex = lastSubtitle
-                            break
-                        }
+                background: Rectangle {
+                    color: parent.highlighted ? Theme.hoverOverlay : "transparent"
+                    radius: Theme.radiusSmall
+                }
+                
+                onTriggered: {
+                    selectedSubtitleIndex = -1
+                    console.log("[ContextMenu] Selected subtitle: None")
+                    var seasonId = SeriesDetailsViewModel.selectedSeasonId
+                    if (seasonId) {
+                         PlayerController.saveSubtitleTrackPreference(seasonId, selectedSubtitleIndex)
                     }
                 }
             }
             
-            audioSelector.forceActiveFocus()
-        }
-        
-        background: Rectangle {
-            color: Theme.backgroundSecondary
-            radius: Theme.radiusLarge
-            border.width: 3
-            border.color: Theme.accentPrimary
-        }
-        
-        FocusScope {
-            anchors.fill: parent
-            focus: true
-            
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: 32
-                spacing: 24
+            Repeater {
+                model: getSubtitleStreams()
                 
-                Text {
-                    text: "Audio & Subtitle Tracks"
-                    font.pixelSize: Theme.fontSizeHeader
-                    font.family: Theme.fontPrimary
-                    font.bold: true
-                    color: Theme.textPrimary
-                }
-                
-                // Audio track selector (dropdown)
-                TrackSelector {
-                    id: audioSelector
-                    Layout.fillWidth: true
-                    label: "Audio Track"
-                    tracks: getAudioStreams()
-                    selectedIndex: selectedAudioIndex
-                    allowNone: false
-                    focus: true
-
-                    KeyNavigation.down: subtitleSelector
-                    KeyNavigation.tab: subtitleSelector
-
-                    onTrackSelected: function(index) {
-                        selectedAudioIndex = index
-                        console.log("[TrackSelector] Selected audio track:", index, "selectedAudioIndex:", selectedAudioIndex)
-                        var seasonId = SeriesDetailsViewModel.selectedSeasonId
-                        console.log("[TrackSelector] Saving audio preference for season:", seasonId, "index:", selectedAudioIndex)
-                        if (seasonId && seasonId !== "") {
-                            PlayerController.saveAudioTrackPreference(seasonId, selectedAudioIndex)
-                        } else {
-                            console.warn("[TrackSelector] No seasonId available; audio preference not saved")
+                MenuItem {
+                    id: subtitleMenuItem
+                    required property var modelData
+                    
+                    text: TrackUtils.formatTrackName(modelData)
+                    checkable: true
+                    checked: modelData.index === selectedSubtitleIndex
+                    
+                    indicator: Item {}
+                    
+                    contentItem: RowLayout {
+                        spacing: Theme.spacingSmall
+                        
+                        Text {
+                            text: subtitleMenuItem.checked ? "✓" : "  "
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.accentPrimary
+                            Layout.preferredWidth: 20
+                        }
+                        
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: scrollingSubtitleText.height
+                            clip: true
+                            
+                            Text {
+                                id: scrollingSubtitleText
+                                text: subtitleMenuItem.text
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+                                
+                                SequentialAnimation on x {
+                                    running: scrollingSubtitleText.width > parent.width && subtitleMenuItem.highlighted
+                                    loops: Animation.Infinite
+                                    
+                                    PauseAnimation { duration: 1000 }
+                                    NumberAnimation {
+                                        to: -scrollingSubtitleText.width + parent.width
+                                        duration: Math.max(1000, (scrollingSubtitleText.width - parent.width) * 20)
+                                        easing.type: Easing.Linear
+                                    }
+                                    PauseAnimation { duration: 1000 }
+                                    NumberAnimation {
+                                        to: 0
+                                        duration: Math.max(1000, (scrollingSubtitleText.width - parent.width) * 20)
+                                        easing.type: Easing.Linear
+                                    }
+                                }
+                                
+                                // Reset position when not running
+                                onXChanged: {
+                                    if (!running && x !== 0) x = 0
+                                }
+                                property bool running: scrollingSubtitleText.width > parent.width && subtitleMenuItem.highlighted
+                            }
                         }
                     }
-                }
-                
-                // Subtitle track selector (dropdown)
-                TrackSelector {
-                    id: subtitleSelector
-                    Layout.fillWidth: true
-                    label: "Subtitle Track"
-                    tracks: getSubtitleStreams()
-                    selectedIndex: selectedSubtitleIndex
-                    allowNone: true
-                    noneText: "None"
-
-                    KeyNavigation.up: audioSelector
-                    KeyNavigation.down: closeButton
-                    KeyNavigation.tab: closeButton
-
-                    onTrackSelected: function(index) {
-                        selectedSubtitleIndex = index
-                        console.log("[TrackSelector] Selected subtitle track:", index, "selectedSubtitleIndex:", selectedSubtitleIndex)
-                        var seasonId = SeriesDetailsViewModel.selectedSeasonId
-                        console.log("[TrackSelector] Saving subtitle preference for season:", seasonId, "index:", selectedSubtitleIndex)
-                        if (seasonId && seasonId !== "") {
-                            PlayerController.saveSubtitleTrackPreference(seasonId, selectedSubtitleIndex)
-                        } else {
-                            console.warn("[TrackSelector] No seasonId available; subtitle preference not saved")
-                        }
-                    }
-                }
-                
-                Button {
-                    id: closeButton
-                    Layout.alignment: Qt.AlignRight
-                    Layout.preferredWidth: 120
-                    Layout.preferredHeight: 48
-                    focus: true
-                    text: "Close"
-                    KeyNavigation.up: subtitleSelector
-                    KeyNavigation.down: audioSelector
-                    Keys.onReturnPressed: { trackSelectorPopup.close(); event.accepted = true }
-                    Keys.onEnterPressed: { trackSelectorPopup.close(); event.accepted = true }
-                    Keys.onSpacePressed: { trackSelectorPopup.close(); event.accepted = true }
-                    onClicked: {
-                        console.log("[TrackSelector] Close button clicked")
-                        trackSelectorPopup.close()
-                    }
+                    
                     background: Rectangle {
-                        radius: Theme.radiusMedium
-                        color: parent.down ? Theme.buttonPrimaryBackgroundPressed : (parent.hovered ? Theme.buttonPrimaryBackgroundHover : Theme.buttonPrimaryBackground)
-                        border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                        border.color: parent.activeFocus ? Theme.accentPrimary : Theme.buttonPrimaryBackground
+                        color: parent.highlighted ? Theme.hoverOverlay : "transparent"
+                        radius: Theme.radiusSmall
                     }
-                    contentItem: Text {
-                        anchors.centerIn: parent
-                        text: parent.text
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        font.bold: true
-                    }
-                }
-
-                // Ensure only one selector popup is open at a time
-                Connections {
-                    target: audioSelector
-                    function onPopupVisibleChanged(visible) {
-                        if (visible) subtitleSelector.closePopup()
-                    }
-                }
-                Connections {
-                    target: subtitleSelector
-                    function onPopupVisibleChanged(visible) {
-                        if (visible) audioSelector.closePopup()
+                    
+                    onTriggered: {
+                        selectedSubtitleIndex = modelData.index
+                        console.log("[ContextMenu] Selected subtitle:", selectedSubtitleIndex)
+                        var seasonId = SeriesDetailsViewModel.selectedSeasonId
+                        if (seasonId) {
+                             PlayerController.saveSubtitleTrackPreference(seasonId, selectedSubtitleIndex)
+                        }
+                        contextMenu.close()
                     }
                 }
             }

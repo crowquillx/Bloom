@@ -113,6 +113,7 @@ qt_add_qml_module(Bloom
         ui/ToastNotification.qml
         ui/RoundedImage.qml
         ui/ActiveSessionsScreen.qml
+        ui/TrackUtils.js
 )
 
 target_link_libraries(Bloom
