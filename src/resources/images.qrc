@@ -21,4 +21,7 @@
         <file alias="allocine_user.png">images/ratings/allocine_user.png</file>
         <file alias="douban.png">images/ratings/douban.png</file>
     </qresource>
+    <qresource prefix="/images">
+        <file alias="logo.ico">images/app/logo.ico</file>
+    </qresource>
 </RCC>

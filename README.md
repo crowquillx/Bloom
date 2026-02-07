@@ -1,4 +1,7 @@
-# Bloom
+<div align="center">
+  <img src="src/resources/images/app/logo_trans.svg" width="100" height="100" />
+  <h1>Bloom</h1>
+</div>
 
 > **⚠️ WARNING: This is pre-alpha software under active development. It is NOT production ready. Expect bugs, breaking changes, and missing features. Use at your own risk.**
 
