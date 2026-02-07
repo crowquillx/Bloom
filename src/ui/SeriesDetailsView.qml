@@ -150,8 +150,8 @@ FocusScope {
     
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 48
-        spacing: Theme.spacingLarge
+        anchors.margins: root.height < 1200 ? 24 : 48
+         spacing: Theme.spacingLarge
         // keep visible to preserve previous artwork while loading new data
         
         // Left Content Area (70%) - wrapped in Flickable for scrolling on large displays
@@ -166,7 +166,7 @@ FocusScope {
             flickableDirection: Flickable.VerticalFlick
             
             // Bottom margin to ensure season titles at the bottom are fully visible (DPI-scaled)
-            readonly property int bottomMargin: Math.round(150 * Theme.dpiScale)
+            readonly property int bottomMargin: Math.round(200 * Theme.dpiScale)
             
             // Prevent scrolling above the top (negative contentY)
             onContentYChanged: {
@@ -962,16 +962,21 @@ FocusScope {
             GridView {
                 id: seasonsGrid
                 Layout.fillWidth: true
+                
+                // Responsive cell dimensions
+                readonly property int responsiveCellHeight: Math.min(Theme.seasonPosterHeight, root.height * 0.45)
+                readonly property int responsiveCellWidth: Math.round(responsiveCellHeight * (Theme.seasonPosterWidth / Theme.seasonPosterHeight))
+                
                 // Calculate height to show all seasons (no internal scrolling, parent Flickable handles scrolling)
                 Layout.preferredHeight: {
-                    if (count === 0) return Theme.seasonPosterHeight
+                    if (count === 0) return responsiveCellHeight
                     var columns = Math.max(1, Math.floor(width / cellWidth))
                     var rows = Math.ceil(count / columns)
                     // Extra padding for scale animation and text labels
                     return rows * cellHeight + Math.round(100 * Theme.dpiScale)
                 }
-                cellWidth: Theme.seasonPosterWidth
-                cellHeight: Theme.seasonPosterHeight
+                cellWidth: responsiveCellWidth
+                cellHeight: responsiveCellHeight
                 clip: true
                 topMargin: 24
                 bottomMargin: 24

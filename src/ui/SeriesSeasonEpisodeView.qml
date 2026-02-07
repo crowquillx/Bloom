@@ -620,10 +620,13 @@ FocusScope {
         anchors.bottom: parent.bottom
         anchors.leftMargin: Theme.paddingLarge
         anchors.rightMargin: Theme.paddingLarge
-        anchors.topMargin: 60
-        anchors.bottomMargin: Theme.paddingLarge
+        anchors.topMargin: root.height < 1200 ? 20 : 60
+        anchors.bottomMargin: 0
         contentWidth: width
-        contentHeight: mainContentColumn.height
+        contentHeight: mainContentColumn.implicitHeight + bottomMargin
+        
+        // Bottom margin to ensure last item is fully visible
+        readonly property int bottomMargin: 150
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
@@ -650,7 +653,7 @@ FocusScope {
         ColumnLayout {
             id: mainContentColumn
             width: mainContentFlickable.width
-            spacing: Theme.spacingLarge
+            spacing: root.height < 1200 ? Theme.spacingMedium : Theme.spacingLarge
         
         // Season tabs row
         ListView {
@@ -876,7 +879,11 @@ FocusScope {
         ListView {
             id: episodesList
             Layout.fillWidth: true
-            Layout.preferredHeight: Theme.episodeListHeight
+            
+            // Responsive height calculation
+            readonly property int responsiveHeight: Math.min(Theme.episodeListHeight, root.height * 0.4)
+            Layout.preferredHeight: responsiveHeight
+            
             Layout.topMargin: Theme.spacingMedium
             orientation: ListView.Horizontal
             spacing: Theme.spacingLarge
@@ -900,9 +907,18 @@ FocusScope {
             
             delegate: ItemDelegate {
                 id: episodeDelegate
-                width: Theme.episodeThumbWidth
-                height: Math.round(Theme.episodeThumbWidth * 9 / 16)  // 16:9 aspect ratio
-                padding: 0
+                
+                // Calculate dimensions to fit within the responsive list height
+                // Reserve space for text/padding (approx 50px scaled)
+                readonly property int textAllowance: Math.round(50 * Theme.dpiScale)
+                readonly property int availableThumbHeight: episodesList.responsiveHeight - textAllowance
+                
+                width: Math.round(availableThumbHeight * 16 / 9)
+                height: availableThumbHeight  // This sets the ItemDelegate height, typically content is anchored
+                
+                // Explicitly set implicitHeight for the delegate to ensure ListView handles it correctly
+                implicitHeight: availableThumbHeight + textAllowance
+                implicitWidth: width
                 
                 // Expose model data for external access
                 readonly property bool isPlayed: model.isPlayed || false
