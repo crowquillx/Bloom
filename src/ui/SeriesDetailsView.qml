@@ -36,8 +36,13 @@ FocusScope {
     signal backRequested()
     
     // Key handling for back navigation
-    Keys.onReleased: (event) => {
+    Keys.onPressed: (event) => {
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
+            if (contextMenu.opened) {
+                console.log("[SeriesDetailsView] Ignoring Back/Escape - context menu is open")
+                event.accepted = true
+                return
+            }
             console.log("[SeriesDetailsView] Back key pressed")
             root.backRequested()
             event.accepted = true
@@ -150,7 +155,7 @@ FocusScope {
     
     RowLayout {
         anchors.fill: parent
-        anchors.margins: 48
+        anchors.margins: root.height < 1200 ? 24 : 48
         spacing: Theme.spacingLarge
         // keep visible to preserve previous artwork while loading new data
         
@@ -166,7 +171,7 @@ FocusScope {
             flickableDirection: Flickable.VerticalFlick
             
             // Bottom margin to ensure season titles at the bottom are fully visible (DPI-scaled)
-            readonly property int bottomMargin: Math.round(150 * Theme.dpiScale)
+            readonly property int bottomMargin: Math.round(200 * Theme.dpiScale)
             
             // Prevent scrolling above the top (negative contentY)
             onContentYChanged: {
@@ -448,10 +453,10 @@ FocusScope {
                         event.accepted = true
                     }
                     
-                    Keys.onReturnPressed: contextMenu.open()
-                    Keys.onEnterPressed: contextMenu.open()
+                    Keys.onReturnPressed: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
+                    Keys.onEnterPressed: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
                     
-                    onClicked: contextMenu.open()
+                    onClicked: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
                     
                     ToolTip.visible: hovered
                     ToolTip.text: "More options"
@@ -484,171 +489,6 @@ FocusScope {
                         verticalAlignment: Text.AlignVCenter
                     }
                     
-                    // Context Menu
-                    Menu {
-                        id: contextMenu
-                        y: parent.height
-                        
-                        background: Rectangle {
-                            implicitWidth: 280
-                            color: Theme.cardBackground
-                            radius: Theme.radiusMedium
-                            border.color: Theme.cardBorder
-                            border.width: 1
-                            
-                            layer.enabled: true
-                            layer.effect: MultiEffect {
-                                shadowEnabled: true
-                                shadowHorizontalOffset: 0
-                                shadowVerticalOffset: 4
-                                shadowBlur: 0.5
-                                shadowColor: "#44000000"
-                            }
-                        }
-                        
-                        // MPV Profile Submenu
-                        Menu {
-                            id: profileSubmenu
-                            title: "MPV Profile"
-                            
-                            // Track current profile - updates when ConfigManager emits signal
-                            property string currentProfile: ConfigManager.getSeriesProfile(root.seriesId)
-                            
-                            Connections {
-                                target: ConfigManager
-                                function onSeriesProfilesChanged() {
-                                    profileSubmenu.currentProfile = ConfigManager.getSeriesProfile(root.seriesId)
-                                }
-                            }
-                            
-                            // Also update when menu opens
-                            onAboutToShow: {
-                                currentProfile = ConfigManager.getSeriesProfile(root.seriesId)
-                            }
-                            
-                            background: Rectangle {
-                                implicitWidth: 220
-                                color: Theme.cardBackground
-                                radius: Theme.radiusMedium
-                                border.color: Theme.cardBorder
-                                border.width: 1
-                            }
-                            
-                            // Current profile indicator
-                            MenuItem {
-                                text: {
-                                    if (profileSubmenu.currentProfile === "") {
-                                        return "Current: Use Default"
-                                    }
-                                    return "Current: " + profileSubmenu.currentProfile
-                                }
-                                enabled: false
-                                
-                                contentItem: Text {
-                                    text: parent.text
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.family: Theme.fontPrimary
-                                    color: Theme.textSecondary
-                                    font.italic: true
-                                }
-                                
-                                background: Rectangle {
-                                    color: "transparent"
-                                }
-                            }
-                            
-                            MenuSeparator {
-                                contentItem: Rectangle {
-                                    implicitHeight: 1
-                                    color: Theme.borderLight
-                                }
-                            }
-                            
-                            // Use Default option
-                            MenuItem {
-                                id: defaultProfileItem
-                                text: "Use Default"
-                                
-                                contentItem: RowLayout {
-                                    spacing: Theme.spacingSmall
-                                    
-                                    Text {
-                                        text: profileSubmenu.currentProfile === "" ? "✓" : "  "
-                                        font.pixelSize: Theme.fontSizeSmall
-                                        font.family: Theme.fontPrimary
-                                        color: Theme.accentPrimary
-                                        Layout.preferredWidth: 20
-                                    }
-                                    
-                                    Text {
-                                        text: "Use Default"
-                                        font.pixelSize: Theme.fontSizeBody
-                                        font.family: Theme.fontPrimary
-                                        color: Theme.textPrimary
-                                    }
-                                }
-                                
-                                background: Rectangle {
-                                    color: parent.highlighted ? Theme.hoverOverlay : "transparent"
-                                    radius: Theme.radiusSmall
-                                }
-                                
-                                onTriggered: {
-                                    ConfigManager.setSeriesProfile(root.seriesId, "")
-                                    profileSubmenu.close()
-                                    contextMenu.close()
-                                }
-                            }
-                            
-                            MenuSeparator {
-                                contentItem: Rectangle {
-                                    implicitHeight: 1
-                                    color: Theme.borderLight
-                                }
-                            }
-                            
-                            // Profile options
-                            Repeater {
-                                model: ConfigManager.mpvProfileNames
-                                
-                                MenuItem {
-                                    required property string modelData
-                                    
-                                    text: modelData
-                                    
-                                    contentItem: RowLayout {
-                                        spacing: Theme.spacingSmall
-                                        
-                                        Text {
-                                            text: profileSubmenu.currentProfile === modelData ? "✓" : "  "
-                                            font.pixelSize: Theme.fontSizeSmall
-                                            font.family: Theme.fontPrimary
-                                            color: Theme.accentPrimary
-                                            Layout.preferredWidth: 20
-                                        }
-                                        
-                                        Text {
-                                            text: modelData
-                                            font.pixelSize: Theme.fontSizeBody
-                                            font.family: Theme.fontPrimary
-                                            color: Theme.textPrimary
-                                        }
-                                    }
-                                    
-                                    background: Rectangle {
-                                        color: parent.highlighted ? Theme.hoverOverlay : "transparent"
-                                        radius: Theme.radiusSmall
-                                    }
-                                    
-                                    onTriggered: {
-                                        ConfigManager.setSeriesProfile(root.seriesId, modelData)
-                                        profileSubmenu.close()
-                                        contextMenu.close()
-                                    }
-                                }
-                            }
-                        }
-                    }
                 }
             }
             
@@ -962,16 +802,21 @@ FocusScope {
             GridView {
                 id: seasonsGrid
                 Layout.fillWidth: true
+                
+                // Responsive cell dimensions
+                readonly property int responsiveCellHeight: Math.min(Theme.seasonPosterHeight, root.height * 0.45)
+                readonly property int responsiveCellWidth: Math.round(responsiveCellHeight * (Theme.seasonPosterWidth / Theme.seasonPosterHeight))
+                
                 // Calculate height to show all seasons (no internal scrolling, parent Flickable handles scrolling)
                 Layout.preferredHeight: {
-                    if (count === 0) return Theme.seasonPosterHeight
+                    if (count === 0) return responsiveCellHeight
                     var columns = Math.max(1, Math.floor(width / cellWidth))
                     var rows = Math.ceil(count / columns)
                     // Extra padding for scale animation and text labels
                     return rows * cellHeight + Math.round(100 * Theme.dpiScale)
                 }
-                cellWidth: Theme.seasonPosterWidth
-                cellHeight: Theme.seasonPosterHeight
+                cellWidth: responsiveCellWidth
+                cellHeight: responsiveCellHeight
                 clip: true
                 topMargin: 24
                 bottomMargin: 24
@@ -1562,6 +1407,220 @@ FocusScope {
                 // Always ensure seasons are at least partially visible on large screens
                 leftContentFlickable.ensureInitialSeasonsVisibility()
             })
+        }
+    }
+
+    // Context Menu for MPV Profile Selection
+    Menu {
+        id: contextMenu
+        // y: parent.height - Removed to allow popup() to handle positioning
+        
+        background: Rectangle {
+            implicitWidth: 280
+            color: Theme.cardBackground
+            radius: Theme.radiusMedium
+            border.color: Theme.cardBorder
+            border.width: 1
+            
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowHorizontalOffset: 0
+                shadowVerticalOffset: 4
+                shadowBlur: 0.5
+                shadowColor: "#44000000"
+            }
+        }
+        
+        delegate: MenuItem {
+            id: menuItem
+            implicitWidth: 240
+            implicitHeight: 40
+            
+            arrow: Canvas {
+                x: parent.width - width - 12
+                y: parent.height / 2 - height / 2
+                width: 12
+                height: 12
+                visible: menuItem.subMenu
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.fillStyle = menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
+                    ctx.moveTo(0, 0)
+                    ctx.lineTo(0, height)
+                    ctx.lineTo(width, height / 2)
+                    ctx.closePath()
+                    ctx.fill()
+                }
+            }
+            
+            contentItem: Text {
+                text: menuItem.text
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                color: menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: 12
+                rightPadding: menuItem.arrow.width + 12
+            }
+            
+            background: Rectangle {
+                implicitWidth: 240
+                implicitHeight: 40
+                opacity: enabled ? 1 : 0.3
+                color: menuItem.highlighted ? Theme.hoverOverlay : "transparent"
+                radius: Theme.radiusSmall
+            }
+        }
+        
+        onOpened: {
+            console.log("[ContextMenu] Menu opened")
+            currentIndex = 0
+            forceActiveFocus()
+        }
+        
+        // MPV Profile Submenu
+        Menu {
+            id: profileSubmenu
+            title: "MPV Profile"
+            
+            // Track current profile - updates when ConfigManager emits signal
+            property string currentProfile: ConfigManager.getSeriesProfile(root.seriesId)
+            
+            Connections {
+                target: ConfigManager
+                function onSeriesProfilesChanged() {
+                    profileSubmenu.currentProfile = ConfigManager.getSeriesProfile(root.seriesId)
+                }
+            }
+            
+            // Also update when menu opens
+            onAboutToShow: {
+                currentProfile = ConfigManager.getSeriesProfile(root.seriesId)
+            }
+            
+            background: Rectangle {
+                implicitWidth: 220
+                color: Theme.cardBackground
+                radius: Theme.radiusMedium
+                border.color: Theme.cardBorder
+                border.width: 1
+            }
+            
+            // Current profile indicator
+            MenuItem {
+                text: {
+                    if (profileSubmenu.currentProfile === "") {
+                        return "Current: Use Default"
+                    }
+                    return "Current: " + profileSubmenu.currentProfile
+                }
+                enabled: false
+                
+                contentItem: Text {
+                    text: parent.text
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    font.italic: true
+                }
+                
+                background: Rectangle {
+                    color: "transparent"
+                }
+            }
+            
+            MenuSeparator {
+                contentItem: Rectangle {
+                    implicitHeight: 1
+                    color: Theme.borderLight
+                }
+            }
+            
+            // Use Default option
+            MenuItem {
+                id: defaultProfileItem
+                text: "Use Default"
+                
+                contentItem: RowLayout {
+                    spacing: Theme.spacingSmall
+                    
+                    Text {
+                        text: profileSubmenu.currentProfile === "" ? "✓" : "  "
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        color: Theme.accentPrimary
+                        Layout.preferredWidth: 20
+                    }
+                    
+                    Text {
+                        text: "Use Default"
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: Theme.textPrimary
+                    }
+                }
+                
+                background: Rectangle {
+                    color: parent.highlighted ? Theme.hoverOverlay : "transparent"
+                    radius: Theme.radiusSmall
+                }
+                
+                onTriggered: {
+                    ConfigManager.setSeriesProfile(root.seriesId, "")
+                    profileSubmenu.close()
+                    contextMenu.close()
+                }
+            }
+            
+            MenuSeparator {
+                contentItem: Rectangle {
+                    implicitHeight: 1
+                    color: Theme.borderLight
+                }
+            }
+            
+            // Profile options
+            Repeater {
+                model: ConfigManager.mpvProfileNames
+                
+                MenuItem {
+                    required property string modelData
+                    
+                    text: modelData
+                    
+                    contentItem: RowLayout {
+                        spacing: Theme.spacingSmall
+                        
+                        Text {
+                            text: profileSubmenu.currentProfile === modelData ? "✓" : "  "
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.accentPrimary
+                            Layout.preferredWidth: 20
+                        }
+                        
+                        Text {
+                            text: modelData
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+                    }
+                    
+                    background: Rectangle {
+                        color: parent.highlighted ? Theme.hoverOverlay : "transparent"
+                        radius: Theme.radiusSmall
+                    }
+                    
+                    onTriggered: {
+                        ConfigManager.setSeriesProfile(root.seriesId, modelData)
+                        profileSubmenu.close()
+                        contextMenu.close()
+                    }
+                }
+            }
         }
     }
 }

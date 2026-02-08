@@ -162,20 +162,32 @@ FocusScope {
         }
     }
     
+    // Track when we left the home screen to determine if refresh is needed
+    property double lastDeactivatedTime: 0
+    property int refreshThresholdMs: 30000  // Only refresh if gone for more than 30 seconds
+    
     StackView.onStatusChanged: {
         console.log("[FocusDebug] HomeScreen StackView.statusChanged:", StackView.status)
         if (StackView.status === StackView.Active) {
-            console.log("[FocusDebug] HomeScreen now active, restoring focus state")
+            console.log("[FocusDebug] HomeScreen now active")
             
-            // Restore focus state when returning to home screen
+            // Restore focus IMMEDIATELY when returning to home screen
             restoreFocusState()
             
-            // Refresh dynamic content when returning to home screen (not on initial load)
+            // Only refresh if we've been away for a while (30+ seconds)
             if (hasBeenActivated) {
-                refreshDynamicContent()
+                var timeSinceDeactivation = Date.now() - lastDeactivatedTime
+                if (timeSinceDeactivation > refreshThresholdMs) {
+                    console.log("[FocusDebug] Refreshing dynamic content (been away", timeSinceDeactivation, "ms)")
+                    refreshDynamicContent()
+                } else {
+                    console.log("[FocusDebug] Skipping refresh (returned quickly)")
+                }
             } else {
                 hasBeenActivated = true
             }
+        } else if (StackView.status === StackView.Deactivating) {
+            lastDeactivatedTime = Date.now()
         }
     }
     
@@ -397,6 +409,17 @@ FocusScope {
                 displaced: Transition {
                     NumberAnimation { properties: "x"; duration: 200; easing.type: Easing.OutCubic }
                 }
+                add: Transition {
+                    NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                    NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                }
+                populate: Transition {
+                    NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                    NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                }
+                remove: Transition {
+                    NumberAnimation { property: "opacity"; to: 0; duration: 200; easing.type: Easing.OutQuad }
+                }
                     
                     model: librariesModel
                     
@@ -571,6 +594,31 @@ FocusScope {
                     preferredHighlightEnd: width - 40
                     highlightRangeMode: ListView.StrictlyEnforceRange
                     highlightMoveDuration: 0
+
+                    add: Transition {
+                        NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                        NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                    }
+                    populate: Transition {
+                        NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                        NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                    }
+                    addDisplaced: Transition {
+                        NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                    }
+                    move: Transition {
+                        NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                    }
+                    remove: Transition {
+                        NumberAnimation { property: "opacity"; to: 0; duration: 200; easing.type: Easing.OutQuad }
+                        NumberAnimation { property: "scale"; to: 0.9; duration: 200; easing.type: Easing.OutQuad }
+                    }
+                    removeDisplaced: Transition {
+                        NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                    }
+                    displaced: Transition {
+                        NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                    }
                     
                     model: nextUpModel
                     
@@ -817,6 +865,31 @@ FocusScope {
                             preferredHighlightEnd: width - 40
                             highlightRangeMode: ListView.StrictlyEnforceRange
                             highlightMoveDuration: 0
+                            
+                            add: Transition {
+                                NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                                NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                            }
+                            populate: Transition {
+                                NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                                NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                            }
+                            addDisplaced: Transition {
+                                NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                            }
+                            move: Transition {
+                                NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                            }
+                            remove: Transition {
+                                NumberAnimation { property: "opacity"; to: 0; duration: 200; easing.type: Easing.OutQuad }
+                                NumberAnimation { property: "scale"; to: 0.9; duration: 200; easing.type: Easing.OutQuad }
+                            }
+                            removeDisplaced: Transition {
+                                NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                            }
+                            displaced: Transition {
+                                NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                            }
                             
                             model: parent.items
                             
@@ -1261,11 +1334,21 @@ FocusScope {
             for (var i = 0; i < items.length; i++) {
                 root.addBackdropCandidate(items[i])
             }
+            
+            // Restore focus if we had focus in Next Up section
+            Qt.callLater(function() {
+                if (lastFocusedSection === "nextUp") {
+                    restoreFocusState()
+                }
+            })
         }
         
         function onLatestMediaLoaded(parentId, items) {
-            // Add to map
-            var newMap = recentlyAddedMap
+            // Update map safely to trigger bindings without destroying delegates
+            var newMap = {}
+            for (var key in recentlyAddedMap) {
+                newMap[key] = recentlyAddedMap[key]
+            }
             newMap[parentId] = items
             recentlyAddedMap = newMap
             
@@ -1274,9 +1357,9 @@ FocusScope {
                 root.addBackdropCandidate(items[i])
             }
             
-            // Force update
-            recentlyAddedRepeater.model = null
-            recentlyAddedRepeater.model = librariesModel
+            // Note: We removed the aggressive recentlyAddedRepeater.model = null reset
+            // because updating recentlyAddedMap (with a new object reference) is sufficient 
+            // for the inner ListViews to update their 'items' binding.
         }
         
         function onErrorOccurred(endpoint, error) {
