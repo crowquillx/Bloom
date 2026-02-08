@@ -73,6 +73,9 @@ jobs:
           mkdir Bloom-Windows
           cp build/src/Bloom.exe Bloom-Windows/
           windeployqt Bloom-Windows/Bloom.exe --qmldir src/ui --release --no-translations
+          if (Test-Path Bloom-Windows/BloomUI) {
+            Remove-Item -Recurse -Force Bloom-Windows/BloomUI
+          }
 
       - name: Install NSIS
         run: |
