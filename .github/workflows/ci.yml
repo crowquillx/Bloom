@@ -73,8 +73,17 @@ jobs:
           mkdir Bloom-Windows
           cp build/src/Bloom.exe Bloom-Windows/
           windeployqt Bloom-Windows/Bloom.exe --qmldir src/ui --release --no-translations
-          if (Test-Path Bloom-Windows/BloomUI) {
-            Remove-Item -Recurse -Force Bloom-Windows/BloomUI
+          
+          # Debug: List all files to see where BloomUI is
+          Get-ChildItem -Path Bloom-Windows -Recurse | Select-Object FullName
+          
+          # Robust cleanup of redundant BloomUI module
+          $redundantModule = Get-ChildItem -Path Bloom-Windows -Filter "BloomUI" -Recurse -Directory
+          if ($redundantModule) {
+            Write-Host "Removing redundant BloomUI module found at: $($redundantModule.FullName)"
+            Remove-Item -Recurse -Force $redundantModule.FullName
+          } else {
+            Write-Host "WARNING: BloomUI module not found in deployment output."
           }
 
       - name: Install NSIS
