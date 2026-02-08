@@ -156,7 +156,7 @@ FocusScope {
     RowLayout {
         anchors.fill: parent
         anchors.margins: root.height < 1200 ? 24 : 48
-         spacing: Theme.spacingLarge
+        spacing: Theme.spacingLarge
         // keep visible to preserve previous artwork while loading new data
         
         // Left Content Area (70%) - wrapped in Flickable for scrolling on large displays

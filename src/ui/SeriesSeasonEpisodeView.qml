@@ -966,51 +966,6 @@ FocusScope {
                 readonly property bool isFavorite: model.isFavorite || false
                 readonly property string itemId: model.itemId || ""
                 readonly property var playbackPosition: model.playbackPositionTicks || 0
-                // Connection to handle post-playback navigation to next episode
-    Connections {
-        target: PlayerController
-        
-        function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex) {
-            console.log("[Main] Navigating to next episode after playback:", 
-                        episodeData.SeriesName, "S" + episodeData.ParentIndexNumber + "E" + episodeData.IndexNumber,
-                        "Audio:", lastAudioIndex, "Subtitle:", lastSubtitleIndex)
-            
-            // Pop back to the root level (home screen) first, then navigate to the episode
-            while (stackView.depth > 1) {
-                stackView.pop(null)  // Pop without transition
-            }
-            
-            // Navigate to the episode view via LibraryScreen
-            // We use empty library info since we're coming from playback context
-            stackView.push("LibraryScreen.qml", {
-                currentParentId: "",
-                currentLibraryId: "",
-                currentLibraryName: "",
-                currentSeriesId: seriesId,
-                directNavigationMode: true,
-                // Pass the track preferences to be applied
-                pendingAudioTrackIndex: lastAudioIndex,
-                pendingSubtitleTrackIndex: lastSubtitleIndex
-            })
-            
-            // Load series details for context
-            LibraryService.getSeriesDetails(seriesId)
-            
-            // Defer calling showEpisodeDetails until screen is ready
-            Qt.callLater(function() {
-                var screen = stackView.currentItem
-                if (screen && screen.showEpisodeDetails) {
-                    screen.showEpisodeDetails(episodeData)
-                }
-            })
-        }
-        
-        ignoreUnknownSignals: true
-    }
-
-    // Helper functions for track formatting (ported from TrackSelector.qml)
-    // Now using TrackUtils.js
-
 
                 background: Rectangle {
                     radius: Theme.radiusMedium
