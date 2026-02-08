@@ -1480,6 +1480,13 @@ FocusScope {
             forceActiveFocus()
         }
         
+        onClosed: {
+            console.log("[ContextMenu] Menu closed, restoring focus to contextMenuButton")
+            Qt.callLater(function() {
+                contextMenuButton.forceActiveFocus()
+            })
+        }
+        
         // MPV Profile Submenu
         Menu {
             id: profileSubmenu

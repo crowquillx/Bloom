@@ -1464,6 +1464,13 @@ FocusScope {
             }
         }
         
+        onClosed: {
+            console.log("[ContextMenu] Menu closed, restoring focus to contextMenuButton")
+            Qt.callLater(function() {
+                contextMenuButton.forceActiveFocus()
+            })
+        }
+        
         Menu {
             id: audioMenu
             title: "Audio Tracks"
