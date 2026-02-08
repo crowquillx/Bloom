@@ -1335,9 +1335,9 @@ FocusScope {
                 root.addBackdropCandidate(items[i])
             }
             
-            // Restore focus if we had focus in Next Up section
+            // Restore focus if we had focus in Next Up section AND we're still the active screen
             Qt.callLater(function() {
-                if (lastFocusedSection === "nextUp") {
+                if (lastFocusedSection === "nextUp" && StackView.status === StackView.Active) {
                     restoreFocusState()
                 }
             })

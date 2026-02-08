@@ -155,6 +155,14 @@ FocusScope {
         }
     }
     
+    // Focus delegation: when this view receives focus, delegate to the episode list
+    onActiveFocusChanged: {
+        if (activeFocus) {
+            console.log("[SeriesSeasonEpisodeView] View received focus, delegating to episodesList")
+            episodesList.forceActiveFocus()
+        }
+    }
+    
     focus: true
     
     // Load series details and initial season
@@ -184,23 +192,33 @@ FocusScope {
     }
     
     function selectInitialEpisode() {
-        if (episodesList.count === 0) return
+        if (episodesList.count === 0) {
+            console.log("[SeriesSeasonEpisodeView] selectInitialEpisode: No episodes, skipping")
+            return
+        }
         
         var targetIndex = 0
+        var foundInitialEpisode = false
         
         // First priority: if a specific episode ID was requested, find and select it
         if (initialEpisodeId !== "") {
-            console.log("[SeriesSeasonEpisodeView] Looking for initial episode ID:", initialEpisodeId, "in count:", episodesList.count)
+            console.log("[SeriesSeasonEpisodeView] Looking for initial episode ID:", initialEpisodeId, "in count:", episodesList.count, "for season:", SeriesDetailsViewModel.selectedSeasonId)
             for (var i = 0; i < episodesList.count; i++) {
                 var ep = SeriesDetailsViewModel.episodesModel.getItem(i)
                 if (ep && (ep.itemId === initialEpisodeId || ep.Id === initialEpisodeId)) {
                     console.log("[SeriesSeasonEpisodeView] Found initial episode at index:", i)
                     targetIndex = i
+                    foundInitialEpisode = true
                     break
                 }
             }
-        } else {
-            // Fallback: find first unplayed or partially-watched episode
+            if (!foundInitialEpisode) {
+                console.log("[SeriesSeasonEpisodeView] Initial episode ID not found in current season, using first unplayed")
+            }
+        }
+        
+        // Fallback: find first unplayed or partially-watched episode
+        if (!foundInitialEpisode) {
             for (var j = 0; j < episodesList.count; j++) {
                 var ep2 = SeriesDetailsViewModel.episodesModel.getItem(j)
                 if (!ep2.isPlayed) {
@@ -213,14 +231,18 @@ FocusScope {
             }
         }
         
+        console.log("[SeriesSeasonEpisodeView] Setting currentIndex to:", targetIndex)
         episodesList.currentIndex = targetIndex
         episodesList.positionViewAtIndex(targetIndex, ListView.Center)
         updateSelectedEpisode(targetIndex)
         
         // Don't request playback info on initial load - only request when user presses play
         
-        // Focus the episode list
-        episodesList.forceActiveFocus()
+        // Focus the episode list with a slight delay to ensure UI is ready
+        Qt.callLater(function() {
+            console.log("[SeriesSeasonEpisodeView] Restoring focus to episodesList")
+            episodesList.forceActiveFocus()
+        })
     }
     
     function updateSelectedEpisode(index) {
