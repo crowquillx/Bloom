@@ -76,6 +76,10 @@ set_source_files_properties(ui/Icons.qml PROPERTIES
 
 qt_policy(SET QTP0004 NEW)
 
+set_source_files_properties(ui/TrackUtils.js PROPERTIES
+    QT_QML_SKIP_QMLDIR_ENTRY TRUE
+)
+
 qt6_add_shaders(Bloom "bloom_shaders"
     PREFIX /shaders
     OUTPUTS
