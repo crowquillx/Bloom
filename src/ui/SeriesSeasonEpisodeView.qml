@@ -543,7 +543,8 @@ FocusScope {
         if (selectedAudioIndex >= 0) {
             PlayerController.saveAudioTrackPreference(seasonId, selectedAudioIndex);
         }
-        if (selectedSubtitleIndex >= 0) {
+        // Allow saving "None" (-1) if a season is selected, or any valid index
+        if (selectedSubtitleIndex >= -1 && seasonId) {
             PlayerController.saveSubtitleTrackPreference(seasonId, selectedSubtitleIndex);
         }
         performPlayback(fromBeginning)
@@ -952,7 +953,7 @@ FocusScope {
                 // Calculate dimensions to fit within the responsive list height
                 // Reserve space for text/padding (approx 50px scaled)
                 readonly property int textAllowance: Math.round(50 * Theme.dpiScale)
-                readonly property int availableThumbHeight: episodesList.responsiveHeight - textAllowance
+                readonly property int availableThumbHeight: Math.max(1, episodesList.responsiveHeight - textAllowance)
                 
                 width: Math.round(availableThumbHeight * 16 / 9)
                 height: availableThumbHeight  // This sets the ItemDelegate height, typically content is anchored
