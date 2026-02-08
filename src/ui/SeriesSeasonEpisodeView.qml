@@ -24,6 +24,44 @@ FocusScope {
                                     string playSessionId, int audioIndex, int subtitleIndex,
                                     int mpvAudioTrack, int mpvSubtitleTrack, double framerate, bool isHDR)
     
+    Connections {
+        target: SeriesDetailsViewModel
+        function onSeriesLoaded() {
+            // [FIX] When series details are loaded, ensure we enforce the initialSeasonId
+            // This prevents the view from defaulting to the first season/specials if the series
+            // load completes after the view is shown.
+            Qt.callLater(function() {
+                if (initialSeasonId !== "") {
+                    console.log("[SeriesSeasonEpisodeView] Series loaded signal (delayed), checking enforcement. Target:", initialSeasonId, "Current:", SeriesDetailsViewModel.selectedSeasonId)
+                    if (SeriesDetailsViewModel.selectedSeasonId !== initialSeasonId) {
+                        console.log("[SeriesSeasonEpisodeView] Enforcing initial season:", initialSeasonId)
+                        SeriesDetailsViewModel.loadSeasonEpisodes(initialSeasonId)
+                    } else {
+                        console.log("[SeriesSeasonEpisodeView] Correct season already selected:", initialSeasonId)
+                    }
+                }
+            })
+        }
+    }
+    
+    Connections {
+        target: SeriesDetailsViewModel.seasonsModel
+        function onModelReset() {
+            // [FIX] When the seasons list is populated, the view model might default to the first season.
+            // We need to re-enforce our desired season ID here.
+            console.log("[SeriesSeasonEpisodeView] Seasons model reset, count:", SeriesDetailsViewModel.seasonsModel.rowCount())
+            Qt.callLater(function() {
+                if (initialSeasonId !== "") {
+                    console.log("[SeriesSeasonEpisodeView] Checking season enforcement after model reset. Target:", initialSeasonId, "Current:", SeriesDetailsViewModel.selectedSeasonId)
+                    if (SeriesDetailsViewModel.selectedSeasonId !== initialSeasonId) {
+                        console.log("[SeriesSeasonEpisodeView] Enforcing initial season (post-reset):", initialSeasonId)
+                        SeriesDetailsViewModel.loadSeasonEpisodes(initialSeasonId)
+                    }
+                }
+            })
+        }
+    }
+    
     // Currently selected episode (from ListView currentIndex)
     property var selectedEpisodeData: null
     property string selectedEpisodeId: episodesList.currentItem ? episodesList.currentItem.itemId : ""
@@ -121,8 +159,11 @@ FocusScope {
     
     // Load series details and initial season
     Component.onCompleted: {
-        if (seriesId !== "") {
+        if (seriesId !== "" && SeriesDetailsViewModel.seriesId !== seriesId) {
+            console.log("[SeriesSeasonEpisodeView] Loading series details needed:", seriesId)
             SeriesDetailsViewModel.loadSeriesDetails(seriesId)
+        } else {
+            console.log("[SeriesSeasonEpisodeView] Series details already loaded/matching for:", seriesId)
         }
         // Initial season loading is handled via onInitialSeasonIdChanged
     }
@@ -149,7 +190,7 @@ FocusScope {
         
         // First priority: if a specific episode ID was requested, find and select it
         if (initialEpisodeId !== "") {
-            console.log("[SeriesSeasonEpisodeView] Looking for initial episode ID:", initialEpisodeId)
+            console.log("[SeriesSeasonEpisodeView] Looking for initial episode ID:", initialEpisodeId, "in count:", episodesList.count)
             for (var i = 0; i < episodesList.count; i++) {
                 var ep = SeriesDetailsViewModel.episodesModel.getItem(i)
                 if (ep && (ep.itemId === initialEpisodeId || ep.Id === initialEpisodeId)) {

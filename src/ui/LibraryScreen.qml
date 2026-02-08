@@ -1517,6 +1517,18 @@ FocusScope {
         currentEpisodeData = episodeData
         // Store the episode ID so SeriesSeasonEpisodeView can highlight it
         initialEpisodeId = episodeData.itemId || episodeData.Id || ""
+
+        // [FIX] Extract seasonId from episode data BEFORE showing the view
+        // If we don't have a seasonId yet (e.g., coming from HomeScreen or post-playback navigation),
+        // extract it from the episode data so the view initializes with the correct season.
+        if (!currentSeasonId && episodeData) {
+            var extractedSeasonId = episodeData.SeasonId || episodeData.ParentId || ""
+            if (extractedSeasonId) {
+                console.log("[Library] Extracted seasonId from episode data:", extractedSeasonId)
+                currentSeasonId = extractedSeasonId
+            }
+        }
+
         showSeasonView = true
         showSeriesDetails = false
         
@@ -1524,16 +1536,6 @@ FocusScope {
         if (currentSeriesId && SeriesDetailsViewModel.seriesId !== currentSeriesId) {
             console.log("[Library] Loading series details for episode context:", currentSeriesId)
             SeriesDetailsViewModel.loadSeriesDetails(currentSeriesId)
-        }
-        
-        // If we don't have a seasonId yet (e.g., coming from HomeScreen or post-playback navigation),
-        // extract it from the episode data
-        if (!currentSeasonId && episodeData) {
-            var extractedSeasonId = episodeData.SeasonId || episodeData.ParentId || ""
-            if (extractedSeasonId) {
-                console.log("[Library] Extracted seasonId from episode data:", extractedSeasonId)
-                currentSeasonId = extractedSeasonId
-            }
         }
         
         // Update backdrop for the episode
