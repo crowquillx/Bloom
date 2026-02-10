@@ -1119,10 +1119,31 @@ FocusScope {
                             Layout.fillWidth: true
                             
                             KeyNavigation.up: dpiScaleSlider
-                            KeyNavigation.down: hdrSwitch
+                            KeyNavigation.down: framerateDelaySlider
                             
                             onToggled: function(value) {
                                 ConfigManager.enableFramerateMatching = value
+                            }
+                        }
+                        
+                        // Framerate Match Delay
+                        SettingsSliderRow {
+                            id: framerateDelaySlider
+                            label: qsTr("Refresh Rate Switch Delay")
+                            description: qsTr("Seconds to wait after switching refresh rate before starting playback (prevents dropped frames)")
+                            value: ConfigManager.framerateMatchDelay
+                            from: 0
+                            to: 5
+                            stepSize: 1
+                            unit: "s"
+                            Layout.fillWidth: true
+                            enabled: ConfigManager.enableFramerateMatching
+                            
+                            KeyNavigation.up: framerateMatchingSwitch
+                            KeyNavigation.down: hdrSwitch
+                            
+                            onSliderValueChanged: function(newValue) {
+                                ConfigManager.framerateMatchDelay = newValue
                             }
                         }
                         
@@ -1134,7 +1155,7 @@ FocusScope {
                             checked: ConfigManager.enableHDR
                             Layout.fillWidth: true
                             
-                            KeyNavigation.up: framerateMatchingSwitch
+                            KeyNavigation.up: framerateDelaySlider
                             KeyNavigation.down: advancedToggle
                             
                             onToggled: function(value) {

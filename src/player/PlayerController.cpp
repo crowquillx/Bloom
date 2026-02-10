@@ -1153,11 +1153,20 @@ void PlayerController::startPlayback(const QString &url)
     if (m_config->getEnableFramerateMatching() && m_contentFramerate > 0) {
         // Pass the exact framerate to DisplayManager for precise matching
         // TVs like LG can match exact 23.976Hz, while others will use closest available (24Hz)
-        qDebug() << "PlayerController: Content framerate:" << m_contentFramerate 
+        qDebug() << "PlayerController: Content framerate:" << m_contentFramerate
                  << "-> attempting exact refresh rate match";
         
         if (m_displayManager->setRefreshRate(m_contentFramerate)) {
             qDebug() << "PlayerController: Successfully set display refresh rate for framerate" << m_contentFramerate;
+            
+            // Wait for display to stabilize after refresh rate change
+            // This prevents dropped frames caused by starting playback before
+            // the display/GPU has finished transitioning to the new mode
+            int delaySeconds = m_config->getFramerateMatchDelay();
+            if (delaySeconds > 0) {
+                qDebug() << "PlayerController: Waiting" << delaySeconds << "seconds for display to stabilize";
+                QThread::msleep(static_cast<unsigned long>(delaySeconds * 1000));
+            }
         } else {
             qWarning() << "PlayerController: Failed to set display refresh rate for framerate" << m_contentFramerate;
         }
