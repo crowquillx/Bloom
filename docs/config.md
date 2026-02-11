@@ -48,3 +48,12 @@ Display settings
   - Useful for fine-tuning content size on high-DPI displays (4K@300% scaling), unusual display configurations, or accessibility needs
   - Configurable via Settings > Display > Content Scale Override slider
   - The final DPI scale is calculated as: `baseScale * manualDpiScaleOverride`, where baseScale is determined by screen resolution and device pixel ratio
+
+Video settings
+- `settings.video.enable_framerate_matching` (Q_PROPERTY `enableFramerateMatching`): When true, automatically switches the display refresh rate to match the video content framerate. Default: false. Configurable via Settings > Video > Enable Framerate Matching.
+- `settings.video.framerate_match_delay` (Q_PROPERTY `framerateMatchDelay`): Seconds to wait after switching refresh rate before starting playback. Range: 0-5 seconds. Default: 1 second.
+  - This delay allows the display and GPU to stabilize after the mode switch, preventing dropped frames that can occur if playback starts immediately
+  - Especially important on Windows where display mode changes can be asynchronous
+  - Set to 0 to disable the delay (not recommended if experiencing dropped frames)
+  - Configurable via Settings > Video > Refresh Rate Switch Delay slider (always visible; disabled/grayed out when Framerate Matching is off, interactive only when enabled)
+- `settings.video.enable_hdr` (Q_PROPERTY `enableHDR`): When true, enables HDR output for HDR content. Default: false. Configurable via Settings > Video > Enable HDR.

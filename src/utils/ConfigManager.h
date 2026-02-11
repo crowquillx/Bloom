@@ -71,6 +71,7 @@ class ConfigManager : public QObject
     
     // Video Settings
     Q_PROPERTY(bool enableFramerateMatching READ getEnableFramerateMatching WRITE setEnableFramerateMatching NOTIFY enableFramerateMatchingChanged)
+    Q_PROPERTY(int framerateMatchDelay READ getFramerateMatchDelay WRITE setFramerateMatchDelay NOTIFY framerateMatchDelayChanged)
     Q_PROPERTY(bool enableHDR READ getEnableHDR WRITE setEnableHDR NOTIFY enableHDRChanged)
     Q_PROPERTY(QString linuxRefreshRateCommand READ getLinuxRefreshRateCommand WRITE setLinuxRefreshRateCommand NOTIFY linuxRefreshRateCommandChanged)
     Q_PROPERTY(QString linuxHDRCommand READ getLinuxHDRCommand WRITE setLinuxHDRCommand NOTIFY linuxHDRCommandChanged)
@@ -172,6 +173,9 @@ public:
     // Video Settings
     void setEnableFramerateMatching(bool enabled);
     bool getEnableFramerateMatching() const;
+    
+    void setFramerateMatchDelay(int seconds);
+    int getFramerateMatchDelay() const;
     
     void setEnableHDR(bool enabled);
     bool getEnableHDR() const;
@@ -302,6 +306,7 @@ signals:
     void backdropRotationIntervalChanged();
     void launchInFullscreenChanged();
     void enableFramerateMatchingChanged();
+    void framerateMatchDelayChanged();
     void enableHDRChanged();
     void linuxRefreshRateCommandChanged();
     void linuxHDRCommandChanged();

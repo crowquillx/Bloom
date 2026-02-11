@@ -250,6 +250,7 @@ private:
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
     void loadConfig();
     void startPlayback(const QString &url);
+    void initiateMpvStart();
     static QString stateToString(PlaybackState state);
     static QString eventToString(Event event);
 
@@ -270,6 +271,7 @@ private:
     // Timeouts
     QTimer *m_loadingTimeoutTimer;
     QTimer *m_bufferingTimeoutTimer;
+    QTimer *m_startDelayTimer;  // Trackable timer for deferred mpv start
     static constexpr int kLoadingTimeoutMs = 30000;  // 30 seconds
     static constexpr int kBufferingTimeoutMs = 60000; // 60 seconds
     

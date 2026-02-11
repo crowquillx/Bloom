@@ -1046,6 +1046,41 @@ bool ConfigManager::getEnableFramerateMatching() const
     return false;
 }
 
+void ConfigManager::setFramerateMatchDelay(int seconds)
+{
+    // Clamp to valid range 0-5 seconds
+    int clamped = std::max(0, std::min(seconds, 5));
+    if (clamped == getFramerateMatchDelay()) return;
+    
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject video;
+    if (settings.contains("video") && settings["video"].isObject()) {
+        video = settings["video"].toObject();
+    }
+    video["framerate_match_delay"] = clamped;
+    settings["video"] = video;
+    m_config["settings"] = settings;
+    save();
+    emit framerateMatchDelayChanged();
+}
+
+int ConfigManager::getFramerateMatchDelay() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("video") && settings["video"].isObject()) {
+            QJsonObject video = settings["video"].toObject();
+            if (video.contains("framerate_match_delay")) {
+                return video["framerate_match_delay"].toInt();
+            }
+        }
+    }
+    return 1; // Default to 1 second
+}
+
 void ConfigManager::setEnableHDR(bool enabled)
 {
     if (enabled == getEnableHDR()) return;
@@ -1510,6 +1545,7 @@ QJsonObject ConfigManager::defaultConfig() const
     
     QJsonObject video;
     video["enable_framerate_matching"] = false;
+    video["framerate_match_delay"] = 1;  // Default 1 second delay after refresh rate switch
     video["enable_hdr"] = false;
     settings["video"] = video;
     
