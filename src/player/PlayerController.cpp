@@ -1164,9 +1164,12 @@ void PlayerController::startPlayback(const QString &url)
             // the display/GPU has finished transitioning to the new mode
             int delaySeconds = m_config->getFramerateMatchDelay();
             if (delaySeconds > 0) {
-                qDebug() << "PlayerController: Waiting" << delaySeconds << "seconds for display to stabilize";
-                QThread::msleep(static_cast<unsigned long>(delaySeconds * 1000));
+                qDebug() << "PlayerController: Scheduling mpv start in" << delaySeconds << "seconds for display to stabilize";
+                QTimer::singleShot(delaySeconds * 1000, this, &PlayerController::initiateMpvStart);
+            } else {
+                initiateMpvStart();
             }
+            return;  // Important: return early to avoid duplicate startMpv calls
         } else {
             qWarning() << "PlayerController: Failed to set display refresh rate for framerate" << m_contentFramerate;
         }
@@ -1174,10 +1177,16 @@ void PlayerController::startPlayback(const QString &url)
         qDebug() << "PlayerController: Framerate matching enabled but no framerate info available (framerate:" << m_contentFramerate << ")";
     }
     
+    // No framerate matching or delay needed - start immediately
+    initiateMpvStart();
+}
+
+void PlayerController::initiateMpvStart()
+{
     // Resolve the MPV profile for this item
     QString profileName = m_config->resolveProfileForItem(m_currentLibraryId, m_currentSeriesId);
-    qDebug() << "PlayerController: Using MPV profile:" << profileName 
-             << "for library:" << m_currentLibraryId 
+    qDebug() << "PlayerController: Using MPV profile:" << profileName
+             << "for library:" << m_currentLibraryId
              << "series:" << m_currentSeriesId;
     
     // Get the args from the profile (includes HDR overrides if enabled)
@@ -1190,7 +1199,7 @@ void PlayerController::startPlayback(const QString &url)
     
     qDebug() << "PlayerController: Final mpv args:" << finalArgs;
     
-    m_processManager->startMpv(m_mpvBin, finalArgs, url);
+    m_processManager->startMpv(m_mpvBin, finalArgs, m_pendingUrl);
 }
 
 QString PlayerController::stateToString(PlaybackState state)

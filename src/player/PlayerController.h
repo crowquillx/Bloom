@@ -250,6 +250,7 @@ private:
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
     void loadConfig();
     void startPlayback(const QString &url);
+    void initiateMpvStart();
     static QString stateToString(PlaybackState state);
     static QString eventToString(Event event);
 

@@ -55,5 +55,5 @@ Video settings
   - This delay allows the display and GPU to stabilize after the mode switch, preventing dropped frames that can occur if playback starts immediately
   - Especially important on Windows where display mode changes can be asynchronous
   - Set to 0 to disable the delay (not recommended if experiencing dropped frames)
-  - Configurable via Settings > Video > Refresh Rate Switch Delay slider (only visible when Framerate Matching is enabled)
+  - Configurable via Settings > Video > Refresh Rate Switch Delay slider (always visible; disabled/grayed out when Framerate Matching is off, interactive only when enabled)
 - `settings.video.enable_hdr` (Q_PROPERTY `enableHDR`): When true, enables HDR output for HDR content. Default: false. Configurable via Settings > Video > Enable HDR.
