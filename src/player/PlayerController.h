@@ -271,6 +271,7 @@ private:
     // Timeouts
     QTimer *m_loadingTimeoutTimer;
     QTimer *m_bufferingTimeoutTimer;
+    QTimer *m_startDelayTimer;  // Trackable timer for deferred mpv start
     static constexpr int kLoadingTimeoutMs = 30000;  // 30 seconds
     static constexpr int kBufferingTimeoutMs = 60000; // 60 seconds
     

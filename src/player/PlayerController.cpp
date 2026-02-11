@@ -29,6 +29,7 @@ PlayerController::PlayerController(PlayerProcessManager *processManager, ConfigM
     , m_loadingTimeoutTimer(new QTimer(this))
     , m_bufferingTimeoutTimer(new QTimer(this))
     , m_progressReportTimer(new QTimer(this))
+    , m_startDelayTimer(new QTimer(this))
 {
     // Setup state machine transitions
     setupStateMachine();
@@ -97,10 +98,13 @@ PlayerController::PlayerController(PlayerProcessManager *processManager, ConfigM
     // Setup timeout timers
     m_loadingTimeoutTimer->setSingleShot(true);
     m_bufferingTimeoutTimer->setSingleShot(true);
+    m_startDelayTimer->setSingleShot(true);
     connect(m_loadingTimeoutTimer, &QTimer::timeout,
             this, &PlayerController::onLoadingTimeout);
     connect(m_bufferingTimeoutTimer, &QTimer::timeout,
             this, &PlayerController::onBufferingTimeout);
+    connect(m_startDelayTimer, &QTimer::timeout,
+            this, &PlayerController::initiateMpvStart);
     
     // Setup progress report timer
     m_progressReportTimer->setInterval(kProgressReportIntervalMs);
@@ -127,6 +131,7 @@ PlayerController::~PlayerController()
     m_loadingTimeoutTimer->stop();
     m_bufferingTimeoutTimer->stop();
     m_progressReportTimer->stop();
+    m_startDelayTimer->stop();
 }
 
 void PlayerController::setupStateMachine()
@@ -284,6 +289,7 @@ void PlayerController::onEnterIdleState()
     m_loadingTimeoutTimer->stop();
     m_bufferingTimeoutTimer->stop();
     m_progressReportTimer->stop();
+    m_startDelayTimer->stop();
     
     // Emit playbackStopped so UI can refresh watch progress, next up, etc.
     emit playbackStopped();
@@ -1134,6 +1140,9 @@ void PlayerController::startPlayback(const QString &url)
 {
     qDebug() << "PlayerController: Starting playback of" << url;
     
+    // Cancel any pending deferred mpv start from previous playback
+    m_startDelayTimer->stop();
+    
     // Handle Display Settings - HDR FIRST (must be done before refresh rate change)
     // Toggling HDR can reset the display mode, so we set HDR first, then refresh rate
     bool hdrEnabled = false;
@@ -1165,7 +1174,7 @@ void PlayerController::startPlayback(const QString &url)
             int delaySeconds = m_config->getFramerateMatchDelay();
             if (delaySeconds > 0) {
                 qDebug() << "PlayerController: Scheduling mpv start in" << delaySeconds << "seconds for display to stabilize";
-                QTimer::singleShot(delaySeconds * 1000, this, &PlayerController::initiateMpvStart);
+                m_startDelayTimer->start(delaySeconds * 1000);
             } else {
                 initiateMpvStart();
             }
@@ -1183,6 +1192,24 @@ void PlayerController::startPlayback(const QString &url)
 
 void PlayerController::initiateMpvStart()
 {
+    // Defensive checks: ensure state is valid for starting mpv
+    // This prevents race conditions where deferred timer fires after state changes
+    if (m_playbackState != Loading) {
+        qCWarning(lcPlayback) << "PlayerController: initiateMpvStart called but not in Loading state (state="
+                              << stateToString(m_playbackState) << "), ignoring";
+        return;
+    }
+    
+    if (m_pendingUrl.isEmpty()) {
+        qCWarning(lcPlayback) << "PlayerController: initiateMpvStart called but no pending URL, ignoring";
+        return;
+    }
+    
+    if (m_processManager->isRunning()) {
+        qCWarning(lcPlayback) << "PlayerController: initiateMpvStart called but mpv already running, ignoring";
+        return;
+    }
+    
     // Resolve the MPV profile for this item
     QString profileName = m_config->resolveProfileForItem(m_currentLibraryId, m_currentSeriesId);
     qDebug() << "PlayerController: Using MPV profile:" << profileName
