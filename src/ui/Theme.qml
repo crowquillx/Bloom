@@ -3,15 +3,34 @@ import QtQuick
 
 QtObject {
     // ============================
-    // DPI-Aware Scaling System
+    // Responsive Layout System
     // ============================
-    // Scales content sizes for different screen resolutions while keeping UI chrome fixed
-    // Baseline is 1440p (1.0) - 4K uses ~1.5 to maintain visual ratio
-    // The scale value comes from DisplayManager C++ class which detects screen resolution
-    property real dpiScale: typeof DisplayManager !== 'undefined' ? DisplayManager.dpiScale : 1.0
+    // The layoutScale comes from ResponsiveLayoutManager C++ class which:
+    // - Detects viewport height and devicePixelRatio
+    // - Calculates breakpoint (Small/Medium/Large/XL)
+    // - Provides continuous scaling within breakpoint ranges
+    // - Handles ultrawide aspect ratio adjustments
+    
+    // Layout scale from ResponsiveLayoutManager (0.6 - 1.5)
+    property real layoutScale: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.layoutScale : 1.0
+    
+    // Breakpoint info from ResponsiveLayoutManager
+    property string breakpoint: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.breakpoint : "Large"
+    property int gridColumns: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.gridColumns : 6
+    property int homeRowVisibleItems: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.homeRowVisibleItems : 6
+    property string sidebarDefaultMode: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.sidebarDefaultMode : "expanded"
+    property real aspectRatio: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.aspectRatio : 1.778
+    property int viewportWidth: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.viewportWidth : 1920
+    property int viewportHeight: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.viewportHeight : 1080
+    
+    // Backward compatibility alias
+    property real dpiScale: layoutScale
     
     // Manual DPI scale override from user settings (1.0 = automatic)
     property real manualDpiScaleOverride: typeof ConfigManager !== 'undefined' ? ConfigManager.manualDpiScaleOverride : 1.0
+    
+    // Animation control from ConfigManager
+    property bool uiAnimationsEnabled: typeof ConfigManager !== 'undefined' ? ConfigManager.uiAnimationsEnabled : true
     
     // ============================
     // Theme System
@@ -120,11 +139,11 @@ QtObject {
     property color borderLight: Qt.rgba(1, 1, 1, 0.15)
     property int borderWidth: 1
 
-    // Radius values
-    property int radiusSmall: 8
-    property int radiusMedium: 12
-    property int radiusLarge: 16
-    property int radiusXLarge: 20
+    // Radius values (responsive)
+    property int radiusSmall: Math.round(8 * layoutScale)
+    property int radiusMedium: Math.round(12 * layoutScale)
+    property int radiusLarge: Math.round(16 * layoutScale)
+    property int radiusXLarge: Math.round(20 * layoutScale)
 
     // Blur and effects
     property int blurRadius: 40
@@ -140,38 +159,74 @@ QtObject {
     // Rounded corners for posters/thumbnails; use large for visible rounding
     property int imageRadius: radiusLarge
     
-    // Fonts
+    // ============================
+    // Responsive Typography
+    // ============================
+    // Font sizes scale with layoutScale for consistent visual proportions
     property string fontPrimary: "Inter" // Fallback to system if not available
     property string fontIcon: "Material Symbols Outlined" // Icon font for UI elements
     
-    property int fontSizeDisplay: 42
-    property int fontSizeIcon: 24
-    property int fontSizeHeader: 36
-    property int fontSizeTitle: 32
-    property int fontSizeBody: 24
-    property int fontSizeSmall: 20
-    property int fontSizeMedium: 28
+    // Base font sizes (at layoutScale 1.0)
+    property int fontSizeDisplayBase: 42
+    property int fontSizeIconBase: 24
+    property int fontSizeHeaderBase: 36
+    property int fontSizeTitleBase: 32
+    property int fontSizeBodyBase: 24
+    property int fontSizeSmallBase: 20
+    property int fontSizeMediumBase: 28
     
-    // Spacing
-    property int spacingSmall: 8
-    property int spacingMedium: 20
-    property int spacingLarge: 32
-    property int spacingXLarge: 40
-    property int paddingLarge: 40
+    // Scaled font sizes
+    property int fontSizeDisplay: Math.round(fontSizeDisplayBase * layoutScale)
+    property int fontSizeIcon: Math.round(fontSizeIconBase * layoutScale)
+    property int fontSizeHeader: Math.round(fontSizeHeaderBase * layoutScale)
+    property int fontSizeTitle: Math.round(fontSizeTitleBase * layoutScale)
+    property int fontSizeBody: Math.round(fontSizeBodyBase * layoutScale)
+    property int fontSizeSmall: Math.round(fontSizeSmallBase * layoutScale)
+    property int fontSizeMedium: Math.round(fontSizeMediumBase * layoutScale)
     
-    // Dimensions
-    property int cardWidthLarge: 520
-    property int cardHeightLarge: 320
-    property int cardWidthMedium: 420
-    property int cardHeightMedium: 240
-    property int cardWidthSmall: 220
-    property int cardHeightSmall: 320
-    property int posterWidth: 240
-    property int posterHeight: 420
+    // ============================
+    // Responsive Spacing
+    // ============================
+    // Base spacing values (at layoutScale 1.0)
+    property int spacingSmallBase: 8
+    property int spacingMediumBase: 20
+    property int spacingLargeBase: 32
+    property int spacingXLargeBase: 40
+    property int paddingLargeBase: 40
     
-    // Content Dimensions (DPI-Scaled for different screen resolutions)
-    // Baseline is 1440p (dpiScale=1.0) - dimensions multiply by dpiScale for higher resolutions
-    // On 4K (dpiScale≈1.5), content gets 1.5x pixels to maintain the same visual size
+    // Scaled spacing
+    property int spacingSmall: Math.round(spacingSmallBase * layoutScale)
+    property int spacingMedium: Math.round(spacingMediumBase * layoutScale)
+    property int spacingLarge: Math.round(spacingLargeBase * layoutScale)
+    property int spacingXLarge: Math.round(spacingXLargeBase * layoutScale)
+    property int paddingLarge: Math.round(paddingLargeBase * layoutScale)
+    
+    // ============================
+    // Responsive Dimensions
+    // ============================
+    // Base card dimensions (at layoutScale 1.0)
+    property int cardWidthLargeBase: 520
+    property int cardHeightLargeBase: 320
+    property int cardWidthMediumBase: 420
+    property int cardHeightMediumBase: 240
+    property int cardWidthSmallBase: 220
+    property int cardHeightSmallBase: 320
+    property int posterWidthBase: 240
+    property int posterHeightBase: 420
+    
+    // Scaled card dimensions
+    property int cardWidthLarge: Math.round(cardWidthLargeBase * layoutScale)
+    property int cardHeightLarge: Math.round(cardHeightLargeBase * layoutScale)
+    property int cardWidthMedium: Math.round(cardWidthMediumBase * layoutScale)
+    property int cardHeightMedium: Math.round(cardHeightMediumBase * layoutScale)
+    property int cardWidthSmall: Math.round(cardWidthSmallBase * layoutScale)
+    property int cardHeightSmall: Math.round(cardHeightSmallBase * layoutScale)
+    property int posterWidth: Math.round(posterWidthBase * layoutScale)
+    property int posterHeight: Math.round(posterHeightBase * layoutScale)
+    
+    // ============================
+    // Content Dimensions (Responsive)
+    // ============================
     // Min/max constraints for large content dimensions (Fixed pixel limits)
     property int posterWidthLargeMin: 300
     property int posterWidthLargeMax: 700
@@ -180,44 +235,70 @@ QtObject {
     property int episodeCardHeightMin: 280
     property int episodeCardHeightMax: 700
 
-    property int posterWidthLarge: Math.min(posterWidthLargeMax, Math.max(posterWidthLargeMin, Math.round(430 * dpiScale)))      // ~645px on 4K
-    property int posterHeightLarge: Math.round(750 * dpiScale)     // ~1125px on 4K
-    property int seasonPosterWidth: Math.round(380 * dpiScale)     // ~570px on 4K
-    property int seasonPosterHeight: Math.min(seasonPosterHeightMax, Math.max(seasonPosterHeightMin, Math.round(640 * dpiScale)))    // ~960px on 4K
-    property int episodeCardHeight: Math.min(episodeCardHeightMax, Math.max(episodeCardHeightMin, Math.round(373 * dpiScale)))     // ~560px on 4K
-    property int episodeThumbWidth: Math.round(664 * dpiScale)     // ~996px on 4K
-    property int nextUpHeight: Math.round(560 * dpiScale)          // ~840px on 4K
-    property int nextUpImageHeight: Math.round(280 * dpiScale)     // ~420px on 4K
+    // Base content dimensions (at layoutScale 1.0)
+    property int posterWidthLargeBase: 430
+    property int posterHeightLargeBase: 750
+    property int seasonPosterWidthBase: 380
+    property int seasonPosterHeightBase: 640
+    property int episodeCardHeightBase: 373
+    property int episodeThumbWidthBase: 664
+    property int nextUpHeightBase: 560
+    property int nextUpImageHeightBase: 280
+    property int episodeCardMinHeightBase: 300
+    property int episodeThumbMinWidthBase: 400
+    property int episodeListMinHeightBase: 280
+    property int seriesLogoHeightBase: 426
+    property int seriesLogoMaxWidthBase: 1334
+    property int seriesOverviewMaxHeightBase: 160
+    property int homeCardWidthLargeBase: 520
+    property int homeCardHeightLargeBase: 320
+    property int homeCardWidthMediumBase: 420
+    property int homeCardHeightMediumBase: 240
+    property int recentlyAddedPosterWidthBase: 300
+    property int recentlyAddedPosterHeightBase: 450
+
+    // Scaled content dimensions
+    property int posterWidthLarge: Math.min(posterWidthLargeMax, Math.max(posterWidthLargeMin, Math.round(posterWidthLargeBase * layoutScale)))
+    property int posterHeightLarge: Math.round(posterHeightLargeBase * layoutScale)
+    property int seasonPosterWidth: Math.round(seasonPosterWidthBase * layoutScale)
+    property int seasonPosterHeight: Math.min(seasonPosterHeightMax, Math.max(seasonPosterHeightMin, Math.round(seasonPosterHeightBase * layoutScale)))
+    property int episodeCardHeight: Math.min(episodeCardHeightMax, Math.max(episodeCardHeightMin, Math.round(episodeCardHeightBase * layoutScale)))
+    property int episodeThumbWidth: Math.round(episodeThumbWidthBase * layoutScale)
+    property int nextUpHeight: Math.round(nextUpHeightBase * layoutScale)
+    property int nextUpImageHeight: Math.round(nextUpImageHeightBase * layoutScale)
     
     // Minimum dimensions to prevent content from becoming too small
-    property int episodeCardMinHeight: Math.round(300 * dpiScale)
+    property int episodeCardMinHeight: Math.round(episodeCardMinHeightBase * layoutScale)
     
     // placeholder for future responsive rules
-    property int episodeThumbMinWidth: Math.round(400 * dpiScale)
+    property int episodeThumbMinWidth: Math.round(episodeThumbMinWidthBase * layoutScale)
     // placeholder for future responsive rules
-    property int episodeListMinHeight: Math.round(280 * dpiScale)
+    property int episodeListMinHeight: Math.round(episodeListMinHeightBase * layoutScale)
     
     // Episode list height to accommodate full 16:9 cards with text labels
-    property int episodeListHeight: Math.round(episodeThumbWidth * 9 / 16 + 50 * dpiScale)
+    property int episodeListHeight: Math.round(episodeThumbWidth * 9 / 16 + 50 * layoutScale)
     
-    // Series Details View dimensions (DPI-scaled)
-    property int seriesLogoHeight: Math.round(426 * dpiScale)      // Logo height (2x 1440p baseline)
-    property int seriesLogoMaxWidth: Math.round(1334 * dpiScale)   // Logo max width (2x baseline)
-    property int seriesOverviewMaxHeight: Math.round(160 * dpiScale) // Synopsis collapsed height
+    // Series Details View dimensions (responsive)
+    property int seriesLogoHeight: Math.round(seriesLogoHeightBase * layoutScale)
+    property int seriesLogoMaxWidth: Math.round(seriesLogoMaxWidthBase * layoutScale)
+    property int seriesOverviewMaxHeight: Math.round(seriesOverviewMaxHeightBase * layoutScale)
     
-    // HomeScreen dimensions (DPI-scaled)
-    property int homeCardWidthLarge: Math.round(520 * dpiScale)    // ~780px on 4K
-    property int homeCardHeightLarge: Math.round(320 * dpiScale)   // ~480px on 4K
-    property int homeCardWidthMedium: Math.round(420 * dpiScale)   // ~630px on 4K
-    property int homeCardHeightMedium: Math.round(240 * dpiScale)  // ~360px on 4K
-    property int recentlyAddedPosterWidth: Math.round(300 * dpiScale)  // ~450px on 4K
-    property int recentlyAddedPosterHeight: Math.round(450 * dpiScale) // ~675px on 4K
+    // HomeScreen dimensions (responsive)
+    property int homeCardWidthLarge: Math.round(homeCardWidthLargeBase * layoutScale)
+    property int homeCardHeightLarge: Math.round(homeCardHeightLargeBase * layoutScale)
+    property int homeCardWidthMedium: Math.round(homeCardWidthMediumBase * layoutScale)
+    property int homeCardHeightMedium: Math.round(homeCardHeightMediumBase * layoutScale)
+    property int recentlyAddedPosterWidth: Math.round(recentlyAddedPosterWidthBase * layoutScale)
+    property int recentlyAddedPosterHeight: Math.round(recentlyAddedPosterHeightBase * layoutScale)
     
+    // ============================
     // Animations
-    property int durationShort: 150
-    property int durationNormal: 200
-    property int durationLong: 300
-    property int durationFade: 500
+    // ============================
+    // Animation durations are fixed (not scaled) for consistent feel
+    property int durationShort: uiAnimationsEnabled ? 150 : 0
+    property int durationNormal: uiAnimationsEnabled ? 200 : 0
+    property int durationLong: uiAnimationsEnabled ? 300 : 0
+    property int durationFade: uiAnimationsEnabled ? 500 : 0
     
     // ============================
     // Glassmorphic Button System
@@ -256,11 +337,11 @@ QtObject {
     property color buttonTabBorderActive: accentSecondary
     property color buttonTabBorderFocused: accentPrimary
     
-    // Button dimensions
-    property int buttonHeightLarge: 64
-    property int buttonHeightMedium: 56
-    property int buttonHeightSmall: 48
-    property int buttonIconSize: 56
-    property int buttonFocusBorderWidth: 3
+    // Button dimensions (responsive)
+    property int buttonHeightLarge: Math.round(64 * layoutScale)
+    property int buttonHeightMedium: Math.round(56 * layoutScale)
+    property int buttonHeightSmall: Math.round(48 * layoutScale)
+    property int buttonIconSize: Math.round(56 * layoutScale)
+    property int buttonFocusBorderWidth: Math.max(2, Math.round(3 * layoutScale))
     property int buttonBorderWidth: 1
 }

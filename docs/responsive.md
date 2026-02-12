@@ -1,0 +1,285 @@
+# Responsive Layout System
+
+This document describes Bloom's responsive layout system, which provides adaptive UI scaling based on viewport dimensions, high-DPI displays, and ultrawide aspect ratios.
+
+## Overview
+
+The responsive layout system replaces the previous `dpiScale` approach with a comprehensive `layoutScale` system that provides:
+
+- **Unified scaling** for both content AND UI chrome
+- **Breakpoint detection** and management
+- **Aspect-ratio awareness** for ultrawide displays
+- **Clean separation** from display hardware concerns (refresh rate, HDR)
+
+## Core Component: ResponsiveLayoutManager
+
+The [`ResponsiveLayoutManager`](../src/ui/ResponsiveLayoutManager.h) class is the single source of truth for all responsive layout calculations. It is registered with `ServiceLocator` and exposed to QML via `WindowManager`.
+
+### Key Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `breakpoint` | QString | Current breakpoint: "Small", "Medium", "Large", or "XL" |
+| `layoutScale` | qreal | Continuous scaling factor (0.6 - 1.5) |
+| `gridColumns` | int | Grid column count (4-10) |
+| `homeRowVisibleItems` | int | Visible items per home row (default: 6) |
+| `sidebarDefaultMode` | QString | Default sidebar mode: "overlay", "rail", or "expanded" |
+| `aspectRatio` | qreal | Viewport aspect ratio (width / height) |
+| `viewportWidth` | int | Current viewport width in logical pixels |
+| `viewportHeight` | int | Current viewport height in logical pixels |
+
+## Breakpoint Model
+
+Height-first breakpoints using effective viewport height:
+
+| Breakpoint | Height Range    | Base Columns | Sidebar Default | layoutScale Range |
+|------------|-----------------|--------------|-----------------|-------------------|
+| Small      | < 850px         | 4            | Overlay         | 0.6 - 0.8         |
+| Medium     | 850-1150px      | 6            | Rail            | 0.8 - 1.0         |
+| Large      | 1150-1700px     | 7            | Rail            | 1.0 - 1.25        |
+| XL         | >= 1700px       | 8            | Expanded        | 1.25 - 1.5        |
+
+### Why Height-First?
+
+As a 10-foot HTPC client, Bloom prioritizes vertical space for content visibility. Height determines how much content fits on screen, while width is handled by the ultrawide adjustment system.
+
+## High-DPI Handling
+
+When `devicePixelRatio > 1.5`, the system uses physical height for breakpoint calculations:
+
+```
+effectiveHeight = logicalHeight * devicePixelRatio
+```
+
+This ensures that 4K displays with 200-300% scaling are correctly identified as XL breakpoints rather than Small/Medium.
+
+### Example
+
+A 4K display (3840×2160) at 200% scaling:
+- Logical height: 1080px
+- devicePixelRatio: 2.0
+- Effective height: 2160px → XL breakpoint
+
+## Manual DPI Scale Override
+
+Users can manually override the automatic layout scale calculation via `ConfigManager::manualDpiScaleOverride`. This setting allows fine-tuning of UI scale independent of automatic detection.
+
+### How It Works
+
+The final `layoutScale` is calculated as:
+
+```
+finalLayoutScale = baseLayoutScale * manualDpiScaleOverride
+```
+
+Where:
+- `baseLayoutScale` is the automatically calculated scale (0.6 - 1.5) based on viewport height
+- `manualDpiScaleOverride` is the user setting (default: 1.0, range: 0.5 - 2.0)
+
+### Use Cases
+
+- **Small displays**: Increase scale (e.g., 1.2) for better readability on smaller screens
+- **Large displays**: Decrease scale (e.g., 0.8) to fit more content on screen
+- **Projectors**: Adjust for optimal viewing distance
+- **Personal preference**: Fine-tune the automatic scaling
+
+### Signal Flow
+
+When the user changes `manualDpiScaleOverride`:
+
+```
+ConfigManager::setManualDpiScaleOverride()
+    ↓
+ConfigManager::manualDpiScaleOverrideChanged signal
+    ↓
+ResponsiveLayoutManager::onManualDpiScaleOverrideChanged()
+    ↓
+ResponsiveLayoutManager::updateLayout()
+    ↓
+layoutScale recalculated with new override
+    ↓
+UI updates automatically
+```
+
+### Persistence
+
+The `manualDpiScaleOverride` setting is persisted in the user's configuration file (`~/.config/Bloom/app.json`) and persists across sessions.
+
+## Ultrawide Adjustment
+
+For displays with aspect ratio > 2.2 (e.g., 21:9 ultrawide monitors), the system adds extra grid columns:
+
+```cpp
+if (aspectRatio > 2.2) {
+    qreal extraWidth = aspectRatio - 2.2;
+    int extraColumns = qMin(2, static_cast<int>(extraWidth * 2));
+    baseColumns += extraColumns;
+}
+```
+
+### Example
+
+A 34" ultrawide (3440×1440):
+- Aspect ratio: 2.39
+- Base columns (Large): 7
+- Extra columns: min(2, (2.39 - 2.2) * 2) = min(2, 0.38) = 0
+- Final columns: 7
+
+A super-ultrawide (5120×1440):
+- Aspect ratio: 3.56
+- Base columns (Large): 7
+- Extra columns: min(2, (3.56 - 2.2) * 2) = min(2, 2.72) = 2
+- Final columns: 9
+
+## Usage in QML
+
+### Via Theme.qml
+
+The recommended approach is to access responsive tokens through `Theme.qml`:
+
+```qml
+import QtQuick 2.15
+
+Item {
+    width: 100 * Theme.layoutScale
+    height: 50 * Theme.layoutScale
+    
+    // Responsive typography
+    Text {
+        font.pixelSize: Theme.fontSizeLarge
+        color: Theme.textColor
+    }
+    
+    // Responsive grid
+    GridView {
+        cellWidth: parent.width / Theme.gridColumns
+        cellHeight: cellWidth * 1.5
+    }
+}
+```
+
+### Available Theme Tokens
+
+| Token | Description |
+|-------|-------------|
+| `Theme.layoutScale` | Continuous scale factor for sizing |
+| `Theme.gridColumns` | Number of grid columns |
+| `Theme.fontSizeSmall` | Small text (12px base) |
+| `Theme.fontSizeMedium` | Medium text (14px base) |
+| `Theme.fontSizeLarge` | Large text (18px base) |
+| `Theme.fontSizeXLarge` | Extra-large text (24px base) |
+| `Theme.spacingSmall` | Small spacing (4px base) |
+| `Theme.spacingMedium` | Medium spacing (8px base) |
+| `Theme.spacingLarge` | Large spacing (16px base) |
+| `Theme.cardWidth` | Responsive card width |
+| `Theme.cardHeight` | Responsive card height |
+| `Theme.posterWidth` | Responsive poster width |
+| `Theme.posterHeight` | Responsive poster height |
+| `Theme.uiAnimationsEnabled` | Whether UI animations should play |
+
+### Direct Access
+
+For advanced use cases, access `ResponsiveLayoutManager` directly:
+
+```qml
+import QtQuick 2.15
+
+Item {
+    // Direct property access
+    property string currentBreakpoint: ResponsiveLayoutManager.breakpoint
+    property bool isLargeScreen: ResponsiveLayoutManager.breakpoint === "Large" || 
+                                  ResponsiveLayoutManager.breakpoint === "XL"
+    
+    // React to breakpoint changes
+    Connections {
+        target: ResponsiveLayoutManager
+        function onBreakpointChanged() {
+            console.log("Breakpoint changed to:", ResponsiveLayoutManager.breakpoint)
+        }
+    }
+}
+```
+
+## UI Animations
+
+The `uiAnimationsEnabled` property in `ConfigManager` controls whether UI animations should play. This is exposed through `Theme.qml`:
+
+```qml
+Behavior on opacity {
+    enabled: Theme.uiAnimationsEnabled
+    NumberAnimation { duration: 200 }
+}
+```
+
+Users can disable animations via the settings screen, which is useful for:
+- Reducing motion sensitivity
+- Lower-end hardware
+- Personal preference
+
+## Migration from dpiScale
+
+The old `DisplayManager.dpiScale` has been removed. Replace any remaining references:
+
+| Old | New |
+|-----|-----|
+| `DisplayManager.dpiScale` | `Theme.layoutScale` |
+| `10 * DisplayManager.dpiScale` | `10 * Theme.layoutScale` |
+
+The new system provides more consistent scaling across different display configurations.
+
+## Implementation Details
+
+### Initialization Order
+
+1. `ApplicationInitializer` creates `ResponsiveLayoutManager`
+2. `ApplicationInitializer` registers with `ServiceLocator`
+3. `WindowManager` exposes as QML context property
+4. `WindowManager` calls `setWindow()` after QML engine creates window
+5. `ResponsiveLayoutManager` connects to window geometry signals
+6. Initial layout calculation runs automatically
+
+### Signal Flow
+
+```
+Window geometry change
+    ↓
+ResponsiveLayoutManager::updateLayout()
+    ↓
+Calculate new values
+    ↓
+Emit changed signals
+    ↓
+QML bindings update
+    ↓
+UI reflows
+```
+
+### Thread Safety
+
+All calculations run on the main thread. The `updateLayout()` slot is connected to Qt signals, ensuring thread-safe execution.
+
+## Testing
+
+When testing responsive behavior:
+
+1. **Resize the window** to different heights to trigger breakpoint changes
+2. **Test high-DPI** by changing display scaling in OS settings
+3. **Test ultrawide** by resizing to extreme aspect ratios (> 2.2)
+4. **Check console output** for debug messages showing layout calculations
+
+### Debug Output
+
+Enable verbose logging to see layout calculations:
+
+```
+ResponsiveLayoutManager: Layout updated - viewport: 1920 x 1080 effectiveHeight: 1080 DPR: 1.0 breakpoint: "Large" layoutScale: 1.12 gridColumns: 7 aspectRatio: 1.78
+```
+
+## Future Enhancements
+
+Potential improvements for future versions:
+
+- **Configurable breakpoints** via user settings
+- **Per-screen handling** for multi-monitor setups
+- **Orientation support** for portrait displays
+- **Custom layout modes** for specific content types

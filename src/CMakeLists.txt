@@ -55,6 +55,8 @@ qt_add_executable(Bloom
     ui/ImageCacheProvider.cpp
     ui/UiSoundController.h
     ui/UiSoundController.cpp
+    ui/ResponsiveLayoutManager.h
+    ui/ResponsiveLayoutManager.cpp
     security/ISecretStore.h
     security/SecretStoreFactory.h
     security/SecretStoreFactory.cpp

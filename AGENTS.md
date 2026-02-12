@@ -12,7 +12,7 @@ QML & Focus
 Stack: C++23 (Qt 6/QML) • CMake • mpv (external JSON IPC)
 Keep as much logic as possible in C++ (network, data models, services); QML for UI, animations, and theming.
 
-Key files: `src/core/ServiceLocator.h`, `utils/ConfigManager.*`, `network/JellyfinClient.*`, `player/*`, `ui/Theme.qml`.
+Key files: `src/core/ServiceLocator.h`, `utils/ConfigManager.*`, `network/JellyfinClient.*`, `player/*`, `ui/Theme.qml`, `ui/ResponsiveLayoutManager.*`.
 
 Conventions: C++ PascalCase classes, camelCase methods, `m_` prefix; QML PascalCase components, camelCase props; use `FocusScope` for navigable views; keep `Theme.qml` as the single source for tokens.
 
@@ -47,6 +47,7 @@ See also:
 - docs/theme.md     — Theme.qml tokens and design system
 - docs/services.md  — ServiceLocator pattern & initialization order
 - docs/config.md    — ConfigManager Q_PROPERTY and runtime settings
+- docs/responsive.md — ResponsiveLayoutManager and adaptive layout system
 - docs/developer_notes.md — Conventions, focus, QML patterns, and best practices
 - docs/viewmodels.md — BaseViewModel patterns and MovieDetailsViewModel
 

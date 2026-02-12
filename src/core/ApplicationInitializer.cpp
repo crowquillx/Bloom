@@ -2,6 +2,7 @@
 #include "ServiceLocator.h"
 #include "utils/ConfigManager.h"
 #include "utils/DisplayManager.h"
+#include "ui/ResponsiveLayoutManager.h"
 #include "utils/TrackPreferencesManager.h"
 #include "player/PlayerProcessManager.h"
 #include "player/PlayerController.h"
@@ -113,7 +114,11 @@ void ApplicationInitializer::registerServices()
     m_displayManager = std::make_unique<DisplayManager>(m_configManager.get());
     ServiceLocator::registerService<DisplayManager>(m_displayManager.get());
     
-    // 1.6 TrackPreferencesManager - No dependencies
+    // 1.6 ResponsiveLayoutManager - No dependencies (uses QGuiApplication::primaryScreen)
+    m_responsiveLayoutManager = std::make_unique<ResponsiveLayoutManager>();
+    ServiceLocator::registerService<ResponsiveLayoutManager>(m_responsiveLayoutManager.get());
+    
+    // 1.7 TrackPreferencesManager - No dependencies
     m_trackPreferencesManager = std::make_unique<TrackPreferencesManager>();
     ServiceLocator::registerService<TrackPreferencesManager>(m_trackPreferencesManager.get());
     

@@ -7,36 +7,12 @@
 class DisplayManager : public QObject
 {
     Q_OBJECT
-    
-    /**
-     * @brief DPI scale factor for content sizing across different screen resolutions.
-     * 
-     * Baseline is 1.0 for 1080p/1440p screens. For 4K displays, this will be ~1.3
-     * so that content scales to maintain the same visual ratio.
-     * 
-     * Usage in QML Theme.qml:
-     *   property int posterWidth: Math.round(340 / dpiScale)
-     * This makes items proportionally smaller on higher resolution displays.
-     */
-    Q_PROPERTY(qreal dpiScale READ dpiScale NOTIFY dpiScaleChanged)
 
 public:
     explicit DisplayManager(ConfigManager *config, QObject *parent = nullptr);
     ~DisplayManager();
-    
-    /**
-     * @brief Returns the DPI scale factor based on screen resolution.
-     * @return Scale factor (1.0 for 1080p/1440p, ~1.3 for 4K)
-     */
-    qreal dpiScale() const;
 
 public slots:
-    /**
-     * @brief Recalculates DPI scale based on current primary screen.
-     * Call this when screen configuration changes.
-     */
-    void updateDpiScale();
-
     /**
      * @brief Sets the display refresh rate to the specified Hz.
      * @param hz The target refresh rate (supports fractional rates like 23.976).
@@ -67,12 +43,8 @@ public slots:
      */
     double getCurrentRefreshRate();
 
-signals:
-    void dpiScaleChanged();
-
 private:
     ConfigManager *m_config;
-    qreal m_dpiScale = 1.0;
     
     // State tracking
     bool m_refreshRateChanged = false;

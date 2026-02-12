@@ -6,6 +6,7 @@
 class QGuiApplication;
 class ConfigManager;
 class DisplayManager;
+class ResponsiveLayoutManager;
 class TrackPreferencesManager;
 class PlayerProcessManager;
 class SecretStore; // interface?
@@ -66,4 +67,5 @@ private:
     std::unique_ptr<UiSoundController> m_uiSoundController;
     std::unique_ptr<SessionManager> m_sessionManager;
     std::unique_ptr<SessionService> m_sessionService;
+    std::unique_ptr<ResponsiveLayoutManager> m_responsiveLayoutManager;
 };
