@@ -112,13 +112,6 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("DisplayManager", ServiceLocator::get<DisplayManager>());
     context->setContextProperty("ResponsiveLayoutManager", ServiceLocator::get<ResponsiveLayoutManager>());
     
-    // Helpers
-    // Note: UiSoundController is not a ServiceLocator service in the original code, 
-    // it was just a local variable. We need to handle it.
-    // Ideally it should be part of AppInitializer or ServiceLocator.
-    // For now, I'll access it via ServiceLocator if I register it there, or passed in.
-    // The original code passed `&uiSoundController` to context property.
-    // I will register `UiSoundController` in `ApplicationInitializer` to make this clean.
     context->setContextProperty("UiSoundController", ServiceLocator::get<UiSoundController>());
 
     context->setContextProperty("AuthenticationService", ServiceLocator::get<AuthenticationService>());
@@ -141,6 +134,10 @@ void WindowManager::load()
     if (!m_engine.rootObjects().isEmpty()) {
         if (auto *window = qobject_cast<QQuickWindow *>(m_engine.rootObjects().constFirst())) {
             m_gpuMemoryTrimmer->setWindow(window);
+            auto* responsiveLayoutManager = ServiceLocator::tryGet<ResponsiveLayoutManager>();
+            if (responsiveLayoutManager) {
+                responsiveLayoutManager->setWindow(window);
+            }
         }
     }
 }

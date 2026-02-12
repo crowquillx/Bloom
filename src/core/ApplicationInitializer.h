@@ -9,7 +9,7 @@ class DisplayManager;
 class ResponsiveLayoutManager;
 class TrackPreferencesManager;
 class PlayerProcessManager;
-class SecretStore; // interface?
+class SecretStore;
 class AuthenticationService;
 class LibraryService;
 class PlaybackService;
@@ -49,11 +49,7 @@ private:
     std::unique_ptr<DisplayManager> m_displayManager;
     std::unique_ptr<TrackPreferencesManager> m_trackPreferencesManager;
     std::unique_ptr<PlayerProcessManager> m_playerProcessManager;
-    // SecretStoreFactory returns a unique_ptr, wait, original code: auto secretStore = SecretStoreFactory::create();
-    // AuthenticationService takes a raw pointer to it.
-    // I need to store the secret store. Assuming ISecretStore interface or similar.
-    // Check main.cpp again, it just says auto secretStore.
-    // I'll use a forward decl for the interface if possible, or include headers if I must.
+    // ISecretStore — owned here, raw pointer passed to AuthenticationService
     std::unique_ptr<ISecretStore> m_secretStore;
     
     std::unique_ptr<AuthenticationService> m_authService;

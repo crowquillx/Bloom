@@ -255,7 +255,7 @@ void ApplicationInitializer::initializeServices()
     
     // Get the appropriate auth service (real or mock)
     AuthenticationService* auth = isTestMode 
-        ? static_cast<AuthenticationService*>(m_mockAuthService.get())
+        ? m_mockAuthService.get()
         : m_authService.get();
     auto* config = m_configManager.get();
     
@@ -299,26 +299,8 @@ void ApplicationInitializer::initializeServices()
             auth->checkPendingSessionExpiry();
     });
     
-    // GpuMemoryTrimmer logic moved to WindowManager or handled here via signals if possible?
-    // GpuMemoryTrimmer depends on ImageCacheProvider which is in WindowManager.
-    // However, the trimmer itself is registered as a service.
-    // In original main.cpp:
-    // GpuMemoryTrimmer gpuMemoryTrimmer(&configManager, imageCacheProvider);
-    // ServiceLocator::registerService<GpuMemoryTrimmer>(&gpuMemoryTrimmer);
-    
-    // Since GpuMemoryTrimmer needs ImageCacheProvider, and ImageCacheProvider is QML specific, 
-    // it makes sense that WindowManager manages GpuMemoryTrimmer creation OR we coordinate.
-    // WindowManager creates it in setup(), so we just need to ensure PlayerController signal reaches it?
-    // The original code connected PlayerController::isPlaybackActiveChanged to lambda controlling trimmer.
-    // We can do that here if we can resolve the trimmer instance, OR let WindowManager handle it if it knows about PlayerController.
-    // WindowManager knows about PlayerController via ServiceLocator.
-    // Let's wire it up in WindowManager::setup() or here if we access trimmer via ServiceLocator.
-    
-    // Wait, ApplicationInitializer::initializeServices() runs, and WindowManager::setup() runs... which is first?
-    // In my plan, WindowManager::setup() happens after AppInit registers services.
-    // So WindowManager can retrieve services.
-    
-    // I will let WindowManager connect PlayerController signals to GpuMemoryTrimmer since WindowManager owns/creates the Trimmer (as per my WindowManager implementation).
+    // GpuMemoryTrimmer is created and wired by WindowManager::setup(), which runs
+    // after service registration and owns the ImageCacheProvider dependency.
     
     // Session Restoration & Migration (skip in test mode - already authenticated)
     if (isTestMode) {

@@ -47,7 +47,7 @@ As a 10-foot HTPC client, Bloom prioritizes vertical space for content visibilit
 
 When `devicePixelRatio > 1.5`, the system uses physical height for breakpoint calculations:
 
-```
+```text
 effectiveHeight = logicalHeight * devicePixelRatio
 ```
 
@@ -68,7 +68,7 @@ Users can manually override the automatic layout scale calculation via `ConfigMa
 
 The final `layoutScale` is calculated as:
 
-```
+```text
 finalLayoutScale = baseLayoutScale * manualDpiScaleOverride
 ```
 
@@ -87,7 +87,7 @@ Where:
 
 When the user changes `manualDpiScaleOverride`:
 
-```
+```text
 ConfigManager::setManualDpiScaleOverride()
     ↓
 ConfigManager::manualDpiScaleOverrideChanged signal
@@ -240,7 +240,7 @@ The new system provides more consistent scaling across different display configu
 
 ### Signal Flow
 
-```
+```text
 Window geometry change
     ↓
 ResponsiveLayoutManager::updateLayout()
@@ -271,7 +271,7 @@ When testing responsive behavior:
 
 Enable verbose logging to see layout calculations:
 
-```
+```text
 ResponsiveLayoutManager: Layout updated - viewport: 1920 x 1080 effectiveHeight: 1080 DPR: 1.0 breakpoint: "Large" layoutScale: 1.12 gridColumns: 7 aspectRatio: 1.78
 ```
 

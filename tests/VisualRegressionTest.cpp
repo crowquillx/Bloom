@@ -71,8 +71,6 @@ private:
         QString name;
     };
 
-    QList<Resolution> m_resolutions;
-
     // Directories for test artifacts
     QDir m_goldenDir;      // tests/golden/
     QDir m_diffDir;        // tests/diffs/
@@ -158,14 +156,6 @@ private:
 
 void VisualRegressionTest::initTestCase()
 {
-    // Define test resolutions
-    m_resolutions = {
-        {1280, 720, "720p"},
-        {1920, 1080, "1080p"},
-        {2560, 1440, "1440p"},
-        {3840, 2160, "4K"}
-    };
-
     // Set up directories relative to test binary location
     QString testDir = QFINDTESTDATA(".");
     

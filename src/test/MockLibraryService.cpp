@@ -258,6 +258,8 @@ QString MockLibraryService::getStreamUrlWithTracks(const QString &itemId, const 
 
 QString MockLibraryService::getImageUrl(const QString &itemId, const QString &imageType)
 {
+    Q_UNUSED(itemId)
+    Q_UNUSED(imageType)
     QString imagesPath = TestModeController::instance()->testImagesPath();
     if (imagesPath.isEmpty()) {
         return QString();

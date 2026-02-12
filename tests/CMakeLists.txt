@@ -32,7 +32,7 @@ target_include_directories(SeriesDetailsCacheTest PRIVATE ${CMAKE_SOURCE_DIR}/sr
 target_link_libraries(SeriesDetailsCacheTest
     PRIVATE
         Qt6::Core
-    Qt6::Network
+        Qt6::Network
         Qt6::Concurrent
         Qt6::Test
 )
