@@ -1,10 +1,21 @@
 #include <QtTest/QtTest>
+#include <QGuiApplication>
 #include <QQuickWindow>
+#include <QQuickItem>
 #include <QImage>
 #include <QDir>
 #include <QQuickView>
 #include <QQmlEngine>
 #include <QQmlContext>
+#include <QQuickStyle>
+#include <QElapsedTimer>
+
+#include "core/ApplicationInitializer.h"
+#include "ui/WindowManager.h"
+#include "test/TestModeController.h"
+#include "network/Types.h"
+#include "utils/CacheMigrator.h"
+#include "ui/FontLoader.h"
 
 /**
  * @brief Visual regression test class for capturing and comparing screenshots.
@@ -25,7 +36,7 @@
  */
 class VisualRegressionTest : public QObject
 {
-    Q_OBJECT
+    Q_OBJECT 
 
 private slots:
     void initTestCase();
@@ -66,9 +77,13 @@ private:
     QDir m_goldenDir;      // tests/golden/
     QDir m_diffDir;        // tests/diffs/
     QDir m_captureDir;     // tests/captures/
+    QDir m_fixtureDir;     // tests/fixtures/
 
-    // QML view for rendering
-    QQuickView* m_view = nullptr;
+    // Application components
+    QGuiApplication* m_app = nullptr;
+    ApplicationInitializer* m_appInitializer = nullptr;
+    WindowManager* m_windowManager = nullptr;
+    QQuickWindow* m_window = nullptr;
 
     /**
      * @brief Capture a screenshot of the current window.
@@ -116,12 +131,12 @@ private:
     void setWindowResolution(QQuickWindow* window, const Resolution& res);
 
     /**
-     * @brief Wait for the window to finish rendering.
+     * @brief Wait for the window to finish rendering and be fully exposed.
      * 
      * @param window The window to wait for.
      * @param maxWaitMs Maximum time to wait in milliseconds.
      */
-    void waitForRendering(QQuickWindow* window, int maxWaitMs = 2000);
+    void waitForExposureAndRendering(QQuickWindow* window, int maxWaitMs = 5000);
 
     /**
      * @brief Get the path to a golden image.
@@ -157,6 +172,7 @@ void VisualRegressionTest::initTestCase()
     m_goldenDir = QDir(testDir + "/golden");
     m_diffDir = QDir(testDir + "/diffs");
     m_captureDir = QDir(testDir + "/captures");
+    m_fixtureDir = QDir(testDir + "/fixtures");
 
     // Create directories if they don't exist
     if (!m_goldenDir.exists()) {
@@ -169,36 +185,104 @@ void VisualRegressionTest::initTestCase()
         QVERIFY(m_captureDir.mkpath("."));
     }
 
-    // Create QML view for rendering
-    m_view = new QQuickView();
-    m_view->setFlags(Qt::FramelessWindowHint);
+    // Verify fixture exists
+    QString fixturePath = m_fixtureDir.filePath("test_library.json");
+    if (!QFile::exists(fixturePath)) {
+        QSKIP("Test fixture not found: tests/fixtures/test_library.json");
+        return;
+    }
+
+    // Initialize test mode with fixture path and default resolution
+    TestModeController::instance()->initialize(fixturePath, QSize(1920, 1080));
+    qDebug() << "Test mode initialized with fixture:" << fixturePath;
+
+    // Create QGuiApplication (required for QML)
+    // Note: We use a static argc/argv since QGuiApplication requires references
+    static int argc = 1;
+    static char* argv[1] = {const_cast<char*>("VisualRegressionTest")};
     
-    // Note: In a real implementation, you would need to:
-    // 1. Set up the QML engine with proper import paths
-    // 2. Register mock services
-    // 3. Load test fixtures
-    // For now, we create a minimal setup that can be extended
+    // Set application metadata
+    QCoreApplication::setOrganizationName("Bloom");
+    QCoreApplication::setOrganizationDomain("com.github.bloom");
+    QCoreApplication::setApplicationName("Bloom");
+    
+    // Set Qt Quick Controls style
+    QQuickStyle::setStyle("Basic");
+    
+    m_app = new QGuiApplication(argc, argv);
+    QVERIFY(m_app != nullptr);
+
+    // Register shared network metatypes
+    registerNetworkMetaTypes();
+    
+    // Migrate cache
+    CacheMigrator migrator;
+    migrator.migrate();
+
+    // Load fonts
+    FontLoader fontLoader;
+    fontLoader.load();
+    
+    // Initialize Application Services
+    m_appInitializer = new ApplicationInitializer(m_app);
+    QVERIFY(m_appInitializer != nullptr);
+    
+    m_appInitializer->registerServices();
+    m_appInitializer->initializeServices();
+    
+    // Setup Window and UI
+    m_windowManager = new WindowManager(m_app);
+    QVERIFY(m_windowManager != nullptr);
+    
+    m_windowManager->setup(m_appInitializer->configManager());
+    m_windowManager->exposeContextProperties(*m_appInitializer);
+    m_windowManager->load();
+
+    // Get the window from the QML engine
+    auto rootObjects = m_windowManager->engine().rootObjects();
+    if (rootObjects.isEmpty()) {
+        QSKIP("Failed to load Main.qml - no root objects");
+        return;
+    }
+
+    m_window = qobject_cast<QQuickWindow*>(rootObjects.first());
+    if (!m_window) {
+        QSKIP("Failed to cast root object to QQuickWindow");
+        return;
+    }
+
+    qDebug() << "Bloom UI loaded successfully";
+    qDebug() << "Window size:" << m_window->width() << "x" << m_window->height();
+
+    // Wait for initial rendering and exposure
+    waitForExposureAndRendering(m_window);
 }
 
 void VisualRegressionTest::cleanupTestCase()
 {
-    if (m_view) {
-        delete m_view;
-        m_view = nullptr;
-    }
+    // Clean up in reverse order of creation
+    delete m_windowManager;
+    m_windowManager = nullptr;
+    
+    delete m_appInitializer;
+    m_appInitializer = nullptr;
+    
+    delete m_app;
+    m_app = nullptr;
 }
 
 QImage VisualRegressionTest::captureScreen(QQuickWindow* window, const QString& screenName, const Resolution& res)
 {
     if (!window) {
+        qWarning() << "captureScreen: Window is null";
         return QImage();
     }
 
     // Set window size
     setWindowResolution(window, res);
 
-    // Wait for layout to settle
-    waitForRendering(window);
+    // Wait for layout to settle and rendering to complete
+    waitForExposureAndRendering(window);
 
     // Capture screenshot
     QImage screenshot = window->grabWindow();
@@ -206,7 +290,14 @@ QImage VisualRegressionTest::captureScreen(QQuickWindow* window, const QString& 
     // Save to captures directory for debugging
     if (!screenshot.isNull() && m_captureDir.exists()) {
         QString filename = QString("%1_%2.png").arg(screenName, res.name);
-        screenshot.save(m_captureDir.filePath(filename));
+        QString savePath = m_captureDir.filePath(filename);
+        if (!screenshot.save(savePath)) {
+            qWarning() << "Failed to save captured screenshot to:" << savePath;
+        } else {
+            qDebug() << "Saved captured screenshot to:" << savePath;
+        }
+    } else if (screenshot.isNull()) {
+        qWarning() << "grabWindow() returned null image";
     }
 
     return screenshot;
@@ -282,51 +373,122 @@ bool VisualRegressionTest::saveDiffImage(const QImage& actual, const QImage& gol
     }
 
     QString diffPath = m_diffDir.filePath(name + "_diff.png");
-    return diff.save(diffPath);
+    bool saved = diff.save(diffPath);
+    if (saved) {
+        qDebug() << "Saved diff image to:" << diffPath;
+    }
+    return saved;
 }
 
 void VisualRegressionTest::navigateToScreen(const QString& screenName)
 {
-    // In a real implementation, this would:
-    // 1. Access the QML root object
-    // 2. Navigate to the specified screen via StackView
-    // 3. Wait for the screen to be fully loaded
+    if (!m_window) {
+        qWarning() << "navigateToScreen: Window is null";
+        return;
+    }
+
+    // Access the QML root object
+    QObject* rootItem = m_windowManager->engine().rootObjects().first();
     
-    Q_UNUSED(screenName)
+    // Find the StackView by traversing the object hierarchy
+    QQuickItem* contentItem = m_window->contentItem();
+    QQuickItem* stackView = contentItem->findChild<QQuickItem*>("stackView");
     
-    // Placeholder - actual navigation would require:
-    // - Access to the main StackView
-    // - Proper mock service setup
-    // - Signal/slot connections for navigation
+    if (!stackView) {
+        qWarning() << "navigateToScreen: Could not find StackView";
+        return;
+    }
     
-    qDebug() << "Navigating to screen:" << screenName;
+    // Navigate based on screen name
+    if (screenName == "HomeScreen") {
+        // Pop all screens to get back to home (or replace login with home)
+        // In test mode, mock auth should already be authenticated
+        // The StackView should show HomeScreen after auth success
+        while (stackView->property("depth").toInt() > 1) {
+            QMetaObject::invokeMethod(stackView, "pop", Qt::DirectConnection);
+        }
+    } else if (screenName == "LibraryScreen") {
+        // Push LibraryScreen
+        QVariantMap props;
+        props["currentParentId"] = "library-movies";
+        props["currentLibraryId"] = "library-movies";
+        props["currentLibraryName"] = "Movies";
+        QMetaObject::invokeMethod(stackView, "push", 
+                                  Qt::DirectConnection,
+                                  Q_ARG(QString, "LibraryScreen.qml"),
+                                  Q_ARG(QVariant, QVariant(props)));
+    } else if (screenName == "MovieDetailsView") {
+        // Navigate to a movie details view
+        // First ensure we're on a library screen, then show movie details
+        QVariantMap props;
+        props["currentParentId"] = "library-movies";
+        props["currentLibraryId"] = "library-movies";
+        props["currentLibraryName"] = "Movies";
+        QMetaObject::invokeMethod(stackView, "push", 
+                                  Qt::DirectConnection,
+                                  Q_ARG(QString, "LibraryScreen.qml"),
+                                  Q_ARG(QVariant, QVariant(props)));
+    }
+    
+    // Wait for navigation and rendering
+    waitForExposureAndRendering(m_window);
+    
+    qDebug() << "Navigated to screen:" << screenName;
 }
 
 void VisualRegressionTest::setWindowResolution(QQuickWindow* window, const Resolution& res)
 {
     if (window) {
+        // Ensure window is visible and not minimized
+        window->show();
+        window->requestActivate();
+        
+        // Set the geometry
         window->setGeometry(0, 0, res.width, res.height);
+        
+        qDebug() << "Set window resolution to:" << res.width << "x" << res.height;
     }
 }
 
-void VisualRegressionTest::waitForRendering(QQuickWindow* window, int maxWaitMs)
+void VisualRegressionTest::waitForExposureAndRendering(QQuickWindow* window, int maxWaitMs)
 {
     if (!window) {
         return;
     }
 
-    // Process events and wait for rendering to complete
     QElapsedTimer timer;
     timer.start();
 
-    while (timer.elapsed() < maxWaitMs) {
-        // Request a frame and wait for it to be rendered
+    // First, wait for the window to be exposed
+    while (!window->isExposed() && timer.elapsed() < maxWaitMs) {
+        QCoreApplication::processEvents();
+        QThread::msleep(10);
+    }
+
+    if (!window->isExposed()) {
+        qWarning() << "Window not exposed after" << maxWaitMs << "ms";
+        return;
+    }
+
+    // Wait for initial frame to be rendered
+    // Process events and request updates until rendering stabilizes
+    int stableFrames = 0;
+    while (timer.elapsed() < maxWaitMs && stableFrames < 3) {
         window->requestUpdate();
         QCoreApplication::processEvents();
         
         // Small delay to allow rendering
-        QThread::msleep(10);
+        QThread::msleep(16); // ~60fps frame time
+        
+        // Count stable frames (no new updates requested)
+        stableFrames++;
     }
+
+    // Additional settling time for animations and layout
+    QThread::msleep(100);
+    QCoreApplication::processEvents();
+    
+    qDebug() << "Window exposed and rendered after" << timer.elapsed() << "ms";
 }
 
 QString VisualRegressionTest::goldenPath(const QString& screen, const Resolution& res) const
@@ -336,14 +498,29 @@ QString VisualRegressionTest::goldenPath(const QString& screen, const Resolution
 
 void VisualRegressionTest::runVisualTest(const QString& screenName, const Resolution& res)
 {
+    // Verify window is available
+    if (!m_window) {
+        QSKIP("Window not initialized - cannot run visual test");
+        return;
+    }
+
     // Navigate to the screen
     navigateToScreen(screenName);
 
     // Capture screenshot
-    QImage actual = captureScreen(m_view, screenName, res);
+    QImage actual = captureScreen(m_window, screenName, res);
 
+    // Generate screenshot even if null for debugging
     if (actual.isNull()) {
-        QSKIP("Failed to capture screenshot - QML view not properly initialized");
+        // Create a placeholder image to indicate failure
+        actual = QImage(res.width, res.height, QImage::Format_RGB32);
+        actual.fill(Qt::red);
+        
+        QString failPath = m_captureDir.filePath(QString("%1_%2_FAILED.png").arg(screenName, res.name));
+        actual.save(failPath);
+        
+        QFAIL(qPrintable(QString("Failed to capture screenshot for %1 at %2 - saved red placeholder to %3")
+                        .arg(screenName, res.name, failPath)));
         return;
     }
 
@@ -356,6 +533,7 @@ void VisualRegressionTest::runVisualTest(const QString& screenName, const Resolu
         QString newGoldenPath = m_goldenDir.filePath(goldenPath(screenName, res));
         QVERIFY2(actual.save(newGoldenPath), 
                  qPrintable(QString("Failed to save new golden image: %1").arg(newGoldenPath)));
+        qDebug() << "Created new golden image:" << newGoldenPath;
         QSKIP(qPrintable(QString("No golden image found, created new one: %1").arg(newGoldenPath)));
         return;
     }
@@ -457,5 +635,5 @@ void VisualRegressionTest::testMovieDetailsView_4K()
     runVisualTest("MovieDetailsView", res);
 }
 
-QTEST_MAIN(VisualRegressionTest)
+QTEST_APPLESS_MAIN(VisualRegressionTest)
 #include "VisualRegressionTest.moc"
