@@ -248,14 +248,14 @@ FocusScope {
     RowLayout {
         anchors.fill: parent
         anchors.margins: 64
-        spacing: 48
+        spacing: Theme.spacingXLarge
         z: 1
         
         // Left side - Movie details
         ColumnLayout {
             Layout.fillHeight: true
             Layout.preferredWidth: parent.width * 0.6
-            spacing: 16
+            spacing: Theme.spacingSmall * 2
             
             // Movie Logo (if available)
             Item {
@@ -292,7 +292,7 @@ FocusScope {
             // Metadata row
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 24
+                spacing: Theme.spacingMedium
                 
                 Text {
                     visible: productionYear > 0
@@ -357,7 +357,7 @@ FocusScope {
                     }
                     
                     delegate: RowLayout {
-                        spacing: 4
+                        spacing: Math.round(4 * Theme.layoutScale)
                         property var rating: modelData
                         property string originalSource: rating.source || ""
                         property var score: rating.score || rating.value
@@ -425,7 +425,7 @@ FocusScope {
                                     if (s === "anilist") return "AniList"
                                     return originalSource
                                 }
-                                font.pixelSize: 10
+                                font.pixelSize: Theme.fontSizeCaption
                                 font.family: Theme.fontPrimary
                                 font.bold: true
                                 color: Theme.textSecondary
@@ -462,17 +462,17 @@ FocusScope {
             RowLayout {
                 visible: genres.length > 0
                 Layout.fillWidth: true
-                spacing: 8
+                spacing: Theme.spacingSmall
                 
                 Repeater {
                     model: genres.slice(0, 4)  // Limit to 4 genres
                     
                     Rectangle {
-                        width: genreText.width + 16
-                        height: 28
-                        radius: 14
+                        width: genreText.width + Theme.spacingSmall * 2
+                        height: Math.round(28 * Theme.layoutScale)
+                        radius: Math.round(14 * Theme.layoutScale)
                         color: Theme.backgroundSecondary
-                        border.width: 1
+                        border.width: Theme.borderWidth
                         border.color: Theme.borderLight
                         
                         Text {
@@ -490,8 +490,8 @@ FocusScope {
             // Action Buttons Row
             RowLayout {
                 Layout.fillWidth: true
-                Layout.topMargin: 16
-                spacing: 16
+                Layout.topMargin: Theme.spacingSmall * 2
+                spacing: Theme.spacingSmall * 2
                 
                 // Play Button
                 Button {
@@ -591,8 +591,8 @@ FocusScope {
             ColumnLayout {
                 visible: playbackPositionTicks > 0 && !isPlayed
                 Layout.fillWidth: true
-                Layout.topMargin: 8
-                spacing: 4
+                Layout.topMargin: Theme.spacingSmall
+                spacing: Math.round(4 * Theme.layoutScale)
                 
                 RowLayout {
                     Layout.fillWidth: true
@@ -619,8 +619,8 @@ FocusScope {
                 
                 Rectangle {
                     Layout.fillWidth: true
-                    height: 6
-                    radius: 3
+                    height: Math.round(6 * Theme.layoutScale)
+                    radius: Math.round(3 * Theme.layoutScale)
                     color: Qt.rgba(1, 1, 1, 0.2)
                     
                     Rectangle {
@@ -638,7 +638,7 @@ FocusScope {
             MediaInfoPanel {
                 id: mediaInfoPanel
                 Layout.fillWidth: true
-                Layout.topMargin: 16
+                Layout.topMargin: Theme.spacingSmall * 2
                 Layout.preferredWidth: 350
                 Layout.maximumHeight: 250
                 visible: currentMediaSource !== null && !playbackInfoLoading
@@ -672,7 +672,7 @@ FocusScope {
                 id: overviewScrollView
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                Layout.topMargin: 24
+                Layout.topMargin: Theme.spacingMedium
                 clip: true
                 
                 contentWidth: availableWidth
@@ -730,7 +730,7 @@ FocusScope {
                 radius: Theme.radiusLarge
                 antialiasing: true
                 color: Theme.cardBackground
-                border.width: 1
+                border.width: Theme.borderWidth
                 border.color: Theme.cardBorder
                 clip: true
                 
@@ -782,16 +782,16 @@ FocusScope {
                     // Play icon overlay
                     Rectangle {
                         anchors.centerIn: parent
-                        width: 80
-                        height: 80
-                        radius: 40
+                        width: Math.round(80 * Theme.layoutScale)
+                        height: Math.round(80 * Theme.layoutScale)
+                        radius: Math.round(40 * Theme.layoutScale)
                         color: Qt.rgba(0, 0, 0, 0.7)
                         visible: posterImage.status === Image.Ready
                         
                         Text {
                             anchors.centerIn: parent
                             text: Icons.playArrow
-                            font.pixelSize: 36
+                            font.pixelSize: Theme.fontSizeDisplay
                             font.family: Theme.fontIcon
                             color: Theme.textPrimary
                         }
@@ -825,17 +825,17 @@ FocusScope {
             Rectangle {
                 visible: isPlayed
                 anchors.top: posterCard.bottom
-                anchors.topMargin: 16
+                anchors.topMargin: Theme.spacingSmall * 2
                 anchors.horizontalCenter: posterCard.horizontalCenter
-                width: watchedLabel.width + 24
-                height: 32
+                width: watchedLabel.width + Theme.spacingMedium
+                height: Theme.spacingLarge
                 radius: 16
                 color: Theme.accentSecondary
                 
                 Row {
                     id: watchedLabel
                     anchors.centerIn: parent
-                    spacing: 4
+                    spacing: Math.round(4 * Theme.layoutScale)
                     Text {
                         text: Icons.check
                         font.family: Theme.fontIcon

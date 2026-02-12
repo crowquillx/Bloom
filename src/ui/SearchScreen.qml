@@ -124,7 +124,7 @@ FocusScope {
         // Search Input Container
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 60
+            Layout.preferredHeight: Theme.buttonHeightLarge
             Layout.leftMargin: Theme.spacingXLarge
             Layout.rightMargin: Theme.spacingXLarge
             
@@ -138,7 +138,7 @@ FocusScope {
                 // Search input field
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 50
+                    Layout.preferredHeight: Math.round(50 * Theme.layoutScale)
                     radius: Theme.radiusMedium
                     color: Theme.inputBackground
                     border.color: searchInput.activeFocus ? Theme.focusBorder : Theme.inputBorder
@@ -317,7 +317,7 @@ FocusScope {
                 // Loading indicator
                 Item {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 100
+                    Layout.preferredHeight: Math.round(100 * Theme.layoutScale)
                     visible: isSearching
                     
                     BusyIndicator {
@@ -358,8 +358,8 @@ FocusScope {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.ceil(count / Math.floor(width / cellWidth)) * cellHeight
                         
-                        cellWidth: Math.round(220 * Theme.dpiScale)
-                        cellHeight: Math.round(380 * Theme.dpiScale)
+                        cellWidth: Math.round(220 * Theme.layoutScale)
+                        cellHeight: Math.round(380 * Theme.layoutScale)
                         
                         interactive: false
                         
@@ -452,8 +452,8 @@ FocusScope {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.ceil(count / Math.floor(width / cellWidth)) * cellHeight
                         
-                        cellWidth: Math.round(220 * Theme.dpiScale)
-                        cellHeight: Math.round(380 * Theme.dpiScale)
+                        cellWidth: Math.round(220 * Theme.layoutScale)
+                        cellHeight: Math.round(380 * Theme.layoutScale)
                         
                         interactive: false
                         

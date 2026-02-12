@@ -30,7 +30,7 @@ Item {
     
     /// Whether to use overlay mode (true) or push mode (false)
     /// Auto-detected based on window width, but can be overridden
-    property bool overlayMode: window.width < 960
+    property bool overlayMode: Theme.sidebarDefaultMode === "overlay"
     
     /// Navigation items for the sidebar - using direct icon references
     /// to ensure they're evaluated at render time
@@ -108,9 +108,9 @@ Item {
     // Internal Properties
     // ========================================
     
-    readonly property int collapsedWidth: 64
-    readonly property int expandedWidth: 260
-    readonly property int headerHeight: 64
+    readonly property int collapsedWidth: Math.round(64 * Theme.layoutScale)
+    readonly property int expandedWidth: Math.round(260 * Theme.layoutScale)
+    readonly property int headerHeight: Math.round(64 * Theme.layoutScale)
     
     // Animation duration (respects reduced motion)
     readonly property int animDuration: SidebarSettings.reduceMotion ? 0 : Theme.durationNormal
@@ -338,10 +338,10 @@ Item {
                 Button {
                     id: sidebarHamburger
                     anchors.left: parent.left
-                    anchors.leftMargin: 12
+                    anchors.leftMargin: Math.round(12 * Theme.layoutScale)
                     anchors.verticalCenter: parent.verticalCenter
-                    width: 40
-                    height: 40
+                    width: Math.round(40 * Theme.layoutScale)
+                    height: Math.round(40 * Theme.layoutScale)
                     visible: expanded
                     
                     background: Rectangle {
@@ -428,7 +428,7 @@ Item {
                 delegate: FocusScope {
                     id: navDelegateScope
                     width: navListView.width
-                    height: 56
+                    height: Math.round(56 * Theme.layoutScale)
                     
                     required property var modelData
                     required property int index
@@ -486,8 +486,8 @@ Item {
                         // Glassmorphic background
                         background: Rectangle {
                             anchors.fill: parent
-                            anchors.leftMargin: 8
-                            anchors.rightMargin: 8
+                            anchors.leftMargin: Theme.spacingSmall
+                            anchors.rightMargin: Theme.spacingSmall
                             radius: Theme.radiusMedium
                             color: {
                                 if (navDelegateScope.isFocused) return Theme.buttonSecondaryBackgroundPressed
@@ -508,14 +508,14 @@ Item {
                         
                         contentItem: RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: expanded ? 20 : 0
-                            anchors.rightMargin: expanded ? 16 : 0
-                            spacing: expanded ? 16 : 0
+                            anchors.leftMargin: expanded ? Theme.spacingMedium : 0
+                            anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
+                            spacing: expanded ? Theme.spacingSmall * 2 : 0
                             
                             // Icon container for proper centering
                             Item {
-                                Layout.preferredWidth: expanded ? 24 : parent.width
-                                Layout.preferredHeight: 24
+                                Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
+                                Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
                                 Layout.alignment: Qt.AlignVCenter
                                 
                                 Text {
@@ -600,7 +600,7 @@ Item {
                 delegate: FocusScope {
                     id: libraryDelegateScope
                     width: libraryListView.width
-                    height: 56
+                    height: Math.round(56 * Theme.layoutScale)
 
                     required property var modelData
                     required property int index
@@ -711,8 +711,8 @@ Item {
                         anchors.fill: parent
                         background: Rectangle {
                             anchors.fill: parent
-                            anchors.leftMargin: 8
-                            anchors.rightMargin: 8
+                            anchors.leftMargin: Theme.spacingSmall
+                            anchors.rightMargin: Theme.spacingSmall
                             radius: Theme.radiusMedium
                             color: {
                                 if (libraryDelegateScope.isReordering) return Theme.buttonSecondaryBackgroundPressed
@@ -735,13 +735,13 @@ Item {
 
                         contentItem: RowLayout {
                             anchors.fill: parent
-                            anchors.leftMargin: expanded ? 20 : 0
-                            anchors.rightMargin: expanded ? 16 : 0
-                            spacing: expanded ? 16 : 0
+                            anchors.leftMargin: expanded ? Theme.spacingMedium : 0
+                            anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
+                            spacing: expanded ? Theme.spacingSmall * 2 : 0
 
                             Item {
-                                Layout.preferredWidth: expanded ? 24 : parent.width
-                                Layout.preferredHeight: 24
+                                Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
+                                Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
                                 Layout.alignment: Qt.AlignVCenter
 
                                 Text {
@@ -822,8 +822,8 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
-                Layout.leftMargin: 12
-                Layout.rightMargin: 12
+                Layout.leftMargin: Math.round(12 * Theme.layoutScale)
+                Layout.rightMargin: Math.round(12 * Theme.layoutScale)
                 color: Theme.borderLight
                 visible: expanded || !overlayMode
             }
@@ -832,13 +832,13 @@ Item {
             ItemDelegate {
                 id: settingsButton
                 Layout.fillWidth: true
-                Layout.preferredHeight: 56
+                Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
                 visible: expanded || !overlayMode
                 
                 background: Rectangle {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: Theme.spacingSmall
+                    anchors.rightMargin: Theme.spacingSmall
                     radius: Theme.radiusMedium
                     color: {
                         if (settingsButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
@@ -855,13 +855,13 @@ Item {
                 
                 contentItem: RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: expanded ? 20 : 0
-                    anchors.rightMargin: expanded ? 16 : 0
-                    spacing: expanded ? 16 : 0
+                    anchors.leftMargin: expanded ? Theme.spacingMedium : 0
+                    anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
+                    spacing: expanded ? Theme.spacingSmall * 2 : 0
                     
                     Item {
-                        Layout.preferredWidth: expanded ? 24 : parent.width
-                        Layout.preferredHeight: 24
+                        Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
+                        Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
                         Layout.alignment: Qt.AlignVCenter
                         
                         Text {
@@ -935,13 +935,13 @@ Item {
             ItemDelegate {
                 id: signOutButton
                 Layout.fillWidth: true
-                Layout.preferredHeight: 56
+                Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
                 visible: expanded || !overlayMode
                 
                 background: Rectangle {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: Theme.spacingSmall
+                    anchors.rightMargin: Theme.spacingSmall
                     radius: Theme.radiusMedium
                     color: {
                         if (signOutButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
@@ -957,14 +957,14 @@ Item {
                 
                 contentItem: RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: expanded ? 20 : 0
-                    anchors.rightMargin: expanded ? 16 : 0
-                    spacing: expanded ? 16 : 0
+                    anchors.leftMargin: expanded ? Theme.spacingMedium : 0
+                    anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
+                    spacing: expanded ? Theme.spacingSmall * 2 : 0
                     
                     // Icon container for proper centering
                     Item {
-                        Layout.preferredWidth: expanded ? 24 : parent.width
-                        Layout.preferredHeight: 24
+                        Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
+                        Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
                         Layout.alignment: Qt.AlignVCenter
                         
                         Text {
@@ -1038,8 +1038,8 @@ Item {
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
-                Layout.leftMargin: 12
-                Layout.rightMargin: 12
+                Layout.leftMargin: Math.round(12 * Theme.layoutScale)
+                Layout.rightMargin: Math.round(12 * Theme.layoutScale)
                 color: Theme.borderLight
                 visible: expanded || !overlayMode
             }
@@ -1048,13 +1048,13 @@ Item {
             ItemDelegate {
                 id: exitButton
                 Layout.fillWidth: true
-                Layout.preferredHeight: 56
+                Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
                 visible: expanded || !overlayMode
                 
                 background: Rectangle {
                     anchors.fill: parent
-                    anchors.leftMargin: 8
-                    anchors.rightMargin: 8
+                    anchors.leftMargin: Theme.spacingSmall
+                    anchors.rightMargin: Theme.spacingSmall
                     radius: Theme.radiusMedium
                     color: {
                         if (exitButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
@@ -1070,14 +1070,14 @@ Item {
                 
                 contentItem: RowLayout {
                     anchors.fill: parent
-                    anchors.leftMargin: expanded ? 20 : 0
-                    anchors.rightMargin: expanded ? 16 : 0
-                    spacing: expanded ? 16 : 0
+                    anchors.leftMargin: expanded ? Theme.spacingMedium : 0
+                    anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
+                    spacing: expanded ? Theme.spacingSmall * 2 : 0
                     
                     // Icon container for proper centering
                     Item {
-                        Layout.preferredWidth: expanded ? 24 : parent.width
-                        Layout.preferredHeight: 24
+                        Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
+                        Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
                         Layout.alignment: Qt.AlignVCenter
                         
                         Text {
@@ -1143,20 +1143,20 @@ Item {
             // Bottom padding
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 8
+                Layout.preferredHeight: Theme.spacingSmall
             }
             
             // Bottom section (collapse button in rail mode)
             Item {
                 Layout.fillWidth: true
-                Layout.preferredHeight: 56
+                Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
                 visible: !expanded && !overlayMode
                 
                 Button {
                     id: expandButton
                     anchors.centerIn: parent
-                    width: 40
-                    height: 40
+                    width: Math.round(40 * Theme.layoutScale)
+                    height: Math.round(40 * Theme.layoutScale)
                     
                     background: Rectangle {
                         radius: Theme.radiusSmall
@@ -1194,10 +1194,10 @@ Item {
     
     Button {
         id: hamburgerButton
-        x: overlayMode ? 12 : (expanded ? -100 : 12) // Hidden when sidebar expanded in push mode
-        y: 12
-        width: 40
-        height: 40
+        x: overlayMode ? Math.round(12 * Theme.layoutScale) : (expanded ? Math.round(-100 * Theme.layoutScale) : Math.round(12 * Theme.layoutScale))
+        y: Math.round(12 * Theme.layoutScale)
+        width: Math.round(40 * Theme.layoutScale)
+        height: Math.round(40 * Theme.layoutScale)
         z: 101
         visible: overlayMode || !expanded
         

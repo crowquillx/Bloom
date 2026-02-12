@@ -47,7 +47,8 @@ See also:
 - docs/theme.md     — Theme.qml tokens and design system
 - docs/services.md  — ServiceLocator pattern & initialization order
 - docs/config.md    — ConfigManager Q_PROPERTY and runtime settings
-- docs/responsive.md — ResponsiveLayoutManager and adaptive layout system
+
+- docs/responsive.md — (Deprecated) See docs/theme.md for ResponsiveLayoutManager
 - docs/developer_notes.md — Conventions, focus, QML patterns, and best practices
 - docs/viewmodels.md — BaseViewModel patterns and MovieDetailsViewModel
 

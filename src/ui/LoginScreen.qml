@@ -11,12 +11,12 @@ FocusScope {
 
     ColumnLayout {
         anchors.centerIn: parent
-        spacing: 20
-        width: 400
+        spacing: Theme.spacingMedium
+        width: Math.min(Math.round(400 * Theme.layoutScale), parent.width * 0.9)
 
         Text {
             text: "Connect to Jellyfin"
-            font.pixelSize: 32
+            font.pixelSize: Theme.fontSizeDisplay
             font.family: Theme.fontPrimary
             color: Theme.textPrimary
             Layout.alignment: Qt.AlignHCenter
@@ -27,7 +27,7 @@ FocusScope {
             focus: true  // Default focus
             placeholderText: "http://localhost:8096"
             Layout.fillWidth: true
-            font.pixelSize: 18
+            font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
             color: Theme.textPrimary
             
@@ -49,7 +49,7 @@ FocusScope {
             id: userField
             placeholderText: "Username"
             Layout.fillWidth: true
-            font.pixelSize: 18
+            font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
             color: Theme.textPrimary
             
@@ -72,7 +72,7 @@ FocusScope {
             placeholderText: "Password"
             echoMode: TextInput.Password
             Layout.fillWidth: true
-            font.pixelSize: 18
+            font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
             color: Theme.textPrimary
             
@@ -94,16 +94,16 @@ FocusScope {
             id: connectButton
             text: "Connect"
             enabled: serverField.text.length > 0
-            font.pixelSize: 24
+            font.pixelSize: Theme.fontSizeTitle
             font.family: Theme.fontPrimary
             Layout.fillWidth: true
-            Layout.preferredHeight: 50
+            Layout.preferredHeight: Theme.buttonHeightLarge
             
             background: Rectangle {
                 color: parent.activeFocus ? Theme.accentPrimary : Theme.backgroundSecondary
                 radius: Theme.radiusSmall
                 border.color: parent.activeFocus ? Theme.textPrimary : "transparent"
-                border.width: 2
+                border.width: Theme.buttonFocusBorderWidth
             }
             contentItem: Text {
                 text: parent.text
@@ -131,7 +131,7 @@ FocusScope {
             id: statusText
             text: ""
             color: Theme.accentSecondary // Using accent for status for now
-            font.pixelSize: 16
+            font.pixelSize: Theme.fontSizeSmall
             font.family: Theme.fontPrimary
             Layout.alignment: Qt.AlignHCenter
         }
