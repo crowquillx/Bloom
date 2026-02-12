@@ -143,14 +143,14 @@ void ResponsiveLayoutManager::updateLayout()
     }
     qreal newLayoutScale = baseLayoutScale * manualOverride;
     
-    // Track what changed
-    bool breakpointChanged = (m_breakpoint != newBreakpoint);
-    bool layoutScaleChanged = !qFuzzyCompare(m_layoutScale, newLayoutScale);
-    bool gridColumnsChanged = (m_gridColumns != newGridColumns);
-    bool sidebarModeChanged = (m_sidebarDefaultMode != newSidebarMode);
-    bool aspectRatioChanged = !qFuzzyCompare(m_aspectRatio, newAspectRatio);
-    bool widthChanged = (m_viewportWidth != newWidth);
-    bool heightChanged = (m_viewportHeight != newHeight);
+    // Track what changed (prefix with 'b' to avoid shadowing signal names on MSVC)
+    bool bBreakpointChanged = (m_breakpoint != newBreakpoint);
+    bool bLayoutScaleChanged = !qFuzzyCompare(m_layoutScale, newLayoutScale);
+    bool bGridColumnsChanged = (m_gridColumns != newGridColumns);
+    bool bSidebarModeChanged = (m_sidebarDefaultMode != newSidebarMode);
+    bool bAspectRatioChanged = !qFuzzyCompare(m_aspectRatio, newAspectRatio);
+    bool bWidthChanged = (m_viewportWidth != newWidth);
+    bool bHeightChanged = (m_viewportHeight != newHeight);
     
     // Update member variables
     m_viewportWidth = newWidth;
@@ -162,27 +162,27 @@ void ResponsiveLayoutManager::updateLayout()
     m_sidebarDefaultMode = newSidebarMode;
     
     // Emit signals for changed properties
-    if (widthChanged) {
+    if (bWidthChanged) {
         emit viewportWidthChanged();
     }
-    if (heightChanged) {
+    if (bHeightChanged) {
         emit viewportHeightChanged();
     }
-    if (aspectRatioChanged) {
+    if (bAspectRatioChanged) {
         emit aspectRatioChanged();
     }
-    if (breakpointChanged) {
+    if (bBreakpointChanged) {
         qDebug() << "ResponsiveLayoutManager: Breakpoint changed to" << newBreakpoint;
         emit breakpointChanged();
     }
-    if (layoutScaleChanged) {
+    if (bLayoutScaleChanged) {
         emit layoutScaleChanged();
     }
-    if (gridColumnsChanged) {
+    if (bGridColumnsChanged) {
         qDebug() << "ResponsiveLayoutManager: Grid columns changed to" << newGridColumns;
         emit gridColumnsChanged();
     }
-    if (sidebarModeChanged) {
+    if (bSidebarModeChanged) {
         qDebug() << "ResponsiveLayoutManager: Sidebar mode changed to" << newSidebarMode;
         emit sidebarDefaultModeChanged();
     }
