@@ -42,7 +42,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.8.1"
+          version: "6.10.0"
           host: "windows"
           target: "desktop"
           arch: "win64_msvc2022_64"
@@ -197,26 +197,23 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
           sudo apt-get install -y \
             build-essential \
             cmake \
             ninja-build \
-            qt6-base-dev \
-            qt6-declarative-dev \
-            qt6-multimedia-dev \
-            qt6-shadertools-dev \
-            qt6-wayland \
-            libqt6svg6-dev \
             libgl1-mesa-dev \
             libxkbcommon-dev \
             xvfb \
             mesa-vulkan-drivers \
-            qt6-l10n-tools \
-            qt6-tools-dev \
-            libsecret-1-dev
+            libsecret-1-dev \
+            libwayland-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.10.0"
+          cache: true
+          modules: "qtmultimedia qtshadertools qtimageformats qt5compat qtwayland"
       
       - name: Configure CMake
         run: |

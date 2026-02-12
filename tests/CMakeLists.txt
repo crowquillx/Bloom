@@ -157,7 +157,9 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/TrackUtils.js PROPERTIES
     QT_QML_SKIP_QMLDIR_ENTRY TRUE
 )
 
-qt_policy(SET QTP0004 NEW)
+if(COMMAND qt_policy)
+    qt_policy(SET QTP0004 NEW)
+endif()
 
 # Define QML sources with absolute paths
 set(QML_SOURCES
@@ -187,6 +189,14 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/TrackUtils.js
 )
 
+# Set resource aliases for QML files to avoid absolute path issues on Windows
+foreach(qml_file ${QML_SOURCES})
+    get_filename_component(filename ${qml_file} NAME)
+    set_source_files_properties(${qml_file} PROPERTIES
+        QT_RESOURCE_ALIAS ui/${filename}
+    )
+endforeach()
+
 # Add QML module
 qt_add_qml_module(VisualRegressionTest
     URI BloomUI
@@ -197,13 +207,7 @@ qt_add_qml_module(VisualRegressionTest
         ${QML_SOURCES}
 )
 
-# Set resource aliases for QML files to avoid absolute path issues on Windows
-foreach(qml_file ${QML_SOURCES})
-    get_filename_component(filename ${qml_file} NAME)
-    set_source_files_properties(${qml_file} PROPERTIES
-        QT_RESOURCE_ALIAS ui/${filename}
-    )
-endforeach()
+
 
 # Add shaders (only if Qt6 ShaderTools is available)
 find_package(Qt6 QUIET COMPONENTS ShaderTools)

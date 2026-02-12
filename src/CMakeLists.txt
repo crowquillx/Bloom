@@ -82,7 +82,9 @@ set_source_files_properties(ui/Icons.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
-qt_policy(SET QTP0004 NEW)
+if(COMMAND qt_policy)
+    qt_policy(SET QTP0004 NEW)
+endif()
 
 set_source_files_properties(ui/TrackUtils.js PROPERTIES
     QT_QML_SKIP_QMLDIR_ENTRY TRUE
