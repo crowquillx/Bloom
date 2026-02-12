@@ -8,17 +8,13 @@ MockAuthenticationService::MockAuthenticationService(ISecretStore *secretStore, 
 
 void MockAuthenticationService::initialize(ConfigManager *configManager)
 {
-    Q_UNUSED(configManager)
-    
-    // In test mode, we start with a pre-authenticated session
-    // Set the internal state directly via the parent class methods
-    // We need to call the parent's initialize to set up the config manager
-    // but then override the authentication state
+    // Initialize the base class to set up config manager and secret store members
+    AuthenticationService::initialize(configManager);
     
     qDebug() << "MockAuthenticationService: Initialized with pre-authenticated session";
     
-    // Emit login success to simulate authenticated state
-    emit loginSuccess("test-user-001", "test-access-token-001", "TestUser");
+    // Use restoreSession to set server URL and internal state consistently
+    restoreSession(QStringLiteral("test://mock"), QStringLiteral("test-user-001"), QStringLiteral("test-access-token-001"));
 }
 
 void MockAuthenticationService::authenticate(const QString &serverUrl, const QString &username, const QString &password)
