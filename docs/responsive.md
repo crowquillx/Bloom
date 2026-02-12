@@ -399,6 +399,47 @@ The alphabetical letter rail width and spacing scale with `Theme.layoutScale` (e
 
 Button padding and the back-button width scale with `Theme.layoutScale`, keeping touch/focus targets proportional across breakpoints.
 
+## SeriesDetailsView Responsive Layout
+
+[`SeriesDetailsView.qml`](../src/ui/SeriesDetailsView.qml) uses the responsive layout system for its two-column series details layout.
+
+### Layout structure
+
+A 70%/30% `RowLayout` split (left content area + right sidebar). The sidebar narrows to 15% on wide screens (`root.width > 1200 * Theme.layoutScale`).
+
+### Token usage
+
+| Element | Tokens used |
+|---------|-------------|
+| Root margins | `Theme.spacingLarge` |
+| Action button sizing | `Theme.buttonHeightLarge`, `Math.round(200 * Theme.layoutScale)` |
+| Typography | `Theme.fontSizeBody`, `Theme.fontSizeSmall`, `Theme.fontSizeHeader`, `Theme.fontSizeDisplay`, `Theme.fontSizeIcon` |
+| Spacing | `Theme.spacingSmall`, `Theme.spacingMedium`, `Theme.spacingLarge`, `Theme.spacingXLarge` |
+| Card radii | `Theme.radiusMedium`, `Theme.radiusLarge`, `Theme.radiusSmall` |
+| Season poster dimensions | `Theme.seasonPosterWidth`, `Theme.seasonPosterHeight` (with responsive capping) |
+| Next Up card | `Theme.nextUpHeight`, `Theme.nextUpImageHeight` |
+| Series logo | `Theme.seriesLogoHeight`, `Theme.seriesLogoMaxWidth` |
+| Overview max height | `Theme.seriesOverviewMaxHeight` |
+
+### Seasons grid
+
+The seasons grid uses `Theme.seasonPosterWidth`/`Theme.seasonPosterHeight` for cell sizing with responsive capping against viewport height (`root.height * 0.45`). Grid margins use `Theme.spacingMedium`. Custom keyboard navigation handles row/column traversal within the grid.
+
+### Animated transitions
+
+Sidebar width animates on resize, gated by `Theme.uiAnimationsEnabled`:
+
+```qml
+Behavior on Layout.preferredWidth {
+    enabled: Theme.uiAnimationsEnabled
+    NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
+}
+```
+
+### Focus restoration on breakpoint change
+
+A `Connections` block on `ResponsiveLayoutManager.onBreakpointChanged` saves the current season grid index and active focus item, then restores both via `Qt.callLater` after the layout reflows.
+
 ## Future Enhancements
 
 Potential improvements for future versions:
