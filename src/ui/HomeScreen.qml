@@ -342,7 +342,7 @@ FocusScope {
             cache: true
             opacity: parent.showBackdrop1 ? 1.0 : 0.0
             visible: true
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade; enabled: Theme.uiAnimationsEnabled } }
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
 
             layer.enabled: true
             layer.effect: MultiEffect {
@@ -362,7 +362,7 @@ FocusScope {
             cache: true
             opacity: parent.showBackdrop1 ? 0.0 : 1.0
             visible: true
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade; enabled: Theme.uiAnimationsEnabled } }
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
 
             layer.enabled: true
             layer.effect: MultiEffect {
@@ -496,7 +496,7 @@ FocusScope {
                         property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse
                         scale: isFocused ? 1.04 : (isHovered ? 1.01 : 1.0)
                         z: isFocused ? 1 : 0
-                        Behavior on scale { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
+                        Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
 
                         // Edge-to-edge poster without outer card chrome
                         Rectangle {
@@ -564,7 +564,7 @@ FocusScope {
                                     GradientStop { position: 1.0; color: "transparent" }
                                 }
                                 opacity: isFocused ? 0.3 : (isHovered ? 0.15 : 0.0)
-                                Behavior on opacity { NumberAnimation { duration: Theme.durationNormal; enabled: Theme.uiAnimationsEnabled } }
+                                Behavior on opacity { NumberAnimation { duration: Theme.durationNormal } enabled: Theme.uiAnimationsEnabled }
                             }
 
                             // Outline on focus/hover
@@ -578,7 +578,7 @@ FocusScope {
                                 border.color: Theme.accentPrimary
                                 antialiasing: true
                                 visible: border.width > 0
-                                Behavior on border.width { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
+                                Behavior on border.width { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
                             }
                         }
                         
@@ -696,7 +696,7 @@ FocusScope {
                         property bool isHovered: InputModeManager.pointerActive && nextUpMouseArea.containsMouse
                         scale: isFocused ? 1.02 : (isHovered ? 1.01 : 1.0)
                         z: isFocused ? 1 : 0
-                        Behavior on scale { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
+                        Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
 
                         Column {
                             anchors.fill: parent
@@ -767,7 +767,7 @@ FocusScope {
                                         GradientStop { position: 1.0; color: "transparent" }
                                     }
                                     opacity: isFocused ? 0.25 : (isHovered ? 0.15 : 0.0)
-                                    Behavior on opacity { NumberAnimation { duration: Theme.durationNormal; enabled: Theme.uiAnimationsEnabled } }
+                                    Behavior on opacity { NumberAnimation { duration: Theme.durationNormal } enabled: Theme.uiAnimationsEnabled }
                                 }
 
                                 Rectangle {
@@ -780,7 +780,7 @@ FocusScope {
                                     border.color: Theme.accentPrimary
                                     antialiasing: true
                                     visible: border.width > 0
-                                    Behavior on border.width { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
+                                    Behavior on border.width { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
                                 }
 
                                 MediaProgressBar {
@@ -971,7 +971,7 @@ FocusScope {
                                 scale: isFocused ? 1.05 : (isHovered ? 1.02 : 1.0)
                                 z: isFocused ? 1 : 0
                                 transformOrigin: Item.Bottom  // Scale from bottom to prevent top clipping
-                                Behavior on scale { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
+                                Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
 
                                 Column {
                                     anchors.fill: parent
@@ -1032,7 +1032,7 @@ FocusScope {
                                             color: "transparent"
                                             border.width: isFocused ? Theme.buttonFocusBorderWidth : 0
                                             border.color: Theme.accentPrimary
-                                            Behavior on border.width { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
+                                            Behavior on border.width { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
                                         }
 
                                         // Loading placeholder
