@@ -13,18 +13,30 @@ FocusScope {
     property var librariesModel: []
     property var nextUpModel: []
     property var recentlyAddedMap: ({}) // Map of libraryId -> items array
-    // Home card sizing (slightly larger than theme defaults)
-    property real homeCardScale: 1.2
-    property int homeCardWidth: Math.round(Theme.homeCardWidthLarge * homeCardScale)
+    // Home card sizing — dynamically fills row based on visible-items breakpoint
+    property int homeCardWidth: Math.round((parent.width - Theme.paddingLarge * 2 - Theme.spacingMedium * (Theme.homeRowVisibleItems - 1)) / Theme.homeRowVisibleItems)
     // Force 16:9 aspect to reduce image crop vs. server thumbs
     property int homeCardHeight: Math.round(homeCardWidth * 9 / 16)
     // Request higher-resolution images for the scaled cards
     property int homeCardImageRequestWidth: Math.round(homeCardWidth * 2)
-    // Recently Added poster sizing
-    property real recentlyAddedScale: 1.2
-    property int recentlyAddedPosterWidth: Math.round(Theme.recentlyAddedPosterWidth * recentlyAddedScale)
-    property int recentlyAddedPosterHeight: Math.round(Theme.recentlyAddedPosterHeight * recentlyAddedScale)
-    
+    // Recently Added poster sizing — same column count as home cards
+    property int recentlyAddedPosterWidth: Math.round((parent.width - Theme.paddingLarge * 2 - Theme.spacingMedium * (Theme.homeRowVisibleItems - 1)) / Theme.homeRowVisibleItems)
+    property int recentlyAddedPosterHeight: Math.round(recentlyAddedPosterWidth * 1.5)
+
+    // Smooth transitions when breakpoint changes resize cards
+    Behavior on homeCardWidth {
+        NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.InOutQuad }
+    }
+    Behavior on homeCardHeight {
+        NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.InOutQuad }
+    }
+    Behavior on recentlyAddedPosterWidth {
+        NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.InOutQuad }
+    }
+    Behavior on recentlyAddedPosterHeight {
+        NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.InOutQuad }
+    }
+
     // Rotating backdrop properties
     property var backdropCandidates: []  // Array of {itemId, backdropTag} objects
     property string currentBackdropUrl: ""
@@ -78,6 +90,60 @@ FocusScope {
     property string lastFocusedSection: "myMedia"
     property int lastFocusedIndex: 0
     property real lastContentY: 0  // Remember scroll position
+
+    // Breakpoint focus restoration state
+    property int savedMyMediaIndex: -1
+    property int savedNextUpIndex: -1
+    property int savedRecentlyAddedIndex: -1
+    property string savedRecentlyAddedLibraryId: ""
+
+    Connections {
+        target: ResponsiveLayoutManager
+        function onBreakpointChanged() {
+            if (myMediaList.activeFocus) savedMyMediaIndex = myMediaList.currentIndex
+            if (nextUpList.activeFocus) savedNextUpIndex = nextUpList.currentIndex
+            // Check if a recentlyAddedList has focus and save its state
+            for (var i = 0; i < recentlyAddedRepeater.count; i++) {
+                var item = recentlyAddedRepeater.itemAt(i)
+                if (item && item.children[1] && item.children[1].activeFocus) {
+                    savedRecentlyAddedLibraryId = item.libraryId
+                    savedRecentlyAddedIndex = item.children[1].currentIndex
+                    break
+                }
+            }
+            Qt.callLater(restoreBreakpointFocus)
+        }
+    }
+
+    function restoreBreakpointFocus() {
+        if (savedMyMediaIndex >= 0 && savedMyMediaIndex < myMediaList.count) {
+            myMediaList.currentIndex = savedMyMediaIndex
+            myMediaList.positionViewAtIndex(savedMyMediaIndex, ListView.Contain)
+            myMediaList.forceActiveFocus()
+        } else if (savedNextUpIndex >= 0 && savedNextUpIndex < nextUpList.count) {
+            nextUpList.currentIndex = savedNextUpIndex
+            nextUpList.positionViewAtIndex(savedNextUpIndex, ListView.Contain)
+            nextUpList.forceActiveFocus()
+        } else if (savedRecentlyAddedLibraryId !== "" && savedRecentlyAddedIndex >= 0) {
+            // Find the matching recentlyAddedList for the saved library
+            for (var i = 0; i < recentlyAddedRepeater.count; i++) {
+                var item = recentlyAddedRepeater.itemAt(i)
+                if (item && item.libraryId === savedRecentlyAddedLibraryId && item.children[1]) {
+                    var list = item.children[1]
+                    if (savedRecentlyAddedIndex < list.count) {
+                        list.currentIndex = savedRecentlyAddedIndex
+                        list.positionViewAtIndex(savedRecentlyAddedIndex, ListView.Contain)
+                        list.forceActiveFocus()
+                    }
+                    break
+                }
+            }
+        }
+        savedMyMediaIndex = -1
+        savedNextUpIndex = -1
+        savedRecentlyAddedIndex = -1
+        savedRecentlyAddedLibraryId = ""
+    }
     
     // Function to save current focus state before navigating away
     function saveFocusState() {
@@ -276,7 +342,7 @@ FocusScope {
             cache: true
             opacity: parent.showBackdrop1 ? 1.0 : 0.0
             visible: true
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade; enabled: Theme.uiAnimationsEnabled } }
 
             layer.enabled: true
             layer.effect: MultiEffect {
@@ -296,7 +362,7 @@ FocusScope {
             cache: true
             opacity: parent.showBackdrop1 ? 0.0 : 1.0
             visible: true
-            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade; enabled: Theme.uiAnimationsEnabled } }
 
             layer.enabled: true
             layer.effect: MultiEffect {
@@ -370,7 +436,7 @@ FocusScope {
             spacing: Theme.spacingXLarge
             
             // Top spacing
-            Item { height: 40 }
+            Item { height: Theme.paddingLarge }
             
             // My Media Section
             ColumnLayout {
@@ -384,7 +450,7 @@ FocusScope {
                     font.family: Theme.fontPrimary
                     font.bold: true
                     color: Theme.textPrimary
-                    leftPadding: 40
+                    leftPadding: Theme.paddingLarge
                     Accessible.role: Accessible.Heading
                     Accessible.name: text
                 }
@@ -392,33 +458,33 @@ FocusScope {
                 ListView {
                     id: myMediaList
                     Layout.fillWidth: true
-                    Layout.preferredHeight: homeCardHeight + 40
+                    Layout.preferredHeight: homeCardHeight + Theme.paddingLarge
                     orientation: ListView.Horizontal
                     spacing: Theme.spacingMedium
-                    leftMargin: 40
-                    rightMargin: 40
+                    leftMargin: Theme.paddingLarge
+                    rightMargin: Theme.paddingLarge
                     clip: false
                     focus: true
-                    preferredHighlightBegin: 40
-                    preferredHighlightEnd: width - 40
+                    preferredHighlightBegin: Theme.paddingLarge
+                    preferredHighlightEnd: width - Theme.paddingLarge
                     highlightRangeMode: ListView.StrictlyEnforceRange
                     highlightMoveDuration: 0
                 move: Transition {
-                    NumberAnimation { properties: "x"; duration: 200; easing.type: Easing.OutCubic }
+                    NumberAnimation { properties: "x"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                 }
                 displaced: Transition {
-                    NumberAnimation { properties: "x"; duration: 200; easing.type: Easing.OutCubic }
+                    NumberAnimation { properties: "x"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                 }
                 add: Transition {
-                    NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
-                    NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                    NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
+                    NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
                 }
                 populate: Transition {
-                    NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
-                    NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                    NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
+                    NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
                 }
                 remove: Transition {
-                    NumberAnimation { property: "opacity"; to: 0; duration: 200; easing.type: Easing.OutQuad }
+                    NumberAnimation { property: "opacity"; to: 0; duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0; easing.type: Easing.OutQuad }
                 }
                     
                     model: librariesModel
@@ -430,7 +496,7 @@ FocusScope {
                         property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse
                         scale: isFocused ? 1.04 : (isHovered ? 1.01 : 1.0)
                         z: isFocused ? 1 : 0
-                        Behavior on scale { NumberAnimation { duration: 150 } }
+                        Behavior on scale { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
 
                         // Edge-to-edge poster without outer card chrome
                         Rectangle {
@@ -471,7 +537,7 @@ FocusScope {
                                 anchors.centerIn: parent
                                 text: "..."
                                 color: Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeTitle
+                                font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
                                 visible: myMediaImageSource.status !== Image.Ready
                             }
@@ -498,7 +564,7 @@ FocusScope {
                                     GradientStop { position: 1.0; color: "transparent" }
                                 }
                                 opacity: isFocused ? 0.3 : (isHovered ? 0.15 : 0.0)
-                                Behavior on opacity { NumberAnimation { duration: 200 } }
+                                Behavior on opacity { NumberAnimation { duration: Theme.durationNormal; enabled: Theme.uiAnimationsEnabled } }
                             }
 
                             // Outline on focus/hover
@@ -508,11 +574,11 @@ FocusScope {
                                 height: parent.height + border.width * 2
                                 radius: Theme.imageRadius + border.width
                                 color: "transparent"
-                                border.width: isFocused ? 3 : (isHovered ? 2 : 0)
+                                border.width: isFocused ? Theme.buttonFocusBorderWidth : (isHovered ? Theme.buttonFocusBorderWidth - 1 : 0)
                                 border.color: Theme.accentPrimary
                                 antialiasing: true
                                 visible: border.width > 0
-                                Behavior on border.width { NumberAnimation { duration: 120 } }
+                                Behavior on border.width { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
                             }
                         }
                         
@@ -567,16 +633,16 @@ FocusScope {
             ColumnLayout {
                 id: nextUpSection
                 Layout.fillWidth: true
-                spacing: 20
+                spacing: Theme.spacingMedium
                 visible: nextUpModel.length > 0
                 
                 Text {
                     text: "Next Up"
-                    font.pixelSize: 42
+                    font.pixelSize: Theme.fontSizeHeader
                     font.family: Theme.fontPrimary
                     font.bold: true
                     color: Theme.textPrimary
-                    leftPadding: 40
+                    leftPadding: Theme.paddingLarge
                     Accessible.role: Accessible.Heading
                     Accessible.name: text
                 }
@@ -584,40 +650,40 @@ FocusScope {
                 ListView {
                     id: nextUpList
                     Layout.fillWidth: true
-                    Layout.preferredHeight: homeCardHeight + 80  // Match My Media card height, plus text
+                    Layout.preferredHeight: homeCardHeight + Theme.spacingLarge * 2
                     orientation: ListView.Horizontal
-                    spacing: 20
-                    leftMargin: 40
-                    rightMargin: 40
+                    spacing: Theme.spacingMedium
+                    leftMargin: Theme.paddingLarge
+                    rightMargin: Theme.paddingLarge
                     clip: false
-                    preferredHighlightBegin: 40
-                    preferredHighlightEnd: width - 40
+                    preferredHighlightBegin: Theme.paddingLarge
+                    preferredHighlightEnd: width - Theme.paddingLarge
                     highlightRangeMode: ListView.StrictlyEnforceRange
                     highlightMoveDuration: 0
 
                     add: Transition {
-                        NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
-                        NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                        NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
+                        NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
                     }
                     populate: Transition {
-                        NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
-                        NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                        NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
+                        NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
                     }
                     addDisplaced: Transition {
-                        NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                        NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                     }
                     move: Transition {
-                        NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                        NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                     }
                     remove: Transition {
-                        NumberAnimation { property: "opacity"; to: 0; duration: 200; easing.type: Easing.OutQuad }
-                        NumberAnimation { property: "scale"; to: 0.9; duration: 200; easing.type: Easing.OutQuad }
+                        NumberAnimation { property: "opacity"; to: 0; duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0; easing.type: Easing.OutQuad }
+                        NumberAnimation { property: "scale"; to: 0.9; duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0; easing.type: Easing.OutQuad }
                     }
                     removeDisplaced: Transition {
-                        NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                        NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                     }
                     displaced: Transition {
-                        NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                        NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                     }
                     
                     model: nextUpModel
@@ -630,7 +696,7 @@ FocusScope {
                         property bool isHovered: InputModeManager.pointerActive && nextUpMouseArea.containsMouse
                         scale: isFocused ? 1.02 : (isHovered ? 1.01 : 1.0)
                         z: isFocused ? 1 : 0
-                        Behavior on scale { NumberAnimation { duration: 150 } }
+                        Behavior on scale { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
 
                         Column {
                             anchors.fill: parent
@@ -701,7 +767,7 @@ FocusScope {
                                         GradientStop { position: 1.0; color: "transparent" }
                                     }
                                     opacity: isFocused ? 0.25 : (isHovered ? 0.15 : 0.0)
-                                    Behavior on opacity { NumberAnimation { duration: 200 } }
+                                    Behavior on opacity { NumberAnimation { duration: Theme.durationNormal; enabled: Theme.uiAnimationsEnabled } }
                                 }
 
                                 Rectangle {
@@ -710,11 +776,11 @@ FocusScope {
                                     height: parent.height + border.width * 2
                                     radius: Theme.imageRadius + border.width
                                     color: "transparent"
-                                    border.width: isFocused ? 3 : (isHovered ? 2 : 0)
+                                    border.width: isFocused ? Theme.buttonFocusBorderWidth : (isHovered ? Theme.buttonFocusBorderWidth - 1 : 0)
                                     border.color: Theme.accentPrimary
                                     antialiasing: true
                                     visible: border.width > 0
-                                    Behavior on border.width { NumberAnimation { duration: 120 } }
+                                    Behavior on border.width { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
                                 }
 
                                 MediaProgressBar {
@@ -729,7 +795,7 @@ FocusScope {
                                     anchors.centerIn: parent
                                     text: "..."
                                     color: Theme.textSecondary
-                                    font.pixelSize: 24
+                                    font.pixelSize: Theme.fontSizeBody
                                     font.family: Theme.fontPrimary
                                     visible: nextUpImage.status !== Image.Ready
                                 }
@@ -737,7 +803,7 @@ FocusScope {
 
                             Column {
                                 width: parent.width
-                                spacing: 2
+                                spacing: Theme.spacingSmall / 4
 
                                 Text {
                                     width: parent.width
@@ -827,7 +893,7 @@ FocusScope {
             ColumnLayout {
                 id: recentlyAddedSection
                 Layout.fillWidth: true
-                spacing: 40
+                spacing: Theme.spacingXLarge
                 
                 Repeater {
                     id: recentlyAddedRepeater
@@ -835,7 +901,7 @@ FocusScope {
                     
                     delegate: ColumnLayout {
                         Layout.fillWidth: true
-                        spacing: 20
+                        spacing: Theme.spacingMedium
                         
                         property var items: recentlyAddedMap[modelData.Id] || []
                         property string libraryId: modelData.Id
@@ -847,7 +913,7 @@ FocusScope {
                             font.family: Theme.fontPrimary
                             font.bold: true
                             color: Theme.textPrimary
-                            leftPadding: 40
+                            leftPadding: Theme.paddingLarge
                             Accessible.role: Accessible.Heading
                             Accessible.name: text
                         }
@@ -855,40 +921,40 @@ FocusScope {
                         ListView {
                             id: recentlyAddedList
                             Layout.fillWidth: true
-                            Layout.preferredHeight: recentlyAddedPosterHeight + 170
+                            Layout.preferredHeight: recentlyAddedPosterHeight + Theme.spacingLarge * 4
                             orientation: ListView.Horizontal
-                            spacing: 20
-                            leftMargin: 40
-                            rightMargin: 40
+                            spacing: Theme.spacingMedium
+                            leftMargin: Theme.paddingLarge
+                            rightMargin: Theme.paddingLarge
                             clip: false
-                            preferredHighlightBegin: 40
-                            preferredHighlightEnd: width - 40
+                            preferredHighlightBegin: Theme.paddingLarge
+                            preferredHighlightEnd: width - Theme.paddingLarge
                             highlightRangeMode: ListView.StrictlyEnforceRange
                             highlightMoveDuration: 0
                             
                             add: Transition {
-                                NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
-                                NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                                NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
+                                NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
                             }
                             populate: Transition {
-                                NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
-                                NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: 300; easing.type: Easing.OutQuad }
+                                NumberAnimation { property: "opacity"; from: 0; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
+                                NumberAnimation { property: "scale"; from: 0.95; to: 1.0; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutQuad }
                             }
                             addDisplaced: Transition {
-                                NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                                NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                             }
                             move: Transition {
-                                NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                                NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                             }
                             remove: Transition {
-                                NumberAnimation { property: "opacity"; to: 0; duration: 200; easing.type: Easing.OutQuad }
-                                NumberAnimation { property: "scale"; to: 0.9; duration: 200; easing.type: Easing.OutQuad }
+                                NumberAnimation { property: "opacity"; to: 0; duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0; easing.type: Easing.OutQuad }
+                                NumberAnimation { property: "scale"; to: 0.9; duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0; easing.type: Easing.OutQuad }
                             }
                             removeDisplaced: Transition {
-                                NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                                NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                             }
                             displaced: Transition {
-                                NumberAnimation { properties: "x,y"; duration: 300; easing.type: Easing.OutCubic }
+                                NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                             }
                             
                             model: parent.items
@@ -905,12 +971,12 @@ FocusScope {
                                 scale: isFocused ? 1.05 : (isHovered ? 1.02 : 1.0)
                                 z: isFocused ? 1 : 0
                                 transformOrigin: Item.Bottom  // Scale from bottom to prevent top clipping
-                                Behavior on scale { NumberAnimation { duration: 150 } }
+                                Behavior on scale { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
 
                                 Column {
                                     anchors.fill: parent
-                                    anchors.topMargin: 30  // Extra margin for scale animation
-                                    spacing: 8
+                                    anchors.topMargin: Theme.spacingLarge
+                                    spacing: Theme.spacingSmall
 
                                     // Poster image (2:3 aspect ratio) with rounded corners
                                     Rectangle {
@@ -964,9 +1030,9 @@ FocusScope {
                                             height: parent.height + border.width * 2
                                             radius: Theme.imageRadius + border.width
                                             color: "transparent"
-                                            border.width: isFocused ? 3 : 0
+                                            border.width: isFocused ? Theme.buttonFocusBorderWidth : 0
                                             border.color: Theme.accentPrimary
-                                            Behavior on border.width { NumberAnimation { duration: 150 } }
+                                            Behavior on border.width { NumberAnimation { duration: Theme.durationShort; enabled: Theme.uiAnimationsEnabled } }
                                         }
 
                                         // Loading placeholder
@@ -974,7 +1040,7 @@ FocusScope {
                                             anchors.centerIn: parent
                                             text: "..."
                                             color: Theme.textSecondary
-                                            font.pixelSize: 18
+                                            font.pixelSize: Theme.fontSizeBody
                                             font.family: Theme.fontPrimary
                                             visible: recentCoverArt.status !== Image.Ready
                                         }
@@ -1008,7 +1074,7 @@ FocusScope {
                                     // Text container below the image
                                     Column {
                                         width: parent.width
-                                        spacing: 2
+                                        spacing: Theme.spacingSmall / 4
 
                                         // Title (bold, white with black outline)
                                         // For episodes: SeriesName, For series/movies: Name
@@ -1063,7 +1129,7 @@ FocusScope {
                                                 }
                                                 return ""
                                             }
-                                            font.pixelSize: Theme.fontSizeSmall - 2
+                                            font.pixelSize: Theme.fontSizeSmall
                                             font.family: Theme.fontPrimary
                                             color: Theme.textSecondary
                                             style: Text.Outline
@@ -1132,7 +1198,7 @@ FocusScope {
             }
             
             // Bottom spacing
-            Item { height: 40 }
+            Item { height: Theme.paddingLarge }
         } // end mainColumn
     } // end Flickable
     
@@ -1165,7 +1231,7 @@ FocusScope {
     function ensureSectionVisible(targetItem, padding) {
         if (!targetItem)
             return
-        var extra = padding !== undefined ? padding : 40
+        var extra = padding !== undefined ? padding : Theme.paddingLarge
         var itemPos = targetItem.mapToItem(mainFlickable.contentItem, 0, 0)
         var top = itemPos.y - extra
         var bottom = itemPos.y + targetItem.height + extra
