@@ -1,0 +1,4 @@
+# Diff images are generated during test runs when comparisons fail
+# They should not be committed to the repository
+*
+!.gitignore

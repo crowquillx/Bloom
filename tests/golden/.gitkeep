@@ -1,0 +1,3 @@
+# This file ensures the golden/ directory is tracked by git.
+# Golden screenshots will be generated on first test run and should be
+# reviewed and committed when they represent the expected visual state.

@@ -24,6 +24,8 @@ class SidebarSettings;
 class UiSoundController;
 class SessionManager;
 class SessionService;
+class MockAuthenticationService;
+class MockLibraryService;
 
 class ApplicationInitializer : public QObject
 {
@@ -68,4 +70,8 @@ private:
     std::unique_ptr<SessionManager> m_sessionManager;
     std::unique_ptr<SessionService> m_sessionService;
     std::unique_ptr<ResponsiveLayoutManager> m_responsiveLayoutManager;
+    
+    // Test mode mock services
+    std::unique_ptr<MockAuthenticationService> m_mockAuthService;
+    std::unique_ptr<MockLibraryService> m_mockLibraryService;
 };

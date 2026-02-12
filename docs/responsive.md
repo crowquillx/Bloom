@@ -275,6 +275,88 @@ Enable verbose logging to see layout calculations:
 ResponsiveLayoutManager: Layout updated - viewport: 1920 x 1080 effectiveHeight: 1080 DPR: 1.0 breakpoint: "Large" layoutScale: 1.12 gridColumns: 7 aspectRatio: 1.78
 ```
 
+## Visual Regression Testing
+
+The responsive layout system includes automated visual regression testing to catch UI regressions across different screen sizes.
+
+### Running Tests Locally
+
+1. Build the project with tests enabled:
+   ```bash
+   cmake -B build -DBUILD_TESTING=ON
+   cmake --build build
+   ```
+
+2. Run the visual regression tests:
+   ```bash
+   ./build/tests/VisualRegressionTest
+   ```
+
+### Test Mode
+
+The application supports a `--test-mode` flag for visual regression testing:
+
+```bash
+./build/src/Bloom --test-mode --test-resolution 1920x1080
+```
+
+Options:
+- `--test-mode` - Enable test mode (loads fixture data, bypasses network)
+- `--test-fixture <path>` - Path to fixture JSON (default: tests/fixtures/test_library.json)
+- `--test-resolution <WxH>` - Viewport resolution (default: 1920x1080)
+
+### Test Fixtures
+
+Test fixtures are located in [`tests/fixtures/`](../tests/fixtures/):
+
+- **`test_library.json`** - Comprehensive test data including movies, series, episodes, and playback info
+- **`test_images/placeholder.svg`** - Deterministic placeholder image for all test media
+
+See [`tests/fixtures/README.md`](../tests/fixtures/README.md) for fixture documentation.
+
+### Golden Screenshots
+
+Golden screenshots are stored in `tests/golden/` and are generated automatically on first test run. To update golden screenshots:
+
+1. Delete the existing golden files:
+   ```bash
+   rm tests/golden/*.png
+   ```
+
+2. Run the tests again:
+   ```bash
+   ./build/tests/VisualRegressionTest
+   ```
+
+3. New golden screenshots will be created
+
+### CI Integration
+
+Visual regression tests run automatically in CI on every pull request. On failure, diff images are uploaded as artifacts for review.
+
+The CI workflow:
+1. Builds the project with `BUILD_TESTING=ON`
+2. Runs `VisualRegressionTest` at all supported resolutions
+3. Uploads `tests/diffs/` as artifacts if tests fail
+4. Fails the build if visual regressions are detected
+
+### Test Coverage
+
+| Screen | 720p | 1080p | 1440p | 4K |
+|--------|------|-------|-------|-----|
+| Home   | ✓    | ✓     | ✓     | ✓   |
+| Library| ✓    | ✓     | ✓     | ✓   |
+| Details| ✓    | ✓     | ✓     | ✓   |
+
+### Test Architecture
+
+The visual regression testing infrastructure consists of:
+
+- **[`TestModeController`](../src/test/TestModeController.h)** - Manages test mode state and fixture loading
+- **[`MockAuthenticationService`](../src/test/MockAuthenticationService.h)** - Mock authentication for isolated testing
+- **[`MockLibraryService`](../src/test/MockLibraryService.h)** - Mock library data from fixtures
+- **[`VisualRegressionTest`](../tests/VisualRegressionTest.cpp)** - Qt Test framework for screenshot capture and comparison
+
 ## Future Enhancements
 
 Potential improvements for future versions:

@@ -64,6 +64,12 @@ qt_add_executable(Bloom
     security/SecretStoreLinux.cpp
     security/SecretStoreWindows.h
     security/SecretStoreWindows.cpp
+    test/TestModeController.h
+    test/TestModeController.cpp
+    test/MockAuthenticationService.h
+    test/MockAuthenticationService.cpp
+    test/MockLibraryService.h
+    test/MockLibraryService.cpp
     resources/windows-icon.rc
 )
 

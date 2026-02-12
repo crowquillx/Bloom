@@ -22,6 +22,9 @@
 #include "utils/Logger.h"
 #include "network/SessionManager.h"
 #include "network/SessionService.h"
+#include "test/TestModeController.h"
+#include "test/MockAuthenticationService.h"
+#include "test/MockLibraryService.h"
 
 #include <QGuiApplication>
 #include <QDebug>
@@ -126,40 +129,87 @@ void ApplicationInitializer::registerServices()
     m_playerProcessManager = std::make_unique<PlayerProcessManager>();
     ServiceLocator::registerService<PlayerProcessManager>(m_playerProcessManager.get());
     
-    // 2.5 SecretStore - Create platform-specific secure storage
-    m_secretStore = SecretStoreFactory::create();
+    // Check if we're in test mode
+    bool isTestMode = TestModeController::instance()->isTestMode();
     
-    // 3. AuthenticationService - Depends on SecretStore
-    m_authService = std::make_unique<AuthenticationService>(m_secretStore.get());
-    ServiceLocator::registerService<AuthenticationService>(m_authService.get());
-    
-    // 3.1 LibraryService - Depends on AuthenticationService
-    m_libraryService = std::make_unique<LibraryService>(m_authService.get());
-    ServiceLocator::registerService<LibraryService>(m_libraryService.get());
-    
-    // 3.2 PlaybackService - Depends on AuthenticationService
-    m_playbackService = std::make_unique<PlaybackService>(m_authService.get());
-    ServiceLocator::registerService<PlaybackService>(m_playbackService.get());
-    
-    // 4. PlayerController
-    m_playerController = std::make_unique<PlayerController>(
-        m_playerProcessManager.get(),
-        m_configManager.get(),
-        m_trackPreferencesManager.get(),
-        m_displayManager.get(),
-        m_playbackService.get(),
-        m_libraryService.get(),
-        m_authService.get()
-    );
-    ServiceLocator::registerService<PlayerController>(m_playerController.get());
-    
-    // 4.5 ThemeSongManager
-    m_themeSongManager = std::make_unique<ThemeSongManager>(
-        m_libraryService.get(),
-        m_configManager.get(),
-        m_playerController.get()
-    );
-    ServiceLocator::registerService<ThemeSongManager>(m_themeSongManager.get());
+    if (isTestMode) {
+        qDebug() << "ApplicationInitializer: Running in test mode - registering mock services";
+        
+        // 2.5 SecretStore - Create platform-specific secure storage (still needed for mock services)
+        m_secretStore = SecretStoreFactory::create();
+        
+        // 3. MockAuthenticationService - Pre-authenticated for testing
+        m_mockAuthService = std::make_unique<MockAuthenticationService>(m_secretStore.get());
+        ServiceLocator::registerService<AuthenticationService>(m_mockAuthService.get());
+        
+        // 3.1 MockLibraryService - Returns fixture data
+        m_mockLibraryService = std::make_unique<MockLibraryService>();
+        // Load fixture data
+        QJsonObject fixture = TestModeController::instance()->loadFixture();
+        m_mockLibraryService->loadFixture(fixture);
+        ServiceLocator::registerService<LibraryService>(m_mockLibraryService.get());
+        
+        // 3.2 PlaybackService - Still use real service but with mock auth
+        m_playbackService = std::make_unique<PlaybackService>(m_mockAuthService.get());
+        ServiceLocator::registerService<PlaybackService>(m_playbackService.get());
+        
+        // 4. PlayerController
+        m_playerController = std::make_unique<PlayerController>(
+            m_playerProcessManager.get(),
+            m_configManager.get(),
+            m_trackPreferencesManager.get(),
+            m_displayManager.get(),
+            m_playbackService.get(),
+            m_mockLibraryService.get(),
+            m_mockAuthService.get()
+        );
+        ServiceLocator::registerService<PlayerController>(m_playerController.get());
+        
+        // 4.5 ThemeSongManager
+        m_themeSongManager = std::make_unique<ThemeSongManager>(
+            m_mockLibraryService.get(),
+            m_configManager.get(),
+            m_playerController.get()
+        );
+        ServiceLocator::registerService<ThemeSongManager>(m_themeSongManager.get());
+    } else {
+        // Normal (production) service registration
+        
+        // 2.5 SecretStore - Create platform-specific secure storage
+        m_secretStore = SecretStoreFactory::create();
+        
+        // 3. AuthenticationService - Depends on SecretStore
+        m_authService = std::make_unique<AuthenticationService>(m_secretStore.get());
+        ServiceLocator::registerService<AuthenticationService>(m_authService.get());
+        
+        // 3.1 LibraryService - Depends on AuthenticationService
+        m_libraryService = std::make_unique<LibraryService>(m_authService.get());
+        ServiceLocator::registerService<LibraryService>(m_libraryService.get());
+        
+        // 3.2 PlaybackService - Depends on AuthenticationService
+        m_playbackService = std::make_unique<PlaybackService>(m_authService.get());
+        ServiceLocator::registerService<PlaybackService>(m_playbackService.get());
+        
+        // 4. PlayerController
+        m_playerController = std::make_unique<PlayerController>(
+            m_playerProcessManager.get(),
+            m_configManager.get(),
+            m_trackPreferencesManager.get(),
+            m_displayManager.get(),
+            m_playbackService.get(),
+            m_libraryService.get(),
+            m_authService.get()
+        );
+        ServiceLocator::registerService<PlayerController>(m_playerController.get());
+        
+        // 4.5 ThemeSongManager
+        m_themeSongManager = std::make_unique<ThemeSongManager>(
+            m_libraryService.get(),
+            m_configManager.get(),
+            m_playerController.get()
+        );
+        ServiceLocator::registerService<ThemeSongManager>(m_themeSongManager.get());
+    }
     
     // 5. InputModeManager - Depends on QGuiApplication
     m_inputModeManager = std::make_unique<InputModeManager>(m_app);
@@ -190,16 +240,26 @@ void ApplicationInitializer::registerServices()
     ServiceLocator::registerService<SessionManager>(m_sessionManager.get());
 
     // 11. SessionService - Depends on AuthenticationService
-    m_sessionService = std::make_unique<SessionService>(m_authService.get());
+    if (isTestMode) {
+        m_sessionService = std::make_unique<SessionService>(m_mockAuthService.get());
+    } else {
+        m_sessionService = std::make_unique<SessionService>(m_authService.get());
+    }
     ServiceLocator::registerService<SessionService>(m_sessionService.get());
 }
 
 void ApplicationInitializer::initializeServices()
 {
-    // Connect authentication signals to persist/clear session
-    auto* auth = m_authService.get();
+    // Check if we're in test mode
+    bool isTestMode = TestModeController::instance()->isTestMode();
+    
+    // Get the appropriate auth service (real or mock)
+    AuthenticationService* auth = isTestMode 
+        ? static_cast<AuthenticationService*>(m_mockAuthService.get())
+        : m_authService.get();
     auto* config = m_configManager.get();
     
+    // Connect authentication signals to persist/clear session
     connect(auth, &AuthenticationService::loginSuccess,
         [config, auth](const QString &userId, const QString &accessToken, const QString &username) {
             // Only update config on fresh login (username present)
@@ -260,8 +320,13 @@ void ApplicationInitializer::initializeServices()
     
     // I will let WindowManager connect PlayerController signals to GpuMemoryTrimmer since WindowManager owns/creates the Trimmer (as per my WindowManager implementation).
     
-    // Session Restoration & Migration
-    m_authService->initialize(m_configManager.get());
+    // Session Restoration & Migration (skip in test mode - already authenticated)
+    if (isTestMode) {
+        // Initialize mock auth service with pre-authenticated state
+        m_mockAuthService->initialize(m_configManager.get());
+    } else {
+        m_authService->initialize(m_configManager.get());
+    }
 
     // Initialize SessionManager for device ID rotation checks
     m_sessionManager->initialize();
