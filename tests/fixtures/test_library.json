@@ -1,0 +1,15 @@
+{
+  "Items": [
+    {
+      "Name": "Test Movie",
+      "ServerId": "test_server",
+      "Id": "test_movie_1",
+      "Type": "Movie",
+      "ImageTags": {
+        "Primary": "tag1"
+      }
+    }
+  ],
+  "TotalRecordCount": 1,
+  "StartIndex": 0
+}

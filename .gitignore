@@ -199,6 +199,7 @@ vcpkg_installed/
 # ===========================
 # Test binaries and results
 test_*
+!tests/fixtures/**
 *_test
 Testing/
 CTestTestfile.cmake
