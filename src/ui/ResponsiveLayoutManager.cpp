@@ -44,6 +44,7 @@ void ResponsiveLayoutManager::setWindow(QQuickWindow* window)
         // Disconnect from old window
         disconnect(m_window, &QQuickWindow::widthChanged, this, &ResponsiveLayoutManager::updateLayout);
         disconnect(m_window, &QQuickWindow::heightChanged, this, &ResponsiveLayoutManager::updateLayout);
+        disconnect(m_window, &QQuickWindow::screenChanged, this, &ResponsiveLayoutManager::updateLayout);
     }
     
     m_window = window;
@@ -53,13 +54,14 @@ void ResponsiveLayoutManager::setWindow(QQuickWindow* window)
         connect(m_window, &QQuickWindow::widthChanged, this, &ResponsiveLayoutManager::updateLayout);
         connect(m_window, &QQuickWindow::heightChanged, this, &ResponsiveLayoutManager::updateLayout);
         
-        // Also connect to screen changes
-        connect(qApp, &QGuiApplication::primaryScreenChanged, this, &ResponsiveLayoutManager::updateLayout);
+        // Connect to screen changes for multi-monitor support
+        // This detects when the window moves to a different screen
+        connect(m_window, &QQuickWindow::screenChanged, this, &ResponsiveLayoutManager::updateLayout);
         
         // Initial layout calculation
         updateLayout();
         
-        qDebug() << "ResponsiveLayoutManager: Window set, connected to geometry signals";
+        qDebug() << "ResponsiveLayoutManager: Window set, connected to geometry and screen change signals";
     }
 }
 
