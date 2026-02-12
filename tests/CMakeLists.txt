@@ -159,6 +159,34 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/TrackUtils.js PROPERTIES
 
 qt_policy(SET QTP0004 NEW)
 
+# Define QML sources with absolute paths
+set(QML_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/ui/Main.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/LoginScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/LibraryScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SeriesDetailsView.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SeasonView.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SeriesSeasonEpisodeView.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/MovieDetailsView.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/HomeScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SettingsScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SearchScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SearchResultCard.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/UnwatchedBadge.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/RetryButton.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/Theme.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/Icons.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/Sidebar.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/MediaProgressBar.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/MpvProfileEditor.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/TrackSelector.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/MediaInfoPanel.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/ToastNotification.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/RoundedImage.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/ActiveSessionsScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/TrackUtils.js
+)
+
 # Add QML module
 qt_add_qml_module(VisualRegressionTest
     URI BloomUI
@@ -166,31 +194,16 @@ qt_add_qml_module(VisualRegressionTest
     RESOURCE_PREFIX /
     NO_CACHEGEN
     QML_FILES
-        ../src/ui/Main.qml
-        ../src/ui/LoginScreen.qml
-        ../src/ui/LibraryScreen.qml
-        ../src/ui/SeriesDetailsView.qml
-        ../src/ui/SeasonView.qml
-        ../src/ui/SeriesSeasonEpisodeView.qml
-        ../src/ui/MovieDetailsView.qml
-        ../src/ui/HomeScreen.qml
-        ../src/ui/SettingsScreen.qml
-        ../src/ui/SearchScreen.qml
-        ../src/ui/SearchResultCard.qml
-        ../src/ui/UnwatchedBadge.qml
-        ../src/ui/RetryButton.qml
-        ../src/ui/Theme.qml
-        ../src/ui/Icons.qml
-        ../src/ui/Sidebar.qml
-        ../src/ui/MediaProgressBar.qml
-        ../src/ui/MpvProfileEditor.qml
-        ../src/ui/TrackSelector.qml
-        ../src/ui/MediaInfoPanel.qml
-        ../src/ui/ToastNotification.qml
-        ../src/ui/RoundedImage.qml
-        ../src/ui/ActiveSessionsScreen.qml
-        ../src/ui/TrackUtils.js
+        ${QML_SOURCES}
 )
+
+# Set resource aliases for QML files to avoid absolute path issues on Windows
+foreach(qml_file ${QML_SOURCES})
+    get_filename_component(filename ${qml_file} NAME)
+    set_source_files_properties(${qml_file} PROPERTIES
+        QT_RESOURCE_ALIAS ui/${filename}
+    )
+endforeach()
 
 # Add shaders (only if Qt6 ShaderTools is available)
 find_package(Qt6 QUIET COMPONENTS ShaderTools)

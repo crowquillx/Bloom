@@ -87,6 +87,7 @@ jobs:
           cd build
           cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           cmake --build .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           sccache --show-stats
           sccache --stop-server
 
@@ -214,7 +215,8 @@ jobs:
             xvfb \
             mesa-vulkan-drivers \
             qt6-l10n-tools \
-            qt6-tools-dev
+            qt6-tools-dev \
+            libsecret-1-dev
       
       - name: Configure CMake
         run: |
