@@ -139,7 +139,6 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/test/MockLibraryService.cpp
     # Security sources
     ${CMAKE_SOURCE_DIR}/src/security/SecretStoreFactory.cpp
-    ${CMAKE_SOURCE_DIR}/src/security/SecretStoreLinux.cpp
     # Resources
     ${CMAKE_SOURCE_DIR}/src/resources/fonts.qrc
     ${CMAKE_SOURCE_DIR}/src/resources/scripts.qrc
@@ -225,10 +224,12 @@ target_link_libraries(VisualRegressionTest PRIVATE
 # Platform-specific secure storage libraries
 if(UNIX AND NOT APPLE)
     # Linux: link libsecret
+    target_sources(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src/security/SecretStoreLinux.cpp)
     target_include_directories(VisualRegressionTest PRIVATE ${LIBSECRET_INCLUDE_DIRS})
     target_link_libraries(VisualRegressionTest PRIVATE ${LIBSECRET_LIBRARIES})
 elseif(WIN32)
     # Windows: link advapi32 for Credential Manager API
+    target_sources(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src/security/SecretStoreWindows.cpp)
     target_link_libraries(VisualRegressionTest PRIVATE advapi32)
 endif()
 

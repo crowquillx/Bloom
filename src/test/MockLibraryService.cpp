@@ -1,5 +1,6 @@
 #include "MockLibraryService.h"
 #include "TestModeController.h"
+#include <QUrl>
 #include <QDebug>
 
 MockLibraryService::MockLibraryService(QObject *parent)
@@ -264,7 +265,8 @@ QString MockLibraryService::getImageUrl(const QString &itemId, const QString &im
     if (imagesPath.isEmpty()) {
         return QString();
     }
-    return QString("file://%1/placeholder.svg").arg(imagesPath);
+    // Use QUrl to correct handle file:// prefix and path separators on all platforms
+    return QUrl::fromLocalFile(imagesPath + "/placeholder.svg").toString();
 }
 
 QString MockLibraryService::getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width)

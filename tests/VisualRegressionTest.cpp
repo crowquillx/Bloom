@@ -407,10 +407,24 @@ void VisualRegressionTest::navigateToScreen(const QString& screenName)
         props["currentParentId"] = "library-movies";
         props["currentLibraryId"] = "library-movies";
         props["currentLibraryName"] = "Movies";
-        QMetaObject::invokeMethod(stackView, "push", 
+        
+        int initialDepth = stackView->property("depth").toInt();
+        
+        bool invokeSuccess = QMetaObject::invokeMethod(stackView, "push", 
                                   Qt::DirectConnection,
                                   Q_ARG(QString, "LibraryScreen.qml"),
                                   Q_ARG(QVariant, QVariant(props)));
+                                  
+        if (!invokeSuccess) {
+            qWarning() << "navigateToScreen: Failed to invoke push for LibraryScreen";
+        }
+        
+        int finalDepth = stackView->property("depth").toInt();
+        if (finalDepth <= initialDepth) {
+            qWarning() << "navigateToScreen: Validation failed - Stack depth did not increase for LibraryScreen (Depth:" << initialDepth << "->" << finalDepth << ")";
+        }
+        QVERIFY(finalDepth > initialDepth);
+        
     } else if (screenName == "MovieDetailsView") {
         // Navigate to a movie details view
         QVariantMap props;
@@ -418,10 +432,23 @@ void VisualRegressionTest::navigateToScreen(const QString& screenName)
         props["currentLibraryId"] = "library-movies";
         props["currentLibraryName"] = "Movies";
         props["itemId"] = "movie-001";
-        QMetaObject::invokeMethod(stackView, "push", 
+        
+        int initialDepth = stackView->property("depth").toInt();
+        
+        bool invokeSuccess = QMetaObject::invokeMethod(stackView, "push", 
                                   Qt::DirectConnection,
                                   Q_ARG(QString, "MovieDetailsView.qml"),
                                   Q_ARG(QVariant, QVariant(props)));
+                                  
+        if (!invokeSuccess) {
+            qWarning() << "navigateToScreen: Failed to invoke push for MovieDetailsView";
+        }
+        
+        int finalDepth = stackView->property("depth").toInt();
+        if (finalDepth <= initialDepth) {
+            qWarning() << "navigateToScreen: Validation failed - Stack depth did not increase for MovieDetailsView (Depth:" << initialDepth << "->" << finalDepth << ")";
+        }
+        QVERIFY(finalDepth > initialDepth);
     }
     
     // Wait for navigation and rendering
@@ -465,17 +492,16 @@ void VisualRegressionTest::waitForExposureAndRendering(QQuickWindow* window, int
     }
 
     // Wait for initial frame to be rendered
-    // Process events and request updates until rendering stabilizes
-    int stableFrames = 0;
-    while (timer.elapsed() < maxWaitMs && stableFrames < 3) {
+    // Process events and request updates for a fixed number of frames to ensure rendering has started
+    int framesToWait = 3;
+    while (timer.elapsed() < maxWaitMs && framesToWait > 0) {
         window->requestUpdate();
         QCoreApplication::processEvents();
         
         // Small delay to allow rendering
         QThread::msleep(16); // ~60fps frame time
         
-        // Count stable frames (no new updates requested)
-        stableFrames++;
+        framesToWait--;
     }
 
     // Additional settling time for animations and layout
