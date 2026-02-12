@@ -357,6 +357,48 @@ The visual regression testing infrastructure consists of:
 - **[`MockLibraryService`](../src/test/MockLibraryService.h)** - Mock library data from fixtures
 - **[`VisualRegressionTest`](../tests/VisualRegressionTest.cpp)** - Qt Test framework for screenshot capture and comparison
 
+## LibraryScreen Responsive Grid
+
+[`LibraryScreen.qml`](../src/ui/LibraryScreen.qml) uses the responsive grid system to lay out poster cards.
+
+### Grid columns and cell sizing
+
+Column count comes directly from `Theme.gridColumns` (4/6/7/8 at Small/Medium/Large/XL breakpoints). Cell dimensions:
+
+```qml
+cellWidth:  width / Theme.gridColumns
+cellHeight: cellWidth * 1.75   // poster aspect ratio
+```
+
+### Animated transitions
+
+`Behavior on cellWidth` and `Behavior on cellHeight` animate grid reflows, gated by `Theme.animationsEnabled`:
+
+```qml
+Behavior on cellWidth  { enabled: Theme.animationsEnabled; NumberAnimation { duration: 200 } }
+Behavior on cellHeight { enabled: Theme.animationsEnabled; NumberAnimation { duration: 200 } }
+```
+
+### Focus restoration on column change
+
+A `Connections` block on `Theme.onGridColumnsChanged` saves `currentIndex` before the reflow and restores it via `Qt.callLater`, preventing focus loss when the grid re-lays out.
+
+### Token usage
+
+| Element | Tokens used |
+|---------|-------------|
+| Grid margins / padding | `Theme.paddingLarge`, `Theme.spacingMedium`, `Theme.spacingLarge` |
+| Card corner radius | `Theme.radiusXLarge` |
+| Scaled hard-coded values | `Math.round(N * Theme.layoutScale)` |
+
+### Letter rail
+
+The alphabetical letter rail width and spacing scale with `Theme.layoutScale` (e.g., `Math.round(28 * Theme.layoutScale)`).
+
+### Filter tabs
+
+Button padding and the back-button width scale with `Theme.layoutScale`, keeping touch/focus targets proportional across breakpoints.
+
 ## Future Enhancements
 
 Potential improvements for future versions:
