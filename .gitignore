@@ -5,6 +5,7 @@
 # Build Directories
 # ===========================
 build/
+build_verify/
 build-docker/
 build-windows/
 cmake-build-*/

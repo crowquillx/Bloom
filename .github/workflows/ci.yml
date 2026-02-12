@@ -212,7 +212,8 @@ jobs:
             libgl1-mesa-dev \
             libxkbcommon-dev \
             xvfb \
-            mesa-vulkan-drivers
+            mesa-vulkan-drivers \
+            qt6-l10n-tools
       
       - name: Configure CMake
         run: |
