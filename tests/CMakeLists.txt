@@ -193,14 +193,19 @@ qt_add_qml_module(VisualRegressionTest
         ${CMAKE_SOURCE_DIR}/src/ui/TrackUtils.js
 )
 
-# Add shaders
-qt6_add_shaders(VisualRegressionTest "bloom_shaders"
-    PREFIX /shaders
-    OUTPUTS
-        rounded_image.frag.qsb
-    FILES
-        ${CMAKE_SOURCE_DIR}/src/resources/shaders/rounded_image.frag
-)
+# Add shaders (only if Qt6 ShaderTools is available)
+find_package(Qt6 QUIET COMPONENTS ShaderTools)
+if(Qt6ShaderTools_FOUND)
+    qt6_add_shaders(VisualRegressionTest "bloom_shaders"
+        PREFIX /shaders
+        OUTPUTS
+            rounded_image.frag.qsb
+        FILES
+            ${CMAKE_SOURCE_DIR}/src/resources/shaders/rounded_image.frag
+    )
+else()
+    message(STATUS "Qt6 ShaderTools not found - skipping shader generation for tests")
+endif()
 
 target_include_directories(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 

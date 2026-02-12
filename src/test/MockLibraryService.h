@@ -10,9 +10,6 @@
  * 
  * All methods emit their signals immediately with fixture data, enabling
  * consistent and reproducible UI states for screenshot comparison.
- * 
- * Note: The base class methods are not virtual, so these methods shadow
- * the base class implementations. This is intentional for test mode.
  */
 class MockLibraryService : public LibraryService
 {
@@ -28,50 +25,50 @@ public:
     void loadFixture(const QJsonObject &fixture);
     
     // Library views - returns data from fixture["libraries"]
-    Q_INVOKABLE void getViews();
+    Q_INVOKABLE void getViews() override;
     
     // Items with pagination and filtering - returns data from fixture["movies"] or fixture["series"]
-    Q_INVOKABLE void getItems(const QString &parentId, int startIndex = 0, int limit = 0, 
-                               const QStringList &genres = QStringList(), 
+    Q_INVOKABLE void getItems(const QString &parentId, int startIndex = 0, int limit = 0,
+                               const QStringList &genres = QStringList(),
                                const QStringList &networks = QStringList(),
                                const QString &sortBy = QString(),
                                const QString &sortOrder = QString(),
                                bool includeHeavyFields = true,
-                               bool useCacheValidation = false);
+                               bool useCacheValidation = false) override;
     
     // Next up episodes - returns data from fixture["nextUp"]
-    Q_INVOKABLE void getNextUp();
+    Q_INVOKABLE void getNextUp() override;
     
     // Latest media for a library - returns data from fixture["latestItems"]
-    Q_INVOKABLE void getLatestMedia(const QString &parentId);
+    Q_INVOKABLE void getLatestMedia(const QString &parentId) override;
     
     // Generic Item Details - searches all fixture items
-    Q_INVOKABLE void getItem(const QString &itemId);
+    Q_INVOKABLE void getItem(const QString &itemId) override;
 
     // Series details and episodes
-    Q_INVOKABLE void getSeriesDetails(const QString &seriesId);
-    Q_INVOKABLE void getNextUnplayedEpisode(const QString &seriesId);
-    Q_INVOKABLE void markSeriesWatched(const QString &seriesId);
-    Q_INVOKABLE void markSeriesUnwatched(const QString &seriesId);
-    Q_INVOKABLE void markItemPlayed(const QString &itemId);
-    Q_INVOKABLE void markItemUnplayed(const QString &itemId);
-    Q_INVOKABLE void markItemFavorite(const QString &itemId);
-    Q_INVOKABLE void markItemUnfavorite(const QString &itemId);
-    Q_INVOKABLE void toggleFavorite(const QString &itemId, bool isFavorite);
-    Q_INVOKABLE void getThemeSongs(const QString &seriesId);
+    Q_INVOKABLE void getSeriesDetails(const QString &seriesId) override;
+    Q_INVOKABLE void getNextUnplayedEpisode(const QString &seriesId) override;
+    Q_INVOKABLE void markSeriesWatched(const QString &seriesId) override;
+    Q_INVOKABLE void markSeriesUnwatched(const QString &seriesId) override;
+    Q_INVOKABLE void markItemPlayed(const QString &itemId) override;
+    Q_INVOKABLE void markItemUnplayed(const QString &itemId) override;
+    Q_INVOKABLE void markItemFavorite(const QString &itemId) override;
+    Q_INVOKABLE void markItemUnfavorite(const QString &itemId) override;
+    Q_INVOKABLE void toggleFavorite(const QString &itemId, bool isFavorite) override;
+    Q_INVOKABLE void getThemeSongs(const QString &seriesId) override;
     
     // Search - searches across movies and series
-    Q_INVOKABLE void search(const QString &searchTerm, int limit = 50);
-    Q_INVOKABLE void getRandomItems(int limit = 20);
+    Q_INVOKABLE void search(const QString &searchTerm, int limit = 50) override;
+    Q_INVOKABLE void getRandomItems(int limit = 20) override;
     
     // URL helpers - returns placeholder URLs for test images
-    Q_INVOKABLE QString getStreamUrl(const QString &itemId);
+    Q_INVOKABLE QString getStreamUrl(const QString &itemId) override;
     Q_INVOKABLE QString getStreamUrlWithTracks(const QString &itemId, const QString &mediaSourceId = QString(),
-                                               int audioStreamIndex = -1, int subtitleStreamIndex = -1);
-    Q_INVOKABLE QString getImageUrl(const QString &itemId, const QString &imageType);
-    Q_INVOKABLE QString getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
-    Q_INVOKABLE QString getCachedImageUrl(const QString &itemId, const QString &imageType);
-    Q_INVOKABLE QString getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
+                                                int audioStreamIndex = -1, int subtitleStreamIndex = -1) override;
+    Q_INVOKABLE QString getImageUrl(const QString &itemId, const QString &imageType) override;
+    Q_INVOKABLE QString getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width) override;
+    Q_INVOKABLE QString getCachedImageUrl(const QString &itemId, const QString &imageType) override;
+    Q_INVOKABLE QString getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width) override;
 
 private:
     QJsonObject m_fixture;

@@ -122,7 +122,11 @@ void ResponsiveLayoutManager::updateLayout()
     // Calculate effective height (handles high-DPI scenarios)
     int effectiveHeight = calculateEffectiveHeight(newHeight, dpr);
     
-    // Calculate aspect ratio
+    // Calculate aspect ratio (guard against division by zero)
+    if (newHeight == 0) {
+        qWarning() << "ResponsiveLayoutManager: newHeight is 0, skipping layout update";
+        return;
+    }
     qreal newAspectRatio = static_cast<qreal>(newWidth) / static_cast<qreal>(newHeight);
     
     // Calculate new values

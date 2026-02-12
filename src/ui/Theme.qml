@@ -18,7 +18,7 @@ QtObject {
     property string breakpoint: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.breakpoint : "Large"
     property int gridColumns: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.gridColumns : 6
     property int homeRowVisibleItems: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.homeRowVisibleItems : 6
-    property string sidebarDefaultMode: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.sidebarDefaultMode : "expanded"
+    property string sidebarDefaultMode: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.sidebarDefaultMode : "rail"
     property real aspectRatio: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.aspectRatio : 1.778
     property int viewportWidth: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.viewportWidth : 1920
     property int viewportHeight: typeof ResponsiveLayoutManager !== 'undefined' ? ResponsiveLayoutManager.viewportHeight : 1080

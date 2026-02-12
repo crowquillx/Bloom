@@ -196,15 +196,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
       
-      - name: Cache Qt dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/apt
-          key: ${{ runner.os }}-qt-deps-${{ hashFiles('.github/workflows/ci.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-qt-deps-
-      
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -215,6 +206,7 @@ jobs:
             qt6-base-dev \
             qt6-declarative-dev \
             qt6-multimedia-dev \
+            qt6-shadertools-dev \
             qt6-wayland \
             libqt6svg6-dev \
             libgl1-mesa-dev \
@@ -233,8 +225,7 @@ jobs:
       
       - name: Run visual regression tests
         run: |
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" \
-            ./build/tests/VisualRegressionTest
+          ./build/tests/VisualRegressionTest
         env:
           QT_QPA_PLATFORM: offscreen
           QT_QPA_OFFSCREEN_SURFACE_SIZE: 1920x1080

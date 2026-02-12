@@ -59,8 +59,13 @@ void MockLibraryService::getItems(const QString &parentId, int startIndex, int l
     } else {
         // Return all items for generic queries
         QJsonArray allItems;
-        allItems.append(m_movies["Items"].toArray());
-        allItems.append(m_series["Items"].toArray());
+        for (const QJsonValue &val : m_movies["Items"].toArray()) {
+            allItems.append(val);
+        }
+        for (const QJsonValue &val : m_series["Items"].toArray()) {
+            allItems.append(val);
+        }
+        items = allItems;
         totalCount = allItems.size();
     }
     
@@ -216,8 +221,12 @@ void MockLibraryService::search(const QString &searchTerm, int limit)
 void MockLibraryService::getRandomItems(int limit)
 {
     QJsonArray allItems;
-    allItems.append(m_movies["Items"].toArray());
-    allItems.append(m_series["Items"].toArray());
+    for (const QJsonValue &val : m_movies["Items"].toArray()) {
+        allItems.append(val);
+    }
+    for (const QJsonValue &val : m_series["Items"].toArray()) {
+        allItems.append(val);
+    }
     
     // Return first N items (deterministic for testing)
     QJsonArray result;

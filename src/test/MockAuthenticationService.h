@@ -19,7 +19,7 @@ public:
      * @brief Initialize the mock service with pre-authenticated state.
      * @param configManager Pointer to ConfigManager (unused in mock).
      */
-    void initialize(ConfigManager *configManager);
+    void initialize(ConfigManager *configManager) override;
 
     /**
      * @brief Simulate authentication (immediately succeeds).
@@ -27,20 +27,20 @@ public:
      * @param username User's username (stored but not used).
      * @param password User's password (ignored).
      */
-    Q_INVOKABLE void authenticate(const QString &serverUrl, const QString &username, const QString &password);
+    Q_INVOKABLE void authenticate(const QString &serverUrl, const QString &username, const QString &password) override;
     
     /**
      * @brief Simulate session restoration (immediately succeeds).
      */
-    void restoreSession(const QString &serverUrl, const QString &userId, const QString &accessToken);
+    void restoreSession(const QString &serverUrl, const QString &userId, const QString &accessToken) override;
     
     /**
      * @brief Simulate logout (clears authentication state).
      */
-    Q_INVOKABLE void logout();
+    Q_INVOKABLE void logout() override;
     
     /**
      * @brief Check for pending session expiry (no-op in mock).
      */
-    Q_INVOKABLE void checkPendingSessionExpiry();
+    Q_INVOKABLE void checkPendingSessionExpiry() override;
 };

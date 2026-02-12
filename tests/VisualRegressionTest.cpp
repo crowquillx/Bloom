@@ -319,7 +319,7 @@ bool VisualRegressionTest::compareImages(const QImage& actual, const QImage& gol
     }
 
     qint64 totalDiff = 0;
-    const qint64 totalPixels = actual.width() * actual.height();
+    const qint64 totalPixels = static_cast<qint64>(actual.width()) * static_cast<qint64>(actual.height());
 
     // Compare pixel by pixel
     for (int y = 0; y < actual.height(); ++y) {
@@ -387,9 +387,6 @@ void VisualRegressionTest::navigateToScreen(const QString& screenName)
         return;
     }
 
-    // Access the QML root object
-    QObject* rootItem = m_windowManager->engine().rootObjects().first();
-    
     // Find the StackView by traversing the object hierarchy
     QQuickItem* contentItem = m_window->contentItem();
     QQuickItem* stackView = contentItem->findChild<QQuickItem*>("stackView");
@@ -404,8 +401,15 @@ void VisualRegressionTest::navigateToScreen(const QString& screenName)
         // Pop all screens to get back to home (or replace login with home)
         // In test mode, mock auth should already be authenticated
         // The StackView should show HomeScreen after auth success
+        int maxAttempts = 100;
+        int attempts = 0;
         while (stackView->property("depth").toInt() > 1) {
             QMetaObject::invokeMethod(stackView, "pop", Qt::DirectConnection);
+            QCoreApplication::processEvents();
+            if (++attempts >= maxAttempts) {
+                qWarning() << "navigateToScreen: exceeded max pop attempts (" << maxAttempts << ")";
+                break;
+            }
         }
     } else if (screenName == "LibraryScreen") {
         // Push LibraryScreen
@@ -419,14 +423,14 @@ void VisualRegressionTest::navigateToScreen(const QString& screenName)
                                   Q_ARG(QVariant, QVariant(props)));
     } else if (screenName == "MovieDetailsView") {
         // Navigate to a movie details view
-        // First ensure we're on a library screen, then show movie details
         QVariantMap props;
         props["currentParentId"] = "library-movies";
         props["currentLibraryId"] = "library-movies";
         props["currentLibraryName"] = "Movies";
+        props["itemId"] = "movie-001";
         QMetaObject::invokeMethod(stackView, "push", 
                                   Qt::DirectConnection,
-                                  Q_ARG(QString, "LibraryScreen.qml"),
+                                  Q_ARG(QString, "MovieDetailsView.qml"),
                                   Q_ARG(QVariant, QVariant(props)));
     }
     
