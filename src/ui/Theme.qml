@@ -119,6 +119,7 @@ QtObject {
     property color textPrimary: activeTheme.textPrimary
     property color textSecondary: activeTheme.textSecondary
     property color textDisabled: activeTheme.textDisabled
+    property color textOnAccent: "#191724"  // Dark text for use on accent-colored backgrounds
     
     // Overlays & Gradients
     property color overlayDark: "#60000000"
@@ -173,6 +174,7 @@ QtObject {
     property int fontSizeTitleBase: 32
     property int fontSizeBodyBase: 24
     property int fontSizeSmallBase: 20
+    property int fontSizeCaptionBase: 16
     property int fontSizeMediumBase: 28
     
     // Scaled font sizes
@@ -182,6 +184,7 @@ QtObject {
     property int fontSizeTitle: Math.round(fontSizeTitleBase * layoutScale)
     property int fontSizeBody: Math.round(fontSizeBodyBase * layoutScale)
     property int fontSizeSmall: Math.round(fontSizeSmallBase * layoutScale)
+    property int fontSizeCaption: Math.round(fontSizeCaptionBase * layoutScale)
     property int fontSizeMedium: Math.round(fontSizeMediumBase * layoutScale)
     
     // ============================

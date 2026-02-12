@@ -440,6 +440,44 @@ Behavior on Layout.preferredWidth {
 
 A `Connections` block on `ResponsiveLayoutManager.onBreakpointChanged` saves the current season grid index and active focus item, then restores both via `Qt.callLater` after the layout reflows.
 
+## SeriesSeasonEpisodeView Responsive Layout
+
+[`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) uses the responsive layout system for the episode browsing experience with seasons tabs, episode thumbnails, metadata, action buttons, and audio/subtitle track selection.
+
+### Token usage
+
+| Element | Tokens used |
+|---------|-------------|
+| Main content area margins | `Theme.paddingLarge`, responsive top margin via `Math.round(N * Theme.layoutScale)` |
+| Season tabs | Height, width, padding all scale via `Math.round(N * Theme.layoutScale)` |
+| Series logo / name | Max height uses `Math.round(180 * Theme.layoutScale)` with viewport-relative capping |
+| Episode metadata typography | `Theme.fontSizeHeader`, `Theme.fontSizeBody`, `Theme.fontSizeCaption` |
+| Episode thumbnail delegate | Margins/spacing via `Theme.spacingSmall`, `Math.round(2 * Theme.layoutScale)` |
+| Focus border width | `Theme.buttonFocusBorderWidth` |
+| Played indicator icon | `Theme.fontSizeIcon` |
+| Read More button | Height/width via `Math.round(N * Theme.layoutScale)` |
+| Action buttons | `Theme.buttonHeightLarge`, `Math.round(N * Theme.layoutScale)` for widths |
+| Context menu | All dimensions scaled via `Math.round(N * Theme.layoutScale)` |
+| Spacing throughout | `Theme.spacingSmall`, `Theme.spacingMedium`, `Theme.spacingLarge` |
+
+### Animated transitions
+
+The Flickable `contentY` animation is gated by `Theme.uiAnimationsEnabled`:
+
+```qml
+Behavior on contentY {
+    enabled: Theme.uiAnimationsEnabled
+    NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
+}
+```
+
+All animation durations use Theme duration tokens (`Theme.durationNormal`, `Theme.durationLong`, `Theme.durationShort`).
+
+### Focus restoration on breakpoint change
+
+A `Connections` block on `ResponsiveLayoutManager.onBreakpointChanged` saves the current episode list index and active focus item, then restores both via `Qt.callLater` after the layout reflows — matching the `SeriesDetailsView` pattern.
+
+
 ## Future Enhancements
 
 Potential improvements for future versions:

@@ -684,13 +684,13 @@ FocusScope {
         anchors.bottom: parent.bottom
         anchors.leftMargin: Theme.paddingLarge
         anchors.rightMargin: Theme.paddingLarge
-        anchors.topMargin: root.height < 1200 ? 20 : 60
+        anchors.topMargin: root.height < 1200 ? Math.round(20 * Theme.layoutScale) : Math.round(60 * Theme.layoutScale)
         anchors.bottomMargin: 0
         contentWidth: width
         contentHeight: mainContentColumn.implicitHeight + bottomMargin
         
         // Bottom margin to ensure last item is fully visible
-        readonly property int bottomMargin: 150
+        readonly property int bottomMargin: Math.round(150 * Theme.layoutScale)
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
@@ -711,7 +711,8 @@ FocusScope {
         }
         
         Behavior on contentY {
-            NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+            enabled: Theme.uiAnimationsEnabled
+            NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
         }
         
         ColumnLayout {
@@ -723,7 +724,7 @@ FocusScope {
         ListView {
             id: seasonsTabList
             Layout.fillWidth: true
-            Layout.preferredHeight: 50
+            Layout.preferredHeight: Math.round(50 * Theme.layoutScale)
             orientation: ListView.Horizontal
             spacing: Theme.spacingSmall
             clip: false
@@ -733,8 +734,8 @@ FocusScope {
             KeyNavigation.down: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : episodesList
             
             delegate: ItemDelegate {
-                width: Math.max(100, seasonTabText.implicitWidth + 32)
-                height: 44
+                width: Math.max(Math.round(100 * Theme.layoutScale), seasonTabText.implicitWidth + Math.round(32 * Theme.layoutScale))
+                height: Math.round(44 * Theme.layoutScale)
                 padding: 0
                 leftPadding: 0
                 rightPadding: 0
@@ -782,9 +783,9 @@ FocusScope {
         Item {
             Layout.fillWidth: true
             Layout.preferredHeight: displayLogoUrl 
-                ? Math.min(root.height * 0.15, 180) 
-                : 60
-            Layout.minimumHeight: 60
+                ? Math.min(root.height * 0.15, Math.round(180 * Theme.layoutScale)) 
+                : Math.round(60 * Theme.layoutScale)
+            Layout.minimumHeight: Math.round(60 * Theme.layoutScale)
             visible: displayLogoUrl || displayName
 
             Image {
@@ -799,7 +800,7 @@ FocusScope {
                 asynchronous: true
                 cache: true
                 opacity: status === Image.Ready ? 1.0 : 0.0
-                Behavior on opacity { NumberAnimation { duration: 300 } }
+                Behavior on opacity { NumberAnimation { duration: Theme.durationLong } }
             }
 
             Text {
@@ -900,9 +901,7 @@ FocusScope {
                         maximumLineCount: root.overviewExpanded ? 20 : 3
                         lineHeight: 1.1
                         
-                        Behavior on maximumLineCount {
-                            NumberAnimation { duration: 200 }
-                        }
+                        // maximumLineCount is an int; Behavior removed (not smoothly animatable)
                     }
                 }
                 
@@ -910,8 +909,8 @@ FocusScope {
                     id: readMoreButton
                     visible: overviewContainer.hasOverflow
                     text: root.overviewExpanded ? "Show Less" : "Read More"
-                    Layout.preferredHeight: 32
-                    Layout.preferredWidth: 120
+                    Layout.preferredHeight: Math.round(32 * Theme.layoutScale)
+                    Layout.preferredWidth: Math.round(120 * Theme.layoutScale)
                     
                     KeyNavigation.up: seasonsTabList
                     KeyNavigation.down: episodesList
@@ -952,7 +951,7 @@ FocusScope {
             orientation: ListView.Horizontal
             spacing: Theme.spacingLarge
             clip: true
-            highlightMoveDuration: 200
+            highlightMoveDuration: Theme.durationNormal
             highlightMoveVelocity: -1
             
             model: SeriesDetailsViewModel.episodesModel
@@ -974,7 +973,7 @@ FocusScope {
                 
                 // Calculate dimensions to fit within the responsive list height
                 // Reserve space for text/padding (approx 50px scaled)
-                readonly property int textAllowance: Math.round(50 * Theme.dpiScale)
+                readonly property int textAllowance: Math.round(50 * Theme.layoutScale)
                 readonly property int availableThumbHeight: Math.max(1, episodesList.responsiveHeight - textAllowance)
                 
                 width: Math.round(availableThumbHeight * 16 / 9)
@@ -993,14 +992,14 @@ FocusScope {
                 background: Rectangle {
                     radius: Theme.radiusMedium
                     color: Theme.cardBackground
-                    border.width: parent.activeFocus ? 3 : 0
+                    border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : 0
                     border.color: Theme.accentPrimary
                     
                     // Thumbnail image with rounded corners
                     Image {
                         id: episodeThumbnailSource
                         anchors.fill: parent
-                        anchors.margins: 2
+                        anchors.margins: Math.round(2 * Theme.layoutScale)
                         source: model.imageUrl
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
@@ -1019,7 +1018,7 @@ FocusScope {
                     Rectangle {
                         id: episodeThumbnailMask
                         anchors.fill: parent
-                        anchors.margins: 2
+                        anchors.margins: Math.round(2 * Theme.layoutScale)
                         radius: Theme.radiusMedium
                         visible: false
                         layer.enabled: true
@@ -1029,7 +1028,7 @@ FocusScope {
                     // Gradient overlay for text readability
                     Rectangle {
                         anchors.fill: parent
-                        anchors.margins: 2
+                        anchors.margins: Math.round(2 * Theme.layoutScale)
                         gradient: Gradient {
                             GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0) }
                             GradientStop { position: 0.6; color: Qt.rgba(0, 0, 0, 0.3) }
@@ -1042,9 +1041,9 @@ FocusScope {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
-                        anchors.leftMargin: 2
-                        anchors.rightMargin: 2
-                        anchors.bottomMargin: 2
+                        anchors.leftMargin: Math.round(2 * Theme.layoutScale)
+                        anchors.rightMargin: Math.round(2 * Theme.layoutScale)
+                        anchors.bottomMargin: Math.round(2 * Theme.layoutScale)
                         positionTicks: model.playbackPositionTicks || 0
                         runtimeTicks: model.runtimeTicks || 0
                     }
@@ -1056,7 +1055,7 @@ FocusScope {
                         anchors.margins: Theme.spacingMedium
                         text: Icons.checkCircle
                         font.family: Theme.fontIcon
-                        font.pixelSize: 24
+                        font.pixelSize: Theme.fontSizeIcon
                         color: Theme.accentPrimary
                         visible: model.isPlayed || false
                         
@@ -1074,8 +1073,8 @@ FocusScope {
                 
                 contentItem: ColumnLayout {
                     anchors.fill: parent
-                    anchors.margins: 6
-                    spacing: 2
+                    anchors.margins: Theme.spacingSmall
+                    spacing: Math.round(2 * Theme.layoutScale)
                     
                     Item { Layout.fillHeight: true }
                     
@@ -1387,7 +1386,7 @@ FocusScope {
         id: contextMenu
         
         background: Rectangle {
-            implicitWidth: 280
+            implicitWidth: Math.round(280 * Theme.layoutScale)
             color: Theme.cardBackground
             radius: Theme.radiusMedium
             border.color: Theme.cardBorder
@@ -1405,14 +1404,14 @@ FocusScope {
         
         delegate: MenuItem {
             id: menuItem
-            implicitWidth: 240
-            implicitHeight: 40
+            implicitWidth: Math.round(240 * Theme.layoutScale)
+            implicitHeight: Math.round(40 * Theme.layoutScale)
             
             arrow: Canvas {
-                x: parent.width - width - 12
+                x: parent.width - width - Math.round(12 * Theme.layoutScale)
                 y: parent.height / 2 - height / 2
-                width: 12
-                height: 12
+                width: Math.round(12 * Theme.layoutScale)
+                height: Math.round(12 * Theme.layoutScale)
                 visible: menuItem.subMenu
                 onPaint: {
                     var ctx = getContext("2d")
@@ -1432,13 +1431,13 @@ FocusScope {
                 color: menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
                 elide: Text.ElideRight
                 verticalAlignment: Text.AlignVCenter
-                leftPadding: 12
-                rightPadding: menuItem.arrow.width + 12
+                leftPadding: Theme.spacingSmall
+                rightPadding: menuItem.arrow.width + Theme.spacingSmall
             }
             
             background: Rectangle {
-                implicitWidth: 240
-                implicitHeight: 40
+                implicitWidth: Math.round(240 * Theme.layoutScale)
+                implicitHeight: Math.round(40 * Theme.layoutScale)
                 opacity: enabled ? 1 : 0.3
                 color: menuItem.highlighted ? Theme.hoverOverlay : "transparent"
                 radius: Theme.radiusSmall
@@ -1477,7 +1476,7 @@ FocusScope {
             enabled: getAudioStreams().length > 0
             
             background: Rectangle {
-                implicitWidth: 280
+                implicitWidth: Math.round(280 * Theme.layoutScale)
                 color: Theme.cardBackground
                 radius: Theme.radiusMedium
                 border.color: Theme.cardBorder
@@ -1505,7 +1504,7 @@ FocusScope {
                             font.pixelSize: Theme.fontSizeSmall
                             font.family: Theme.fontPrimary
                             color: Theme.accentPrimary
-                            Layout.preferredWidth: 20
+                            Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
                         }
                         
                         Item {
@@ -1570,7 +1569,7 @@ FocusScope {
             title: "Subtitle Tracks"
             
             background: Rectangle {
-                implicitWidth: 280
+                implicitWidth: Math.round(280 * Theme.layoutScale)
                 color: Theme.cardBackground
                 radius: Theme.radiusMedium
                 border.color: Theme.cardBorder
@@ -1591,7 +1590,7 @@ FocusScope {
                         font.pixelSize: Theme.fontSizeSmall
                         font.family: Theme.fontPrimary
                         color: Theme.accentPrimary
-                        Layout.preferredWidth: 20
+                        Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
                     }
                     
                     Text {
@@ -1638,7 +1637,7 @@ FocusScope {
                             font.pixelSize: Theme.fontSizeSmall
                             font.family: Theme.fontPrimary
                             color: Theme.accentPrimary
-                            Layout.preferredWidth: 20
+                            Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
                         }
                         
                         Item {
@@ -1696,6 +1695,30 @@ FocusScope {
                     }
                 }
             }
+        }
+    }
+
+    // Focus restoration on breakpoint changes
+    property var savedFocusItem: null
+    property int savedEpisodeIndex: -1
+
+    Connections {
+        target: ResponsiveLayoutManager
+        function onBreakpointChanged() {
+            root.savedEpisodeIndex = episodesList.currentIndex
+            root.savedFocusItem = root.Window.activeFocusItem
+            Qt.callLater(root.restoreFocusAfterBreakpoint)
+        }
+    }
+
+    function restoreFocusAfterBreakpoint() {
+        if (savedEpisodeIndex >= 0 && episodesList.count > 0) {
+            episodesList.currentIndex = Math.min(savedEpisodeIndex, episodesList.count - 1)
+            episodesList.positionViewAtIndex(episodesList.currentIndex, ListView.Contain)
+        }
+        if (savedFocusItem) {
+            savedFocusItem.forceActiveFocus()
+            savedFocusItem = null
         }
     }
 }
