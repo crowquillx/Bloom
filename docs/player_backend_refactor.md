@@ -359,7 +359,7 @@ Exit criteria:
 ### New
 - `src/player/backend/IPlayerBackend.h`
 - `src/player/backend/ExternalMpvBackend.*`
-- `src/player/backend/LinuxLibmpvOpenGLBackend.*`
+- `src/player/backend/LinuxMpvBackend.*`
 - `src/player/backend/WindowsLibmpvHwndBackend.*`
 - `src/player/backend/PlayerBackendFactory.*`
 - `src/player/MpvVideoItem.*` (or `src/ui/` equivalent)

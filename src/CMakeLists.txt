@@ -140,8 +140,8 @@ qt_add_qml_module(Bloom
 
 if(UNIX AND NOT APPLE)
     target_sources(Bloom PRIVATE
-        player/backend/LinuxLibmpvOpenGLBackend.h
-        player/backend/LinuxLibmpvOpenGLBackend.cpp
+        player/backend/LinuxMpvBackend.h
+        player/backend/LinuxMpvBackend.cpp
     )
 
     if(COMMAND pkg_check_modules)

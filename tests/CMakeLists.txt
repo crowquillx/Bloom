@@ -68,8 +68,8 @@ add_executable(PlayerBackendFactoryTest
 
 if(UNIX AND NOT APPLE)
     target_sources(PlayerBackendFactoryTest PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxLibmpvOpenGLBackend.h
-        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxLibmpvOpenGLBackend.cpp
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxMpvBackend.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxMpvBackend.cpp
     )
 endif()
 
@@ -280,8 +280,8 @@ target_link_libraries(VisualRegressionTest PRIVATE
 # Platform-specific secure storage libraries
 if(UNIX AND NOT APPLE)
     target_sources(VisualRegressionTest PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxLibmpvOpenGLBackend.h
-        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxLibmpvOpenGLBackend.cpp
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxMpvBackend.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxMpvBackend.cpp
     )
     # Linux: link libsecret
     target_sources(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src/security/SecretStoreLinux.cpp)

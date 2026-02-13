@@ -2,7 +2,7 @@
 #include "IPlayerBackend.h"
 #include "ExternalMpvBackend.h"
 #if defined(Q_OS_LINUX)
-#include "LinuxLibmpvOpenGLBackend.h"
+#include "LinuxMpvBackend.h"
 #endif
 
 #include <QByteArray>

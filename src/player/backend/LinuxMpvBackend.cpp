@@ -1,4 +1,4 @@
-#include "LinuxLibmpvOpenGLBackend.h"
+#include "LinuxMpvBackend.h"
 
 #include <QLoggingCategory>
 #include <QProcessEnvironment>
