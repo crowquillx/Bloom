@@ -84,6 +84,33 @@ target_link_libraries(PlayerBackendFactoryTest
 
 add_test(NAME PlayerBackendFactoryTest COMMAND PlayerBackendFactoryTest)
 
+add_executable(PlayerControllerAutoplayContextTest
+    PlayerControllerAutoplayContextTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
+)
+
+target_include_directories(PlayerControllerAutoplayContextTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(PlayerControllerAutoplayContextTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME PlayerControllerAutoplayContextTest COMMAND PlayerControllerAutoplayContextTest)
+
 # ============================================================================
 # Visual Regression Test Fixtures
 # ============================================================================

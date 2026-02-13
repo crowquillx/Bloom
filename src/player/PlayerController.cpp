@@ -491,6 +491,7 @@ void PlayerController::onProcessStateChanged(bool running)
         // If threshold is met for an episode, set flag to request next episode after marking as played
         if (thresholdMet && !m_currentSeriesId.isEmpty()) {
             m_shouldAutoplay = true;
+            stashPendingAutoplayContext();
             qDebug() << "PlayerController: Process stopped, threshold met, will request next episode after marking current as played";
         }
 
@@ -589,6 +590,7 @@ void PlayerController::onPlaybackEnded()
     // If threshold met for an episode, set flag to request next episode after marking as played
     if (thresholdMet && !m_currentSeriesId.isEmpty()) {
         m_shouldAutoplay = true;  // Flag to handle the response after item is marked as played
+        stashPendingAutoplayContext();
         qDebug() << "PlayerController: Threshold met, will request next episode after marking current as played";
     }
     
@@ -601,11 +603,17 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     if (!m_shouldAutoplay) {
         return;
     }
+
+    if (!m_pendingAutoplaySeriesId.isEmpty() && seriesId != m_pendingAutoplaySeriesId) {
+        qDebug() << "PlayerController: Ignoring next episode for unexpected series:" << seriesId;
+        return;
+    }
     
     m_shouldAutoplay = false;
     
     if (episodeData.isEmpty()) {
         qDebug() << "PlayerController: No next episode available";
+        clearPendingAutoplayContext();
         return;
     }
     
@@ -638,32 +646,34 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
         // since episodes in the same series typically have the same framerate
         // We also carry forward the current season ID for track preferences
         QString streamUrl = m_libraryService->getStreamUrl(episodeId);
-        playUrl(streamUrl, episodeId, startPositionTicks, seriesId, m_currentSeasonId, m_currentLibraryId, m_contentFramerate);
+        playUrl(streamUrl, episodeId, startPositionTicks, seriesId,
+            m_pendingAutoplaySeasonId, m_pendingAutoplayLibraryId,
+            m_pendingAutoplayFramerate, m_pendingAutoplayIsHDR);
     } else {
         // Autoplay disabled - emit navigation signal to show episode details
         // Include the track preferences from the just-completed episode
-        int lastAudioIndex = m_selectedAudioTrack;
-        int lastSubtitleIndex = m_selectedSubtitleTrack;
+        int lastAudioIndex = m_pendingAutoplayAudioTrack;
+        int lastSubtitleIndex = m_pendingAutoplaySubtitleTrack;
         
         qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with audio:" 
                  << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
         
         emit navigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex);
     }
+
+    clearPendingAutoplayContext();
 }
 
 // Handle item marked as played - request next episode if autoplay was requested
 void PlayerController::onItemMarkedPlayed(const QString &itemId)
 {
     // Only proceed if this is the item we just finished playing and we want autoplay/navigation
-    if (itemId != m_currentItemId || !m_shouldAutoplay || m_currentSeriesId.isEmpty()) {
+    if (!m_shouldAutoplay || m_pendingAutoplaySeriesId.isEmpty() || itemId != m_pendingAutoplayItemId) {
         return;
     }
-    
-    m_shouldAutoplay = false;  // Clear the flag
-    
-    qDebug() << "PlayerController: Item marked as played, requesting next episode for seriesId:" << m_currentSeriesId;
-    m_libraryService->getNextUnplayedEpisode(m_currentSeriesId);
+
+    qDebug() << "PlayerController: Item marked as played, requesting next episode for seriesId:" << m_pendingAutoplaySeriesId;
+    m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId);
 }
 
 // === PUBLIC API ===
@@ -763,6 +773,9 @@ void PlayerController::setEmbeddedVideoShrinkEnabled(bool enabled)
 
 void PlayerController::playTestVideo()
 {
+    clearPendingAutoplayContext();
+    m_shouldAutoplay = false;
+
     m_currentItemId.clear();
     m_pendingUrl = m_testVideoUrl;
     
@@ -790,6 +803,8 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         // Don't check completion threshold here - we're starting new content intentionally
         m_playerBackend->stopMpv();
     }
+
+    clearPendingAutoplayContext();
     
     // Store pending playback info before transition
     m_currentItemId = itemId;
@@ -828,6 +843,9 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
 void PlayerController::stop()
 {
     qDebug() << "PlayerController: stop requested";
+
+    clearPendingAutoplayContext();
+    m_shouldAutoplay = false;
     
     reportPlaybackStop();
     checkCompletionThreshold();
@@ -1178,6 +1196,30 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
         return true;  // Threshold met - eligible for autoplay
     }
     return false;  // Threshold not met
+}
+
+void PlayerController::stashPendingAutoplayContext()
+{
+    m_pendingAutoplayItemId = m_currentItemId;
+    m_pendingAutoplaySeriesId = m_currentSeriesId;
+    m_pendingAutoplaySeasonId = m_currentSeasonId;
+    m_pendingAutoplayLibraryId = m_currentLibraryId;
+    m_pendingAutoplayAudioTrack = m_selectedAudioTrack;
+    m_pendingAutoplaySubtitleTrack = m_selectedSubtitleTrack;
+    m_pendingAutoplayFramerate = m_contentFramerate;
+    m_pendingAutoplayIsHDR = m_contentIsHDR;
+}
+
+void PlayerController::clearPendingAutoplayContext()
+{
+    m_pendingAutoplayItemId.clear();
+    m_pendingAutoplaySeriesId.clear();
+    m_pendingAutoplaySeasonId.clear();
+    m_pendingAutoplayLibraryId.clear();
+    m_pendingAutoplayAudioTrack = -1;
+    m_pendingAutoplaySubtitleTrack = -1;
+    m_pendingAutoplayFramerate = 0.0;
+    m_pendingAutoplayIsHDR = false;
 }
 
 void PlayerController::startPlayback(const QString &url)

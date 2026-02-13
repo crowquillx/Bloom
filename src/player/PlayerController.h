@@ -258,6 +258,8 @@ private:
     void reportPlaybackStop();
     void checkCompletionThreshold();
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
+    void stashPendingAutoplayContext();
+    void clearPendingAutoplayContext();
     void loadConfig();
     void startPlayback(const QString &url);
     void initiateMpvStart();
@@ -306,6 +308,16 @@ private:
     double m_seekTargetWhileBuffering = -1;
     qint64 m_startPositionTicks = 0;  // Resume position in Jellyfin ticks
     bool m_shouldAutoplay = false;  // Flag to trigger autoplay on next episode loaded
+
+    // Persisted autoplay context across state teardown/idle transition
+    QString m_pendingAutoplayItemId;
+    QString m_pendingAutoplaySeriesId;
+    QString m_pendingAutoplaySeasonId;
+    QString m_pendingAutoplayLibraryId;
+    int m_pendingAutoplayAudioTrack = -1;
+    int m_pendingAutoplaySubtitleTrack = -1;
+    double m_pendingAutoplayFramerate = 0.0;
+    bool m_pendingAutoplayIsHDR = false;
     
     // Track selection state
     int m_selectedAudioTrack = -1;      // Jellyfin audio stream index (for API reporting)

@@ -26,9 +26,11 @@ Backend architecture (Milestone B kickoff)
   - typed `sendVariantCommand(...)` dispatch through libmpv command nodes,
   - `client-message`/`scriptMessage` forwarding parity,
   - `aid`/`sid` normalization parity with external backend contract (including node-typed mpv values like `no`/`auto`),
-  - render hardening for viewport bounds/FBO-state restoration/update-callback lifecycle.
+  - render hardening for viewport bounds/FBO-state restoration/update-callback lifecycle, including coalesced render-update scheduling during teardown/re-init.
 - Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing.
 - Current sequencing: Linux on-device validation is deferred to a later Milestone B follow-up step; implementation continues first with parity/hardening changes validated via available build/test environments.
+- Controller parity hardening now preserves next-up/autoplay context across playback teardown, so async `itemMarkedPlayed`/`nextUnplayedEpisode` flows keep the expected series/item/track state.
+- Unit regression coverage now includes the mismatched-series guard for async next-episode callbacks to prevent stale-series autoplay context from being consumed.
 
 Key components
 - IPlayerBackend: playback backend contract used by `PlayerController`.

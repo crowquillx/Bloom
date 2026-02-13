@@ -602,6 +602,7 @@ void LinuxMpvBackend::teardownRenderContext()
 {
 #if defined(BLOOM_HAS_LIBMPV)
     m_acceptRenderUpdates.store(false, std::memory_order_release);
+    m_renderUpdateQueued.store(false, std::memory_order_release);
 
     if (!m_mpvRenderContext) {
         return;
@@ -709,12 +710,25 @@ void LinuxMpvBackend::renderUpdateCallback(void *ctx)
         return;
     }
 
-    const QPointer<QQuickWindow> window = self->m_renderWindow;
-    if (!window) {
+    bool expected = false;
+    if (!self->m_renderUpdateQueued.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         return;
     }
 
-    QMetaObject::invokeMethod(window, &QQuickWindow::update, Qt::QueuedConnection);
+    QMetaObject::invokeMethod(self, [self]() {
+        self->m_renderUpdateQueued.store(false, std::memory_order_release);
+
+        if (!self->m_acceptRenderUpdates.load(std::memory_order_acquire)) {
+            return;
+        }
+
+        const QPointer<QQuickWindow> window = self->m_renderWindow;
+        if (!window) {
+            return;
+        }
+
+        window->update();
+    }, Qt::QueuedConnection);
 }
 
 void *LinuxMpvBackend::getProcAddress(void *ctx, const char *name)

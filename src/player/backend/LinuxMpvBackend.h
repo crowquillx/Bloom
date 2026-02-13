@@ -67,5 +67,6 @@ private:
     void *m_mpvRenderContext = nullptr;
     std::atomic_bool m_eventDispatchQueued{false};
     std::atomic_bool m_acceptRenderUpdates{false};
+    std::atomic_bool m_renderUpdateQueued{false};
     QList<QByteArray> m_commandScratch;
 };

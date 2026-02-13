@@ -22,6 +22,7 @@ Implemented now:
    - Non-Linux platforms continue to default to `external-mpv-ipc`.
 - Hardened Linux embedded runtime path:
    - safer render/update callback lifecycle,
+   - coalesced render update scheduling to avoid callback storms during teardown/re-init,
    - stronger viewport/FBO render state handling,
    - scenegraph re-init handling,
    - `client-message` forwarding parity,
@@ -126,8 +127,9 @@ Overall milestone status:
 #### B4. Runtime behavior parity
 - 🟨 Playback controls parity: command dispatch now supports typed variant command payloads.
 - 🟨 Track control parity: `aid`/`sid` update semantics normalized to external backend contract.
-- ⬜ Reporting parity: start/progress/pause/resume/stop unchanged.
-- ⬜ Next-up/autoplay/threshold behavior unchanged.
+- 🟨 Reporting parity: start/progress/pause/resume/stop paths preserved in backend abstraction.
+- 🟨 Next-up/autoplay/threshold behavior: fixed pending autoplay context handling across Idle transition so next-episode flow no longer loses series/item/track context before async callbacks.
+- ✅ Added unit regression coverage for pending autoplay context flow, including mismatched-series guard behavior in `PlayerControllerAutoplayContextTest`.
 
 #### B5. Credits-shrink hook (internal)
 - ✅ Add backend/controller hook for runtime viewport resize.
