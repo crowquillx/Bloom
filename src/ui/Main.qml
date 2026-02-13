@@ -487,7 +487,10 @@ Window {
 
     Shortcut {
         sequences: ["Esc", "Backspace"]
-        enabled: stackView.depth > 1 && !sidebar.expanded && !(stackView.currentItem && stackView.currentItem.handlesOwnBackNavigation === true)
+        enabled: !PlayerController.isPlaybackActive
+                 && stackView.depth > 1
+                 && !sidebar.expanded
+                 && !(stackView.currentItem && stackView.currentItem.handlesOwnBackNavigation === true)
         onActivated: {
             console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "sidebar.expanded:", sidebar.expanded)
             if (stackView.depth > 1) {
@@ -523,5 +526,47 @@ Window {
             else
                 window.showFullScreen()
         }
+    }
+
+    Shortcut {
+        sequences: ["Space", "K"]
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.togglePause()
+    }
+
+    Shortcut {
+        sequence: "Esc"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.stop()
+    }
+
+    Shortcut {
+        sequence: "Left"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.seekRelative(-10)
+    }
+
+    Shortcut {
+        sequence: "Right"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.seekRelative(10)
+    }
+
+    Shortcut {
+        sequence: "J"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.seekRelative(-10)
+    }
+
+    Shortcut {
+        sequence: "L"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.seekRelative(10)
+    }
+
+    Shortcut {
+        sequence: "S"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.stop()
     }
 }

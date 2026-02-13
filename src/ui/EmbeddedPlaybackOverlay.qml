@@ -1,4 +1,6 @@
 import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
 import BloomUI
 
 Item {
@@ -11,7 +13,49 @@ Item {
 
     anchors.fill: parent
     visible: overlayActive
-    z: 0
+    z: 200
+
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        height: Math.max(72, Theme.spacingXLarge + Theme.spacingMedium)
+        color: Theme.overlayTextBackground
+        opacity: 0.88
+
+        RowLayout {
+            anchors.centerIn: parent
+            spacing: Theme.spacingMedium
+
+            Button {
+                text: Icons.fastRewind
+                font.family: Theme.fontIcon
+                font.pixelSize: Theme.fontSizeIcon
+                onClicked: PlayerController.seekRelative(-10)
+            }
+
+            Button {
+                text: paused ? Icons.playArrow : Icons.pause
+                font.family: Theme.fontIcon
+                font.pixelSize: Theme.fontSizeIcon
+                onClicked: PlayerController.togglePause()
+            }
+
+            Button {
+                text: Icons.stop
+                font.family: Theme.fontIcon
+                font.pixelSize: Theme.fontSizeIcon
+                onClicked: PlayerController.stop()
+            }
+
+            Button {
+                text: Icons.fastForward
+                font.family: Theme.fontIcon
+                font.pixelSize: Theme.fontSizeIcon
+                onClicked: PlayerController.seekRelative(10)
+            }
+        }
+    }
 
     Item {
         id: overlayRoot
