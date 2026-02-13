@@ -7,7 +7,7 @@ Overview
 Key services
 - `ConfigManager` — Configuration, QML bindings, session persistence.
 - `IPlayerBackend` — Playback backend abstraction registered in `ServiceLocator`.
-- `ExternalMpvBackend` — Current default backend adapter over external mpv process/IPC.
+- `ExternalMpvBackend` — External mpv process/IPC backend adapter (primary rollback path on Linux/non-Windows).
 - `PlayerProcessManager` — Manages external mpv process & IPC (used by `ExternalMpvBackend`).
 - `AuthenticationService` — Login, logout, session persistence, token validation; owns shared `QNetworkAccessManager`.
 - `LibraryService` — Library views/items, series details, search, image/theme-song URLs.
@@ -19,7 +19,7 @@ Key services
 
 Initialization order (recommended)
 1. ConfigManager — loads configs and path info.
-2. IPlayerBackend — created by `PlayerBackendFactory` (currently `ExternalMpvBackend`).
+2. IPlayerBackend — created by `PlayerBackendFactory` (`win-libmpv` on Windows; platform-selected backend elsewhere).
 3. AuthenticationService — handles session management; provides shared `QNetworkAccessManager`.
 4. LibraryService — depends on AuthenticationService.
 5. PlaybackService — depends on AuthenticationService.
@@ -40,10 +40,12 @@ Adding a new service
 3. Update `AGENTS.md` (or `docs/services.md`) to document the dependency and purpose.
 
 Backend selection notes
-- Platform default backend path is selected by `PlayerBackendFactory` (Linux prefers `linux-libmpv-opengl` when runtime-supported; Windows defaults `win-libmpv`; others default `external-mpv-ipc`).
+- Platform default backend path is selected by `PlayerBackendFactory` (Linux prefers `linux-libmpv-opengl` when runtime-supported; Windows always uses `win-libmpv`; others default `external-mpv-ipc`).
 - `PlayerBackendFactory` supports `createByName(...)`, env override via `BLOOM_PLAYER_BACKEND`, and config preference via `settings.playback.player_backend`.
-- Selection precedence: env override -> config preference -> platform default.
-- Unknown backend names are logged and safely fall back to external backend.
+- Selection precedence:
+  - Windows: forced `win-libmpv` (override values are ignored).
+  - Non-Windows: env override -> config preference -> platform default.
+- Unknown backend names are logged and resolved safely (Windows forces `win-libmpv`; non-Windows fall back to external backend).
 - Integration check: `VisualRegressionTest` asserts `IPlayerBackend` is registered in `ServiceLocator` after `ApplicationInitializer::registerServices()`.
 
 Note: Avoid tightly coupling multiple services. Prefer small, single-purpose services and keep interface clear.

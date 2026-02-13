@@ -23,7 +23,7 @@ Windows embedded playback guardrail (regression prevention):
 - Do NOT rely on in-scene sibling layering above `VideoSurface` for Windows embedded playback; native child-window composition can occlude QML overlays.
 - Any PR touching Windows playback layering/geometry (`src/ui/Main.qml`, `src/ui/VideoSurface.qml`, `src/ui/EmbeddedPlaybackOverlay.qml`, `src/player/backend/WindowsMpvBackend.*`) must include manual runtime validation: controls visible above video, and no video move/clip during show/hide, resize, minimize/restore, maximize, and fullscreen transitions.
 
-Backend policy (high level): Windows targets embedded libmpv by default. Linux embedded libmpv is still validation-in-progress and not fully supported across compositor/driver combinations; Wayland currently defaults to `external-mpv-ipc` unless explicitly opted in for validation. All platforms keep `external-mpv-ipc` as explicit rollback path via backend selection override.
+Backend policy (high level): Windows always uses embedded libmpv (`win-libmpv`) for playback. Linux embedded libmpv remains experimental/validation-only; keep current Linux fallback behavior (Wayland defaults to `external-mpv-ipc` unless explicitly opted in for validation, and unsupported embedded runtime conditions fall back to `external-mpv-ipc`).
 
 Build & run:
 ```
@@ -51,7 +51,6 @@ If unsure whether a change requires `AGENTS.md` or `docs/` updates, open an issu
 See also:
 - docs/build.md     — Build instructions for Linux, Docker, and Windows
 - docs/playback.md  — mpv and playback/reporting integration
-- docs/player_backend_refactor.md — Embedded libmpv backend migration plan and milestones
 - docs/theme.md     — Theme.qml tokens and design system
 - docs/services.md  — ServiceLocator pattern & initialization order
 - docs/config.md    — ConfigManager Q_PROPERTY and runtime settings

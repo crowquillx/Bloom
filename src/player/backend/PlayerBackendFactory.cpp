@@ -48,6 +48,14 @@ std::unique_ptr<IPlayerBackend> PlayerBackendFactory::create(const QString &conf
 
 std::unique_ptr<IPlayerBackend> PlayerBackendFactory::createByName(const QString &backendName, QObject *parent)
 {
+#if defined(Q_OS_WIN)
+    if (backendName.compare(QString::fromLatin1(kWinLibmpvBackendName), Qt::CaseInsensitive) != 0) {
+        qCWarning(lcPlayerBackendFactory)
+            << "Ignoring requested backend on Windows:" << backendName
+            << "- forcing" << kWinLibmpvBackendName;
+    }
+    return std::make_unique<WindowsMpvBackend>(parent);
+#else
 #if defined(Q_OS_LINUX)
     if (backendName.compare(QString::fromLatin1(kLinuxLibmpvBackendName), Qt::CaseInsensitive) == 0) {
         if (LinuxMpvBackend::isRuntimeSupported()) {
@@ -80,4 +88,5 @@ std::unique_ptr<IPlayerBackend> PlayerBackendFactory::createByName(const QString
         << "Unknown backend requested:" << backendName
         << "- falling back to" << kExternalBackendName;
     return std::make_unique<ExternalMpvBackend>(parent);
+#endif
 }

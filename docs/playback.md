@@ -1,25 +1,29 @@
 Playback — mpv & Jellyfin Integration
 
 Overview
-- Current production path: mpv runs as an external, top-level process (avoid `--wid` embedding or transparent Qt overlays for this path).
+- Active production policy is platform-specific:
+  - Windows always uses embedded libmpv (`win-libmpv`).
+  - Linux keeps current fallback behavior; embedded libmpv remains experimental.
 - Linux embedded libmpv backend (`linux-libmpv-opengl`) is currently experimental and less tested than Windows/external playback paths.
 - Linux Wayland sessions currently default to `external-mpv-ipc` unless explicitly opted in (`BLOOM_ENABLE_WAYLAND_LIBMPV=1`) due to unresolved embedded render-path issues on some compositor/GPU combinations.
 - Linux non-Wayland runtime selection still attempts embedded backend when runtime requirements are met, with automatic fallback to `external-mpv-ipc` when unsupported.
-- Windows now defaults to `win-libmpv`, which launches mpv with HWND embedding (`--wid`) against the attached `VideoSurface` target while preserving the external backend process path.
+- Windows uses `win-libmpv`, which launches mpv with HWND embedding (`--wid`) against the attached `VideoSurface` target while preserving the external backend process path for non-Windows rollback/testing.
 - Other non-Linux platforms keep `external-mpv-ipc` as default.
-- `external-mpv-ipc` remains fully supported as an explicit backend override on all platforms via `BLOOM_PLAYER_BACKEND=external-mpv-ipc`.
+- `external-mpv-ipc` remains fully supported as an explicit backend override on non-Windows platforms via `BLOOM_PLAYER_BACKEND=external-mpv-ipc`.
 
-Backend architecture (Milestone A)
+Backend architecture
 - Playback now routes through `IPlayerBackend` (`src/player/backend/IPlayerBackend.h`).
 - `PlayerController` depends on the backend interface (not directly on `PlayerProcessManager`).
 - Default backend is platform-aware via `PlayerBackendFactory` (Linux prefers embedded backend when runtime-supported; Windows defaults to `win-libmpv`; others default external).
 - Active backend is logged at startup from `ApplicationInitializer`.
 - Optional environment override for backend selection: `BLOOM_PLAYER_BACKEND`.
 - Optional config backend preference: `settings.playback.player_backend` in `app.json` (`external-mpv-ipc`, `linux-libmpv-opengl`, `win-libmpv`, or unset for platform default).
-- Selection precedence is now: `BLOOM_PLAYER_BACKEND` env override -> config `player_backend` -> platform default.
+- Selection precedence is now:
+  - Windows: forced `win-libmpv` (env/config backend override values are ignored).
+  - Non-Windows: `BLOOM_PLAYER_BACKEND` env override -> config `player_backend` -> platform default.
 - Unknown backend names safely resolve to `external-mpv-ipc`.
 
-Backend architecture (Milestone C kickoff)
+Windows embedded backend details
 - Added `WindowsMpvBackend` scaffold under `src/player/backend/`.
 - Selector token: `win-libmpv`.
 - Windows backend now resolves target `winId` from `MpvVideoItem`, creates a dedicated child host window, and keeps host geometry synced to `VideoSurface` viewport updates for embedded playback.
@@ -40,19 +44,18 @@ Reference implementation notes (Plezy)
 - Because Plezy is Flutter-based and Bloom is Qt/C++, adopt the architecture decisions and sequencing, then map them onto Bloom backends (`IPlayerBackend`, `PlayerController`, Qt window/focus lifecycle, and existing services/tests).
 - For Windows work, prefer Plezy’s approach as the sanity baseline for: direct libmpv control path, explicit event loop handling, and window transition handling around minimize/maximize/fullscreen.
 
-Plezy parity checklist for Milestone C/D changes
-- [ ] Verify control-path parity decisions (direct libmpv command/property/event model) against Plezy architecture.
-- [ ] Verify window lifecycle/transition behavior parity goals for resize/move/minimize/maximize/fullscreen.
-- [ ] Verify Qt/C++ adaptation boundaries are preserved (no Flutter/plugin-specific coupling).
-- [ ] Verify direct-only `win-libmpv` behavior remains intentional (no implicit alternate backend path).
-- [ ] Verify playback controls parity is completed during command-path migration (avoid temporary duplicate control implementations).
+- Plezy-aligned decisions already adopted in Bloom:
+  - direct libmpv command/property/event model on Windows,
+  - explicit window lifecycle handling for resize/move/minimize/maximize/fullscreen,
+  - Qt/C++ adaptation boundaries preserved (no Flutter/plugin coupling),
+  - direct-only `win-libmpv` behavior remains intentional (no implicit alternate backend path).
 
-Backend architecture (Milestone B kickoff)
+Linux embedded backend details (experimental)
 - `IPlayerBackend` now includes embedded-video capability hooks:
   - `supportsEmbeddedVideo()`
   - `attachVideoTarget(...)` / `detachVideoTarget(...)`
   - `setVideoViewport(...)`
-- Linux backend scaffold added: `LinuxMpvBackend`.
+- Linux backend implementation entry point: `LinuxMpvBackend`.
 - `MpvVideoItem` + `VideoSurface.qml` added for minimal embedded surface plumbing.
 - `PlayerController` exposes minimal embedded-video passthrough and internal/manual shrink toggle API.
 - Linux backend now includes:
@@ -60,16 +63,15 @@ Backend architecture (Milestone B kickoff)
   - `client-message`/`scriptMessage` forwarding parity,
   - `aid`/`sid` normalization parity with external backend contract (including node-typed mpv values like `no`/`auto`),
   - render hardening for viewport bounds/FBO-state restoration/update-callback lifecycle, including coalesced render-update scheduling during teardown/re-init.
-- Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing (scheduled at the start of Milestone E).
+- Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing.
 - Current Linux support status: embedded path is not yet considered fully supported across compositor/driver combinations; treat `external-mpv-ipc` as the stable production path while Linux embedded validation continues.
-- Current sequencing: Milestone B closes with parity/hardening changes validated via available build/test environments; Milestone C prioritizes Windows backend implementation, Milestone D covers track-selection parity hardening, and Linux on-device validation executes as Milestone E kickoff work.
 - Controller parity hardening now preserves next-up/autoplay context across playback teardown, so async `itemMarkedPlayed`/`nextUnplayedEpisode` flows keep the expected series/item/track state.
 - Unit regression coverage now includes the mismatched-series guard for async next-episode callbacks to prevent stale-series autoplay context from being consumed.
 
 Key components
 - IPlayerBackend: playback backend contract used by `PlayerController`.
 - ExternalMpvBackend: adapter that delegates to `PlayerProcessManager`.
-- LinuxMpvBackend (scaffold): Linux embedded backend entry point for Milestone B.
+- LinuxMpvBackend: Linux embedded backend entry point.
 - LinuxMpvBackend now includes basic `mpv_handle` lifecycle, property/event observation, and a Qt Quick `beforeRendering`-driven `mpv_render_context` render path (Linux runtime validation still pending).
 - MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
 - PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
@@ -82,7 +84,7 @@ Audio/Subtitle Track Selection
 - Each `MediaSourceInfo` contains `mediaStreams` array with `MediaStreamInfo` objects describing video, audio, and subtitle tracks.
 - The server provides `defaultAudioStreamIndex` and `defaultSubtitleStreamIndex` which reflect the user's preferences set on the Jellyfin server.
 - Use `PlayerController::setSelectedAudioTrack(index)` and `setSelectedSubtitleTrack(index)` to change tracks during playback via mpv IPC (`aid`, `sid` properties).
-- Canonical Milestone D mapping contract:
+- Canonical track mapping contract:
   - UI and reporting state use Jellyfin `MediaStream.index`.
   - Runtime mpv switching uses mapped mpv track IDs (1-based per media type order).
   - Subtitle `None` is Jellyfin `-1` and is applied as `sid=no`.
