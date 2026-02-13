@@ -27,7 +27,7 @@ Key components
 - IPlayerBackend: playback backend contract used by `PlayerController`.
 - ExternalMpvBackend: adapter that delegates to `PlayerProcessManager`.
 - LinuxMpvBackend (scaffold): Linux embedded backend entry point for Milestone B.
-- LinuxMpvBackend now includes basic `mpv_handle` lifecycle and property/event observation plumbing (render-context integration still pending).
+- LinuxMpvBackend now includes basic `mpv_handle` lifecycle, property/event observation, and a Qt Quick `beforeRendering`-driven `mpv_render_context` render path (Linux runtime validation still pending).
 - MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
 - PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
 - PlayerController: state machine that handles play/pause/resume, listens for backend updates, manages track selection, and reports playback state to the Jellyfin server.

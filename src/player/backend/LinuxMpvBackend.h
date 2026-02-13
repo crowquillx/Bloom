@@ -3,9 +3,13 @@
 #include "IPlayerBackend.h"
 
 #include <QByteArray>
+#include <QMetaObject>
 #include <QPointer>
 #include <QRectF>
 #include <QVariant>
+
+class QQuickItem;
+class QQuickWindow;
 
 class LinuxMpvBackend : public IPlayerBackend
 {
@@ -32,21 +36,34 @@ public:
     void setVideoViewport(const QRectF &viewport) override;
 
 private:
-    bool initializeMpv();
+    bool initializeMpv(const QStringList &args);
     void teardownMpv();
     void processMpvEvents();
-    void observeMpvProperties();
-    void applyMpvArgs(const QStringList &args);
+    void observeMpvProperties(void *handle);
+    void applyMpvArgs(void *handle, const QStringList &args);
     bool queueLoadFile(const QString &mediaUrl);
     void handlePropertyChange(const QString &name, const QVariant &value);
+    void handleWindowChanged(QQuickWindow *window);
+    void initializeRenderContextIfNeeded();
+    void teardownRenderContext();
+    void renderFrame();
+
     static void wakeupCallback(void *ctx);
+    static void renderUpdateCallback(void *ctx);
+    static void *getProcAddress(void *ctx, const char *name);
 
     bool m_running = false;
     bool m_runtimeSupported = false;
-    QPointer<QObject> m_videoTarget;
+    QPointer<QQuickItem> m_videoTarget;
+    QMetaObject::Connection m_videoTargetWindowConnection;
+    QPointer<QQuickWindow> m_renderWindow;
+    QMetaObject::Connection m_beforeRenderingConnection;
+    QMetaObject::Connection m_sceneGraphInitializedConnection;
+    QMetaObject::Connection m_sceneGraphInvalidatedConnection;
     QRectF m_videoViewport;
 
     void *m_mpvHandle = nullptr;
+    void *m_mpvRenderContext = nullptr;
     bool m_eventDispatchQueued = false;
     QList<QByteArray> m_commandScratch;
 };

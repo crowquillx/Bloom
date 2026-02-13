@@ -32,7 +32,7 @@ Milestone B kickoff implemented now:
 - Added Linux-conditional build wiring for new backend sources and optional `libmpv` discovery/linking.
 
 Still pending in Milestone B (after kickoff):
-- `mpv_render_context` ownership and render callback integration.
+- Final render-path validation and hardening for `mpv_render_context` integration on Linux target systems.
 - Playback command/property parity in the Linux embedded backend.
 - Linux runtime parity validation (controls, reporting, stability, no CPU readback).
 - Explicit shrink/restore validation test path.
@@ -95,10 +95,10 @@ Overall milestone status:
 ### Milestone B — Breakdown (what needs to be done)
 
 #### B1. Backend and rendering primitives
-- 🟨 Create `LinuxMpvBackend` with `mpv_handle` + `mpv_render_context` ownership. (basic `mpv_handle` lifecycle + event/property observation added; render context pending)
+- 🟨 Create `LinuxMpvBackend` with `mpv_handle` + `mpv_render_context` ownership. (basic `mpv_handle` lifecycle + `mpv_render_context` hookup and `beforeRendering` render path added; Linux runtime validation pending)
 - ✅ Create `MpvVideoItem` (or equivalent C++ video item) for Qt Quick render integration.
 - ✅ Define minimal render callback contract between backend and item.
-- 🟨 Add safe startup/shutdown lifecycle for libmpv context and render context. (`mpv_handle` startup/shutdown added; render-context lifecycle pending)
+- 🟨 Add safe startup/shutdown lifecycle for libmpv context and render context. (`mpv_handle` + `mpv_render_context` startup/shutdown hooks added; target-environment reliability validation pending)
 
 #### B2. Controller/factory wiring
 - ✅ Extend `PlayerBackendFactory` to instantiate Linux backend by name.
