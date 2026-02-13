@@ -281,15 +281,14 @@ The responsive layout system includes automated visual regression testing to cat
 
 ### Running Tests Locally
 
-1. Build the project with tests enabled:
+1. Build the project using the approved wrapper (see [`docs/build.md`](./build.md)):
    ```bash
-   cmake -B build -DBUILD_TESTING=ON
-   cmake --build build
+   ./scripts/build-docker.sh
    ```
 
 2. Run the visual regression tests:
    ```bash
-   ./build/tests/VisualRegressionTest
+   ./build-docker/tests/VisualRegressionTest
    ```
 
 ### Test Mode
@@ -297,7 +296,7 @@ The responsive layout system includes automated visual regression testing to cat
 The application supports a `--test-mode` flag for visual regression testing:
 
 ```bash
-./build/src/Bloom --test-mode --test-resolution 1920x1080
+./build-docker/src/Bloom --test-mode --test-resolution 1920x1080
 ```
 
 Options:
@@ -325,7 +324,7 @@ Golden screenshots are stored in `tests/golden/` and are generated automatically
 
 2. Run the tests again:
    ```bash
-   ./build/tests/VisualRegressionTest
+   ./build-docker/tests/VisualRegressionTest
    ```
 
 3. New golden screenshots will be created
@@ -335,7 +334,7 @@ Golden screenshots are stored in `tests/golden/` and are generated automatically
 Visual regression tests run automatically in CI on every pull request. On failure, diff images are uploaded as artifacts for review.
 
 The CI workflow:
-1. Builds the project with `BUILD_TESTING=ON`
+1. Builds the project using the approved build wrapper
 2. Runs `VisualRegressionTest` at all supported resolutions
 3. Uploads `tests/diffs/` as artifacts if tests fail
 4. Fails the build if visual regressions are detected

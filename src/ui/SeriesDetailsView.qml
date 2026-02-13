@@ -38,6 +38,7 @@ FocusScope {
     // Key handling for back navigation
     Keys.onPressed: (event) => {
         if (event.isAutoRepeat) {
+            event.accepted = true
             return
         }
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
@@ -1016,7 +1017,7 @@ FocusScope {
                     property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse
                     scale: isFocused ? 1.05 : (isHovered ? 1.02 : 1.0)
                     z: isFocused ? 2 : 0
-                    transformOrigin: Item.Bottom
+                    transformOrigin: Item.Center
                     Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
                     
                     Column {

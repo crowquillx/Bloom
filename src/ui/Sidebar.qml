@@ -29,7 +29,7 @@ Item {
     property bool expanded: SidebarSettings.sidebarExpanded
     
     /// Whether to use overlay mode (true) or push mode (false)
-    /// Auto-detected based on window width, but can be overridden
+    /// Defaults from Theme.sidebarDefaultMode ("overlay" or "push"), but can be overridden
     property bool overlayMode: Theme.sidebarDefaultMode === "overlay"
     
     /// Navigation items for the sidebar - using direct icon references

@@ -757,9 +757,9 @@ FocusScope {
                 Layout.fillHeight: true
                 Accessible.role: Accessible.List
                 Accessible.name: currentParentId === "" ? "Media Libraries" : (currentLibraryName + " Library Items")
-                property int columns
+                property int columns: Math.max(Theme.gridColumns, 1)
 
-                cellWidth: width / columns
+                cellWidth: width / Math.max(columns, 1)
                 cellHeight: (cellWidth - Theme.spacingSmall) * 1.5 + Math.round(70 * Theme.layoutScale)
 
                 Behavior on opacity {

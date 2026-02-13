@@ -158,6 +158,7 @@ FocusScope {
     // Key handling for back navigation
     Keys.onPressed: (event) => {
         if (event.isAutoRepeat) {
+            event.accepted = true
             return
         }
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {

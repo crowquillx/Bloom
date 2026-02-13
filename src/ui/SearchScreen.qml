@@ -370,7 +370,7 @@ FocusScope {
                     GridView {
                         id: seriesGrid
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Math.ceil(count / Math.floor(width / cellWidth)) * cellHeight
+                        Layout.preferredHeight: Math.ceil(count / Math.max(1, Math.floor(width / cellWidth))) * cellHeight
                         
                         cellWidth: Math.round(220 * Theme.layoutScale)
                         cellHeight: Math.round(380 * Theme.layoutScale)
@@ -478,7 +478,7 @@ FocusScope {
                     GridView {
                         id: moviesGrid
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Math.ceil(count / Math.floor(width / cellWidth)) * cellHeight
+                        Layout.preferredHeight: Math.ceil(count / Math.max(1, Math.floor(width / cellWidth))) * cellHeight
                         
                         cellWidth: Math.round(220 * Theme.layoutScale)
                         cellHeight: Math.round(380 * Theme.layoutScale)

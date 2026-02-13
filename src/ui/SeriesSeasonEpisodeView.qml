@@ -144,6 +144,7 @@ FocusScope {
     // Key handling for back navigation
     Keys.onPressed: (event) => {
         if (event.isAutoRepeat) {
+            event.accepted = true
             return
         }
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
@@ -687,7 +688,7 @@ FocusScope {
         anchors.bottom: parent.bottom
         anchors.leftMargin: Theme.paddingLarge
         anchors.rightMargin: Theme.paddingLarge
-        anchors.topMargin: root.height < 1200 ? Math.round(20 * Theme.layoutScale) : Math.round(60 * Theme.layoutScale)
+        anchors.topMargin: root.height < Math.round(1200 * Theme.layoutScale) ? Math.round(20 * Theme.layoutScale) : Math.round(60 * Theme.layoutScale)
         anchors.bottomMargin: 0
         contentWidth: width
         contentHeight: mainContentColumn.implicitHeight + bottomMargin
