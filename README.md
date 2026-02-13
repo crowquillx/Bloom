@@ -5,7 +5,7 @@
 
 > **⚠️ WARNING: This is pre-alpha software under active development. It is NOT production ready. Expect bugs, breaking changes, and missing features. Use at your own risk.**
 
-A Jellyfin HTPC client for 10-foot TV interfaces, built with Qt 6/QML and mpv.
+A Jellyfin HTPC client for 10-foot TV interfaces, built with Qt 6/QML and mpv/libmpv.
 
 ## What it does
 
@@ -14,7 +14,8 @@ Bloom connects to a Jellyfin server and provides a TV-friendly interface for bro
 **Current state:**
 - Basic library browsing (movies, series, seasons, episodes)
 - Skip intro/outro
-- Video playback via external mpv process
+- Windows embedded playback via bundled `libmpv` (`win-libmpv`)
+- External mpv playback path retained for Linux/non-Windows fallback
 - Playback progress reporting to Jellyfin
 - Keyboard/remote navigation
 - Linux (Wayland) and Windows support
@@ -31,15 +32,15 @@ Bloom connects to a Jellyfin server and provides a TV-friendly interface for bro
 
 - Qt 6 (Core, Gui, Quick, Network)
 - CMake 3.16+
-- C++17 compiler
+- C++23 compiler
 - mpv (in PATH or configured)
 - libsecret (Linux) for credential storage
 
 ## Installation
 
 ### Windows
-
 Download the latest release from the [Releases](https://github.com/yourusername/Bloom/releases) page.
+Windows release artifacts include `libmpv` runtime DLLs in the package.
 
 ## Building
 
@@ -70,6 +71,19 @@ ninja
 ```
 
 See [docs/build.md](docs/build.md) for detailed instructions.
+
+### Windows local build note (`libmpv`)
+For local Windows builds, provide a libmpv SDK via one of:
+- `MPV_ROOT`
+- `MPV_DIR`
+- `LIBMPV_ROOT`
+
+The SDK must include:
+- headers (`include/mpv/client.h`)
+- import library (`*.lib`)
+- runtime DLL (`libmpv-2.dll` or `mpv-2.dll`)
+
+CI currently uses `mpv-dev` artifacts from `shinchiro/mpv-winbuild-cmake`.
 
 ## Linux Backend Status
 
@@ -110,7 +124,8 @@ See [AGENTS.md](AGENTS.md) for architecture details.
 ## License
 
 See [LICENSE](LICENSE).
+Third-party license and attribution details are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Acknowledgments
-
 Built with [Qt](https://www.qt.io/), [mpv](https://mpv.io/), for [Jellyfin](https://jellyfin.org/).
+Playback architecture and embedded mpv design were inspired by [Plezy](https://github.com/edde746/plezy).
