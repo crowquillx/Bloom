@@ -10,17 +10,19 @@ class PlayerBackendFactoryTest : public QObject
     Q_OBJECT
 
 private slots:
-    void createsExternalBackendByDefault();
+    void createsPlatformDefaultBackend();
     void backendStartsInStoppedState();
     void createByNameSupportsExternal();
     void createByNameLinuxSelectionBehavior();
+    void createByNameWindowsSelectionBehavior();
     void createByNameFallsBackForUnknown();
     void envOverrideSelectsExternalBackend();
     void envOverrideSelectsLinuxBackendWhenAvailable();
+    void envOverrideSelectsWindowsBackendWhenAvailable();
     void envOverrideUnknownFallsBackToExternal();
 };
 
-void PlayerBackendFactoryTest::createsExternalBackendByDefault()
+void PlayerBackendFactoryTest::createsPlatformDefaultBackend()
 {
     qunsetenv("BLOOM_PLAYER_BACKEND");
     std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create();
@@ -29,6 +31,8 @@ void PlayerBackendFactoryTest::createsExternalBackendByDefault()
 #if defined(Q_OS_LINUX)
     QVERIFY(backend->backendName() == QStringLiteral("linux-libmpv-opengl")
             || backend->backendName() == QStringLiteral("external-mpv-ipc"));
+#elif defined(Q_OS_WIN)
+    QCOMPARE(backend->backendName(), QStringLiteral("win-libmpv"));
 #else
     QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
 #endif
@@ -64,6 +68,18 @@ void PlayerBackendFactoryTest::createByNameLinuxSelectionBehavior()
 #endif
 }
 
+void PlayerBackendFactoryTest::createByNameWindowsSelectionBehavior()
+{
+    std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::createByName(QStringLiteral("win-libmpv"));
+
+    QVERIFY(backend != nullptr);
+#if defined(Q_OS_WIN)
+    QCOMPARE(backend->backendName(), QStringLiteral("win-libmpv"));
+#else
+    QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+#endif
+}
+
 void PlayerBackendFactoryTest::createByNameFallsBackForUnknown()
 {
     std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::createByName(QStringLiteral("unknown-backend"));
@@ -94,6 +110,22 @@ void PlayerBackendFactoryTest::envOverrideSelectsLinuxBackendWhenAvailable()
 #if defined(Q_OS_LINUX)
     QVERIFY(backend->backendName() == QStringLiteral("linux-libmpv-opengl")
             || backend->backendName() == QStringLiteral("external-mpv-ipc"));
+#else
+    QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+#endif
+
+    qunsetenv("BLOOM_PLAYER_BACKEND");
+}
+
+void PlayerBackendFactoryTest::envOverrideSelectsWindowsBackendWhenAvailable()
+{
+    qputenv("BLOOM_PLAYER_BACKEND", "win-libmpv");
+
+    std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create();
+
+    QVERIFY(backend != nullptr);
+#if defined(Q_OS_WIN)
+    QCOMPARE(backend->backendName(), QStringLiteral("win-libmpv"));
 #else
     QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
 #endif

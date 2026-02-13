@@ -3,16 +3,22 @@ Playback — mpv & Jellyfin Integration
 Overview
 - Current production path: mpv runs as an external, top-level process (avoid `--wid` embedding or transparent Qt overlays for this path).
 - Linux now defaults to embedded libmpv backend selection (`linux-libmpv-opengl`) with runtime OpenGL gating and automatic fallback to `external-mpv-ipc` when requirements are not met.
-- Non-Linux platforms keep `external-mpv-ipc` as default.
+- Windows now defaults to Milestone C backend scaffold selection (`win-libmpv`) while retaining external mpv playback behavior underneath.
+- Other non-Linux platforms keep `external-mpv-ipc` as default.
 - `external-mpv-ipc` remains fully supported as explicit rollback/override on all platforms via `BLOOM_PLAYER_BACKEND=external-mpv-ipc`.
 
 Backend architecture (Milestone A)
 - Playback now routes through `IPlayerBackend` (`src/player/backend/IPlayerBackend.h`).
 - `PlayerController` depends on the backend interface (not directly on `PlayerProcessManager`).
-- Default backend is platform-aware via `PlayerBackendFactory` (Linux prefers embedded backend when runtime-supported; others default external).
+- Default backend is platform-aware via `PlayerBackendFactory` (Linux prefers embedded backend when runtime-supported; Windows defaults to `win-libmpv`; others default external).
 - Active backend is logged at startup from `ApplicationInitializer`.
 - Optional environment override for backend selection: `BLOOM_PLAYER_BACKEND`.
 - Unknown backend names safely fall back to `external-mpv-ipc`.
+
+Backend architecture (Milestone C kickoff)
+- Added `WindowsLibmpvHwndBackend` scaffold under `src/player/backend/`.
+- Selector token: `win-libmpv`.
+- Current scaffold preserves controller/backend interface parity and delegates playback behavior to the external backend path while Windows HWND target/viewport plumbing is staged.
 
 Backend architecture (Milestone B kickoff)
 - `IPlayerBackend` now includes embedded-video capability hooks:

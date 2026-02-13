@@ -1,6 +1,6 @@
 # Player Backend Refactor Plan (External mpv JSON IPC → Embedded libmpv)
 
-## Implementation status (Milestone A + Milestone B kickoff)
+## Implementation status (Milestone A + Milestone B/C kickoff)
 
 Implemented now:
 - Added backend seam under `src/player/backend/`:
@@ -19,7 +19,8 @@ Implemented now:
 - Updated platform default selection behavior:
    - Linux now defaults to `linux-libmpv-opengl` when runtime requirements are met.
    - Linux auto-falls back to `external-mpv-ipc` when embedded runtime requirements are not met.
-   - Non-Linux platforms continue to default to `external-mpv-ipc`.
+   - Windows now defaults to `win-libmpv`.
+   - Other non-Linux platforms continue to default to `external-mpv-ipc`.
 - Hardened Linux embedded runtime path:
    - safer render/update callback lifecycle,
    - coalesced render update scheduling to avoid callback storms during teardown/re-init,
@@ -41,6 +42,13 @@ Milestone B kickoff implemented now:
    - `VideoSurface.qml`
 - Added minimal `PlayerController` API for embedded target attach/detach, viewport forwarding, and internal/manual shrink mode property.
 - Added Linux-conditional build wiring for new backend sources and optional `libmpv` discovery/linking.
+
+Milestone C kickoff implemented now:
+- Added Windows backend scaffold: `WindowsLibmpvHwndBackend`.
+- Added Windows backend selection path in `PlayerBackendFactory` via selector token `win-libmpv`.
+- Added Windows-conditional build wiring for app/test targets using factory wiring.
+- Preserved fallback behavior: `external-mpv-ipc` remains explicit rollback/override and unknown backend names still fall back safely.
+- Added focused regression coverage for Windows backend selection/wiring behavior in `PlayerBackendFactoryTest`.
 
 Still pending after Milestone B closeout (moved to start of Milestone D):
 - Final Linux target runtime validation for `mpv_render_context` reliability on representative hardware/compositors.
@@ -65,7 +73,7 @@ Core deliverables:
 - ✅ Active backend is logged at startup.
 
 Selection/fallback behavior:
-- ✅ Default backend is platform-aware (`linux-libmpv-opengl` on Linux when supported; `external-mpv-ipc` otherwise).
+- ✅ Default backend is platform-aware (`linux-libmpv-opengl` on Linux when supported; `win-libmpv` on Windows; `external-mpv-ipc` otherwise).
 - ✅ `BLOOM_PLAYER_BACKEND` env override supported.
 - ✅ Unknown backend names fall back safely to external backend with warning log.
 - ⏳ Config-file backend selector key (deferred to later milestone).
@@ -144,9 +152,9 @@ Overall milestone status:
 - ✅ Add focused controller parity regressions for next-up/autoplay context handling.
 - ➡️ Linux target runtime validation items moved to Milestone D kickoff (D0).
 
-### Milestone C — Breakdown (planned)
-- ⬜ Implement `WindowsLibmpvHwndBackend` (container HWND + parenting).
-- ⬜ Implement native event filter + geometry sync/debounce.
+### Milestone C — Breakdown (in progress)
+- ✅ Implement `WindowsLibmpvHwndBackend` scaffold (initial target-handle/viewport plumbing hooks, with playback delegation to external backend path during scaffold phase).
+- ✅ Implement native event filter + geometry sync/debounce (Windows `WM_SIZE`/`WM_MOVE`/`WM_WINDOWPOSCHANGED` hook with debounced sync scheduling in scaffold backend).
 - ⬜ Implement transition flicker mitigation path.
 - ⬜ Add HDR diagnostics and validation path.
 

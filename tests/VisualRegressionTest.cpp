@@ -272,6 +272,8 @@ void VisualRegressionTest::testBackendServiceRegistration()
     QVERIFY2(backend->backendName() == QStringLiteral("linux-libmpv-opengl")
                  || backend->backendName() == QStringLiteral("external-mpv-ipc"),
              "Linux should select embedded backend when supported, otherwise fall back to external backend");
+#elif defined(Q_OS_WIN)
+    QCOMPARE(backend->backendName(), QStringLiteral("win-libmpv"));
 #else
     QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
 #endif

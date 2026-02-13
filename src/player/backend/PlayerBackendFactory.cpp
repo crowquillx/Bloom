@@ -4,6 +4,9 @@
 #if defined(Q_OS_LINUX)
 #include "LinuxMpvBackend.h"
 #endif
+#if defined(Q_OS_WIN)
+#include "WindowsLibmpvHwndBackend.h"
+#endif
 
 #include <QByteArray>
 #include <QLoggingCategory>
@@ -13,9 +16,12 @@ Q_LOGGING_CATEGORY(lcPlayerBackendFactory, "bloom.playback.backend.factory")
 
 static constexpr auto kExternalBackendName = "external-mpv-ipc";
 static constexpr auto kLinuxLibmpvBackendName = "linux-libmpv-opengl";
+static constexpr auto kWinLibmpvBackendName = "win-libmpv";
 
 #if defined(Q_OS_LINUX)
 static constexpr auto kDefaultBackendName = kLinuxLibmpvBackendName;
+#elif defined(Q_OS_WIN)
+static constexpr auto kDefaultBackendName = kWinLibmpvBackendName;
 #else
 static constexpr auto kDefaultBackendName = kExternalBackendName;
 #endif
@@ -44,6 +50,17 @@ std::unique_ptr<IPlayerBackend> PlayerBackendFactory::createByName(const QString
         return std::make_unique<ExternalMpvBackend>(parent);
     }
 #endif
+
+    if (backendName.compare(QString::fromLatin1(kWinLibmpvBackendName), Qt::CaseInsensitive) == 0) {
+#if defined(Q_OS_WIN)
+        return std::make_unique<WindowsLibmpvHwndBackend>(parent);
+#else
+        qCWarning(lcPlayerBackendFactory)
+            << "Windows libmpv backend requested on unsupported platform"
+            << "- falling back to" << kExternalBackendName;
+        return std::make_unique<ExternalMpvBackend>(parent);
+#endif
+    }
 
     if (backendName.compare(QString::fromLatin1(kExternalBackendName), Qt::CaseInsensitive) == 0) {
         return std::make_unique<ExternalMpvBackend>(parent);

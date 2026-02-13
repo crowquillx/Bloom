@@ -157,6 +157,13 @@ if(UNIX AND NOT APPLE)
     endif()
 endif()
 
+if(WIN32)
+    target_sources(Bloom PRIVATE
+        player/backend/WindowsLibmpvHwndBackend.h
+        player/backend/WindowsLibmpvHwndBackend.cpp
+    )
+endif()
+
 target_link_libraries(Bloom
     PRIVATE
     Qt6::Core
