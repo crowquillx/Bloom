@@ -88,7 +88,7 @@ Validation coverage:
 Commands used during current validation:
 - `./scripts/build.ps1`
 - `set BLOOM_PLAYER_BACKEND=external-mpv-ipc` (optional env selection smoke)
-- `build-windows/tests/Release/PlayerBackendFactoryTest.exe`
+- `./scripts/run-windows-tests.ps1 -Config Release -OutputOnFailure -Regex "(PlayerBackendFactoryTest|PlayerControllerAutoplayContextTest)"`
 
 ## Milestone breakdown & status board
 

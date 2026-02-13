@@ -67,3 +67,17 @@ cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="C:\Qt\6.10.0\msvc2019_6
 cmake --build . --config Release
 cmake --install .
 ```
+
+## Running tests on Windows
+
+If Windows tests fail to start with exit code `0xc0000135`, run tests through the helper script so runtime DLL paths are staged before `ctest` executes.
+
+```powershell
+.\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure
+```
+
+To run only the backend migration targeted tests:
+
+```powershell
+.\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure -Regex "(PlayerBackendFactoryTest|PlayerControllerAutoplayContextTest)"
+```

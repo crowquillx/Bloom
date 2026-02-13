@@ -125,6 +125,20 @@ The `build-windows.sh` script cross-compiles for Windows from Linux:
 
 **Next step:** Run `./scripts/package-windows.sh` to bundle Qt DLLs and dependencies.
 
+### Native Windows test execution
+
+After a native Windows build via `./scripts/build.ps1`, run tests through:
+
+```powershell
+.\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure
+```
+
+For targeted backend migration validation:
+
+```powershell
+.\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure -Regex "(PlayerBackendFactoryTest|PlayerControllerAutoplayContextTest)"
+```
+
 ### Windows Installer
 
 The `build-windows-installer.sh` script creates a complete Windows installer:
@@ -205,6 +219,12 @@ wine Bloom-Setup-0.1.0.exe
 **Solution:**
 - For Docker builds: `./scripts/build-docker.sh --clean`
 - For native builds: `rm -rf build && mkdir build && cd build && cmake .. && ninja`
+
+### Windows tests fail with 0xc0000135
+**Symptom:** `ctest` reports `0xc0000135` for tests that do not launch.
+
+**Solution:**
+- Run tests via `./scripts/run-windows-tests.ps1` to prepend deployed runtime directories (`install-windows/bin`, build output paths, and Qt bin when available).
 
 ## Dependencies
 
