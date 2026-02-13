@@ -55,7 +55,6 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     , m_progressReportTimer(new QTimer(this))
     , m_startDelayTimer(new QTimer(this))
 {
-    Q_ASSERT_X(m_playerBackend, "PlayerController", "playerBackend must not be null");
     if (!m_playerBackend) {
         qCWarning(lcPlayback) << "PlayerController initialized without backend; falling back to null backend";
         m_playerBackend = new NullPlayerBackend(this);
