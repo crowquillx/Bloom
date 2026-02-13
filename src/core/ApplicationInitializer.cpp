@@ -4,7 +4,7 @@
 #include "utils/DisplayManager.h"
 #include "ui/ResponsiveLayoutManager.h"
 #include "utils/TrackPreferencesManager.h"
-#include "player/PlayerProcessManager.h"
+#include "player/backend/PlayerBackendFactory.h"
 #include "player/PlayerController.h"
 #include "player/ThemeSongManager.h"
 #include "security/SecretStoreFactory.h"
@@ -125,9 +125,8 @@ void ApplicationInitializer::registerServices()
     m_trackPreferencesManager = std::make_unique<TrackPreferencesManager>();
     ServiceLocator::registerService<TrackPreferencesManager>(m_trackPreferencesManager.get());
     
-    // 2. PlayerProcessManager - No dependencies
-    m_playerProcessManager = std::make_unique<PlayerProcessManager>();
-    ServiceLocator::registerService<PlayerProcessManager>(m_playerProcessManager.get());
+    // 2. Player backend - No dependencies
+    m_playerBackend = PlayerBackendFactory::create();
     
     // Check if we're in test mode
     bool isTestMode = TestModeController::instance()->isTestMode();
@@ -155,7 +154,7 @@ void ApplicationInitializer::registerServices()
         
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(
-            m_playerProcessManager.get(),
+            m_playerBackend.get(),
             m_configManager.get(),
             m_trackPreferencesManager.get(),
             m_displayManager.get(),
@@ -192,7 +191,7 @@ void ApplicationInitializer::registerServices()
         
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(
-            m_playerProcessManager.get(),
+            m_playerBackend.get(),
             m_configManager.get(),
             m_trackPreferencesManager.get(),
             m_displayManager.get(),

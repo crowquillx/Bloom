@@ -44,6 +44,7 @@ If unsure whether a change requires `AGENTS.md` or `docs/` updates, open an issu
 See also:
 - docs/build.md     — Build instructions for Linux, Docker, and Windows
 - docs/playback.md  — mpv and playback/reporting integration
+- docs/player_backend_refactor.md — Embedded libmpv backend migration plan and milestones
 - docs/theme.md     — Theme.qml tokens and design system
 - docs/services.md  — ServiceLocator pattern & initialization order
 - docs/config.md    — ConfigManager Q_PROPERTY and runtime settings

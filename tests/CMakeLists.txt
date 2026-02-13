@@ -122,6 +122,11 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
     ${CMAKE_SOURCE_DIR}/src/player/ThemeSongManager.cpp
     ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.cpp
     # UI sources
     ${CMAKE_SOURCE_DIR}/src/ui/WindowManager.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp

@@ -5,7 +5,7 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QMap>
-#include "PlayerProcessManager.h"
+#include "backend/IPlayerBackend.h"
 #include "TrickplayProcessor.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/TrackPreferencesManager.h"
@@ -88,7 +88,7 @@ public:
     };
     Q_ENUM(Event)
 
-    explicit PlayerController(PlayerProcessManager *processManager, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent = nullptr);
+    explicit PlayerController(IPlayerBackend *playerBackend, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent = nullptr);
     ~PlayerController();
 
     PlaybackState playbackState() const;
@@ -254,7 +254,7 @@ private:
     static QString stateToString(PlaybackState state);
     static QString eventToString(Event event);
 
-    PlayerProcessManager *m_processManager;
+    IPlayerBackend *m_playerBackend;
     ConfigManager *m_config;
     TrackPreferencesManager *m_trackPrefs;
     DisplayManager *m_displayManager;

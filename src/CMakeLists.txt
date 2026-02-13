@@ -15,6 +15,11 @@ qt_add_executable(Bloom
     player/ThemeSongManager.cpp
     player/TrickplayProcessor.cpp
     player/TrickplayProcessor.h
+    player/backend/IPlayerBackend.h
+    player/backend/ExternalMpvBackend.h
+    player/backend/ExternalMpvBackend.cpp
+    player/backend/PlayerBackendFactory.h
+    player/backend/PlayerBackendFactory.cpp
     network/AuthenticationService.h
     network/AuthenticationService.cpp
     network/LibraryService.h
