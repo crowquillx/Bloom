@@ -13,12 +13,12 @@ Implemented now:
 - Added factory/runtime guardrails:
    - `PlayerBackendFactory::createByName(...)`
    - env override support via `BLOOM_PLAYER_BACKEND`
-   - unknown backend names fall back to `external-mpv-ipc` with warning log.
+   - unknown backend names resolve to `external-mpv-ipc` with warning log.
 - Added regression tests for backend factory behavior in `tests/PlayerBackendFactoryTest.cpp`.
 - Added integration-level assertion in `tests/VisualRegressionTest.cpp` that `ApplicationInitializer` registers `IPlayerBackend` in `ServiceLocator`.
 - Updated platform default selection behavior:
    - Linux now defaults to `linux-libmpv-opengl` when runtime requirements are met.
-   - Linux auto-falls back to `external-mpv-ipc` when embedded runtime requirements are not met.
+   - Linux auto-selects `external-mpv-ipc` when embedded runtime requirements are not met.
    - Windows now defaults to `win-libmpv`.
    - Other non-Linux platforms continue to default to `external-mpv-ipc`.
 - Hardened Linux embedded runtime path:
@@ -36,7 +36,7 @@ Not yet implemented in Milestone A:
 Milestone B kickoff implemented now:
 - Extended `IPlayerBackend` with embedded video hooks (`supportsEmbeddedVideo`, target attach/detach, viewport updates).
 - Added Linux backend implementation entry point: `LinuxMpvBackend`.
-- Added Linux backend selection path in `PlayerBackendFactory` (`linux-libmpv-opengl`) with OpenGL runtime guard + fallback.
+- Added Linux backend selection path in `PlayerBackendFactory` (`linux-libmpv-opengl`) with OpenGL runtime guard + external backend selection when requirements are missing.
 - Added Qt Quick surface primitives:
    - `MpvVideoItem` (QML-exposed C++ item)
    - `VideoSurface.qml`
@@ -47,7 +47,7 @@ Milestone C kickoff implemented now:
 - Added Windows backend scaffold: `WindowsMpvBackend`.
 - Added Windows backend selection path in `PlayerBackendFactory` via selector token `win-libmpv`.
 - Added Windows-conditional build wiring for app/test targets using factory wiring.
-- Preserved fallback behavior: `external-mpv-ipc` remains explicit rollback/override and unknown backend names still fall back safely.
+- Preserved explicit backend selection behavior: `external-mpv-ipc` remains selectable via override, and unknown backend names resolve safely.
 - Added focused regression coverage for Windows backend selection/wiring behavior in `PlayerBackendFactoryTest`.
 - Added transparent QML overlay-window path for embedded playback controls on Windows so controls render above video without resizing or clipping the video viewport.
 
@@ -73,15 +73,15 @@ Core deliverables:
 - ✅ `IPlayerBackend` is registered in `ServiceLocator` during startup.
 - ✅ Active backend is logged at startup.
 
-Selection/fallback behavior:
+Selection behavior:
 - ✅ Default backend is platform-aware (`linux-libmpv-opengl` on Linux when supported; `win-libmpv` on Windows; `external-mpv-ipc` otherwise).
 - ✅ `BLOOM_PLAYER_BACKEND` env override supported.
-- ✅ Unknown backend names fall back safely to external backend with warning log.
+- ✅ Unknown backend names resolve safely to external backend with warning log.
 - ⏳ Config-file backend selector key (deferred to later milestone).
 
 Validation coverage:
 - ✅ Build passes via project build script.
-- ✅ `PlayerBackendFactoryTest` validates default selection, explicit selection, initial stopped state, and unknown-name fallback.
+- ✅ `PlayerBackendFactoryTest` validates default selection, explicit selection, initial stopped state, and unknown-name external selection.
 - ✅ `VisualRegressionTest` asserts backend service registration in startup wiring.
 - ✅ `PlayerBackendFactoryTest` coverage now includes Linux backend-name selection behavior.
 - ⏳ Linux embedded backend runtime validation pending on Linux target environment.
@@ -100,7 +100,7 @@ Status legend:
 - ⚠️ blocked / decision needed
 
 Overall milestone status:
-- **Milestone A — Backend abstraction + external fallback:** ✅ done
+- **Milestone A — Backend abstraction + external backend support:** ✅ done
 - **Milestone B — Embedded integration + parity hardening (non-Linux runtime validation):** ✅ done
 - **Milestone C — Windows embedded backend:** 🟨 in progress
 - **Milestone D — Linux runtime validation kickoff + soft deprecation/default switch:** 🟨 partially landed (Linux default switch completed; Linux runtime validation + deprecation policy pending)
@@ -111,7 +111,7 @@ Overall milestone status:
 - ✅ Factory (`PlayerBackendFactory`) implemented.
 - ✅ `PlayerController` refactored to backend interface.
 - ✅ Startup wiring updated (`ApplicationInitializer` + `ServiceLocator`).
-- ✅ Logging + fallback behavior added.
+- ✅ Logging + backend-selection behavior added.
 - ✅ Regression tests added and passing.
 
 ### Milestone B — Breakdown (closed)
@@ -124,7 +124,7 @@ Overall milestone status:
 
 #### B2. Controller/factory wiring
 - ✅ Extend `PlayerBackendFactory` to instantiate Linux backend by name.
-- ✅ Platform-aware default selection implemented (Linux embedded default with external fallback; non-Linux external default).
+- ✅ Platform-aware default selection implemented (Linux embedded default with external backend selection when unsupported; non-Linux external default).
 - ✅ Ensure `PlayerController` behavior/signals remain unchanged across backend swap. (event/property parity improvements landed; runtime verification on Linux targets moved to D0)
 
 #### B3. QML surface integration
@@ -149,7 +149,7 @@ Overall milestone status:
 - ✅ Document Linux dependency/link requirements in docs (build/runtime details tracked in playback/build documentation).
 
 #### B7. Validation & exit criteria
-- ✅ Validate regressions do not appear on external fallback path.
+- ✅ Validate regressions do not appear on external backend path.
 - ✅ Add focused controller parity regressions for next-up/autoplay context handling.
 - ➡️ Linux target runtime validation items moved to Milestone D kickoff (D0).
 
@@ -160,20 +160,57 @@ Overall milestone status:
 - ✅ Add initial HDR diagnostics and validation path (startup logging of HDR-relevant mpv option set and output-path hints in Windows backend scaffold).
 - ✅ Expose native target handle to backend via `MpvVideoItem.winId` property to keep embedding hookup backend-agnostic from QML.
 - ✅ Replace Windows IPC-delegated control/event path with a direct libmpv backend path when available (`mpv_create`/`mpv_initialize`, `mpv_command_node_async`, `mpv_observe_property`, `mpv_wait_event`) while preserving `PlayerController` signal/property contract.
-- ✅ Keep rollback behavior in migration path: `win-libmpv` now auto-falls back to external process + IPC if direct libmpv init/load fails, and explicit `external-mpv-ipc` selection remains unchanged.
+- ✅ Keep direct-only behavior in migration path: `win-libmpv` now reports initialization/load failure, and explicit `external-mpv-ipc` selection remains available via backend override.
 - ✅ Implement playback control routing in the same migration slice for direct Windows path (play/pause/resume/seek/stop + audio/subtitle command/property handling).
 - ✅ Add Windows embedded overlay rendering foundation by introducing a dedicated embedded host window synced to viewport geometry plus a reusable backend-agnostic overlay host (`EmbeddedPlaybackOverlay.qml`) above `VideoSurface`.
 - ✅ Harden direct libmpv event parity by mapping lifecycle events (`START_FILE`/`FILE_LOADED`/`PLAYBACK_RESTART`/`IDLE`/`END_FILE`) to backend running-state transitions and forwarding `COMMAND_REPLY`/end-file errors via backend error signals.
 - ✅ Add embedded playback control bindings in the same slice: backend-agnostic overlay control bar wiring (`play/pause`, `seek ±10s`, `stop`) plus global keyboard shortcuts active during playback (`Space/K`, `Left/Right`, `J/L`, `S`).
 - ✅ Ensure overlay visibility on Windows embedded playback with a transparent QML overlay window above video (no viewport reserve band, no clip, no video reposition); add dedicated `Esc` → stop playback behavior.
+- ✅ Validate Windows-side non-runtime regressions with focused tests (`PlayerBackendFactoryTest`, `PlayerControllerAutoplayContextTest`, `VisualRegressionTest`) on current Windows build artifacts.
 - ⏳ Validate direct-libmpv path on representative Windows runtime packaging where libmpv is present in production deployment.
 
 Milestone C/D Plezy parity checklist (review gate)
 - [ ] Control-path parity checked against Plezy patterns (async command dispatch + observed-property/event forwarding model).
 - [ ] Window-transition behavior parity checked against Plezy-style handling for move/resize/minimize/maximize/fullscreen.
-- [ ] Bloom-specific adaptation verified (Qt/C++ backend seam preserved; no Flutter/plugin coupling introduced).
-- [ ] Explicit rollback (`external-mpv-ipc`) still functional after any direct-libmpv migration step.
+- [x] Bloom-specific adaptation verified (Qt/C++ backend seam preserved; no Flutter/plugin coupling introduced).
+- [x] Direct-only failure behavior validated for `win-libmpv` at code/test level (no implicit alternate backend path).
 - [ ] Playback controls parity verified as part of command-path migration (no temporary duplicate control implementations).
+
+Milestone C Windows manual validation script (runtime)
+- Preconditions:
+   - Build: `./scripts/build.ps1 -Config Release` completes.
+   - App launch uses packaged runtime: `./install-windows/bin/Bloom.exe`.
+   - `libmpv-2.dll` is present in the runtime search path.
+- Startup checks:
+   - Start playback for a known-good item.
+   - Confirm log contains `Using direct libmpv control path`.
+   - Confirm log does **not** contain `Direct libmpv unavailable; embedded-first mode requires direct libmpv and disables external IPC.`
+- Controls/overlay checks (Plezy parity intent: controls over video, no layout disruption):
+   - Move mouse during playback: controls appear over video.
+   - Wait auto-hide timeout: controls disappear without shifting or clipping video.
+   - Pause: controls remain visible; resume: controls can auto-hide again.
+   - Keyboard: `Space/K` toggle pause, `Left/Right` and `J/L` seek, `S` and `Esc` stop.
+- Window-transition checks (Plezy parity intent: stable embedding through transitions):
+   - Resize window repeatedly while playing.
+   - Minimize and restore during playback.
+   - Maximize, restore, and toggle fullscreen (`F11` / `Alt+Enter`).
+   - Move window across monitors (if available) and repeat fullscreen toggle.
+   - Expected: no white/black stuck frames, no persistent misalignment, no controls/video desync.
+- Command/event parity checks:
+   - Perform rapid pause/seek/seek/seek sequences.
+   - Confirm playback state, position updates, and end-of-file behavior remain correct.
+   - Expected: no repeated command failure warnings, no stuck paused/running state.
+- Track/reporting checks:
+   - Change audio/subtitle tracks during playback.
+   - Stop and resume item; verify expected track state/position behavior.
+   - Verify Jellyfin session updates continue (start/progress/stop) without regression.
+- Exit criteria for closing remaining Milestone C items:
+   - All checks above pass on representative Windows runtime packaging.
+   - Then mark complete:
+      - `Control-path parity checked against Plezy patterns...`
+      - `Window-transition behavior parity checked against Plezy-style handling...`
+      - `Playback controls parity verified as part of command-path migration...`
+      - `Validate direct-libmpv path on representative Windows runtime packaging where libmpv is present in production deployment.`
 
 ### Milestone D — Breakdown (kickoff + planned)
 #### D0. Linux runtime validation closeout (moved from Milestone B)
@@ -182,7 +219,7 @@ Milestone C/D Plezy parity checklist (review gate)
 - ⏳ Validate no CPU readback path is used.
 - ⏳ Validate Linux runtime parity (controls/reporting/stability) on representative compositor/hardware matrix.
 
-- ⬜ Add config rollback toggle to keep `ExternalMpvBackend` available.
+- ⬜ Add config toggle to keep `ExternalMpvBackend` available as an explicit backend selection.
 - ⬜ Enable embedded path by default only when parity criteria are met.
 - ⬜ Mark legacy external path deprecated (not removed).
 
@@ -196,9 +233,9 @@ Milestone C/D Plezy parity checklist (review gate)
 
 ### Locked decisions
 - Windows primary implementation: **HWND embedding strategy** (Plezy-style).
-- Windows contingency notes: render-API fallback may be documented, not primary.
+- Windows contingency notes: render-API alternatives may be documented, not primary.
 - Linux primary implementation: **libmpv render API + OpenGL** into Qt Quick item.
-- Keep `ExternalMpvBackend` as rollback path, **disabled by default** via `ExternalMpvBackend` config flag, and only enabled when explicitly opted in with the `EXTERNAL_MPV_BACKEND` env var or corresponding config flag override.
+- Keep `ExternalMpvBackend` available only as an explicit backend selection (`BLOOM_PLAYER_BACKEND=external-mpv-ipc`) when needed.
 - No requirement to preserve current Lua script UX; architecture must support future native controls/trickplay.
 
 ---
@@ -307,7 +344,7 @@ Notes:
 
 ## 6) Milestones and exit criteria
 
-## Milestone A — Backend abstraction + external fallback
+## Milestone A — Backend abstraction + external backend support
 
 Deliverables:
 - `IPlayerBackend` introduced.
@@ -316,7 +353,7 @@ Deliverables:
 - Existing settings/profile UI remains functional.
 
 Exit criteria:
-- No behavior regressions on fallback path.
+- No behavior regressions on external backend path.
 - App remains buildable.
 
 ## Milestone B — Linux embedded backend
@@ -349,11 +386,11 @@ Exit criteria:
 ## Milestone D — Soft deprecation (optional)
 
 Deliverables:
-- Keep `ExternalMpvBackend` behind config rollback toggle.
+- Keep `ExternalMpvBackend` available via explicit backend selection for controlled use.
 - Default embedded backend path enabled when parity is met.
 
 Exit criteria:
-- Clear rollback/disable switch documented.
+- Clear backend-selection guidance documented.
 - Legacy path marked deprecated (not removed until agreed).
 
 ---

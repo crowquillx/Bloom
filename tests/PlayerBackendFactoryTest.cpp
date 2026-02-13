@@ -15,11 +15,11 @@ private slots:
     void createByNameSupportsExternal();
     void createByNameLinuxSelectionBehavior();
     void createByNameWindowsSelectionBehavior();
-    void createByNameFallsBackForUnknown();
+    void createByNameResolvesUnknownToExternal();
     void envOverrideSelectsExternalBackend();
     void envOverrideSelectsLinuxBackendWhenAvailable();
     void envOverrideSelectsWindowsBackendWhenAvailable();
-    void envOverrideUnknownFallsBackToExternal();
+    void envOverrideUnknownResolvesToExternal();
 };
 
 void PlayerBackendFactoryTest::createsPlatformDefaultBackend()
@@ -80,7 +80,7 @@ void PlayerBackendFactoryTest::createByNameWindowsSelectionBehavior()
 #endif
 }
 
-void PlayerBackendFactoryTest::createByNameFallsBackForUnknown()
+void PlayerBackendFactoryTest::createByNameResolvesUnknownToExternal()
 {
     std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::createByName(QStringLiteral("unknown-backend"));
 
@@ -133,7 +133,7 @@ void PlayerBackendFactoryTest::envOverrideSelectsWindowsBackendWhenAvailable()
     qunsetenv("BLOOM_PLAYER_BACKEND");
 }
 
-void PlayerBackendFactoryTest::envOverrideUnknownFallsBackToExternal()
+void PlayerBackendFactoryTest::envOverrideUnknownResolvesToExternal()
 {
     qputenv("BLOOM_PLAYER_BACKEND", "unknown-backend");
 

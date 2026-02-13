@@ -11,7 +11,6 @@
 
 #include <memory>
 
-class ExternalMpvBackend;
 class QEvent;
 
 class WindowsMpvBackend : public IPlayerBackend
@@ -65,7 +64,6 @@ private:
 
     class WindowsNativeGeometryFilter;
 
-    std::unique_ptr<ExternalMpvBackend> m_fallbackBackend;
     QPointer<QObject> m_videoTarget;
     QRectF m_lastViewport;
     quintptr m_containerWinId = 0;

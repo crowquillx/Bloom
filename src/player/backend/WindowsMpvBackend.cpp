@@ -1,7 +1,5 @@
 #include "WindowsMpvBackend.h"
 
-#include "ExternalMpvBackend.h"
-
 #include <QAbstractNativeEventFilter>
 #include <QCoreApplication>
 #include <QEvent>
@@ -84,29 +82,7 @@ private:
 
 WindowsMpvBackend::WindowsMpvBackend(QObject *parent)
     : IPlayerBackend(parent)
-    , m_fallbackBackend(std::make_unique<ExternalMpvBackend>())
 {
-    connect(m_fallbackBackend.get(), &ExternalMpvBackend::stateChanged,
-            this, &WindowsMpvBackend::stateChanged);
-    connect(m_fallbackBackend.get(), &ExternalMpvBackend::errorOccurred,
-            this, &WindowsMpvBackend::errorOccurred);
-    connect(m_fallbackBackend.get(), &ExternalMpvBackend::positionChanged,
-            this, &WindowsMpvBackend::positionChanged);
-    connect(m_fallbackBackend.get(), &ExternalMpvBackend::durationChanged,
-            this, &WindowsMpvBackend::durationChanged);
-    connect(m_fallbackBackend.get(), &ExternalMpvBackend::pauseChanged,
-            this, &WindowsMpvBackend::pauseChanged);
-    connect(m_fallbackBackend.get(), &ExternalMpvBackend::pausedForCacheChanged,
-            this, &WindowsMpvBackend::pausedForCacheChanged);
-    connect(m_fallbackBackend.get(), &ExternalMpvBackend::playbackEnded,
-            this, &WindowsMpvBackend::playbackEnded);
-    connect(m_fallbackBackend.get(), &ExternalMpvBackend::audioTrackChanged,
-            this, &WindowsMpvBackend::audioTrackChanged);
-    connect(m_fallbackBackend.get(), &ExternalMpvBackend::subtitleTrackChanged,
-            this, &WindowsMpvBackend::subtitleTrackChanged);
-    connect(m_fallbackBackend.get(), &ExternalMpvBackend::scriptMessage,
-            this, &WindowsMpvBackend::scriptMessage);
-
 #if defined(Q_OS_WIN)
     m_geometrySyncTimer.setSingleShot(true);
     m_geometrySyncTimer.setInterval(16);
@@ -184,7 +160,7 @@ void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args,
         return;
     }
 
-    const QString message = QStringLiteral("Direct libmpv unavailable; embedded-first mode does not allow external IPC fallback.");
+    const QString message = QStringLiteral("Direct libmpv unavailable; embedded-first mode requires direct libmpv and disables external IPC.");
     qCWarning(lcWindowsLibmpvBackend) << message;
     emit errorOccurred(message);
     setDirectRunning(false);
@@ -534,12 +510,12 @@ bool WindowsMpvBackend::tryStartDirectMpv(const QStringList &args, const QString
     teardownMpv();
 
     if (!initializeMpv(args)) {
-        qCWarning(lcWindowsLibmpvBackend) << "Direct libmpv initialize failed; fallback backend will be used";
+        qCWarning(lcWindowsLibmpvBackend) << "Direct libmpv initialize failed";
         return false;
     }
 
     if (!queueLoadFile(mediaUrl)) {
-        qCWarning(lcWindowsLibmpvBackend) << "Direct libmpv loadfile failed; fallback backend will be used";
+        qCWarning(lcWindowsLibmpvBackend) << "Direct libmpv loadfile failed";
         teardownMpv();
         return false;
     }

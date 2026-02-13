@@ -2,10 +2,10 @@ Playback — mpv & Jellyfin Integration
 
 Overview
 - Current production path: mpv runs as an external, top-level process (avoid `--wid` embedding or transparent Qt overlays for this path).
-- Linux now defaults to embedded libmpv backend selection (`linux-libmpv-opengl`) with runtime OpenGL gating and automatic fallback to `external-mpv-ipc` when requirements are not met.
+- Linux now defaults to embedded libmpv backend selection (`linux-libmpv-opengl`) with runtime OpenGL gating and automatic selection of `external-mpv-ipc` when requirements are not met.
 - Windows now defaults to `win-libmpv`, which launches mpv with HWND embedding (`--wid`) against the attached `VideoSurface` target while preserving the external backend process path.
 - Other non-Linux platforms keep `external-mpv-ipc` as default.
-- `external-mpv-ipc` remains fully supported as explicit rollback/override on all platforms via `BLOOM_PLAYER_BACKEND=external-mpv-ipc`.
+- `external-mpv-ipc` remains fully supported as an explicit backend override on all platforms via `BLOOM_PLAYER_BACKEND=external-mpv-ipc`.
 
 Backend architecture (Milestone A)
 - Playback now routes through `IPlayerBackend` (`src/player/backend/IPlayerBackend.h`).
@@ -13,14 +13,14 @@ Backend architecture (Milestone A)
 - Default backend is platform-aware via `PlayerBackendFactory` (Linux prefers embedded backend when runtime-supported; Windows defaults to `win-libmpv`; others default external).
 - Active backend is logged at startup from `ApplicationInitializer`.
 - Optional environment override for backend selection: `BLOOM_PLAYER_BACKEND`.
-- Unknown backend names safely fall back to `external-mpv-ipc`.
+- Unknown backend names safely resolve to `external-mpv-ipc`.
 
 Backend architecture (Milestone C kickoff)
 - Added `WindowsMpvBackend` scaffold under `src/player/backend/`.
 - Selector token: `win-libmpv`.
 - Windows backend now resolves target `winId` from `MpvVideoItem`, creates a dedicated child host window, and keeps host geometry synced to `VideoSurface` viewport updates for embedded playback.
 - Windows backend now attempts a direct libmpv control path first (`mpv_create`/`mpv_initialize`/`mpv_command_node_async`/`mpv_observe_property`/`mpv_wait_event`) while preserving the `PlayerController` contract.
-- If direct libmpv initialization/load fails (or libmpv is unavailable at build time), `win-libmpv` reports an error; rollback is explicit via backend selection override (`external-mpv-ipc`).
+- If direct libmpv initialization/load fails (or libmpv is unavailable at build time), `win-libmpv` reports an error; no implicit alternate backend is used.
 - Playback controls are now exercised through the direct Windows backend command path in the same migration slice: play/pause/resume/seek/stop plus audio/subtitle property commands.
 - Added `EmbeddedPlaybackOverlay.qml` as a backend-agnostic overlay host/state layer used by a transparent overlay window on Windows, intended for cross-platform overlay reuse.
 
@@ -40,7 +40,7 @@ Plezy parity checklist for Milestone C/D changes
 - [ ] Verify control-path parity decisions (direct libmpv command/property/event model) against Plezy architecture.
 - [ ] Verify window lifecycle/transition behavior parity goals for resize/move/minimize/maximize/fullscreen.
 - [ ] Verify Qt/C++ adaptation boundaries are preserved (no Flutter/plugin-specific coupling).
-- [ ] Verify `external-mpv-ipc` override path remains working as rollback after each migration slice.
+- [ ] Verify direct-only `win-libmpv` behavior remains intentional (no implicit alternate backend path).
 - [ ] Verify playback controls parity is completed during command-path migration (avoid temporary duplicate control implementations).
 
 Backend architecture (Milestone B kickoff)
