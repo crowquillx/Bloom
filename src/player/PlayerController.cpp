@@ -360,11 +360,14 @@ void PlayerController::onEnterIdleState()
     m_subtitleTrackMap.clear();
     m_mediaSourceId.clear();
     m_playSessionId.clear();
+    m_availableAudioTracks.clear();
+    m_availableSubtitleTracks.clear();
     m_applyingInitialTracks = false;
     emit selectedAudioTrackChanged();
     emit selectedSubtitleTrackChanged();
     emit mediaSourceIdChanged();
     emit playSessionIdChanged();
+    emit availableTracksChanged();
     
     // Clear OSC/trickplay state
     m_currentSegments.clear();
@@ -1015,6 +1018,8 @@ void PlayerController::setSelectedAudioTrack(int index)
         if (!m_currentSeasonId.isEmpty()) {
             m_seasonTrackPreferences[m_currentSeasonId].first = index;
             m_trackPrefs->setAudioTrack(m_currentSeasonId, index);
+        } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
+            m_trackPrefs->setMovieAudioTrack(m_currentItemId, index);
         }
         
         emit selectedAudioTrackChanged();
@@ -1054,6 +1059,8 @@ void PlayerController::setSelectedSubtitleTrack(int index)
         if (!m_currentSeasonId.isEmpty()) {
             m_seasonTrackPreferences[m_currentSeasonId].second = index;
             m_trackPrefs->setSubtitleTrack(m_currentSeasonId, index);
+        } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
+            m_trackPrefs->setMovieSubtitleTrack(m_currentItemId, index);
         }
         
         emit selectedSubtitleTrackChanged();
@@ -1162,6 +1169,8 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
                                           int mpvAudioTrack, int mpvSubtitleTrack,
                                           const QVariantList &audioTrackMap,
                                           const QVariantList &subtitleTrackMap,
+                                          const QVariantList &availableAudioTracks,
+                                          const QVariantList &availableSubtitleTracks,
                                           double framerate, bool isHDR)
 {
     qDebug() << "PlayerController: playUrlWithTracks called with itemId:" << itemId 
@@ -1180,6 +1189,8 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
     // mpv track numbers for mpv commands
     m_mpvAudioTrack = mpvAudioTrack;
     m_mpvSubtitleTrack = mpvSubtitleTrack;
+    m_availableAudioTracks = availableAudioTracks;
+    m_availableSubtitleTracks = availableSubtitleTracks;
     updateTrackMappings(audioTrackMap, subtitleTrackMap);
     
     qCDebug(lcPlayback) << "Track mapping contract initialized:"
@@ -1194,6 +1205,7 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
     emit playSessionIdChanged();
     emit selectedAudioTrackChanged();
     emit selectedSubtitleTrackChanged();
+    emit availableTracksChanged();
     
     // Call base playUrl which handles the rest
     playUrl(url, itemId, startPositionTicks, seriesId, seasonId, libraryId, framerate, isHDR);
@@ -1237,11 +1249,11 @@ int PlayerController::mpvAudioTrackForJellyfinIndex(int jellyfinStreamIndex) con
         return m_audioTrackMap.value(jellyfinStreamIndex);
     }
 
-    // Backward-compatible fallback for call paths that do not pass a map yet.
+    // Compatibility fallback only for the startup-selected track carried by playUrlWithTracks.
     if (m_selectedAudioTrack == jellyfinStreamIndex && m_mpvAudioTrack > 0) {
         return m_mpvAudioTrack;
     }
-    return jellyfinStreamIndex + 1;
+    return -1;
 }
 
 int PlayerController::mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) const
@@ -1253,11 +1265,11 @@ int PlayerController::mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) 
         return m_subtitleTrackMap.value(jellyfinStreamIndex);
     }
 
-    // Backward-compatible fallback for call paths that do not pass a map yet.
+    // Compatibility fallback only for the startup-selected track carried by playUrlWithTracks.
     if (m_selectedSubtitleTrack == jellyfinStreamIndex && m_mpvSubtitleTrack > 0) {
         return m_mpvSubtitleTrack;
     }
-    return jellyfinStreamIndex + 1;
+    return -1;
 }
 
 // === PRIVATE HELPERS ===

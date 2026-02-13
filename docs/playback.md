@@ -81,6 +81,7 @@ Audio/Subtitle Track Selection
   - UI and reporting state use Jellyfin `MediaStream.index`.
   - Runtime mpv switching uses mapped mpv track IDs (1-based per media type order).
   - Subtitle `None` is Jellyfin `-1` and is applied as `sid=no`.
+  - Startup applies resolved mapped selection deterministically; URL stream indices are treated as request hints/fallback.
 - Track selections are persisted per-season for TV shows and per-movie for films (see Track Preference Persistence below).
 - All playback reporting methods include `mediaSourceId`, `audioStreamIndex`, `subtitleStreamIndex`, and `playSessionId` for proper server sync.
 
@@ -130,6 +131,7 @@ UI Components for Track Selection
 - `TrackSelector.qml`: Reusable dropdown component for selecting audio/subtitle tracks with keyboard navigation.
 - `MediaInfoPanel.qml`: Displays video info (resolution, codec, HDR) and contains audio/subtitle `TrackSelector` components.
 - `SeriesSeasonEpisodeView.qml` and `MovieDetailsView.qml`: Integrate `MediaInfoPanel` to show track selection before playback.
+- `EmbeddedPlaybackOverlay.qml`: Shows in-playback audio/subtitle selectors (including `None`) and routes selection changes through `PlayerController` runtime track setters.
 
 Playback Reporting
 - Report sequence: Start -> Periodic Progress -> Pause/Resume -> Stop.

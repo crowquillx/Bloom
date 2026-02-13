@@ -329,7 +329,7 @@ FocusScope {
             initialSeasonIndex: root._lastSelectedSeasonIndex
             initialEpisodeId: root.initialEpisodeId
             
-            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap, framerate, isHDR) {
+            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
                 // Use Jellyfin indices for the URL (server needs these for stream selection)
                 var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
                 // Pass mpv track numbers to PlayerController for mpv commands
@@ -337,6 +337,7 @@ FocusScope {
                                                     root.currentSeriesId, SeriesDetailsViewModel.selectedSeasonId, root.currentLibraryId,
                                                     mediaSourceId, playSessionId, audioIndex, subtitleIndex, 
                                                     mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap,
+                                                    availableAudioTracks, availableSubtitleTracks,
                                                     framerate || 0.0, isHDR || false)
             }
             
@@ -358,7 +359,7 @@ FocusScope {
                 PlayerController.playUrl(streamUrl, itemId, startPositionTicks || 0, "", "", root.currentLibraryId, framerate || 0.0, isHDR || false)
             }
             
-            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap, framerate, isHDR) {
+            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
                 // Use Jellyfin indices for the URL (server needs these for stream selection)
                 var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
                 // Pass mpv track numbers to PlayerController for mpv commands
@@ -367,6 +368,7 @@ FocusScope {
                                                     "", "", root.currentLibraryId,
                                                     mediaSourceId, playSessionId, audioIndex, subtitleIndex, 
                                                     mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap,
+                                                    availableAudioTracks, availableSubtitleTracks,
                                                     framerate || 0.0, isHDR || false)
             }
             

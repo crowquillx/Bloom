@@ -24,6 +24,7 @@ FocusScope {
                                     string playSessionId, int audioIndex, int subtitleIndex,
                                     int mpvAudioTrack, int mpvSubtitleTrack,
                                     var audioTrackMap, var subtitleTrackMap,
+                                    var availableAudioTracks, var availableSubtitleTracks,
                                     double framerate, bool isHDR)
     
     Connections {
@@ -483,6 +484,25 @@ FocusScope {
         }
         return -1
     }
+
+    function buildTrackOptions(streams) {
+        var tracks = []
+        for (var i = 0; i < streams.length; i++) {
+            var stream = streams[i]
+            tracks.push({
+                index: stream.index,
+                displayTitle: TrackUtils.formatTrackName(stream),
+                language: stream.language,
+                codec: stream.codec,
+                channels: stream.channels,
+                channelLayout: stream.channelLayout,
+                isDefault: stream.isDefault,
+                isForced: stream.isForced,
+                isHearingImpaired: stream.isHearingImpaired
+            })
+        }
+        return tracks
+    }
     
     function getVideoFramerate() {
         if (!currentMediaSource || !currentMediaSource.mediaStreams) return 0.0
@@ -587,6 +607,8 @@ FocusScope {
             var subtitleTrackMap = buildTrackMap("Subtitle", mediaSource)
             var mpvAudio = resolveMpvTrackId(selectedAudioIndex, audioTrackMap)
             var mpvSubtitle = resolveMpvTrackId(selectedSubtitleIndex, subtitleTrackMap)
+            var availableAudioTracks = buildTrackOptions(getAudioStreams())
+            var availableSubtitleTracks = buildTrackOptions(getSubtitleStreams())
             
             console.log("[SeriesSeasonEpisodeView] Playback with tracks - mediaSourceId:", mediaSourceId,
                         "playSessionId:", playSessionId, "startPos:", startPos,
@@ -597,6 +619,7 @@ FocusScope {
                                          selectedAudioIndex, selectedSubtitleIndex,
                                          mpvAudio, mpvSubtitle,
                                          audioTrackMap, subtitleTrackMap,
+                                         availableAudioTracks, availableSubtitleTracks,
                                          framerate, isHDR)
             
             // Save track preferences

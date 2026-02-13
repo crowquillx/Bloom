@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Effects
 
 import BloomUI
+import "TrackUtils.js" as TrackUtils
 
 FocusScope {
     id: root
@@ -63,6 +64,7 @@ FocusScope {
                                     string playSessionId, int audioIndex, int subtitleIndex,
                                     int mpvAudioTrack, int mpvSubtitleTrack,
                                     var audioTrackMap, var subtitleTrackMap,
+                                    var availableAudioTracks, var availableSubtitleTracks,
                                     double framerate, bool isHDR)
     signal backRequested()
     
@@ -119,6 +121,28 @@ FocusScope {
         }
         return -1
     }
+
+    function buildTrackOptions(streamType) {
+        var tracks = []
+        if (!currentMediaSource || !currentMediaSource.mediaStreams) return tracks
+
+        for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
+            var stream = currentMediaSource.mediaStreams[i]
+            if (stream.type !== streamType) continue
+            tracks.push({
+                index: stream.index,
+                displayTitle: TrackUtils.formatTrackName(stream),
+                language: stream.language,
+                codec: stream.codec,
+                channels: stream.channels,
+                channelLayout: stream.channelLayout,
+                isDefault: stream.isDefault,
+                isForced: stream.isForced,
+                isHearingImpaired: stream.isHearingImpaired
+            })
+        }
+        return tracks
+    }
     
     // Function to start playback with current track selections
     function startPlaybackWithTracks() {
@@ -131,6 +155,8 @@ FocusScope {
             var subtitleTrackMap = buildTrackMap("Subtitle")
             var mpvAudioTrack = resolveMpvTrackId(selectedAudioIndex, audioTrackMap)
             var mpvSubTrack = resolveMpvTrackId(selectedSubtitleIndex, subtitleTrackMap)
+            var availableAudioTracks = buildTrackOptions("Audio")
+            var availableSubtitleTracks = buildTrackOptions("Subtitle")
             
             console.log("[MovieDetailsView] Track mapping - Audio: Jellyfin", selectedAudioIndex, "-> mpv", mpvAudioTrack,
                         "Subtitle: Jellyfin", selectedSubtitleIndex, "-> mpv", mpvSubTrack)
@@ -146,6 +172,8 @@ FocusScope {
                 mpvSubTrack,            // mpv track number for mpv commands
                 audioTrackMap,
                 subtitleTrackMap,
+                availableAudioTracks,
+                availableSubtitleTracks,
                 framerate,
                 hdr
             )

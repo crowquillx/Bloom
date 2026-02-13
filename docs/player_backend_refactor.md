@@ -413,16 +413,18 @@ Progress update (Milestone D implementation):
   - Runtime mpv commands use explicit mapped mpv track IDs (`aid`/`sid`, 1-based per media-type order), passed from QML as mapping tables.
   - Subtitle `None` is represented as Jellyfin `-1` and always applied as mpv `sid=no`.
 - Startup precedence rules implemented:
-  - If URL pins `AudioStreamIndex` / `SubtitleStreamIndex` and selected Jellyfin index matches pinned value, URL pin is kept (no override).
-  - If selected Jellyfin value differs from pinned URL value (or subtitle is explicitly `None`), mapped mpv override is applied.
-  - If URL is not pinned, selected tracks are applied from the canonical map.
+  - Selected Jellyfin track values are resolved through the canonical map and applied explicitly as startup `aid`/`sid` when available.
+  - URL `AudioStreamIndex` / `SubtitleStreamIndex` pins are treated as request hints/fallback, not authoritative runtime selection.
+  - Subtitle `None` (`-1`) always applies startup `sid=no`.
 - Direct `win-libmpv` command-shape parity hardened:
   - `WindowsMpvBackend` now handles `set_property` through libmpv property APIs (`mpv_set_property*`) for direct path parity.
   - Fixed direct-path regression where `set_property sid no` returned `invalid parameter`, which prevented reliable subtitle-off behavior.
 - Focused regression coverage added:
   - `PlayerControllerAutoplayContextTest` now includes startup mapping, pinned-URL precedence, runtime mapped switching, and subtitle-None assertions.
+  - Runtime mapped-switch test now also asserts season preference persistence on in-playback changes.
 - Runtime validation update:
   - Manual Windows direct-path validation confirmed subtitle `None` and track switching apply after the direct `set_property` fix.
+  - In-playback track controls are now exposed in `EmbeddedPlaybackOverlay.qml` via separate audio/subtitle selectors (including `None`) that call `PlayerController` runtime selection methods.
 
 Dated validation note (February 13, 2026):
 - Runtime log review + manual verification on Windows direct `win-libmpv` confirmed:
@@ -433,7 +435,7 @@ Dated validation note (February 13, 2026):
 Manual runtime validation checklist (Windows direct `win-libmpv`):
 1. Startup with default tracks:
    - Start playback without changing tracks in details view.
-   - Expected: no startup override log when URL pin matches selected default.
+   - Expected: startup logs show deterministic mapped `aid`/`sid` selection (or `sid no` when subtitle is `None`).
 2. Startup with user-selected non-default tracks:
    - Select non-default audio/subtitle before pressing play.
    - Expected: startup logs show mapped `aid`/`sid` applied; actual tracks match selection.

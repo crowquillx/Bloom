@@ -364,8 +364,9 @@ void PlayerControllerAutoplayContextTest::startupTrackSelectionRespectsPinnedUrl
 
     controller.onEnterBufferingState();
 
-    QVERIFY(!backend.variantCommands.contains(QVariantList{"set_property", "aid", 1}));
-    QVERIFY(!backend.variantCommands.contains(QVariantList{"set_property", "sid", 1}));
+    // Startup now applies explicit deterministic selection even when URL pins match.
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "aid", 1}));
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sid", 1}));
 
     backend.variantCommands.clear();
     controller.m_selectedAudioTrack = 9;
@@ -395,6 +396,7 @@ void PlayerControllerAutoplayContextTest::runtimeTrackSelectionUsesCanonicalMapA
                                 &authService);
 
     controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentSeasonId = QStringLiteral("season-42");
     controller.updateTrackMappings(
         QVariantList{
             QVariantMap{{QStringLiteral("jellyfinIndex"), 5}, {QStringLiteral("mpvTrackId"), 2}}
@@ -410,6 +412,8 @@ void PlayerControllerAutoplayContextTest::runtimeTrackSelectionUsesCanonicalMapA
     QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "aid", 2}));
     QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sid", 4}));
     QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sid", "no"}));
+    QCOMPARE(trackPrefs.getAudioTrack(QStringLiteral("season-42")), 5);
+    QCOMPARE(trackPrefs.getSubtitleTrack(QStringLiteral("season-42")), -1);
 }
 
 QTEST_MAIN(PlayerControllerAutoplayContextTest)

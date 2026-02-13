@@ -63,6 +63,8 @@ class PlayerController : public QObject
     Q_PROPERTY(int selectedSubtitleTrack READ selectedSubtitleTrack WRITE setSelectedSubtitleTrack NOTIFY selectedSubtitleTrackChanged)
     Q_PROPERTY(QString mediaSourceId READ mediaSourceId NOTIFY mediaSourceIdChanged)
     Q_PROPERTY(QString playSessionId READ playSessionId NOTIFY playSessionIdChanged)
+    Q_PROPERTY(QVariantList availableAudioTracks READ availableAudioTracks NOTIFY availableTracksChanged)
+    Q_PROPERTY(QVariantList availableSubtitleTracks READ availableSubtitleTracks NOTIFY availableTracksChanged)
 
 public:
     /// Playback states for the state machine
@@ -108,6 +110,8 @@ public:
     int selectedSubtitleTrack() const { return m_selectedSubtitleTrack; }
     QString mediaSourceId() const { return m_mediaSourceId; }
     QString playSessionId() const { return m_playSessionId; }
+    QVariantList availableAudioTracks() const { return m_availableAudioTracks; }
+    QVariantList availableSubtitleTracks() const { return m_availableSubtitleTracks; }
     
     // Audio Delay (ms)
     int audioDelay() const { return m_config->getAudioDelay(); }
@@ -132,6 +136,8 @@ public:
                                        int mpvAudioTrack, int mpvSubtitleTrack,
                                        const QVariantList &audioTrackMap = {},
                                        const QVariantList &subtitleTrackMap = {},
+                                       const QVariantList &availableAudioTracks = {},
+                                       const QVariantList &availableSubtitleTracks = {},
                                        double framerate = 0.0, bool isHDR = false);
     
     Q_INVOKABLE void stop();
@@ -185,6 +191,7 @@ signals:
     void selectedSubtitleTrackChanged();
     void mediaSourceIdChanged();
     void playSessionIdChanged();
+    void availableTracksChanged();
     
     /// Emitted when playback has stopped (user stop, playback end, or error)
     /// Use this to refresh UI elements that depend on playback state (e.g., watch progress)
@@ -338,6 +345,8 @@ private:
     QHash<int, int> m_subtitleTrackMap; // Jellyfin stream index -> mpv sid track ID (1-based)
     QString m_mediaSourceId;            // Current media source ID
     QString m_playSessionId;            // Playback session ID for reporting
+    QVariantList m_availableAudioTracks;
+    QVariantList m_availableSubtitleTracks;
     
     // Track preference persistence for season continuity
     // Maps season ID -> (audio track index, subtitle track index)
