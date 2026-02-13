@@ -143,6 +143,9 @@ FocusScope {
     
     // Key handling for back navigation
     Keys.onPressed: (event) => {
+        if (event.isAutoRepeat) {
+            return
+        }
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
             if (contextMenu.opened) {
                 console.log("[SeriesSeasonEpisodeView] Ignoring Back/Escape - context menu is open")
@@ -774,8 +777,22 @@ FocusScope {
                     SeriesDetailsViewModel.loadSeasonEpisodes(model.itemId)
                 }
                 
-                Keys.onReturnPressed: clicked()
-                Keys.onEnterPressed: clicked()
+                Keys.onReturnPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
             }
         }
         
@@ -915,8 +932,22 @@ FocusScope {
                     KeyNavigation.up: seasonsTabList
                     KeyNavigation.down: episodesList
                     
-                    Keys.onReturnPressed: clicked()
-                    Keys.onEnterPressed: clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
                     onClicked: root.overviewExpanded = !root.overviewExpanded
                     
                     background: Rectangle {
@@ -1111,13 +1142,23 @@ FocusScope {
                     episodesList.forceActiveFocus()
                 }
                 
-                Keys.onReturnPressed: {
+                Keys.onReturnPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
                     episodesList.currentIndex = index
                     startPlayback(false)
+                    event.accepted = true
                 }
-                Keys.onEnterPressed: {
+                Keys.onEnterPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
                     episodesList.currentIndex = index
                     startPlayback(false)
+                    event.accepted = true
                 }
             }
         }
@@ -1149,8 +1190,26 @@ FocusScope {
                 KeyNavigation.up: episodesList
                 KeyNavigation.right: playFromBeginningButton
                 
-                Keys.onReturnPressed: if (enabled) startPlayback(false)
-                Keys.onEnterPressed: if (enabled) startPlayback(false)
+                Keys.onReturnPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    if (enabled) {
+                        startPlayback(false)
+                        event.accepted = true
+                    }
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    if (enabled) {
+                        startPlayback(false)
+                        event.accepted = true
+                    }
+                }
                 onClicked: startPlayback(false)
                 
                 background: Rectangle {
@@ -1204,8 +1263,26 @@ FocusScope {
                 KeyNavigation.right: watchedToggleButton
                 KeyNavigation.up: episodesList
                 
-                Keys.onReturnPressed: if (enabled) startPlayback(true)
-                Keys.onEnterPressed: if (enabled) startPlayback(true)
+                Keys.onReturnPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    if (enabled) {
+                        startPlayback(true)
+                        event.accepted = true
+                    }
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    if (enabled) {
+                        startPlayback(true)
+                        event.accepted = true
+                    }
+                }
                 onClicked: startPlayback(true)
                 
                 background: Rectangle {

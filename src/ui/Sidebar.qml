@@ -437,9 +437,30 @@ Item {
                     property bool isFocused: activeFocus
                     
                     // Key handling on the FocusScope level
-                    Keys.onReturnPressed: navDelegate.clicked()
-                    Keys.onEnterPressed: navDelegate.clicked()
-                    Keys.onSpacePressed: navDelegate.clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        navDelegate.clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        navDelegate.clicked()
+                        event.accepted = true
+                    }
+                    Keys.onSpacePressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        navDelegate.clicked()
+                        event.accepted = true
+                    }
                     
                     Keys.onUpPressed: {
                         if (index > 0) {
@@ -621,6 +642,10 @@ Item {
 
                     Keys.onPressed: function(event) {
                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
                             if (event.modifiers & Qt.ShiftModifier) {
                                 // Toggle reorder mode on this item
                                 if (root.reorderModeActive && root.reorderingIndex === index) {
@@ -903,9 +928,30 @@ Item {
                     }
                 }
                 
-                Keys.onReturnPressed: clicked()
-                Keys.onEnterPressed: clicked()
-                Keys.onSpacePressed: clicked()
+                Keys.onReturnPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onSpacePressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
                 
                 Keys.onUpPressed: {
                     if (libraryListView.count > 0) {
@@ -1007,9 +1053,30 @@ Item {
                     }
                 }
                 
-                Keys.onReturnPressed: clicked()
-                Keys.onEnterPressed: clicked()
-                Keys.onSpacePressed: clicked()
+                Keys.onReturnPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onSpacePressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
                 
                 // DPAD navigation
                 Keys.onUpPressed: {
@@ -1120,9 +1187,30 @@ Item {
                     }
                 }
                 
-                Keys.onReturnPressed: clicked()
-                Keys.onEnterPressed: clicked()
-                Keys.onSpacePressed: clicked()
+                Keys.onReturnPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onSpacePressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
                 
                 // DPAD navigation
                 Keys.onUpPressed: {

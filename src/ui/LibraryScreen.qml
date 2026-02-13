@@ -458,8 +458,22 @@ FocusScope {
                         KeyNavigation.right: genresFilterButton
                         KeyNavigation.down: grid
                         
-                        Keys.onReturnPressed: clicked()
-                        Keys.onEnterPressed: clicked()
+                        Keys.onReturnPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
                         
                         background: Rectangle {
                             radius: Theme.radiusLarge
@@ -513,8 +527,22 @@ FocusScope {
                         KeyNavigation.right: networksFilterButton
                         KeyNavigation.down: grid
                         
-                        Keys.onReturnPressed: clicked()
-                        Keys.onEnterPressed: clicked()
+                        Keys.onReturnPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
                         
                         background: Rectangle {
                             radius: Theme.radiusLarge
@@ -570,8 +598,22 @@ FocusScope {
                         KeyNavigation.right: backButton
                         KeyNavigation.down: grid
                         
-                        Keys.onReturnPressed: clicked()
-                        Keys.onEnterPressed: clicked()
+                        Keys.onReturnPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
                         
                         background: Rectangle {
                             radius: Theme.radiusLarge
@@ -626,8 +668,22 @@ FocusScope {
                     KeyNavigation.left: networksFilterButton
                     KeyNavigation.down: grid
                     
-                    Keys.onReturnPressed: clicked()
-                    Keys.onEnterPressed: clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
                     
                     onClicked: navigateBack()
                     background: Rectangle {
@@ -1060,7 +1116,10 @@ FocusScope {
 
 
 
-                Keys.onReleased: (event) => {
+                Keys.onPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        return
+                    }
                     if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
                         if (currentParentId !== "") {
                             navigateBack()
@@ -1253,11 +1312,36 @@ FocusScope {
                     "showSeasonView:", showSeasonView,
                     "showMovieDetails:", showMovieDetails)
         
-        // In direct navigation mode with empty stack, go back to Home
+        // In direct navigation mode with empty stack, prefer returning to the library grid
+        // when we have a known library context; otherwise fall back to Home.
         if (directNavigationMode && navigationStack.length === 0) {
-            console.log("[Library] Direct navigation mode with empty stack, popping to Home")
-            if (StackView.view) {
-                StackView.view.pop()
+            if (currentLibraryId !== "") {
+                console.log("[Library] Direct navigation mode with empty stack, returning to library:", currentLibraryId)
+                directNavigationMode = false
+                currentSeriesId = ""
+                showSeriesDetails = false
+                showSeasonView = false
+                showMovieDetails = false
+                currentSeriesData = null
+                currentSeriesSeasons = []
+                currentNextEpisode = null
+                currentSeasonId = ""
+                currentSeasonName = ""
+                currentSeasonNumber = 0
+                currentSeasonPosterUrl = ""
+                initialEpisodeId = ""
+                currentMovieData = null
+
+                if (currentParentId !== currentLibraryId) {
+                    currentParentId = currentLibraryId
+                } else {
+                    loadItemsForCurrentParent()
+                }
+            } else {
+                console.log("[Library] Direct navigation mode with empty stack, popping to Home")
+                if (StackView.view) {
+                    StackView.view.pop()
+                }
             }
             return
         }

@@ -156,7 +156,10 @@ FocusScope {
     }
     
     // Key handling for back navigation
-    Keys.onReleased: (event) => {
+    Keys.onPressed: (event) => {
+        if (event.isAutoRepeat) {
+            return
+        }
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
             console.log("[MovieDetailsView] Back key pressed")
             root.backRequested()
@@ -503,8 +506,22 @@ FocusScope {
                     KeyNavigation.right: markWatchedButton
                     KeyNavigation.down: mediaInfoPanel.visible ? mediaInfoPanel : overviewText
                     
-                    Keys.onReturnPressed: clicked()
-                    Keys.onEnterPressed: clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
                     
                     onClicked: {
                         // Use startPlaybackWithTracks to include track selections
@@ -546,8 +563,22 @@ FocusScope {
                     KeyNavigation.left: playButton
                     KeyNavigation.down: mediaInfoPanel.visible ? mediaInfoPanel : overviewText
                     
-                    Keys.onReturnPressed: clicked()
-                    Keys.onEnterPressed: clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
                     
                     onClicked: {
                         console.log("Marking movie", isPlayed ? "unwatched" : "watched")

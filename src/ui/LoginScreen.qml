@@ -86,8 +86,22 @@ FocusScope {
             KeyNavigation.up: userField
             KeyNavigation.down: connectButton
             onAccepted: connectButton.clicked()
-            Keys.onReturnPressed: (event) => { connectButton.clicked(); event.accepted = true }
-            Keys.onEnterPressed: (event) => { connectButton.clicked(); event.accepted = true }
+            Keys.onReturnPressed: (event) => {
+                if (event.isAutoRepeat) {
+                    event.accepted = true
+                    return
+                }
+                connectButton.clicked()
+                event.accepted = true
+            }
+            Keys.onEnterPressed: (event) => {
+                if (event.isAutoRepeat) {
+                    event.accepted = true
+                    return
+                }
+                connectButton.clicked()
+                event.accepted = true
+            }
         }
 
         Button {
@@ -123,8 +137,22 @@ FocusScope {
             
             KeyNavigation.up: passField
             KeyNavigation.down: serverField // Wrap around
-            Keys.onReturnPressed: clicked()
-            Keys.onEnterPressed: clicked()
+            Keys.onReturnPressed: (event) => {
+                if (event.isAutoRepeat) {
+                    event.accepted = true
+                    return
+                }
+                clicked()
+                event.accepted = true
+            }
+            Keys.onEnterPressed: (event) => {
+                if (event.isAutoRepeat) {
+                    event.accepted = true
+                    return
+                }
+                clicked()
+                event.accepted = true
+            }
         }
 
         Text {

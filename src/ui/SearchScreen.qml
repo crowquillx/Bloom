@@ -288,8 +288,22 @@ FocusScope {
                                     }
                                 }
                                 
-                                Keys.onReturnPressed: clicked()
-                                Keys.onEnterPressed: clicked()
+                                Keys.onReturnPressed: (event) => {
+                                    if (event.isAutoRepeat) {
+                                        event.accepted = true
+                                        return
+                                    }
+                                    clicked()
+                                    event.accepted = true
+                                }
+                                Keys.onEnterPressed: (event) => {
+                                    if (event.isAutoRepeat) {
+                                        event.accepted = true
+                                        return
+                                    }
+                                    clicked()
+                                    event.accepted = true
+                                }
                                 
                                 Keys.onUpPressed: {
                                     if (index > 0) {
@@ -386,8 +400,22 @@ FocusScope {
                                 }
                             }
                             
-                            Keys.onReturnPressed: seriesCard.clicked()
-                            Keys.onEnterPressed: seriesCard.clicked()
+                            Keys.onReturnPressed: (event) => {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                seriesCard.clicked()
+                                event.accepted = true
+                            }
+                            Keys.onEnterPressed: (event) => {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                seriesCard.clicked()
+                                event.accepted = true
+                            }
                             
                             Keys.onUpPressed: {
                                 var columns = Math.floor(seriesGrid.width / seriesGrid.cellWidth)
@@ -480,8 +508,22 @@ FocusScope {
                                 }
                             }
                             
-                            Keys.onReturnPressed: movieCard.clicked()
-                            Keys.onEnterPressed: movieCard.clicked()
+                            Keys.onReturnPressed: (event) => {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                movieCard.clicked()
+                                event.accepted = true
+                            }
+                            Keys.onEnterPressed: (event) => {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                movieCard.clicked()
+                                event.accepted = true
+                            }
                             
                             Keys.onUpPressed: {
                                 var columns = Math.floor(moviesGrid.width / moviesGrid.cellWidth)

@@ -37,6 +37,9 @@ FocusScope {
     
     // Key handling for back navigation
     Keys.onPressed: (event) => {
+        if (event.isAutoRepeat) {
+            return
+        }
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
             if (contextMenu.opened) {
                 console.log("[SeriesDetailsView] Ignoring Back/Escape - context menu is open")
@@ -321,8 +324,26 @@ FocusScope {
                         event.accepted = true
                     }
                     
-                    Keys.onReturnPressed: if (enabled) clicked()
-                    Keys.onEnterPressed: if (enabled) clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        if (enabled) {
+                            clicked()
+                            event.accepted = true
+                        }
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        if (enabled) {
+                            clicked()
+                            event.accepted = true
+                        }
+                    }
                     
                     onClicked: {
                         if (hasNextEpisode) {
@@ -372,8 +393,22 @@ FocusScope {
                         event.accepted = true
                     }
                     
-                    Keys.onReturnPressed: clicked()
-                    Keys.onEnterPressed: clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
                     
                     onClicked: {
                         if (isWatched) {
@@ -1200,8 +1235,22 @@ FocusScope {
                 KeyNavigation.up: seasonsGrid
                 KeyNavigation.left: seasonsGrid
                 
-                Keys.onReturnPressed: playNextUp()
-                Keys.onEnterPressed: playNextUp()
+                Keys.onReturnPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    playNextUp()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    playNextUp()
+                    event.accepted = true
+                }
                 
                 function playNextUp() {
                     if (hasNextEpisode) {
