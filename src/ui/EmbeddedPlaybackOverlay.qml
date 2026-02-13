@@ -1,10 +1,12 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls
 import QtQuick.Layouts
 import BloomUI
 
-Item {
+FocusScope {
     id: root
+    focus: visible
 
     readonly property bool overlayActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
     readonly property bool paused: PlayerController.playbackState === PlayerController.Paused
@@ -72,7 +74,12 @@ Item {
         acceptedButtons: Qt.NoButton
         hoverEnabled: true
         propagateComposedEvents: true
+        cursorShape: InputModeManager.pointerActive ? Qt.ArrowCursor : Qt.BlankCursor
         onPositionChanged: root.showControls()
+    }
+
+    Keys.onPressed: function(event) {
+        root.showControls()
     }
 
     Rectangle {

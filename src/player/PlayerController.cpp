@@ -14,6 +14,7 @@
 #include <QThread>
 #include <QLoggingCategory>
 #include <QRectF>
+#include <QtGlobal>
 
 Q_LOGGING_CATEGORY(lcPlayback, "bloom.playback")
 
@@ -32,11 +33,16 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     , m_progressReportTimer(new QTimer(this))
     , m_startDelayTimer(new QTimer(this))
 {
+    Q_ASSERT_X(m_playerBackend, "PlayerController", "playerBackend must not be null");
+    if (!m_playerBackend) {
+        qFatal("PlayerController requires a valid IPlayerBackend");
+    }
+
     // Setup state machine transitions
     setupStateMachine();
-    
-        // Connect to player backend signals
-        connect(m_playerBackend, &IPlayerBackend::stateChanged,
+
+    // Connect to player backend signals
+    connect(m_playerBackend, &IPlayerBackend::stateChanged,
             this, &PlayerController::onProcessStateChanged);
         connect(m_playerBackend, &IPlayerBackend::errorOccurred,
             this, &PlayerController::onProcessError);

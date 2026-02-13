@@ -63,25 +63,14 @@ Window {
         z: -1
     }
 
-    Window {
-        id: embeddedOverlayWindow
-        flags: Qt.Tool | Qt.FramelessWindowHint
-        transientParent: window
-        modality: Qt.NonModal
-        color: "transparent"
+    EmbeddedPlaybackOverlay {
+        id: embeddedPlaybackOverlay
+        anchors.fill: videoSurface
         visible: window.visible
                  && window.visibility !== Window.Minimized
                  && PlayerController.supportsEmbeddedVideo
                  && PlayerController.isPlaybackActive
-        x: window.x
-        y: window.y
-        width: window.width
-        height: window.height
-
-        EmbeddedPlaybackOverlay {
-            id: embeddedPlaybackOverlay
-            anchors.fill: parent
-        }
+        z: 300
     }
     
     // ========================================

@@ -227,6 +227,9 @@ private slots:
     void onTrickplayProcessingFailed(const QString &itemId, const QString &error);
 
 private:
+#ifdef BLOOM_TESTING
+    friend class PlayerControllerAutoplayContextTest;
+#endif
     // State machine
     void setupStateMachine();
     bool processEvent(Event event);

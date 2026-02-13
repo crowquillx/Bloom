@@ -107,6 +107,8 @@ add_executable(PlayerControllerAutoplayContextTest
 
 target_include_directories(PlayerControllerAutoplayContextTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+target_compile_definitions(PlayerControllerAutoplayContextTest PRIVATE BLOOM_TESTING=1)
+
 target_link_libraries(PlayerControllerAutoplayContextTest
     PRIVATE
         Qt6::Core

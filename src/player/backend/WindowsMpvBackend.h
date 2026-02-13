@@ -4,6 +4,7 @@
 
 #include <QMetaObject>
 #include <QRectF>
+#include <QPointer>
 #include <QTimer>
 #include <QVariant>
 #include <atomic>
@@ -65,7 +66,7 @@ private:
     class WindowsNativeGeometryFilter;
 
     std::unique_ptr<ExternalMpvBackend> m_fallbackBackend;
-    QObject *m_videoTarget = nullptr;
+    QPointer<QObject> m_videoTarget;
     QRectF m_lastViewport;
     quintptr m_containerWinId = 0;
     quintptr m_videoHostWinId = 0;
