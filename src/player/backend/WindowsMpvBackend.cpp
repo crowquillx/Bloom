@@ -225,17 +225,14 @@ void WindowsMpvBackend::sendCommand(const QStringList &command)
         return;
     }
 
-    if (m_directControlActive) {
-        QVariantList variantCommand;
-        variantCommand.reserve(command.size());
-        for (const QString &part : command) {
-            variantCommand.append(part);
-        }
+    QVariantList variantCommand;
+    variantCommand.reserve(command.size());
+    for (const QString &part : command) {
+        variantCommand.append(part);
+    }
 
-        if (!sendVariantCommandDirect(variantCommand)) {
-            qCWarning(lcWindowsLibmpvBackend) << "Failed direct command dispatch" << command;
-        }
-        return;
+    if (!sendVariantCommandDirect(variantCommand)) {
+        qCWarning(lcWindowsLibmpvBackend) << "Failed direct command dispatch" << command;
     }
 }
 
@@ -246,11 +243,8 @@ void WindowsMpvBackend::sendVariantCommand(const QVariantList &command)
         return;
     }
 
-    if (m_directControlActive) {
-        if (!sendVariantCommandDirect(command)) {
-            qCWarning(lcWindowsLibmpvBackend) << "Failed direct variant command dispatch" << command;
-        }
-        return;
+    if (!sendVariantCommandDirect(command)) {
+        qCWarning(lcWindowsLibmpvBackend) << "Failed direct variant command dispatch" << command;
     }
 }
 
