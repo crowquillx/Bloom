@@ -381,6 +381,30 @@ void LinuxMpvBackend::processMpvEvents()
             case MPV_FORMAT_STRING:
                 value = QString::fromUtf8(static_cast<const char *>(property->data));
                 break;
+            case MPV_FORMAT_NODE: {
+                const mpv_node *node = static_cast<const mpv_node *>(property->data);
+                if (!node) {
+                    break;
+                }
+
+                switch (node->format) {
+                case MPV_FORMAT_INT64:
+                    value = static_cast<qlonglong>(node->u.int64);
+                    break;
+                case MPV_FORMAT_DOUBLE:
+                    value = node->u.double_;
+                    break;
+                case MPV_FORMAT_FLAG:
+                    value = (node->u.flag != 0);
+                    break;
+                case MPV_FORMAT_STRING:
+                    value = QString::fromUtf8(node->u.string ? node->u.string : "");
+                    break;
+                default:
+                    break;
+                }
+                break;
+            }
             default:
                 break;
             }
@@ -409,8 +433,8 @@ void LinuxMpvBackend::observeMpvProperties(void *handlePtr)
     mpv_observe_property(handle, 0, "duration", MPV_FORMAT_DOUBLE);
     mpv_observe_property(handle, 0, "pause", MPV_FORMAT_FLAG);
     mpv_observe_property(handle, 0, "paused-for-cache", MPV_FORMAT_FLAG);
-    mpv_observe_property(handle, 0, "aid", MPV_FORMAT_INT64);
-    mpv_observe_property(handle, 0, "sid", MPV_FORMAT_INT64);
+    mpv_observe_property(handle, 0, "aid", MPV_FORMAT_NODE);
+    mpv_observe_property(handle, 0, "sid", MPV_FORMAT_NODE);
 #endif
 }
 

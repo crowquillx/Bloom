@@ -25,7 +25,7 @@ Implemented now:
    - stronger viewport/FBO render state handling,
    - scenegraph re-init handling,
    - `client-message` forwarding parity,
-   - `aid`/`sid` normalization parity with external backend semantics.
+   - `aid`/`sid` normalization parity with external backend semantics (including node-typed values like `no`/`auto`).
 
 Not yet implemented in Milestone A:
 - Config-file backend selector key (currently env-only override + platform default selection).
@@ -45,6 +45,10 @@ Still pending in Milestone B (after kickoff):
 - Final Linux target runtime validation for `mpv_render_context` reliability on representative hardware/compositors.
 - Linux runtime parity validation (controls, reporting, stability, no CPU readback).
 - Explicit shrink/restore validation test path.
+
+Validation sequencing note (current):
+- Linux on-device/runtime validation is intentionally deferred to a later Milestone B follow-up step when Linux test infrastructure/hardware is available.
+- Current implementation work can proceed first on backend parity/hardening and cross-platform-safe regressions (build + non-Linux tests), with Linux runtime verification executed afterward.
 
 ## Milestone A parity checklist (current)
 
@@ -135,10 +139,10 @@ Overall milestone status:
 - 🟨 Document Linux dependency/link requirements in docs.
 
 #### B7. Validation & exit criteria
-- ⬜ Validate embedded playback on Linux target environment.
+- ⏳ Validate embedded playback on Linux target environment (deferred to later Milestone B follow-up).
 - 🟨 Validate resize/reposition reliability under real usage. (viewport/FBO/callback hardening landed; on-device validation pending)
-- ⬜ Validate no CPU readback path is used.
-- ⬜ Validate regressions do not appear on external fallback path.
+- ⏳ Validate no CPU readback path is used (Linux follow-up).
+- 🟨 Validate regressions do not appear on external fallback path.
 
 ### Milestone C — Breakdown (planned)
 - ⬜ Implement `WindowsLibmpvHwndBackend` (container HWND + parenting).

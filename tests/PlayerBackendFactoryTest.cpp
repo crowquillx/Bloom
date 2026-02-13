@@ -17,6 +17,7 @@ private slots:
     void createByNameFallsBackForUnknown();
     void envOverrideSelectsExternalBackend();
     void envOverrideSelectsLinuxBackendWhenAvailable();
+    void envOverrideUnknownFallsBackToExternal();
 };
 
 void PlayerBackendFactoryTest::createsExternalBackendByDefault()
@@ -96,6 +97,18 @@ void PlayerBackendFactoryTest::envOverrideSelectsLinuxBackendWhenAvailable()
 #else
     QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
 #endif
+
+    qunsetenv("BLOOM_PLAYER_BACKEND");
+}
+
+void PlayerBackendFactoryTest::envOverrideUnknownFallsBackToExternal()
+{
+    qputenv("BLOOM_PLAYER_BACKEND", "unknown-backend");
+
+    std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create();
+
+    QVERIFY(backend != nullptr);
+    QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
 
     qunsetenv("BLOOM_PLAYER_BACKEND");
 }

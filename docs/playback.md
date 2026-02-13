@@ -25,9 +25,10 @@ Backend architecture (Milestone B kickoff)
 - Linux backend now includes:
   - typed `sendVariantCommand(...)` dispatch through libmpv command nodes,
   - `client-message`/`scriptMessage` forwarding parity,
-  - `aid`/`sid` normalization parity with external backend contract,
+  - `aid`/`sid` normalization parity with external backend contract (including node-typed mpv values like `no`/`auto`),
   - render hardening for viewport bounds/FBO-state restoration/update-callback lifecycle.
 - Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing.
+- Current sequencing: Linux on-device validation is deferred to a later Milestone B follow-up step; implementation continues first with parity/hardening changes validated via available build/test environments.
 
 Key components
 - IPlayerBackend: playback backend contract used by `PlayerController`.

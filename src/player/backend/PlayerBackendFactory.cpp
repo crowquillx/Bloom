@@ -51,6 +51,6 @@ std::unique_ptr<IPlayerBackend> PlayerBackendFactory::createByName(const QString
 
     qCWarning(lcPlayerBackendFactory)
         << "Unknown backend requested:" << backendName
-        << "- falling back to" << kDefaultBackendName;
+        << "- falling back to" << kExternalBackendName;
     return std::make_unique<ExternalMpvBackend>(parent);
 }
