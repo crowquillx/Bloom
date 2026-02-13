@@ -2,16 +2,18 @@
 
 #include "IPlayerBackend.h"
 
+#include <QByteArray>
 #include <QPointer>
 #include <QRectF>
+#include <QVariant>
 
-class LinuxLibmpvOpenGLBackend : public IPlayerBackend
+class LinuxMpvBackend : public IPlayerBackend
 {
     Q_OBJECT
 
 public:
-    explicit LinuxLibmpvOpenGLBackend(QObject *parent = nullptr);
-    ~LinuxLibmpvOpenGLBackend() override = default;
+    explicit LinuxMpvBackend(QObject *parent = nullptr);
+    ~LinuxMpvBackend() override;
 
     static bool isRuntimeSupported();
 
@@ -30,8 +32,21 @@ public:
     void setVideoViewport(const QRectF &viewport) override;
 
 private:
+    bool initializeMpv();
+    void teardownMpv();
+    void processMpvEvents();
+    void observeMpvProperties();
+    void applyMpvArgs(const QStringList &args);
+    bool queueLoadFile(const QString &mediaUrl);
+    void handlePropertyChange(const QString &name, const QVariant &value);
+    static void wakeupCallback(void *ctx);
+
     bool m_running = false;
     bool m_runtimeSupported = false;
     QPointer<QObject> m_videoTarget;
     QRectF m_videoViewport;
+
+    void *m_mpvHandle = nullptr;
+    bool m_eventDispatchQueued = false;
+    QList<QByteArray> m_commandScratch;
 };

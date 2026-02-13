@@ -28,8 +28,8 @@ std::unique_ptr<IPlayerBackend> PlayerBackendFactory::createByName(const QString
 {
 #if defined(Q_OS_LINUX)
     if (backendName.compare(QString::fromLatin1(kLinuxLibmpvBackendName), Qt::CaseInsensitive) == 0) {
-        if (LinuxLibmpvOpenGLBackend::isRuntimeSupported()) {
-            return std::make_unique<LinuxLibmpvOpenGLBackend>(parent);
+        if (LinuxMpvBackend::isRuntimeSupported()) {
+            return std::make_unique<LinuxMpvBackend>(parent);
         }
 
         qCWarning(lcPlayerBackendFactory)

@@ -18,7 +18,7 @@ Backend architecture (Milestone B kickoff)
   - `supportsEmbeddedVideo()`
   - `attachVideoTarget(...)` / `detachVideoTarget(...)`
   - `setVideoViewport(...)`
-- Linux backend scaffold added: `LinuxLibmpvOpenGLBackend`.
+- Linux backend scaffold added: `LinuxMpvBackend`.
 - `MpvVideoItem` + `VideoSurface.qml` added for minimal embedded surface plumbing.
 - `PlayerController` exposes minimal embedded-video passthrough and internal/manual shrink toggle API.
 - Remaining work: libmpv render-context wiring, runtime behavior parity, and Linux-target validation.
@@ -26,7 +26,8 @@ Backend architecture (Milestone B kickoff)
 Key components
 - IPlayerBackend: playback backend contract used by `PlayerController`.
 - ExternalMpvBackend: adapter that delegates to `PlayerProcessManager`.
-- LinuxLibmpvOpenGLBackend (scaffold): Linux embedded backend entry point for Milestone B.
+- LinuxMpvBackend (scaffold): Linux embedded backend entry point for Milestone B.
+- LinuxMpvBackend now includes basic `mpv_handle` lifecycle and property/event observation plumbing (render-context integration still pending).
 - MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
 - PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
 - PlayerController: state machine that handles play/pause/resume, listens for backend updates, manages track selection, and reports playback state to the Jellyfin server.

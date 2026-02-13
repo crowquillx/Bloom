@@ -23,7 +23,7 @@ Not yet implemented in Milestone A:
 
 Milestone B kickoff implemented now:
 - Extended `IPlayerBackend` with embedded video hooks (`supportsEmbeddedVideo`, target attach/detach, viewport updates).
-- Added Linux backend scaffold: `LinuxLibmpvOpenGLBackend`.
+- Added Linux backend implementation entry point: `LinuxMpvBackend`.
 - Added Linux backend selection path in `PlayerBackendFactory` (`linux-libmpv-opengl`) with OpenGL runtime guard + fallback.
 - Added Qt Quick surface primitives:
    - `MpvVideoItem` (QML-exposed C++ item)
@@ -32,7 +32,7 @@ Milestone B kickoff implemented now:
 - Added Linux-conditional build wiring for new backend sources and optional `libmpv` discovery/linking.
 
 Still pending in Milestone B (after kickoff):
-- Real `libmpv` handle/render-context ownership and render callback integration.
+- `mpv_render_context` ownership and render callback integration.
 - Playback command/property parity in the Linux embedded backend.
 - Linux runtime parity validation (controls, reporting, stability, no CPU readback).
 - Explicit shrink/restore validation test path.
@@ -95,10 +95,10 @@ Overall milestone status:
 ### Milestone B — Breakdown (what needs to be done)
 
 #### B1. Backend and rendering primitives
-- 🟨 Create `LinuxLibmpvOpenGLBackend` with `mpv_handle` + `mpv_render_context` ownership. (skeleton added; libmpv context/render context still pending)
+- 🟨 Create `LinuxMpvBackend` with `mpv_handle` + `mpv_render_context` ownership. (basic `mpv_handle` lifecycle + event/property observation added; render context pending)
 - ✅ Create `MpvVideoItem` (or equivalent C++ video item) for Qt Quick render integration.
 - ✅ Define minimal render callback contract between backend and item.
-- 🟨 Add safe startup/shutdown lifecycle for libmpv context and render context. (running-state lifecycle scaffolded; real libmpv lifecycle pending)
+- 🟨 Add safe startup/shutdown lifecycle for libmpv context and render context. (`mpv_handle` startup/shutdown added; render-context lifecycle pending)
 
 #### B2. Controller/factory wiring
 - ✅ Extend `PlayerBackendFactory` to instantiate Linux backend by name.
@@ -189,7 +189,7 @@ Create `IPlayerBackend` (QObject-based interface) under `src/player/backend/`:
 
 Implementations:
 - `ExternalMpvBackend` (adapter over current `PlayerProcessManager` behavior)
-- `LinuxLibmpvOpenGLBackend`
+- `LinuxMpvBackend`
 - `WindowsLibmpvHwndBackend`
 
 `PlayerController` depends on `IPlayerBackend` only.
@@ -217,7 +217,7 @@ HDR:
 ## 3.3 Linux strategy (libmpv render API + OpenGL)
 
 Design:
-- `LinuxLibmpvOpenGLBackend` owns `mpv_handle` + `mpv_render_context`.
+- `LinuxMpvBackend` owns `mpv_handle` + `mpv_render_context`.
 - `MpvVideoItem` (Qt Quick item) binds to backend render callbacks.
 - Use `MPV_RENDER_API_TYPE_OPENGL` for GPU path.
 - No CPU readback, no Qt Multimedia video path.
@@ -278,7 +278,7 @@ Exit criteria:
 ## Milestone B — Linux embedded backend
 
 Deliverables:
-- `LinuxLibmpvOpenGLBackend` + `MpvVideoItem` integrated.
+- `LinuxMpvBackend` + `MpvVideoItem` integrated.
 - Embedded video in Qt Quick with overlays above video.
 - Credits-shrink internal hook wired.
 
