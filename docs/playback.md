@@ -3,7 +3,7 @@ Playback — mpv & Jellyfin Integration
 Overview
 - Current production path: mpv runs as an external, top-level process (avoid `--wid` embedding or transparent Qt overlays for this path).
 - Linux now defaults to embedded libmpv backend selection (`linux-libmpv-opengl`) with runtime OpenGL gating and automatic fallback to `external-mpv-ipc` when requirements are not met.
-- Windows now defaults to Milestone C backend scaffold selection (`win-libmpv`) while retaining external mpv playback behavior underneath.
+- Windows now defaults to `win-libmpv`, which launches mpv with HWND embedding (`--wid`) against the attached `VideoSurface` target while preserving the external backend process path.
 - Other non-Linux platforms keep `external-mpv-ipc` as default.
 - `external-mpv-ipc` remains fully supported as explicit rollback/override on all platforms via `BLOOM_PLAYER_BACKEND=external-mpv-ipc`.
 
@@ -18,7 +18,24 @@ Backend architecture (Milestone A)
 Backend architecture (Milestone C kickoff)
 - Added `WindowsMpvBackend` scaffold under `src/player/backend/`.
 - Selector token: `win-libmpv`.
-- Current scaffold preserves controller/backend interface parity and delegates playback behavior to the external backend path while Windows HWND target/viewport plumbing is staged.
+- Windows backend now resolves target `winId` from `MpvVideoItem` and injects `--wid=<HWND>` on launch for embedded playback.
+- External process + IPC behavior remains the active transport path, preserving rollback compatibility with `external-mpv-ipc`.
+- Pending Milestone C step: migrate Windows control/event handling from external IPC delegation to direct libmpv command/property/event APIs while preserving the `PlayerController` contract and keeping `external-mpv-ipc` as explicit rollback.
+- Sequencing requirement: implement/validate playback controls in the same migration slice (play/pause/resume/seek/stop and track control commands) so command routing is rewritten once.
+- Sequencing requirement: implement embedded overlay rendering for Windows during the same migration phase, with overlay UI/state elements kept backend-agnostic and reusable across platforms.
+
+Reference implementation notes (Plezy)
+- External reference: https://github.com/edde746/plezy
+- Bloom should use Plezy as a design reference for mpv integration choices (embedded window lifecycle, async command/event flow, observed-property mapping, and transition/flicker mitigation patterns), not as a direct code drop.
+- Because Plezy is Flutter-based and Bloom is Qt/C++, adopt the architecture decisions and sequencing, then map them onto Bloom backends (`IPlayerBackend`, `PlayerController`, Qt window/focus lifecycle, and existing services/tests).
+- For Windows work, prefer Plezy’s approach as the sanity baseline for: direct libmpv control path, explicit event loop handling, and window transition handling around minimize/maximize/fullscreen.
+
+Plezy parity checklist for Milestone C/D changes
+- [ ] Verify control-path parity decisions (direct libmpv command/property/event model) against Plezy architecture.
+- [ ] Verify window lifecycle/transition behavior parity goals for resize/move/minimize/maximize/fullscreen.
+- [ ] Verify Qt/C++ adaptation boundaries are preserved (no Flutter/plugin-specific coupling).
+- [ ] Verify `external-mpv-ipc` override path remains working as rollback after each migration slice.
+- [ ] Verify playback controls parity is completed during command-path migration (avoid temporary duplicate control implementations).
 
 Backend architecture (Milestone B kickoff)
 - `IPlayerBackend` now includes embedded-video capability hooks:

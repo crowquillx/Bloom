@@ -153,10 +153,21 @@ Overall milestone status:
 - ➡️ Linux target runtime validation items moved to Milestone D kickoff (D0).
 
 ### Milestone C — Breakdown (in progress)
-- ✅ Implement `WindowsMpvBackend` scaffold (initial target-handle/viewport plumbing hooks, with playback delegation to external backend path during scaffold phase).
+- ✅ Implement `WindowsMpvBackend` target-handle plumbing with embedded launch argument injection (`--wid=<HWND>`) for Windows app-window embedding.
 - ✅ Implement native event filter + geometry sync/debounce (Windows `WM_SIZE`/`WM_MOVE`/`WM_WINDOWPOSCHANGED` hook with debounced sync scheduling in scaffold backend).
 - ✅ Implement initial transition flicker mitigation path (state-aware deferred geometry sync during move/resize/window-state transitions).
 - ✅ Add initial HDR diagnostics and validation path (startup logging of HDR-relevant mpv option set and output-path hints in Windows backend scaffold).
+- ✅ Expose native target handle to backend via `MpvVideoItem.winId` property to keep embedding hookup backend-agnostic from QML.
+- ⬜ Replace Windows IPC-delegated control/event path with direct libmpv backend control path (`mpv_command`/`mpv_command_async`, `mpv_set_property*`, `mpv_observe_property`, `mpv_wait_event`) while preserving `PlayerController` signal/property contract and keeping `external-mpv-ipc` as explicit rollback.
+- ⬜ Implement/validate end-user playback controls (play/pause/resume/seek/stop + audio/subtitle track commands) during the same direct-libmpv command-path migration slice to avoid duplicate command-routing work.
+- ⬜ Implement overlay rendering for Windows embedded playback in the same migration phase, while extracting overlay UI/state components so they remain reusable across backend/platform implementations.
+
+Milestone C/D Plezy parity checklist (review gate)
+- [ ] Control-path parity checked against Plezy patterns (async command dispatch + observed-property/event forwarding model).
+- [ ] Window-transition behavior parity checked against Plezy-style handling for move/resize/minimize/maximize/fullscreen.
+- [ ] Bloom-specific adaptation verified (Qt/C++ backend seam preserved; no Flutter/plugin coupling introduced).
+- [ ] Explicit rollback (`external-mpv-ipc`) still functional after any direct-libmpv migration step.
+- [ ] Playback controls parity verified as part of command-path migration (no temporary duplicate control implementations).
 
 ### Milestone D — Breakdown (kickoff + planned)
 #### D0. Linux runtime validation closeout (moved from Milestone B)
@@ -322,11 +333,13 @@ Deliverables:
 - Native event filter and geometry sync.
 - Transition flicker mitigation.
 - HDR diagnostics/logging path.
+- Overlay rendering path for embedded Windows playback, with reusable overlay components shared across platforms.
 
 Exit criteria:
 - Seamless fullscreen transitions and stable embedding.
 - HDR output functional on target validation setup.
 - Overlay experience visually seamless.
+- Overlay UI/state layer is backend-agnostic and reusable by non-Windows embedded paths.
 
 ## Milestone D — Soft deprecation (optional)
 
@@ -379,6 +392,7 @@ Exit criteria:
 - Repeated start/stop cycles stable
 - Error handling returns to safe idle state
 - Backend selection/active backend visible in logs
+- Plezy parity checklist items for relevant Milestone C/D changes completed and noted in PR/review summary
 
 ---
 
@@ -407,3 +421,15 @@ Exit criteria:
 - Keep changes incremental and reviewable (milestone-sized).
 - Avoid `#ifdef` leakage into UI logic; keep platform branching in backend layer.
 - Preserve existing user-facing config semantics unless explicitly migrated and documented.
+
+---
+
+## 11) External reference baseline (Plezy)
+
+- Primary external reference for this refactor: https://github.com/edde746/plezy
+- Bloom should treat Plezy as a design/implementation-pattern reference for embedded mpv architecture, especially:
+   - direct libmpv command/property/event control loop,
+   - Windows embedded window lifecycle and transition handling,
+   - async command completion and observed-property forwarding.
+- Bloom should not copy Flutter/plugin-specific integration details directly; adapt the same design decisions to Bloom’s Qt/C++ backend seam (`IPlayerBackend`, `PlayerController`, ServiceLocator wiring, and QML surface model).
+- For Milestone C and subsequent cleanup, use Plezy as a sanity check when choosing behavior under resize/move/minimize/fullscreen transitions and control-path migration away from IPC delegation.

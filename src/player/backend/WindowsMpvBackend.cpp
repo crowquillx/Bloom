@@ -13,7 +13,7 @@
 
 #include <QLoggingCategory>
 
-Q_LOGGING_CATEGORY(lcWindowsMpvBackend, "bloom.playback.backend.windows")
+Q_LOGGING_CATEGORY(lcWindowsLibmpvBackend, "bloom.playback.backend.windows.libmpv")
 
 class WindowsMpvBackend::WindowsNativeGeometryFilter : public QAbstractNativeEventFilter
 {
@@ -107,7 +107,7 @@ WindowsMpvBackend::WindowsMpvBackend(QObject *parent)
     m_transitionSettleTimer.setSingleShot(true);
     connect(&m_transitionSettleTimer, &QTimer::timeout, this, [this]() {
         m_transitionMitigationActive = false;
-        qCDebug(lcWindowsMpvBackend) << "Transition mitigation settled; scheduling sync";
+        qCDebug(lcWindowsLibmpvBackend) << "Transition mitigation settled; scheduling sync";
         scheduleGeometrySync(0);
     });
 
@@ -153,9 +153,47 @@ QString WindowsMpvBackend::backendName() const
 
 void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl)
 {
+    QStringList finalArgs;
+    finalArgs.reserve(args.size() + 1);
+
+    bool skipNextValue = false;
+    for (const QString &arg : args) {
+        if (skipNextValue) {
+            skipNextValue = false;
+            continue;
+        }
+
+        if (arg.compare(QStringLiteral("--wid"), Qt::CaseInsensitive) == 0) {
+            skipNextValue = true;
+            continue;
+        }
+
+        if (arg.startsWith(QStringLiteral("--wid="), Qt::CaseInsensitive)) {
+            continue;
+        }
+
+        finalArgs.append(arg);
+    }
+
+#if defined(Q_OS_WIN)
+    if (m_videoTarget != nullptr) {
+        resolveContainerHandle(m_videoTarget);
+    }
+
+    if (m_containerWinId != 0) {
+        finalArgs.append(QStringLiteral("--wid=%1").arg(static_cast<qulonglong>(m_containerWinId)));
+        qCInfo(lcWindowsLibmpvBackend)
+            << "Launching embedded mpv with wid"
+            << static_cast<qulonglong>(m_containerWinId);
+    } else {
+        qCWarning(lcWindowsLibmpvBackend)
+            << "Embedded target winId unavailable; launching without --wid";
+    }
+#endif
+
     syncContainerGeometry();
     logHdrDiagnostics(args, mediaUrl);
-    m_fallbackBackend->startMpv(mpvBin, args, mediaUrl);
+    m_fallbackBackend->startMpv(mpvBin, finalArgs, mediaUrl);
 }
 
 void WindowsMpvBackend::stopMpv()
@@ -180,7 +218,7 @@ void WindowsMpvBackend::sendVariantCommand(const QVariantList &command)
 
 bool WindowsMpvBackend::supportsEmbeddedVideo() const
 {
-    return false;
+    return true;
 }
 
 bool WindowsMpvBackend::attachVideoTarget(QObject *target)
@@ -247,7 +285,7 @@ void WindowsMpvBackend::syncContainerGeometry()
     }
 
     if (!resolveContainerHandle(m_videoTarget)) {
-        qCDebug(lcWindowsMpvBackend) << "Container handle unavailable; postponing geometry sync";
+        qCDebug(lcWindowsLibmpvBackend) << "Container handle unavailable; postponing geometry sync";
         return;
     }
 
@@ -255,7 +293,7 @@ void WindowsMpvBackend::syncContainerGeometry()
         return;
     }
 
-    qCDebug(lcWindowsMpvBackend)
+    qCDebug(lcWindowsLibmpvBackend)
         << "Geometry sync checkpoint"
         << "winId=" << static_cast<qulonglong>(m_containerWinId)
         << "viewport=" << m_lastViewport;
@@ -301,7 +339,7 @@ void WindowsMpvBackend::beginTransitionMitigation(const char *reason, int settle
     }
 
     m_transitionSettleTimer.start(effectiveSettleMs);
-    qCDebug(lcWindowsMpvBackend)
+    qCDebug(lcWindowsLibmpvBackend)
         << "Transition mitigation active"
         << "reason=" << reason
         << "settleMs=" << effectiveSettleMs;
@@ -327,7 +365,7 @@ void WindowsMpvBackend::logHdrDiagnostics(const QStringList &args, const QString
     const bool hasHdrHint = args.contains(QStringLiteral("--target-colorspace-hint=yes"));
     const bool hasGpuNext = args.contains(QStringLiteral("--vo=gpu-next"));
 
-    qCInfo(lcWindowsMpvBackend)
+    qCInfo(lcWindowsLibmpvBackend)
         << "HDR diagnostics"
         << "media=" << mediaUrl
         << "hasGpuNext=" << hasGpuNext
@@ -335,7 +373,7 @@ void WindowsMpvBackend::logHdrDiagnostics(const QStringList &args, const QString
         << "hdrArgCount=" << hdrArgs.size();
 
     if (!hdrArgs.isEmpty()) {
-        qCDebug(lcWindowsMpvBackend) << "HDR diagnostics args:" << hdrArgs;
+        qCDebug(lcWindowsLibmpvBackend) << "HDR diagnostics args:" << hdrArgs;
     }
 }
 
@@ -395,7 +433,7 @@ bool WindowsMpvBackend::resolveContainerHandle(QObject *target)
         return false;
     }
 
-    const quintptr handleValue = target->property("winId").value<quintptr>();
+    const quintptr handleValue = static_cast<quintptr>(target->property("winId").toULongLong());
     if (handleValue == 0) {
         m_containerWinId = 0;
 #if defined(Q_OS_WIN)
@@ -403,7 +441,7 @@ bool WindowsMpvBackend::resolveContainerHandle(QObject *target)
             m_nativeGeometryFilter->setWatchedWinId(0);
         }
 #endif
-        return true;
+        return false;
     }
 
     m_containerWinId = handleValue;
