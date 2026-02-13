@@ -54,6 +54,7 @@ Milestone C kickoff implemented now:
 Still pending after Milestone B closeout (moved to start of Milestone E):
 - Final Linux target runtime validation for `mpv_render_context` reliability on representative hardware/compositors.
 - Linux runtime parity validation (controls, reporting, stability, no CPU readback).
+- Linux packaging/runtime bundling of `libmpv` with Linux build artifacts.
 
 Validation sequencing note (current):
 - Linux on-device/runtime validation is intentionally deferred to the beginning of Milestone E (E0) when Linux test infrastructure/hardware is available.
@@ -102,9 +103,9 @@ Status legend:
 Overall milestone status:
 - **Milestone A — Backend abstraction + external backend support:** ✅ done
 - **Milestone B — Embedded integration + parity hardening (non-Linux runtime validation):** ✅ done
-- **Milestone C — Windows embedded backend:** 🟨 in progress
-- **Milestone D — Track selection logic and parity hardening:** ✅ implemented (runtime validated; awaiting broader representative-content pass)
-- **Milestone E — Linux runtime validation kickoff + soft deprecation/default switch:** 🟨 partially landed (Linux default switch completed; Linux runtime validation + deprecation policy pending)
+- **Milestone C — Windows embedded backend:** ✅ completed
+- **Milestone D — Track selection logic and parity hardening:** ✅ completed
+- **Milestone E — Linux runtime validation kickoff + soft deprecation/default switch:** 🟨 partially landed (Linux default switch completed; Linux runtime validation, Linux `libmpv` bundling, and deprecation policy pending)
 
 ### Milestone A — Breakdown (completed)
 - ✅ Backend interface (`IPlayerBackend`) created and wired.
@@ -154,7 +155,7 @@ Overall milestone status:
 - ✅ Add focused controller parity regressions for next-up/autoplay context handling.
 - ➡️ Linux target runtime validation items moved to Milestone E kickoff (E0).
 
-### Milestone C — Breakdown (in progress)
+### Milestone C — Breakdown (completed)
 - ✅ Implement `WindowsMpvBackend` target-handle plumbing with embedded launch argument injection (`--wid=<HWND>`) for Windows app-window embedding.
 - ✅ Implement native event filter + geometry sync/debounce (Windows `WM_SIZE`/`WM_MOVE`/`WM_WINDOWPOSCHANGED` hook with debounced sync scheduling in scaffold backend).
 - ✅ Implement initial transition flicker mitigation path (state-aware deferred geometry sync during move/resize/window-state transitions).
@@ -168,14 +169,14 @@ Overall milestone status:
 - ✅ Add embedded playback control bindings in the same slice: backend-agnostic overlay control bar wiring (`play/pause`, `seek ±10s`, `stop`) plus global keyboard shortcuts active during playback (`Space/K`, `Left/Right`, `J/L`, `S`).
 - ✅ Ensure overlay visibility on Windows embedded playback with a transparent QML overlay window above video (no viewport reserve band, no clip, no video reposition); add dedicated `Esc` → stop playback behavior.
 - ✅ Validate Windows-side non-runtime regressions with focused tests (`PlayerBackendFactoryTest`, `PlayerControllerAutoplayContextTest`, `VisualRegressionTest`) on current Windows build artifacts.
-- ⏳ Validate direct-libmpv path on representative Windows runtime packaging where libmpv is present in production deployment.
+- ✅ Validate direct-libmpv path on representative Windows runtime packaging where libmpv is present in production deployment.
 
 Milestone C/D/E Plezy parity checklist (review gate)
-- [ ] Control-path parity checked against Plezy patterns (async command dispatch + observed-property/event forwarding model).
-- [ ] Window-transition behavior parity checked against Plezy-style handling for move/resize/minimize/maximize/fullscreen.
+- [x] Control-path parity checked against Plezy patterns (async command dispatch + observed-property/event forwarding model).
+- [x] Window-transition behavior parity checked against Plezy-style handling for move/resize/minimize/maximize/fullscreen.
 - [x] Bloom-specific adaptation verified (Qt/C++ backend seam preserved; no Flutter/plugin coupling introduced).
 - [x] Direct-only failure behavior validated for `win-libmpv` at code/test level (no implicit alternate backend path).
-- [ ] Playback controls parity verified as part of command-path migration (no temporary duplicate control implementations).
+- [x] Playback controls parity verified as part of command-path migration (no temporary duplicate control implementations).
 
 Milestone C Windows manual validation script (runtime)
 - Preconditions:
@@ -205,15 +206,12 @@ Milestone C Windows manual validation script (runtime)
    - Change audio/subtitle tracks during playback.
    - Stop and resume item; verify expected track state/position behavior.
    - Verify Jellyfin session updates continue (start/progress/stop) without regression.
-- Exit criteria for closing remaining Milestone C items:
-   - All checks above pass on representative Windows runtime packaging.
-   - Then mark complete:
-      - `Control-path parity checked against Plezy patterns...`
-      - `Window-transition behavior parity checked against Plezy-style handling...`
-      - `Playback controls parity verified as part of command-path migration...`
-      - `Validate direct-libmpv path on representative Windows runtime packaging where libmpv is present in production deployment.`
+- Milestone C closure status (February 13, 2026):
+   - ✅ Manual runtime validation completed on packaged Windows runtime artifact (`./install-windows/bin/Bloom.exe`) produced by `./scripts/build.ps1`.
+   - ✅ Direct libmpv control path confirmed in logs.
+   - ✅ Overlay/control/window-transition/manual parity checks completed.
 
-### Milestone D — Breakdown (planned)
+### Milestone D — Breakdown (completed)
 #### D1. Track-selection model unification (server + mpv)
 - ✅ Define authoritative track identity model (Jellyfin stream index vs mpv runtime track ID) and enforce one mapping contract across controller, backend, and QML.
 - ✅ Add explicit mapping layer and diagnostics for audio/subtitle selection, including `none/auto/default` handling.
@@ -227,7 +225,7 @@ Milestone C Windows manual validation script (runtime)
 #### D3. Validation and regression coverage
 - ✅ Add focused automated regressions around track-selection command mapping and lifecycle timing.
 - ✅ Add manual runtime validation checklist for startup + in-playback track switching on representative media.
-- ⏳ Close known track-selection gaps before Milestone E runtime/deprecation work (pending runtime package/manual validation on representative content).
+- ✅ Close known track-selection gaps before Milestone E runtime/deprecation work.
 
 ### Milestone E — Breakdown (kickoff + planned)
 #### E0. Linux runtime validation closeout (moved from Milestone B)
@@ -235,6 +233,7 @@ Milestone C Windows manual validation script (runtime)
 - ⏳ Validate resize/reposition reliability under real usage.
 - ⏳ Validate no CPU readback path is used.
 - ⏳ Validate Linux runtime parity (controls/reporting/stability) on representative compositor/hardware matrix.
+- ⏳ Bundle `libmpv` with Linux build/package artifacts and verify runtime library resolution on target systems.
 
 - ⬜ Add config toggle to keep `ExternalMpvBackend` available as an explicit backend selection.
 - ⬜ Enable embedded path by default only when parity criteria are met.
@@ -450,6 +449,12 @@ Exit criteria:
 - Audio/subtitle selections apply correctly at startup and during playback.
 - Subtitle `None` reliably disables subtitle rendering.
 - Track-selection behavior is consistent across supported backends.
+
+Milestone D closure status (February 13, 2026):
+- ✅ Startup track selection determinism validated on Windows direct `win-libmpv`.
+- ✅ Runtime audio/subtitle switching validated via playback overlay selectors.
+- ✅ Subtitle `None` behavior validated at startup and in playback.
+- ✅ Focused regression coverage passing (`PlayerBackendFactoryTest`, `PlayerControllerAutoplayContextTest`) on current build artifacts.
 
 ## Milestone E — Soft deprecation (optional)
 
