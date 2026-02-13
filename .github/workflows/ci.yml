@@ -60,9 +60,10 @@ jobs:
       - name: Cache sccache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/sccache
-          key: ${{ runner.os }}-sccache-${{ github.sha }}
+          path: .sccache
+          key: ${{ runner.os }}-sccache-msvc2022-qt610-v2
           restore-keys: |
+            ${{ runner.os }}-sccache-msvc2022-qt610-
             ${{ runner.os }}-sccache-
 
       - name: Setup sccache
@@ -76,8 +77,8 @@ jobs:
 
       - name: Build
         env:
-          SCCACHE_DIR: ~/.cache/sccache
-          SCCACHE_CACHE_SIZE: "2G"
+          SCCACHE_DIR: ${{ github.workspace }}/.sccache
+          SCCACHE_CACHE_SIZE: "4G"
         shell: pwsh
         run: |
           sccache --start-server
@@ -86,7 +87,7 @@ jobs:
             New-Item -ItemType Directory -Path build-windows
           }
           cd build-windows
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$installPrefix" -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX="$installPrefix" -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           cmake --build .
           cmake --install . --config Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
