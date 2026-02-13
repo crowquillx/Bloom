@@ -159,8 +159,8 @@ endif()
 
 if(WIN32)
     target_sources(Bloom PRIVATE
-        player/backend/WindowsLibmpvHwndBackend.h
-        player/backend/WindowsLibmpvHwndBackend.cpp
+        player/backend/WindowsMpvBackend.h
+        player/backend/WindowsMpvBackend.cpp
     )
 endif()
 

@@ -75,8 +75,8 @@ endif()
 
 if(WIN32)
     target_sources(PlayerBackendFactoryTest PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsLibmpvHwndBackend.h
-        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsLibmpvHwndBackend.cpp
+        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.cpp
     )
 endif()
 
@@ -323,8 +323,8 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(VisualRegressionTest PRIVATE ${LIBSECRET_LIBRARIES})
 elseif(WIN32)
     target_sources(VisualRegressionTest PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsLibmpvHwndBackend.h
-        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsLibmpvHwndBackend.cpp
+        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.cpp
     )
     # Windows: link advapi32 for Credential Manager API
     target_sources(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src/security/SecretStoreWindows.cpp)

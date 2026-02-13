@@ -10,13 +10,13 @@
 class ExternalMpvBackend;
 class QEvent;
 
-class WindowsLibmpvHwndBackend : public IPlayerBackend
+class WindowsMpvBackend : public IPlayerBackend
 {
     Q_OBJECT
 
 public:
-    explicit WindowsLibmpvHwndBackend(QObject *parent = nullptr);
-    ~WindowsLibmpvHwndBackend() override;
+    explicit WindowsMpvBackend(QObject *parent = nullptr);
+    ~WindowsMpvBackend() override;
 
     QString backendName() const override;
 
@@ -36,7 +36,10 @@ private:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
     void syncContainerGeometry();
-    void scheduleGeometrySync();
+    void scheduleGeometrySync(int delayMs = 16);
+    void beginTransitionMitigation(const char *reason, int settleMs = 90);
+    void logHdrDiagnostics(const QStringList &args, const QString &mediaUrl) const;
+    static bool isHdrRelatedArg(const QString &arg);
     void clearVideoTarget();
     bool resolveContainerHandle(QObject *target);
 
@@ -47,7 +50,9 @@ private:
     QRectF m_lastViewport;
     quintptr m_containerWinId = 0;
     QTimer m_geometrySyncTimer;
+    QTimer m_transitionSettleTimer;
     std::unique_ptr<WindowsNativeGeometryFilter> m_nativeGeometryFilter;
     QMetaObject::Connection m_videoTargetDestroyedConnection;
     bool m_nativeFilterInstalled = false;
+    bool m_transitionMitigationActive = false;
 };

@@ -44,7 +44,7 @@ Milestone B kickoff implemented now:
 - Added Linux-conditional build wiring for new backend sources and optional `libmpv` discovery/linking.
 
 Milestone C kickoff implemented now:
-- Added Windows backend scaffold: `WindowsLibmpvHwndBackend`.
+- Added Windows backend scaffold: `WindowsMpvBackend`.
 - Added Windows backend selection path in `PlayerBackendFactory` via selector token `win-libmpv`.
 - Added Windows-conditional build wiring for app/test targets using factory wiring.
 - Preserved fallback behavior: `external-mpv-ipc` remains explicit rollback/override and unknown backend names still fall back safely.
@@ -153,10 +153,10 @@ Overall milestone status:
 - ➡️ Linux target runtime validation items moved to Milestone D kickoff (D0).
 
 ### Milestone C — Breakdown (in progress)
-- ✅ Implement `WindowsLibmpvHwndBackend` scaffold (initial target-handle/viewport plumbing hooks, with playback delegation to external backend path during scaffold phase).
+- ✅ Implement `WindowsMpvBackend` scaffold (initial target-handle/viewport plumbing hooks, with playback delegation to external backend path during scaffold phase).
 - ✅ Implement native event filter + geometry sync/debounce (Windows `WM_SIZE`/`WM_MOVE`/`WM_WINDOWPOSCHANGED` hook with debounced sync scheduling in scaffold backend).
-- ⬜ Implement transition flicker mitigation path.
-- ⬜ Add HDR diagnostics and validation path.
+- ✅ Implement initial transition flicker mitigation path (state-aware deferred geometry sync during move/resize/window-state transitions).
+- ✅ Add initial HDR diagnostics and validation path (startup logging of HDR-relevant mpv option set and output-path hints in Windows backend scaffold).
 
 ### Milestone D — Breakdown (kickoff + planned)
 #### D0. Linux runtime validation closeout (moved from Milestone B)
@@ -218,7 +218,7 @@ Create `IPlayerBackend` (QObject-based interface) under `src/player/backend/`:
 Implementations:
 - `ExternalMpvBackend` (adapter over current `PlayerProcessManager` behavior)
 - `LinuxMpvBackend`
-- `WindowsLibmpvHwndBackend`
+- `WindowsMpvBackend`
 
 `PlayerController` depends on `IPlayerBackend` only.
 
@@ -318,7 +318,7 @@ Exit criteria:
 ## Milestone C — Windows embedded backend
 
 Deliverables:
-- `WindowsLibmpvHwndBackend` with container+video HWND parenting.
+- `WindowsMpvBackend` with container+video HWND parenting.
 - Native event filter and geometry sync.
 - Transition flicker mitigation.
 - HDR diagnostics/logging path.
@@ -388,7 +388,7 @@ Exit criteria:
 - `src/player/backend/IPlayerBackend.h`
 - `src/player/backend/ExternalMpvBackend.*`
 - `src/player/backend/LinuxMpvBackend.*`
-- `src/player/backend/WindowsLibmpvHwndBackend.*`
+- `src/player/backend/WindowsMpvBackend.*`
 - `src/player/backend/PlayerBackendFactory.*`
 - `src/player/MpvVideoItem.*` (or `src/ui/` equivalent)
 - `src/ui/VideoSurface.qml`

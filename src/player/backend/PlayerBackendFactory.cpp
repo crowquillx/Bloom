@@ -5,7 +5,7 @@
 #include "LinuxMpvBackend.h"
 #endif
 #if defined(Q_OS_WIN)
-#include "WindowsLibmpvHwndBackend.h"
+#include "WindowsMpvBackend.h"
 #endif
 
 #include <QByteArray>
@@ -53,7 +53,7 @@ std::unique_ptr<IPlayerBackend> PlayerBackendFactory::createByName(const QString
 
     if (backendName.compare(QString::fromLatin1(kWinLibmpvBackendName), Qt::CaseInsensitive) == 0) {
 #if defined(Q_OS_WIN)
-        return std::make_unique<WindowsLibmpvHwndBackend>(parent);
+    return std::make_unique<WindowsMpvBackend>(parent);
 #else
         qCWarning(lcPlayerBackendFactory)
             << "Windows libmpv backend requested on unsupported platform"

@@ -16,7 +16,7 @@ Backend architecture (Milestone A)
 - Unknown backend names safely fall back to `external-mpv-ipc`.
 
 Backend architecture (Milestone C kickoff)
-- Added `WindowsLibmpvHwndBackend` scaffold under `src/player/backend/`.
+- Added `WindowsMpvBackend` scaffold under `src/player/backend/`.
 - Selector token: `win-libmpv`.
 - Current scaffold preserves controller/backend interface parity and delegates playback behavior to the external backend path while Windows HWND target/viewport plumbing is staged.
 
