@@ -56,6 +56,27 @@ target_link_libraries(LibraryCacheStoreTest
 
 add_test(NAME LibraryCacheStoreTest COMMAND LibraryCacheStoreTest)
 
+# Player backend abstraction tests
+add_executable(PlayerBackendFactoryTest
+    PlayerBackendFactoryTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
+)
+
+target_include_directories(PlayerBackendFactoryTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(PlayerBackendFactoryTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME PlayerBackendFactoryTest COMMAND PlayerBackendFactoryTest)
+
 # ============================================================================
 # Visual Regression Test Fixtures
 # ============================================================================

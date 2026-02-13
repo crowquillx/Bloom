@@ -11,11 +11,13 @@
 #include <QElapsedTimer>
 
 #include "core/ApplicationInitializer.h"
+#include "core/ServiceLocator.h"
 #include "ui/WindowManager.h"
 #include "test/TestModeController.h"
 #include "network/Types.h"
 #include "utils/CacheMigrator.h"
 #include "ui/FontLoader.h"
+#include "player/backend/IPlayerBackend.h"
 
 /**
  * @brief Visual regression test class for capturing and comparing screenshots.
@@ -41,6 +43,7 @@ class VisualRegressionTest : public QObject
 private slots:
     void initTestCase();
     void cleanupTestCase();
+    void testBackendServiceRegistration();
 
     // Home screen tests
     void testHomeScreen_720p();
@@ -259,6 +262,13 @@ void VisualRegressionTest::cleanupTestCase()
     
     delete m_app;
     m_app = nullptr;
+}
+
+void VisualRegressionTest::testBackendServiceRegistration()
+{
+    IPlayerBackend *backend = ServiceLocator::tryGet<IPlayerBackend>();
+    QVERIFY2(backend != nullptr, "IPlayerBackend should be registered by ApplicationInitializer::registerServices");
+    QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
 }
 
 QImage VisualRegressionTest::captureScreen(QQuickWindow* window, const QString& screenName, const Resolution& res)

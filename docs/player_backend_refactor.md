@@ -1,5 +1,56 @@
 # Player Backend Refactor Plan (External mpv JSON IPC → Embedded libmpv)
 
+## Implementation status (Milestone A)
+
+Implemented now:
+- Added backend seam under `src/player/backend/`:
+   - `IPlayerBackend`
+   - `ExternalMpvBackend`
+   - `PlayerBackendFactory`
+- Refactored `PlayerController` to depend on `IPlayerBackend` instead of `PlayerProcessManager`.
+- Wired backend creation via `PlayerBackendFactory` in `ApplicationInitializer`.
+- Registered `IPlayerBackend` in `ServiceLocator` and log active backend at startup.
+- Added factory/runtime guardrails:
+   - `PlayerBackendFactory::createByName(...)`
+   - env override support via `BLOOM_PLAYER_BACKEND`
+   - unknown backend names fall back to `external-mpv-ipc` with warning log.
+- Added regression tests for backend factory behavior in `tests/PlayerBackendFactoryTest.cpp`.
+- Added integration-level assertion in `tests/VisualRegressionTest.cpp` that `ApplicationInitializer` registers `IPlayerBackend` in `ServiceLocator`.
+
+Not yet implemented in Milestone A:
+- Config-file backend selector key (currently env-only override + default external).
+- Embedded Linux/Windows backends (Milestones B/C).
+
+## Milestone A parity checklist (current)
+
+Status legend:
+- ✅ complete and validated
+- ⏳ pending
+
+Core deliverables:
+- ✅ `IPlayerBackend` introduced and compiled in app + tests.
+- ✅ `ExternalMpvBackend` wraps current external mpv IPC/process behavior.
+- ✅ `PlayerController` refactored to consume backend interface only.
+- ✅ `ApplicationInitializer` constructs backend via `PlayerBackendFactory`.
+- ✅ `IPlayerBackend` is registered in `ServiceLocator` during startup.
+- ✅ Active backend is logged at startup.
+
+Selection/fallback behavior:
+- ✅ Default backend remains `external-mpv-ipc`.
+- ✅ `BLOOM_PLAYER_BACKEND` env override supported.
+- ✅ Unknown backend names fall back safely to external backend with warning log.
+- ⏳ Config-file backend selector key (deferred to later milestone).
+
+Validation coverage:
+- ✅ Build passes via project build script.
+- ✅ `PlayerBackendFactoryTest` validates default selection, explicit selection, initial stopped state, and unknown-name fallback.
+- ✅ `VisualRegressionTest` asserts backend service registration in startup wiring.
+
+Commands used during Milestone A validation:
+- `./scripts/build.ps1`
+- `set BLOOM_PLAYER_BACKEND=external-mpv-ipc` (optional env selection smoke)
+- `build-windows/tests/Release/PlayerBackendFactoryTest.exe -txt`
+
 ## 1) Scope and locked decisions
 
 ### In scope

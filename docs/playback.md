@@ -4,9 +4,19 @@ Overview
 - mpv runs as an external, top-level process (avoid --wid embedding or transparent Qt overlays). Prefer `vo=gpu-next` on supported platforms.
 - Player is controlled via JSON IPC (Unix domain sockets on Linux; named pipes on Windows). The repo uses a PlayerProcessManager that launches mpv and exposes JSON IPC to the C++ controller.
 
+Backend architecture (Milestone A)
+- Playback now routes through `IPlayerBackend` (`src/player/backend/IPlayerBackend.h`).
+- `PlayerController` depends on the backend interface (not directly on `PlayerProcessManager`).
+- Current default backend is `ExternalMpvBackend` via `PlayerBackendFactory`.
+- Active backend is logged at startup from `ApplicationInitializer`.
+- Optional environment override for backend selection: `BLOOM_PLAYER_BACKEND`.
+- Unknown backend names safely fall back to `external-mpv-ipc`.
+
 Key components
-- PlayerProcessManager: manages mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
-- PlayerController: state machine that handles play/pause/resume, listens for mpv property updates, manages track selection, and reports playback state to the Jellyfin server.
+- IPlayerBackend: playback backend contract used by `PlayerController`.
+- ExternalMpvBackend: adapter that delegates to `PlayerProcessManager`.
+- PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
+- PlayerController: state machine that handles play/pause/resume, listens for backend updates, manages track selection, and reports playback state to the Jellyfin server.
 - JellyfinClient: handles API communication for reporting playback events, track selections, and sessions.
 - TrackPreferencesManager: persists audio/subtitle track preferences to a separate JSON file for fast lookup and persistence across sessions.
 
