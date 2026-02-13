@@ -142,10 +142,8 @@ jobs:
           if (Test-Path $cacheFile) {
             $hasMpvHeaders = Select-String -Path $cacheFile -Pattern "^BLOOM_MPV_INCLUDE_DIR:PATH=.*$" | Select-Object -First 1
             $hasMpvLib = Select-String -Path $cacheFile -Pattern "^BLOOM_MPV_LIBRARY:FILEPATH=.*$" | Select-Object -First 1
-            if (($hasMpvHeaders -and $hasMpvHeaders.Line -match "NOTFOUND")
-                -or ($hasMpvLib -and $hasMpvLib.Line -match "NOTFOUND")
-                -or (-not $hasMpvHeaders)
-                -or (-not $hasMpvLib)) {
+            $mpvMissing = (($hasMpvHeaders -and $hasMpvHeaders.Line -match "NOTFOUND") -or ($hasMpvLib -and $hasMpvLib.Line -match "NOTFOUND") -or (-not $hasMpvHeaders) -or (-not $hasMpvLib))
+            if ($mpvMissing) {
               Write-Error "libmpv SDK not detected during configure (BLOOM_MPV_INCLUDE_DIR/BLOOM_MPV_LIBRARY). Windows build requires direct libmpv support."
               exit 1
             }
