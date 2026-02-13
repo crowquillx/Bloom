@@ -42,14 +42,13 @@ Milestone B kickoff implemented now:
 - Added minimal `PlayerController` API for embedded target attach/detach, viewport forwarding, and internal/manual shrink mode property.
 - Added Linux-conditional build wiring for new backend sources and optional `libmpv` discovery/linking.
 
-Still pending in Milestone B (after kickoff):
+Still pending after Milestone B closeout (moved to start of Milestone D):
 - Final Linux target runtime validation for `mpv_render_context` reliability on representative hardware/compositors.
 - Linux runtime parity validation (controls, reporting, stability, no CPU readback).
-- Explicit shrink/restore validation test path.
 
 Validation sequencing note (current):
-- Linux on-device/runtime validation is intentionally deferred to a later Milestone B follow-up step when Linux test infrastructure/hardware is available.
-- Current implementation work can proceed first on backend parity/hardening and cross-platform-safe regressions (build + non-Linux tests), with Linux runtime verification executed afterward.
+- Linux on-device/runtime validation is intentionally deferred to the beginning of Milestone D (D0) when Linux test infrastructure/hardware is available.
+- Milestone B closes with backend parity/hardening plus cross-platform-safe regressions (build + non-Linux tests).
 
 ## Milestone A parity checklist (current)
 
@@ -93,9 +92,9 @@ Status legend:
 
 Overall milestone status:
 - **Milestone A — Backend abstraction + external fallback:** ✅ done
-- **Milestone B — Linux embedded backend:** 🟨 in progress
-- **Milestone C — Windows embedded backend:** ⬜ not started
-- **Milestone D — Soft deprecation / default switch:** 🟨 partially landed (Linux default switch completed; deprecation policy still pending)
+- **Milestone B — Embedded integration + parity hardening (non-Linux runtime validation):** ✅ done
+- **Milestone C — Windows embedded backend:** 🟨 in progress
+- **Milestone D — Linux runtime validation kickoff + soft deprecation/default switch:** 🟨 partially landed (Linux default switch completed; Linux runtime validation + deprecation policy pending)
 
 ### Milestone A — Breakdown (completed)
 - ✅ Backend interface (`IPlayerBackend`) created and wired.
@@ -106,45 +105,44 @@ Overall milestone status:
 - ✅ Logging + fallback behavior added.
 - ✅ Regression tests added and passing.
 
-### Milestone B — Breakdown (what needs to be done)
+### Milestone B — Breakdown (closed)
 
 #### B1. Backend and rendering primitives
-- 🟨 Create `LinuxMpvBackend` with `mpv_handle` + `mpv_render_context` ownership. (basic `mpv_handle` lifecycle + `mpv_render_context` hookup and `beforeRendering` render path added; Linux runtime validation pending)
+- ✅ Create `LinuxMpvBackend` with `mpv_handle` + `mpv_render_context` ownership. (implementation complete; Linux runtime validation moved to D0)
 - ✅ Create `MpvVideoItem` (or equivalent C++ video item) for Qt Quick render integration.
 - ✅ Define minimal render callback contract between backend and item.
-- 🟨 Add safe startup/shutdown lifecycle for libmpv context and render context. (`mpv_handle` + `mpv_render_context` startup/shutdown hooks added; target-environment reliability validation pending)
+- ✅ Add safe startup/shutdown lifecycle for libmpv context and render context. (`mpv_handle` + `mpv_render_context` startup/shutdown hooks added; target-environment runtime validation moved to D0)
 
 #### B2. Controller/factory wiring
 - ✅ Extend `PlayerBackendFactory` to instantiate Linux backend by name.
 - ✅ Platform-aware default selection implemented (Linux embedded default with external fallback; non-Linux external default).
-- 🟨 Ensure `PlayerController` behavior/signals remain unchanged across backend swap. (event/property parity improved; Linux runtime validation still pending)
+- ✅ Ensure `PlayerController` behavior/signals remain unchanged across backend swap. (event/property parity improvements landed; runtime verification on Linux targets moved to D0)
 
 #### B3. QML surface integration
 - ✅ Add `VideoSurface.qml` and integrate it into main playback UI path.
 - ✅ Ensure overlays remain above video surface.
-- 🟨 Preserve focus + keyboard/gamepad navigation behavior. (minimal integration added; Linux runtime validation pending)
+- ✅ Preserve focus + keyboard/gamepad navigation behavior in embedded path integration scope. (Linux on-device runtime verification moved to D0)
 
 #### B4. Runtime behavior parity
-- 🟨 Playback controls parity: command dispatch now supports typed variant command payloads.
-- 🟨 Track control parity: `aid`/`sid` update semantics normalized to external backend contract.
-- 🟨 Reporting parity: start/progress/pause/resume/stop paths preserved in backend abstraction.
-- 🟨 Next-up/autoplay/threshold behavior: fixed pending autoplay context handling across Idle transition so next-episode flow no longer loses series/item/track context before async callbacks.
+- ✅ Playback controls parity: command dispatch now supports typed variant command payloads.
+- ✅ Track control parity: `aid`/`sid` update semantics normalized to external backend contract.
+- ✅ Reporting parity: start/progress/pause/resume/stop paths preserved in backend abstraction.
+- ✅ Next-up/autoplay/threshold behavior: fixed pending autoplay context handling across Idle transition so next-episode flow no longer loses series/item/track context before async callbacks.
 - ✅ Added unit regression coverage for pending autoplay context flow, including mismatched-series guard behavior in `PlayerControllerAutoplayContextTest`.
 
 #### B5. Credits-shrink hook (internal)
 - ✅ Add backend/controller hook for runtime viewport resize.
-- 🟨 Wire a minimal internal test path for shrink/restore behavior. (controller property + surface wiring added; explicit test case pending)
+- ✅ Wire a minimal internal test path for shrink/restore behavior. (controller property signal/state behavior covered by `PlayerControllerAutoplayContextTest`)
 
 #### B6. Build and packaging
 - ✅ Update CMake for Linux-only backend sources and libmpv linkage.
 - ✅ Keep non-Linux builds unaffected.
-- 🟨 Document Linux dependency/link requirements in docs.
+- ✅ Document Linux dependency/link requirements in docs (build/runtime details tracked in playback/build documentation).
 
 #### B7. Validation & exit criteria
-- ⏳ Validate embedded playback on Linux target environment (deferred to later Milestone B follow-up).
-- 🟨 Validate resize/reposition reliability under real usage. (viewport/FBO/callback hardening landed; on-device validation pending)
-- ⏳ Validate no CPU readback path is used (Linux follow-up).
-- 🟨 Validate regressions do not appear on external fallback path.
+- ✅ Validate regressions do not appear on external fallback path.
+- ✅ Add focused controller parity regressions for next-up/autoplay context handling.
+- ➡️ Linux target runtime validation items moved to Milestone D kickoff (D0).
 
 ### Milestone C — Breakdown (planned)
 - ⬜ Implement `WindowsLibmpvHwndBackend` (container HWND + parenting).
@@ -152,7 +150,13 @@ Overall milestone status:
 - ⬜ Implement transition flicker mitigation path.
 - ⬜ Add HDR diagnostics and validation path.
 
-### Milestone D — Breakdown (planned)
+### Milestone D — Breakdown (kickoff + planned)
+#### D0. Linux runtime validation closeout (moved from Milestone B)
+- ⏳ Validate embedded playback on Linux target environment.
+- ⏳ Validate resize/reposition reliability under real usage.
+- ⏳ Validate no CPU readback path is used.
+- ⏳ Validate Linux runtime parity (controls/reporting/stability) on representative compositor/hardware matrix.
+
 - ⬜ Add config rollback toggle to keep `ExternalMpvBackend` available.
 - ⬜ Enable embedded path by default only when parity criteria are met.
 - ⬜ Mark legacy external path deprecated (not removed).

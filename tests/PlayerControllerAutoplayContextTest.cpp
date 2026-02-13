@@ -116,6 +116,7 @@ private slots:
     void itemMarkedPlayedUsesPendingContext();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
+    void embeddedVideoShrinkToggleEmitsAndPersists();
 };
 
 void PlayerControllerAutoplayContextTest::itemMarkedPlayedUsesPendingContext()
@@ -255,6 +256,40 @@ void PlayerControllerAutoplayContextTest::nextEpisodeIgnoresMismatchedSeries()
     QCOMPARE(controller.m_pendingAutoplaySeriesId, QStringLiteral("series-1"));
     QCOMPARE(controller.m_pendingAutoplayAudioTrack, 4);
     QCOMPARE(controller.m_pendingAutoplaySubtitleTrack, 7);
+}
+
+void PlayerControllerAutoplayContextTest::embeddedVideoShrinkToggleEmitsAndPersists()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    QSignalSpy shrinkSpy(&controller, &PlayerController::embeddedVideoShrinkEnabledChanged);
+
+    QVERIFY(!controller.embeddedVideoShrinkEnabled());
+    controller.setEmbeddedVideoShrinkEnabled(true);
+    QVERIFY(controller.embeddedVideoShrinkEnabled());
+    QCOMPARE(shrinkSpy.count(), 1);
+
+    // idempotent set should not emit
+    controller.setEmbeddedVideoShrinkEnabled(true);
+    QCOMPARE(shrinkSpy.count(), 1);
+
+    controller.setEmbeddedVideoShrinkEnabled(false);
+    QVERIFY(!controller.embeddedVideoShrinkEnabled());
+    QCOMPARE(shrinkSpy.count(), 2);
 }
 
 QTEST_MAIN(PlayerControllerAutoplayContextTest)
