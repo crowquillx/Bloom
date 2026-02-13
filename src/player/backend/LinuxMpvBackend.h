@@ -7,6 +7,7 @@
 #include <QPointer>
 #include <QRectF>
 #include <QVariant>
+#include <atomic>
 
 class QQuickItem;
 class QQuickWindow;
@@ -64,6 +65,7 @@ private:
 
     void *m_mpvHandle = nullptr;
     void *m_mpvRenderContext = nullptr;
-    bool m_eventDispatchQueued = false;
+    std::atomic_bool m_eventDispatchQueued{false};
+    std::atomic_bool m_acceptRenderUpdates{false};
     QList<QByteArray> m_commandScratch;
 };

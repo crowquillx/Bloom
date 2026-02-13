@@ -2,13 +2,14 @@ Playback — mpv & Jellyfin Integration
 
 Overview
 - Current production path: mpv runs as an external, top-level process (avoid `--wid` embedding or transparent Qt overlays for this path).
-- In-progress path (Milestone B kickoff): Linux embedded backend scaffold exists behind backend selection (`BLOOM_PLAYER_BACKEND=linux-libmpv-opengl`) with OpenGL runtime gating and fallback.
-- External path remains default and fully supported; embedded Linux path is not feature-complete yet.
+- Linux now defaults to embedded libmpv backend selection (`linux-libmpv-opengl`) with runtime OpenGL gating and automatic fallback to `external-mpv-ipc` when requirements are not met.
+- Non-Linux platforms keep `external-mpv-ipc` as default.
+- `external-mpv-ipc` remains fully supported as explicit rollback/override on all platforms via `BLOOM_PLAYER_BACKEND=external-mpv-ipc`.
 
 Backend architecture (Milestone A)
 - Playback now routes through `IPlayerBackend` (`src/player/backend/IPlayerBackend.h`).
 - `PlayerController` depends on the backend interface (not directly on `PlayerProcessManager`).
-- Current default backend is `ExternalMpvBackend` via `PlayerBackendFactory`.
+- Default backend is platform-aware via `PlayerBackendFactory` (Linux prefers embedded backend when runtime-supported; others default external).
 - Active backend is logged at startup from `ApplicationInitializer`.
 - Optional environment override for backend selection: `BLOOM_PLAYER_BACKEND`.
 - Unknown backend names safely fall back to `external-mpv-ipc`.
@@ -21,7 +22,12 @@ Backend architecture (Milestone B kickoff)
 - Linux backend scaffold added: `LinuxMpvBackend`.
 - `MpvVideoItem` + `VideoSurface.qml` added for minimal embedded surface plumbing.
 - `PlayerController` exposes minimal embedded-video passthrough and internal/manual shrink toggle API.
-- Remaining work: libmpv render-context wiring, runtime behavior parity, and Linux-target validation.
+- Linux backend now includes:
+  - typed `sendVariantCommand(...)` dispatch through libmpv command nodes,
+  - `client-message`/`scriptMessage` forwarding parity,
+  - `aid`/`sid` normalization parity with external backend contract,
+  - render hardening for viewport bounds/FBO-state restoration/update-callback lifecycle.
+- Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing.
 
 Key components
 - IPlayerBackend: playback backend contract used by `PlayerController`.

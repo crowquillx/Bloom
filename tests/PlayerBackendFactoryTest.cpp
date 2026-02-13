@@ -15,18 +15,27 @@ private slots:
     void createByNameSupportsExternal();
     void createByNameLinuxSelectionBehavior();
     void createByNameFallsBackForUnknown();
+    void envOverrideSelectsExternalBackend();
+    void envOverrideSelectsLinuxBackendWhenAvailable();
 };
 
 void PlayerBackendFactoryTest::createsExternalBackendByDefault()
 {
+    qunsetenv("BLOOM_PLAYER_BACKEND");
     std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create();
 
     QVERIFY(backend != nullptr);
+#if defined(Q_OS_LINUX)
+    QVERIFY(backend->backendName() == QStringLiteral("linux-libmpv-opengl")
+            || backend->backendName() == QStringLiteral("external-mpv-ipc"));
+#else
     QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+#endif
 }
 
 void PlayerBackendFactoryTest::backendStartsInStoppedState()
 {
+    qunsetenv("BLOOM_PLAYER_BACKEND");
     std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create();
 
     QVERIFY(backend != nullptr);
@@ -60,6 +69,35 @@ void PlayerBackendFactoryTest::createByNameFallsBackForUnknown()
 
     QVERIFY(backend != nullptr);
     QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+}
+
+void PlayerBackendFactoryTest::envOverrideSelectsExternalBackend()
+{
+    qputenv("BLOOM_PLAYER_BACKEND", "external-mpv-ipc");
+
+    std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create();
+
+    QVERIFY(backend != nullptr);
+    QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+
+    qunsetenv("BLOOM_PLAYER_BACKEND");
+}
+
+void PlayerBackendFactoryTest::envOverrideSelectsLinuxBackendWhenAvailable()
+{
+    qputenv("BLOOM_PLAYER_BACKEND", "linux-libmpv-opengl");
+
+    std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create();
+
+    QVERIFY(backend != nullptr);
+#if defined(Q_OS_LINUX)
+    QVERIFY(backend->backendName() == QStringLiteral("linux-libmpv-opengl")
+            || backend->backendName() == QStringLiteral("external-mpv-ipc"));
+#else
+    QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+#endif
+
+    qunsetenv("BLOOM_PLAYER_BACKEND");
 }
 
 QTEST_MAIN(PlayerBackendFactoryTest)

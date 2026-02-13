@@ -11,8 +11,14 @@
 
 Q_LOGGING_CATEGORY(lcPlayerBackendFactory, "bloom.playback.backend.factory")
 
-static constexpr auto kDefaultBackendName = "external-mpv-ipc";
+static constexpr auto kExternalBackendName = "external-mpv-ipc";
 static constexpr auto kLinuxLibmpvBackendName = "linux-libmpv-opengl";
+
+#if defined(Q_OS_LINUX)
+static constexpr auto kDefaultBackendName = kLinuxLibmpvBackendName;
+#else
+static constexpr auto kDefaultBackendName = kExternalBackendName;
+#endif
 
 std::unique_ptr<IPlayerBackend> PlayerBackendFactory::create(QObject *parent)
 {
@@ -34,12 +40,12 @@ std::unique_ptr<IPlayerBackend> PlayerBackendFactory::createByName(const QString
 
         qCWarning(lcPlayerBackendFactory)
             << "Linux libmpv backend requested but OpenGL runtime requirements are not met"
-            << "- falling back to" << kDefaultBackendName;
+            << "- falling back to" << kExternalBackendName;
         return std::make_unique<ExternalMpvBackend>(parent);
     }
 #endif
 
-    if (backendName.compare(QString::fromLatin1(kDefaultBackendName), Qt::CaseInsensitive) == 0) {
+    if (backendName.compare(QString::fromLatin1(kExternalBackendName), Qt::CaseInsensitive) == 0) {
         return std::make_unique<ExternalMpvBackend>(parent);
     }
 

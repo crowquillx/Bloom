@@ -18,6 +18,8 @@ Conventions: C++ PascalCase classes, camelCase methods, `m_` prefix; QML PascalC
 
 Playback & API: Key endpoints `/Users/{userId}/Items`, `/Shows/NextUp`, `/PlaybackInfo`, `/Sessions/Playing`. Report start/progress/pause/stop and mark watched via `ConfigManager` thresholds.
 
+Backend policy (high level): Linux prefers embedded libmpv backend when runtime requirements are met; all platforms keep `external-mpv-ipc` as explicit rollback path via backend selection override.
+
 Build & run:
 ```
 ./scripts/build-docker.sh 

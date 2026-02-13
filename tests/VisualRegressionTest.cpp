@@ -268,7 +268,13 @@ void VisualRegressionTest::testBackendServiceRegistration()
 {
     IPlayerBackend *backend = ServiceLocator::tryGet<IPlayerBackend>();
     QVERIFY2(backend != nullptr, "IPlayerBackend should be registered by ApplicationInitializer::registerServices");
+#if defined(Q_OS_LINUX)
+    QVERIFY2(backend->backendName() == QStringLiteral("linux-libmpv-opengl")
+                 || backend->backendName() == QStringLiteral("external-mpv-ipc"),
+             "Linux should select embedded backend when supported, otherwise fall back to external backend");
+#else
     QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+#endif
 }
 
 QImage VisualRegressionTest::captureScreen(QQuickWindow* window, const QString& screenName, const Resolution& res)

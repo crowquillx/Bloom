@@ -16,9 +16,19 @@ Implemented now:
    - unknown backend names fall back to `external-mpv-ipc` with warning log.
 - Added regression tests for backend factory behavior in `tests/PlayerBackendFactoryTest.cpp`.
 - Added integration-level assertion in `tests/VisualRegressionTest.cpp` that `ApplicationInitializer` registers `IPlayerBackend` in `ServiceLocator`.
+- Updated platform default selection behavior:
+   - Linux now defaults to `linux-libmpv-opengl` when runtime requirements are met.
+   - Linux auto-falls back to `external-mpv-ipc` when embedded runtime requirements are not met.
+   - Non-Linux platforms continue to default to `external-mpv-ipc`.
+- Hardened Linux embedded runtime path:
+   - safer render/update callback lifecycle,
+   - stronger viewport/FBO render state handling,
+   - scenegraph re-init handling,
+   - `client-message` forwarding parity,
+   - `aid`/`sid` normalization parity with external backend semantics.
 
 Not yet implemented in Milestone A:
-- Config-file backend selector key (currently env-only override + default external).
+- Config-file backend selector key (currently env-only override + platform default selection).
 - Embedded Linux/Windows backends (Milestones B/C).
 
 Milestone B kickoff implemented now:
@@ -32,8 +42,7 @@ Milestone B kickoff implemented now:
 - Added Linux-conditional build wiring for new backend sources and optional `libmpv` discovery/linking.
 
 Still pending in Milestone B (after kickoff):
-- Final render-path validation and hardening for `mpv_render_context` integration on Linux target systems.
-- Playback command/property parity in the Linux embedded backend.
+- Final Linux target runtime validation for `mpv_render_context` reliability on representative hardware/compositors.
 - Linux runtime parity validation (controls, reporting, stability, no CPU readback).
 - Explicit shrink/restore validation test path.
 
@@ -52,7 +61,7 @@ Core deliverables:
 - ✅ Active backend is logged at startup.
 
 Selection/fallback behavior:
-- ✅ Default backend remains `external-mpv-ipc`.
+- ✅ Default backend is platform-aware (`linux-libmpv-opengl` on Linux when supported; `external-mpv-ipc` otherwise).
 - ✅ `BLOOM_PLAYER_BACKEND` env override supported.
 - ✅ Unknown backend names fall back safely to external backend with warning log.
 - ⏳ Config-file backend selector key (deferred to later milestone).
@@ -81,7 +90,7 @@ Overall milestone status:
 - **Milestone A — Backend abstraction + external fallback:** ✅ done
 - **Milestone B — Linux embedded backend:** 🟨 in progress
 - **Milestone C — Windows embedded backend:** ⬜ not started
-- **Milestone D — Soft deprecation / default switch:** ⬜ not started
+- **Milestone D — Soft deprecation / default switch:** 🟨 partially landed (Linux default switch completed; deprecation policy still pending)
 
 ### Milestone A — Breakdown (completed)
 - ✅ Backend interface (`IPlayerBackend`) created and wired.
@@ -102,8 +111,8 @@ Overall milestone status:
 
 #### B2. Controller/factory wiring
 - ✅ Extend `PlayerBackendFactory` to instantiate Linux backend by name.
-- ✅ Keep external backend as default unless explicitly selected.
-- 🟨 Ensure `PlayerController` behavior/signals remain unchanged across backend swap. (interface extended + pass-through hooks; runtime parity still pending)
+- ✅ Platform-aware default selection implemented (Linux embedded default with external fallback; non-Linux external default).
+- 🟨 Ensure `PlayerController` behavior/signals remain unchanged across backend swap. (event/property parity improved; Linux runtime validation still pending)
 
 #### B3. QML surface integration
 - ✅ Add `VideoSurface.qml` and integrate it into main playback UI path.
@@ -111,8 +120,8 @@ Overall milestone status:
 - 🟨 Preserve focus + keyboard/gamepad navigation behavior. (minimal integration added; Linux runtime validation pending)
 
 #### B4. Runtime behavior parity
-- ⬜ Playback controls parity: play/pause/resume/seek/stop.
-- ⬜ Track control parity: audio/subtitle selection and updates.
+- 🟨 Playback controls parity: command dispatch now supports typed variant command payloads.
+- 🟨 Track control parity: `aid`/`sid` update semantics normalized to external backend contract.
 - ⬜ Reporting parity: start/progress/pause/resume/stop unchanged.
 - ⬜ Next-up/autoplay/threshold behavior unchanged.
 
@@ -127,7 +136,7 @@ Overall milestone status:
 
 #### B7. Validation & exit criteria
 - ⬜ Validate embedded playback on Linux target environment.
-- ⬜ Validate resize/reposition reliability under real usage.
+- 🟨 Validate resize/reposition reliability under real usage. (viewport/FBO/callback hardening landed; on-device validation pending)
 - ⬜ Validate no CPU readback path is used.
 - ⬜ Validate regressions do not appear on external fallback path.
 
@@ -155,6 +164,7 @@ Overall milestone status:
 - Windows contingency notes: render-API fallback may be documented, not primary.
 - Linux primary implementation: **libmpv render API + OpenGL** into Qt Quick item.
 - Keep `ExternalMpvBackend` as rollback path, config-gated, **default OFF**.
+- Keep `ExternalMpvBackend` as rollback path and explicit env override on all platforms.
 - No requirement to preserve current Lua script UX; architecture must support future native controls/trickplay.
 
 ---

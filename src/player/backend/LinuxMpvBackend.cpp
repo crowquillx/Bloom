@@ -9,6 +9,7 @@
 #include <QOpenGLFunctions>
 #include <QVector>
 #include <QtGlobal>
+#include <algorithm>
 
 #if defined(BLOOM_HAS_LIBMPV)
 extern "C" {
@@ -121,6 +122,68 @@ void LinuxMpvBackend::sendCommand(const QStringList &command)
 
 void LinuxMpvBackend::sendVariantCommand(const QVariantList &command)
 {
+#if defined(BLOOM_HAS_LIBMPV)
+    if (!m_mpvHandle) {
+        qCWarning(lcLinuxLibmpvBackend) << "sendVariantCommand called without active mpv handle";
+        return;
+    }
+
+    mpv_handle *handle = static_cast<mpv_handle *>(m_mpvHandle);
+
+    QVector<mpv_node> commandNodes(command.size());
+    QList<QByteArray> commandStrings;
+    commandStrings.reserve(command.size());
+
+    for (int index = 0; index < command.size(); ++index) {
+        const QVariant &part = command.at(index);
+        mpv_node &node = commandNodes[index];
+
+        switch (part.typeId()) {
+        case QMetaType::Bool:
+            node.format = MPV_FORMAT_FLAG;
+            node.u.flag = part.toBool() ? 1 : 0;
+            break;
+        case QMetaType::Int:
+        case QMetaType::LongLong:
+        case QMetaType::UInt:
+        case QMetaType::ULongLong:
+        case QMetaType::Long:
+        case QMetaType::ULong:
+        case QMetaType::Short:
+        case QMetaType::UShort:
+        case QMetaType::Char:
+        case QMetaType::SChar:
+        case QMetaType::UChar:
+            node.format = MPV_FORMAT_INT64;
+            node.u.int64 = part.toLongLong();
+            break;
+        case QMetaType::Float:
+        case QMetaType::Double:
+            node.format = MPV_FORMAT_DOUBLE;
+            node.u.double_ = part.toDouble();
+            break;
+        default: {
+            node.format = MPV_FORMAT_STRING;
+            commandStrings.append(part.toString().toUtf8());
+            node.u.string = commandStrings.constLast().data();
+            break;
+        }
+        }
+    }
+
+    mpv_node_list commandList;
+    commandList.num = commandNodes.size();
+    commandList.values = commandNodes.data();
+    commandList.keys = nullptr;
+
+    mpv_node commandArray;
+    commandArray.format = MPV_FORMAT_NODE_ARRAY;
+    commandArray.u.list = &commandList;
+
+    if (mpv_command_node_async(handle, 0, &commandArray) < 0) {
+        qCWarning(lcLinuxLibmpvBackend) << "mpv_command_node_async failed for command" << command;
+    }
+#else
     QStringList converted;
     converted.reserve(command.size());
 
@@ -133,6 +196,7 @@ void LinuxMpvBackend::sendVariantCommand(const QVariantList &command)
     }
 
     sendCommand(converted);
+#endif
 }
 
 bool LinuxMpvBackend::supportsEmbeddedVideo() const
@@ -243,7 +307,7 @@ void LinuxMpvBackend::teardownMpv()
 #endif
 
     m_mpvHandle = nullptr;
-    m_eventDispatchQueued = false;
+    m_eventDispatchQueued.store(false, std::memory_order_release);
 
     if (m_running) {
         m_running = false;
@@ -253,7 +317,7 @@ void LinuxMpvBackend::teardownMpv()
 
 void LinuxMpvBackend::processMpvEvents()
 {
-    m_eventDispatchQueued = false;
+    m_eventDispatchQueued.store(false, std::memory_order_release);
 
 #if defined(BLOOM_HAS_LIBMPV)
     if (!m_mpvHandle) {
@@ -271,10 +335,29 @@ void LinuxMpvBackend::processMpvEvents()
         switch (event->event_id) {
         case MPV_EVENT_SHUTDOWN:
             teardownMpv();
-            break;
+            return;
         case MPV_EVENT_END_FILE:
             emit playbackEnded();
             break;
+        case MPV_EVENT_CLIENT_MESSAGE: {
+            mpv_event_client_message *message = static_cast<mpv_event_client_message *>(event->data);
+            if (!message || message->num_args <= 0 || !message->args) {
+                break;
+            }
+
+            const QString messageName = QString::fromUtf8(message->args[0] ? message->args[0] : "");
+            if (messageName.isEmpty()) {
+                break;
+            }
+
+            QStringList messageArgs;
+            for (int index = 1; index < message->num_args; ++index) {
+                messageArgs.append(QString::fromUtf8(message->args[index] ? message->args[index] : ""));
+            }
+
+            emit scriptMessage(messageName, messageArgs);
+            break;
+        }
         case MPV_EVENT_LOG_MESSAGE:
             break;
         case MPV_EVENT_PROPERTY_CHANGE: {
@@ -409,12 +492,14 @@ void LinuxMpvBackend::handlePropertyChange(const QString &name, const QVariant &
     }
 
     if (name == QStringLiteral("aid")) {
-        emit audioTrackChanged(value.toInt());
+        const int mpvTrackId = value.toInt();
+        emit audioTrackChanged(mpvTrackId > 0 ? mpvTrackId - 1 : -1);
         return;
     }
 
     if (name == QStringLiteral("sid")) {
-        emit subtitleTrackChanged(value.toInt());
+        const int mpvTrackId = value.toInt();
+        emit subtitleTrackChanged(mpvTrackId > 0 ? mpvTrackId - 1 : -1);
     }
 }
 
@@ -453,6 +538,10 @@ void LinuxMpvBackend::handleWindowChanged(QQuickWindow *window)
     m_beforeRenderingConnection = connect(m_renderWindow, &QQuickWindow::beforeRendering,
                                           this, &LinuxMpvBackend::renderFrame,
                                           Qt::DirectConnection);
+
+    if (m_renderWindow->isSceneGraphInitialized()) {
+        initializeRenderContextIfNeeded();
+    }
 }
 
 void LinuxMpvBackend::initializeRenderContextIfNeeded()
@@ -480,6 +569,7 @@ void LinuxMpvBackend::initializeRenderContextIfNeeded()
     }
 
     m_mpvRenderContext = renderContext;
+    m_acceptRenderUpdates.store(true, std::memory_order_release);
     mpv_render_context_set_update_callback(renderContext, &LinuxMpvBackend::renderUpdateCallback, this);
 #endif
 }
@@ -487,6 +577,8 @@ void LinuxMpvBackend::initializeRenderContextIfNeeded()
 void LinuxMpvBackend::teardownRenderContext()
 {
 #if defined(BLOOM_HAS_LIBMPV)
+    m_acceptRenderUpdates.store(false, std::memory_order_release);
+
     if (!m_mpvRenderContext) {
         return;
     }
@@ -524,17 +616,28 @@ void LinuxMpvBackend::renderFrame()
                           m_renderWindow->height());
     }
 
+    const QRectF windowBounds(0.0, 0.0, m_renderWindow->width(), m_renderWindow->height());
+    viewport = viewport.intersected(windowBounds);
+    if (viewport.width() <= 0.0 || viewport.height() <= 0.0) {
+        return;
+    }
+
     const int viewportWidth = qMax(1, static_cast<int>(viewport.width() * dpr));
     const int viewportHeight = qMax(1, static_cast<int>(viewport.height() * dpr));
 
     GLint previousFbo = 0;
     GLint previousViewport[4] = {0, 0, 0, 0};
+    GLint previousScissorBox[4] = {0, 0, 0, 0};
+    const GLboolean previousScissorEnabled = gl->glIsEnabled(GL_SCISSOR_TEST);
     gl->glGetIntegerv(GL_FRAMEBUFFER_BINDING, &previousFbo);
     gl->glGetIntegerv(GL_VIEWPORT, previousViewport);
+    gl->glGetIntegerv(GL_SCISSOR_BOX, previousScissorBox);
 
     const int windowPixelHeight = qMax(1, static_cast<int>(m_renderWindow->height() * dpr));
-    const int viewportX = static_cast<int>(viewport.x() * dpr);
-    const int viewportY = windowPixelHeight - static_cast<int>((viewport.y() + viewport.height()) * dpr);
+    const int viewportX = qMax(0, static_cast<int>(viewport.x() * dpr));
+    const int viewportY = std::clamp(windowPixelHeight - static_cast<int>((viewport.y() + viewport.height()) * dpr),
+                                     0,
+                                     windowPixelHeight - 1);
     gl->glViewport(viewportX, viewportY, viewportWidth, viewportHeight);
 
     mpv_opengl_fbo fbo = {previousFbo, viewportWidth, viewportHeight, 0};
@@ -546,18 +649,30 @@ void LinuxMpvBackend::renderFrame()
     };
 
     mpv_render_context_render(static_cast<mpv_render_context *>(m_mpvRenderContext), params);
+
+    gl->glBindFramebuffer(GL_FRAMEBUFFER, previousFbo);
     gl->glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
+    gl->glScissor(previousScissorBox[0], previousScissorBox[1], previousScissorBox[2], previousScissorBox[3]);
+    if (previousScissorEnabled) {
+        gl->glEnable(GL_SCISSOR_TEST);
+    } else {
+        gl->glDisable(GL_SCISSOR_TEST);
+    }
 #endif
 }
 
 void LinuxMpvBackend::wakeupCallback(void *ctx)
 {
     LinuxMpvBackend *self = static_cast<LinuxMpvBackend *>(ctx);
-    if (!self || self->m_eventDispatchQueued) {
+    if (!self) {
         return;
     }
 
-    self->m_eventDispatchQueued = true;
+    bool expected = false;
+    if (!self->m_eventDispatchQueued.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        return;
+    }
+
     QMetaObject::invokeMethod(self, [self]() {
         self->processMpvEvents();
     }, Qt::QueuedConnection);
@@ -566,11 +681,16 @@ void LinuxMpvBackend::wakeupCallback(void *ctx)
 void LinuxMpvBackend::renderUpdateCallback(void *ctx)
 {
     LinuxMpvBackend *self = static_cast<LinuxMpvBackend *>(ctx);
-    if (!self || !self->m_renderWindow) {
+    if (!self || !self->m_acceptRenderUpdates.load(std::memory_order_acquire)) {
         return;
     }
 
-    QMetaObject::invokeMethod(self->m_renderWindow, &QQuickWindow::update, Qt::QueuedConnection);
+    const QPointer<QQuickWindow> window = self->m_renderWindow;
+    if (!window) {
+        return;
+    }
+
+    QMetaObject::invokeMethod(window, &QQuickWindow::update, Qt::QueuedConnection);
 }
 
 void *LinuxMpvBackend::getProcAddress(void *ctx, const char *name)
