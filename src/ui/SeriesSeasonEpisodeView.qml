@@ -1706,7 +1706,12 @@ FocusScope {
         target: ResponsiveLayoutManager
         function onBreakpointChanged() {
             root.savedEpisodeIndex = episodesList.currentIndex
-            root.savedFocusItem = root.Window.activeFocusItem
+            var active = root.Window.activeFocusItem
+            if (active && active.parent && typeof active.forceActiveFocus === 'function') {
+                root.savedFocusItem = active
+            } else {
+                root.savedFocusItem = null
+            }
             Qt.callLater(root.restoreFocusAfterBreakpoint)
         }
     }
@@ -1716,9 +1721,15 @@ FocusScope {
             episodesList.currentIndex = Math.min(savedEpisodeIndex, episodesList.count - 1)
             episodesList.positionViewAtIndex(episodesList.currentIndex, ListView.Contain)
         }
-        if (savedFocusItem) {
+        if (savedFocusItem && savedFocusItem.parent && typeof savedFocusItem.forceActiveFocus === 'function') {
             savedFocusItem.forceActiveFocus()
-            savedFocusItem = null
+        } else {
+            if (episodesList.currentItem) {
+                episodesList.currentItem.forceActiveFocus()
+            } else {
+                root.forceActiveFocus()
+            }
         }
+        savedFocusItem = null
     }
 }

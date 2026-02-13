@@ -146,8 +146,8 @@ Item {
     
     // Responsive typography
     Text {
-        font.pixelSize: Theme.fontSizeLarge
-        color: Theme.textColor
+        font.pixelSize: Theme.fontSizeTitle
+        color: Theme.textPrimary
     }
     
     // Responsive grid
@@ -164,10 +164,10 @@ Item {
 |-------|-------------|
 | `Theme.layoutScale` | Continuous scale factor for sizing |
 | `Theme.gridColumns` | Number of grid columns |
-| `Theme.fontSizeSmall` | Small text (12px base) |
-| `Theme.fontSizeMedium` | Medium text (14px base) |
-| `Theme.fontSizeLarge` | Large text (18px base) |
-| `Theme.fontSizeXLarge` | Extra-large text (24px base) |
+| `Theme.fontSizeSmall` | Small text (20px base) |
+| `Theme.fontSizeMedium` | Medium text (28px base) |
+| `Theme.fontSizeTitle` | Title text (32px base) |
+| `Theme.fontSizeDisplay` | Display text (42px base) |
 | `Theme.spacingSmall` | Small spacing (4px base) |
 | `Theme.spacingMedium` | Medium spacing (8px base) |
 | `Theme.spacingLarge` | Large spacing (16px base) |
@@ -375,8 +375,8 @@ cellHeight: cellWidth * 1.75   // poster aspect ratio
 `Behavior on cellWidth` and `Behavior on cellHeight` animate grid reflows, gated by `Theme.animationsEnabled`:
 
 ```qml
-Behavior on cellWidth  { enabled: Theme.animationsEnabled; NumberAnimation { duration: 200 } }
-Behavior on cellHeight { enabled: Theme.animationsEnabled; NumberAnimation { duration: 200 } }
+Behavior on cellWidth  { enabled: Theme.uiAnimationsEnabled; NumberAnimation { duration: 200 } }
+Behavior on cellHeight { enabled: Theme.uiAnimationsEnabled; NumberAnimation { duration: 200 } }
 ```
 
 ### Focus restoration on column change

@@ -701,18 +701,14 @@ FocusScope {
                 Layout.fillHeight: true
                 Accessible.role: Accessible.List
                 Accessible.name: currentParentId === "" ? "Media Libraries" : (currentLibraryName + " Library Items")
-                property int columns: Theme.gridColumns
+                property int columns
 
                 cellWidth: width / columns
                 cellHeight: (cellWidth - Theme.spacingSmall) * 1.5 + Math.round(70 * Theme.layoutScale)
 
-                Behavior on cellWidth {
-                    enabled: Theme.animationsEnabled
-                    NumberAnimation { duration: Theme.transitionDuration; easing.type: Easing.OutCubic }
-                }
-                Behavior on cellHeight {
-                    enabled: Theme.animationsEnabled
-                    NumberAnimation { duration: Theme.transitionDuration; easing.type: Easing.OutCubic }
+                Behavior on opacity {
+                    enabled: Theme.uiAnimationsEnabled
+                    NumberAnimation { duration: 200 }
                 }
 
                 property int savedFocusIndex: -1
@@ -721,9 +717,16 @@ FocusScope {
                     target: Theme
                     function onGridColumnsChanged() {
                         grid.savedFocusIndex = grid.currentIndex
-                        Qt.callLater(grid.restoreFocusAfterColumnChange)
+                        grid.opacity = 0
+                        Qt.callLater(function() {
+                            grid.columns = Theme.gridColumns
+                            grid.opacity = 1
+                            grid.restoreFocusAfterColumnChange()
+                        })
                     }
                 }
+
+                Component.onCompleted: columns = Theme.gridColumns
 
                 function restoreFocusAfterColumnChange() {
                     if (savedFocusIndex >= 0 && savedFocusIndex < count) {
@@ -914,9 +917,17 @@ FocusScope {
                                 source: delegateItem.getImageSource()
                                 onStatusChanged: {
                                     if (status === Image.Error) {
-                                        source = delegateItem.modelData && delegateItem.modelData.Id
-                                            ? LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Primary")
-                                            : ""
+                                        var fallbackSource = delegateItem.getImageSource();
+                                        if (fallbackSource) {
+                                            source = fallbackSource;
+                                        } else if (delegateItem.modelData && delegateItem.modelData.Id) {
+                                            source = LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Primary") ||
+                                                     LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Thumb") ||
+                                                     LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Backdrop") ||
+                                                     "";
+                                        } else {
+                                            source = "";
+                                        }
                                     }
                                 }
 

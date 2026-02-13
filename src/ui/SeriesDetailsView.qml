@@ -1421,10 +1421,16 @@ FocusScope {
             seasonsGrid.currentIndex = Math.min(savedSeasonIndex, seasonsGrid.count - 1)
             seasonsGrid.positionViewAtIndex(seasonsGrid.currentIndex, GridView.Contain)
         }
-        if (savedFocusItem) {
+        if (savedFocusItem && savedFocusItem.parent && typeof savedFocusItem.forceActiveFocus === 'function') {
             savedFocusItem.forceActiveFocus()
-            savedFocusItem = null
+        } else {
+            if (seasonsGrid.currentItem) {
+                seasonsGrid.currentItem.forceActiveFocus()
+            } else {
+                root.forceActiveFocus()
+            }
         }
+        savedFocusItem = null
     }
 
     // Context Menu for MPV Profile Selection
