@@ -17,6 +17,7 @@ Bloom uses CMake as its build system and supports multiple build methods:
 - **CMake 3.16+**
 - **Ninja** (recommended) or Make
 - **mpv** (runtime dependency)
+- **libmpv development package** (required for Linux embedded backend milestone work; package name varies by distro)
 - **libsecret-1** (for secure credential storage)
 - **C++23-capable compiler** (GCC 13+, Clang 16+)
 
@@ -168,6 +169,14 @@ wine Bloom-Setup-0.1.0.exe
 **Solution:**
 - On Arch: `sudo pacman -S libsecret`
 - On Ubuntu: `sudo apt install libsecret-1-dev`
+
+### libmpv Development Files Missing (Linux)
+**Symptom:** Configure output warns that libmpv development package was not found and Linux embedded backend remains scaffold-only.
+
+**Solution:**
+- On Arch: `sudo pacman -S mpv`
+- On Ubuntu: `sudo apt install libmpv-dev`
+- Re-run the project build script after installing dependencies.
 
 ### MinGW Toolchain Issues
 **Symptom:** `build-windows.sh` fails with "x86_64-w64-mingw32-cmake: command not found".

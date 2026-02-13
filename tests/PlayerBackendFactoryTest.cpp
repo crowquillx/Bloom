@@ -1,4 +1,5 @@
 #include <QtTest/QtTest>
+#include <QtGlobal>
 #include <memory>
 
 #include "player/backend/IPlayerBackend.h"
@@ -12,6 +13,7 @@ private slots:
     void createsExternalBackendByDefault();
     void backendStartsInStoppedState();
     void createByNameSupportsExternal();
+    void createByNameLinuxSelectionBehavior();
     void createByNameFallsBackForUnknown();
 };
 
@@ -37,6 +39,19 @@ void PlayerBackendFactoryTest::createByNameSupportsExternal()
 
     QVERIFY(backend != nullptr);
     QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+}
+
+void PlayerBackendFactoryTest::createByNameLinuxSelectionBehavior()
+{
+    std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::createByName(QStringLiteral("linux-libmpv-opengl"));
+
+    QVERIFY(backend != nullptr);
+#if defined(Q_OS_LINUX)
+    QVERIFY(backend->backendName() == QStringLiteral("linux-libmpv-opengl")
+            || backend->backendName() == QStringLiteral("external-mpv-ipc"));
+#else
+    QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+#endif
 }
 
 void PlayerBackendFactoryTest::createByNameFallsBackForUnknown()

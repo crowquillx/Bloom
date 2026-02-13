@@ -54,6 +54,8 @@ class PlayerController : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(int bufferingProgress READ bufferingProgress NOTIFY bufferingProgressChanged)
     Q_PROPERTY(int audioDelay READ audioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
+    Q_PROPERTY(bool supportsEmbeddedVideo READ supportsEmbeddedVideo NOTIFY supportsEmbeddedVideoChanged)
+    Q_PROPERTY(bool embeddedVideoShrinkEnabled READ embeddedVideoShrinkEnabled WRITE setEmbeddedVideoShrinkEnabled NOTIFY embeddedVideoShrinkEnabledChanged)
     
     // Track selection properties
     Q_PROPERTY(int selectedAudioTrack READ selectedAudioTrack WRITE setSelectedAudioTrack NOTIFY selectedAudioTrackChanged)
@@ -108,7 +110,13 @@ public:
     
     // Audio Delay (ms)
     int audioDelay() const { return m_config->getAudioDelay(); }
+    bool supportsEmbeddedVideo() const;
+    bool embeddedVideoShrinkEnabled() const { return m_embeddedVideoShrinkEnabled; }
     Q_INVOKABLE void setAudioDelay(int ms);
+    Q_INVOKABLE bool attachEmbeddedVideoTarget(QObject *target);
+    Q_INVOKABLE void detachEmbeddedVideoTarget(QObject *target = nullptr);
+    Q_INVOKABLE void setEmbeddedVideoViewport(qreal x, qreal y, qreal width, qreal height);
+    Q_INVOKABLE void setEmbeddedVideoShrinkEnabled(bool enabled);
 
     Q_INVOKABLE void playTestVideo();
     Q_INVOKABLE void playUrl(const QString &url, const QString &itemId = "", qint64 startPositionTicks = 0, const QString &seriesId = "", const QString &seasonId = "", const QString &libraryId = "", double framerate = 0.0, bool isHDR = false);
@@ -165,6 +173,8 @@ signals:
     void bufferingProgressChanged();
     void audioDelayChanged();
     void isPlaybackActiveChanged();
+    void supportsEmbeddedVideoChanged();
+    void embeddedVideoShrinkEnabledChanged();
     
     // Track selection signals
     void selectedAudioTrackChanged();
@@ -328,6 +338,8 @@ private:
     // Config cache
     QString m_mpvBin;
     QString m_testVideoUrl;
+
+    bool m_embeddedVideoShrinkEnabled = false;
     
     // OSC and trickplay data
     QList<MediaSegmentInfo> m_currentSegments;

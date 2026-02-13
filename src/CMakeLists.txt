@@ -12,6 +12,8 @@ qt_add_executable(Bloom
     resources/images.qrc
     player/PlayerProcessManager.cpp
     player/PlayerController.cpp
+    player/MpvVideoItem.h
+    player/MpvVideoItem.cpp
     player/ThemeSongManager.cpp
     player/TrickplayProcessor.cpp
     player/TrickplayProcessor.h
@@ -127,6 +129,7 @@ qt_add_qml_module(Bloom
         ui/Sidebar.qml
         ui/MediaProgressBar.qml
         ui/MpvProfileEditor.qml
+        ui/VideoSurface.qml
         ui/TrackSelector.qml
         ui/MediaInfoPanel.qml
         ui/ToastNotification.qml
@@ -134,6 +137,25 @@ qt_add_qml_module(Bloom
         ui/ActiveSessionsScreen.qml
         ui/TrackUtils.js
 )
+
+if(UNIX AND NOT APPLE)
+    target_sources(Bloom PRIVATE
+        player/backend/LinuxLibmpvOpenGLBackend.h
+        player/backend/LinuxLibmpvOpenGLBackend.cpp
+    )
+
+    if(COMMAND pkg_check_modules)
+        pkg_check_modules(LIBMPV QUIET mpv)
+    endif()
+
+    if(LIBMPV_FOUND)
+        target_include_directories(Bloom PRIVATE ${LIBMPV_INCLUDE_DIRS})
+        target_link_libraries(Bloom PRIVATE ${LIBMPV_LIBRARIES})
+        target_compile_definitions(Bloom PRIVATE BLOOM_HAS_LIBMPV=1)
+    else()
+        message(STATUS "libmpv development package not found; Linux embedded backend remains scaffold-only")
+    endif()
+endif()
 
 target_link_libraries(Bloom
     PRIVATE
@@ -147,6 +169,8 @@ target_link_libraries(Bloom
     Qt6::Multimedia
 
 )
+
+target_include_directories(Bloom PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/player)
 
 qt6_add_translations(Bloom
     TS_FILES resources/translations/Bloom_en.ts

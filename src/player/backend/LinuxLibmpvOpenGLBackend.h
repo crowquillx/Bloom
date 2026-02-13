@@ -1,15 +1,19 @@
 #pragma once
 
 #include "IPlayerBackend.h"
-#include "../PlayerProcessManager.h"
 
-class ExternalMpvBackend : public IPlayerBackend
+#include <QPointer>
+#include <QRectF>
+
+class LinuxLibmpvOpenGLBackend : public IPlayerBackend
 {
     Q_OBJECT
 
 public:
-    explicit ExternalMpvBackend(QObject *parent = nullptr);
-    ~ExternalMpvBackend() override = default;
+    explicit LinuxLibmpvOpenGLBackend(QObject *parent = nullptr);
+    ~LinuxLibmpvOpenGLBackend() override = default;
+
+    static bool isRuntimeSupported();
 
     QString backendName() const override;
 
@@ -26,5 +30,8 @@ public:
     void setVideoViewport(const QRectF &viewport) override;
 
 private:
-    PlayerProcessManager *m_processManager;
+    bool m_running = false;
+    bool m_runtimeSupported = false;
+    QPointer<QObject> m_videoTarget;
+    QRectF m_videoViewport;
 };

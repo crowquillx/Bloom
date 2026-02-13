@@ -1,8 +1,9 @@
 Playback — mpv & Jellyfin Integration
 
 Overview
-- mpv runs as an external, top-level process (avoid --wid embedding or transparent Qt overlays). Prefer `vo=gpu-next` on supported platforms.
-- Player is controlled via JSON IPC (Unix domain sockets on Linux; named pipes on Windows). The repo uses a PlayerProcessManager that launches mpv and exposes JSON IPC to the C++ controller.
+- Current production path: mpv runs as an external, top-level process (avoid `--wid` embedding or transparent Qt overlays for this path).
+- In-progress path (Milestone B kickoff): Linux embedded backend scaffold exists behind backend selection (`BLOOM_PLAYER_BACKEND=linux-libmpv-opengl`) with OpenGL runtime gating and fallback.
+- External path remains default and fully supported; embedded Linux path is not feature-complete yet.
 
 Backend architecture (Milestone A)
 - Playback now routes through `IPlayerBackend` (`src/player/backend/IPlayerBackend.h`).
@@ -12,9 +13,21 @@ Backend architecture (Milestone A)
 - Optional environment override for backend selection: `BLOOM_PLAYER_BACKEND`.
 - Unknown backend names safely fall back to `external-mpv-ipc`.
 
+Backend architecture (Milestone B kickoff)
+- `IPlayerBackend` now includes embedded-video capability hooks:
+  - `supportsEmbeddedVideo()`
+  - `attachVideoTarget(...)` / `detachVideoTarget(...)`
+  - `setVideoViewport(...)`
+- Linux backend scaffold added: `LinuxLibmpvOpenGLBackend`.
+- `MpvVideoItem` + `VideoSurface.qml` added for minimal embedded surface plumbing.
+- `PlayerController` exposes minimal embedded-video passthrough and internal/manual shrink toggle API.
+- Remaining work: libmpv render-context wiring, runtime behavior parity, and Linux-target validation.
+
 Key components
 - IPlayerBackend: playback backend contract used by `PlayerController`.
 - ExternalMpvBackend: adapter that delegates to `PlayerProcessManager`.
+- LinuxLibmpvOpenGLBackend (scaffold): Linux embedded backend entry point for Milestone B.
+- MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
 - PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
 - PlayerController: state machine that handles play/pause/resume, listens for backend updates, manages track selection, and reports playback state to the Jellyfin server.
 - JellyfinClient: handles API communication for reporting playback events, track selections, and sessions.

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QRectF>
 #include <QStringList>
 #include <QVariantList>
 
@@ -20,6 +21,11 @@ public:
 
     virtual void sendCommand(const QStringList &command) = 0;
     virtual void sendVariantCommand(const QVariantList &command) = 0;
+
+    virtual bool supportsEmbeddedVideo() const = 0;
+    virtual bool attachVideoTarget(QObject *target) = 0;
+    virtual void detachVideoTarget(QObject *target) = 0;
+    virtual void setVideoViewport(const QRectF &viewport) = 0;
 
 signals:
     void stateChanged(bool running);

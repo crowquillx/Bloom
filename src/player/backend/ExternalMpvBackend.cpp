@@ -55,3 +55,24 @@ void ExternalMpvBackend::sendVariantCommand(const QVariantList &command)
 {
     m_processManager->sendVariantCommand(command);
 }
+
+bool ExternalMpvBackend::supportsEmbeddedVideo() const
+{
+        return false;
+}
+
+bool ExternalMpvBackend::attachVideoTarget(QObject *target)
+{
+        Q_UNUSED(target);
+        return false;
+}
+
+void ExternalMpvBackend::detachVideoTarget(QObject *target)
+{
+        Q_UNUSED(target);
+}
+
+void ExternalMpvBackend::setVideoViewport(const QRectF &viewport)
+{
+        Q_UNUSED(viewport);
+}

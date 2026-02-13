@@ -55,6 +55,13 @@ Window {
         if (sidebar.overlayMode) return 0
         return sidebar.sidebarWidth
     }
+
+    VideoSurface {
+        id: videoSurface
+        anchors.fill: parent
+        visible: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
+        z: -1
+    }
     
     // ========================================
     // Main Content Area

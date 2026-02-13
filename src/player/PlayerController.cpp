@@ -13,6 +13,7 @@
 #include <QDebug>
 #include <QThread>
 #include <QLoggingCategory>
+#include <QRectF>
 
 Q_LOGGING_CATEGORY(lcPlayback, "bloom.playback")
 
@@ -715,6 +716,49 @@ QString PlayerController::errorMessage() const
 int PlayerController::bufferingProgress() const
 {
     return m_bufferingProgress;
+}
+
+bool PlayerController::supportsEmbeddedVideo() const
+{
+    return m_playerBackend && m_playerBackend->supportsEmbeddedVideo();
+}
+
+bool PlayerController::attachEmbeddedVideoTarget(QObject *target)
+{
+    if (!m_playerBackend) {
+        return false;
+    }
+
+    return m_playerBackend->attachVideoTarget(target);
+}
+
+void PlayerController::detachEmbeddedVideoTarget(QObject *target)
+{
+    if (!m_playerBackend) {
+        return;
+    }
+
+    m_playerBackend->detachVideoTarget(target);
+}
+
+void PlayerController::setEmbeddedVideoViewport(qreal x, qreal y, qreal width, qreal height)
+{
+    if (!m_playerBackend) {
+        return;
+    }
+
+    const QRectF viewport(x, y, width, height);
+    m_playerBackend->setVideoViewport(viewport);
+}
+
+void PlayerController::setEmbeddedVideoShrinkEnabled(bool enabled)
+{
+    if (m_embeddedVideoShrinkEnabled == enabled) {
+        return;
+    }
+
+    m_embeddedVideoShrinkEnabled = enabled;
+    emit embeddedVideoShrinkEnabledChanged();
 }
 
 void PlayerController::playTestVideo()

@@ -1,6 +1,6 @@
 # Player Backend Refactor Plan (External mpv JSON IPC → Embedded libmpv)
 
-## Implementation status (Milestone A)
+## Implementation status (Milestone A + Milestone B kickoff)
 
 Implemented now:
 - Added backend seam under `src/player/backend/`:
@@ -20,6 +20,22 @@ Implemented now:
 Not yet implemented in Milestone A:
 - Config-file backend selector key (currently env-only override + default external).
 - Embedded Linux/Windows backends (Milestones B/C).
+
+Milestone B kickoff implemented now:
+- Extended `IPlayerBackend` with embedded video hooks (`supportsEmbeddedVideo`, target attach/detach, viewport updates).
+- Added Linux backend scaffold: `LinuxLibmpvOpenGLBackend`.
+- Added Linux backend selection path in `PlayerBackendFactory` (`linux-libmpv-opengl`) with OpenGL runtime guard + fallback.
+- Added Qt Quick surface primitives:
+   - `MpvVideoItem` (QML-exposed C++ item)
+   - `VideoSurface.qml`
+- Added minimal `PlayerController` API for embedded target attach/detach, viewport forwarding, and internal/manual shrink mode property.
+- Added Linux-conditional build wiring for new backend sources and optional `libmpv` discovery/linking.
+
+Still pending in Milestone B (after kickoff):
+- Real `libmpv` handle/render-context ownership and render callback integration.
+- Playback command/property parity in the Linux embedded backend.
+- Linux runtime parity validation (controls, reporting, stability, no CPU readback).
+- Explicit shrink/restore validation test path.
 
 ## Milestone A parity checklist (current)
 
@@ -45,11 +61,86 @@ Validation coverage:
 - ✅ Build passes via project build script.
 - ✅ `PlayerBackendFactoryTest` validates default selection, explicit selection, initial stopped state, and unknown-name fallback.
 - ✅ `VisualRegressionTest` asserts backend service registration in startup wiring.
+- ✅ `PlayerBackendFactoryTest` coverage now includes Linux backend-name selection behavior.
+- ⏳ Linux embedded backend runtime validation pending on Linux target environment.
 
-Commands used during Milestone A validation:
+Commands used during current validation:
 - `./scripts/build.ps1`
 - `set BLOOM_PLAYER_BACKEND=external-mpv-ipc` (optional env selection smoke)
-- `build-windows/tests/Release/PlayerBackendFactoryTest.exe -txt`
+- `build-windows/tests/Release/PlayerBackendFactoryTest.exe`
+
+## Milestone breakdown & status board
+
+Status legend:
+- ✅ done
+- 🟨 in progress
+- ⬜ not started
+- ⚠️ blocked / decision needed
+
+Overall milestone status:
+- **Milestone A — Backend abstraction + external fallback:** ✅ done
+- **Milestone B — Linux embedded backend:** 🟨 in progress
+- **Milestone C — Windows embedded backend:** ⬜ not started
+- **Milestone D — Soft deprecation / default switch:** ⬜ not started
+
+### Milestone A — Breakdown (completed)
+- ✅ Backend interface (`IPlayerBackend`) created and wired.
+- ✅ External adapter (`ExternalMpvBackend`) implemented.
+- ✅ Factory (`PlayerBackendFactory`) implemented.
+- ✅ `PlayerController` refactored to backend interface.
+- ✅ Startup wiring updated (`ApplicationInitializer` + `ServiceLocator`).
+- ✅ Logging + fallback behavior added.
+- ✅ Regression tests added and passing.
+
+### Milestone B — Breakdown (what needs to be done)
+
+#### B1. Backend and rendering primitives
+- 🟨 Create `LinuxLibmpvOpenGLBackend` with `mpv_handle` + `mpv_render_context` ownership. (skeleton added; libmpv context/render context still pending)
+- ✅ Create `MpvVideoItem` (or equivalent C++ video item) for Qt Quick render integration.
+- ✅ Define minimal render callback contract between backend and item.
+- 🟨 Add safe startup/shutdown lifecycle for libmpv context and render context. (running-state lifecycle scaffolded; real libmpv lifecycle pending)
+
+#### B2. Controller/factory wiring
+- ✅ Extend `PlayerBackendFactory` to instantiate Linux backend by name.
+- ✅ Keep external backend as default unless explicitly selected.
+- 🟨 Ensure `PlayerController` behavior/signals remain unchanged across backend swap. (interface extended + pass-through hooks; runtime parity still pending)
+
+#### B3. QML surface integration
+- ✅ Add `VideoSurface.qml` and integrate it into main playback UI path.
+- ✅ Ensure overlays remain above video surface.
+- 🟨 Preserve focus + keyboard/gamepad navigation behavior. (minimal integration added; Linux runtime validation pending)
+
+#### B4. Runtime behavior parity
+- ⬜ Playback controls parity: play/pause/resume/seek/stop.
+- ⬜ Track control parity: audio/subtitle selection and updates.
+- ⬜ Reporting parity: start/progress/pause/resume/stop unchanged.
+- ⬜ Next-up/autoplay/threshold behavior unchanged.
+
+#### B5. Credits-shrink hook (internal)
+- ✅ Add backend/controller hook for runtime viewport resize.
+- 🟨 Wire a minimal internal test path for shrink/restore behavior. (controller property + surface wiring added; explicit test case pending)
+
+#### B6. Build and packaging
+- ✅ Update CMake for Linux-only backend sources and libmpv linkage.
+- ✅ Keep non-Linux builds unaffected.
+- 🟨 Document Linux dependency/link requirements in docs.
+
+#### B7. Validation & exit criteria
+- ⬜ Validate embedded playback on Linux target environment.
+- ⬜ Validate resize/reposition reliability under real usage.
+- ⬜ Validate no CPU readback path is used.
+- ⬜ Validate regressions do not appear on external fallback path.
+
+### Milestone C — Breakdown (planned)
+- ⬜ Implement `WindowsLibmpvHwndBackend` (container HWND + parenting).
+- ⬜ Implement native event filter + geometry sync/debounce.
+- ⬜ Implement transition flicker mitigation path.
+- ⬜ Add HDR diagnostics and validation path.
+
+### Milestone D — Breakdown (planned)
+- ⬜ Add config rollback toggle to keep `ExternalMpvBackend` available.
+- ⬜ Enable embedded path by default only when parity criteria are met.
+- ⬜ Mark legacy external path deprecated (not removed).
 
 ## 1) Scope and locked decisions
 

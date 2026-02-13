@@ -66,6 +66,13 @@ add_executable(PlayerBackendFactoryTest
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
 )
 
+if(UNIX AND NOT APPLE)
+    target_sources(PlayerBackendFactoryTest PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxLibmpvOpenGLBackend.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxLibmpvOpenGLBackend.cpp
+    )
+endif()
+
 target_include_directories(PlayerBackendFactoryTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 target_link_libraries(PlayerBackendFactoryTest
@@ -141,6 +148,8 @@ qt_add_executable(VisualRegressionTest
     # Player sources
     ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/MpvVideoItem.h
+    ${CMAKE_SOURCE_DIR}/src/player/MpvVideoItem.cpp
     ${CMAKE_SOURCE_DIR}/src/player/ThemeSongManager.cpp
     ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
     ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
@@ -210,6 +219,7 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/TrackSelector.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaInfoPanel.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ToastNotification.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/VideoSurface.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RoundedImage.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ActiveSessionsScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/TrackUtils.js
@@ -249,7 +259,10 @@ else()
     message(STATUS "Qt6 ShaderTools not found - skipping shader generation for tests")
 endif()
 
-target_include_directories(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(VisualRegressionTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/player
+)
 
 target_link_libraries(VisualRegressionTest PRIVATE
     Qt6::Core
@@ -266,6 +279,10 @@ target_link_libraries(VisualRegressionTest PRIVATE
 
 # Platform-specific secure storage libraries
 if(UNIX AND NOT APPLE)
+    target_sources(VisualRegressionTest PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxLibmpvOpenGLBackend.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxLibmpvOpenGLBackend.cpp
+    )
     # Linux: link libsecret
     target_sources(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src/security/SecretStoreLinux.cpp)
     target_include_directories(VisualRegressionTest PRIVATE ${LIBSECRET_INCLUDE_DIRS})
