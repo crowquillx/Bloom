@@ -101,6 +101,60 @@ jobs:
             exit 1
           }
 
+          $importLib = Get-ChildItem -Path $mpvRoot -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -in @("libmpv-2.lib", "mpv-2.lib", "libmpv.lib", "mpv.lib") } |
+            Select-Object -First 1
+
+          if (-not $importLib) {
+            $mpvDll = Get-ChildItem -Path $mpvRoot -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -in @("libmpv-2.dll", "mpv-2.dll", "mpv.dll") } |
+              Select-Object -First 1
+
+            if (-not $mpvDll) {
+              Write-Error "mpv-dev bundle has no import library and no runtime DLL to generate one from."
+              exit 1
+            }
+
+            $libDir = Join-Path $mpvRoot "lib"
+            if (-not (Test-Path $libDir)) {
+              New-Item -ItemType Directory -Path $libDir | Out-Null
+            }
+
+            $exportsRaw = & dumpbin /exports $mpvDll.FullName
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "dumpbin failed while reading exports from $($mpvDll.FullName)"
+              exit 1
+            }
+
+            $exportNames = New-Object System.Collections.Generic.List[string]
+            foreach ($line in $exportsRaw) {
+              if ($line -match "^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)$") {
+                $name = $matches[1]
+                if ($name -and $name -ne "[NONAME]") {
+                  $exportNames.Add($name)
+                }
+              }
+            }
+
+            if ($exportNames.Count -eq 0) {
+              Write-Error "No exports parsed from $($mpvDll.FullName); cannot generate import library."
+              exit 1
+            }
+
+            $defPath = Join-Path $libDir "libmpv-2.def"
+            $defContent = @("LIBRARY libmpv-2.dll", "EXPORTS") + ($exportNames | Sort-Object -Unique)
+            Set-Content -Path $defPath -Value $defContent -Encoding ascii
+
+            $outLib = Join-Path $libDir "libmpv-2.lib"
+            & lib /def:$defPath /machine:x64 /out:$outLib
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outLib)) {
+              Write-Error "Failed to generate MSVC import library at $outLib"
+              exit 1
+            }
+
+            Write-Host "Generated import library: $outLib"
+          }
+
           "MPV_ROOT=$mpvRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "Using MPV_ROOT=$mpvRoot"
 

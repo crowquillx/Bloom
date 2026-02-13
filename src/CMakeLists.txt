@@ -200,13 +200,17 @@ if(WIN32)
     )
 
     find_library(BLOOM_MPV_LIBRARY
-        NAMES mpv mpv-2 libmpv
+        NAMES mpv mpv-2 libmpv libmpv-2
         HINTS
             $ENV{MPV_ROOT}
             $ENV{MPV_DIR}
             $ENV{LIBMPV_ROOT}
         PATH_SUFFIXES
             lib
+            lib64
+            x86_64
+            libs
+            bin
     )
 
     if(BLOOM_MPV_INCLUDE_DIR AND BLOOM_MPV_LIBRARY)
