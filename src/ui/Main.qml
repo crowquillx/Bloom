@@ -585,4 +585,76 @@ Window {
         enabled: PlayerController.isPlaybackActive
         onActivated: PlayerController.stop()
     }
+
+    Shortcut {
+        sequence: "I"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("i")
+    }
+
+    Shortcut {
+        sequence: "Shift+I"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("I")
+    }
+
+    Shortcut {
+        sequence: "0"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("0")
+    }
+
+    Shortcut {
+        sequence: "1"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("1")
+    }
+
+    Shortcut {
+        sequence: "2"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("2")
+    }
+
+    Shortcut {
+        sequence: "3"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("3")
+    }
+
+    Shortcut {
+        sequence: "4"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("4")
+    }
+
+    Shortcut {
+        sequence: "5"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("5")
+    }
+
+    Shortcut {
+        sequence: "6"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("6")
+    }
+
+    Shortcut {
+        sequence: "7"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("7")
+    }
+
+    Shortcut {
+        sequence: "8"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("8")
+    }
+
+    Shortcut {
+        sequence: "9"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.sendMpvKeypress("9")
+    }
 }

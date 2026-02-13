@@ -148,6 +148,7 @@ public:
     Q_INVOKABLE void setSelectedSubtitleTrack(int index);
     Q_INVOKABLE void cycleAudioTrack();
     Q_INVOKABLE void cycleSubtitleTrack();
+    Q_INVOKABLE void sendMpvKeypress(const QString &key);
     
     // Get last used track preferences for a season (for episode continuity)
     Q_INVOKABLE int getLastAudioTrackForSeason(const QString &seasonId) const;

@@ -438,17 +438,19 @@ void PlayerController::onEnterBufferingState()
                         << "overridePinnedAudio=" << shouldOverridePinnedAudio
                         << "overridePinnedSubtitle=" << shouldOverridePinnedSubtitle;
 
-    if (desiredMpvAudioTrack > 0 && (!urlPinsAudioStream || shouldOverridePinnedAudio)) {
+    // Always apply resolved startup track selection if we have one. URL pins are treated as
+    // transport/request hints and fallback, but explicit startup selection must win deterministically.
+    if (desiredMpvAudioTrack > 0) {
         qCDebug(lcPlayback) << "Applying startup audio track selection via aid:" << desiredMpvAudioTrack;
         m_playerBackend->sendVariantCommand({"set_property", "aid", desiredMpvAudioTrack});
     } else if (urlPinsAudioStream && !shouldOverridePinnedAudio) {
         qCDebug(lcPlayback) << "Keeping URL-pinned audio stream index:" << pinnedAudioStreamIndex;
     }
 
-    if (m_selectedSubtitleTrack == -1 && (!urlPinsSubtitleStream || shouldOverridePinnedSubtitle)) {
+    if (m_selectedSubtitleTrack == -1) {
         qCDebug(lcPlayback) << "Applying startup subtitle selection: none";
         m_playerBackend->sendVariantCommand({"set_property", "sid", "no"});
-    } else if (desiredMpvSubtitleTrack > 0 && (!urlPinsSubtitleStream || shouldOverridePinnedSubtitle)) {
+    } else if (desiredMpvSubtitleTrack > 0) {
         qCDebug(lcPlayback) << "Applying startup subtitle track selection via sid:" << desiredMpvSubtitleTrack;
         m_playerBackend->sendVariantCommand({"set_property", "sid", desiredMpvSubtitleTrack});
     } else if (urlPinsSubtitleStream && !shouldOverridePinnedSubtitle) {
@@ -1071,6 +1073,19 @@ void PlayerController::cycleSubtitleTrack()
     qDebug() << "PlayerController: Cycling subtitle track";
     if (m_playbackState == Playing || m_playbackState == Paused) {
         m_playerBackend->sendCommand({"cycle", "sub"});
+    }
+}
+
+void PlayerController::sendMpvKeypress(const QString &key)
+{
+    if (key.isEmpty()) {
+        return;
+    }
+
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        qCDebug(lcPlayback) << "Forwarding keypress to mpv:" << key;
+        m_playerBackend->sendCommand({"keypress", key});
     }
 }
 
