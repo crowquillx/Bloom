@@ -57,6 +57,10 @@ jobs:
         run: choco install ninja -y
         shell: pwsh
 
+      - name: Install mpv Runtime
+        run: choco install mpv -y
+        shell: pwsh
+
       - name: Cache sccache
         uses: actions/cache@v4
         with:
@@ -91,6 +95,15 @@ jobs:
           cmake --build .
           cmake --install . --config Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cacheFile = Join-Path $PWD "CMakeCache.txt"
+          if (Test-Path $cacheFile) {
+            $hasMpvHeaders = Select-String -Path $cacheFile -Pattern "^BLOOM_MPV_INCLUDE_DIR:PATH=.*(NOTFOUND)?$" | Select-Object -First 1
+            $hasMpvLib = Select-String -Path $cacheFile -Pattern "^BLOOM_MPV_LIBRARY:FILEPATH=.*(NOTFOUND)?$" | Select-Object -First 1
+            if (($hasMpvHeaders -and $hasMpvHeaders.Line -match "NOTFOUND") -or ($hasMpvLib -and $hasMpvLib.Line -match "NOTFOUND")) {
+              Write-Error "libmpv SDK not detected during configure (BLOOM_MPV_INCLUDE_DIR/BLOOM_MPV_LIBRARY). Windows build requires direct libmpv support."
+              exit 1
+            }
+          }
           if (Test-Path "$installPrefix\bin\Bloom.exe") {
             Write-Host "Installed Bloom.exe at $installPrefix\bin\Bloom.exe"
           } else {
@@ -108,7 +121,7 @@ jobs:
       - name: Verify libmpv Runtime Present
         shell: pwsh
         run: |
-          $libmpv = Get-ChildItem -Path Bloom-Windows -Filter "*mpv*.dll" -File -ErrorAction SilentlyContinue
+          $libmpv = Get-ChildItem -Path Bloom-Windows -Filter "*mpv*.dll" -File -Recurse -ErrorAction SilentlyContinue
           if (-not $libmpv) {
             Write-Error "No libmpv runtime DLL found in Bloom-Windows package. Windows playback policy requires bundled libmpv."
             exit 1

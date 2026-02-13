@@ -33,6 +33,41 @@ function Resolve-Windeployqt {
     return $null
 }
 
+function Resolve-MpvRuntimeDll {
+    $candidates = @()
+
+    foreach ($envVar in @("MPV_ROOT", "MPV_DIR", "LIBMPV_ROOT")) {
+        $root = [Environment]::GetEnvironmentVariable($envVar)
+        if (-not [string]::IsNullOrWhiteSpace($root)) {
+            $candidates += (Join-Path $root "bin\mpv-2.dll")
+            $candidates += (Join-Path $root "bin\libmpv-2.dll")
+            $candidates += (Join-Path $root "mpv-2.dll")
+            $candidates += (Join-Path $root "libmpv-2.dll")
+        }
+    }
+
+    $mpvExe = Get-Command mpv.exe -ErrorAction SilentlyContinue
+    if ($mpvExe) {
+        $mpvDir = Split-Path -Path $mpvExe.Source -Parent
+        $candidates += (Join-Path $mpvDir "mpv-2.dll")
+        $candidates += (Join-Path $mpvDir "libmpv-2.dll")
+    }
+
+    # Common Chocolatey locations.
+    $candidates += "C:\ProgramData\chocolatey\bin\mpv-2.dll"
+    $candidates += "C:\ProgramData\chocolatey\bin\libmpv-2.dll"
+    $candidates += "C:\ProgramData\chocolatey\lib\mpv\tools\mpv\mpv-2.dll"
+    $candidates += "C:\ProgramData\chocolatey\lib\mpv\tools\mpv\libmpv-2.dll"
+
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
 $installBin = Join-Path $InstallDir "bin"
 $exePath = Join-Path $installBin "Bloom.exe"
 if (-not (Test-Path $exePath)) {
@@ -61,6 +96,18 @@ Copy-Item -Path (Join-Path $installBin "*") -Destination $OutputDir -Recurse -Fo
 $installShare = Join-Path $InstallDir "share"
 if (Test-Path $installShare) {
     Copy-Item -Path $installShare -Destination (Join-Path $OutputDir "share") -Recurse -Force
+}
+
+# Ensure mpv runtime is present in the portable root (required by Windows embedded backend policy).
+$existingMpvDll = Get-ChildItem -Path $OutputDir -Filter "*mpv*.dll" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $existingMpvDll) {
+    $mpvRuntimeDll = Resolve-MpvRuntimeDll
+    if ($mpvRuntimeDll) {
+        Copy-Item -Path $mpvRuntimeDll -Destination (Join-Path $OutputDir (Split-Path -Path $mpvRuntimeDll -Leaf)) -Force
+        Write-Host "Staged libmpv runtime DLL from: $mpvRuntimeDll" -ForegroundColor Yellow
+    } else {
+        Write-Warning "No mpv runtime DLL found in install tree or known system paths."
+    }
 }
 
 $windeployqt = Resolve-Windeployqt -QtRoot $QtDir
