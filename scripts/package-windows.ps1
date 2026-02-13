@@ -36,7 +36,17 @@ function Resolve-Windeployqt {
 $installBin = Join-Path $InstallDir "bin"
 $exePath = Join-Path $installBin "Bloom.exe"
 if (-not (Test-Path $exePath)) {
-    throw "Expected executable not found: $exePath"
+    $fallback = Get-ChildItem -Path . -Filter "Bloom.exe" -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -match "\\(install-windows|build-windows\\src)\\" } |
+        Select-Object -First 1
+
+    if ($fallback) {
+        Write-Warning "Expected executable not found at $exePath; using fallback: $($fallback.FullName)"
+        $exePath = $fallback.FullName
+        $installBin = Split-Path -Path $exePath -Parent
+    } else {
+        throw "Expected executable not found: $exePath"
+    }
 }
 
 if (Test-Path $OutputDir) {

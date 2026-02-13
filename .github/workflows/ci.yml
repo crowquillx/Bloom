@@ -81,14 +81,21 @@ jobs:
         shell: pwsh
         run: |
           sccache --start-server
+          $installPrefix = [System.IO.Path]::GetFullPath((Join-Path $PWD "install-windows"))
           if (-Not (Test-Path build-windows)) {
             New-Item -ItemType Directory -Path build-windows
           }
           cd build-windows
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install-windows -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$installPrefix" -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           cmake --build .
           cmake --install . --config Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (Test-Path "$installPrefix\bin\Bloom.exe") {
+            Write-Host "Installed Bloom.exe at $installPrefix\bin\Bloom.exe"
+          } else {
+            Write-Warning "Bloom.exe not found at expected install path: $installPrefix\bin\Bloom.exe"
+            Get-ChildItem -Path "$installPrefix" -Recurse -ErrorAction SilentlyContinue | Select-Object FullName
+          }
           sccache --show-stats
           sccache --stop-server
 
