@@ -213,7 +213,7 @@ jobs:
         with:
           version: "6.10.0"
           cache: true
-          modules: "qtmultimedia qtshadertools qtimageformats qt5compat qtwayland"
+          modules: "qtmultimedia qtshadertools qtimageformats qt5compat"
       
       - name: Configure CMake
         run: |
