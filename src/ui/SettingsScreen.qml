@@ -576,7 +576,7 @@ FocusScope {
                             spacing: Theme.spacingMedium
 
                             ColumnLayout {
-                                spacing: 4
+                                spacing: Math.round(4 * Theme.layoutScale)
                                 Layout.fillWidth: true
 
                                 Text {
@@ -600,7 +600,7 @@ FocusScope {
                                 id: uiSoundsVolumeCombo
                                 model: [qsTr("Off"), qsTr("Very Low"), qsTr("Low"), qsTr("Medium"), qsTr("High")]
                                 currentIndex: ConfigManager.uiSoundsVolume
-                                Layout.preferredWidth: 200
+                                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                                 focusPolicy: Qt.StrongFocus
                                 enabled: ConfigManager.uiSoundsEnabled
 
@@ -720,7 +720,7 @@ FocusScope {
                             spacing: Theme.spacingMedium
                             
                             ColumnLayout {
-                                spacing: 4
+                                spacing: Math.round(4 * Theme.layoutScale)
                                 Layout.fillWidth: true
                                 
                                 Text {
@@ -744,7 +744,7 @@ FocusScope {
                                 id: themeSongVolumeCombo
                                 model: [qsTr("Off"), qsTr("Very Low"), qsTr("Low"), qsTr("Medium"), qsTr("High")]
                                 currentIndex: ConfigManager.themeSongVolume
-                                Layout.preferredWidth: 200
+                                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                                 focusPolicy: Qt.StrongFocus
                                 
                                 onActiveFocusChanged: {
@@ -891,7 +891,7 @@ FocusScope {
                             spacing: Theme.spacingMedium
                             
                             ColumnLayout {
-                                spacing: 4
+                                spacing: Math.round(4 * Theme.layoutScale)
                                 Layout.fillWidth: true
                                 
                                 Text {
@@ -915,7 +915,7 @@ FocusScope {
                                 id: themeCombo
                                 model: Theme.themeNames
                                 currentIndex: model.indexOf(ConfigManager.theme || "Jellyfin")
-                                Layout.preferredWidth: 200
+                                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                                 focusPolicy: Qt.StrongFocus
                                 
                                 onActiveFocusChanged: {
@@ -1072,7 +1072,7 @@ FocusScope {
                             label: qsTr("Content Scale Override")
                             description: {
                                 var overrideVal = ConfigManager.manualDpiScaleOverride
-                                var effectiveVal = (typeof DisplayManager !== 'undefined' ? DisplayManager.dpiScale : 1.0)
+                                var effectiveVal = Theme.layoutScale
                                 var autoScaleVal = (effectiveVal / (overrideVal || 1.0))
                                 
                                 var autoScale = autoScaleVal.toFixed(2)
@@ -1284,7 +1284,7 @@ FocusScope {
                             spacing: Theme.spacingMedium
                             
                             ColumnLayout {
-                                spacing: 4
+                                spacing: Math.round(4 * Theme.layoutScale)
                                 Layout.fillWidth: true
                                 
                                 Text {
@@ -1307,7 +1307,7 @@ FocusScope {
                             ComboBox {
                                 id: defaultProfileCombo
                                 model: root.profileNames
-                                Layout.preferredWidth: 200
+                                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                                 focusPolicy: Qt.StrongFocus
                                 
                                 property bool initialized: false
@@ -1511,7 +1511,7 @@ FocusScope {
                                 ComboBox {
                                     id: editProfileCombo
                                     model: root.profileNames
-                                    Layout.preferredWidth: 200
+                                    Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                                     focusPolicy: Qt.StrongFocus
                                     
                                     property bool initialized: false
@@ -1743,13 +1743,13 @@ FocusScope {
                                         font.family: Theme.fontPrimary
                                         color: Theme.textPrimary
                                         Layout.fillWidth: true
-                                        Layout.preferredWidth: 200
+                                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                                     }
                                     
                                     ComboBox {
                                         id: libraryProfileCombo
                                         model: libraryDelegate.profileOptions
-                                        Layout.preferredWidth: 200
+                                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                                         focusPolicy: Qt.StrongFocus
                                         
                                         // Flag to prevent saving during initialization
@@ -2159,7 +2159,7 @@ FocusScope {
             spacing: Theme.spacingMedium
             
             ColumnLayout {
-                spacing: 4
+                spacing: Math.round(4 * Theme.layoutScale)
                 Layout.fillWidth: true
                 
                 Text {
@@ -2274,7 +2274,7 @@ FocusScope {
                 spacing: Theme.spacingMedium
                 
                 ColumnLayout {
-                    spacing: 4
+                    spacing: Math.round(4 * Theme.layoutScale)
                     Layout.fillWidth: true
                     
                     Text {
@@ -2462,7 +2462,7 @@ FocusScope {
                 spacing: Theme.spacingMedium
                 
                 ColumnLayout {
-                    spacing: 4
+                    spacing: Math.round(4 * Theme.layoutScale)
                     Layout.fillWidth: true
                     
                     Text {

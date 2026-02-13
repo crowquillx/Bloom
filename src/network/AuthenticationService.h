@@ -32,12 +32,13 @@ class AuthenticationService : public QObject
 
 public:
     explicit AuthenticationService(ISecretStore *secretStore = nullptr, QObject *parent = nullptr);
+    virtual ~AuthenticationService() = default;
     
     /**
      * @brief Initialize service and attempt to restore session asynchronously
      * @param configManager Pointer to ConfigManager for reading/migrating session data
      */
-    void initialize(ConfigManager *configManager);
+    virtual void initialize(ConfigManager *configManager);
     
     /**
      * @brief Get the ConfigManager instance
@@ -51,7 +52,7 @@ public:
      * @param username User's username
      * @param password User's password
      */
-    Q_INVOKABLE void authenticate(const QString &serverUrl, const QString &username, const QString &password);
+    Q_INVOKABLE virtual void authenticate(const QString &serverUrl, const QString &username, const QString &password);
     
     /**
      * @brief Restore a previously saved session
@@ -59,17 +60,17 @@ public:
      * @param userId User ID from previous session
      * @param accessToken Access token from previous session
      */
-    void restoreSession(const QString &serverUrl, const QString &userId, const QString &accessToken);
+    virtual void restoreSession(const QString &serverUrl, const QString &userId, const QString &accessToken);
     
     /**
      * @brief Log out and clear session data
      */
-    Q_INVOKABLE void logout();
+    Q_INVOKABLE virtual void logout();
     
     /**
      * @brief Check and emit pending session expiry (call after playback ends)
      */
-    Q_INVOKABLE void checkPendingSessionExpiry();
+    Q_INVOKABLE virtual void checkPendingSessionExpiry();
     
     // Accessors
     QString getServerUrl() const { return m_serverUrl; }

@@ -30,13 +30,14 @@ class LibraryService : public QObject
 
 public:
     explicit LibraryService(AuthenticationService *authService, QObject *parent = nullptr);
+    virtual ~LibraryService() = default;
     
     // Library views
-    Q_INVOKABLE void getViews();
+    Q_INVOKABLE virtual void getViews();
     
     // Items with pagination and filtering
-    Q_INVOKABLE void getItems(const QString &parentId, int startIndex = 0, int limit = 0, 
-                               const QStringList &genres = QStringList(), 
+    Q_INVOKABLE virtual void getItems(const QString &parentId, int startIndex = 0, int limit = 0,
+                               const QStringList &genres = QStringList(),
                                const QStringList &networks = QStringList(),
                                const QString &sortBy = QString(),
                                const QString &sortOrder = QString(),
@@ -44,38 +45,38 @@ public:
                                bool useCacheValidation = false);
     
     // Next up episodes
-    Q_INVOKABLE void getNextUp();
+    Q_INVOKABLE virtual void getNextUp();
     
     // Latest media for a library
-    Q_INVOKABLE void getLatestMedia(const QString &parentId);
+    Q_INVOKABLE virtual void getLatestMedia(const QString &parentId);
     
     // Generic Item Details
-    Q_INVOKABLE void getItem(const QString &itemId);
+    Q_INVOKABLE virtual void getItem(const QString &itemId);
 
     // Series details and episodes
-    Q_INVOKABLE void getSeriesDetails(const QString &seriesId);
-    Q_INVOKABLE void getNextUnplayedEpisode(const QString &seriesId);
-    Q_INVOKABLE void markSeriesWatched(const QString &seriesId);
-    Q_INVOKABLE void markSeriesUnwatched(const QString &seriesId);
-    Q_INVOKABLE void markItemPlayed(const QString &itemId);
-    Q_INVOKABLE void markItemUnplayed(const QString &itemId);
-    Q_INVOKABLE void markItemFavorite(const QString &itemId);
-    Q_INVOKABLE void markItemUnfavorite(const QString &itemId);
-    Q_INVOKABLE void toggleFavorite(const QString &itemId, bool isFavorite);
-    Q_INVOKABLE void getThemeSongs(const QString &seriesId);
+    Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);
+    Q_INVOKABLE virtual void getNextUnplayedEpisode(const QString &seriesId);
+    Q_INVOKABLE virtual void markSeriesWatched(const QString &seriesId);
+    Q_INVOKABLE virtual void markSeriesUnwatched(const QString &seriesId);
+    Q_INVOKABLE virtual void markItemPlayed(const QString &itemId);
+    Q_INVOKABLE virtual void markItemUnplayed(const QString &itemId);
+    Q_INVOKABLE virtual void markItemFavorite(const QString &itemId);
+    Q_INVOKABLE virtual void markItemUnfavorite(const QString &itemId);
+    Q_INVOKABLE virtual void toggleFavorite(const QString &itemId, bool isFavorite);
+    Q_INVOKABLE virtual void getThemeSongs(const QString &seriesId);
     
     // Search
-    Q_INVOKABLE void search(const QString &searchTerm, int limit = 50);
-    Q_INVOKABLE void getRandomItems(int limit = 20);
+    Q_INVOKABLE virtual void search(const QString &searchTerm, int limit = 50);
+    Q_INVOKABLE virtual void getRandomItems(int limit = 20);
     
     // URL helpers
-    Q_INVOKABLE QString getStreamUrl(const QString &itemId);
-    Q_INVOKABLE QString getStreamUrlWithTracks(const QString &itemId, const QString &mediaSourceId = QString(),
-                                               int audioStreamIndex = -1, int subtitleStreamIndex = -1);
-    Q_INVOKABLE QString getImageUrl(const QString &itemId, const QString &imageType);
-    Q_INVOKABLE QString getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
-    Q_INVOKABLE QString getCachedImageUrl(const QString &itemId, const QString &imageType);
-    Q_INVOKABLE QString getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
+    Q_INVOKABLE virtual QString getStreamUrl(const QString &itemId);
+    Q_INVOKABLE virtual QString getStreamUrlWithTracks(const QString &itemId, const QString &mediaSourceId = QString(),
+                                                int audioStreamIndex = -1, int subtitleStreamIndex = -1);
+    Q_INVOKABLE virtual QString getImageUrl(const QString &itemId, const QString &imageType);
+    Q_INVOKABLE virtual QString getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
+    Q_INVOKABLE virtual QString getCachedImageUrl(const QString &itemId, const QString &imageType);
+    Q_INVOKABLE virtual QString getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
 
 signals:
     void viewsLoaded(const QJsonArray &views);

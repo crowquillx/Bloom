@@ -55,6 +55,8 @@ qt_add_executable(Bloom
     ui/ImageCacheProvider.cpp
     ui/UiSoundController.h
     ui/UiSoundController.cpp
+    ui/ResponsiveLayoutManager.h
+    ui/ResponsiveLayoutManager.cpp
     security/ISecretStore.h
     security/SecretStoreFactory.h
     security/SecretStoreFactory.cpp
@@ -62,6 +64,12 @@ qt_add_executable(Bloom
     security/SecretStoreLinux.cpp
     security/SecretStoreWindows.h
     security/SecretStoreWindows.cpp
+    test/TestModeController.h
+    test/TestModeController.cpp
+    test/MockAuthenticationService.h
+    test/MockAuthenticationService.cpp
+    test/MockLibraryService.h
+    test/MockLibraryService.cpp
     resources/windows-icon.rc
 )
 
@@ -74,7 +82,9 @@ set_source_files_properties(ui/Icons.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
-qt_policy(SET QTP0004 NEW)
+if(COMMAND qt_policy)
+    qt_policy(SET QTP0004 NEW)
+endif()
 
 set_source_files_properties(ui/TrackUtils.js PROPERTIES
     QT_QML_SKIP_QMLDIR_ENTRY TRUE

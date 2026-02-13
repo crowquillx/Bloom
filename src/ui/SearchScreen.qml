@@ -124,7 +124,7 @@ FocusScope {
         // Search Input Container
         Item {
             Layout.fillWidth: true
-            Layout.preferredHeight: 60
+            Layout.preferredHeight: Theme.buttonHeightLarge
             Layout.leftMargin: Theme.spacingXLarge
             Layout.rightMargin: Theme.spacingXLarge
             
@@ -138,7 +138,7 @@ FocusScope {
                 // Search input field
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 50
+                    Layout.preferredHeight: Math.round(50 * Theme.layoutScale)
                     radius: Theme.radiusMedium
                     color: Theme.inputBackground
                     border.color: searchInput.activeFocus ? Theme.focusBorder : Theme.inputBorder
@@ -288,8 +288,22 @@ FocusScope {
                                     }
                                 }
                                 
-                                Keys.onReturnPressed: clicked()
-                                Keys.onEnterPressed: clicked()
+                                Keys.onReturnPressed: (event) => {
+                                    if (event.isAutoRepeat) {
+                                        event.accepted = true
+                                        return
+                                    }
+                                    clicked()
+                                    event.accepted = true
+                                }
+                                Keys.onEnterPressed: (event) => {
+                                    if (event.isAutoRepeat) {
+                                        event.accepted = true
+                                        return
+                                    }
+                                    clicked()
+                                    event.accepted = true
+                                }
                                 
                                 Keys.onUpPressed: {
                                     if (index > 0) {
@@ -317,7 +331,7 @@ FocusScope {
                 // Loading indicator
                 Item {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 100
+                    Layout.preferredHeight: Math.round(100 * Theme.layoutScale)
                     visible: isSearching
                     
                     BusyIndicator {
@@ -356,10 +370,10 @@ FocusScope {
                     GridView {
                         id: seriesGrid
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Math.ceil(count / Math.floor(width / cellWidth)) * cellHeight
+                        Layout.preferredHeight: Math.ceil(count / Math.max(1, Math.floor(width / cellWidth))) * cellHeight
                         
-                        cellWidth: Math.round(220 * Theme.dpiScale)
-                        cellHeight: Math.round(380 * Theme.dpiScale)
+                        cellWidth: Math.round(220 * Theme.layoutScale)
+                        cellHeight: Math.round(380 * Theme.layoutScale)
                         
                         interactive: false
                         
@@ -386,8 +400,22 @@ FocusScope {
                                 }
                             }
                             
-                            Keys.onReturnPressed: seriesCard.clicked()
-                            Keys.onEnterPressed: seriesCard.clicked()
+                            Keys.onReturnPressed: (event) => {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                seriesCard.clicked()
+                                event.accepted = true
+                            }
+                            Keys.onEnterPressed: (event) => {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                seriesCard.clicked()
+                                event.accepted = true
+                            }
                             
                             Keys.onUpPressed: {
                                 var columns = Math.floor(seriesGrid.width / seriesGrid.cellWidth)
@@ -450,10 +478,10 @@ FocusScope {
                     GridView {
                         id: moviesGrid
                         Layout.fillWidth: true
-                        Layout.preferredHeight: Math.ceil(count / Math.floor(width / cellWidth)) * cellHeight
+                        Layout.preferredHeight: Math.ceil(count / Math.max(1, Math.floor(width / cellWidth))) * cellHeight
                         
-                        cellWidth: Math.round(220 * Theme.dpiScale)
-                        cellHeight: Math.round(380 * Theme.dpiScale)
+                        cellWidth: Math.round(220 * Theme.layoutScale)
+                        cellHeight: Math.round(380 * Theme.layoutScale)
                         
                         interactive: false
                         
@@ -480,8 +508,22 @@ FocusScope {
                                 }
                             }
                             
-                            Keys.onReturnPressed: movieCard.clicked()
-                            Keys.onEnterPressed: movieCard.clicked()
+                            Keys.onReturnPressed: (event) => {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                movieCard.clicked()
+                                event.accepted = true
+                            }
+                            Keys.onEnterPressed: (event) => {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                movieCard.clicked()
+                                event.accepted = true
+                            }
                             
                             Keys.onUpPressed: {
                                 var columns = Math.floor(moviesGrid.width / moviesGrid.cellWidth)

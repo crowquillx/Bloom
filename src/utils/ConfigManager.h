@@ -103,6 +103,9 @@ class ConfigManager : public QObject
     // Manual DPI Scale Override
     Q_PROPERTY(qreal manualDpiScaleOverride READ getManualDpiScaleOverride WRITE setManualDpiScaleOverride NOTIFY manualDpiScaleOverrideChanged)
     
+    // UI Animations
+    Q_PROPERTY(bool uiAnimationsEnabled READ getUiAnimationsEnabled WRITE setUiAnimationsEnabled NOTIFY uiAnimationsEnabledChanged)
+    
 public:
     explicit ConfigManager(QObject *parent = nullptr);
     
@@ -301,6 +304,10 @@ public:
     // Manual DPI Scale Override
     void setManualDpiScaleOverride(qreal scale);
     qreal getManualDpiScaleOverride() const;
+    
+    // UI Animations
+    void setUiAnimationsEnabled(bool enabled);
+    bool getUiAnimationsEnabled() const;
 
 signals:
     void backdropRotationIntervalChanged();
@@ -331,6 +338,7 @@ signals:
     void performanceModeEnabledChanged();
     void mdbListApiKeyChanged();
     void manualDpiScaleOverrideChanged();
+    void uiAnimationsEnabledChanged();
 
 private:
     QString normalizeRoundedMode(const QString &raw) const;
@@ -338,6 +346,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 9;
+    static constexpr int kCurrentConfigVersion = 10;
     QJsonObject defaultConfig() const;
 };

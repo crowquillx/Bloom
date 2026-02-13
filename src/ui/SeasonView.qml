@@ -42,10 +42,14 @@ FocusScope {
     signal playEpisode(string episodeId, var startPositionTicks)
     signal backRequested()
     
-    // Key handling for back navigation - use onReleased like EpisodeView
-    Keys.onReleased: (event) => {
+    // Key handling for back navigation
+    Keys.onPressed: (event) => {
+        if (event.isAutoRepeat) {
+            event.accepted = true
+            return
+        }
         if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
-            console.log("[SeasonView] Back key released - triggering backRequested")
+            console.log("[SeasonView] Back key pressed - triggering backRequested")
             root.backRequested()
             event.accepted = true
         }
@@ -285,8 +289,26 @@ FocusScope {
                     KeyNavigation.right: bookmarkButton
                     KeyNavigation.down: episodesList
                     
-                    Keys.onReturnPressed: if (enabled) clicked()
-                    Keys.onEnterPressed: if (enabled) clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        if (enabled) {
+                            clicked()
+                            event.accepted = true
+                        }
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        if (enabled) {
+                            clicked()
+                            event.accepted = true
+                        }
+                    }
                     
                     onClicked: {
                         // Play first unplayed episode, or first episode with resume position

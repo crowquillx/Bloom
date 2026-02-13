@@ -390,25 +390,25 @@ FocusScope {
         
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: 48
-        anchors.rightMargin: 48
-        anchors.topMargin: 24
+        anchors.leftMargin: Theme.paddingLarge
+        anchors.rightMargin: Theme.paddingLarge
+        anchors.topMargin: Theme.spacingMedium
         anchors.bottomMargin: 0
-        spacing: 32
+        spacing: Theme.spacingLarge
 
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            spacing: 12
+            spacing: Theme.spacingSmall
 
             RowLayout {
                 Layout.fillWidth: true
-                spacing: 24
+                spacing: Theme.spacingMedium
                 visible: !showSeriesDetails
 
                 ColumnLayout {
                     Layout.fillWidth: true
-                    spacing: 8
+                    spacing: Theme.spacingSmall
 
                     Text {
                         text: currentParentId === "" ? "Libraries" : (currentLibraryName || "Library")
@@ -442,7 +442,7 @@ FocusScope {
                 RowLayout {
                     id: filterTabsRow
                     visible: showPaginationControls
-                    spacing: 12
+                    spacing: Theme.spacingSmall
                     
                     Button {
                         id: showsFilterButton
@@ -451,15 +451,29 @@ FocusScope {
                         Accessible.name: text
                         Accessible.checkable: true
                         Accessible.checked: isActive
-                        Layout.preferredWidth: implicitWidth + 40
+                        Layout.preferredWidth: implicitWidth + Math.round(40 * Theme.layoutScale)
                         Layout.preferredHeight: Theme.buttonHeightSmall
                         property bool isActive: activeFilterCategory === "shows"
                         
                         KeyNavigation.right: genresFilterButton
                         KeyNavigation.down: grid
                         
-                        Keys.onReturnPressed: clicked()
-                        Keys.onEnterPressed: clicked()
+                        Keys.onReturnPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
                         
                         background: Rectangle {
                             radius: Theme.radiusLarge
@@ -505,7 +519,7 @@ FocusScope {
                         Accessible.name: text
                         Accessible.checkable: true
                         Accessible.checked: isActive
-                        Layout.preferredWidth: implicitWidth + 40
+                        Layout.preferredWidth: implicitWidth + Math.round(40 * Theme.layoutScale)
                         Layout.preferredHeight: Theme.buttonHeightSmall
                         property bool isActive: activeFilterCategory === "genres"
                         
@@ -513,8 +527,22 @@ FocusScope {
                         KeyNavigation.right: networksFilterButton
                         KeyNavigation.down: grid
                         
-                        Keys.onReturnPressed: clicked()
-                        Keys.onEnterPressed: clicked()
+                        Keys.onReturnPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
                         
                         background: Rectangle {
                             radius: Theme.radiusLarge
@@ -562,7 +590,7 @@ FocusScope {
                         Accessible.name: text
                         Accessible.checkable: true
                         Accessible.checked: isActive
-                        Layout.preferredWidth: implicitWidth + 40
+                        Layout.preferredWidth: implicitWidth + Math.round(40 * Theme.layoutScale)
                         Layout.preferredHeight: Theme.buttonHeightSmall
                         property bool isActive: activeFilterCategory === "networks"
                         
@@ -570,8 +598,22 @@ FocusScope {
                         KeyNavigation.right: backButton
                         KeyNavigation.down: grid
                         
-                        Keys.onReturnPressed: clicked()
-                        Keys.onEnterPressed: clicked()
+                        Keys.onReturnPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: (event) => {
+                            if (event.isAutoRepeat) {
+                                event.accepted = true
+                                return
+                            }
+                            clicked()
+                            event.accepted = true
+                        }
                         
                         background: Rectangle {
                             radius: Theme.radiusLarge
@@ -620,14 +662,28 @@ FocusScope {
                     Accessible.role: Accessible.Button
                     Accessible.name: text
                     Accessible.description: "Return to previous library view"
-                    Layout.preferredWidth: 148
+                    Layout.preferredWidth: Math.round(148 * Theme.layoutScale)
                     Layout.preferredHeight: Theme.buttonHeightSmall
                     
                     KeyNavigation.left: networksFilterButton
                     KeyNavigation.down: grid
                     
-                    Keys.onReturnPressed: clicked()
-                    Keys.onEnterPressed: clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
                     
                     onClicked: navigateBack()
                     background: Rectangle {
@@ -661,7 +717,7 @@ FocusScope {
             // Filter panel (placeholder for future genre/network selection)
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: showFilterPanel ? 80 : 0
+                Layout.preferredHeight: showFilterPanel ? Math.round(80 * Theme.layoutScale) : 0
                 visible: showFilterPanel
                 color: Theme.buttonSecondaryBackground
                 radius: Theme.radiusLarge
@@ -689,8 +745,8 @@ FocusScope {
                 Layout.alignment: Qt.AlignHCenter
                 running: isLoading
                 visible: isLoading
-                width: 72
-                height: 72
+                width: Math.round(72 * Theme.layoutScale)
+                height: Math.round(72 * Theme.layoutScale)
                 palette.dark: Theme.textPrimary
                 palette.light: Theme.accentSecondary
             }
@@ -701,19 +757,39 @@ FocusScope {
                 Layout.fillHeight: true
                 Accessible.role: Accessible.List
                 Accessible.name: currentParentId === "" ? "Media Libraries" : (currentLibraryName + " Library Items")
-                cellWidth: {
-                    var availableWidth = width
-                    var minWidth = Theme.posterWidthLarge
-                    var columns = Math.floor(availableWidth / minWidth)
-                    if (columns < 1) columns = 1
-                    return availableWidth / columns
+                property int columns: Math.max(Theme.gridColumns, 1)
+
+                cellWidth: width / Math.max(columns, 1)
+                cellHeight: (cellWidth - Theme.spacingSmall) * 1.5 + Math.round(70 * Theme.layoutScale)
+
+                Behavior on opacity {
+                    enabled: Theme.uiAnimationsEnabled
+                    NumberAnimation { duration: 200 }
                 }
-                cellHeight: {
-                    // Dynamic height based on width to maintain aspect ratio and space for text
-                    // Image width is cellWidth - 48 (card margin) - 28 (internal margin) = cellWidth - 76
-                    // Image height is width * 1.5 (capped inside delegate)
-                    // Text/Padding area is approx 170px to allow rounded corners + hover scale
-                    return ((grid.cellWidth - 76) * 1.5) + 170
+
+                property int savedFocusIndex: -1
+
+                Connections {
+                    target: Theme
+                    function onGridColumnsChanged() {
+                        grid.savedFocusIndex = grid.currentIndex
+                        grid.opacity = 0
+                        Qt.callLater(function() {
+                            grid.columns = Theme.gridColumns
+                            grid.opacity = 1
+                            grid.restoreFocusAfterColumnChange()
+                        })
+                    }
+                }
+
+                Component.onCompleted: columns = Theme.gridColumns
+
+                function restoreFocusAfterColumnChange() {
+                    if (savedFocusIndex >= 0 && savedFocusIndex < count) {
+                        currentIndex = savedFocusIndex
+                        positionViewAtIndex(savedFocusIndex, GridView.Contain)
+                        savedFocusIndex = -1
+                    }
                 }
                 focus: true
                 clip: true
@@ -721,7 +797,7 @@ FocusScope {
                 snapMode: GridView.SnapToRow
                 flow: GridView.FlowLeftToRight
                 // Add top margin to prevent clipping of scaled items on the first row
-                topMargin: 28
+                topMargin: Math.round(28 * Theme.layoutScale)
                 preferredHighlightBegin: height * 0.05
                 preferredHighlightEnd: height * 0.95
                 highlightRangeMode: GridView.ApplyRange
@@ -768,7 +844,7 @@ FocusScope {
                 // Loading indicator footer for infinite scroll
                 footer: Item {
                     width: grid.width
-                    height: LibraryViewModel.isLoadingMore ? 80 : 0
+                    height: LibraryViewModel.isLoadingMore ? Math.round(80 * Theme.layoutScale) : 0
                     visible: LibraryViewModel.isLoadingMore
                     
                     Behavior on height { NumberAnimation { duration: 200 } }
@@ -779,8 +855,8 @@ FocusScope {
                         visible: LibraryViewModel.isLoadingMore
                         
                         BusyIndicator {
-                            width: 32
-                            height: 32
+                            width: Math.round(32 * Theme.layoutScale)
+                            height: Math.round(32 * Theme.layoutScale)
                             running: LibraryViewModel.isLoadingMore
                             palette.dark: Theme.textPrimary
                             palette.light: Theme.accentSecondary
@@ -805,13 +881,17 @@ FocusScope {
                     required property var modelData
                     required property int index
                     
+                    // Poster dimensions — fill nearly the full cell with minimal spacing
+                    property real posterWidth: grid.cellWidth - Theme.spacingSmall
+                    property real posterHeight: posterWidth * 1.5
+                    
                     // Handle item pooling/reuse
-                    ListView.onPooled: {
+                    GridView.onPooled: {
                         // Reset state when item goes to pool
                         coverArt.source = ""
                         coverArt.preRoundedSource = ""
                     }
-                    ListView.onReused: {
+                    GridView.onReused: {
                         // Rebind image source when item is reused
                         coverArt.source = Qt.binding(function() { return getImageSource() })
                         coverArt.preRoundedSource = Qt.binding(function() { return getRoundedImageSource() })
@@ -863,249 +943,183 @@ FocusScope {
                     property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse
                     scale: isFocused ? 1.05 : (isHovered ? 1.02 : 1.0)
                     z: isFocused ? 2 : 0
-                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
+                    transformOrigin: Item.Bottom
+                    Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
 
-                    // Frosted glass card container
-                    Rectangle {
-                        id: card
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        anchors.top: parent.top
-                        width: grid.cellWidth - 48
-                        height: grid.cellHeight - 80
-                        radius: 24
-                        antialiasing: true
-                        color: delegateItem.isFocused ? Theme.cardBackgroundFocused : (delegateItem.isHovered ? Theme.cardBackgroundHover : Theme.cardBackground)
-                        border.width: delegateItem.isFocused ? 2 : 1
-                        border.color: delegateItem.isFocused ? Theme.cardBorderFocused : (delegateItem.isHovered ? Theme.cardBorderHover : Theme.cardBorder)
-                        clip: true
-                        
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                        Behavior on border.color { ColorAnimation { duration: 150 } }
+                    Column {
+                        anchors.fill: parent
+                        anchors.topMargin: Theme.spacingSmall
+                        spacing: Theme.spacingSmall
 
-                        // Shadow applies to the visible content
-                        layer.enabled: true
-                        layer.smooth: true
-                        layer.effect: MultiEffect {
-                            shadowEnabled: true
-                            shadowHorizontalOffset: 0
-                            shadowVerticalOffset: delegateItem.isFocused ? 22 : 14
-                            shadowBlur: delegateItem.isFocused ? 1.0 : 0.65
-                            shadowColor: delegateItem.isFocused ? "#66000000" : "#44000000"
-                            autoPaddingEnabled: true
-                        }
+                        // Poster image (2:3 aspect ratio) with rounded corners
+                        Rectangle {
+                            id: imageContainer
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: delegateItem.posterWidth
+                            height: delegateItem.posterHeight
+                            radius: Theme.imageRadius
+                            clip: false
+                            color: "transparent"
 
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 14
-                            spacing: 8
+                            Image {
+                                id: coverArt
+                                anchors.fill: parent
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                cache: true
+                                mipmap: true
+                                smooth: true
+                                visible: true
+                                source: delegateItem.getImageSource()
+                                onStatusChanged: {
+                                    if (status === Image.Error) {
+                                        var fallbackSource = delegateItem.getImageSource();
+                                        if (fallbackSource) {
+                                            source = fallbackSource;
+                                        } else if (delegateItem.modelData && delegateItem.modelData.Id) {
+                                            source = LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Primary") ||
+                                                     LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Thumb") ||
+                                                     LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Backdrop") ||
+                                                     "";
+                                        } else {
+                                            source = "";
+                                        }
+                                    }
+                                }
 
-                            // Image container with rounded corners (hybrid: shader + pre-rounded support)
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    maskEnabled: true
+                                    maskSource: coverMask
+                                }
+                            }
+
                             Rectangle {
-                                id: imageContainer
-                                Layout.fillWidth: true
-                                // Cap height so scale/hover rounding never clips on 4K
-                                Layout.preferredHeight: width * 1.5
-                                radius: 24
-                                antialiasing: true
+                                id: coverMask
+                                anchors.fill: parent
+                                radius: Theme.imageRadius
+                                visible: false
+                                layer.enabled: true
+                                layer.smooth: true
+                            }
+
+                            // Focus border overlay
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: parent.width + border.width * 2
+                                height: parent.height + border.width * 2
+                                radius: Theme.imageRadius + border.width
                                 color: "transparent"
-                                clip: true
-
-                                // Mirror HomeScreen masking to ensure rounding without blocking render.
-                                Image {
-                                    id: coverArt
-                                    anchors.fill: parent
-                                    fillMode: Image.PreserveAspectCrop
-                                    asynchronous: true
-                                    cache: true
-                                    mipmap: true
-                                    smooth: true
-                                    visible: true
-                                    source: delegateItem.getImageSource()
-                                    onStatusChanged: {
-                                        if (status === Image.Error) {
-                                            // Retry without width hint if primary fails (similar to HomeScreen episode handling)
-                                            source = delegateItem.modelData && delegateItem.modelData.Id
-                                                ? LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Primary")
-                                                : ""
-                                        }
-                                    }
-                                }
-
-                                    layer.enabled: true
-                                    layer.effect: MultiEffect {
-                                        maskEnabled: true
-                                        maskSource: coverMask
-                                    }
-
-                                Rectangle {
-                                    id: coverMask
-                                    anchors.fill: parent
-                                    radius: 24
-                                    visible: false
-                                    layer.enabled: true
-                                    layer.smooth: true
-                                }
-
-                                // Highlight overlay on focus/hover
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: 24
-                                    gradient: Gradient {
-                                        GradientStop { position: 0.0; color: "#00ffffff" }
-                                        GradientStop { position: 0.35; color: "#30ffffff" }
-                                        GradientStop { position: 0.6; color: "#10ffffff" }
-                                        GradientStop { position: 1.0; color: "transparent" }
-                                    }
-                                    opacity: delegateItem.isFocused ? 0.25 : (delegateItem.isHovered ? 0.12 : 0.0)
-                                    Behavior on opacity { NumberAnimation { duration: 200 } }
-                                }
-
-                                // Loading placeholder
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: 24
-                                    color: Qt.rgba(0.2, 0.2, 0.2, 0.5)
-                                    visible: coverArt.status !== Image.Ready
-                                    
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: "..."
-                                        color: Theme.textSecondary
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        font.family: Theme.fontPrimary
-                                    }
-                                }
-
-                                // Unwatched episode count badge (for Series only)
-                                UnwatchedBadge {
-                                    anchors.top: parent.top
-                                    anchors.right: parent.right
-                                    parentWidth: parent.width
-                                    count: (delegateItem.modelData.Type === "Series" && delegateItem.modelData.UserData) 
-                                           ? (delegateItem.modelData.UserData.UnplayedItemCount || 0) : 0
-                                    isFullyWatched: (delegateItem.modelData.Type === "Series" && delegateItem.modelData.UserData) 
-                                                    ? (delegateItem.modelData.UserData.Played || false) : false
-                                    visible: delegateItem.modelData.Type === "Series"
-                                }
-
-                                // Watched checkmark (for Movies only)
-                                UnwatchedBadge {
-                                    anchors.top: parent.top
-                                    anchors.right: parent.right
-                                    parentWidth: parent.width
-                                    count: 0
-                                    isFullyWatched: (delegateItem.modelData.UserData) 
-                                                    ? (delegateItem.modelData.UserData.Played || false) : false
-                                    visible: delegateItem.modelData.Type === "Movie" && 
-                                             delegateItem.modelData.UserData && 
-                                             delegateItem.modelData.UserData.Played
-                                }
+                                border.width: delegateItem.isFocused ? Theme.buttonFocusBorderWidth : 0
+                                border.color: Theme.accentPrimary
+                                antialiasing: true
+                                visible: border.width > 0
+                                Behavior on border.width { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
                             }
 
-                            Flickable {
-                                id: titleFlickable
-                                Layout.fillWidth: true
-                                height: titleText.implicitHeight
-                                clip: true
-                                contentWidth: titleText.implicitWidth
-                                contentHeight: titleText.implicitHeight
-                                interactive: false
-                                property real centerX: Math.max(0, (titleText.implicitWidth - width) / 2)
-
-                                Text {
-                                    id: titleText
-                                    text: formatTitle(delegateItem.modelData)
-                                    font.pixelSize: Theme.fontSizeMedium
-                                    font.family: Theme.fontPrimary
-                                    color: Theme.textPrimary
-                                    style: Text.Outline
-                                    styleColor: Theme.backgroundSecondary
-                                    horizontalAlignment: Text.AlignHCenter
-                                    wrapMode: Text.NoWrap
-                                    maximumLineCount: 1
-                                    elide: Text.ElideNone
-                                }
-
-                                SequentialAnimation {
-                                    id: scrollAnimation
-                                    running: delegateItem.isFocused || delegateItem.isHovered
-                                    loops: Animation.Infinite
-
-                                    NumberAnimation {
-                                        target: titleFlickable
-                                        property: "contentX"
-                                        from: titleFlickable.centerX
-                                        to: 0
-                                        duration: 2000
-                                        easing.type: Easing.InOutQuad
-                                    }
-                                    NumberAnimation {
-                                        target: titleFlickable
-                                        property: "contentX"
-                                        from: 0
-                                        to: Math.max(0, titleText.implicitWidth - titleFlickable.width)
-                                        duration: 2000
-                                        easing.type: Easing.InOutQuad
-                                    }
-                                    NumberAnimation {
-                                        target: titleFlickable
-                                        property: "contentX"
-                                        from: Math.max(0, titleText.implicitWidth - titleFlickable.width)
-                                        to: titleFlickable.centerX
-                                        duration: 2000
-                                        easing.type: Easing.InOutQuad
-                                    }
-                                    onStopped: titleFlickable.contentX = titleFlickable.centerX
-                                }
-                            }
-
+                            // Loading placeholder
                             Text {
-                                id: yearText
-                                Layout.fillWidth: true
-                                text: {
-                                    var start = delegateItem.modelData.ProductionYear || extractYear(delegateItem.modelData.PremiereDate)
-                                    if (!start) return ""
-                                    if (delegateItem.modelData.Type === "Series" && delegateItem.modelData.EndDate) {
-                                        var end = extractYear(delegateItem.modelData.EndDate)
-                                        if (end && end !== start) {
-                                            return start + " - " + end
-                                        }
-                                    }
-                                    return start
-                                }
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.family: Theme.fontPrimary
+                                anchors.centerIn: parent
+                                text: "..."
                                 color: Theme.textSecondary
-                                style: Text.Outline
-                                styleColor: Theme.backgroundSecondary
-                                horizontalAlignment: Text.AlignHCenter
-                                wrapMode: Text.NoWrap
-                                maximumLineCount: 1
-                                elide: Text.ElideRight
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                visible: coverArt.status !== Image.Ready
                             }
+
+                            // Unwatched episode count badge (for Series only)
+                            UnwatchedBadge {
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                parentWidth: parent.width
+                                count: (delegateItem.modelData.Type === "Series" && delegateItem.modelData.UserData)
+                                       ? (delegateItem.modelData.UserData.UnplayedItemCount || 0) : 0
+                                isFullyWatched: (delegateItem.modelData.Type === "Series" && delegateItem.modelData.UserData)
+                                                ? (delegateItem.modelData.UserData.Played || false) : false
+                                visible: delegateItem.modelData.Type === "Series"
+                            }
+
+                            // Watched checkmark (for Movies only)
+                            UnwatchedBadge {
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                parentWidth: parent.width
+                                count: 0
+                                isFullyWatched: (delegateItem.modelData.UserData)
+                                                ? (delegateItem.modelData.UserData.Played || false) : false
+                                visible: delegateItem.modelData.Type === "Movie" &&
+                                         delegateItem.modelData.UserData &&
+                                         delegateItem.modelData.UserData.Played
+                            }
+                        }
+
+                        // Title text below poster
+                        Text {
+                            id: titleText
+                            width: delegateItem.posterWidth
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            horizontalAlignment: Text.AlignHCenter
+                            text: formatTitle(delegateItem.modelData)
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            font.bold: true
+                            color: Theme.textPrimary
+                            style: Text.Outline
+                            styleColor: "#000000"
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                        }
+
+                        // Year/subtitle text
+                        Text {
+                            id: yearText
+                            width: delegateItem.posterWidth
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            horizontalAlignment: Text.AlignHCenter
+                            text: {
+                                var start = delegateItem.modelData.ProductionYear || extractYear(delegateItem.modelData.PremiereDate)
+                                if (!start) return ""
+                                if (delegateItem.modelData.Type === "Series" && delegateItem.modelData.EndDate) {
+                                    var end = extractYear(delegateItem.modelData.EndDate)
+                                    if (end && end !== start) {
+                                        return start + " - " + end
+                                    }
+                                }
+                                return start
+                            }
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            style: Text.Outline
+                            styleColor: "#000000"
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
                         }
                     }
 
-                        MouseArea {
-                            id: mouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: {
-                                grid.forceActiveFocus()
-                                grid.currentIndex = delegateItem.index
-                                handleSelection(delegateItem.modelData)
-                            }
+                    MouseArea {
+                        id: mouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: {
+                            grid.forceActiveFocus()
+                            grid.currentIndex = delegateItem.index
+                            handleSelection(delegateItem.modelData)
                         }
-
-                        Accessible.role: Accessible.ListItem
-                        Accessible.name: titleText.text + (yearText.text ? ", " + yearText.text : "")
-                        Accessible.description: "Press to select " + titleText.text
                     }
+
+                    Accessible.role: Accessible.ListItem
+                    Accessible.name: titleText.text + (yearText.text ? ", " + yearText.text : "")
+                    Accessible.description: "Press to select " + titleText.text
+                }
                 }
 
 
 
-                Keys.onReleased: (event) => {
+                Keys.onPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        return
+                    }
                     if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
                         if (currentParentId !== "") {
                             navigateBack()
@@ -1133,8 +1147,8 @@ FocusScope {
         Column {
             id: letterRail
             Layout.alignment: Qt.AlignVCenter
-            Layout.preferredWidth: 28
-            spacing: 6
+            Layout.preferredWidth: Math.round(28 * Theme.layoutScale)
+            spacing: Math.round(6 * Theme.layoutScale)
             visible: letterBuckets.length > 2
 
             Repeater {
@@ -1298,11 +1312,36 @@ FocusScope {
                     "showSeasonView:", showSeasonView,
                     "showMovieDetails:", showMovieDetails)
         
-        // In direct navigation mode with empty stack, go back to Home
+        // In direct navigation mode with empty stack, prefer returning to the library grid
+        // when we have a known library context; otherwise fall back to Home.
         if (directNavigationMode && navigationStack.length === 0) {
-            console.log("[Library] Direct navigation mode with empty stack, popping to Home")
-            if (StackView.view) {
-                StackView.view.pop()
+            if (currentLibraryId !== "") {
+                console.log("[Library] Direct navigation mode with empty stack, returning to library:", currentLibraryId)
+                directNavigationMode = false
+                currentSeriesId = ""
+                showSeriesDetails = false
+                showSeasonView = false
+                showMovieDetails = false
+                currentSeriesData = null
+                currentSeriesSeasons = []
+                currentNextEpisode = null
+                currentSeasonId = ""
+                currentSeasonName = ""
+                currentSeasonNumber = 0
+                currentSeasonPosterUrl = ""
+                initialEpisodeId = ""
+                currentMovieData = null
+
+                if (currentParentId !== currentLibraryId) {
+                    currentParentId = currentLibraryId
+                } else {
+                    loadItemsForCurrentParent()
+                }
+            } else {
+                console.log("[Library] Direct navigation mode with empty stack, popping to Home")
+                if (StackView.view) {
+                    StackView.view.pop()
+                }
             }
             return
         }
@@ -1870,6 +1909,10 @@ FocusScope {
             }
         }
         
+    }
+
+    Connections {
+        target: PlaybackService
         // Handle playback info loaded for quick-play scenarios
         function onPlaybackInfoLoaded(itemId, info) {
             if (root.pendingQuickPlayItem && root.pendingQuickPlayItem.episodeId === itemId) {

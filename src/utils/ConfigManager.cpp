@@ -879,6 +879,39 @@ qreal ConfigManager::getManualDpiScaleOverride() const
     return 1.0; // Default: no override (1.0 = automatic)
 }
 
+void ConfigManager::setUiAnimationsEnabled(bool enabled)
+{
+    if (enabled == getUiAnimationsEnabled()) return;
+    
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject ui;
+    if (settings.contains("ui") && settings["ui"].isObject()) {
+        ui = settings["ui"].toObject();
+    }
+    ui["ui_animations_enabled"] = enabled;
+    settings["ui"] = ui;
+    m_config["settings"] = settings;
+    save();
+    emit uiAnimationsEnabledChanged();
+}
+
+bool ConfigManager::getUiAnimationsEnabled() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("ui") && settings["ui"].isObject()) {
+            QJsonObject ui = settings["ui"].toObject();
+            if (ui.contains("ui_animations_enabled")) {
+                return ui["ui_animations_enabled"].toBool();
+            }
+        }
+    }
+    return true; // Default: animations enabled
+}
+
 
 void ConfigManager::setUiSoundsEnabled(bool enabled)
 {
@@ -1420,6 +1453,23 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV9ToV10(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 10;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject ui = settings.value("ui").toObject();
+
+        if (!ui.contains("ui_animations_enabled")) {
+            ui["ui_animations_enabled"] = true;
+        }
+
+        settings["ui"] = ui;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -1503,6 +1553,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 9) {
+            m_config = ConfigMigrator::migrateV9ToV10(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -1559,6 +1617,7 @@ QJsonObject ConfigManager::defaultConfig() const
     QJsonObject ui;
     ui["backdrop_rotation_interval"] = 30000;
     ui["launch_in_fullscreen"] = false;
+    ui["ui_animations_enabled"] = true;
     settings["ui"] = ui;
 
     // Manual DPI Scale Override

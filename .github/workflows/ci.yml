@@ -11,6 +11,28 @@ permissions:
   contents: write
 
 jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.filter.outputs.ui }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Filter paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            ui:
+              - 'src/ui/**'
+              - 'src/viewmodels/**'
+              - 'src/test/**'
+              - 'tests/fixtures/**'
+              - 'tests/VisualRegressionTest*'
+              - 'docs/responsive.md'
+              - '.github/workflows/ci.yml'
+
   windows:
     name: Windows
     runs-on: windows-latest
@@ -20,7 +42,7 @@ jobs:
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
-          version: "6.8.1"
+          version: "6.10.0"
           host: "windows"
           target: "desktop"
           arch: "win64_msvc2022_64"
@@ -65,6 +87,7 @@ jobs:
           cd build
           cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           cmake --build .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           sccache --show-stats
           sccache --stop-server
 
@@ -163,3 +186,72 @@ jobs:
         with:
           name: Bloom-Windows-Installer
           path: Bloom-Setup-0.1.0.exe
+
+  visual-regression:
+    name: Visual Regression Tests (Linux)
+    runs-on: ubuntu-latest
+    needs: changes
+    if: false # Temporarily sidelined; re-enable once visual test CI is stabilized.
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            libgl1-mesa-dev \
+            libxkbcommon-dev \
+            xvfb \
+            mesa-vulkan-drivers \
+            libsecret-1-dev \
+            libwayland-dev
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: "6.10.0"
+          cache: true
+          modules: "qtmultimedia qtshadertools qtimageformats qt5compat"
+      
+      - name: Configure CMake
+        run: |
+          cmake -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON
+      
+      - name: Build
+        run: cmake --build build --parallel --target VisualRegressionTest
+      
+      - name: Run visual regression tests
+        run: |
+          ./build/tests/VisualRegressionTest
+        env:
+          QT_QPA_PLATFORM: offscreen
+          QT_QPA_OFFSCREEN_SURFACE_SIZE: 1920x1080
+          
+      - name: Upload diff images on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-diffs
+          path: |
+            tests/diffs/
+            tests/captures/
+            build/tests/diffs/
+            build/tests/captures/
+          retention-days: 7
+          
+      - name: Upload golden screenshots
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-screenshots
+          path: |
+            tests/golden/
+            build/tests/golden/
+          retention-days: 30

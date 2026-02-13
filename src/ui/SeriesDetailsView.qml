@@ -37,6 +37,10 @@ FocusScope {
     
     // Key handling for back navigation
     Keys.onPressed: (event) => {
+        if (event.isAutoRepeat) {
+            event.accepted = true
+            return
+        }
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
             if (contextMenu.opened) {
                 console.log("[SeriesDetailsView] Ignoring Back/Escape - context menu is open")
@@ -138,14 +142,14 @@ FocusScope {
         BusyIndicator {
             anchors.centerIn: parent
             running: isLoading
-            width: 64
-            height: 64
+            width: Math.round(64 * Theme.layoutScale)
+            height: Math.round(64 * Theme.layoutScale)
         }
         
         Text {
             anchors.horizontalCenter: parent.horizontalCenter
             anchors.top: parent.verticalCenter
-            anchors.topMargin: 48
+            anchors.topMargin: Theme.spacingXLarge
             text: "Loading series details..."
             font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
@@ -155,7 +159,7 @@ FocusScope {
     
     RowLayout {
         anchors.fill: parent
-        anchors.margins: root.height < 1200 ? 24 : 48
+        anchors.margins: Theme.spacingLarge
         spacing: Theme.spacingLarge
         // keep visible to preserve previous artwork while loading new data
         
@@ -171,7 +175,7 @@ FocusScope {
             flickableDirection: Flickable.VerticalFlick
             
             // Bottom margin to ensure season titles at the bottom are fully visible (DPI-scaled)
-            readonly property int bottomMargin: Math.round(200 * Theme.dpiScale)
+            readonly property int bottomMargin: Math.round(200 * Theme.layoutScale)
             
             // Prevent scrolling above the top (negative contentY)
             onContentYChanged: {
@@ -192,9 +196,9 @@ FocusScope {
                 
                 // If seasons header is below or near bottom of viewport, scroll down to show it
                 // We want at least 300px (DPI-scaled) of the seasons visible
-                if (seasonsY > contentY + height - Math.round(300 * Theme.dpiScale)) {
+                if (seasonsY > contentY + height - Math.round(300 * Theme.layoutScale)) {
                     // Scroll so seasons header is about 150px (DPI-scaled) from top of viewport
-                    var targetY = Math.max(0, seasonsY - Math.round(150 * Theme.dpiScale))
+                    var targetY = Math.max(0, seasonsY - Math.round(150 * Theme.layoutScale))
                     contentY = Math.min(targetY, contentHeight - height)
                     console.log("Scrolled to contentY=" + contentY)
                 }
@@ -234,11 +238,11 @@ FocusScope {
                 console.log("ensureInitialSeasonsVisibility: seasonsY=" + seasonsY + " height=" + height + 
                             " contentHeight=" + contentHeight)
                 
-                // Only scroll if seasons are completely out of view
-                if (contentHeight > height && seasonsY > height - 50) {
-                    // Calculate ideal position: show top content but also show seasons header
-                    // Show enough of the top (logo + buttons) but make sure seasons are visible
-                    var idealY = Math.max(0, seasonsY - height + 300)  // Show ~300px of seasons area
+                // Only scroll if seasons are completely below the viewport (more than 90% down)
+                // This preserves the title/logo/buttons visibility by default
+                if (contentHeight > height && seasonsY > height * 0.9) {
+                    // Scroll just enough to peek the seasons header, but keep most of the top visible
+                    var idealY = Math.max(0, seasonsY - height * 0.7)
                     var maxScroll = Math.max(0, contentHeight - height)
                     contentY = Math.min(idealY, maxScroll)
                     console.log("Initial scroll to contentY=" + contentY + " maxScroll=" + maxScroll)
@@ -295,15 +299,15 @@ FocusScope {
             // Action Buttons Row
             RowLayout {
                 Layout.fillWidth: true
-                spacing: Theme.fontSizeSmall
+                spacing: Theme.spacingMedium
                 
                 // Play Button
                 Button {
                     id: playButton
                     text: hasNextEpisode ? "▶ Play" : "No Episodes Available"
                     enabled: hasNextEpisode
-                    Layout.preferredWidth: 180
-                    Layout.preferredHeight: Theme.buttonHeightMedium
+                    Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
+                    Layout.preferredHeight: Theme.buttonHeightLarge
                     
                     KeyNavigation.right: markWatchedButton
                     // Don't use KeyNavigation.down - handle manually to ensure scrolling works
@@ -321,8 +325,26 @@ FocusScope {
                         event.accepted = true
                     }
                     
-                    Keys.onReturnPressed: if (enabled) clicked()
-                    Keys.onEnterPressed: if (enabled) clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        if (enabled) {
+                            clicked()
+                            event.accepted = true
+                        }
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        if (enabled) {
+                            clicked()
+                            event.accepted = true
+                        }
+                    }
                     
                     onClicked: {
                         if (hasNextEpisode) {
@@ -348,7 +370,7 @@ FocusScope {
                     contentItem: Text {
                         text: parent.text
                         color: parent.enabled ? Theme.textPrimary : Theme.textDisabled
-                        font.pixelSize: Theme.fontSizeMedium
+                        font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         font.bold: true
                         horizontalAlignment: Text.AlignHCenter
@@ -372,8 +394,22 @@ FocusScope {
                         event.accepted = true
                     }
                     
-                    Keys.onReturnPressed: clicked()
-                    Keys.onEnterPressed: clicked()
+                    Keys.onReturnPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: (event) => {
+                        if (event.isAutoRepeat) {
+                            event.accepted = true
+                            return
+                        }
+                        clicked()
+                        event.accepted = true
+                    }
                     
                     onClicked: {
                         if (isWatched) {
@@ -409,29 +445,31 @@ FocusScope {
                     
                     contentItem: Item {
                         // Custom Icon
-                        width: 32
-                        height: 32
+                        width: Math.round(32 * Theme.layoutScale)
+                        height: Math.round(32 * Theme.layoutScale)
                         
                         Canvas {
                             id: checkmarkCanvas
                             anchors.centerIn: parent
-                            width: 32
-                            height: 32
+                            width: Math.round(32 * Theme.layoutScale)
+                            height: Math.round(32 * Theme.layoutScale)
                             property color strokeColor: isWatched ? Theme.accentSecondary : Theme.textPrimary
+                            property real s: width / 32  // scale factor
                             
                             onStrokeColorChanged: requestPaint()
+                            onWidthChanged: requestPaint()
                             
                             onPaint: {
                                 var ctx = getContext("2d");
                                 ctx.reset();
-                                ctx.lineWidth = 4;
+                                ctx.lineWidth = 4 * s;
                                 ctx.strokeStyle = strokeColor;
                                 ctx.lineCap = "round";
                                 ctx.lineJoin = "round";
                                 ctx.beginPath();
-                                ctx.moveTo(6, 16);
-                                ctx.lineTo(13, 23);
-                                ctx.lineTo(26, 9);
+                                ctx.moveTo(6 * s, 16 * s);
+                                ctx.lineTo(13 * s, 23 * s);
+                                ctx.lineTo(26 * s, 9 * s);
                                 ctx.stroke();
                             }
                         }
@@ -483,7 +521,7 @@ FocusScope {
                     contentItem: Text {
                         text: parent.text
                         font.family: Theme.fontIcon
-                        font.pixelSize: 24
+                        font.pixelSize: Theme.fontSizeIcon
                         color: Theme.textPrimary
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
@@ -527,8 +565,8 @@ FocusScope {
                     color: "transparent"
                     border.color: Theme.textSecondary
                     border.width: 1
-                    width: ratingText.implicitWidth + 12
-                    height: ratingText.implicitHeight + 4
+                    width: ratingText.implicitWidth + Math.round(12 * Theme.layoutScale)
+                    height: ratingText.implicitHeight + Math.round(4 * Theme.layoutScale)
                     radius: 2
                     
                     Text {
@@ -598,8 +636,8 @@ FocusScope {
                         
                         // Source Logo
                         Image {
-                            Layout.preferredWidth: 48
-                            Layout.preferredHeight: 16
+                            Layout.preferredWidth: Math.round(48 * Theme.layoutScale)
+                            Layout.preferredHeight: Math.round(16 * Theme.layoutScale)
                             fillMode: Image.PreserveAspectFit
                             
                             source: {
@@ -722,7 +760,7 @@ FocusScope {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
-                        height: 50
+                        height: Math.round(50 * Theme.layoutScale)
                         gradient: Gradient {
                             GradientStop { position: 0.0; color: "transparent" }
                             GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.9) }
@@ -736,10 +774,10 @@ FocusScope {
                     visible: overviewContainer.hasOverflow
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    anchors.rightMargin: 4
-                    anchors.bottomMargin: 4
-                    width: readMoreText.width + 16
-                    height: readMoreText.height + 8
+                    anchors.rightMargin: Math.round(4 * Theme.layoutScale)
+                    anchors.bottomMargin: Math.round(4 * Theme.layoutScale)
+                    width: readMoreText.width + Theme.spacingMedium
+                    height: readMoreText.height + Theme.spacingSmall
                     radius: Theme.radiusSmall
                     color: readMoreMouseArea.containsMouse ? Qt.rgba(1, 1, 1, 0.2) : Qt.rgba(0, 0, 0, 0.6)
                     border.width: 1
@@ -779,14 +817,14 @@ FocusScope {
                 font.family: Theme.fontPrimary
                 font.bold: true
                 color: Theme.textPrimary
-                Layout.topMargin: 16
+                Layout.topMargin: Theme.spacingMedium
             }
 
             // Skeleton placeholders while seasons load
             ColumnLayout {
                 visible: isLoading && seasonsGrid.count === 0
                 Layout.fillWidth: true
-                spacing: 12
+                spacing: Theme.spacingSmall
                 Repeater {
                     model: 3
                     Rectangle {
@@ -803,25 +841,26 @@ FocusScope {
                 id: seasonsGrid
                 Layout.fillWidth: true
                 
-                // Responsive cell dimensions
-                readonly property int responsiveCellHeight: Math.min(Theme.seasonPosterHeight, root.height * 0.45)
-                readonly property int responsiveCellWidth: Math.round(responsiveCellHeight * (Theme.seasonPosterWidth / Theme.seasonPosterHeight))
+                // Force more columns with target poster width of ~200px for smaller, reasonable season cards
+                property int columns: Math.max(3, Math.min(5, Math.floor(width / Math.round(200 * Theme.layoutScale))))
+
+                cellWidth: width / columns
+                // Cap cell height so at least 2 rows fit on screen with room for title/buttons
+                property real rawCellHeight: (cellWidth - Theme.spacingSmall) * 1.5 + Math.round(70 * Theme.layoutScale)
+                cellHeight: Math.min(rawCellHeight, root.height * 0.35)
                 
                 // Calculate height to show all seasons (no internal scrolling, parent Flickable handles scrolling)
                 Layout.preferredHeight: {
-                    if (count === 0) return responsiveCellHeight
-                    var columns = Math.max(1, Math.floor(width / cellWidth))
-                    var rows = Math.ceil(count / columns)
-                    // Extra padding for scale animation and text labels
-                    return rows * cellHeight + Math.round(100 * Theme.dpiScale)
+                    if (count === 0) return cellHeight
+                    var cols = Math.max(1, columns)
+                    var rows = Math.ceil(count / cols)
+                    return rows * cellHeight + Math.round(40 * Theme.layoutScale)
                 }
-                cellWidth: responsiveCellWidth
-                cellHeight: responsiveCellHeight
                 clip: true
-                topMargin: 24
-                bottomMargin: 24
-                leftMargin: 16
-                rightMargin: 16
+                topMargin: Theme.spacingMedium
+                bottomMargin: Theme.spacingMedium
+                leftMargin: Theme.spacingMedium
+                rightMargin: Theme.spacingMedium
                 focus: true
                 boundsBehavior: Flickable.StopAtBounds
                 interactive: false  // Disable internal scrolling, let parent Flickable handle it
@@ -959,7 +998,6 @@ FocusScope {
                 delegate: Item {
                     id: seasonDelegate
                     
-                    // Required properties from model roles
                     required property int index
                     required property string name
                     required property string imageUrl
@@ -971,154 +1009,140 @@ FocusScope {
                     
                     width: seasonsGrid.cellWidth
                     height: seasonsGrid.cellHeight
+                    
+                    property real posterWidth: seasonsGrid.cellWidth - Theme.spacingSmall
+                    property real posterHeight: Math.min(posterWidth * 1.5, seasonsGrid.cellHeight - Math.round(70 * Theme.layoutScale))
+                    
                     property bool isFocused: seasonsGrid.currentIndex === index && seasonsGrid.activeFocus
                     property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse
                     scale: isFocused ? 1.05 : (isHovered ? 1.02 : 1.0)
                     z: isFocused ? 2 : 0
                     transformOrigin: Item.Center
-                    Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.InOutQuad } }
+                    Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
                     
-                    // Frosted glass card container
-                    Rectangle {
-                        id: seasonCard
-                        anchors.centerIn: parent
-                        width: seasonsGrid.cellWidth - 32
-                        height: seasonsGrid.cellHeight - 56
-                        radius: Theme.radiusMedium
-                            antialiasing: true
-                        color: seasonDelegate.isFocused ? Theme.cardBackgroundFocused : (seasonDelegate.isHovered ? Theme.cardBackgroundHover : Theme.cardBackground)
-                        border.width: seasonDelegate.isFocused ? 2 : 1
-                        border.color: seasonDelegate.isFocused ? Theme.cardBorderFocused : (seasonDelegate.isHovered ? Theme.cardBorderHover : Theme.cardBorder)
-                        clip: true
+                    Column {
+                        anchors.fill: parent
+                        anchors.topMargin: Theme.spacingSmall
+                        spacing: Theme.spacingSmall
                         
-                        Behavior on color { ColorAnimation { duration: 150 } }
-                        Behavior on border.color { ColorAnimation { duration: 150 } }
-                        
-                        layer.enabled: true
-                        layer.smooth: true
-                        layer.effect: MultiEffect {
-                            shadowEnabled: true
-                            shadowHorizontalOffset: 0
-                            shadowVerticalOffset: seasonDelegate.isFocused ? 22 : 14
-                            shadowBlur: seasonDelegate.isFocused ? 1.0 : 0.65
-                            shadowColor: seasonDelegate.isFocused ? "#66000000" : "#44000000"
-                        }
-                        
-                        ColumnLayout {
-                            anchors.fill: parent
-                            anchors.margins: 12
-                            spacing: Theme.spacingSmall
+                        // Poster image (2:3 aspect ratio) with rounded corners
+                        Rectangle {
+                            id: seasonImageContainer
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: seasonDelegate.posterWidth
+                            height: seasonDelegate.posterHeight
+                            radius: Theme.imageRadius
+                            clip: false
+                            color: "transparent"
                             
-                            // Image container with rounded corners
-                            Rectangle {
-                                id: seasonImageContainer
-                                Layout.fillWidth: true
-                                // Cap height so scaled cards never clip on 4K while keeping aspect
-                                Layout.preferredHeight: Math.min(width * 1.5, seasonsGrid.cellHeight - 120)
-                                radius: Theme.imageRadius
-                                antialiasing: true
-                                color: "transparent"
-                                clip: false
-
-                                // Rounded image
-                                Image {
-                                    id: seasonCoverArt
-                                    anchors.fill: parent
-                                    source: seasonDelegate.imageUrl !== "" ? seasonDelegate.imageUrl : posterUrl
-                                    fillMode: Image.PreserveAspectCrop
-                                    asynchronous: true
-                                    cache: true
-                                    visible: true
-
-                                    layer.enabled: true
-                                    layer.effect: MultiEffect {
-                                        maskEnabled: true
-                                        maskSource: seasonMask
-                                    }
-                                }
-
-                                Rectangle {
-                                    id: seasonMask
-                                    anchors.fill: parent
-                                    radius: Theme.imageRadius
-                                    visible: false
-                                    layer.enabled: true
-                                    layer.smooth: true
-                                }
-
-                                // Highlight overlay on focus/hover
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: Theme.imageRadius
-                                    gradient: Gradient {
-                                        GradientStop { position: 0.0; color: "#00ffffff" }
-                                        GradientStop { position: 0.35; color: "#30ffffff" }
-                                        GradientStop { position: 0.6; color: "#10ffffff" }
-                                        GradientStop { position: 1.0; color: "transparent" }
-                                    }
-                                    opacity: seasonDelegate.isFocused ? 0.25 : (seasonDelegate.isHovered ? 0.12 : 0.0)
-                                    Behavior on opacity { NumberAnimation { duration: 200 } }
-                                }
-
-                                // Loading placeholder
-                                Rectangle {
-                                    anchors.fill: parent
-                                    radius: Theme.imageRadius
-                                    color: Qt.rgba(0.2, 0.2, 0.2, 0.5)
-                                    visible: seasonCoverArt.status !== Image.Ready
-                                    
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: "..."
-                                        color: Theme.textSecondary
-                                        font.pixelSize: Theme.fontSizeMedium
-                                        font.family: Theme.fontPrimary
-                                    }
-                                }
-
-                                // Unwatched episode count badge
-                                UnwatchedBadge {
-                                    anchors.top: parent.top
-                                    anchors.right: parent.right
-                                    parentWidth: parent.width
-                                    count: seasonDelegate.unplayedItemCount
-                                    isFullyWatched: seasonDelegate.isPlayed
+                            Image {
+                                id: seasonCoverArt
+                                anchors.fill: parent
+                                source: seasonDelegate.imageUrl !== "" ? seasonDelegate.imageUrl : posterUrl
+                                fillMode: Image.PreserveAspectFit
+                                asynchronous: true
+                                cache: true
+                                visible: true
+                                
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    maskEnabled: true
+                                    maskSource: seasonMask
                                 }
                             }
                             
+                            Item {
+                                id: seasonMask
+                                anchors.fill: parent
+                                visible: false
+                                layer.enabled: true
+                                layer.smooth: true
+                                
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: seasonCoverArt.paintedWidth
+                                    height: seasonCoverArt.paintedHeight
+                                    radius: Theme.imageRadius
+                                    color: "white"
+                                }
+                            }
+                            
+                            // Focus border overlay
+                            Rectangle {
+                                anchors.centerIn: parent
+                                width: seasonCoverArt.paintedWidth + border.width * 2
+                                height: seasonCoverArt.paintedHeight + border.width * 2
+                                radius: Theme.imageRadius + border.width
+                                color: "transparent"
+                                border.width: seasonDelegate.isFocused ? Theme.buttonFocusBorderWidth : 0
+                                border.color: Theme.accentPrimary
+                                antialiasing: true
+                                visible: border.width > 0
+                                Behavior on border.width { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
+                            }
+                            
+                            // Loading placeholder
                             Text {
-                                text: seasonDelegate.name
+                                anchors.centerIn: parent
+                                text: "..."
+                                color: Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-                                Layout.fillWidth: true
-                                horizontalAlignment: Text.AlignHCenter
-                                elide: Text.ElideRight
-                                wrapMode: Text.NoWrap
-                                maximumLineCount: 1
+                                visible: seasonCoverArt.status !== Image.Ready
                             }
                             
-                            Text {
-                                text: seasonDelegate.episodeCount > 0 ? seasonDelegate.episodeCount + " Episodes" : ""
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.family: Theme.fontPrimary
-                                color: Theme.textSecondary
-                                Layout.fillWidth: true
-                                horizontalAlignment: Text.AlignHCenter
-                                wrapMode: Text.NoWrap
-                                maximumLineCount: 1
+                            // Unwatched episode count badge
+                            UnwatchedBadge {
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                anchors.topMargin: (parent.height - seasonCoverArt.paintedHeight) / 2
+                                anchors.rightMargin: (parent.width - seasonCoverArt.paintedWidth) / 2
+                                parentWidth: seasonCoverArt.paintedWidth
+                                count: seasonDelegate.unplayedItemCount
+                                isFullyWatched: seasonDelegate.isPlayed
                             }
                         }
                         
-                        MouseArea {
-                            id: mouseArea
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            onClicked: {
-                                seasonsGrid.currentIndex = seasonDelegate.index
-                                seasonsGrid.forceActiveFocus()
-                                root.navigateToSeasons(seasonsGrid.currentIndex)
-                            }
+                        // Season name below poster
+                        Text {
+                            width: seasonDelegate.posterWidth
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            horizontalAlignment: Text.AlignHCenter
+                            text: seasonDelegate.name
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            font.bold: true
+                            color: Theme.textPrimary
+                            style: Text.Outline
+                            styleColor: "#000000"
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                        }
+                        
+                        // Episode count below name
+                        Text {
+                            width: seasonDelegate.posterWidth
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            horizontalAlignment: Text.AlignHCenter
+                            text: seasonDelegate.episodeCount > 0 ? seasonDelegate.episodeCount + " Episodes" : ""
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            style: Text.Outline
+                            styleColor: "#000000"
+                            elide: Text.ElideRight
+                            maximumLineCount: 1
+                        }
+                    }
+                    
+                    MouseArea {
+                        id: mouseArea
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        onClicked: {
+                            seasonsGrid.currentIndex = seasonDelegate.index
+                            seasonsGrid.forceActiveFocus()
+                            root.navigateToSeasons(seasonsGrid.currentIndex)
                         }
                     }
                 }
@@ -1144,16 +1168,21 @@ FocusScope {
             Layout.preferredWidth: {
                 // If window is wide (full screen > 1200), shrink to ~15% (half of 30%)
                 // Otherwise keep at 30%
-                if (root.width > 1200) return parent.width * 0.15
+                if (root.width > Math.round(1200 * Theme.layoutScale)) return parent.width * 0.15
                 return parent.width * 0.3
             }
             spacing: Theme.spacingMedium
+
+            Behavior on Layout.preferredWidth {
+                enabled: Theme.uiAnimationsEnabled
+                NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
+            }
             
             // Series Poster - Frosted glass container
             Rectangle {
                 id: posterCard
                 Layout.fillWidth: true
-                Layout.preferredHeight: width * 1.5
+                Layout.preferredHeight: Math.min(width * 1.5, parent.height * 0.45)
                 radius: Theme.radiusMedium
                 color: Theme.cardBackground
                 border.width: 1
@@ -1174,7 +1203,7 @@ FocusScope {
                 Rectangle {
                     id: posterImageContainer
                     anchors.fill: parent
-                    anchors.margins: 8
+                    anchors.margins: Theme.spacingSmall
                     radius: Theme.imageRadius
                     clip: true
                     color: "transparent"
@@ -1184,7 +1213,7 @@ FocusScope {
                         id: posterImage
                         anchors.fill: parent
                         source: posterUrl
-                        fillMode: Image.PreserveAspectCrop
+                        fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         cache: true
                         opacity: status === Image.Ready ? 1.0 : 0.0
@@ -1198,7 +1227,7 @@ FocusScope {
                 id: nextUpContainer
                 visible: hasNextEpisode
                 Layout.fillWidth: true
-                Layout.preferredHeight: Theme.nextUpHeight
+                Layout.preferredHeight: Math.min(Theme.nextUpHeight, (parent.height - posterCard.height - Theme.spacingMedium * 3) * 0.95)
                 focus: false
                 
                 property bool isFocused: activeFocus
@@ -1207,8 +1236,22 @@ FocusScope {
                 KeyNavigation.up: seasonsGrid
                 KeyNavigation.left: seasonsGrid
                 
-                Keys.onReturnPressed: playNextUp()
-                Keys.onEnterPressed: playNextUp()
+                Keys.onReturnPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    playNextUp()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    playNextUp()
+                    event.accepted = true
+                }
                 
                 function playNextUp() {
                     if (hasNextEpisode) {
@@ -1229,7 +1272,7 @@ FocusScope {
                     
                     ColumnLayout {
                         anchors.fill: parent
-                        anchors.margins: 16
+                        anchors.margins: Theme.spacingMedium
                         spacing: Theme.spacingMedium
                         
                         Text {
@@ -1264,9 +1307,9 @@ FocusScope {
                             // Play icon overlay
                             Rectangle {
                                 anchors.centerIn: parent
-                                width: 48
-                                height: 48
-                                radius: 24
+                                width: Math.round(48 * Theme.layoutScale)
+                                height: Math.round(48 * Theme.layoutScale)
+                                radius: Math.round(24 * Theme.layoutScale)
                                 color: Qt.rgba(0, 0, 0, 0.7)
                                 visible: nextUpContainer.isFocused || nextUpContainer.isHovered
                                 opacity: nextUpContainer.isFocused ? 1.0 : 0.8
@@ -1275,10 +1318,10 @@ FocusScope {
                                 
                                 Text {
                                     anchors.centerIn: parent
-                                    anchors.horizontalCenterOffset: 2  // Optical centering for play icon
+                                    anchors.horizontalCenterOffset: Math.round(2 * Theme.layoutScale)  // Optical centering for play icon
                                     text: Icons.playArrow
                                     font.family: Theme.fontIcon
-                                    font.pixelSize: 28
+                                    font.pixelSize: Math.round(28 * Theme.layoutScale)
                                     color: Theme.textPrimary
                                 }
                             }
@@ -1410,13 +1453,43 @@ FocusScope {
         }
     }
 
+    // Focus restoration on breakpoint changes
+    property var savedFocusItem: null
+    property int savedSeasonIndex: -1
+
+    Connections {
+        target: ResponsiveLayoutManager
+        function onBreakpointChanged() {
+            root.savedSeasonIndex = seasonsGrid.currentIndex
+            root.savedFocusItem = root.Window.activeFocusItem
+            Qt.callLater(root.restoreFocusAfterBreakpoint)
+        }
+    }
+
+    function restoreFocusAfterBreakpoint() {
+        if (savedSeasonIndex >= 0 && seasonsGrid.count > 0) {
+            seasonsGrid.currentIndex = Math.min(savedSeasonIndex, seasonsGrid.count - 1)
+            seasonsGrid.positionViewAtIndex(seasonsGrid.currentIndex, GridView.Contain)
+        }
+        if (savedFocusItem && savedFocusItem.parent && typeof savedFocusItem.forceActiveFocus === 'function') {
+            savedFocusItem.forceActiveFocus()
+        } else {
+            if (seasonsGrid.currentItem) {
+                seasonsGrid.currentItem.forceActiveFocus()
+            } else {
+                root.forceActiveFocus()
+            }
+        }
+        savedFocusItem = null
+    }
+
     // Context Menu for MPV Profile Selection
     Menu {
         id: contextMenu
         // y: parent.height - Removed to allow popup() to handle positioning
         
         background: Rectangle {
-            implicitWidth: 280
+            implicitWidth: Math.round(280 * Theme.layoutScale)
             color: Theme.cardBackground
             radius: Theme.radiusMedium
             border.color: Theme.cardBorder
@@ -1434,8 +1507,8 @@ FocusScope {
         
         delegate: MenuItem {
             id: menuItem
-            implicitWidth: 240
-            implicitHeight: 40
+            implicitWidth: Math.round(240 * Theme.layoutScale)
+            implicitHeight: Math.round(40 * Theme.layoutScale)
             
             arrow: Canvas {
                 x: parent.width - width - 12
@@ -1461,13 +1534,13 @@ FocusScope {
                 color: menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
                 elide: Text.ElideRight
                 verticalAlignment: Text.AlignVCenter
-                leftPadding: 12
+                leftPadding: Theme.spacingSmall
                 rightPadding: menuItem.arrow.width + 12
             }
             
             background: Rectangle {
-                implicitWidth: 240
-                implicitHeight: 40
+                implicitWidth: Math.round(240 * Theme.layoutScale)
+                implicitHeight: Math.round(40 * Theme.layoutScale)
                 opacity: enabled ? 1 : 0.3
                 color: menuItem.highlighted ? Theme.hoverOverlay : "transparent"
                 radius: Theme.radiusSmall
@@ -1558,7 +1631,7 @@ FocusScope {
                         font.pixelSize: Theme.fontSizeSmall
                         font.family: Theme.fontPrimary
                         color: Theme.accentPrimary
-                        Layout.preferredWidth: 20
+                        Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
                     }
                     
                     Text {
@@ -1605,7 +1678,7 @@ FocusScope {
                             font.pixelSize: Theme.fontSizeSmall
                             font.family: Theme.fontPrimary
                             color: Theme.accentPrimary
-                            Layout.preferredWidth: 20
+                            Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
                         }
                         
                         Text {

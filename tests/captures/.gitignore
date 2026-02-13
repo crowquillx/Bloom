@@ -1,0 +1,4 @@
+# Captured screenshots are generated during test runs for debugging
+# They should not be committed to the repository
+*
+!.gitignore
