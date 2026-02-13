@@ -886,12 +886,12 @@ FocusScope {
                     property real posterHeight: posterWidth * 1.5
                     
                     // Handle item pooling/reuse
-                    ListView.onPooled: {
+                    GridView.onPooled: {
                         // Reset state when item goes to pool
                         coverArt.source = ""
                         coverArt.preRoundedSource = ""
                     }
-                    ListView.onReused: {
+                    GridView.onReused: {
                         // Rebind image source when item is reused
                         coverArt.source = Qt.binding(function() { return getImageSource() })
                         coverArt.preRoundedSource = Qt.binding(function() { return getRoundedImageSource() })
@@ -1909,6 +1909,10 @@ FocusScope {
             }
         }
         
+    }
+
+    Connections {
+        target: PlaybackService
         // Handle playback info loaded for quick-play scenarios
         function onPlaybackInfoLoaded(itemId, info) {
             if (root.pendingQuickPlayItem && root.pendingQuickPlayItem.episodeId === itemId) {

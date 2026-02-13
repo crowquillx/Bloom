@@ -1072,7 +1072,7 @@ FocusScope {
                             label: qsTr("Content Scale Override")
                             description: {
                                 var overrideVal = ConfigManager.manualDpiScaleOverride
-                                var effectiveVal = (typeof DisplayManager !== 'undefined' ? DisplayManager.dpiScale : 1.0)
+                                var effectiveVal = Theme.layoutScale
                                 var autoScaleVal = (effectiveVal / (overrideVal || 1.0))
                                 
                                 var autoScale = autoScaleVal.toFixed(2)
