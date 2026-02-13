@@ -2,7 +2,9 @@ Playback — mpv & Jellyfin Integration
 
 Overview
 - Current production path: mpv runs as an external, top-level process (avoid `--wid` embedding or transparent Qt overlays for this path).
-- Linux now defaults to embedded libmpv backend selection (`linux-libmpv-opengl`) with runtime OpenGL gating and automatic selection of `external-mpv-ipc` when requirements are not met.
+- Linux embedded libmpv backend (`linux-libmpv-opengl`) is currently experimental and less tested than Windows/external playback paths.
+- Linux Wayland sessions currently default to `external-mpv-ipc` unless explicitly opted in (`BLOOM_ENABLE_WAYLAND_LIBMPV=1`) due to unresolved embedded render-path issues on some compositor/GPU combinations.
+- Linux non-Wayland runtime selection still attempts embedded backend when runtime requirements are met, with automatic fallback to `external-mpv-ipc` when unsupported.
 - Windows now defaults to `win-libmpv`, which launches mpv with HWND embedding (`--wid`) against the attached `VideoSurface` target while preserving the external backend process path.
 - Other non-Linux platforms keep `external-mpv-ipc` as default.
 - `external-mpv-ipc` remains fully supported as an explicit backend override on all platforms via `BLOOM_PLAYER_BACKEND=external-mpv-ipc`.
@@ -13,6 +15,8 @@ Backend architecture (Milestone A)
 - Default backend is platform-aware via `PlayerBackendFactory` (Linux prefers embedded backend when runtime-supported; Windows defaults to `win-libmpv`; others default external).
 - Active backend is logged at startup from `ApplicationInitializer`.
 - Optional environment override for backend selection: `BLOOM_PLAYER_BACKEND`.
+- Optional config backend preference: `settings.playback.player_backend` in `app.json` (`external-mpv-ipc`, `linux-libmpv-opengl`, `win-libmpv`, or unset for platform default).
+- Selection precedence is now: `BLOOM_PLAYER_BACKEND` env override -> config `player_backend` -> platform default.
 - Unknown backend names safely resolve to `external-mpv-ipc`.
 
 Backend architecture (Milestone C kickoff)
@@ -57,6 +61,7 @@ Backend architecture (Milestone B kickoff)
   - `aid`/`sid` normalization parity with external backend contract (including node-typed mpv values like `no`/`auto`),
   - render hardening for viewport bounds/FBO-state restoration/update-callback lifecycle, including coalesced render-update scheduling during teardown/re-init.
 - Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing (scheduled at the start of Milestone E).
+- Current Linux support status: embedded path is not yet considered fully supported across compositor/driver combinations; treat `external-mpv-ipc` as the stable production path while Linux embedded validation continues.
 - Current sequencing: Milestone B closes with parity/hardening changes validated via available build/test environments; Milestone C prioritizes Windows backend implementation, Milestone D covers track-selection parity hardening, and Linux on-device validation executes as Milestone E kickoff work.
 - Controller parity hardening now preserves next-up/autoplay context across playback teardown, so async `itemMarkedPlayed`/`nextUnplayedEpisode` flows keep the expected series/item/track state.
 - Unit regression coverage now includes the mismatched-series guard for async next-episode callbacks to prevent stale-series autoplay context from being consumed.

@@ -30,7 +30,6 @@ Implemented now:
    - `aid`/`sid` normalization parity with external backend semantics (including node-typed values like `no`/`auto`).
 
 Not yet implemented in Milestone A:
-- Config-file backend selector key (currently env-only override + platform default selection).
 - Embedded Linux/Windows backends (Milestones B/C).
 
 Milestone B kickoff implemented now:
@@ -77,8 +76,8 @@ Core deliverables:
 Selection behavior:
 - ✅ Default backend is platform-aware (`linux-libmpv-opengl` on Linux when supported; `win-libmpv` on Windows; `external-mpv-ipc` otherwise).
 - ✅ `BLOOM_PLAYER_BACKEND` env override supported.
+- ✅ Config backend preference supported via `settings.playback.player_backend` (used when env override is unset).
 - ✅ Unknown backend names resolve safely to external backend with warning log.
-- ⏳ Config-file backend selector key (deferred to later milestone).
 
 Validation coverage:
 - ✅ Build passes via project build script.
@@ -234,8 +233,9 @@ Milestone C Windows manual validation script (runtime)
 - ⏳ Validate no CPU readback path is used.
 - ⏳ Validate Linux runtime parity (controls/reporting/stability) on representative compositor/hardware matrix.
 - ⏳ Bundle `libmpv` with Linux build/package artifacts and verify runtime library resolution on target systems.
+- ⚠️ Current interim policy: Linux embedded backend is not fully supported on all compositor/driver combinations yet; Wayland defaults to `external-mpv-ipc` unless explicitly opted in for validation (`BLOOM_ENABLE_WAYLAND_LIBMPV=1`).
 
-- ⬜ Add config toggle to keep `ExternalMpvBackend` available as an explicit backend selection.
+- ✅ Add config toggle to keep `ExternalMpvBackend` available as an explicit backend selection.
 - ⬜ Enable embedded path by default only when parity criteria are met.
 - ⬜ Mark legacy external path deprecated (not removed).
 

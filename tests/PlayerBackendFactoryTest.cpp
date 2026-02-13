@@ -20,6 +20,8 @@ private slots:
     void envOverrideSelectsLinuxBackendWhenAvailable();
     void envOverrideSelectsWindowsBackendWhenAvailable();
     void envOverrideUnknownResolvesToExternal();
+    void configPreferenceSelectsExternalWhenNoEnvOverride();
+    void envOverrideTakesPrecedenceOverConfigPreference();
 };
 
 void PlayerBackendFactoryTest::createsPlatformDefaultBackend()
@@ -141,6 +143,37 @@ void PlayerBackendFactoryTest::envOverrideUnknownResolvesToExternal()
 
     QVERIFY(backend != nullptr);
     QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+
+    qunsetenv("BLOOM_PLAYER_BACKEND");
+}
+
+void PlayerBackendFactoryTest::configPreferenceSelectsExternalWhenNoEnvOverride()
+{
+    qunsetenv("BLOOM_PLAYER_BACKEND");
+    std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create(QStringLiteral("external-mpv-ipc"));
+
+    QVERIFY(backend != nullptr);
+    QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+}
+
+void PlayerBackendFactoryTest::envOverrideTakesPrecedenceOverConfigPreference()
+{
+#if defined(Q_OS_WIN)
+    qputenv("BLOOM_PLAYER_BACKEND", "win-libmpv");
+    const QString configuredPreference = QStringLiteral("external-mpv-ipc");
+#else
+    qputenv("BLOOM_PLAYER_BACKEND", "external-mpv-ipc");
+    const QString configuredPreference = QStringLiteral("win-libmpv");
+#endif
+
+    std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create(configuredPreference);
+
+    QVERIFY(backend != nullptr);
+#if defined(Q_OS_WIN)
+    QCOMPARE(backend->backendName(), QStringLiteral("win-libmpv"));
+#else
+    QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+#endif
 
     qunsetenv("BLOOM_PLAYER_BACKEND");
 }

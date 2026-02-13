@@ -153,6 +153,28 @@ if(UNIX AND NOT APPLE)
         target_include_directories(Bloom PRIVATE ${LIBMPV_INCLUDE_DIRS})
         target_link_libraries(Bloom PRIVATE ${LIBMPV_LIBRARIES})
         target_compile_definitions(Bloom PRIVATE BLOOM_HAS_LIBMPV=1)
+
+        find_library(BLOOM_LINUX_MPV_RUNTIME
+            NAMES mpv libmpv.so.2 libmpv.so
+            HINTS ${LIBMPV_LIBRARY_DIRS}
+        )
+
+        if(BLOOM_LINUX_MPV_RUNTIME)
+            add_custom_command(TARGET Bloom POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${BLOOM_LINUX_MPV_RUNTIME}
+                    $<TARGET_FILE_DIR:Bloom>
+                VERBATIM
+            )
+
+            install(FILES ${BLOOM_LINUX_MPV_RUNTIME} DESTINATION bin)
+
+            # Ensure bundled runtime libs next to the executable are discoverable.
+            set_property(TARGET Bloom APPEND PROPERTY BUILD_RPATH "$ORIGIN")
+            set_property(TARGET Bloom APPEND PROPERTY INSTALL_RPATH "$ORIGIN")
+        else()
+            message(WARNING "libmpv runtime library path not found; Linux embedded backend may fail on systems without system libmpv.")
+        endif()
     else()
         message(STATUS "libmpv development package not found; Linux embedded backend remains scaffold-only")
     endif()

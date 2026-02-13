@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QMap>
 #include <QVariantList>
+#include <memory>
 #include "backend/IPlayerBackend.h"
 #include "TrickplayProcessor.h"
 #include "../utils/ConfigManager.h"
@@ -277,6 +278,8 @@ private:
     void loadConfig();
     void startPlayback(const QString &url);
     void initiateMpvStart();
+    void connectBackendSignals(IPlayerBackend *backend);
+    bool tryFallbackToExternalBackend(const QString &reason);
     void updateTrackMappings(const QVariantList &audioTrackMap, const QVariantList &subtitleTrackMap);
     int mpvAudioTrackForJellyfinIndex(int jellyfinStreamIndex) const;
     int mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) const;
@@ -284,6 +287,7 @@ private:
     static QString eventToString(Event event);
 
     IPlayerBackend *m_playerBackend;
+    std::unique_ptr<IPlayerBackend> m_ownedBackend;
     ConfigManager *m_config;
     TrackPreferencesManager *m_trackPrefs;
     DisplayManager *m_displayManager;
@@ -373,6 +377,7 @@ private:
     QString m_testVideoUrl;
 
     bool m_embeddedVideoShrinkEnabled = false;
+    bool m_attemptedLinuxEmbeddedFallback = false;
     
     // OSC and trickplay data
     QList<MediaSegmentInfo> m_currentSegments;

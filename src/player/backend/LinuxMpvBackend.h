@@ -69,4 +69,7 @@ private:
     std::atomic_bool m_acceptRenderUpdates{false};
     std::atomic_bool m_renderUpdateQueued{false};
     QList<QByteArray> m_commandScratch;
+    int m_consecutiveZeroFboFrames = 0;
+    bool m_renderFailureQueued = false;
+    bool m_allowFbo0Fallback = false;
 };

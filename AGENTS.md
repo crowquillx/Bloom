@@ -23,7 +23,7 @@ Windows embedded playback guardrail (regression prevention):
 - Do NOT rely on in-scene sibling layering above `VideoSurface` for Windows embedded playback; native child-window composition can occlude QML overlays.
 - Any PR touching Windows playback layering/geometry (`src/ui/Main.qml`, `src/ui/VideoSurface.qml`, `src/ui/EmbeddedPlaybackOverlay.qml`, `src/player/backend/WindowsMpvBackend.*`) must include manual runtime validation: controls visible above video, and no video move/clip during show/hide, resize, minimize/restore, maximize, and fullscreen transitions.
 
-Backend policy (high level): Linux prefers embedded libmpv backend when runtime requirements are met; all platforms keep `external-mpv-ipc` as explicit rollback path via backend selection override.
+Backend policy (high level): Windows targets embedded libmpv by default. Linux embedded libmpv is still validation-in-progress and not fully supported across compositor/driver combinations; Wayland currently defaults to `external-mpv-ipc` unless explicitly opted in for validation. All platforms keep `external-mpv-ipc` as explicit rollback path via backend selection override.
 
 Build & run:
 ```

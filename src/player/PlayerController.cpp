@@ -1,5 +1,8 @@
 #include "PlayerController.h"
 #include "TrickplayProcessor.h"
+#if !defined(BLOOM_TESTING)
+#include "backend/ExternalMpvBackend.h"
+#endif
 #include "../network/PlaybackService.h"
 #include "../network/LibraryService.h"
 #include "../network/AuthenticationService.h"
@@ -67,47 +70,7 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     setupStateMachine();
 
     // Connect to player backend signals
-    connect(m_playerBackend, &IPlayerBackend::stateChanged,
-            this, &PlayerController::onProcessStateChanged);
-        connect(m_playerBackend, &IPlayerBackend::errorOccurred,
-            this, &PlayerController::onProcessError);
-        connect(m_playerBackend, &IPlayerBackend::positionChanged,
-            this, &PlayerController::onPositionChanged);
-        connect(m_playerBackend, &IPlayerBackend::durationChanged,
-            this, &PlayerController::onDurationChanged);
-        connect(m_playerBackend, &IPlayerBackend::pauseChanged,
-            this, &PlayerController::onPauseChanged);
-        connect(m_playerBackend, &IPlayerBackend::playbackEnded,
-            this, &PlayerController::onPlaybackEnded);
-        connect(m_playerBackend, &IPlayerBackend::pausedForCacheChanged,
-            this, &PlayerController::onPausedForCacheChanged);
-    
-    // Connect track change signals from mpv
-    // NOTE: We ignore these signals during initial track application (m_applyingInitialTracks)
-    // because mpv auto-selects tracks before our set_property commands arrive, and the
-    // mpv track indices don't map directly to Jellyfin stream indices anyway.
-    // User track selections are preserved from playUrlWithTracks() and only updated
-    // when the user explicitly changes tracks via the UI during playback.
-    connect(m_playerBackend, &IPlayerBackend::audioTrackChanged,
-            this, [this](int index) {
-                Q_UNUSED(index);
-                // Don't update m_selectedAudioTrack from mpv signals - it stores Jellyfin
-                // stream indices which don't correspond to mpv's per-type track numbers.
-                // Track changes during playback should go through setSelectedAudioTrack()
-                // which properly handles the index mapping.
-            });
-    connect(m_playerBackend, &IPlayerBackend::subtitleTrackChanged,
-            this, [this](int index) {
-                Q_UNUSED(index);
-                // Don't update m_selectedSubtitleTrack from mpv signals - it stores Jellyfin
-                // stream indices which don't correspond to mpv's per-type track numbers.
-                // Track changes during playback should go through setSelectedSubtitleTrack()
-                // which properly handles the index mapping.
-            });
-    
-    // Connect script message handler for bidirectional IPC with mpv scripts
-    connect(m_playerBackend, &IPlayerBackend::scriptMessage,
-            this, &PlayerController::onScriptMessage);
+    connectBackendSignals(m_playerBackend);
     
     // Connect to LibraryService for autoplay next episode
     connect(m_libraryService, &LibraryService::nextUnplayedEpisodeLoaded,
@@ -164,6 +127,71 @@ PlayerController::~PlayerController()
     m_bufferingTimeoutTimer->stop();
     m_progressReportTimer->stop();
     m_startDelayTimer->stop();
+}
+
+void PlayerController::connectBackendSignals(IPlayerBackend *backend)
+{
+    if (!backend) {
+        return;
+    }
+
+    connect(backend, &IPlayerBackend::stateChanged,
+            this, &PlayerController::onProcessStateChanged);
+    connect(backend, &IPlayerBackend::errorOccurred,
+            this, &PlayerController::onProcessError);
+    connect(backend, &IPlayerBackend::positionChanged,
+            this, &PlayerController::onPositionChanged);
+    connect(backend, &IPlayerBackend::durationChanged,
+            this, &PlayerController::onDurationChanged);
+    connect(backend, &IPlayerBackend::pauseChanged,
+            this, &PlayerController::onPauseChanged);
+    connect(backend, &IPlayerBackend::playbackEnded,
+            this, &PlayerController::onPlaybackEnded);
+    connect(backend, &IPlayerBackend::pausedForCacheChanged,
+            this, &PlayerController::onPausedForCacheChanged);
+
+    // NOTE: We intentionally ignore mpv auto-selected track signals during startup.
+    connect(backend, &IPlayerBackend::audioTrackChanged,
+            this, [](int index) { Q_UNUSED(index); });
+    connect(backend, &IPlayerBackend::subtitleTrackChanged,
+            this, [](int index) { Q_UNUSED(index); });
+
+    connect(backend, &IPlayerBackend::scriptMessage,
+            this, &PlayerController::onScriptMessage);
+}
+
+bool PlayerController::tryFallbackToExternalBackend(const QString &reason)
+{
+    if (!m_playerBackend
+        || m_playerBackend->backendName() != QStringLiteral("linux-libmpv-opengl")
+        || m_attemptedLinuxEmbeddedFallback) {
+        return false;
+    }
+
+    m_attemptedLinuxEmbeddedFallback = true;
+    qCWarning(lcPlayback) << "Embedded Linux backend failed; switching to external-mpv-ipc. Reason:" << reason;
+
+    QObject::disconnect(m_playerBackend, nullptr, this, nullptr);
+    if (m_playerBackend->isRunning()) {
+        m_playerBackend->stopMpv();
+    }
+
+    #if defined(BLOOM_TESTING)
+    m_ownedBackend = std::make_unique<NullPlayerBackend>(this);
+    #else
+    m_ownedBackend = std::make_unique<ExternalMpvBackend>(this);
+    #endif
+
+    m_playerBackend = m_ownedBackend.get();
+    connectBackendSignals(m_playerBackend);
+    emit supportsEmbeddedVideoChanged();
+
+    if (m_playbackState == Loading && !m_pendingUrl.isEmpty()) {
+        qCInfo(lcPlayback) << "Retrying current media with external-mpv-ipc fallback backend";
+        initiateMpvStart();
+    }
+
+    return true;
 }
 
 void PlayerController::setupStateMachine()
@@ -567,6 +595,12 @@ void PlayerController::onProcessStateChanged(bool running)
 void PlayerController::onProcessError(const QString &error)
 {
     qDebug() << "PlayerController: Process error:" << error;
+
+    if (error.startsWith(QStringLiteral("linux-libmpv-render-unavailable"))
+        && tryFallbackToExternalBackend(error)) {
+        return;
+    }
+
     setErrorMessage(error);
     processEvent(Event::ErrorOccurred);
 }
@@ -1480,7 +1514,55 @@ void PlayerController::initiateMpvStart()
     QStringList finalArgs;
     finalArgs << ConfigManager::getMpvConfigArgs();  // mpv.conf, input.conf, scripts
     finalArgs << profileArgs;                        // Profile-specific args
-    
+
+#if defined(Q_OS_LINUX)
+    if (m_playerBackend->backendName() == QStringLiteral("linux-libmpv-opengl")) {
+        // Embedded libmpv render path should avoid external-process mpv config/scripts
+        // and profile switches that can override render-critical options.
+        QStringList filteredArgs;
+        filteredArgs.reserve(finalArgs.size());
+
+        auto optionNameForArg = [](const QString &arg) -> QString {
+            if (!arg.startsWith("--")) return QString();
+            const QString option = arg.mid(2);
+            const int equalsIndex = option.indexOf('=');
+            return equalsIndex >= 0 ? option.left(equalsIndex) : option;
+        };
+
+        auto shouldSkipEmbeddedArg = [](const QString &name) -> bool {
+            return name == QStringLiteral("config-dir")
+                || name == QStringLiteral("config")
+                || name == QStringLiteral("input-conf")
+                || name == QStringLiteral("include")
+                || name == QStringLiteral("script")
+                || name == QStringLiteral("script-opts")
+                || name == QStringLiteral("scripts")
+                || name == QStringLiteral("osc")
+                || name == QStringLiteral("no-osc")
+                || name == QStringLiteral("profile")
+                || name == QStringLiteral("fullscreen")
+                || name == QStringLiteral("wid")
+                || name == QStringLiteral("input-ipc-server")
+                || name == QStringLiteral("idle")
+                || name == QStringLiteral("vo")
+                || name == QStringLiteral("hwdec");
+        };
+
+        for (const QString &arg : std::as_const(finalArgs)) {
+            const QString name = optionNameForArg(arg);
+            if (!name.isEmpty() && shouldSkipEmbeddedArg(name)) {
+                continue;
+            }
+            filteredArgs << arg;
+        }
+
+        qDebug() << "PlayerController: Embedded linux backend filtered mpv args:"
+                 << "before=" << finalArgs.size()
+                 << "after=" << filteredArgs.size();
+        finalArgs = filteredArgs;
+    }
+#endif
+
     qDebug() << "PlayerController: Final mpv args:" << finalArgs;
     
     m_playerBackend->startMpv(m_mpvBin, finalArgs, m_pendingUrl);

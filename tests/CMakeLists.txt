@@ -86,6 +86,7 @@ target_link_libraries(PlayerBackendFactoryTest
     PRIVATE
         Qt6::Core
         Qt6::Network
+        Qt6::Quick
         Qt6::Test
 )
 

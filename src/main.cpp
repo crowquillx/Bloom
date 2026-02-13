@@ -6,6 +6,7 @@
 #include <QCommandLineOption>
 #include <QSize>
 #include <QDebug>
+#include <clocale>
 
 #include "utils/CacheMigrator.h"
 #include "ui/FontLoader.h"
@@ -16,6 +17,11 @@
 
 int main(int argc, char *argv[])
 {
+    // libmpv requires C numeric locale for reliable option/property parsing.
+    if (setlocale(LC_NUMERIC, "C") == nullptr) {
+        qWarning() << "Failed to force LC_NUMERIC=C; libmpv initialization may fail on non-C locales";
+    }
+
     // Set application metadata
     QCoreApplication::setOrganizationName("Bloom");
     QCoreApplication::setOrganizationDomain("com.github.bloom");
@@ -105,4 +111,3 @@ int main(int argc, char *argv[])
 
     return app.exec();
 }
-

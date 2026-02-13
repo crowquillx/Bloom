@@ -71,6 +71,22 @@ ninja
 
 See [docs/build.md](docs/build.md) for detailed instructions.
 
+## Linux Backend Status
+
+- Linux embedded libmpv playback (`linux-libmpv-opengl`) is currently less tested and not fully supported across all Wayland compositor/GPU combinations.
+- On Wayland, Bloom currently defaults to `external-mpv-ipc` unless embedded is explicitly opted in for validation.
+- Recommended stable Linux path today:
+  - `BLOOM_PLAYER_BACKEND=external-mpv-ipc`
+
+Examples:
+```bash
+# Stable path (recommended on Linux currently)
+BLOOM_PLAYER_BACKEND=external-mpv-ipc ./build-docker/src/Bloom
+
+# Embedded Linux validation path (experimental)
+BLOOM_PLAYER_BACKEND=linux-libmpv-opengl BLOOM_ENABLE_WAYLAND_LIBMPV=1 ./build-docker/src/Bloom
+```
+
 ## Configuration
 
 Config file location:

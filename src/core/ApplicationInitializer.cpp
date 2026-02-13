@@ -127,7 +127,7 @@ void ApplicationInitializer::registerServices()
     ServiceLocator::registerService<TrackPreferencesManager>(m_trackPreferencesManager.get());
     
     // 2. Player backend - No dependencies
-    m_playerBackend = PlayerBackendFactory::create();
+    m_playerBackend = PlayerBackendFactory::create(m_configManager->getPlayerBackend());
     ServiceLocator::registerService<IPlayerBackend>(m_playerBackend.get());
     qInfo() << "ApplicationInitializer: Active player backend:" << m_playerBackend->backendName();
     

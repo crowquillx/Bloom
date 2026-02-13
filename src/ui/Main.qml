@@ -55,12 +55,13 @@ Window {
         if (sidebar.overlayMode) return 0
         return sidebar.sidebarWidth
     }
+    readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
 
     VideoSurface {
         id: videoSurface
         anchors.fill: parent
-        visible: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
-        z: -1
+        visible: embeddedPlaybackActive
+        z: 900
     }
 
     Window {
@@ -71,8 +72,7 @@ Window {
         color: "transparent"
         visible: window.visible
                  && window.visibility !== Window.Minimized
-                 && PlayerController.supportsEmbeddedVideo
-                 && PlayerController.isPlaybackActive
+                 && embeddedPlaybackActive
         x: window.x
         y: window.y
         width: window.width
@@ -96,6 +96,7 @@ Window {
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.leftMargin: contentOffset
+        visible: !embeddedPlaybackActive
         
         Behavior on anchors.leftMargin {
             NumberAnimation { 
@@ -163,7 +164,7 @@ Window {
     Sidebar {
         id: sidebar
         anchors.fill: parent
-        visible: isLoggedIn
+        visible: isLoggedIn && !embeddedPlaybackActive
         overlayMode: window.width < overlayThreshold
         currentNavigation: "home"
         mainContent: mainContentArea  // Connect to main content for focus navigation

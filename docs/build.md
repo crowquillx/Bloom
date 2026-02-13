@@ -54,6 +54,21 @@ sudo apt install nsis
 
 ## Build Steps
 
+## Known Limitations (Linux)
+
+- Linux embedded libmpv playback (`linux-libmpv-opengl`) is still validation-in-progress and is not fully supported across all compositor/GPU combinations.
+- Wayland sessions currently default to `external-mpv-ipc` unless explicitly opted in for embedded validation.
+- Recommended stable Linux path today: `external-mpv-ipc`.
+
+Backend selection examples:
+```bash
+# Stable fallback path (recommended on Linux currently)
+BLOOM_PLAYER_BACKEND=external-mpv-ipc ./build-docker/src/Bloom
+
+# Force embedded Linux backend for validation/debug only
+BLOOM_PLAYER_BACKEND=linux-libmpv-opengl BLOOM_ENABLE_WAYLAND_LIBMPV=1 ./build-docker/src/Bloom
+```
+
 ### Docker/Podman (Recommended for Linux)
 
 The `build-docker.sh` script handles containerized builds with automatic dependency management:
@@ -188,9 +203,25 @@ wine Bloom-Setup-0.1.0.exe
 **Symptom:** Configure output warns that libmpv development package was not found and Linux embedded backend remains scaffold-only.
 
 **Solution:**
-- On Arch: `sudo pacman -S mpv`
+- On Arch: install an mpv package that provides `pkg-config` metadata + `libmpv` headers/runtime (for example `mpv` or `mpv-full`, depending on your setup)
 - On Ubuntu: `sudo apt install libmpv-dev`
 - Re-run the project build script after installing dependencies.
+
+**Verify quickly:**
+```bash
+pkg-config --modversion mpv
+pkg-config --libs mpv
+```
+
+If both commands work, CMake should detect libmpv.
+
+### Linux libmpv Bundling (Current)
+When `pkg-config mpv` is detected, the Linux build now:
+- links against libmpv (`BLOOM_HAS_LIBMPV=1`)
+- copies the resolved `libmpv` runtime library next to `build-docker/src/Bloom` after build
+- installs that same `libmpv` runtime into `bin/` with the app
+
+This is the first step toward release bundling parity with Windows; dependency-chain bundling/CI packaging hardening is still planned.
 
 ### MinGW Toolchain Issues
 **Symptom:** `build-windows.sh` fails with "x86_64-w64-mingw32-cmake: command not found".

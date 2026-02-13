@@ -28,12 +28,22 @@ static constexpr auto kDefaultBackendName = kExternalBackendName;
 
 std::unique_ptr<IPlayerBackend> PlayerBackendFactory::create(QObject *parent)
 {
+    return create(QString(), parent);
+}
+
+std::unique_ptr<IPlayerBackend> PlayerBackendFactory::create(const QString &configuredBackendName, QObject *parent)
+{
     const QByteArray configuredBackend = qgetenv("BLOOM_PLAYER_BACKEND");
-    if (configuredBackend.isEmpty()) {
-        return createByName(QString::fromLatin1(kDefaultBackendName), parent);
+    if (!configuredBackend.isEmpty()) {
+        return createByName(QString::fromUtf8(configuredBackend), parent);
     }
 
-    return createByName(QString::fromUtf8(configuredBackend), parent);
+    const QString normalizedConfiguredBackend = configuredBackendName.trimmed();
+    if (!normalizedConfiguredBackend.isEmpty()) {
+        return createByName(normalizedConfiguredBackend, parent);
+    }
+
+    return createByName(QString::fromLatin1(kDefaultBackendName), parent);
 }
 
 std::unique_ptr<IPlayerBackend> PlayerBackendFactory::createByName(const QString &backendName, QObject *parent)

@@ -40,8 +40,9 @@ Adding a new service
 3. Update `AGENTS.md` (or `docs/services.md`) to document the dependency and purpose.
 
 Backend selection notes
-- Default backend path is external mpv (`external-mpv-ipc`).
-- `PlayerBackendFactory` supports `createByName(...)` and env override via `BLOOM_PLAYER_BACKEND`.
+- Platform default backend path is selected by `PlayerBackendFactory` (Linux prefers `linux-libmpv-opengl` when runtime-supported; Windows defaults `win-libmpv`; others default `external-mpv-ipc`).
+- `PlayerBackendFactory` supports `createByName(...)`, env override via `BLOOM_PLAYER_BACKEND`, and config preference via `settings.playback.player_backend`.
+- Selection precedence: env override -> config preference -> platform default.
 - Unknown backend names are logged and safely fall back to external backend.
 - Integration check: `VisualRegressionTest` asserts `IPlayerBackend` is registered in `ServiceLocator` after `ApplicationInitializer::registerServices()`.
 
