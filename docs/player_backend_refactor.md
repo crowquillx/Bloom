@@ -49,6 +49,7 @@ Milestone C kickoff implemented now:
 - Added Windows-conditional build wiring for app/test targets using factory wiring.
 - Preserved fallback behavior: `external-mpv-ipc` remains explicit rollback/override and unknown backend names still fall back safely.
 - Added focused regression coverage for Windows backend selection/wiring behavior in `PlayerBackendFactoryTest`.
+- Added transparent QML overlay-window path for embedded playback controls on Windows so controls render above video without resizing or clipping the video viewport.
 
 Still pending after Milestone B closeout (moved to start of Milestone D):
 - Final Linux target runtime validation for `mpv_render_context` reliability on representative hardware/compositors.
@@ -164,7 +165,7 @@ Overall milestone status:
 - ✅ Add Windows embedded overlay rendering foundation by introducing a dedicated embedded host window synced to viewport geometry plus a reusable backend-agnostic overlay host (`EmbeddedPlaybackOverlay.qml`) above `VideoSurface`.
 - ✅ Harden direct libmpv event parity by mapping lifecycle events (`START_FILE`/`FILE_LOADED`/`PLAYBACK_RESTART`/`IDLE`/`END_FILE`) to backend running-state transitions and forwarding `COMMAND_REPLY`/end-file errors via backend error signals.
 - ✅ Add embedded playback control bindings in the same slice: backend-agnostic overlay control bar wiring (`play/pause`, `seek ±10s`, `stop`) plus global keyboard shortcuts active during playback (`Space/K`, `Left/Right`, `J/L`, `S`).
-- ✅ Ensure overlay visibility on Windows embedded playback by reserving a bottom controls band outside the native video host viewport; add dedicated `Esc` → stop playback behavior.
+- ✅ Ensure overlay visibility on Windows embedded playback with a transparent QML overlay window above video (no viewport reserve band, no clip, no video reposition); add dedicated `Esc` → stop playback behavior.
 - ⏳ Validate direct-libmpv path on representative Windows runtime packaging where libmpv is present in production deployment.
 
 Milestone C/D Plezy parity checklist (review gate)
@@ -338,12 +339,12 @@ Deliverables:
 - Native event filter and geometry sync.
 - Transition flicker mitigation.
 - HDR diagnostics/logging path.
-- Overlay rendering path for embedded Windows playback, with reusable overlay components shared across platforms.
+- Overlay rendering path for embedded Windows playback, with transparent QML controls layered above video and reusable overlay components shared across platforms.
 
 Exit criteria:
 - Seamless fullscreen transitions and stable embedding.
 - HDR output functional on target validation setup.
-- Overlay experience visually seamless.
+- Overlay experience visually seamless, with controls shown above video without moving or clipping the video viewport.
 - Overlay UI/state layer is backend-agnostic and reusable by non-Windows embedded paths.
 
 ## Milestone D — Soft deprecation (optional)
@@ -385,6 +386,7 @@ Exit criteria:
 
 ### UX
 - QML overlays render above video
+- Overlay show/hide does not move or clip the video viewport
 - Credits-shrink viewport behavior works
 - Keyboard/gamepad navigation unaffected
 

@@ -20,9 +20,15 @@ Backend architecture (Milestone C kickoff)
 - Selector token: `win-libmpv`.
 - Windows backend now resolves target `winId` from `MpvVideoItem`, creates a dedicated child host window, and keeps host geometry synced to `VideoSurface` viewport updates for embedded playback.
 - Windows backend now attempts a direct libmpv control path first (`mpv_create`/`mpv_initialize`/`mpv_command_node_async`/`mpv_observe_property`/`mpv_wait_event`) while preserving the `PlayerController` contract.
-- If direct libmpv initialization/load fails (or libmpv is unavailable at build time), the Windows backend falls back to the existing external process + IPC path and keeps `external-mpv-ipc` rollback behavior intact.
+- If direct libmpv initialization/load fails (or libmpv is unavailable at build time), `win-libmpv` reports an error; rollback is explicit via backend selection override (`external-mpv-ipc`).
 - Playback controls are now exercised through the direct Windows backend command path in the same migration slice: play/pause/resume/seek/stop plus audio/subtitle property commands.
-- Added `EmbeddedPlaybackOverlay.qml` as a backend-agnostic overlay host/state layer rendered above embedded video, intended for cross-platform overlay reuse.
+- Added `EmbeddedPlaybackOverlay.qml` as a backend-agnostic overlay host/state layer used by a transparent overlay window on Windows, intended for cross-platform overlay reuse.
+
+Windows embedded overlay layering model
+- Video is rendered by libmpv into a native child host window attached to the playback target (`--wid`).
+- Playback controls are rendered in a separate transparent QML overlay window that tracks the main window geometry and sits above video.
+- UX contract: showing/hiding controls must not resize, shift, or clip the video viewport.
+- Credits/next-up shrink mode remains a separate feature path and must continue to work independently of normal full-frame overlay behavior.
 
 Reference implementation notes (Plezy)
 - External reference: https://github.com/edde746/plezy

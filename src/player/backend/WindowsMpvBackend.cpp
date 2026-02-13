@@ -684,16 +684,6 @@ void WindowsMpvBackend::processMpvEvents()
         case MPV_EVENT_SEEK:
             setDirectRunning(true);
             break;
-        case MPV_EVENT_UNPAUSE:
-            setDirectRunning(true);
-            break;
-        case MPV_EVENT_PAUSE:
-            setDirectRunning(true);
-            break;
-        case MPV_EVENT_STOP:
-            setDirectRunning(false);
-            emit playbackEnded();
-            break;
         case MPV_EVENT_CLIENT_MESSAGE: {
             mpv_event_client_message *message = static_cast<mpv_event_client_message *>(event->data);
             if (!message || message->num_args <= 0 || !message->args) {
@@ -921,7 +911,7 @@ bool WindowsMpvBackend::sendVariantCommandDirect(const QVariantList &command)
         default:
             node.format = MPV_FORMAT_STRING;
             commandStrings.append(part.toString().toUtf8());
-            node.u.string = commandStrings.constLast().data();
+            node.u.string = const_cast<char *>(commandStrings.constLast().constData());
             break;
         }
     }
