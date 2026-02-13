@@ -26,6 +26,11 @@ ExternalMpvBackend::ExternalMpvBackend(QObject *parent)
             this, &ExternalMpvBackend::scriptMessage);
 }
 
+QString ExternalMpvBackend::backendName() const
+{
+        return QStringLiteral("external-mpv-ipc");
+}
+
 void ExternalMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl)
 {
     m_processManager->startMpv(mpvBin, args, mediaUrl);

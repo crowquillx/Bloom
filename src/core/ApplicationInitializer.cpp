@@ -4,6 +4,7 @@
 #include "utils/DisplayManager.h"
 #include "ui/ResponsiveLayoutManager.h"
 #include "utils/TrackPreferencesManager.h"
+#include "player/backend/IPlayerBackend.h"
 #include "player/backend/PlayerBackendFactory.h"
 #include "player/PlayerController.h"
 #include "player/ThemeSongManager.h"
@@ -127,6 +128,8 @@ void ApplicationInitializer::registerServices()
     
     // 2. Player backend - No dependencies
     m_playerBackend = PlayerBackendFactory::create();
+    ServiceLocator::registerService<IPlayerBackend>(m_playerBackend.get());
+    qInfo() << "ApplicationInitializer: Active player backend:" << m_playerBackend->backendName();
     
     // Check if we're in test mode
     bool isTestMode = TestModeController::instance()->isTestMode();

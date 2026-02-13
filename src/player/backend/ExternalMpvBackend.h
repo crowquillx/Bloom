@@ -11,6 +11,8 @@ public:
     explicit ExternalMpvBackend(QObject *parent = nullptr);
     ~ExternalMpvBackend() override = default;
 
+    QString backendName() const override;
+
     void startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl) override;
     void stopMpv() override;
     bool isRunning() const override;

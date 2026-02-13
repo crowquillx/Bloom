@@ -12,6 +12,8 @@ public:
     explicit IPlayerBackend(QObject *parent = nullptr) : QObject(parent) {}
     ~IPlayerBackend() override = default;
 
+    virtual QString backendName() const = 0;
+
     virtual void startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl) = 0;
     virtual void stopMpv() = 0;
     virtual bool isRunning() const = 0;
