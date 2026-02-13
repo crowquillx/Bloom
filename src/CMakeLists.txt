@@ -130,6 +130,7 @@ qt_add_qml_module(Bloom
         ui/MediaProgressBar.qml
         ui/MpvProfileEditor.qml
         ui/VideoSurface.qml
+        ui/EmbeddedPlaybackOverlay.qml
         ui/TrackSelector.qml
         ui/MediaInfoPanel.qml
         ui/ToastNotification.qml

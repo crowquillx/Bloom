@@ -250,6 +250,7 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/Sidebar.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaProgressBar.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MpvProfileEditor.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/EmbeddedPlaybackOverlay.qml
     ${CMAKE_SOURCE_DIR}/src/ui/TrackSelector.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaInfoPanel.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ToastNotification.qml

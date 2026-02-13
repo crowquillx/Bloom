@@ -62,6 +62,11 @@ Window {
         visible: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
         z: -1
     }
+
+    EmbeddedPlaybackOverlay {
+        id: embeddedPlaybackOverlay
+        anchors.fill: parent
+    }
     
     // ========================================
     // Main Content Area

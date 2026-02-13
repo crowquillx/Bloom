@@ -18,11 +18,11 @@ Backend architecture (Milestone A)
 Backend architecture (Milestone C kickoff)
 - Added `WindowsMpvBackend` scaffold under `src/player/backend/`.
 - Selector token: `win-libmpv`.
-- Windows backend now resolves target `winId` from `MpvVideoItem` and injects `--wid=<HWND>` on launch for embedded playback.
-- External process + IPC behavior remains the active transport path, preserving rollback compatibility with `external-mpv-ipc`.
-- Pending Milestone C step: migrate Windows control/event handling from external IPC delegation to direct libmpv command/property/event APIs while preserving the `PlayerController` contract and keeping `external-mpv-ipc` as explicit rollback.
-- Sequencing requirement: implement/validate playback controls in the same migration slice (play/pause/resume/seek/stop and track control commands) so command routing is rewritten once.
-- Sequencing requirement: implement embedded overlay rendering for Windows during the same migration phase, with overlay UI/state elements kept backend-agnostic and reusable across platforms.
+- Windows backend now resolves target `winId` from `MpvVideoItem`, creates a dedicated child host window, and keeps host geometry synced to `VideoSurface` viewport updates for embedded playback.
+- Windows backend now attempts a direct libmpv control path first (`mpv_create`/`mpv_initialize`/`mpv_command_node_async`/`mpv_observe_property`/`mpv_wait_event`) while preserving the `PlayerController` contract.
+- If direct libmpv initialization/load fails (or libmpv is unavailable at build time), the Windows backend falls back to the existing external process + IPC path and keeps `external-mpv-ipc` rollback behavior intact.
+- Playback controls are now exercised through the direct Windows backend command path in the same migration slice: play/pause/resume/seek/stop plus audio/subtitle property commands.
+- Added `EmbeddedPlaybackOverlay.qml` as a backend-agnostic overlay host/state layer rendered above embedded video, intended for cross-platform overlay reuse.
 
 Reference implementation notes (Plezy)
 - External reference: https://github.com/edde746/plezy

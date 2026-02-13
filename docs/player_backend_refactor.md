@@ -158,9 +158,11 @@ Overall milestone status:
 - ✅ Implement initial transition flicker mitigation path (state-aware deferred geometry sync during move/resize/window-state transitions).
 - ✅ Add initial HDR diagnostics and validation path (startup logging of HDR-relevant mpv option set and output-path hints in Windows backend scaffold).
 - ✅ Expose native target handle to backend via `MpvVideoItem.winId` property to keep embedding hookup backend-agnostic from QML.
-- ⬜ Replace Windows IPC-delegated control/event path with direct libmpv backend control path (`mpv_command`/`mpv_command_async`, `mpv_set_property*`, `mpv_observe_property`, `mpv_wait_event`) while preserving `PlayerController` signal/property contract and keeping `external-mpv-ipc` as explicit rollback.
-- ⬜ Implement/validate end-user playback controls (play/pause/resume/seek/stop + audio/subtitle track commands) during the same direct-libmpv command-path migration slice to avoid duplicate command-routing work.
-- ⬜ Implement overlay rendering for Windows embedded playback in the same migration phase, while extracting overlay UI/state components so they remain reusable across backend/platform implementations.
+- ✅ Replace Windows IPC-delegated control/event path with a direct libmpv backend path when available (`mpv_create`/`mpv_initialize`, `mpv_command_node_async`, `mpv_observe_property`, `mpv_wait_event`) while preserving `PlayerController` signal/property contract.
+- ✅ Keep rollback behavior in migration path: `win-libmpv` now auto-falls back to external process + IPC if direct libmpv init/load fails, and explicit `external-mpv-ipc` selection remains unchanged.
+- ✅ Implement playback control routing in the same migration slice for direct Windows path (play/pause/resume/seek/stop + audio/subtitle command/property handling).
+- ✅ Add Windows embedded overlay rendering foundation by introducing a dedicated embedded host window synced to viewport geometry plus a reusable backend-agnostic overlay host (`EmbeddedPlaybackOverlay.qml`) above `VideoSurface`.
+- ⏳ Validate direct-libmpv path on representative Windows runtime packaging where libmpv is present in production deployment.
 
 Milestone C/D Plezy parity checklist (review gate)
 - [ ] Control-path parity checked against Plezy patterns (async command dispatch + observed-property/event forwarding model).
