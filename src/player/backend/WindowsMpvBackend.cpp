@@ -861,9 +861,68 @@ bool WindowsMpvBackend::sendVariantCommandDirect(const QVariantList &command)
 
     mpv_handle *handle = static_cast<mpv_handle *>(m_mpvHandle);
 
+    if (command.size() >= 3
+        && command.at(0).typeId() == QMetaType::QString
+        && command.at(0).toString() == QStringLiteral("set_property")) {
+        const QString propertyName = command.at(1).toString();
+        const QVariant propertyValue = command.at(2);
+        const QByteArray propertyNameUtf8 = propertyName.toUtf8();
+
+        int status = MPV_ERROR_GENERIC;
+        switch (propertyValue.typeId()) {
+        case QMetaType::Bool: {
+            int flagValue = propertyValue.toBool() ? 1 : 0;
+            status = mpv_set_property(handle, propertyNameUtf8.constData(), MPV_FORMAT_FLAG, &flagValue);
+            break;
+        }
+        case QMetaType::Int:
+        case QMetaType::LongLong:
+        case QMetaType::UInt:
+        case QMetaType::ULongLong:
+        case QMetaType::Long:
+        case QMetaType::ULong:
+        case QMetaType::Short:
+        case QMetaType::UShort:
+        case QMetaType::Char:
+        case QMetaType::SChar:
+        case QMetaType::UChar: {
+            qint64 intValue = propertyValue.toLongLong();
+            status = mpv_set_property(handle, propertyNameUtf8.constData(), MPV_FORMAT_INT64, &intValue);
+            break;
+        }
+        case QMetaType::Float:
+        case QMetaType::Double: {
+            double doubleValue = propertyValue.toDouble();
+            status = mpv_set_property(handle, propertyNameUtf8.constData(), MPV_FORMAT_DOUBLE, &doubleValue);
+            break;
+        }
+        default: {
+            const QByteArray valueUtf8 = propertyValue.toString().toUtf8();
+            status = mpv_set_property_string(handle, propertyNameUtf8.constData(), valueUtf8.constData());
+            break;
+        }
+        }
+
+        if (status < 0) {
+            qCWarning(lcWindowsLibmpvBackend)
+                << "Direct libmpv set_property failed:"
+                << QString::fromUtf8(mpv_error_string(status))
+                << "property=" << propertyName
+                << "value=" << propertyValue;
+            return false;
+        }
+
+        if (propertyName == QStringLiteral("aid") || propertyName == QStringLiteral("sid")) {
+            qCDebug(lcWindowsLibmpvBackend)
+                << "Applied direct track property"
+                << propertyName
+                << propertyValue;
+        }
+        return true;
+    }
+
     QVector<mpv_node> commandNodes(command.size());
-    QList<QByteArray> commandStrings;
-    commandStrings.reserve(command.size());
+    QVector<QByteArray> commandStrings(command.size());
 
     for (int index = 0; index < command.size(); ++index) {
         const QVariant &part = command.at(index);
@@ -895,8 +954,8 @@ bool WindowsMpvBackend::sendVariantCommandDirect(const QVariantList &command)
             break;
         default:
             node.format = MPV_FORMAT_STRING;
-            commandStrings.append(part.toString().toUtf8());
-            node.u.string = const_cast<char *>(commandStrings.constLast().constData());
+            commandStrings[index] = part.toString().toUtf8();
+            node.u.string = commandStrings[index].data();
             break;
         }
     }
@@ -910,7 +969,26 @@ bool WindowsMpvBackend::sendVariantCommandDirect(const QVariantList &command)
     commandArray.format = MPV_FORMAT_NODE_ARRAY;
     commandArray.u.list = &commandList;
 
-    return mpv_command_node_async(handle, 0, &commandArray) >= 0;
+    const int status = mpv_command_node_async(handle, 0, &commandArray);
+    if (status < 0) {
+        qCWarning(lcWindowsLibmpvBackend)
+            << "Direct libmpv command dispatch error:"
+            << QString::fromUtf8(mpv_error_string(status))
+            << "command=" << command;
+        return false;
+    }
+
+    if (command.size() >= 2
+        && command.at(0).toString() == QStringLiteral("set_property")
+        && (command.at(1).toString() == QStringLiteral("aid")
+            || command.at(1).toString() == QStringLiteral("sid"))) {
+        qCDebug(lcWindowsLibmpvBackend)
+            << "Applied direct track command"
+            << command.at(1).toString()
+            << command.at(2);
+    }
+
+    return true;
 #endif
 }
 

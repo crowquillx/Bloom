@@ -55,7 +55,7 @@ public:
 
     void sendVariantCommand(const QVariantList &command) override
     {
-        Q_UNUSED(command);
+        variantCommands.append(command);
     }
 
     bool supportsEmbeddedVideo() const override
@@ -81,6 +81,9 @@ public:
 
 private:
     bool m_running = false;
+
+public:
+    QList<QVariantList> variantCommands;
 };
 
 class FakeLibraryService final : public LibraryService
@@ -115,6 +118,9 @@ private slots:
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
     void embeddedVideoShrinkToggleEmitsAndPersists();
+    void startupTrackSelectionUsesCanonicalMapWhenUrlNotPinned();
+    void startupTrackSelectionRespectsPinnedUrlUnlessUserOverride();
+    void runtimeTrackSelectionUsesCanonicalMapAndSubtitleNone();
 };
 
 void PlayerControllerAutoplayContextTest::itemMarkedPlayedUsesPendingContext()
@@ -288,6 +294,122 @@ void PlayerControllerAutoplayContextTest::embeddedVideoShrinkToggleEmitsAndPersi
     controller.setEmbeddedVideoShrinkEnabled(false);
     QVERIFY(!controller.embeddedVideoShrinkEnabled());
     QCOMPARE(shrinkSpy.count(), 2);
+}
+
+void PlayerControllerAutoplayContextTest::startupTrackSelectionUsesCanonicalMapWhenUrlNotPinned()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_pendingUrl = QStringLiteral("https://example.invalid/stream");
+    controller.m_selectedAudioTrack = 7;
+    controller.m_selectedSubtitleTrack = 11;
+    controller.updateTrackMappings(
+        QVariantList{
+            QVariantMap{{QStringLiteral("jellyfinIndex"), 7}, {QStringLiteral("mpvTrackId"), 2}}
+        },
+        QVariantList{
+            QVariantMap{{QStringLiteral("jellyfinIndex"), 11}, {QStringLiteral("mpvTrackId"), 3}}
+        });
+
+    controller.onEnterBufferingState();
+
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "aid", 2}));
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sid", 3}));
+}
+
+void PlayerControllerAutoplayContextTest::startupTrackSelectionRespectsPinnedUrlUnlessUserOverride()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_pendingUrl = QStringLiteral("https://example.invalid/stream?AudioStreamIndex=4&SubtitleStreamIndex=8");
+    controller.m_selectedAudioTrack = 4;
+    controller.m_selectedSubtitleTrack = 8;
+    controller.updateTrackMappings(
+        QVariantList{
+            QVariantMap{{QStringLiteral("jellyfinIndex"), 4}, {QStringLiteral("mpvTrackId"), 1}},
+            QVariantMap{{QStringLiteral("jellyfinIndex"), 9}, {QStringLiteral("mpvTrackId"), 2}}
+        },
+        QVariantList{
+            QVariantMap{{QStringLiteral("jellyfinIndex"), 8}, {QStringLiteral("mpvTrackId"), 1}},
+            QVariantMap{{QStringLiteral("jellyfinIndex"), 10}, {QStringLiteral("mpvTrackId"), 2}}
+        });
+
+    controller.onEnterBufferingState();
+
+    QVERIFY(!backend.variantCommands.contains(QVariantList{"set_property", "aid", 1}));
+    QVERIFY(!backend.variantCommands.contains(QVariantList{"set_property", "sid", 1}));
+
+    backend.variantCommands.clear();
+    controller.m_selectedAudioTrack = 9;
+    controller.m_selectedSubtitleTrack = -1;
+    controller.onEnterBufferingState();
+
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "aid", 2}));
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sid", "no"}));
+}
+
+void PlayerControllerAutoplayContextTest::runtimeTrackSelectionUsesCanonicalMapAndSubtitleNone()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.updateTrackMappings(
+        QVariantList{
+            QVariantMap{{QStringLiteral("jellyfinIndex"), 5}, {QStringLiteral("mpvTrackId"), 2}}
+        },
+        QVariantList{
+            QVariantMap{{QStringLiteral("jellyfinIndex"), 13}, {QStringLiteral("mpvTrackId"), 4}}
+        });
+
+    controller.setSelectedAudioTrack(5);
+    controller.setSelectedSubtitleTrack(13);
+    controller.setSelectedSubtitleTrack(-1);
+
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "aid", 2}));
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sid", 4}));
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sid", "no"}));
 }
 
 QTEST_MAIN(PlayerControllerAutoplayContextTest)

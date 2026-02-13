@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QMap>
+#include <QVariantList>
 #include "backend/IPlayerBackend.h"
 #include "TrickplayProcessor.h"
 #include "../utils/ConfigManager.h"
@@ -123,12 +124,14 @@ public:
     
     // Extended playUrl with track selection
     // audioStreamIndex/subtitleStreamIndex: Jellyfin unified stream indices (for API reporting)
-    // mpvAudioTrack/mpvSubtitleTrack: mpv 1-based per-type track numbers (for mpv commands)
+    // mpvAudioTrack/mpvSubtitleTrack: mpv 1-based track IDs (for mpv commands)
     Q_INVOKABLE void playUrlWithTracks(const QString &url, const QString &itemId, qint64 startPositionTicks,
                                        const QString &seriesId, const QString &seasonId, const QString &libraryId,
                                        const QString &mediaSourceId, const QString &playSessionId,
                                        int audioStreamIndex, int subtitleStreamIndex,
                                        int mpvAudioTrack, int mpvSubtitleTrack,
+                                       const QVariantList &audioTrackMap = {},
+                                       const QVariantList &subtitleTrackMap = {},
                                        double framerate = 0.0, bool isHDR = false);
     
     Q_INVOKABLE void stop();
@@ -266,6 +269,9 @@ private:
     void loadConfig();
     void startPlayback(const QString &url);
     void initiateMpvStart();
+    void updateTrackMappings(const QVariantList &audioTrackMap, const QVariantList &subtitleTrackMap);
+    int mpvAudioTrackForJellyfinIndex(int jellyfinStreamIndex) const;
+    int mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) const;
     static QString stateToString(PlaybackState state);
     static QString eventToString(Event event);
 
@@ -327,6 +333,8 @@ private:
     int m_selectedSubtitleTrack = -1;   // Jellyfin subtitle stream index (-1 = none)
     int m_mpvAudioTrack = -1;           // mpv audio track number (1-based, -1 = auto)
     int m_mpvSubtitleTrack = -1;        // mpv subtitle track number (1-based, -1 = disabled)
+    QHash<int, int> m_audioTrackMap;    // Jellyfin stream index -> mpv aid track ID (1-based)
+    QHash<int, int> m_subtitleTrackMap; // Jellyfin stream index -> mpv sid track ID (1-based)
     QString m_mediaSourceId;            // Current media source ID
     QString m_playSessionId;            // Playback session ID for reporting
     

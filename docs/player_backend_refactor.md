@@ -51,12 +51,12 @@ Milestone C kickoff implemented now:
 - Added focused regression coverage for Windows backend selection/wiring behavior in `PlayerBackendFactoryTest`.
 - Added transparent QML overlay-window path for embedded playback controls on Windows so controls render above video without resizing or clipping the video viewport.
 
-Still pending after Milestone B closeout (moved to start of Milestone D):
+Still pending after Milestone B closeout (moved to start of Milestone E):
 - Final Linux target runtime validation for `mpv_render_context` reliability on representative hardware/compositors.
 - Linux runtime parity validation (controls, reporting, stability, no CPU readback).
 
 Validation sequencing note (current):
-- Linux on-device/runtime validation is intentionally deferred to the beginning of Milestone D (D0) when Linux test infrastructure/hardware is available.
+- Linux on-device/runtime validation is intentionally deferred to the beginning of Milestone E (E0) when Linux test infrastructure/hardware is available.
 - Milestone B closes with backend parity/hardening plus cross-platform-safe regressions (build + non-Linux tests).
 
 ## Milestone A parity checklist (current)
@@ -103,7 +103,8 @@ Overall milestone status:
 - **Milestone A — Backend abstraction + external backend support:** ✅ done
 - **Milestone B — Embedded integration + parity hardening (non-Linux runtime validation):** ✅ done
 - **Milestone C — Windows embedded backend:** 🟨 in progress
-- **Milestone D — Linux runtime validation kickoff + soft deprecation/default switch:** 🟨 partially landed (Linux default switch completed; Linux runtime validation + deprecation policy pending)
+- **Milestone D — Track selection logic and parity hardening:** ✅ implemented (runtime validated; awaiting broader representative-content pass)
+- **Milestone E — Linux runtime validation kickoff + soft deprecation/default switch:** 🟨 partially landed (Linux default switch completed; Linux runtime validation + deprecation policy pending)
 
 ### Milestone A — Breakdown (completed)
 - ✅ Backend interface (`IPlayerBackend`) created and wired.
@@ -117,20 +118,20 @@ Overall milestone status:
 ### Milestone B — Breakdown (closed)
 
 #### B1. Backend and rendering primitives
-- ✅ Create `LinuxMpvBackend` with `mpv_handle` + `mpv_render_context` ownership. (implementation complete; Linux runtime validation moved to D0)
+- ✅ Create `LinuxMpvBackend` with `mpv_handle` + `mpv_render_context` ownership. (implementation complete; Linux runtime validation moved to E0)
 - ✅ Create `MpvVideoItem` (or equivalent C++ video item) for Qt Quick render integration.
 - ✅ Define minimal render callback contract between backend and item.
-- ✅ Add safe startup/shutdown lifecycle for libmpv context and render context. (`mpv_handle` + `mpv_render_context` startup/shutdown hooks added; target-environment runtime validation moved to D0)
+- ✅ Add safe startup/shutdown lifecycle for libmpv context and render context. (`mpv_handle` + `mpv_render_context` startup/shutdown hooks added; target-environment runtime validation moved to E0)
 
 #### B2. Controller/factory wiring
 - ✅ Extend `PlayerBackendFactory` to instantiate Linux backend by name.
 - ✅ Platform-aware default selection implemented (Linux embedded default with external backend selection when unsupported; non-Linux external default).
-- ✅ Ensure `PlayerController` behavior/signals remain unchanged across backend swap. (event/property parity improvements landed; runtime verification on Linux targets moved to D0)
+- ✅ Ensure `PlayerController` behavior/signals remain unchanged across backend swap. (event/property parity improvements landed; runtime verification on Linux targets moved to E0)
 
 #### B3. QML surface integration
 - ✅ Add `VideoSurface.qml` and integrate it into main playback UI path.
 - ✅ Ensure overlays remain above video surface.
-- ✅ Preserve focus + keyboard/gamepad navigation behavior in embedded path integration scope. (Linux on-device runtime verification moved to D0)
+- ✅ Preserve focus + keyboard/gamepad navigation behavior in embedded path integration scope. (Linux on-device runtime verification moved to E0)
 
 #### B4. Runtime behavior parity
 - ✅ Playback controls parity: command dispatch now supports typed variant command payloads.
@@ -151,7 +152,7 @@ Overall milestone status:
 #### B7. Validation & exit criteria
 - ✅ Validate regressions do not appear on external backend path.
 - ✅ Add focused controller parity regressions for next-up/autoplay context handling.
-- ➡️ Linux target runtime validation items moved to Milestone D kickoff (D0).
+- ➡️ Linux target runtime validation items moved to Milestone E kickoff (E0).
 
 ### Milestone C — Breakdown (in progress)
 - ✅ Implement `WindowsMpvBackend` target-handle plumbing with embedded launch argument injection (`--wid=<HWND>`) for Windows app-window embedding.
@@ -169,7 +170,7 @@ Overall milestone status:
 - ✅ Validate Windows-side non-runtime regressions with focused tests (`PlayerBackendFactoryTest`, `PlayerControllerAutoplayContextTest`, `VisualRegressionTest`) on current Windows build artifacts.
 - ⏳ Validate direct-libmpv path on representative Windows runtime packaging where libmpv is present in production deployment.
 
-Milestone C/D Plezy parity checklist (review gate)
+Milestone C/D/E Plezy parity checklist (review gate)
 - [ ] Control-path parity checked against Plezy patterns (async command dispatch + observed-property/event forwarding model).
 - [ ] Window-transition behavior parity checked against Plezy-style handling for move/resize/minimize/maximize/fullscreen.
 - [x] Bloom-specific adaptation verified (Qt/C++ backend seam preserved; no Flutter/plugin coupling introduced).
@@ -212,8 +213,24 @@ Milestone C Windows manual validation script (runtime)
       - `Playback controls parity verified as part of command-path migration...`
       - `Validate direct-libmpv path on representative Windows runtime packaging where libmpv is present in production deployment.`
 
-### Milestone D — Breakdown (kickoff + planned)
-#### D0. Linux runtime validation closeout (moved from Milestone B)
+### Milestone D — Breakdown (planned)
+#### D1. Track-selection model unification (server + mpv)
+- ✅ Define authoritative track identity model (Jellyfin stream index vs mpv runtime track ID) and enforce one mapping contract across controller, backend, and QML.
+- ✅ Add explicit mapping layer and diagnostics for audio/subtitle selection, including `none/auto/default` handling.
+- ✅ Ensure startup behavior preserves explicit user selection over server defaults when requested.
+
+#### D2. Runtime track-switch parity
+- ✅ Ensure in-playback audio/subtitle changes apply reliably in direct `win-libmpv` path.
+- ✅ Ensure `None` subtitle selection consistently disables subtitle rendering.
+- ✅ Validate behavior parity between direct and external backends for track selection semantics.
+
+#### D3. Validation and regression coverage
+- ✅ Add focused automated regressions around track-selection command mapping and lifecycle timing.
+- ✅ Add manual runtime validation checklist for startup + in-playback track switching on representative media.
+- ⏳ Close known track-selection gaps before Milestone E runtime/deprecation work (pending runtime package/manual validation on representative content).
+
+### Milestone E — Breakdown (kickoff + planned)
+#### E0. Linux runtime validation closeout (moved from Milestone B)
 - ⏳ Validate embedded playback on Linux target environment.
 - ⏳ Validate resize/reposition reliability under real usage.
 - ⏳ Validate no CPU readback path is used.
@@ -383,7 +400,56 @@ Exit criteria:
 - Overlay experience visually seamless, with controls shown above video without moving or clipping the video viewport.
 - Overlay UI/state layer is backend-agnostic and reusable by non-Windows embedded paths.
 
-## Milestone D — Soft deprecation (optional)
+## Milestone D — Track selection logic and parity hardening
+
+Deliverables:
+- Define and document the canonical track identity contract across Jellyfin indices and mpv runtime IDs.
+- Ensure startup and runtime track selection behavior is deterministic and user-driven (including subtitle off/none).
+- Add targeted automated + manual validation coverage for track selection semantics.
+
+Progress update (Milestone D implementation):
+- Canonical contract implemented:
+  - `selectedAudioTrack` / `selectedSubtitleTrack` in QML and `PlayerController` are Jellyfin `MediaStream.index` values.
+  - Runtime mpv commands use explicit mapped mpv track IDs (`aid`/`sid`, 1-based per media-type order), passed from QML as mapping tables.
+  - Subtitle `None` is represented as Jellyfin `-1` and always applied as mpv `sid=no`.
+- Startup precedence rules implemented:
+  - If URL pins `AudioStreamIndex` / `SubtitleStreamIndex` and selected Jellyfin index matches pinned value, URL pin is kept (no override).
+  - If selected Jellyfin value differs from pinned URL value (or subtitle is explicitly `None`), mapped mpv override is applied.
+  - If URL is not pinned, selected tracks are applied from the canonical map.
+- Direct `win-libmpv` command-shape parity hardened:
+  - `WindowsMpvBackend` now handles `set_property` through libmpv property APIs (`mpv_set_property*`) for direct path parity.
+  - Fixed direct-path regression where `set_property sid no` returned `invalid parameter`, which prevented reliable subtitle-off behavior.
+- Focused regression coverage added:
+  - `PlayerControllerAutoplayContextTest` now includes startup mapping, pinned-URL precedence, runtime mapped switching, and subtitle-None assertions.
+- Runtime validation update:
+  - Manual Windows direct-path validation confirmed subtitle `None` and track switching apply after the direct `set_property` fix.
+
+Dated validation note (February 13, 2026):
+- Runtime log review + manual verification on Windows direct `win-libmpv` confirmed:
+  - `set_property sid no` now applies successfully (no `invalid parameter` warning).
+  - Subtitle `None` disables rendering at startup as expected.
+  - In-playback audio/subtitle switching applies and matches selected tracks.
+
+Manual runtime validation checklist (Windows direct `win-libmpv`):
+1. Startup with default tracks:
+   - Start playback without changing tracks in details view.
+   - Expected: no startup override log when URL pin matches selected default.
+2. Startup with user-selected non-default tracks:
+   - Select non-default audio/subtitle before pressing play.
+   - Expected: startup logs show mapped `aid`/`sid` applied; actual tracks match selection.
+3. Subtitle None:
+   - Select subtitle `None` before start and during playback.
+   - Expected: logs show `sid no`; subtitles are disabled reliably.
+4. In-playback switching:
+   - Switch audio/subtitle during playback.
+   - Expected: mapped `aid`/`sid` commands appear and selected track changes without silent audio drop.
+
+Exit criteria:
+- Audio/subtitle selections apply correctly at startup and during playback.
+- Subtitle `None` reliably disables subtitle rendering.
+- Track-selection behavior is consistent across supported backends.
+
+## Milestone E — Soft deprecation (optional)
 
 Deliverables:
 - Keep `ExternalMpvBackend` available via explicit backend selection for controlled use.
@@ -435,7 +501,7 @@ Exit criteria:
 - Repeated start/stop cycles stable
 - Error handling returns to safe idle state
 - Backend selection/active backend visible in logs
-- Plezy parity checklist items for relevant Milestone C/D changes completed and noted in PR/review summary
+- Plezy parity checklist items for relevant Milestone C/D/E changes completed and noted in PR/review summary
 
 ---
 

@@ -56,8 +56,8 @@ Backend architecture (Milestone B kickoff)
   - `client-message`/`scriptMessage` forwarding parity,
   - `aid`/`sid` normalization parity with external backend contract (including node-typed mpv values like `no`/`auto`),
   - render hardening for viewport bounds/FBO-state restoration/update-callback lifecycle, including coalesced render-update scheduling during teardown/re-init.
-- Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing (scheduled at the start of Milestone D).
-- Current sequencing: Milestone B closes with parity/hardening changes validated via available build/test environments; Milestone C prioritizes Windows backend implementation, and Linux on-device validation executes as Milestone D kickoff work.
+- Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing (scheduled at the start of Milestone E).
+- Current sequencing: Milestone B closes with parity/hardening changes validated via available build/test environments; Milestone C prioritizes Windows backend implementation, Milestone D covers track-selection parity hardening, and Linux on-device validation executes as Milestone E kickoff work.
 - Controller parity hardening now preserves next-up/autoplay context across playback teardown, so async `itemMarkedPlayed`/`nextUnplayedEpisode` flows keep the expected series/item/track state.
 - Unit regression coverage now includes the mismatched-series guard for async next-episode callbacks to prevent stale-series autoplay context from being consumed.
 
@@ -77,6 +77,10 @@ Audio/Subtitle Track Selection
 - Each `MediaSourceInfo` contains `mediaStreams` array with `MediaStreamInfo` objects describing video, audio, and subtitle tracks.
 - The server provides `defaultAudioStreamIndex` and `defaultSubtitleStreamIndex` which reflect the user's preferences set on the Jellyfin server.
 - Use `PlayerController::setSelectedAudioTrack(index)` and `setSelectedSubtitleTrack(index)` to change tracks during playback via mpv IPC (`aid`, `sid` properties).
+- Canonical Milestone D mapping contract:
+  - UI and reporting state use Jellyfin `MediaStream.index`.
+  - Runtime mpv switching uses mapped mpv track IDs (1-based per media type order).
+  - Subtitle `None` is Jellyfin `-1` and is applied as `sid=no`.
 - Track selections are persisted per-season for TV shows and per-movie for films (see Track Preference Persistence below).
 - All playback reporting methods include `mediaSourceId`, `audioStreamIndex`, `subtitleStreamIndex`, and `playSessionId` for proper server sync.
 
