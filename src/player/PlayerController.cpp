@@ -14,8 +14,31 @@
 #include <QThread>
 #include <QLoggingCategory>
 #include <QRectF>
+#include <QtGlobal>
 
 Q_LOGGING_CATEGORY(lcPlayback, "bloom.playback")
+
+namespace {
+class NullPlayerBackend final : public IPlayerBackend
+{
+public:
+    explicit NullPlayerBackend(QObject *parent)
+        : IPlayerBackend(parent)
+    {
+    }
+
+    QString backendName() const override { return QStringLiteral("null-backend"); }
+    void startMpv(const QString &, const QStringList &, const QString &) override {}
+    void stopMpv() override {}
+    bool isRunning() const override { return false; }
+    void sendCommand(const QStringList &) override {}
+    void sendVariantCommand(const QVariantList &) override {}
+    bool supportsEmbeddedVideo() const override { return false; }
+    bool attachVideoTarget(QObject *) override { return false; }
+    void detachVideoTarget(QObject *) override {}
+    void setVideoViewport(const QRectF &) override {}
+};
+}
 
 PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent)
     : QObject(parent)
@@ -32,11 +55,16 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     , m_progressReportTimer(new QTimer(this))
     , m_startDelayTimer(new QTimer(this))
 {
+    if (!m_playerBackend) {
+        qCWarning(lcPlayback) << "PlayerController initialized without backend; falling back to null backend";
+        m_playerBackend = new NullPlayerBackend(this);
+    }
+
     // Setup state machine transitions
     setupStateMachine();
-    
-        // Connect to player backend signals
-        connect(m_playerBackend, &IPlayerBackend::stateChanged,
+
+    // Connect to player backend signals
+    connect(m_playerBackend, &IPlayerBackend::stateChanged,
             this, &PlayerController::onProcessStateChanged);
         connect(m_playerBackend, &IPlayerBackend::errorOccurred,
             this, &PlayerController::onProcessError);

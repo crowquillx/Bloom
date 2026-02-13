@@ -21,9 +21,22 @@ Item {
             PlayerController.setEmbeddedVideoViewport(x, y, width, height)
         }
 
+        function syncEmbeddedViewport() {
+            if (width > 0 && height > 0) {
+                PlayerController.setEmbeddedVideoViewport(0, 0, width, height)
+            }
+        }
+
+        onWidthChanged: syncEmbeddedViewport()
+        onHeightChanged: syncEmbeddedViewport()
+
         Component.onCompleted: {
             PlayerController.attachEmbeddedVideoTarget(videoTarget)
-            PlayerController.setEmbeddedVideoViewport(0, 0, width, height)
+            if (width > 0 && height > 0) {
+                PlayerController.setEmbeddedVideoViewport(0, 0, width, height)
+            } else {
+                Qt.callLater(syncEmbeddedViewport)
+            }
         }
 
         Component.onDestruction: {

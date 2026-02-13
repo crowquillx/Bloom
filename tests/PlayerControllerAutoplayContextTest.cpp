@@ -1,9 +1,7 @@
 #include <QtTest/QtTest>
 #include <QtTest/QSignalSpy>
 
-#define private public
 #include "player/PlayerController.h"
-#undef private
 
 #include "network/AuthenticationService.h"
 #include "network/LibraryService.h"

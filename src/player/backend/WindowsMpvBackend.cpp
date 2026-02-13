@@ -84,7 +84,7 @@ private:
 
 WindowsMpvBackend::WindowsMpvBackend(QObject *parent)
     : IPlayerBackend(parent)
-    , m_fallbackBackend(std::make_unique<ExternalMpvBackend>(this))
+    , m_fallbackBackend(std::make_unique<ExternalMpvBackend>())
 {
     connect(m_fallbackBackend.get(), &ExternalMpvBackend::stateChanged,
             this, &WindowsMpvBackend::stateChanged);
@@ -220,27 +220,31 @@ bool WindowsMpvBackend::isRunning() const
 
 void WindowsMpvBackend::sendCommand(const QStringList &command)
 {
-    if (m_directControlActive) {
-        QVariantList variantCommand;
-        variantCommand.reserve(command.size());
-        for (const QString &part : command) {
-            variantCommand.append(part);
-        }
-
-        if (!sendVariantCommandDirect(variantCommand)) {
-            qCWarning(lcWindowsLibmpvBackend) << "Failed direct command dispatch" << command;
-        }
+    if (!m_directControlActive) {
+        qCWarning(lcWindowsLibmpvBackend) << "Dropped command - direct control inactive" << command;
         return;
+    }
+
+    QVariantList variantCommand;
+    variantCommand.reserve(command.size());
+    for (const QString &part : command) {
+        variantCommand.append(part);
+    }
+
+    if (!sendVariantCommandDirect(variantCommand)) {
+        qCWarning(lcWindowsLibmpvBackend) << "Failed direct command dispatch" << command;
     }
 }
 
 void WindowsMpvBackend::sendVariantCommand(const QVariantList &command)
 {
-    if (m_directControlActive) {
-        if (!sendVariantCommandDirect(command)) {
-            qCWarning(lcWindowsLibmpvBackend) << "Failed direct variant command dispatch" << command;
-        }
+    if (!m_directControlActive) {
+        qCWarning(lcWindowsLibmpvBackend) << "Dropped command - direct control inactive" << command;
         return;
+    }
+
+    if (!sendVariantCommandDirect(command)) {
+        qCWarning(lcWindowsLibmpvBackend) << "Failed direct variant command dispatch" << command;
     }
 }
 
@@ -721,9 +725,14 @@ void WindowsMpvBackend::processMpvEvents()
             case MPV_FORMAT_FLAG:
                 value = (*static_cast<int *>(property->data) != 0);
                 break;
-            case MPV_FORMAT_STRING:
-                value = QString::fromUtf8(static_cast<const char *>(property->data));
+            case MPV_FORMAT_STRING: {
+                const char *str = *static_cast<char **>(property->data);
+                if (!str) {
+                    break;
+                }
+                value = QString::fromUtf8(str);
                 break;
+            }
             case MPV_FORMAT_NODE: {
                 const mpv_node *node = static_cast<const mpv_node *>(property->data);
                 if (!node) {

@@ -378,9 +378,14 @@ void LinuxMpvBackend::processMpvEvents()
             case MPV_FORMAT_FLAG:
                 value = (*static_cast<int *>(property->data) != 0);
                 break;
-            case MPV_FORMAT_STRING:
-                value = QString::fromUtf8(static_cast<const char *>(property->data));
+            case MPV_FORMAT_STRING: {
+                const char *str = *static_cast<char **>(property->data);
+                if (!str) {
+                    break;
+                }
+                value = QString::fromUtf8(str);
                 break;
+            }
             case MPV_FORMAT_NODE: {
                 const mpv_node *node = static_cast<const mpv_node *>(property->data);
                 if (!node) {

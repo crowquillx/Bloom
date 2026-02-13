@@ -198,8 +198,7 @@ Milestone C/D Plezy parity checklist (review gate)
 - Windows primary implementation: **HWND embedding strategy** (Plezy-style).
 - Windows contingency notes: render-API fallback may be documented, not primary.
 - Linux primary implementation: **libmpv render API + OpenGL** into Qt Quick item.
-- Keep `ExternalMpvBackend` as rollback path, config-gated, **default OFF**.
-- Keep `ExternalMpvBackend` as rollback path and explicit env override on all platforms.
+- Keep `ExternalMpvBackend` as rollback path, **disabled by default** via `ExternalMpvBackend` config flag, and only enabled when explicitly opted in with the `EXTERNAL_MPV_BACKEND` env var or corresponding config flag override.
 - No requirement to preserve current Lua script UX; architecture must support future native controls/trickplay.
 
 ---
