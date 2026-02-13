@@ -111,9 +111,6 @@ void ApplicationInitializer::registerServices()
     // Load configuration early so downstream services can read settings (e.g., cache size)
     m_configManager->load();
     
-    // Install bundled mpv scripts (OSC, thumbfast) to user config directory
-    ConfigManager::installBundledScripts();
-    
     // 1.5 DisplayManager - Depends on ConfigManager
     m_displayManager = std::make_unique<DisplayManager>(m_configManager.get());
     ServiceLocator::registerService<DisplayManager>(m_displayManager.get());

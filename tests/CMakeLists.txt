@@ -213,7 +213,6 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/security/SecretStoreFactory.cpp
     # Resources
     ${CMAKE_SOURCE_DIR}/src/resources/fonts.qrc
-    ${CMAKE_SOURCE_DIR}/src/resources/scripts.qrc
     ${CMAKE_SOURCE_DIR}/src/resources/sounds.qrc
     ${CMAKE_SOURCE_DIR}/src/resources/images.qrc
 )

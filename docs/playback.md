@@ -10,6 +10,7 @@ Overview
 - Windows uses `win-libmpv`, which launches mpv with HWND embedding (`--wid`) against the attached `VideoSurface` target while preserving the external backend process path for non-Windows rollback/testing.
 - Other non-Linux platforms keep `external-mpv-ipc` as default.
 - `external-mpv-ipc` remains fully supported as an explicit backend override on non-Windows platforms via `BLOOM_PLAYER_BACKEND=external-mpv-ipc`.
+- Bundled mpv Lua UI/trickplay scripts are retired; playback controls/overlay behavior are handled natively by Bloom UI.
 
 Backend architecture
 - Playback now routes through `IPlayerBackend` (`src/player/backend/IPlayerBackend.h`).

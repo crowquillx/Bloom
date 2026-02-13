@@ -138,7 +138,7 @@ The `build-windows.sh` script cross-compiles for Windows from Linux:
 
 **Output:** `install-windows/bin/Bloom.exe`
 
-**Next step:** Run `./scripts/package-windows.sh` to bundle Qt DLLs and dependencies.
+**Next step (native Windows):** Run `.\scripts\package-windows.ps1 -InstallDir install-windows -OutputDir Bloom-Windows` to stage the portable package with Qt deployment.
 
 ### Native Windows test execution
 
@@ -164,7 +164,7 @@ The `build-windows-installer.sh` script creates a complete Windows installer:
 
 **Pipeline:**
 1. Runs `build-windows.sh` (cross-compilation)
-2. Runs `package-windows.sh` (DLL bundling)
+2. Runs `package-windows.sh` (stages install artifacts into `Bloom-Windows/`)
 3. Runs `makensis installer.nsi` (NSIS installer creation)
 
 **Output:** `Bloom-Setup-0.1.0.exe`
@@ -219,7 +219,7 @@ If both commands work, CMake should detect libmpv.
 When `pkg-config mpv` is detected, the Linux build now:
 - links against libmpv (`BLOOM_HAS_LIBMPV=1`)
 - copies the resolved `libmpv` runtime library next to `build-docker/src/Bloom` after build
-- installs that same `libmpv` runtime into `bin/` with the app
+- installs that same `libmpv` runtime into `lib/bloom/` with the app
 
 This is the first step toward release bundling parity with Windows; dependency-chain bundling/CI packaging hardening is still planned.
 

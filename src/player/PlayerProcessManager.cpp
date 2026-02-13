@@ -288,7 +288,7 @@ void PlayerProcessManager::onSocketReadyRead()
             // Emit playbackEnded so PlayerController can report stop
             emit playbackEnded();
         } else if (obj["event"].toString() == "client-message") {
-            // Handle script messages from mpv Lua scripts (ModernX OSC, bloom-thumbfast.lua)
+            // Handle client-message events from mpv scripts/extensions (if any user scripts are loaded)
             // The "args" array contains the message name followed by any arguments
             QJsonArray argsArray = obj["args"].toArray();
             if (!argsArray.isEmpty()) {

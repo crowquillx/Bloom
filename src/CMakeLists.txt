@@ -1,3 +1,5 @@
+include(GNUInstallDirs)
+
 qt_add_executable(Bloom
     core/ApplicationInitializer.cpp
     ui/WindowManager.cpp
@@ -7,7 +9,6 @@ qt_add_executable(Bloom
     core/ServiceLocator.h
     core/ServiceLocator.cpp
     resources/fonts.qrc
-    resources/scripts.qrc
     resources/sounds.qrc
     resources/images.qrc
     player/PlayerProcessManager.cpp
@@ -167,11 +168,13 @@ if(UNIX AND NOT APPLE)
                 VERBATIM
             )
 
-            install(FILES ${BLOOM_LINUX_MPV_RUNTIME} DESTINATION bin)
+            install(FILES ${BLOOM_LINUX_MPV_RUNTIME}
+                DESTINATION ${CMAKE_INSTALL_LIBDIR}/bloom
+            )
 
-            # Ensure bundled runtime libs next to the executable are discoverable.
+            # Ensure bundled runtime libs are discoverable from bin/Bloom.
             set_property(TARGET Bloom APPEND PROPERTY BUILD_RPATH "$ORIGIN")
-            set_property(TARGET Bloom APPEND PROPERTY INSTALL_RPATH "$ORIGIN")
+            set_property(TARGET Bloom APPEND PROPERTY INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/bloom")
         else()
             message(WARNING "libmpv runtime library path not found; Linux embedded backend may fail on systems without system libmpv.")
         endif()
@@ -233,7 +236,7 @@ if(WIN32)
                     $<TARGET_FILE_DIR:Bloom>
                 VERBATIM
             )
-            install(FILES ${BLOOM_MPV_RUNTIME_DLL} DESTINATION bin)
+            install(FILES ${BLOOM_MPV_RUNTIME_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR})
         else()
             message(WARNING "libmpv runtime DLL not found; direct embedded backend may fail at runtime.")
         endif()
@@ -261,7 +264,7 @@ qt6_add_translations(Bloom
     TS_FILES resources/translations/Bloom_en.ts
     QM_FILES_OUTPUT_VARIABLE qm_files
 )
-install(FILES ${qm_files} DESTINATION ${CMAKE_BINARY_DIR}/translations)
+install(FILES ${qm_files} DESTINATION ${CMAKE_INSTALL_DATADIR}/bloom/translations)
 
 if (TARGET Qt6::MultimediaQuick)
     target_link_libraries(Bloom PRIVATE Qt6::MultimediaQuick)
@@ -282,16 +285,16 @@ endif()
 file(COPY ${CMAKE_SOURCE_DIR}/config/app.example.json DESTINATION ${CMAKE_BINARY_DIR}/config)
 
 install(TARGETS Bloom
-    RUNTIME DESTINATION bin
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     BUNDLE DESTINATION .
 )
 
 if(UNIX AND NOT APPLE)
     install(FILES resources/linux/com.github.bloom.desktop
-        DESTINATION ${CMAKE_INSTALL_PREFIX}/share/applications
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
     )
     install(FILES resources/images/app/logo_trans.svg
-        DESTINATION ${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/scalable/apps
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
         RENAME com.github.bloom.svg
     )
 endif()

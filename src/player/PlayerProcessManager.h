@@ -33,8 +33,7 @@ signals:
     void audioTrackChanged(int trackIndex);
     void subtitleTrackChanged(int trackIndex);
     
-    // Script message from mpv scripts (via client-message event)
-    // Used for bidirectional IPC with ModernX OSC and bloom-thumbfast.lua
+    // Script message from mpv scripts/extensions (via client-message event)
     void scriptMessage(const QString &messageName, const QStringList &args);
 
 private slots:

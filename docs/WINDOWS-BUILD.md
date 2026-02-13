@@ -50,7 +50,7 @@ This will:
 # Step 1: Cross-compile
 ./scripts/build-windows.sh
 
-# Step 2: Package dependencies
+# Step 2: Stage portable package
 ./scripts/package-windows.sh
 
 # Step 3: Build installer
@@ -99,7 +99,7 @@ make MXE_TARGETS='x86_64-w64-mingw32.shared' qt6
 If the packaged app fails with missing DLL errors:
 
 1. Check MinGW Qt6 installation location
-2. Update paths in `package-windows.sh`
+2. Update MinGW Qt runtime paths in `scripts/package-windows.sh` (or use native Windows packaging with `scripts/package-windows.ps1`)
 3. Use `ldd` equivalent for Windows:
    ```bash
    x86_64-w64-mingw32-objdump -p Bloom.exe | grep DLL
@@ -186,7 +186,7 @@ This builds natively on Windows with proper Qt deployment.
 
 ## Notes
 
-- **mpv dependency**: Currently not bundled. Users must install mpv separately or you need to include `mpv.exe` and `mpv-1.dll` in the installer
+- **mpv dependency**: `libmpv` runtime should be staged through CMake install (Windows) when `MPV_ROOT`/`MPV_DIR` is configured during build.
 - **Icons**: Create `icon.ico` for Windows application icon
 - **Version**: Update version numbers in `installer.nsi`
 - **License**: Ensure `LICENSE` file exists for installer license page

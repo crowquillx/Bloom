@@ -258,7 +258,7 @@ public:
     /// Returns the path to the app config file (app.json)
     static QString getConfigPath();
     
-    /// Returns the path to Bloom's mpv config directory (contains mpv.conf, input.conf, scripts/)
+    /// Returns the path to Bloom's mpv config directory (contains mpv.conf, input.conf, and optional user scripts/)
     static QString getMpvConfigDir();
     
     /// Returns the path to Bloom's mpv.conf if it exists, empty string otherwise
@@ -276,13 +276,6 @@ public:
     
     /// Ensures the config directory structure exists
     static bool ensureConfigDirExists();
-    
-    /// Installs bundled Lua scripts (OSC, thumbfast) to the mpv scripts directory
-    /// Scripts are only copied if they don't exist or are older than bundled versions
-    static void installBundledScripts();
-    
-    /// Installs bundled fonts (for mpv OSC) to the mpv fonts directory
-    static void installBundledFonts();
     
     // Migration and validation (internal)
     bool migrateConfig();

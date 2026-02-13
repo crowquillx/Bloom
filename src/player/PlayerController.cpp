@@ -401,11 +401,8 @@ void PlayerController::onEnterIdleState()
     m_currentSegments.clear();
     m_hasTrickplayInfo = false;
     
-    // Clear trickplay processor data and notify Lua script
+    // Clear trickplay processor data
     m_trickplayProcessor->clear();
-    if (m_playerBackend->isRunning()) {
-        m_playerBackend->sendCommand({"script-message-to", "thumbfast", "shim-trickplay-clear"});
-    }
 }
 
 void PlayerController::onEnterLoadingState()
@@ -1663,7 +1660,7 @@ void PlayerController::loadConfig()
         qDebug() << "PlayerController: Using input.conf from:" << ConfigManager::getMpvInputConfPath();
     }
     if (!ConfigManager::getMpvScriptsDir().isEmpty()) {
-        qDebug() << "PlayerController: Using scripts from:" << ConfigManager::getMpvScriptsDir();
+        qDebug() << "PlayerController: Detected user mpv scripts in:" << ConfigManager::getMpvScriptsDir();
     }
 }
 
@@ -1697,8 +1694,7 @@ void PlayerController::onScriptMessage(const QString &messageName, const QString
         }
         qDebug() << "PlayerController: No outro segment found to skip";
     }
-    // Note: Trickplay thumbnail requests are now handled entirely by thumbfast.lua
-    // using the pre-processed binary file from TrickplayProcessor
+    // Script-driven trickplay handlers were retired with the native overlay migration.
 }
 
 void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<MediaSegmentInfo> &segments)
@@ -1711,23 +1707,15 @@ void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<
     qDebug() << "PlayerController: Received" << segments.size() << "segments for item:" << itemId;
     m_currentSegments = segments;
     
-    // Send segment info to mpv ModernX OSC script
+    // Segment metadata is kept in controller state for native overlay handling.
     for (const auto &segment : segments) {
         double startSeconds = static_cast<double>(segment.startTicks) / 10000000.0;
         double endSeconds = static_cast<double>(segment.endTicks) / 10000000.0;
-        
+
         if (segment.type == MediaSegmentType::Intro) {
-            m_playerBackend->sendCommand({"script-message-to", "modernx", 
-                "bloom-segment-intro", 
-                QString::number(startSeconds, 'f', 3), 
-                QString::number(endSeconds, 'f', 3)});
-            qDebug() << "PlayerController: Sent intro segment to OSC:" << startSeconds << "->" << endSeconds;
+            qDebug() << "PlayerController: Intro segment:" << startSeconds << "->" << endSeconds;
         } else if (segment.type == MediaSegmentType::Outro) {
-            m_playerBackend->sendCommand({"script-message-to", "modernx", 
-                "bloom-segment-outro", 
-                QString::number(startSeconds, 'f', 3), 
-                QString::number(endSeconds, 'f', 3)});
-            qDebug() << "PlayerController: Sent outro segment to OSC:" << startSeconds << "->" << endSeconds;
+            qDebug() << "PlayerController: Outro segment:" << startSeconds << "->" << endSeconds;
         }
     }
 }
@@ -1793,15 +1781,7 @@ void PlayerController::onTrickplayProcessingComplete(const QString &itemId, int 
              << "size:" << width << "x" << height
              << "file:" << filePath;
     
-    // Send trickplay BIF config to mpv thumbfast script using jellyfin-mpv-shim format
-    // Format: shim-trickplay-bif <count> <interval_ms> <width> <height> <file_path>
-    m_playerBackend->sendCommand({"script-message-to", "thumbfast", 
-        "shim-trickplay-bif",
-        QString::number(count),
-        QString::number(intervalMs),
-        QString::number(width),
-        QString::number(height),
-        filePath});
+    // Native overlay consumes trickplay metadata and processed files directly.
 }
 
 void PlayerController::onTrickplayProcessingFailed(const QString &itemId, const QString &error)

@@ -81,33 +81,31 @@ jobs:
         shell: pwsh
         run: |
           sccache --start-server
-          if (-Not (Test-Path build)) {
-            New-Item -ItemType Directory -Path build
+          if (-Not (Test-Path build-windows)) {
+            New-Item -ItemType Directory -Path build-windows
           }
-          cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          cd build-windows
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../install-windows -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           cmake --build .
+          cmake --install . --config Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           sccache --show-stats
           sccache --stop-server
 
       - name: Package App
+        shell: pwsh
         run: |
-          mkdir Bloom-Windows
-          cp build/src/Bloom.exe Bloom-Windows/
-          windeployqt Bloom-Windows/Bloom.exe --qmldir src/ui --release --no-translations
-          
-          # Debug: List all files to see where BloomUI is
-          Get-ChildItem -Path Bloom-Windows -Recurse | Select-Object FullName
-          
-          # Robust cleanup of redundant BloomUI module
-          $redundantModule = Get-ChildItem -Path Bloom-Windows -Filter "BloomUI" -Recurse -Directory
-          if ($redundantModule) {
-            Write-Host "Removing redundant BloomUI module found at: $($redundantModule.FullName)"
-            Remove-Item -Recurse -Force $redundantModule.FullName
-          } else {
-            Write-Host "WARNING: BloomUI module not found in deployment output."
+          ./scripts/package-windows.ps1 -InstallDir install-windows -OutputDir Bloom-Windows
+
+      - name: Verify libmpv Runtime Present
+        shell: pwsh
+        run: |
+          $libmpv = Get-ChildItem -Path Bloom-Windows -Filter "*mpv*.dll" -File -ErrorAction SilentlyContinue
+          if (-not $libmpv) {
+            Write-Error "No libmpv runtime DLL found in Bloom-Windows package. Windows playback policy requires bundled libmpv."
+            exit 1
           }
+          Write-Host "Found libmpv runtime: $($libmpv[0].Name)"
 
       - name: Install NSIS
         run: |
