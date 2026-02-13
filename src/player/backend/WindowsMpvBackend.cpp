@@ -558,9 +558,8 @@ bool WindowsMpvBackend::tryStartDirectMpv(const QStringList &args, const QString
         return false;
     }
 
-    m_running = true;
     m_directControlActive = true;
-    emit stateChanged(true);
+    setDirectRunning(true);
     return true;
 #endif
 }
@@ -614,14 +613,8 @@ void WindowsMpvBackend::teardownMpv()
 
     m_mpvHandle = nullptr;
     m_eventDispatchQueued.store(false, std::memory_order_release);
-
-    const bool wasRunning = m_running;
-    m_running = false;
+    setDirectRunning(false);
     m_directControlActive = false;
-
-    if (wasRunning) {
-        emit stateChanged(false);
-    }
 }
 
 bool WindowsMpvBackend::queueLoadFile(const QString &mediaUrl)
@@ -662,7 +655,61 @@ void WindowsMpvBackend::processMpvEvents()
         case MPV_EVENT_SHUTDOWN:
             teardownMpv();
             return;
-        case MPV_EVENT_END_FILE:
+        case MPV_EVENT_END_FILE: {
+            mpv_event_end_file *endFile = static_cast<mpv_event_end_file *>(event->data);
+            bool shouldEmitPlaybackEnded = true;
+
+            if (endFile != nullptr) {
+                if (endFile->reason == MPV_END_FILE_REASON_ERROR && endFile->error < 0) {
+                    const QString errorMessage = QStringLiteral("libmpv end-file error: %1")
+                                                     .arg(QString::fromUtf8(mpv_error_string(endFile->error)));
+                    qCWarning(lcWindowsLibmpvBackend) << errorMessage;
+                    emit errorOccurred(errorMessage);
+                }
+
+                if (endFile->reason == MPV_END_FILE_REASON_REDIRECT) {
+                    shouldEmitPlaybackEnded = false;
+                }
+            }
+
+            setDirectRunning(false);
+            if (shouldEmitPlaybackEnded) {
+                emit playbackEnded();
+            }
+            break;
+        }
+        case MPV_EVENT_COMMAND_REPLY:
+            if (event->error < 0) {
+                const QString errorMessage = QStringLiteral("libmpv command failed (id=%1): %2")
+                                                 .arg(static_cast<qulonglong>(event->reply_userdata))
+                                                 .arg(QString::fromUtf8(mpv_error_string(event->error)));
+                qCWarning(lcWindowsLibmpvBackend) << errorMessage;
+                emit errorOccurred(errorMessage);
+            }
+            break;
+        case MPV_EVENT_IDLE:
+            setDirectRunning(false);
+            break;
+        case MPV_EVENT_START_FILE:
+            setDirectRunning(true);
+            break;
+        case MPV_EVENT_PLAYBACK_RESTART:
+            setDirectRunning(true);
+            break;
+        case MPV_EVENT_FILE_LOADED:
+            setDirectRunning(true);
+            break;
+        case MPV_EVENT_SEEK:
+            setDirectRunning(true);
+            break;
+        case MPV_EVENT_UNPAUSE:
+            setDirectRunning(true);
+            break;
+        case MPV_EVENT_PAUSE:
+            setDirectRunning(true);
+            break;
+        case MPV_EVENT_STOP:
+            setDirectRunning(false);
             emit playbackEnded();
             break;
         case MPV_EVENT_CLIENT_MESSAGE: {
@@ -1012,4 +1059,15 @@ void WindowsMpvBackend::destroyVideoHostWindow()
     }
 #endif
     m_videoHostWinId = 0;
+}
+
+void WindowsMpvBackend::setDirectRunning(bool running)
+{
+    if (m_running == running) {
+        return;
+    }
+
+    m_running = running;
+    emit stateChanged(m_running);
+    scheduleGeometrySync(0);
 }

@@ -47,6 +47,7 @@ private:
     void applyMpvArgs(void *handle, const QStringList &args);
     void handlePropertyChange(const QString &name, const QVariant &value);
     bool sendVariantCommandDirect(const QVariantList &command);
+    void setDirectRunning(bool running);
 
     static void wakeupCallback(void *ctx);
 

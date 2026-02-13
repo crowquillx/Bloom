@@ -162,6 +162,7 @@ Overall milestone status:
 - ✅ Keep rollback behavior in migration path: `win-libmpv` now auto-falls back to external process + IPC if direct libmpv init/load fails, and explicit `external-mpv-ipc` selection remains unchanged.
 - ✅ Implement playback control routing in the same migration slice for direct Windows path (play/pause/resume/seek/stop + audio/subtitle command/property handling).
 - ✅ Add Windows embedded overlay rendering foundation by introducing a dedicated embedded host window synced to viewport geometry plus a reusable backend-agnostic overlay host (`EmbeddedPlaybackOverlay.qml`) above `VideoSurface`.
+- ✅ Harden direct libmpv event parity by mapping lifecycle events (`START_FILE`/`FILE_LOADED`/`PLAYBACK_RESTART`/`IDLE`/`END_FILE`) to backend running-state transitions and forwarding `COMMAND_REPLY`/end-file errors via backend error signals.
 - ⏳ Validate direct-libmpv path on representative Windows runtime packaging where libmpv is present in production deployment.
 
 Milestone C/D Plezy parity checklist (review gate)
