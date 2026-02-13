@@ -163,6 +163,61 @@ if(WIN32)
         player/backend/WindowsMpvBackend.h
         player/backend/WindowsMpvBackend.cpp
     )
+
+    find_path(BLOOM_MPV_INCLUDE_DIR
+        NAMES mpv/client.h
+        HINTS
+            $ENV{MPV_ROOT}
+            $ENV{MPV_DIR}
+            $ENV{LIBMPV_ROOT}
+        PATH_SUFFIXES
+            include
+    )
+
+    find_library(BLOOM_MPV_LIBRARY
+        NAMES mpv mpv-2 libmpv
+        HINTS
+            $ENV{MPV_ROOT}
+            $ENV{MPV_DIR}
+            $ENV{LIBMPV_ROOT}
+        PATH_SUFFIXES
+            lib
+    )
+
+    if(BLOOM_MPV_INCLUDE_DIR AND BLOOM_MPV_LIBRARY)
+        target_include_directories(Bloom PRIVATE ${BLOOM_MPV_INCLUDE_DIR})
+        target_link_libraries(Bloom PRIVATE ${BLOOM_MPV_LIBRARY})
+        target_compile_definitions(Bloom PRIVATE BLOOM_HAS_LIBMPV=1)
+
+        get_filename_component(_bloom_mpv_lib_dir ${BLOOM_MPV_LIBRARY} DIRECTORY)
+        get_filename_component(_bloom_mpv_root ${_bloom_mpv_lib_dir} DIRECTORY)
+
+        find_file(BLOOM_MPV_RUNTIME_DLL
+            NAMES mpv-2.dll libmpv-2.dll mpv.dll
+            HINTS
+                ${_bloom_mpv_root}
+                $ENV{MPV_ROOT}
+                $ENV{MPV_DIR}
+                $ENV{LIBMPV_ROOT}
+            PATH_SUFFIXES
+                bin
+                lib
+        )
+
+        if(BLOOM_MPV_RUNTIME_DLL)
+            add_custom_command(TARGET Bloom POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${BLOOM_MPV_RUNTIME_DLL}
+                    $<TARGET_FILE_DIR:Bloom>
+                VERBATIM
+            )
+            install(FILES ${BLOOM_MPV_RUNTIME_DLL} DESTINATION bin)
+        else()
+            message(WARNING "libmpv runtime DLL not found; direct embedded backend may fail at runtime.")
+        endif()
+    else()
+        message(WARNING "Windows libmpv SDK not found (headers/libs). Set MPV_ROOT (or MPV_DIR/LIBMPV_ROOT) to enable direct embedded backend.")
+    endif()
 endif()
 
 target_link_libraries(Bloom

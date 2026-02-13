@@ -165,6 +165,7 @@ QString WindowsMpvBackend::backendName() const
 
 void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl)
 {
+    Q_UNUSED(mpvBin);
     const QStringList finalArgs = sanitizeStartupArgs(args);
 
 #if defined(Q_OS_WIN)
@@ -177,33 +178,16 @@ void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args,
     syncContainerGeometry();
     logHdrDiagnostics(finalArgs, mediaUrl);
 
-    m_fallbackBackend->stopMpv();
-
     if (tryStartDirectMpv(finalArgs, mediaUrl)) {
         syncContainerGeometry();
         qCInfo(lcWindowsLibmpvBackend) << "Using direct libmpv control path";
         return;
     }
 
-    QStringList fallbackArgs = finalArgs;
-#if defined(Q_OS_WIN)
-    if (m_videoHostWinId != 0) {
-        fallbackArgs.append(QStringLiteral("--wid=%1").arg(static_cast<qulonglong>(m_videoHostWinId)));
-        qCInfo(lcWindowsLibmpvBackend)
-            << "Direct libmpv unavailable, falling back to external IPC backend with host wid"
-            << static_cast<qulonglong>(m_videoHostWinId);
-    } else if (m_containerWinId != 0) {
-        fallbackArgs.append(QStringLiteral("--wid=%1").arg(static_cast<qulonglong>(m_containerWinId)));
-        qCInfo(lcWindowsLibmpvBackend)
-            << "Direct libmpv unavailable, falling back to external IPC backend with container wid"
-            << static_cast<qulonglong>(m_containerWinId);
-    } else {
-        qCWarning(lcWindowsLibmpvBackend)
-            << "No embedded target winId available for fallback launch; using top-level fallback";
-    }
-#endif
-    m_fallbackBackend->startMpv(mpvBin, fallbackArgs, mediaUrl);
-    syncContainerGeometry();
+    const QString message = QStringLiteral("Direct libmpv unavailable; embedded-first mode does not allow external IPC fallback.");
+    qCWarning(lcWindowsLibmpvBackend) << message;
+    emit errorOccurred(message);
+    setDirectRunning(false);
 }
 
 void WindowsMpvBackend::stopMpv()
@@ -221,7 +205,7 @@ void WindowsMpvBackend::stopMpv()
         return;
     }
 
-    m_fallbackBackend->stopMpv();
+    setDirectRunning(false);
     syncContainerGeometry();
 }
 
@@ -231,7 +215,7 @@ bool WindowsMpvBackend::isRunning() const
         return m_running;
     }
 
-    return m_fallbackBackend->isRunning();
+    return false;
 }
 
 void WindowsMpvBackend::sendCommand(const QStringList &command)
@@ -248,8 +232,6 @@ void WindowsMpvBackend::sendCommand(const QStringList &command)
         }
         return;
     }
-
-    m_fallbackBackend->sendCommand(command);
 }
 
 void WindowsMpvBackend::sendVariantCommand(const QVariantList &command)
@@ -260,8 +242,6 @@ void WindowsMpvBackend::sendVariantCommand(const QVariantList &command)
         }
         return;
     }
-
-    m_fallbackBackend->sendVariantCommand(command);
 }
 
 bool WindowsMpvBackend::supportsEmbeddedVideo() const
@@ -543,6 +523,8 @@ bool WindowsMpvBackend::tryStartDirectMpv(const QStringList &args, const QString
 #if !defined(Q_OS_WIN) || !defined(BLOOM_HAS_LIBMPV)
     Q_UNUSED(args);
     Q_UNUSED(mediaUrl);
+    qCWarning(lcWindowsLibmpvBackend)
+        << "Direct libmpv path is not compiled (BLOOM_HAS_LIBMPV missing).";
     return false;
 #else
     teardownMpv();
