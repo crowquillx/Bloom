@@ -326,6 +326,30 @@ FocusScope {
                 Keys.onReturnPressed: checked = !checked
                 Keys.onEnterPressed: checked = !checked
                 Keys.onSpacePressed: checked = !checked
+
+                indicator: Rectangle {
+                    implicitWidth: 56
+                    implicitHeight: 30
+                    radius: height / 2
+                    color: hwdecSwitch.checked ? Theme.accentPrimary : Qt.rgba(1, 1, 1, 0.2)
+                    border.color: hwdecSwitch.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                    border.width: hwdecSwitch.activeFocus ? 2 : 1
+
+                    Rectangle {
+                        width: 24
+                        height: 24
+                        radius: 12
+                        x: hwdecSwitch.checked ? parent.width - width - 3 : 3
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: Theme.textPrimary
+                        border.color: hwdecSwitch.activeFocus ? Theme.focusBorder : "transparent"
+                        border.width: hwdecSwitch.activeFocus ? 1 : 0
+                        Behavior on x { NumberAnimation { duration: Theme.durationShort; easing.type: Easing.OutCubic } }
+                    }
+
+                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                }
             }
         }
         
@@ -514,6 +538,30 @@ FocusScope {
                 Keys.onReturnPressed: checked = !checked
                 Keys.onEnterPressed: checked = !checked
                 Keys.onSpacePressed: checked = !checked
+
+                indicator: Rectangle {
+                    implicitWidth: 56
+                    implicitHeight: 30
+                    radius: height / 2
+                    color: deinterlaceSwitch.checked ? Theme.accentPrimary : Qt.rgba(1, 1, 1, 0.2)
+                    border.color: deinterlaceSwitch.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                    border.width: deinterlaceSwitch.activeFocus ? 2 : 1
+
+                    Rectangle {
+                        width: 24
+                        height: 24
+                        radius: 12
+                        x: deinterlaceSwitch.checked ? parent.width - width - 3 : 3
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: Theme.textPrimary
+                        border.color: deinterlaceSwitch.activeFocus ? Theme.focusBorder : "transparent"
+                        border.width: deinterlaceSwitch.activeFocus ? 1 : 0
+                        Behavior on x { NumberAnimation { duration: Theme.durationShort; easing.type: Easing.OutCubic } }
+                    }
+
+                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                }
             }
         }
         
@@ -628,6 +676,30 @@ FocusScope {
                 Keys.onReturnPressed: checked = !checked
                 Keys.onEnterPressed: checked = !checked
                 Keys.onSpacePressed: checked = !checked
+
+                indicator: Rectangle {
+                    implicitWidth: 56
+                    implicitHeight: 30
+                    radius: height / 2
+                    color: interpolationSwitch.checked ? Theme.accentPrimary : Qt.rgba(1, 1, 1, 0.2)
+                    border.color: interpolationSwitch.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                    border.width: interpolationSwitch.activeFocus ? 2 : 1
+
+                    Rectangle {
+                        width: 24
+                        height: 24
+                        radius: 12
+                        x: interpolationSwitch.checked ? parent.width - width - 3 : 3
+                        anchors.verticalCenter: parent.verticalCenter
+                        color: Theme.textPrimary
+                        border.color: interpolationSwitch.activeFocus ? Theme.focusBorder : "transparent"
+                        border.width: interpolationSwitch.activeFocus ? 1 : 0
+                        Behavior on x { NumberAnimation { duration: Theme.durationShort; easing.type: Easing.OutCubic } }
+                    }
+
+                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                }
             }
         }
         

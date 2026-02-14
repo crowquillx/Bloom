@@ -19,6 +19,11 @@ FocusScope {
     id: root
     focus: true
     property string navigationId: "settings"
+    property int contentMaxWidth: Math.max(1100, Math.min(width - Theme.paddingLarge * 2, Math.round(1600 * Theme.layoutScale)))
+
+    // Home-style rotating backdrop state
+    property var backdropCandidates: []
+    property string currentBackdropUrl: ""
     
     // Cached MPV profile names to avoid model churn
     property var profileNames: []
@@ -51,17 +56,127 @@ FocusScope {
     // ========================================
     // Focus Management
     // ========================================
+
+    function setAllSectionsExpanded(expanded) {
+        accountSection.expanded = expanded
+        playbackSection.expanded = expanded
+        displaySection.expanded = expanded
+        videoSection.expanded = expanded
+        mpvProfilesSection.expanded = expanded
+        metadataSection.expanded = expanded
+        aboutSection.expanded = expanded
+    }
+
+    function refreshBackdropCandidates() {
+        backdropCandidates = []
+        currentBackdropUrl = ""
+        LibraryService.getViews()
+    }
+
+    function addBackdropCandidate(item) {
+        if (!item) return
+
+        var itemId = item.Id
+        var backdropTag = ""
+        var backdropItemId = itemId
+
+        if (item.BackdropImageTags && item.BackdropImageTags.length > 0) {
+            backdropTag = item.BackdropImageTags[0]
+        } else if (item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0) {
+            backdropTag = item.ParentBackdropImageTags[0]
+            backdropItemId = item.ParentBackdropItemId || item.SeriesId || itemId
+        }
+
+        if (!backdropTag || !backdropItemId)
+            return
+
+        for (var i = 0; i < backdropCandidates.length; ++i) {
+            if (backdropCandidates[i].itemId === backdropItemId && backdropCandidates[i].backdropTag === backdropTag)
+                return
+        }
+
+        var newCandidates = backdropCandidates.slice()
+        newCandidates.push({
+            itemId: backdropItemId,
+            backdropTag: backdropTag
+        })
+        backdropCandidates = newCandidates
+
+        if (backdropCandidates.length === 1) {
+            selectRandomBackdrop()
+        }
+    }
+
+    function selectRandomBackdrop() {
+        if (backdropCandidates.length === 0) {
+            currentBackdropUrl = ""
+            return
+        }
+
+        var randomIndex = Math.floor(Math.random() * backdropCandidates.length)
+        var candidate = backdropCandidates[randomIndex]
+        var url = LibraryService.getCachedImageUrlWithWidth(candidate.itemId, "Backdrop", 1920)
+        if (url && candidate.backdropTag) {
+            url += "?tag=" + candidate.backdropTag
+        }
+        currentBackdropUrl = url
+    }
     
     Component.onCompleted: {
         updateProfileNames()
-        // Set initial focus to first interactive element
-        autoplaySwitch.forceActiveFocus()
+        refreshBackdropCandidates()
+        // Start on first section header (sections are collapsed by default)
+        accountSection.toggleButton.forceActiveFocus()
     }
     
     StackView.onStatusChanged: {
         if (StackView.status === StackView.Active) {
-            autoplaySwitch.forceActiveFocus()
+            if (backdropCandidates.length === 0) {
+                refreshBackdropCandidates()
+            }
+            accountSection.toggleButton.forceActiveFocus()
         }
+    }
+
+    Connections {
+        target: LibraryService
+
+        function onViewsLoaded(views) {
+            if (!views || views.length === undefined)
+                return
+            var ids = []
+            for (var i = 0; i < views.length; ++i) {
+                ids.push(views[i].Id)
+            }
+            LibraryService.getNextUp()
+            for (var j = 0; j < ids.length; ++j) {
+                LibraryService.getLatestMedia(ids[j])
+            }
+        }
+
+        function onNextUpLoaded(items) {
+            if (!items || items.length === undefined)
+                return
+            for (var i = 0; i < items.length; ++i) {
+                addBackdropCandidate(items[i])
+            }
+        }
+
+        function onLatestMediaLoaded(parentId, items) {
+            if (!items || items.length === undefined)
+                return
+            for (var i = 0; i < items.length; ++i) {
+                addBackdropCandidate(items[i])
+            }
+        }
+    }
+
+    Timer {
+        id: backdropRotationTimer
+        interval: ConfigManager.backdropRotationInterval
+        repeat: true
+        running: backdropCandidates.length > 1 && !PlayerController.isPlaybackActive
+        onTriggered: selectRandomBackdrop()
     }
     
     // ========================================
@@ -70,7 +185,90 @@ FocusScope {
     
     Rectangle {
         anchors.fill: parent
-        color: Theme.backgroundPrimary
+        z: -3
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Theme.backgroundPrimary }
+            GradientStop { position: 1.0; color: Theme.backgroundSecondary }
+        }
+    }
+
+    Rectangle {
+        id: backdropContainer
+        anchors.fill: parent
+        z: -2
+        color: "transparent"
+        clip: true
+
+        property bool showBackdrop1: true
+
+        Image {
+            id: backdrop1
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            opacity: parent.showBackdrop1 ? 1.0 : 0.0
+            visible: true
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
+
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                blurEnabled: true
+                blur: 1.0
+                blurMax: Theme.blurRadius
+            }
+
+            onStatusChanged: backdropContainer.checkStatus(this)
+        }
+
+        Image {
+            id: backdrop2
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            opacity: parent.showBackdrop1 ? 0.0 : 1.0
+            visible: true
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
+
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                blurEnabled: true
+                blur: 1.0
+                blurMax: Theme.blurRadius
+            }
+
+            onStatusChanged: backdropContainer.checkStatus(this)
+        }
+
+        function checkStatus(img) {
+            if (img.source.toString() !== root.currentBackdropUrl) return
+
+            if (img.status === Image.Ready || (img.status === Image.Null && root.currentBackdropUrl === "")) {
+                if (img === backdrop1) showBackdrop1 = true
+                else showBackdrop1 = false
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            z: 1
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Theme.gradientOverlayStart }
+                GradientStop { position: 0.35; color: Theme.gradientOverlayMiddle }
+                GradientStop { position: 1.0; color: Theme.gradientOverlayEnd }
+            }
+        }
+    }
+
+    onCurrentBackdropUrlChanged: {
+        var target = backdropContainer.showBackdrop1 ? backdrop2 : backdrop1
+        if (target.source.toString() === currentBackdropUrl && target.status === Image.Ready) {
+            if (target === backdrop1) backdropContainer.showBackdrop1 = true
+            else backdropContainer.showBackdrop1 = false
+            return
+        }
+        target.source = currentBackdropUrl
     }
     
     // ========================================
@@ -341,7 +539,7 @@ FocusScope {
     ScrollView {
         id: scrollView
         anchors.fill: parent
-        anchors.margins: Theme.spacingLarge
+        anchors.margins: Theme.paddingLarge
         contentWidth: availableWidth
         clip: true
         
@@ -379,7 +577,7 @@ FocusScope {
             
             ColumnLayout {
                 id: contentColumn
-                width: Math.min(parent.width, 800)
+                width: Math.min(parent.width, root.contentMaxWidth)
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.spacingLarge
                 
@@ -387,13 +585,123 @@ FocusScope {
                 // Header
                 // ========================================
                 
-                Text {
-                    text: qsTr("Settings")
-                    font.pixelSize: Theme.fontSizeHeader
-                    font.family: Theme.fontPrimary
-                    font.weight: Font.Bold
-                    color: Theme.textPrimary
-                    Layout.bottomMargin: Theme.spacingMedium
+                Rectangle {
+                    Layout.fillWidth: true
+                    implicitHeight: Math.round(138 * Theme.layoutScale)
+                    radius: Theme.radiusLarge
+                    color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.78)
+                    border.color: Theme.cardBorder
+                    border.width: Theme.borderWidth
+
+                    RowLayout {
+                        anchors.fill: parent
+                        anchors.margins: Theme.spacingLarge
+                        spacing: Theme.spacingMedium
+
+                        Rectangle {
+                            width: Math.round(64 * Theme.layoutScale)
+                            height: Math.round(64 * Theme.layoutScale)
+                            radius: Math.round(20 * Theme.layoutScale)
+                            color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.16)
+                            border.color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.5)
+                            border.width: 1
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: Icons.settings
+                                font.family: Theme.fontIcon
+                                font.pixelSize: Theme.fontSizeTitle
+                                color: Theme.accentPrimary
+                            }
+                        }
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Math.round(4 * Theme.layoutScale)
+
+                            Text {
+                                text: qsTr("Settings")
+                                font.pixelSize: Theme.fontSizeHeader
+                                font.family: Theme.fontPrimary
+                                font.weight: Font.Bold
+                                color: Theme.textPrimary
+                            }
+
+                            Text {
+                                text: qsTr("Configure playback, display, and account preferences")
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.family: Theme.fontPrimary
+                                color: Theme.textSecondary
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        RowLayout {
+                            spacing: Theme.spacingSmall
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+
+                            Button {
+                                id: expandAllButton
+                                text: qsTr("Expand All")
+                                focusPolicy: Qt.StrongFocus
+                                onClicked: root.setAllSectionsExpanded(true)
+                                Keys.onReturnPressed: root.setAllSectionsExpanded(true)
+                                Keys.onEnterPressed: root.setAllSectionsExpanded(true)
+                                KeyNavigation.right: collapseAllButton
+                                KeyNavigation.down: accountSection.toggleButton
+
+                                contentItem: Text {
+                                    text: parent.text
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                    color: Theme.textPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    implicitWidth: Math.round(150 * Theme.layoutScale)
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    radius: Theme.radiusSmall
+                                    color: expandAllButton.activeFocus ? Theme.buttonSecondaryBackgroundHover
+                                         : (expandAllButton.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground)
+                                    border.color: expandAllButton.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
+                                    border.width: expandAllButton.activeFocus ? 2 : Theme.buttonBorderWidth
+                                }
+                            }
+
+                            Button {
+                                id: collapseAllButton
+                                text: qsTr("Collapse All")
+                                focusPolicy: Qt.StrongFocus
+                                onClicked: root.setAllSectionsExpanded(false)
+                                Keys.onReturnPressed: root.setAllSectionsExpanded(false)
+                                Keys.onEnterPressed: root.setAllSectionsExpanded(false)
+                                KeyNavigation.left: expandAllButton
+                                KeyNavigation.down: accountSection.toggleButton
+
+                                contentItem: Text {
+                                    text: parent.text
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                    color: Theme.textPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    implicitWidth: Math.round(160 * Theme.layoutScale)
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    radius: Theme.radiusSmall
+                                    color: collapseAllButton.activeFocus ? Theme.buttonSecondaryBackgroundHover
+                                         : (collapseAllButton.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground)
+                                    border.color: collapseAllButton.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
+                                    border.width: collapseAllButton.activeFocus ? 2 : Theme.buttonBorderWidth
+                                }
+                            }
+                        }
+                    }
                 }
                 
                 // ========================================
@@ -401,8 +709,13 @@ FocusScope {
                 // ========================================
                 
                 SettingsSection {
+                    id: accountSection
                     title: qsTr("Account")
                     icon: Icons.account
+                    expanded: false
+                    previousSectionButton: collapseAllButton
+                    nextSectionButton: playbackSection.toggleButton
+                    firstFocusableItem: signOutButton
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -470,11 +783,11 @@ FocusScope {
                             
                             // Stop wrap at top; keep focus here and ensure view is at top
                             Keys.onUpPressed: {
-                                flickable.scrollToTop()
+                                accountSection.toggleButton.forceActiveFocus()
                                 event.accepted = true
                             }
                             KeyNavigation.up: null
-                            KeyNavigation.down: autoplaySwitch
+                            KeyNavigation.down: playbackSection.toggleButton
                             
                             onClicked: root.signOutRequested()
                             Keys.onReturnPressed: root.signOutRequested()
@@ -488,8 +801,13 @@ FocusScope {
                 // ========================================
                 
                 SettingsSection {
+                    id: playbackSection
                     title: qsTr("Playback")
                     icon: Icons.playArrow
+                    expanded: false
+                    previousSectionButton: accountSection.toggleButton
+                    nextSectionButton: displaySection.toggleButton
+                    firstFocusableItem: autoplaySwitch
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -863,7 +1181,7 @@ FocusScope {
                             Layout.fillWidth: true
                             
                             KeyNavigation.up: themeSongVolumeCombo
-                            KeyNavigation.down: themeCombo
+                            KeyNavigation.down: displaySection.toggleButton
                             
                             onToggled: function(value) {
                                 ConfigManager.themeSongLoop = value
@@ -877,8 +1195,13 @@ FocusScope {
                 // ========================================
                 
                 SettingsSection {
+                    id: displaySection
                     title: qsTr("Display")
                     icon: Icons.palette
+                    expanded: false
+                    previousSectionButton: playbackSection.toggleButton
+                    nextSectionButton: videoSection.toggleButton
+                    firstFocusableItem: themeCombo
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -1088,7 +1411,7 @@ FocusScope {
                             Layout.fillWidth: true
                             
                             KeyNavigation.up: backdropSlider
-                            KeyNavigation.down: framerateMatchingSwitch
+                            KeyNavigation.down: videoSection.toggleButton
                             
                             onSliderValueChanged: function(newValue) {
                                 ConfigManager.manualDpiScaleOverride = newValue
@@ -1102,8 +1425,13 @@ FocusScope {
                 // ========================================
                 
                 SettingsSection {
+                    id: videoSection
                     title: qsTr("Video")
                     icon: Icons.videocam
+                    expanded: false
+                    previousSectionButton: displaySection.toggleButton
+                    nextSectionButton: mpvProfilesSection.toggleButton
+                    firstFocusableItem: framerateMatchingSwitch
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -1208,7 +1536,7 @@ FocusScope {
                             }
                             
                             KeyNavigation.up: dpiScaleSlider
-                            KeyNavigation.down: defaultProfileCombo
+                            KeyNavigation.down: mpvProfilesSection.toggleButton
                             
                             onClicked: advancedExpanded = !advancedExpanded
                             Keys.onReturnPressed: advancedExpanded = !advancedExpanded
@@ -1270,8 +1598,13 @@ FocusScope {
                 // ========================================
                 
                 SettingsSection {
+                    id: mpvProfilesSection
                     title: qsTr("MPV Profiles")
                     icon: Icons.tune
+                    expanded: false
+                    previousSectionButton: videoSection.toggleButton
+                    nextSectionButton: metadataSection.toggleButton
+                    firstFocusableItem: defaultProfileCombo
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -1690,7 +2023,7 @@ FocusScope {
                                 if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(0).children[1].forceActiveFocus()
                                 } else {
-                                    mdbListApiKeyRow.input.forceActiveFocus()
+                                    metadataSection.toggleButton.forceActiveFocus()
                                 }
                                 event.accepted = true
                             }
@@ -1796,7 +2129,7 @@ FocusScope {
                                                 if (libraryDelegate.index < libraryProfilesRepeater.count - 1) {
                                                     libraryProfilesRepeater.itemAt(libraryDelegate.index + 1).children[1].forceActiveFocus()
                                                 } else {
-                                                    mdbListApiKeyRow.input.forceActiveFocus()
+                                                    metadataSection.toggleButton.forceActiveFocus()
                                                 }
                                                 event.accepted = true
                                             }
@@ -1928,8 +2261,13 @@ FocusScope {
                 // ========================================
                 
                 SettingsSection {
+                    id: metadataSection
                     title: qsTr("Metadata Providers")
                     icon: Icons.cloud
+                    expanded: false
+                    previousSectionButton: mpvProfilesSection.toggleButton
+                    nextSectionButton: aboutSection.toggleButton
+                    firstFocusableItem: mdbListApiKeyRow.input
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -1964,7 +2302,7 @@ FocusScope {
                                 if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(libraryProfilesRepeater.count - 1).children[1].forceActiveFocus()
                                 } else {
-                                    libraryProfilesToggle.forceActiveFocus()
+                                    mpvProfilesSection.toggleButton.forceActiveFocus()
                                 }
                             }
                             
@@ -1980,8 +2318,13 @@ FocusScope {
                 // ========================================
                 
                 SettingsSection {
+                    id: aboutSection
                     title: qsTr("About")
                     icon: Icons.info
+                    expanded: false
+                    previousSectionButton: metadataSection.toggleButton
+                    nextSectionButton: null
+                    firstFocusableItem: null
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -2031,16 +2374,27 @@ FocusScope {
         
         property string title: ""
         property string icon: ""
+        property bool expanded: false
+        property Item firstFocusableItem: null
+        property Item previousSectionButton: null
+        property Item nextSectionButton: null
+        property alias toggleButton: sectionHeaderButton
         default property alias content: sectionContent.data
         
         Accessible.role: Accessible.Grouping
         Accessible.name: title
         
         implicitHeight: sectionLayout.implicitHeight + Theme.spacingLarge * 2
-        color: Theme.cardBackground
-        radius: Theme.radiusMedium
+        color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.76)
+        radius: Theme.radiusLarge
         border.color: Theme.cardBorder
         border.width: Theme.borderWidth
+
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.08) }
+            GradientStop { position: 0.3; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.78) }
+            GradientStop { position: 1.0; color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.66) }
+        }
         
         ColumnLayout {
             id: sectionLayout
@@ -2049,23 +2403,98 @@ FocusScope {
             spacing: Theme.spacingMedium
             
             // Section Header
-            RowLayout {
-                spacing: Theme.spacingSmall
+            Button {
+                id: sectionHeaderButton
                 Layout.fillWidth: true
-                
-                Text {
-                    text: sectionCard.icon
-                    font.family: Theme.fontIcon
-                    font.pixelSize: Theme.fontSizeTitle
-                    color: Theme.accentPrimary
+                focusPolicy: Qt.StrongFocus
+                Accessible.role: Accessible.Button
+                Accessible.name: sectionCard.title
+                Accessible.description: sectionCard.expanded ? qsTr("Expanded") : qsTr("Collapsed")
+
+                onActiveFocusChanged: {
+                    if (activeFocus && typeof flickable !== "undefined") {
+                        flickable.ensureFocusVisible(sectionCard)
+                    }
                 }
-                
-                Text {
-                    text: sectionCard.title
-                    font.pixelSize: Theme.fontSizeTitle
-                    font.family: Theme.fontPrimary
-                    font.weight: Font.DemiBold
-                    color: Theme.textPrimary
+
+                onClicked: sectionCard.expanded = !sectionCard.expanded
+
+                Keys.onSpacePressed: {
+                    sectionCard.expanded = !sectionCard.expanded
+                    event.accepted = true
+                }
+                Keys.onReturnPressed: {
+                    sectionCard.expanded = !sectionCard.expanded
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: {
+                    sectionCard.expanded = !sectionCard.expanded
+                    event.accepted = true
+                }
+                Keys.onRightPressed: {
+                    if (!sectionCard.expanded) {
+                        sectionCard.expanded = true
+                        event.accepted = true
+                    }
+                }
+                Keys.onLeftPressed: {
+                    if (sectionCard.expanded) {
+                        sectionCard.expanded = false
+                        event.accepted = true
+                    }
+                }
+                Keys.onUpPressed: {
+                    if (sectionCard.previousSectionButton) {
+                        sectionCard.previousSectionButton.forceActiveFocus()
+                        event.accepted = true
+                    }
+                }
+                Keys.onDownPressed: {
+                    if (sectionCard.expanded && sectionCard.firstFocusableItem) {
+                        sectionCard.firstFocusableItem.forceActiveFocus()
+                        event.accepted = true
+                    } else if (sectionCard.nextSectionButton) {
+                        sectionCard.nextSectionButton.forceActiveFocus()
+                        event.accepted = true
+                    }
+                }
+
+                background: Rectangle {
+                    implicitHeight: Theme.buttonHeightSmall
+                    radius: Theme.radiusMedium
+                    color: sectionHeaderButton.activeFocus
+                        ? Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.12)
+                        : "transparent"
+                    border.color: sectionHeaderButton.activeFocus ? Theme.focusBorder : "transparent"
+                    border.width: sectionHeaderButton.activeFocus ? 2 : 0
+                }
+
+                spacing: Theme.spacingSmall
+                contentItem: RowLayout {
+                    spacing: Theme.spacingSmall
+
+                    Text {
+                        text: sectionCard.icon
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Theme.fontSizeTitle
+                        color: Theme.accentPrimary
+                    }
+
+                    Text {
+                        text: sectionCard.title
+                        font.pixelSize: Theme.fontSizeTitle
+                        font.family: Theme.fontPrimary
+                        font.weight: Font.DemiBold
+                        color: Theme.textPrimary
+                        Layout.fillWidth: true
+                    }
+
+                    Text {
+                        text: sectionCard.expanded ? Icons.expandLess : Icons.expandMore
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Theme.fontSizeTitle
+                        color: Theme.textSecondary
+                    }
                 }
             }
             
@@ -2074,6 +2503,7 @@ FocusScope {
                 Layout.fillWidth: true
                 height: 1
                 color: Theme.borderLight
+                visible: sectionCard.expanded
             }
             
             // Section Content
@@ -2081,6 +2511,7 @@ FocusScope {
                 id: sectionContent
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
+                visible: sectionCard.expanded
             }
         }
     }
@@ -2120,6 +2551,8 @@ FocusScope {
         property string label: ""
         property string description: ""
         property bool checked: false
+        property bool isHovered: toggleHoverTracker.containsMouse
+        property bool hasKeyboardFocus: toggleRow.activeFocus
         
         Accessible.role: Accessible.CheckBox
         Accessible.name: label
@@ -2148,9 +2581,29 @@ FocusScope {
             anchors.fill: parent
             anchors.margins: -Theme.spacingSmall
             radius: Theme.radiusSmall
-            color: toggleRow.activeFocus ? Theme.hoverOverlay : "transparent"
-            border.color: toggleRow.activeFocus ? Theme.focusBorder : "transparent"
-            border.width: toggleRow.activeFocus ? 2 : 0
+            color: toggleRow.hasKeyboardFocus
+                ? Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.16)
+                : (toggleRow.isHovered ? Qt.rgba(1, 1, 1, 0.06) : "transparent")
+            border.color: toggleRow.hasKeyboardFocus
+                ? Theme.focusBorder
+                : (toggleRow.isHovered ? Theme.borderLight : "transparent")
+            border.width: toggleRow.hasKeyboardFocus ? 2 : (toggleRow.isHovered ? 1 : 0)
+
+            Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+            Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+        }
+
+        Rectangle {
+            width: 4
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            radius: 2
+            color: Theme.accentPrimary
+            visible: toggleRow.hasKeyboardFocus
+            opacity: visible ? 1.0 : 0.0
+
+            Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
         }
         
         RowLayout {
@@ -2208,6 +2661,14 @@ FocusScope {
                     onClicked: toggleRow.toggle()
                 }
             }
+        }
+
+        MouseArea {
+            id: toggleHoverTracker
+            anchors.fill: parent
+            acceptedButtons: Qt.NoButton
+            hoverEnabled: true
+            z: 10
         }
     }
     

@@ -16,6 +16,7 @@ Makefile
 *.qrc.depends
 *_qmltyperegistrations.cpp
 
+
 # Nix
 result
 result-*
