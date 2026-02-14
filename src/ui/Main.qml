@@ -58,6 +58,23 @@ Window {
     readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
     readonly property bool playbackOverlayNavigationActive: embeddedPlaybackActive
                                                          && embeddedPlaybackOverlay.fullControlsVisible
+    readonly property bool playbackSelectorOpen: embeddedPlaybackActive
+                                              && embeddedPlaybackOverlay.selectorOpen
+
+    function ensurePlaybackOverlayFocus() {
+        if (!embeddedPlaybackActive) {
+            return
+        }
+        embeddedPlaybackOverlay.showControls()
+        window.requestActivate()
+        embeddedOverlayWindow.requestActivate()
+        Qt.callLater(function() {
+            embeddedPlaybackOverlay.activateOverlayFocus()
+            Qt.callLater(function() {
+                embeddedPlaybackOverlay.activateOverlayFocus()
+            })
+        })
+    }
 
     VideoSurface {
         id: videoSurface
@@ -81,16 +98,30 @@ Window {
         height: window.height
         onVisibleChanged: {
             if (visible) {
-                requestActivate()
-                Qt.callLater(function() {
-                    embeddedPlaybackOverlay.activateOverlayFocus()
-                })
+                ensurePlaybackOverlayFocus()
             }
         }
 
         EmbeddedPlaybackOverlay {
             id: embeddedPlaybackOverlay
             anchors.fill: parent
+        }
+    }
+
+    Connections {
+        target: PlayerController
+        function onIsPlaybackActiveChanged() {
+            if (PlayerController.isPlaybackActive) {
+                ensurePlaybackOverlayFocus()
+            }
+        }
+        function onPlaybackStateChanged() {
+            if (!embeddedPlaybackActive) {
+                return
+            }
+            if (PlayerController.playbackState === PlayerController.Paused) {
+                ensurePlaybackOverlayFocus()
+            }
         }
     }
     
@@ -558,18 +589,26 @@ Window {
     Shortcut {
         sequences: ["Space", "K"]
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.togglePause()
+        onActivated: {
+            embeddedPlaybackOverlay.showControls()
+            PlayerController.togglePause()
+        }
     }
 
     Shortcut {
         sequence: "Esc"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.stop()
+        onActivated: {
+            if (embeddedPlaybackOverlay.closeSelectors()) {
+                return
+            }
+            PlayerController.stop()
+        }
     }
 
     Shortcut {
         sequence: "Left"
-        enabled: PlayerController.isPlaybackActive
+        enabled: PlayerController.isPlaybackActive && !playbackSelectorOpen
         onActivated: {
             if (playbackOverlayNavigationActive) {
                 embeddedPlaybackOverlay.handleDirectionalKey("left")
@@ -582,7 +621,7 @@ Window {
 
     Shortcut {
         sequence: "Right"
-        enabled: PlayerController.isPlaybackActive
+        enabled: PlayerController.isPlaybackActive && !playbackSelectorOpen
         onActivated: {
             if (playbackOverlayNavigationActive) {
                 embeddedPlaybackOverlay.handleDirectionalKey("right")
@@ -595,13 +634,13 @@ Window {
 
     Shortcut {
         sequence: "Up"
-        enabled: embeddedPlaybackActive
+        enabled: embeddedPlaybackActive && !playbackSelectorOpen
         onActivated: embeddedPlaybackOverlay.handleDirectionalKey("up")
     }
 
     Shortcut {
         sequence: "Down"
-        enabled: embeddedPlaybackActive
+        enabled: embeddedPlaybackActive && !playbackSelectorOpen
         onActivated: embeddedPlaybackOverlay.handleDirectionalKey("down")
     }
 

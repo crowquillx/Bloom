@@ -10,7 +10,7 @@ FocusScope {
     focus: visible
 
     readonly property bool overlayActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
-    readonly property bool paused: PlayerController.playbackState === PlayerController.Paused
+    readonly property bool paused: PlayerController.stateName === "Paused"
     readonly property string mediaTitle: (PlayerController.overlayTitle && PlayerController.overlayTitle.length > 0)
                                         ? PlayerController.overlayTitle
                                         : qsTr("Now Playing")
@@ -20,8 +20,12 @@ FocusScope {
     property bool controlsVisible: false
     property bool seekPreviewActive: false
     property bool seekOnlyMode: false
+    property bool audioSelectorOpen: false
+    property bool subtitleSelectorOpen: false
+    readonly property bool selectorOpen: audioSelectorOpen || subtitleSelectorOpen
     readonly property bool fullControlsVisible: controlsVisible && !seekOnlyMode
     property int controlsAutoHideMs: 2500
+    property int seekPreviewHoldMs: 1800
     default property alias overlayContent: overlayRoot.data
 
     anchors.fill: parent
@@ -45,7 +49,7 @@ FocusScope {
         }
         controlsVisible = true
         seekOnlyMode = false
-        if (paused || seekPreviewActive || hasFocusedControl()) {
+        if (paused || seekPreviewActive || selectorOpen) {
             hideTimer.stop()
         } else {
             hideTimer.restart()
@@ -57,16 +61,16 @@ FocusScope {
             return
         }
         showControls()
-        root.forceActiveFocus()
-        Qt.callLater(function() { playPauseButton.forceActiveFocus() })
+        root.forceActiveFocus(Qt.ShortcutFocusReason)
+        Qt.callLater(function() { playPauseButton.forceActiveFocus(Qt.ShortcutFocusReason) })
     }
 
-    function showSeekPreview() {
+    function showSeekPreview(keepFullControls) {
         if (!overlayActive) {
             return
         }
         controlsVisible = true
-        seekOnlyMode = true
+        seekOnlyMode = keepFullControls === true ? false : true
         hideTimer.stop()
         seekPreviewActive = true
         seekPreviewTimer.restart()
@@ -78,8 +82,119 @@ FocusScope {
         }
     }
 
+    function buttonXInRoot(button, panelWidth) {
+        var p = button.mapToItem(root, button.width / 2, 0)
+        return Math.max(0, Math.min(root.width - panelWidth, p.x - panelWidth / 2))
+    }
+
+    function buttonYInRoot(button, panelHeight) {
+        var p = button.mapToItem(root, 0, 0)
+        return Math.max(0, p.y - panelHeight - Math.round(24 * Theme.layoutScale))
+    }
+
+    function audioListIndexForTrack(trackIndex) {
+        var tracks = PlayerController.availableAudioTracks
+        for (var i = 0; i < tracks.length; i++) {
+            if (tracks[i].index === trackIndex) {
+                return i
+            }
+        }
+        return tracks.length > 0 ? 0 : -1
+    }
+
+    readonly property var subtitleTrackOptions: {
+        var options = [{ index: -1, displayTitle: qsTr("Off"), title: qsTr("No subtitles") }]
+        var tracks = PlayerController.availableSubtitleTracks
+        for (var i = 0; i < tracks.length; i++) {
+            options.push(tracks[i])
+        }
+        return options
+    }
+
+    function subtitleListIndexForTrack(trackIndex) {
+        var tracks = subtitleTrackOptions
+        for (var i = 0; i < tracks.length; i++) {
+            if (tracks[i].index === trackIndex) {
+                return i
+            }
+        }
+        return tracks.length > 0 ? 0 : -1
+    }
+
+    function trackPrimaryLabel(track) {
+        if (!track) return ""
+        return track.displayTitle || track.title || qsTr("Track")
+    }
+
+    function trackSecondaryLabel(track, isSubtitle) {
+        if (!track) return ""
+        if (track.index === -1) return qsTr("Disabled")
+        if (track.title && track.title.length > 0 && track.title !== track.displayTitle) return track.title
+        if (isSubtitle) {
+            if (track.isHearingImpaired) return qsTr("Subtitles for the Deaf and Hard of Hearing")
+            if (track.isForced) return qsTr("Forced")
+            return qsTr("Full")
+        }
+        if (track.channelLayout && track.channelLayout.length > 0) return track.channelLayout
+        if (track.channels && track.channels > 0) return qsTr("%1.0").arg(track.channels)
+        return ""
+    }
+
+    function openAudioSelector() {
+        if (audioSelectorOpen) {
+            audioSelectorOpen = false
+            return
+        }
+        if (!PlayerController.availableAudioTracks || PlayerController.availableAudioTracks.length === 0) {
+            return
+        }
+        subtitleSelectorOpen = false
+        showControls()
+        audioSelectorOpen = true
+        var idx = audioListIndexForTrack(PlayerController.selectedAudioTrack)
+        audioList.currentIndex = idx
+        Qt.callLater(function() {
+            if (idx >= 0) {
+                audioList.positionViewAtIndex(idx, ListView.Contain)
+            }
+            audioList.forceActiveFocus()
+        })
+    }
+
+    function openSubtitleSelector() {
+        if (subtitleSelectorOpen) {
+            subtitleSelectorOpen = false
+            return
+        }
+        subtitleSelectorOpen = true
+        audioSelectorOpen = false
+        showControls()
+        var idx = subtitleListIndexForTrack(PlayerController.selectedSubtitleTrack)
+        subtitleList.currentIndex = idx
+        Qt.callLater(function() {
+            if (idx >= 0) {
+                subtitleList.positionViewAtIndex(idx, ListView.Contain)
+            }
+            subtitleList.forceActiveFocus()
+        })
+    }
+
+    function closeSelectors() {
+        var wasOpen = selectorOpen
+        audioSelectorOpen = false
+        subtitleSelectorOpen = false
+        if (wasOpen) {
+            Qt.callLater(function() { playPauseButton.forceActiveFocus() })
+        }
+        return wasOpen
+    }
+
     function handleDirectionalKey(direction) {
         if (!overlayActive) {
+            return false
+        }
+
+        if (selectorOpen) {
             return false
         }
 
@@ -106,6 +221,9 @@ FocusScope {
             focusControl(playPauseButton)
             return true
         }
+
+        // Keep full overlay alive while navigating, but still allow forced auto-hide timer.
+        showControls()
 
         var active = root.Window.activeFocusItem
         if (!active || !hasFocusedControl()) {
@@ -135,7 +253,7 @@ FocusScope {
         if (direction === "left") {
             if (active === progressFocus) {
                 PlayerController.seekRelative(-10)
-                showSeekPreview()
+                showSeekPreview(true)
                 return true
             }
             if (active === audioButton) focusControl(volumeButton)
@@ -152,7 +270,7 @@ FocusScope {
         if (direction === "right") {
             if (active === progressFocus) {
                 PlayerController.seekRelative(10)
-                showSeekPreview()
+                showSeekPreview(true)
                 return true
             }
             if (active === audioButton) focusControl(subtitleButton)
@@ -181,10 +299,11 @@ FocusScope {
     }
 
     function hideControlsIfAllowed() {
-        if (!overlayActive || paused || seekPreviewActive || hasFocusedControl()) {
+        if (!overlayActive || paused || seekPreviewActive || selectorOpen) {
             return
         }
         controlsVisible = false
+        seekOnlyMode = false
     }
 
     onOverlayActiveChanged: {
@@ -193,6 +312,8 @@ FocusScope {
         } else {
             hideTimer.stop()
             seekPreviewTimer.stop()
+            audioSelectorOpen = false
+            subtitleSelectorOpen = false
             controlsVisible = false
             seekPreviewActive = false
             seekOnlyMode = false
@@ -204,8 +325,7 @@ FocusScope {
             return
         }
         if (paused) {
-            controlsVisible = true
-            hideTimer.stop()
+            activateOverlayFocus()
         } else {
             showControls()
         }
@@ -214,6 +334,14 @@ FocusScope {
     onControlsVisibleChanged: {
         if (controlsVisible && !seekOnlyMode && !InputModeManager.pointerActive && overlayActive) {
             Qt.callLater(function() { playPauseButton.forceActiveFocus() })
+        }
+    }
+
+    onSelectorOpenChanged: {
+        if (selectorOpen) {
+            hideTimer.stop()
+        } else {
+            showControls()
         }
     }
 
@@ -226,7 +354,7 @@ FocusScope {
 
     Timer {
         id: seekPreviewTimer
-        interval: 900
+        interval: root.seekPreviewHoldMs
         repeat: false
         onTriggered: {
             root.seekPreviewActive = false
@@ -274,6 +402,19 @@ FocusScope {
         font.family: Theme.fontIcon
         font.pixelSize: iconSize
         scale: hovered ? 1.1 : 1.0
+        onPressed: root.showControls()
+        Keys.onReturnPressed: function(event) {
+            event.accepted = true
+            glassButton.animateClick()
+        }
+        Keys.onEnterPressed: function(event) {
+            event.accepted = true
+            glassButton.animateClick()
+        }
+        Keys.onSpacePressed: function(event) {
+            event.accepted = true
+            glassButton.animateClick()
+        }
         background: Rectangle {
             radius: width / 2
             color: {
@@ -333,9 +474,10 @@ FocusScope {
 
     Item {
         anchors.fill: parent
-        visible: root.fullControlsVisible
+        visible: root.controlsVisible
 
         Row {
+            visible: root.fullControlsVisible
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
@@ -459,7 +601,7 @@ FocusScope {
                             }
                             var ratio = Math.max(0, Math.min(1, mouse.x / progressTrack.width))
                             PlayerController.seek(PlayerController.durationSeconds * ratio)
-                            root.showSeekPreview()
+                            root.showSeekPreview(true)
                         }
                         onEntered: root.seekPreviewActive = true
                         onExited: root.seekPreviewActive = false
@@ -476,12 +618,12 @@ FocusScope {
                     Keys.onLeftPressed: function(event) {
                         event.accepted = true
                         PlayerController.seekRelative(-10)
-                        root.showSeekPreview()
+                        root.showSeekPreview(true)
                     }
                     Keys.onRightPressed: function(event) {
                         event.accepted = true
                         PlayerController.seekRelative(10)
-                        root.showSeekPreview()
+                        root.showSeekPreview(true)
                     }
 
                     RowLayout {
@@ -504,6 +646,7 @@ FocusScope {
             }
 
             RowLayout {
+                visible: root.fullControlsVisible
                 width: parent.width
 
                 RowLayout {
@@ -514,7 +657,7 @@ FocusScope {
                         diameter: Math.round(64 * Theme.layoutScale)
                         iconSize: Math.round(32 * Theme.layoutScale)
                         text: Icons.audiotrack
-                        onClicked: PlayerController.cycleAudioTrack()
+                        onClicked: root.openAudioSelector()
                         KeyNavigation.right: subtitleButton
                         KeyNavigation.left: volumeButton
                         KeyNavigation.up: progressFocus
@@ -525,7 +668,7 @@ FocusScope {
                         diameter: Math.round(64 * Theme.layoutScale)
                         iconSize: Math.round(32 * Theme.layoutScale)
                         text: Icons.subtitles
-                        onClicked: PlayerController.cycleSubtitleTrack()
+                        onClicked: root.openSubtitleSelector()
                         KeyNavigation.left: audioButton
                         KeyNavigation.right: skipBackButton
                         KeyNavigation.up: progressFocus
@@ -544,7 +687,7 @@ FocusScope {
                         text: Icons.fastRewind
                         onClicked: {
                             PlayerController.seekRelative(-10)
-                            root.showSeekPreview()
+                            root.showSeekPreview(true)
                         }
                         KeyNavigation.left: subtitleButton
                         KeyNavigation.right: previousChapterButton
@@ -592,7 +735,7 @@ FocusScope {
                         text: Icons.fastForward
                         onClicked: {
                             PlayerController.seekRelative(10)
-                            root.showSeekPreview()
+                            root.showSeekPreview(true)
                         }
                         KeyNavigation.left: nextChapterButton
                         KeyNavigation.right: volumeButton
@@ -614,6 +757,225 @@ FocusScope {
                         KeyNavigation.up: progressFocus
                     }
                 }
+            }
+        }
+    }
+
+    Rectangle {
+        id: audioPanel
+        visible: root.audioSelectorOpen
+        z: 1200
+        width: Math.round(460 * Theme.layoutScale)
+        height: Math.min(Math.round(560 * Theme.layoutScale), Math.round(root.height * 0.72))
+        x: root.buttonXInRoot(audioButton, width)
+        y: root.buttonYInRoot(audioButton, height)
+        radius: Theme.radiusXLarge
+        color: Qt.rgba(0.01, 0.02, 0.05, 0.92)
+        border.width: 1
+        border.color: Theme.cardBorder
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Math.round(28 * Theme.layoutScale)
+            spacing: Math.round(16 * Theme.layoutScale)
+            Text {
+                text: qsTr("Audio Track")
+                color: Theme.textPrimary
+                font.family: Theme.fontPrimary
+                font.pixelSize: Math.round(42 * Theme.layoutScale * 0.6)
+                font.weight: Font.DemiBold
+            }
+            ListView {
+                id: audioList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: PlayerController.availableAudioTracks
+                focus: root.audioSelectorOpen
+                spacing: Math.round(10 * Theme.layoutScale)
+                delegate: Rectangle {
+                    required property int index
+                    required property var modelData
+                    width: audioList.width
+                    height: Math.round(72 * Theme.layoutScale)
+                    color: audioList.currentIndex === index ? Theme.hoverOverlay : "transparent"
+                    radius: Theme.radiusMedium
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            PlayerController.setSelectedAudioTrack(modelData.index)
+                            root.audioSelectorOpen = false
+                            Qt.callLater(function() { audioButton.forceActiveFocus() })
+                        }
+                    }
+                    Column {
+                        anchors.left: parent.left
+                        anchors.leftMargin: Math.round(10 * Theme.layoutScale)
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Math.round(3 * Theme.layoutScale)
+                        width: parent.width - Math.round(64 * Theme.layoutScale)
+                        Text {
+                            text: root.trackPrimaryLabel(modelData)
+                            color: Theme.textPrimary
+                            font.family: Theme.fontPrimary
+                            font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                        Text {
+                            text: root.trackSecondaryLabel(modelData, false)
+                            color: Theme.textSecondary
+                            font.family: Theme.fontPrimary
+                            font.pixelSize: Math.round(28 * Theme.layoutScale * 0.58)
+                            visible: text.length > 0
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                    }
+                    Text {
+                        anchors.right: parent.right
+                        anchors.rightMargin: Math.round(8 * Theme.layoutScale)
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.index === PlayerController.selectedAudioTrack ? Icons.check : ""
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
+                        color: Theme.textPrimary
+                    }
+                }
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Up) {
+                        event.accepted = true
+                        currentIndex = Math.max(0, currentIndex - 1)
+                        positionViewAtIndex(currentIndex, ListView.Contain)
+                    } else if (event.key === Qt.Key_Down) {
+                        event.accepted = true
+                        currentIndex = Math.min(count - 1, currentIndex + 1)
+                        positionViewAtIndex(currentIndex, ListView.Contain)
+                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                        event.accepted = true
+                        if (currentIndex >= 0 && currentIndex < count) {
+                            var audioTracks = PlayerController.availableAudioTracks
+                            PlayerController.setSelectedAudioTrack(audioTracks[currentIndex].index)
+                            root.audioSelectorOpen = false
+                            Qt.callLater(function() { audioButton.forceActiveFocus() })
+                        }
+                    } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                        event.accepted = true
+                        root.audioSelectorOpen = false
+                        Qt.callLater(function() { audioButton.forceActiveFocus() })
+                    } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+                        event.accepted = true
+                    }
+                }
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            }
+        }
+    }
+
+    Rectangle {
+        id: subtitlePanel
+        visible: root.subtitleSelectorOpen
+        z: 1200
+        width: Math.round(520 * Theme.layoutScale)
+        height: Math.min(Math.round(560 * Theme.layoutScale), Math.round(root.height * 0.72))
+        x: root.buttonXInRoot(subtitleButton, width)
+        y: root.buttonYInRoot(subtitleButton, height)
+        radius: Theme.radiusXLarge
+        color: Qt.rgba(0.01, 0.02, 0.05, 0.92)
+        border.width: 1
+        border.color: Theme.cardBorder
+        ColumnLayout {
+            anchors.fill: parent
+            anchors.margins: Math.round(28 * Theme.layoutScale)
+            spacing: Math.round(16 * Theme.layoutScale)
+            Text {
+                text: qsTr("Subtitles")
+                color: Theme.textPrimary
+                font.family: Theme.fontPrimary
+                font.pixelSize: Math.round(42 * Theme.layoutScale * 0.6)
+                font.weight: Font.DemiBold
+            }
+            ListView {
+                id: subtitleList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: root.subtitleTrackOptions
+                focus: root.subtitleSelectorOpen
+                spacing: Math.round(10 * Theme.layoutScale)
+                delegate: Rectangle {
+                    required property int index
+                    required property var modelData
+                    width: subtitleList.width
+                    height: Math.round(72 * Theme.layoutScale)
+                    color: subtitleList.currentIndex === index ? Theme.hoverOverlay : "transparent"
+                    radius: Theme.radiusMedium
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: {
+                            PlayerController.setSelectedSubtitleTrack(modelData.index)
+                            root.subtitleSelectorOpen = false
+                            Qt.callLater(function() { subtitleButton.forceActiveFocus() })
+                        }
+                    }
+                    Column {
+                        anchors.left: parent.left
+                        anchors.leftMargin: Math.round(10 * Theme.layoutScale)
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Math.round(3 * Theme.layoutScale)
+                        width: parent.width - Math.round(64 * Theme.layoutScale)
+                        Text {
+                            text: root.trackPrimaryLabel(modelData)
+                            color: Theme.textPrimary
+                            font.family: Theme.fontPrimary
+                            font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                        Text {
+                            text: root.trackSecondaryLabel(modelData, true)
+                            color: Theme.textSecondary
+                            font.family: Theme.fontPrimary
+                            font.pixelSize: Math.round(28 * Theme.layoutScale * 0.58)
+                            visible: text.length > 0
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                    }
+                    Text {
+                        anchors.right: parent.right
+                        anchors.rightMargin: Math.round(8 * Theme.layoutScale)
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.index === PlayerController.selectedSubtitleTrack ? Icons.check : ""
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
+                        color: Theme.textPrimary
+                    }
+                }
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Up) {
+                        event.accepted = true
+                        currentIndex = Math.max(0, currentIndex - 1)
+                        positionViewAtIndex(currentIndex, ListView.Contain)
+                    } else if (event.key === Qt.Key_Down) {
+                        event.accepted = true
+                        currentIndex = Math.min(count - 1, currentIndex + 1)
+                        positionViewAtIndex(currentIndex, ListView.Contain)
+                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                        event.accepted = true
+                        if (currentIndex >= 0 && currentIndex < count) {
+                            PlayerController.setSelectedSubtitleTrack(root.subtitleTrackOptions[currentIndex].index)
+                            root.subtitleSelectorOpen = false
+                            Qt.callLater(function() { subtitleButton.forceActiveFocus() })
+                        }
+                    } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                        event.accepted = true
+                        root.subtitleSelectorOpen = false
+                        Qt.callLater(function() { subtitleButton.forceActiveFocus() })
+                    } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+                        event.accepted = true
+                    }
+                }
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
             }
         }
     }
