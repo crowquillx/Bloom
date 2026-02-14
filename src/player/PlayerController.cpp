@@ -16,7 +16,6 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QDebug>
-#include <QThread>
 #include <QLoggingCategory>
 #include <QRectF>
 #include <QtGlobal>
@@ -358,12 +357,13 @@ void PlayerController::onEnterIdleState()
     
     // Restore display settings
     if (m_displayManager) {
-        m_displayManager->restoreRefreshRate();
-        // If we enabled HDR for this content, disable it now
+        // If we enabled HDR for this content, disable it first.
+        // Some setups cannot apply higher refresh rates while HDR is active.
         if (m_config->getEnableHDR() && m_contentIsHDR) {
             qDebug() << "PlayerController: Restoring HDR to off after HDR content playback";
             m_displayManager->setHDR(false);
         }
+        m_displayManager->restoreRefreshRate();
     }
     
     // Clear playback state
@@ -1531,18 +1531,37 @@ void PlayerController::startPlayback(const QString &url)
     // Toggling HDR can reset the display mode, so we set HDR first, then refresh rate
     bool hdrEnabled = false;
     if (m_config->getEnableHDR() && m_contentIsHDR) {
+        // Snapshot refresh before HDR toggle. Some setups force 60Hz in HDR,
+        // and we want restore to return to the pre-HDR rate.
+        m_displayManager->captureOriginalRefreshRate();
         qDebug() << "PlayerController: Enabling HDR for HDR content";
         hdrEnabled = m_displayManager->setHDR(true);
-        if (hdrEnabled) {
-            // Small delay to allow display to stabilize after HDR mode change
-            // This is especially important on Windows where HDR toggle can reset refresh rate
-            QThread::msleep(100);
-        }
     } else if (m_config->getEnableHDR() && !m_contentIsHDR) {
         qDebug() << "PlayerController: HDR toggle enabled but content is SDR, not switching display HDR";
     }
-    
-    // Handle Display Settings - Framerate Matching (AFTER HDR is set)
+
+    // HDR mode changes can complete asynchronously and reset refresh after return.
+    // Wait briefly before refresh matching to avoid landing on post-HDR fallback (often 60Hz).
+    if (hdrEnabled) {
+        static constexpr int kHdrSettleDelayMs = 750;
+        qDebug() << "PlayerController: HDR switched, waiting" << kHdrSettleDelayMs
+                 << "ms before framerate matching";
+        QTimer::singleShot(kHdrSettleDelayMs, this, &PlayerController::applyFramerateMatchingAndStart);
+        return;
+    }
+
+    applyFramerateMatchingAndStart();
+}
+
+void PlayerController::applyFramerateMatchingAndStart()
+{
+    // Defensive checks: the deferred HDR settle callback may fire after state changes.
+    if (m_playbackState != Loading || m_pendingUrl.isEmpty()) {
+        qCWarning(lcPlayback) << "PlayerController: applyFramerateMatchingAndStart called in invalid state, ignoring";
+        return;
+    }
+
+    // Handle Display Settings - Framerate Matching
     if (m_config->getEnableFramerateMatching() && m_contentFramerate > 0) {
         // Pass the exact framerate to DisplayManager for precise matching
         // TVs like LG can match exact 23.976Hz, while others will use closest available (24Hz)

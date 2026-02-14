@@ -14,6 +14,13 @@ public:
 
 public slots:
     /**
+     * @brief Captures the current refresh rate as the restore target for this playback session.
+     *
+     * Use this before operations like HDR toggles that may force a temporary mode change.
+     */
+    void captureOriginalRefreshRate();
+
+    /**
      * @brief Sets the display refresh rate to the specified Hz.
      * @param hz The target refresh rate (supports fractional rates like 23.976).
      * @return true if successful, false otherwise.
@@ -54,6 +61,7 @@ private:
     // State tracking
     bool m_refreshRateChanged = false;
     double m_originalRefreshRate = 0.0;
+    bool m_hasCapturedOriginalRefreshRate = false;
     bool m_hdrChanged = false;
     bool m_originalHDRState = false;
 

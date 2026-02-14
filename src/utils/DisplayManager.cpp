@@ -47,6 +47,24 @@ DisplayManager::~DisplayManager()
     }
 }
 
+void DisplayManager::captureOriginalRefreshRate()
+{
+    // Capture once per playback flow; preserve the earliest (pre-HDR) mode.
+    if (m_hasCapturedOriginalRefreshRate) {
+        return;
+    }
+
+    const double current = getCurrentRefreshRate();
+    if (current <= 0.0) {
+        qWarning() << "DisplayManager: Failed to capture original refresh rate (current:" << current << ")";
+        return;
+    }
+
+    m_originalRefreshRate = current;
+    m_hasCapturedOriginalRefreshRate = true;
+    qDebug() << "DisplayManager: Captured original refresh rate:" << m_originalRefreshRate << "Hz";
+}
+
 bool DisplayManager::setRefreshRate(double hz)
 {
     qDebug() << "DisplayManager::setRefreshRate called with hz:" << hz;
@@ -74,8 +92,14 @@ bool DisplayManager::setRefreshRate(double hz)
     }
 
     if (!m_refreshRateChanged) {
-        m_originalRefreshRate = current;
-        qDebug() << "DisplayManager: Stored original refresh rate:" << m_originalRefreshRate << "Hz";
+        if (m_hasCapturedOriginalRefreshRate && m_originalRefreshRate > 0.0) {
+            qDebug() << "DisplayManager: Using captured original refresh rate for restore target:"
+                     << m_originalRefreshRate << "Hz";
+        } else {
+            m_originalRefreshRate = current;
+            m_hasCapturedOriginalRefreshRate = true;
+            qDebug() << "DisplayManager: Stored original refresh rate:" << m_originalRefreshRate << "Hz";
+        }
     }
 
 #ifdef Q_OS_WIN
@@ -94,7 +118,12 @@ bool DisplayManager::setRefreshRate(double hz)
 
 bool DisplayManager::restoreRefreshRate()
 {
-    if (!m_refreshRateChanged) return true;
+    if (!m_refreshRateChanged) {
+        // No temporary refresh override is active; clear any stale capture.
+        m_hasCapturedOriginalRefreshRate = false;
+        m_originalRefreshRate = 0.0;
+        return true;
+    }
 
     bool success = false;
 #ifdef Q_OS_WIN
@@ -105,6 +134,8 @@ bool DisplayManager::restoreRefreshRate()
 
     if (success) {
         m_refreshRateChanged = false;
+        m_hasCapturedOriginalRefreshRate = false;
+        m_originalRefreshRate = 0.0;
     }
     return success;
 }
@@ -236,13 +267,22 @@ bool DisplayManager::setRefreshRateWindows(double hz)
 
 bool DisplayManager::restoreRefreshRateWindows()
 {
-    qDebug() << "DisplayManager: Restoring display settings to registry defaults (original was" << m_originalRefreshRate << "Hz)";
-    // Restore to registry settings (which we didn't modify since we don't use CDS_UPDATEREGISTRY)
+    if (m_originalRefreshRate > 0.0) {
+        qDebug() << "DisplayManager: Restoring display refresh to captured original rate"
+                 << m_originalRefreshRate << "Hz";
+        if (setRefreshRateWindows(m_originalRefreshRate)) {
+            return true;
+        }
+        qWarning() << "DisplayManager: Failed to restore to captured rate, falling back to registry defaults";
+    }
+
+    qDebug() << "DisplayManager: Restoring display settings to registry defaults";
     LONG ret = ChangeDisplaySettingsEx(NULL, NULL, NULL, 0, NULL);
     if (ret == DISP_CHANGE_SUCCESSFUL) {
         qDebug() << "DisplayManager: Restored display settings";
         return true;
     }
+
     qWarning() << "DisplayManager: Failed to restore display settings, error:" << ret;
     return false;
 }

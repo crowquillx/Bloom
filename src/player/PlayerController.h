@@ -315,6 +315,7 @@ private:
     void clearPendingAutoplayContext();
     void loadConfig();
     void startPlayback(const QString &url);
+    void applyFramerateMatchingAndStart();
     void initiateMpvStart();
     void updateTrickplayPreviewForPosition(double seconds);
     void clearTrickplayPreview();
