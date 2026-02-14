@@ -599,6 +599,11 @@ FocusScope {
                     "currentMediaSource:", currentMediaSource !== null,
                     "mediaSource:", mediaSource !== null)
         console.log("[SeriesSeasonEpisodeView] performPlayback - selectedAudioIndex:", selectedAudioIndex, "selectedSubtitleIndex:", selectedSubtitleIndex)
+
+        var overlayTitle = seriesName || qsTr("Now Playing")
+        var episodePrefix = qsTr("S%1 E%2").arg(selectedSeasonNumber).arg(selectedEpisodeNumber)
+        var overlaySubtitle = selectedEpisodeName ? (episodePrefix + " - " + selectedEpisodeName) : episodePrefix
+        PlayerController.setOverlayMetadata(overlayTitle, overlaySubtitle)
         
         if (info && mediaSource) {
             var mediaSourceId = mediaSource.id

@@ -139,7 +139,19 @@ UI Components for Track Selection
 - `TrackSelector.qml`: Reusable dropdown component for selecting audio/subtitle tracks with keyboard navigation.
 - `MediaInfoPanel.qml`: Displays video info (resolution, codec, HDR) and contains audio/subtitle `TrackSelector` components.
 - `SeriesSeasonEpisodeView.qml` and `MovieDetailsView.qml`: Integrate `MediaInfoPanel` to show track selection before playback.
-- `EmbeddedPlaybackOverlay.qml`: Shows in-playback audio/subtitle selectors (including `None`) and routes selection changes through `PlayerController` runtime track setters.
+- `EmbeddedPlaybackOverlay.qml`: Native 10-foot playback overlay (top metadata bar + bottom transport row) rendered in the dedicated transparent overlay window for Windows embedded playback.
+  - Left group: audio/subtitle icon buttons (runtime track cycling via `PlayerController`).
+  - Center group: skip back 10s, previous chapter, play/pause, next chapter, skip forward 10s.
+  - Right group: volume/mute icon button.
+  - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
+  - Trickplay preview bubble: currently a UI scaffold (visible on hover/active seek) with placeholder content; image rendering integration is intentionally deferred.
+
+Playback overlay metadata
+- `PlayerController` now exposes `overlayTitle` and `overlaySubtitle` for native overlay header text.
+- Detail views set metadata before playback starts:
+  - Movies: title + production year.
+  - Episodes: series title + `Sxx Exx - Episode Name`.
+- Fallback behavior still exists (`currentItemId`) when explicit metadata is not provided.
 
 Playback Reporting
 - Report sequence: Start -> Periodic Progress -> Pause/Resume -> Stop.

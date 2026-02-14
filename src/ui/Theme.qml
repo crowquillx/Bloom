@@ -129,6 +129,17 @@ QtObject {
     property color gradientOverlayStart: "#400f3880"
     property color gradientOverlayMiddle: "#1c0c2099"
     property color gradientOverlayEnd: "#0a060ccc"
+    property color playbackOverlayTopTint: accentPrimary
+    property color playbackOverlayBottomTint: "#000000"
+    property color playbackControlGlassBackground: Qt.rgba(1, 1, 1, 0.10)
+    property color playbackControlGlassBackgroundHover: Qt.rgba(1, 1, 1, 0.20)
+    property color playbackControlGlassBorder: Qt.rgba(1, 1, 1, 0.20)
+    property color playbackControlGlassBorderStrong: Qt.rgba(1, 1, 1, 0.40)
+    property color playbackProgressTrack: Qt.rgba(1, 1, 1, 0.20)
+    property color playbackProgressFill: Qt.rgba(1, 1, 1, 0.90)
+    property color playbackTimePrimary: Qt.rgba(1, 1, 1, 0.90)
+    property color playbackTimeSecondary: Qt.rgba(1, 1, 1, 0.70)
+    property color playbackIconColor: accentPrimary
 
     // UI element properties
     property color focusBorder: accentPrimary

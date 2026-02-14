@@ -356,6 +356,11 @@ FocusScope {
             
             onPlayRequested: function(itemId, startPositionTicks, framerate, isHDR) {
                 var streamUrl = LibraryService.getStreamUrl(itemId)
+                var title = root.currentMovieData && root.currentMovieData.Name ? root.currentMovieData.Name : qsTr("Now Playing")
+                var subtitle = root.currentMovieData && root.currentMovieData.ProductionYear
+                               ? String(root.currentMovieData.ProductionYear)
+                               : ""
+                PlayerController.setOverlayMetadata(title, subtitle)
                 PlayerController.playUrl(streamUrl, itemId, startPositionTicks || 0, "", "", root.currentLibraryId, framerate || 0.0, isHDR || false)
             }
             
@@ -364,6 +369,11 @@ FocusScope {
                 var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
                 // Pass mpv track numbers to PlayerController for mpv commands
                 // Movies don't have seriesId or seasonId, so pass empty strings
+                var title = root.currentMovieData && root.currentMovieData.Name ? root.currentMovieData.Name : qsTr("Now Playing")
+                var subtitle = root.currentMovieData && root.currentMovieData.ProductionYear
+                               ? String(root.currentMovieData.ProductionYear)
+                               : ""
+                PlayerController.setOverlayMetadata(title, subtitle)
                 PlayerController.playUrlWithTracks(streamUrl, itemId, startPositionTicks || 0, 
                                                     "", "", root.currentLibraryId,
                                                     mediaSourceId, playSessionId, audioIndex, subtitleIndex, 
@@ -1777,6 +1787,8 @@ FocusScope {
         console.log("[Library] Starting quick-play with framerate:", framerate, "isHDR:", isHDR)
         
         var streamUrl = PlaybackService.getStreamUrl(episodeId)
+        var quickPlayTitle = root.currentSeriesData && root.currentSeriesData.Name ? root.currentSeriesData.Name : qsTr("Now Playing")
+        PlayerController.setOverlayMetadata(quickPlayTitle, qsTr("Episode"))
         PlayerController.playUrl(streamUrl, episodeId, root.pendingQuickPlayStartPosition, 
                                   root.pendingQuickPlaySeriesId, root.pendingQuickPlaySeasonId, root.currentLibraryId, framerate, isHDR)
         

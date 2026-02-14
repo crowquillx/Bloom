@@ -365,7 +365,10 @@ void PlayerController::onEnterIdleState()
     }
     
     // Clear playback state
-    m_currentItemId.clear();
+    if (!m_currentItemId.isEmpty()) {
+        m_currentItemId.clear();
+        emit currentItemIdChanged();
+    }
     m_currentSeriesId.clear();
     m_currentSeasonId.clear();
     m_currentLibraryId.clear();
@@ -377,6 +380,7 @@ void PlayerController::onEnterIdleState()
     m_startPositionTicks = 0;
     m_contentFramerate = 0.0;
     m_contentIsHDR = false;
+    clearOverlayMetadata();
     setBufferingProgress(0);
     
     // Clear track selection state (but keep m_seriesTrackPreferences)
@@ -400,6 +404,9 @@ void PlayerController::onEnterIdleState()
     // Clear OSC/trickplay state
     m_currentSegments.clear();
     m_hasTrickplayInfo = false;
+    m_currentTrickplayInfo = TrickplayTileInfo{};
+    emit timelineChanged();
+    emit trickplayStateChanged();
     
     // Clear trickplay processor data
     m_trickplayProcessor->clear();
@@ -606,6 +613,9 @@ void PlayerController::onPositionChanged(double seconds)
 {
     double previousPosition = m_currentPosition;
     m_currentPosition = seconds;
+    if (!qFuzzyCompare(previousPosition + 1.0, seconds + 1.0)) {
+        emit timelineChanged();
+    }
     
     // First position update - transition from Loading to Buffering
     if (m_isWaitingForPosition && m_playbackState == Loading) {
@@ -639,7 +649,10 @@ void PlayerController::onPositionChanged(double seconds)
 
 void PlayerController::onDurationChanged(double seconds)
 {
-    m_duration = seconds;
+    if (!qFuzzyCompare(m_duration + 1.0, seconds + 1.0)) {
+        m_duration = seconds;
+        emit timelineChanged();
+    }
 }
 
 void PlayerController::onPausedForCacheChanged(bool pausedForCache)
@@ -872,7 +885,10 @@ void PlayerController::playTestVideo()
     clearPendingAutoplayContext();
     m_shouldAutoplay = false;
 
-    m_currentItemId.clear();
+    if (!m_currentItemId.isEmpty()) {
+        m_currentItemId.clear();
+        emit currentItemIdChanged();
+    }
     m_pendingUrl = m_testVideoUrl;
     
     if (m_playerBackend->isRunning()) {
@@ -903,7 +919,10 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     clearPendingAutoplayContext();
     
     // Store pending playback info before transition
-    m_currentItemId = itemId;
+    if (m_currentItemId != itemId) {
+        m_currentItemId = itemId;
+        emit currentItemIdChanged();
+    }
     m_currentSeriesId = seriesId;
     m_currentSeasonId = seasonId;
     m_currentLibraryId = libraryId;
@@ -919,6 +938,9 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     // Clear previous OSC/trickplay state and request new data
     m_currentSegments.clear();
     m_hasTrickplayInfo = false;
+    m_currentTrickplayInfo = TrickplayTileInfo{};
+    emit timelineChanged();
+    emit trickplayStateChanged();
     if (!itemId.isEmpty()) {
         m_playbackService->getMediaSegments(itemId);
         m_playbackService->getTrickplayInfo(itemId);
@@ -1111,6 +1133,28 @@ void PlayerController::cycleSubtitleTrack()
     qDebug() << "PlayerController: Cycling subtitle track";
     if (m_playbackState == Playing || m_playbackState == Paused) {
         m_playerBackend->sendCommand({"cycle", "sub"});
+    }
+}
+
+void PlayerController::previousChapter()
+{
+    if (m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"add", "chapter", "-1"});
+    }
+}
+
+void PlayerController::nextChapter()
+{
+    if (m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"add", "chapter", "1"});
+    }
+}
+
+void PlayerController::toggleMute()
+{
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"cycle", "mute"});
     }
 }
 
@@ -1697,6 +1741,30 @@ void PlayerController::onScriptMessage(const QString &messageName, const QString
     // Script-driven trickplay handlers were retired with the native overlay migration.
 }
 
+void PlayerController::setOverlayMetadata(const QString &title, const QString &subtitle)
+{
+    const QString normalizedTitle = title.trimmed();
+    const QString normalizedSubtitle = subtitle.trimmed();
+    if (m_overlayTitle == normalizedTitle && m_overlaySubtitle == normalizedSubtitle) {
+        return;
+    }
+
+    m_overlayTitle = normalizedTitle;
+    m_overlaySubtitle = normalizedSubtitle;
+    emit overlayMetadataChanged();
+}
+
+void PlayerController::clearOverlayMetadata()
+{
+    if (m_overlayTitle.isEmpty() && m_overlaySubtitle.isEmpty()) {
+        return;
+    }
+
+    m_overlayTitle.clear();
+    m_overlaySubtitle.clear();
+    emit overlayMetadataChanged();
+}
+
 void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<MediaSegmentInfo> &segments)
 {
     if (itemId != m_currentItemId) {
@@ -1729,6 +1797,11 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
     
     if (trickplayInfo.isEmpty()) {
         qDebug() << "PlayerController: No trickplay info available for item:" << itemId;
+        if (m_hasTrickplayInfo) {
+            m_hasTrickplayInfo = false;
+            m_currentTrickplayInfo = TrickplayTileInfo{};
+            emit trickplayStateChanged();
+        }
         return;
     }
     
@@ -1761,6 +1834,7 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
     
     m_currentTrickplayInfo = info;
     m_hasTrickplayInfo = true;
+    emit trickplayStateChanged();
     
     // Start trickplay processing - download tiles and create binary file
     // This uses the jellyfin-mpv-shim approach for proper mpv overlay support
@@ -1792,5 +1866,8 @@ void PlayerController::onTrickplayProcessingFailed(const QString &itemId, const 
     
     qWarning() << "PlayerController: Trickplay processing failed for item:" << itemId << "error:" << error;
     // Trickplay thumbnails won't be available, but playback continues normally
-    m_hasTrickplayInfo = false;
+    if (m_hasTrickplayInfo) {
+        m_hasTrickplayInfo = false;
+        emit trickplayStateChanged();
+    }
 }

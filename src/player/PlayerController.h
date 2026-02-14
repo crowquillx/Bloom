@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QMap>
 #include <QVariantList>
+#include <QtGlobal>
 #include <memory>
 #include "backend/IPlayerBackend.h"
 #include "TrickplayProcessor.h"
@@ -58,6 +59,14 @@ class PlayerController : public QObject
     Q_PROPERTY(int audioDelay READ audioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
     Q_PROPERTY(bool supportsEmbeddedVideo READ supportsEmbeddedVideo NOTIFY supportsEmbeddedVideoChanged)
     Q_PROPERTY(bool embeddedVideoShrinkEnabled READ embeddedVideoShrinkEnabled WRITE setEmbeddedVideoShrinkEnabled NOTIFY embeddedVideoShrinkEnabledChanged)
+    Q_PROPERTY(double currentPositionSeconds READ currentPositionSeconds NOTIFY timelineChanged)
+    Q_PROPERTY(double durationSeconds READ durationSeconds NOTIFY timelineChanged)
+    Q_PROPERTY(double progressRatio READ progressRatio NOTIFY timelineChanged)
+    Q_PROPERTY(bool hasTrickplay READ hasTrickplay NOTIFY trickplayStateChanged)
+    Q_PROPERTY(int trickplayIntervalMs READ trickplayIntervalMs NOTIFY trickplayStateChanged)
+    Q_PROPERTY(QString currentItemId READ currentItemId NOTIFY currentItemIdChanged)
+    Q_PROPERTY(QString overlayTitle READ overlayTitle NOTIFY overlayMetadataChanged)
+    Q_PROPERTY(QString overlaySubtitle READ overlaySubtitle NOTIFY overlayMetadataChanged)
     
     // Track selection properties
     Q_PROPERTY(int selectedAudioTrack READ selectedAudioTrack WRITE setSelectedAudioTrack NOTIFY selectedAudioTrackChanged)
@@ -118,6 +127,14 @@ public:
     int audioDelay() const { return m_config->getAudioDelay(); }
     bool supportsEmbeddedVideo() const;
     bool embeddedVideoShrinkEnabled() const { return m_embeddedVideoShrinkEnabled; }
+    double currentPositionSeconds() const { return m_currentPosition; }
+    double durationSeconds() const { return m_duration; }
+    double progressRatio() const { return m_duration > 0.0 ? qBound(0.0, m_currentPosition / m_duration, 1.0) : 0.0; }
+    bool hasTrickplay() const { return m_hasTrickplayInfo; }
+    int trickplayIntervalMs() const { return m_currentTrickplayInfo.interval; }
+    QString currentItemId() const { return m_currentItemId; }
+    QString overlayTitle() const { return m_overlayTitle; }
+    QString overlaySubtitle() const { return m_overlaySubtitle; }
     Q_INVOKABLE void setAudioDelay(int ms);
     Q_INVOKABLE bool attachEmbeddedVideoTarget(QObject *target);
     Q_INVOKABLE void detachEmbeddedVideoTarget(QObject *target = nullptr);
@@ -155,7 +172,12 @@ public:
     Q_INVOKABLE void setSelectedSubtitleTrack(int index);
     Q_INVOKABLE void cycleAudioTrack();
     Q_INVOKABLE void cycleSubtitleTrack();
+    Q_INVOKABLE void previousChapter();
+    Q_INVOKABLE void nextChapter();
+    Q_INVOKABLE void toggleMute();
     Q_INVOKABLE void sendMpvKeypress(const QString &key);
+    Q_INVOKABLE void setOverlayMetadata(const QString &title, const QString &subtitle = QString());
+    Q_INVOKABLE void clearOverlayMetadata();
     
     // Get last used track preferences for a season (for episode continuity)
     Q_INVOKABLE int getLastAudioTrackForSeason(const QString &seasonId) const;
@@ -186,6 +208,10 @@ signals:
     void isPlaybackActiveChanged();
     void supportsEmbeddedVideoChanged();
     void embeddedVideoShrinkEnabledChanged();
+    void timelineChanged();
+    void trickplayStateChanged();
+    void currentItemIdChanged();
+    void overlayMetadataChanged();
     
     // Track selection signals
     void selectedAudioTrackChanged();
@@ -378,6 +404,8 @@ private:
 
     bool m_embeddedVideoShrinkEnabled = false;
     bool m_attemptedLinuxEmbeddedFallback = false;
+    QString m_overlayTitle;
+    QString m_overlaySubtitle;
     
     // OSC and trickplay data
     QList<MediaSegmentInfo> m_currentSegments;
