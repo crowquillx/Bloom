@@ -7,6 +7,9 @@
 #include <QSize>
 #include <QDebug>
 #include <clocale>
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 #include "utils/CacheMigrator.h"
 #include "ui/FontLoader.h"
@@ -29,6 +32,27 @@ int main(int argc, char *argv[])
     
     // Set Qt Quick Controls style
     QQuickStyle::setStyle("Basic");
+
+#ifdef Q_OS_WIN
+    // Force DPI-unaware mode so Windows scaling is fully ignored for this process.
+    // This should match the embedded app manifest policy.
+    using SetProcessDpiAwarenessContextFn = BOOL(WINAPI *)(HANDLE);
+    const HMODULE user32 = GetModuleHandleW(L"user32.dll");
+    const auto setDpiAwarenessContext =
+        user32 != nullptr
+            ? reinterpret_cast<SetProcessDpiAwarenessContextFn>(
+                  GetProcAddress(user32, "SetProcessDpiAwarenessContext"))
+            : nullptr;
+    if (setDpiAwarenessContext != nullptr) {
+        if (!setDpiAwarenessContext(reinterpret_cast<HANDLE>(-1))) {
+            qWarning() << "Failed to set process DPI awareness context to UNAWARE;"
+                       << "Windows scaling may still be applied.";
+        }
+    } else {
+        qWarning() << "SetProcessDpiAwarenessContext is unavailable on this OS;"
+                   << "Windows scaling may still be applied.";
+    }
+#endif
     
     QGuiApplication app(argc, argv);
     app.setWindowIcon(QIcon(":/images/logo.ico"));

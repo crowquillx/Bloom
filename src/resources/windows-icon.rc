@@ -1,1 +1,2 @@
 IDI_ICON1 ICON DISCARDABLE "images/app/logo.ico"
+1 RT_MANIFEST "windows-dpi-unaware.manifest"

@@ -53,6 +53,10 @@ effectiveHeight = logicalHeight * devicePixelRatio
 
 This ensures that 4K displays with 200-300% scaling are correctly identified as XL breakpoints rather than Small/Medium.
 
+### Windows Behavior
+
+Windows builds are configured as DPI-unaware at the process level. This means OS display scaling is intentionally ignored, and the app renders at 96 DPI behavior while Windows applies compositor scaling.
+
 ### Example
 
 A 4K display (3840×2160) at 200% scaling:
