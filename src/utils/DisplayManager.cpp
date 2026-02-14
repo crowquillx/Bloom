@@ -175,6 +175,20 @@ bool DisplayManager::setHDR(bool enabled)
 
 double DisplayManager::getCurrentRefreshRate()
 {
+#ifdef Q_OS_WIN
+    DEVMODE dm;
+    ZeroMemory(&dm, sizeof(dm));
+    dm.dmSize = sizeof(dm);
+
+    if (EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &dm)) {
+        if (dm.dmDisplayFrequency > 1) {
+            return static_cast<double>(dm.dmDisplayFrequency);
+        }
+    } else {
+        qWarning() << "DisplayManager: EnumDisplaySettings failed when reading current refresh rate";
+    }
+#endif
+
     QScreen *screen = QGuiApplication::primaryScreen();
     if (screen) {
         return screen->refreshRate();  // Returns qreal (double) with fractional precision
