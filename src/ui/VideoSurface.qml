@@ -6,6 +6,21 @@ Item {
 
     property bool shrinkEnabled: PlayerController.embeddedVideoShrinkEnabled
 
+    // Prevent bright flashes before the first frame by using themed dark backdrops.
+    Rectangle {
+        anchors.fill: parent
+        color: Theme.backgroundPrimary
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        gradient: Gradient {
+            orientation: Gradient.Vertical
+            GradientStop { position: 0.0; color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.10) }
+            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.28) }
+        }
+    }
+
     MpvVideoItem {
         id: videoTarget
         anchors {

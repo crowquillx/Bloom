@@ -68,6 +68,7 @@ class PlayerController : public QObject
     Q_PROPERTY(QString currentItemId READ currentItemId NOTIFY currentItemIdChanged)
     Q_PROPERTY(QString overlayTitle READ overlayTitle NOTIFY overlayMetadataChanged)
     Q_PROPERTY(QString overlaySubtitle READ overlaySubtitle NOTIFY overlayMetadataChanged)
+    Q_PROPERTY(QString overlayBackdropUrl READ overlayBackdropUrl NOTIFY overlayMetadataChanged)
     
     // Track selection properties
     Q_PROPERTY(int selectedAudioTrack READ selectedAudioTrack WRITE setSelectedAudioTrack NOTIFY selectedAudioTrackChanged)
@@ -137,6 +138,7 @@ public:
     QString currentItemId() const { return m_currentItemId; }
     QString overlayTitle() const { return m_overlayTitle; }
     QString overlaySubtitle() const { return m_overlaySubtitle; }
+    QString overlayBackdropUrl() const { return m_overlayBackdropUrl; }
     Q_INVOKABLE void setAudioDelay(int ms);
     Q_INVOKABLE bool attachEmbeddedVideoTarget(QObject *target);
     Q_INVOKABLE void detachEmbeddedVideoTarget(QObject *target = nullptr);
@@ -181,7 +183,7 @@ public:
     Q_INVOKABLE void toggleMpvStats();
     Q_INVOKABLE void showMpvStatsPage(int page);
     Q_INVOKABLE void sendMpvKeypress(const QString &key);
-    Q_INVOKABLE void setOverlayMetadata(const QString &title, const QString &subtitle = QString());
+    Q_INVOKABLE void setOverlayMetadata(const QString &title, const QString &subtitle = QString(), const QString &backdropUrl = QString());
     Q_INVOKABLE void clearOverlayMetadata();
     
     // Get last used track preferences for a season (for episode continuity)
@@ -411,6 +413,7 @@ private:
     bool m_attemptedLinuxEmbeddedFallback = false;
     QString m_overlayTitle;
     QString m_overlaySubtitle;
+    QString m_overlayBackdropUrl;
     
     // OSC and trickplay data
     QList<MediaSegmentInfo> m_currentSegments;

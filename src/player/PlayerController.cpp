@@ -1777,27 +1777,32 @@ void PlayerController::onScriptMessage(const QString &messageName, const QString
     // Script-driven trickplay handlers were retired with the native overlay migration.
 }
 
-void PlayerController::setOverlayMetadata(const QString &title, const QString &subtitle)
+void PlayerController::setOverlayMetadata(const QString &title, const QString &subtitle, const QString &backdropUrl)
 {
     const QString normalizedTitle = title.trimmed();
     const QString normalizedSubtitle = subtitle.trimmed();
-    if (m_overlayTitle == normalizedTitle && m_overlaySubtitle == normalizedSubtitle) {
+    const QString normalizedBackdropUrl = backdropUrl.trimmed();
+    if (m_overlayTitle == normalizedTitle
+        && m_overlaySubtitle == normalizedSubtitle
+        && m_overlayBackdropUrl == normalizedBackdropUrl) {
         return;
     }
 
     m_overlayTitle = normalizedTitle;
     m_overlaySubtitle = normalizedSubtitle;
+    m_overlayBackdropUrl = normalizedBackdropUrl;
     emit overlayMetadataChanged();
 }
 
 void PlayerController::clearOverlayMetadata()
 {
-    if (m_overlayTitle.isEmpty() && m_overlaySubtitle.isEmpty()) {
+    if (m_overlayTitle.isEmpty() && m_overlaySubtitle.isEmpty() && m_overlayBackdropUrl.isEmpty()) {
         return;
     }
 
     m_overlayTitle.clear();
     m_overlaySubtitle.clear();
+    m_overlayBackdropUrl.clear();
     emit overlayMetadataChanged();
 }
 

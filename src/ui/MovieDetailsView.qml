@@ -149,7 +149,7 @@ FocusScope {
         var framerate = getVideoFramerate()
         var hdr = isVideoHDR()
         var overlaySubtitle = productionYear > 0 ? String(productionYear) : ""
-        PlayerController.setOverlayMetadata(movieName || qsTr("Now Playing"), overlaySubtitle)
+        PlayerController.setOverlayMetadata(movieName || qsTr("Now Playing"), overlaySubtitle, backdropUrl)
         console.log("[MovieDetailsView] Starting playback with framerate:", framerate, "isHDR:", hdr)
         
         if (playbackInfo && currentMediaSource) {

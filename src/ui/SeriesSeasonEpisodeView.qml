@@ -603,7 +603,7 @@ FocusScope {
         var overlayTitle = seriesName || qsTr("Now Playing")
         var episodePrefix = qsTr("S%1 E%2").arg(selectedSeasonNumber).arg(selectedEpisodeNumber)
         var overlaySubtitle = selectedEpisodeName ? (episodePrefix + " - " + selectedEpisodeName) : episodePrefix
-        PlayerController.setOverlayMetadata(overlayTitle, overlaySubtitle)
+        PlayerController.setOverlayMetadata(overlayTitle, overlaySubtitle, SeriesDetailsViewModel.backdropUrl || SeriesDetailsViewModel.posterUrl)
         
         if (info && mediaSource) {
             var mediaSourceId = mediaSource.id

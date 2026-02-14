@@ -11,6 +11,14 @@ FocusScope {
 
     readonly property bool overlayActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
     readonly property bool paused: PlayerController.isPaused
+    readonly property bool waitingForFirstFrame: overlayActive
+                                                && !paused
+                                                && PlayerController.currentPositionSeconds <= 0
+                                                && PlayerController.durationSeconds <= 0
+    readonly property bool buffering: overlayActive
+                                     && (PlayerController.isLoading
+                                         || PlayerController.isBuffering
+                                         || waitingForFirstFrame)
     readonly property string mediaTitle: (PlayerController.overlayTitle && PlayerController.overlayTitle.length > 0)
                                         ? PlayerController.overlayTitle
                                         : qsTr("Now Playing")
@@ -332,7 +340,7 @@ FocusScope {
     }
 
     onControlsVisibleChanged: {
-        if (controlsVisible && !seekOnlyMode && !InputModeManager.pointerActive && overlayActive) {
+        if (controlsVisible && !seekOnlyMode && !InputModeManager.pointerActive && overlayActive && !buffering) {
             Qt.callLater(function() { playPauseButton.forceActiveFocus() })
         }
     }
@@ -468,7 +476,7 @@ FocusScope {
         anchors.left: parent.left
         anchors.right: parent.right
         height: Math.round(150 * Theme.layoutScale)
-        visible: root.fullControlsVisible
+        visible: root.fullControlsVisible && !root.buffering
         gradient: Gradient {
             GradientStop { position: 0.0; color: Qt.rgba(Theme.playbackOverlayTopTint.r, Theme.playbackOverlayTopTint.g, Theme.playbackOverlayTopTint.b, 0.70) }
             GradientStop { position: 1.0; color: "transparent" }
@@ -480,7 +488,7 @@ FocusScope {
         anchors.left: parent.left
         anchors.right: parent.right
         height: Math.round(300 * Theme.layoutScale)
-        visible: root.fullControlsVisible
+        visible: root.fullControlsVisible && !root.buffering
         gradient: Gradient {
             GradientStop { position: 0.0; color: "transparent" }
             GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.60) }
@@ -488,8 +496,166 @@ FocusScope {
     }
 
     Item {
+        id: bufferingOverlay
         anchors.fill: parent
-        visible: root.controlsVisible
+        visible: root.buffering
+        z: 500
+
+        Image {
+            id: loadingBackdrop
+            anchors.fill: parent
+            source: PlayerController.overlayBackdropUrl
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            smooth: true
+            visible: source.toString().length > 0
+            scale: 1.02
+
+            SequentialAnimation on scale {
+                running: bufferingOverlay.visible && loadingBackdrop.visible
+                loops: Animation.Infinite
+                NumberAnimation { to: 1.07; duration: 7000; easing.type: Easing.InOutCubic }
+                NumberAnimation { to: 1.02; duration: 7000; easing.type: Easing.InOutCubic }
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            color: Qt.rgba(Theme.backgroundPrimary.r, Theme.backgroundPrimary.g, Theme.backgroundPrimary.b, loadingBackdrop.visible ? 0.58 : 0.78)
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                orientation: Gradient.Vertical
+                GradientStop { position: 0.0; color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.22) }
+                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.68) }
+            }
+        }
+
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                orientation: Gradient.Vertical
+                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.30) }
+                GradientStop { position: 0.24; color: "transparent" }
+                GradientStop { position: 0.76; color: "transparent" }
+                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.44) }
+            }
+        }
+
+        Rectangle {
+            id: loadingCard
+            anchors.centerIn: parent
+            width: Math.round(Math.min(parent.width * 0.56, 640 * Theme.layoutScale))
+            height: Math.round(300 * Theme.layoutScale)
+            radius: Theme.radiusXLarge
+            color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.82)
+            border.width: 1
+            border.color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.38)
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                blurEnabled: true
+                blurMax: 44
+                blur: 0.34
+                shadowEnabled: true
+                shadowColor: Qt.rgba(0, 0, 0, 0.56)
+                shadowBlur: 0.95
+                shadowVerticalOffset: 12
+            }
+        }
+
+        Column {
+            anchors.centerIn: parent
+            width: loadingCard.width - Math.round(72 * Theme.layoutScale)
+            spacing: Math.round(16 * Theme.layoutScale)
+
+            Item {
+                id: spinner
+                width: Math.round(80 * Theme.layoutScale)
+                height: width
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: Math.round(70 * Theme.layoutScale)
+                    height: width
+                    radius: width / 2
+                    color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.18)
+                    border.width: 1
+                    border.color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.46)
+                    opacity: 0.8
+
+                    SequentialAnimation on opacity {
+                        running: bufferingOverlay.visible
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 0.38; duration: 760; easing.type: Easing.InOutQuad }
+                        NumberAnimation { to: 0.86; duration: 760; easing.type: Easing.InOutQuad }
+                    }
+                }
+
+                Repeater {
+                    model: 12
+                    Item {
+                        width: spinner.width
+                        height: spinner.height
+                        rotation: index * 30
+
+                        Rectangle {
+                            width: Math.round(6 * Theme.layoutScale)
+                            height: Math.round(16 * Theme.layoutScale)
+                            radius: width / 2
+                            color: Theme.accentPrimary
+                            opacity: (index + 1) / 12
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: Math.round(6 * Theme.layoutScale)
+                        }
+                    }
+                }
+
+                RotationAnimator on rotation {
+                    from: 0
+                    to: 360
+                    duration: 900
+                    loops: Animation.Infinite
+                    running: bufferingOverlay.visible
+                }
+            }
+
+            Text {
+                text: qsTr("Buffering...")
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: Theme.textPrimary
+                font.family: Theme.fontPrimary
+                font.pixelSize: Math.round(32 * Theme.layoutScale)
+                font.weight: Font.DemiBold
+            }
+
+            Text {
+                text: qsTr("Connecting to server")
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: Theme.textSecondary
+                font.family: Theme.fontPrimary
+                font.pixelSize: Math.round(20 * Theme.layoutScale)
+            }
+
+            Text {
+                text: root.mediaTitle
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: parent.width
+                horizontalAlignment: Text.AlignHCenter
+                color: Qt.rgba(Theme.textPrimary.r, Theme.textPrimary.g, Theme.textPrimary.b, 0.82)
+                font.family: Theme.fontPrimary
+                font.pixelSize: Math.round(18 * Theme.layoutScale)
+                elide: Text.ElideRight
+            }
+        }
+    }
+
+    Item {
+        anchors.fill: parent
+        visible: root.controlsVisible && !root.buffering
 
         Row {
             visible: root.fullControlsVisible
@@ -997,7 +1163,7 @@ FocusScope {
 
     Item {
         id: overlayRoot
-        visible: root.controlsVisible
+        visible: root.controlsVisible && !root.buffering
         anchors.fill: parent
     }
 
