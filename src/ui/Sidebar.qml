@@ -617,6 +617,25 @@ Item {
                 interactive: false
                 spacing: 4
                 currentIndex: 0
+                footer: Item {
+                    width: libraryListView.width
+                    height: (expanded && libraryListView.count > 0) ? (reorderTip.implicitHeight + Theme.spacingSmall) : 0
+                    visible: expanded && libraryListView.count > 0
+
+                    Text {
+                        id: reorderTip
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.leftMargin: Theme.spacingMedium
+                        anchors.rightMargin: Theme.spacingMedium
+                        text: qsTr("Tip: Shift+Enter to reorder libraries, then use Up/Down.")
+                        wrapMode: Text.WordWrap
+                        font.pixelSize: Theme.fontSizeCaption
+                        font.family: Theme.fontPrimary
+                        color: Theme.textSecondary
+                        opacity: 0.8
+                    }
+                }
 
                 delegate: FocusScope {
                     id: libraryDelegateScope
@@ -835,7 +854,7 @@ Item {
                     }
                 }
             }
-            
+
             // Spacer
             Item { Layout.fillHeight: true }
             

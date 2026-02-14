@@ -105,9 +105,9 @@ FocusScope {
             // Check if a recentlyAddedList has focus and save its state
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                 var item = recentlyAddedRepeater.itemAt(i)
-                if (item && item.children[1] && item.children[1].activeFocus) {
+                if (item && item.recentlyAddedListRef && item.recentlyAddedListRef.activeFocus) {
                     savedRecentlyAddedLibraryId = item.libraryId
-                    savedRecentlyAddedIndex = item.children[1].currentIndex
+                    savedRecentlyAddedIndex = item.recentlyAddedListRef.currentIndex
                     break
                 }
             }
@@ -128,8 +128,8 @@ FocusScope {
             // Find the matching recentlyAddedList for the saved library
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                 var item = recentlyAddedRepeater.itemAt(i)
-                if (item && item.libraryId === savedRecentlyAddedLibraryId && item.children[1]) {
-                    var list = item.children[1]
+                if (item && item.libraryId === savedRecentlyAddedLibraryId && item.recentlyAddedListRef) {
+                    var list = item.recentlyAddedListRef
                     if (savedRecentlyAddedIndex < list.count) {
                         list.currentIndex = savedRecentlyAddedIndex
                         list.positionViewAtIndex(savedRecentlyAddedIndex, ListView.Contain)
@@ -161,9 +161,9 @@ FocusScope {
             // Check recentlyAdded lists
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                 var list = recentlyAddedRepeater.itemAt(i)
-                if (list && list.children[1] && list.children[1].activeFocus) {
+                if (list && list.recentlyAddedListRef && list.recentlyAddedListRef.activeFocus) {
                     section = "recentlyAdded:" + list.libraryId
-                    index = list.children[1].currentIndex
+                    index = list.recentlyAddedListRef.currentIndex
                     break
                 }
             }
@@ -195,8 +195,8 @@ FocusScope {
             var libraryId = lastFocusedSection.substring("recentlyAdded:".length)
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                 var list = recentlyAddedRepeater.itemAt(i)
-                if (list && list.libraryId === libraryId && list.children[1]) {
-                    targetList = list.children[1]
+                if (list && list.libraryId === libraryId && list.recentlyAddedListRef) {
+                    targetList = list.recentlyAddedListRef
                     targetSection = list
                     break
                 }
@@ -624,7 +624,7 @@ FocusScope {
                             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                                 var item = recentlyAddedRepeater.itemAt(i)
                                 if (item && item.visible) {
-                                    item.children[1].forceActiveFocus()
+                                    item.recentlyAddedListRef.forceActiveFocus()
                                     break
                                 }
                             }
@@ -891,7 +891,7 @@ FocusScope {
                             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                                 var item = recentlyAddedRepeater.itemAt(i)
                                 if (item && item.visible) {
-                                    item.children[1].forceActiveFocus()
+                                    item.recentlyAddedListRef.forceActiveFocus()
                                     break
                                 }
                             }
@@ -919,6 +919,7 @@ FocusScope {
                         
                         property var items: recentlyAddedMap[modelData.Id] || []
                         property string libraryId: modelData.Id
+                        property var recentlyAddedListRef: recentlyAddedList
                         visible: items.length > 0
                         
                         Text {
@@ -1195,7 +1196,7 @@ FocusScope {
                                     for (var i = libraryIndex - 1; i >= 0; i--) {
                                         var item = recentlyAddedRepeater.itemAt(i)
                                         if (item && item.visible) {
-                                            item.children[1].forceActiveFocus()
+                                            item.recentlyAddedListRef.forceActiveFocus()
                                             break
                                         }
                                     }
@@ -1205,7 +1206,7 @@ FocusScope {
                                 for (var i = libraryIndex + 1; i < recentlyAddedRepeater.count; i++) {
                                     var item = recentlyAddedRepeater.itemAt(i)
                                     if (item && item.visible) {
-                                        item.children[1].forceActiveFocus()
+                                        item.recentlyAddedListRef.forceActiveFocus()
                                         break
                                     }
                                 }
@@ -1397,12 +1398,19 @@ FocusScope {
             var orderedViews = orderLibraries(views)
             librariesModel = orderedViews
             if (orderedViews.length > 0) {
-                myMediaList.currentIndex = 0
-                // Use Qt.callLater to ensure list delegates are instantiated before focus
-                Qt.callLater(function() {
-                    myMediaList.forceActiveFocus()
-                })
-                root.ensureSectionVisible(myMediaSection)
+                if (myMediaList.currentIndex < 0) {
+                    myMediaList.currentIndex = 0
+                }
+                // Only apply default My Media focus on initial screen activation.
+                // Returning from detail screens should use restoreFocusState().
+                if (!hasBeenActivated && lastFocusedSection === "myMedia" && StackView.status === StackView.Active) {
+                    Qt.callLater(function() {
+                        if (!hasBeenActivated && lastFocusedSection === "myMedia" && StackView.status === StackView.Active) {
+                            myMediaList.forceActiveFocus()
+                            root.ensureSectionVisible(myMediaSection)
+                        }
+                    })
+                }
             }
             
             // Fetch Next Up
@@ -1479,9 +1487,7 @@ FocusScope {
     }
     
     Component.onCompleted: {
-        console.log("[FocusDebug] HomeScreen completed, requesting focus on myMediaList")
+        console.log("[FocusDebug] HomeScreen completed, requesting initial views")
         LibraryService.getViews()
-        myMediaList.forceActiveFocus()
-        console.log("[FocusDebug] After forceActiveFocus, myMediaList.activeFocus:", myMediaList.activeFocus)
     }
 }
