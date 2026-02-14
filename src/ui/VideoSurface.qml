@@ -38,7 +38,8 @@ Item {
 
         function syncEmbeddedViewport() {
             if (width > 0 && height > 0) {
-                PlayerController.setEmbeddedVideoViewport(0, 0, width, height)
+                var topLeft = videoTarget.mapToScene(0, 0)
+                PlayerController.setEmbeddedVideoViewport(topLeft.x, topLeft.y, width, height)
             }
         }
 
@@ -48,7 +49,7 @@ Item {
         Component.onCompleted: {
             PlayerController.attachEmbeddedVideoTarget(videoTarget)
             if (width > 0 && height > 0) {
-                PlayerController.setEmbeddedVideoViewport(0, 0, width, height)
+                syncEmbeddedViewport()
             } else {
                 Qt.callLater(syncEmbeddedViewport)
             }

@@ -33,12 +33,22 @@ FocusScope {
     readonly property bool selectorOpen: audioSelectorOpen || subtitleSelectorOpen
     readonly property bool fullControlsVisible: controlsVisible && !seekOnlyMode
     property int controlsAutoHideMs: 2500
+    property int controlsHideAnimMs: 180
     property int seekPreviewHoldMs: 1800
+    property real controlsSlideDistance: Math.round(28 * Theme.layoutScale)
+    property real topControlsOffset: fullControlsVisible ? 0 : -controlsSlideDistance
+    property real bottomControlsOffset: controlsVisible ? 0 : controlsSlideDistance
     default property alias overlayContent: overlayRoot.data
 
     anchors.fill: parent
     visible: overlayActive
     z: 200
+    Behavior on topControlsOffset {
+        NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
+    }
+    Behavior on bottomControlsOffset {
+        NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
+    }
 
     function formatTime(seconds) {
         var total = Math.max(0, Math.floor(seconds))
@@ -476,10 +486,14 @@ FocusScope {
         anchors.left: parent.left
         anchors.right: parent.right
         height: Math.round(150 * Theme.layoutScale)
-        visible: root.fullControlsVisible && !root.buffering
+        visible: !root.buffering
+        opacity: root.fullControlsVisible ? 1.0 : 0.0
         gradient: Gradient {
             GradientStop { position: 0.0; color: Qt.rgba(Theme.playbackOverlayTopTint.r, Theme.playbackOverlayTopTint.g, Theme.playbackOverlayTopTint.b, 0.70) }
             GradientStop { position: 1.0; color: "transparent" }
+        }
+        Behavior on opacity {
+            NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
         }
     }
 
@@ -488,10 +502,14 @@ FocusScope {
         anchors.left: parent.left
         anchors.right: parent.right
         height: Math.round(300 * Theme.layoutScale)
-        visible: root.fullControlsVisible && !root.buffering
+        visible: !root.buffering
+        opacity: root.fullControlsVisible ? 1.0 : 0.0
         gradient: Gradient {
             GradientStop { position: 0.0; color: "transparent" }
             GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.60) }
+        }
+        Behavior on opacity {
+            NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
         }
     }
 
@@ -655,16 +673,21 @@ FocusScope {
 
     Item {
         anchors.fill: parent
-        visible: root.controlsVisible && !root.buffering
+        visible: !root.buffering
+        enabled: root.controlsVisible
 
         Row {
-            visible: root.fullControlsVisible
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.topMargin: Math.round(48 * Theme.layoutScale)
+            anchors.topMargin: Math.round(48 * Theme.layoutScale) + root.topControlsOffset
             anchors.leftMargin: Math.round(64 * Theme.layoutScale)
             spacing: Math.round(32 * Theme.layoutScale)
+            opacity: root.fullControlsVisible ? 1.0 : 0.0
+            enabled: root.fullControlsVisible
+            Behavior on opacity {
+                NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
+            }
 
             GlassCircleButton {
                 id: backButton
@@ -708,8 +731,13 @@ FocusScope {
             anchors.bottom: parent.bottom
             anchors.leftMargin: Math.round(64 * Theme.layoutScale)
             anchors.rightMargin: Math.round(64 * Theme.layoutScale)
-            anchors.bottomMargin: Math.round(64 * Theme.layoutScale)
+            anchors.bottomMargin: Math.round(64 * Theme.layoutScale) - root.bottomControlsOffset
             spacing: Math.round(32 * Theme.layoutScale)
+            opacity: root.controlsVisible ? 1.0 : 0.0
+            enabled: root.controlsVisible
+            Behavior on opacity {
+                NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
+            }
 
             Column {
                 spacing: Math.round(12 * Theme.layoutScale)
@@ -1187,8 +1215,13 @@ FocusScope {
 
     Item {
         id: overlayRoot
-        visible: root.controlsVisible && !root.buffering
+        visible: !root.buffering
+        enabled: root.controlsVisible
         anchors.fill: parent
+        opacity: root.controlsVisible ? 1.0 : 0.0
+        Behavior on opacity {
+            NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
+        }
     }
 
     Component.onCompleted: showControls()
