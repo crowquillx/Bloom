@@ -451,6 +451,13 @@ FocusScope {
                     font.bold: true
                     color: Theme.textPrimary
                     leftPadding: Theme.paddingLarge
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        shadowEnabled: true
+                        shadowColor: "#B0000000"
+                        shadowVerticalOffset: 2
+                        shadowBlur: 0.35
+                    }
                     Accessible.role: Accessible.Heading
                     Accessible.name: text
                 }
@@ -643,6 +650,13 @@ FocusScope {
                     font.bold: true
                     color: Theme.textPrimary
                     leftPadding: Theme.paddingLarge
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        shadowEnabled: true
+                        shadowColor: "#B0000000"
+                        shadowVerticalOffset: 2
+                        shadowBlur: 0.35
+                    }
                     Accessible.role: Accessible.Heading
                     Accessible.name: text
                 }
@@ -914,6 +928,13 @@ FocusScope {
                             font.bold: true
                             color: Theme.textPrimary
                             leftPadding: Theme.paddingLarge
+                            layer.enabled: true
+                            layer.effect: MultiEffect {
+                                shadowEnabled: true
+                                shadowColor: "#B0000000"
+                                shadowVerticalOffset: 2
+                                shadowBlur: 0.35
+                            }
                             Accessible.role: Accessible.Heading
                             Accessible.name: text
                         }

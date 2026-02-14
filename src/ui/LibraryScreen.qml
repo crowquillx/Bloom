@@ -1320,6 +1320,7 @@ FocusScope {
         console.log("[Library] navigateBack invoked",
                     "stackSize:", navigationStack.length,
                     "directNavigationMode:", directNavigationMode,
+                    "returnToHomeOnDirectBack:", returnToHomeOnDirectBack,
                     "currentParentId:", currentParentId,
                     "currentSeriesId:", currentSeriesId,
                     "showSeriesDetails:", showSeriesDetails,
@@ -1329,7 +1330,12 @@ FocusScope {
         // In direct navigation mode with empty stack, prefer returning to the library grid
         // when we have a known library context; otherwise fall back to Home.
         if (directNavigationMode && navigationStack.length === 0) {
-            if (currentLibraryId !== "") {
+            if (returnToHomeOnDirectBack) {
+                console.log("[Library] Direct navigation mode with empty stack, returning to Home")
+                if (StackView.view) {
+                    StackView.view.pop()
+                }
+            } else if (currentLibraryId !== "") {
                 console.log("[Library] Direct navigation mode with empty stack, returning to library:", currentLibraryId)
                 directNavigationMode = false
                 currentSeriesId = ""
@@ -1958,6 +1964,8 @@ FocusScope {
 
     // Track whether we started with direct navigation (showSeriesDetails true on load)
     property bool directNavigationMode: false
+    // When true, back from direct-navigation details should always pop to Home.
+    property bool returnToHomeOnDirectBack: false
     // Signal to parent StackView that this screen manages back navigation internally
     property bool handlesOwnBackNavigation: true
 

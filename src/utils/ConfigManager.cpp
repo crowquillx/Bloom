@@ -11,6 +11,7 @@
 #include <QSysInfo>
 #include <QRegularExpression>
 #include <QByteArray>
+#include <QMetaType>
 #include <algorithm>
 
 ConfigManager::ConfigManager(QObject *parent)
@@ -1721,9 +1722,26 @@ MpvProfile MpvProfile::fromJson(const QString &name, const QJsonObject &obj)
     profile.videoOutput = obj["video_output"].toString("gpu-next");
     profile.interpolation = obj["interpolation"].toBool(false);
     
-    QJsonArray extraArgsArray = obj["extra_args"].toArray();
-    for (const QJsonValue &val : extraArgsArray) {
-        profile.extraArgs << val.toString();
+    // Migration-safe parsing:
+    // - Preferred: array of strings (current format)
+    // - Legacy/edge: single string (newline-separated)
+    const QJsonValue extraArgsVal = obj.value("extra_args");
+    if (extraArgsVal.isArray()) {
+        const QJsonArray extraArgsArray = extraArgsVal.toArray();
+        for (const QJsonValue &val : extraArgsArray) {
+            const QString arg = val.toString().trimmed();
+            if (!arg.isEmpty()) {
+                profile.extraArgs << arg;
+            }
+        }
+    } else if (extraArgsVal.isString()) {
+        const QStringList lines = extraArgsVal.toString().split('\n', Qt::SkipEmptyParts);
+        for (const QString &line : lines) {
+            const QString arg = line.trimmed();
+            if (!arg.isEmpty()) {
+                profile.extraArgs << arg;
+            }
+        }
     }
     
     profile.args = profile.buildArgs();
@@ -1814,9 +1832,27 @@ void ConfigManager::setMpvProfile(const QString &name, const QVariantMap &profil
     profileJson["interpolation"] = profileData["interpolation"].toBool();
     
     QJsonArray extraArgsArray;
-    QStringList extraArgs = profileData["extraArgs"].toStringList();
-    for (const QString &arg : extraArgs) {
-        extraArgsArray.append(arg);
+    const QVariant extraArgsVariant = profileData.value("extraArgs");
+    QStringList extraArgs;
+    if (extraArgsVariant.metaType().id() == QMetaType::QStringList) {
+        extraArgs = extraArgsVariant.toStringList();
+    } else if (extraArgsVariant.metaType().id() == QMetaType::QVariantList) {
+        const QVariantList rawList = extraArgsVariant.toList();
+        for (const QVariant &entry : rawList) {
+            const QString arg = entry.toString().trimmed();
+            if (!arg.isEmpty()) {
+                extraArgs << arg;
+            }
+        }
+    } else if (extraArgsVariant.metaType().id() == QMetaType::QString) {
+        extraArgs = extraArgsVariant.toString().split('\n', Qt::SkipEmptyParts);
+    }
+
+    for (const QString &argRaw : extraArgs) {
+        const QString arg = argRaw.trimmed();
+        if (!arg.isEmpty()) {
+            extraArgsArray.append(arg);
+        }
     }
     profileJson["extra_args"] = extraArgsArray;
     

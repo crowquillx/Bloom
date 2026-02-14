@@ -15,6 +15,8 @@ FocusScope {
     
     property string profileName: ""
     property var profileData: ({})
+    property var extraArgsList: []
+    property bool skipNextAutoFocus: false
     property bool isBuiltIn: profileName === "Default" || profileName === "High Quality"
     
     // Reference to parent flickable for scroll-into-view
@@ -24,11 +26,24 @@ FocusScope {
     signal deleteRequested()
     // Signal to navigate out of this component
     signal navigateOut(string direction)
+
+    function focusBottomAnchor() {
+        skipNextAutoFocus = true
+        if (advancedToggleBtn.expanded) {
+            addArgButton.forceActiveFocus()
+        } else {
+            advancedToggleBtn.forceActiveFocus()
+        }
+    }
     
     implicitHeight: contentColumn.implicitHeight
     
     // When this FocusScope receives focus, give it to the first control
     onActiveFocusChanged: {
+        if (skipNextAutoFocus) {
+            skipNextAutoFocus = false
+            return
+        }
         if (activeFocus && !videoOutputCombo.activeFocus && !hwdecSwitch.activeFocus) {
             videoOutputCombo.forceActiveFocus()
         }
@@ -56,7 +71,16 @@ FocusScope {
         deinterlaceMethodField.text = profileData.deinterlaceMethod || ""
         videoOutputCombo.currentIndex = videoOutputCombo.model.indexOf(profileData.videoOutput || "gpu-next")
         interpolationSwitch.checked = profileData.interpolation || false
-        extraArgsField.text = (profileData.extraArgs || []).join("\n")
+
+        var incoming = profileData.extraArgs
+        if (incoming === undefined || incoming === null) {
+            incoming = []
+        } else if (typeof incoming === "string") {
+            incoming = incoming.split("\n")
+        }
+        extraArgsList = incoming
+            .filter(function(arg) { return typeof arg === "string" && arg.trim() !== "" })
+            .map(function(arg) { return arg.trim() })
     }
     
     function saveProfile() {
@@ -67,10 +91,76 @@ FocusScope {
             "deinterlaceMethod": deinterlaceMethodField.text,
             "videoOutput": videoOutputCombo.currentText,
             "interpolation": interpolationSwitch.checked,
-            "extraArgs": extraArgsField.text.split("\n").filter(function(arg) { return arg.trim() !== "" })
+            "extraArgs": extraArgsList
+                .filter(function(arg) { return typeof arg === "string" && arg.trim() !== "" })
+                .map(function(arg) { return arg.trim() })
         }
         ConfigManager.setMpvProfile(profileName, data)
         profileChanged(data)
+    }
+
+    function updateExtraArg(index, text) {
+        if (index < 0 || index >= extraArgsList.length) return
+        var updated = extraArgsList.slice()
+        updated[index] = text
+        extraArgsList = updated
+    }
+
+    function addExtraArg() {
+        var updated = extraArgsList.slice()
+        updated.push("--")
+        extraArgsList = updated
+        Qt.callLater(function() {
+            if (argRepeater.count > 0) {
+                var item = argRepeater.itemAt(argRepeater.count - 1)
+                if (item && item.argumentField) {
+                    item.argumentField.forceActiveFocus()
+                }
+            }
+        })
+        Qt.callLater(root.saveProfile)
+    }
+
+    function removeExtraArg(index) {
+        if (index < 0 || index >= extraArgsList.length) return
+        var updated = extraArgsList.slice()
+        updated.splice(index, 1)
+        extraArgsList = updated
+
+        Qt.callLater(function() {
+            if (argRepeater.count > 0) {
+                var nextIndex = Math.min(index, argRepeater.count - 1)
+                var item = argRepeater.itemAt(nextIndex)
+                if (item && item.argumentField) {
+                    item.argumentField.forceActiveFocus()
+                    return
+                }
+            }
+            addArgButton.forceActiveFocus()
+        })
+
+        Qt.callLater(root.saveProfile)
+    }
+
+    component SubsectionHeader: Rectangle {
+        property string text: ""
+        Layout.fillWidth: true
+        implicitHeight: Math.round(44 * Theme.layoutScale)
+        radius: Theme.radiusSmall
+        color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.08)
+        border.color: Theme.cardBorder
+        border.width: 1
+
+        Text {
+            anchors.left: parent.left
+            anchors.leftMargin: Theme.spacingSmall
+            anchors.verticalCenter: parent.verticalCenter
+            text: parent.text
+            font.pixelSize: Theme.fontSizeBody
+            font.family: Theme.fontPrimary
+            font.weight: Font.DemiBold
+            color: Theme.textPrimary
+        }
     }
     
     ColumnLayout {
@@ -137,11 +227,8 @@ FocusScope {
         // Common Options
         // ========================================
         
-        Text {
+        SubsectionHeader {
             text: "Video Output"
-            font.pixelSize: Theme.fontSizeBody
-            font.family: Theme.fontPrimary
-            color: Theme.textSecondary
             Layout.topMargin: Theme.spacingSmall
         }
         
@@ -278,11 +365,8 @@ FocusScope {
         // Hardware Decoding
         // ========================================
         
-        Text {
+        SubsectionHeader {
             text: "Hardware Decoding"
-            font.pixelSize: Theme.fontSizeBody
-            font.family: Theme.fontPrimary
-            color: Theme.textSecondary
             Layout.topMargin: Theme.spacingMedium
         }
         
@@ -484,11 +568,8 @@ FocusScope {
         // Deinterlacing
         // ========================================
         
-        Text {
+        SubsectionHeader {
             text: "Deinterlacing"
-            font.pixelSize: Theme.fontSizeBody
-            font.family: Theme.fontPrimary
-            color: Theme.textSecondary
             Layout.topMargin: Theme.spacingMedium
         }
         
@@ -615,11 +696,8 @@ FocusScope {
         // Interpolation
         // ========================================
         
-        Text {
+        SubsectionHeader {
             text: "Motion Interpolation"
-            font.pixelSize: Theme.fontSizeBody
-            font.family: Theme.fontPrimary
-            color: Theme.textSecondary
             Layout.topMargin: Theme.spacingMedium
         }
         
@@ -706,11 +784,19 @@ FocusScope {
         // ========================================
         // Advanced Section
         // ========================================
+
+        Rectangle {
+            Layout.fillWidth: true
+            height: 1
+            color: Theme.borderLight
+            Layout.topMargin: Theme.spacingSmall
+        }
         
         Button {
             id: advancedToggleBtn
             property bool expanded: false
-            Layout.topMargin: Theme.spacingMedium
+            Layout.topMargin: Theme.spacingSmall
+            Layout.fillWidth: true
             focusPolicy: Qt.StrongFocus
             Accessible.role: Accessible.Button
             Accessible.name: (expanded ? "Collapse" : "Expand") + " Advanced Options"
@@ -720,7 +806,11 @@ FocusScope {
             Keys.onUpPressed: interpolationSwitch.forceActiveFocus()
             Keys.onDownPressed: {
                 if (expanded) {
-                    extraArgsField.forceActiveFocus()
+                    if (argRepeater.count > 0 && argRepeater.itemAt(0) && argRepeater.itemAt(0).argumentField) {
+                        argRepeater.itemAt(0).argumentField.forceActiveFocus()
+                    } else {
+                        addArgButton.forceActiveFocus()
+                    }
                 } else {
                     root.navigateOut("down")
                 }
@@ -730,26 +820,27 @@ FocusScope {
                 spacing: Theme.spacingSmall
                 
                 Text {
-                    text: advancedToggleBtn.expanded ? "▼" : "▶"
-                    font.family: Theme.fontPrimary
-                    font.pixelSize: Theme.fontSizeSmall
-                    color: advancedToggleBtn.activeFocus ? Theme.textPrimary : Theme.textSecondary
-                }
-                
-                Text {
                     text: "Advanced Options"
                     font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+                    Layout.fillWidth: true
+                }
+
+                Text {
+                    text: advancedToggleBtn.expanded ? Icons.expandLess : Icons.expandMore
+                    font.family: Theme.fontIcon
+                    font.pixelSize: Theme.fontSizeBody
                     color: advancedToggleBtn.activeFocus ? Theme.textPrimary : Theme.textSecondary
                 }
             }
             
             background: Rectangle {
-                implicitWidth: 180
                 implicitHeight: Theme.buttonHeightSmall
-                radius: Theme.radiusSmall
-                color: advancedToggleBtn.activeFocus || advancedToggleBtn.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent"
-                border.color: advancedToggleBtn.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
+                radius: Theme.radiusMedium
+                color: advancedToggleBtn.activeFocus ? Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.12)
+                     : (advancedToggleBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground)
+                border.color: advancedToggleBtn.activeFocus ? Theme.focusBorder : Theme.inputBorder
                 border.width: advancedToggleBtn.activeFocus ? 2 : Theme.buttonBorderWidth
             }
             
@@ -759,68 +850,236 @@ FocusScope {
         }
         
         // Advanced Content
-        ColumnLayout {
+        Rectangle {
             Layout.fillWidth: true
-            spacing: Theme.spacingSmall
+            radius: Theme.radiusMedium
+            color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.45)
+            border.color: Theme.cardBorder
+            border.width: Theme.borderWidth
             visible: advancedToggleBtn.expanded
-            
-            Text {
-                text: "Extra Arguments (one per line)"
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-            }
-            
-            Text {
-                text: "Add additional mpv command-line arguments. These are appended after the structured options above."
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
                 Layout.fillWidth: true
-            }
-            
-            ScrollView {
-                Layout.fillWidth: true
-                Layout.preferredHeight: 120
-                
-                TextArea {
-                    id: extraArgsField
-                    font.family: "monospace"
-                    font.pixelSize: Theme.fontSizeSmall
+                spacing: Theme.spacingSmall
+
+                Text {
+                    text: "Extra MPV Arguments"
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
                     color: Theme.textPrimary
-                    placeholderText: "--fullscreen\n--profile=high-quality"
-                    wrapMode: TextArea.NoWrap
-                    focusPolicy: Qt.StrongFocus
-                    Accessible.role: Accessible.EditableText
-                    Accessible.name: "Extra MPV Arguments"
-                    
-                    onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
-                    
-                    // Use Escape to exit the text area
-                    Keys.onEscapePressed: advancedToggleBtn.forceActiveFocus()
-                    
-                    background: Rectangle {
-                        radius: Theme.radiusSmall
-                        color: Theme.inputBackground
-                        border.color: extraArgsField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                        border.width: extraArgsField.activeFocus ? 2 : 1
-                    }
-                    
-                    onTextChanged: {
-                        if (root.profileName !== "" && activeFocus) {
-                            saveTimer.restart()
+                }
+
+                Text {
+                    text: "Add one argument at a time. Order is preserved and appended after the structured options above."
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                Text {
+                    visible: extraArgsList.length === 0
+                    text: "No custom arguments yet."
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    font.italic: true
+                }
+
+                Repeater {
+                    id: argRepeater
+                    model: extraArgsList
+
+                    delegate: FocusScope {
+                        id: argItem
+                        required property int index
+                        required property string modelData
+
+                        property alias argumentField: argField
+
+                        Layout.fillWidth: true
+                        implicitHeight: argRow.implicitHeight
+
+                        RowLayout {
+                            id: argRow
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            spacing: Theme.spacingSmall
+
+                            Rectangle {
+                                anchors.fill: parent
+                                anchors.margins: -Theme.spacingSmall / 2
+                                radius: Theme.radiusSmall
+                                color: argField.activeFocus || removeArgButton.activeFocus ? Theme.buttonSecondaryBackground : "transparent"
+                                border.color: argField.activeFocus || removeArgButton.activeFocus ? Theme.focusBorder : "transparent"
+                                border.width: argField.activeFocus || removeArgButton.activeFocus ? 1 : 0
+                                z: -1
+                            }
+
+                            Text {
+                                text: (index + 1) + "."
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.family: Theme.fontPrimary
+                                color: Theme.textSecondary
+                                Layout.preferredWidth: Math.round(34 * Theme.layoutScale)
+                            }
+
+                            TextField {
+                                id: argField
+                                Layout.fillWidth: true
+                                text: modelData
+                                font.family: "monospace"
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: Theme.textPrimary
+                                placeholderText: "--profile=high-quality"
+                                focusPolicy: Qt.StrongFocus
+                                Accessible.role: Accessible.EditableText
+                                Accessible.name: "MPV argument " + (index + 1)
+
+                                onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
+
+                                Keys.onUpPressed: {
+                                    if (index > 0) {
+                                        var prev = argRepeater.itemAt(index - 1)
+                                        if (prev && prev.argumentField) {
+                                            prev.argumentField.forceActiveFocus()
+                                        }
+                                    } else {
+                                        advancedToggleBtn.forceActiveFocus()
+                                    }
+                                    event.accepted = true
+                                }
+                                Keys.onDownPressed: {
+                                    if (index < argRepeater.count - 1) {
+                                        var next = argRepeater.itemAt(index + 1)
+                                        if (next && next.argumentField) {
+                                            next.argumentField.forceActiveFocus()
+                                        }
+                                    } else {
+                                        addArgButton.forceActiveFocus()
+                                    }
+                                    event.accepted = true
+                                }
+                                Keys.onRightPressed: {
+                                    removeArgButton.forceActiveFocus()
+                                    event.accepted = true
+                                }
+
+                                onEditingFinished: {
+                                    root.updateExtraArg(index, text.trim())
+                                    Qt.callLater(root.saveProfile)
+                                }
+
+                                background: Rectangle {
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    radius: Theme.radiusSmall
+                                    color: Theme.inputBackground
+                                    border.color: argField.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                    border.width: argField.activeFocus ? 2 : 1
+                                }
+                            }
+
+                            Button {
+                                id: removeArgButton
+                                text: "Remove"
+                                focusPolicy: Qt.StrongFocus
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Remove MPV argument " + (index + 1)
+
+                                Keys.onLeftPressed: {
+                                    argField.forceActiveFocus()
+                                    event.accepted = true
+                                }
+                                Keys.onUpPressed: {
+                                    argField.forceActiveFocus()
+                                    event.accepted = true
+                                }
+                                Keys.onDownPressed: {
+                                    if (index < argRepeater.count - 1) {
+                                        var next = argRepeater.itemAt(index + 1)
+                                        if (next && next.argumentField) {
+                                            next.argumentField.forceActiveFocus()
+                                        }
+                                    } else {
+                                        addArgButton.forceActiveFocus()
+                                    }
+                                    event.accepted = true
+                                }
+
+                                onClicked: root.removeExtraArg(index)
+                                Keys.onReturnPressed: root.removeExtraArg(index)
+                                Keys.onEnterPressed: root.removeExtraArg(index)
+
+                                contentItem: Text {
+                                    text: parent.text
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                    color: "#ff8c8c"
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    implicitWidth: Math.round(110 * Theme.layoutScale)
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    radius: Theme.radiusSmall
+                                    color: removeArgButton.activeFocus || removeArgButton.hovered ? Qt.rgba(1, 0.4, 0.4, 0.2) : "transparent"
+                                    border.color: removeArgButton.activeFocus ? Theme.focusBorder : "#ff8c8c"
+                                    border.width: removeArgButton.activeFocus ? 2 : 1
+                                }
+                            }
                         }
                     }
                 }
             }
-            
-            // Debounce timer for extra args
-            Timer {
-                id: saveTimer
-                interval: 500
-                onTriggered: root.saveProfile()
+
+            Button {
+                id: addArgButton
+                text: "Add Argument"
+                focusPolicy: Qt.StrongFocus
+                Accessible.role: Accessible.Button
+                Accessible.name: "Add MPV argument"
+
+                onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
+
+                Keys.onUpPressed: {
+                    if (argRepeater.count > 0) {
+                        var last = argRepeater.itemAt(argRepeater.count - 1)
+                        if (last && last.argumentField) {
+                            last.argumentField.forceActiveFocus()
+                        }
+                    } else {
+                        advancedToggleBtn.forceActiveFocus()
+                    }
+                    event.accepted = true
+                }
+                Keys.onDownPressed: root.navigateOut("down")
+
+                onClicked: root.addExtraArg()
+                Keys.onReturnPressed: root.addExtraArg()
+                Keys.onEnterPressed: root.addExtraArg()
+
+                contentItem: Text {
+                    text: parent.text
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    color: Theme.accentPrimary
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                background: Rectangle {
+                    implicitWidth: Math.round(170 * Theme.layoutScale)
+                    implicitHeight: Theme.buttonHeightSmall
+                    radius: Theme.radiusSmall
+                    color: addArgButton.activeFocus || addArgButton.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
+                    border.color: addArgButton.activeFocus ? Theme.focusBorder : Theme.accentPrimary
+                    border.width: addArgButton.activeFocus ? 2 : 1
+                }
             }
+
         }
     }
 }

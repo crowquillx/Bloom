@@ -171,6 +171,8 @@ Important design notes
 mpv config hints
 - Create `mpv.conf` and `input.conf` when you need custom behavior (e.g., enable vo, hardware settings) in `~/.config/Bloom/mpv/`.
 - Always pass mpv arguments from `ConfigManager` so users can override behavior at runtime.
+- Settings -> MPV Profiles now edits `extra_args` as an ordered list of one argument per entry (add/remove per row) for keyboard-first 10-foot usability.
+- Migration compatibility: `extra_args` accepts both array and legacy newline-delimited string formats and normalizes to array on save.
 
 Jellyfin integration
 - Key endpoints used frequently:

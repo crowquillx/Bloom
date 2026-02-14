@@ -423,7 +423,8 @@ Window {
                         currentParentId: libraryId,
                         currentLibraryId: libraryId,
                         currentLibraryName: libraryName,
-                        directNavigationMode: true
+                        directNavigationMode: true,
+                        returnToHomeOnDirectBack: true
                     })
                     // Defer calling showMovieDetailsView until screen is ready
                     Qt.callLater(function() {
@@ -442,7 +443,8 @@ Window {
                         currentLibraryId: libraryId,
                         currentLibraryName: libraryName,
                         currentSeriesId: seriesId,
-                        directNavigationMode: true
+                        directNavigationMode: true,
+                        returnToHomeOnDirectBack: true
                     })
                     // Need to load series details first for context, then show episode
                     LibraryService.getSeriesDetails(seriesId)
@@ -466,7 +468,8 @@ Window {
                         currentSeasonId: seasonId,
                         currentSeasonNumber: seasonNumber,
                         showSeasonView: true,
-                        directNavigationMode: true
+                        directNavigationMode: true,
+                        returnToHomeOnDirectBack: true
                     })
                     // Load series details for logo/poster context
                     LibraryService.getSeriesDetails(seriesId)
@@ -483,7 +486,8 @@ Window {
                         currentLibraryName: libraryName,
                         currentSeriesId: seriesId,
                         showSeriesDetails: true,
-                        directNavigationMode: true
+                        directNavigationMode: true,
+                        returnToHomeOnDirectBack: true
                     })
                     // Load series details, seasons, and next episode
                     LibraryService.getSeriesDetails(seriesId)

@@ -53,6 +53,17 @@ FocusScope {
     // Signal to request sign out (handled by Main.qml)
     signal signOutRequested()
     
+    function openNewProfileDialog(returnFocusTarget) {
+        newProfileDialog.restoreFocusTarget = returnFocusTarget || null
+        newProfileDialog.open()
+    }
+
+    function openDeleteProfileDialog(profileName, returnFocusTarget) {
+        deleteProfileDialog.profileToDelete = profileName || ""
+        deleteProfileDialog.restoreFocusTarget = returnFocusTarget || null
+        deleteProfileDialog.open()
+    }
+    
     // ========================================
     // Focus Management
     // ========================================
@@ -281,7 +292,9 @@ FocusScope {
         title: qsTr("Create New Profile")
         modal: true
         anchors.centerIn: parent
-        width: 400
+        width: Math.round(560 * Theme.layoutScale)
+        padding: Theme.spacingLarge
+        property Item restoreFocusTarget: null
         
         background: Rectangle {
             color: Theme.cardBackground
@@ -292,7 +305,7 @@ FocusScope {
         
         header: Rectangle {
             color: "transparent"
-            height: 50
+            height: Math.round(68 * Theme.layoutScale)
             
             Text {
                 text: newProfileDialog.title
@@ -306,90 +319,156 @@ FocusScope {
             }
         }
         
-        contentItem: ColumnLayout {
-            spacing: Theme.spacingMedium
-            
-            Text {
-                text: qsTr("Profile Name")
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-            }
-            
-            TextField {
-                id: newProfileNameField
-                Layout.fillWidth: true
-                placeholderText: "My Custom Profile"
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                
-                background: Rectangle {
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: Theme.inputBackground
-                    border.color: newProfileNameField.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: newProfileNameField.activeFocus ? 2 : 1
+        contentItem: Item {
+            implicitHeight: newProfileContent.implicitHeight + Theme.spacingSmall * 2
+            implicitWidth: newProfileContent.implicitWidth + Theme.spacingSmall * 2
+
+            ColumnLayout {
+                id: newProfileContent
+                anchors.fill: parent
+                anchors.margins: Theme.spacingSmall
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: qsTr("Profile Name")
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
                 }
-            }
-            
-            Text {
-                visible: newProfileNameField.text.trim() !== "" && 
-                         ConfigManager.mpvProfileNames.indexOf(newProfileNameField.text.trim()) >= 0
-                text: qsTr("A profile with this name already exists")
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                color: "#ff6b6b"
+
+                TextField {
+                    id: newProfileNameField
+                    Layout.fillWidth: true
+                    placeholderText: "My Custom Profile"
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+
+                    Keys.onDownPressed: {
+                        newProfileCancelBtn.forceActiveFocus()
+                        event.accepted = true
+                    }
+
+                    background: Rectangle {
+                        implicitHeight: Theme.buttonHeightSmall
+                        radius: Theme.radiusSmall
+                        color: Theme.inputBackground
+                        border.color: newProfileNameField.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                        border.width: newProfileNameField.activeFocus ? 2 : 1
+                    }
+                }
+
+                Text {
+                    visible: newProfileNameField.text.trim() !== "" &&
+                             ConfigManager.mpvProfileNames.indexOf(newProfileNameField.text.trim()) >= 0
+                    text: qsTr("A profile with this name already exists")
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    color: "#ff6b6b"
+                }
             }
         }
         
-        footer: DialogButtonBox {
-            background: Rectangle { color: "transparent" }
-            
-            Button {
-                text: "Cancel"
-                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
-                
-                contentItem: Text {
-                    text: parent.text
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+        footer: Item {
+            implicitHeight: Theme.buttonHeightSmall + Theme.spacingLarge * 2
+            implicitWidth: parent ? parent.width : 400
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
+                spacing: Theme.spacingSmall
+
+                Button {
+                    id: newProfileCancelBtn
+                    Layout.fillWidth: true
+                    text: "Cancel"
+                    focusPolicy: Qt.StrongFocus
+
+                    Keys.onUpPressed: {
+                        newProfileNameField.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onRightPressed: {
+                        if (newProfileCreateBtn.enabled) {
+                            newProfileCreateBtn.forceActiveFocus()
+                        }
+                        event.accepted = true
+                    }
+                    Keys.onReturnPressed: newProfileDialog.reject()
+                    Keys.onEnterPressed: newProfileDialog.reject()
+
+                    onClicked: newProfileDialog.reject()
+
+                    contentItem: Text {
+                        text: parent.text
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: Theme.textSecondary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        implicitHeight: Theme.buttonHeightSmall
+                        radius: Theme.radiusSmall
+                        color: newProfileCancelBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground
+                        border.color: newProfileCancelBtn.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                        border.width: newProfileCancelBtn.activeFocus ? 2 : 1
+                    }
                 }
-                
-                background: Rectangle {
-                    implicitWidth: 100
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: parent.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground
+
+                Button {
+                    id: newProfileCreateBtn
+                    Layout.fillWidth: true
+                    text: qsTr("Create")
+                    focusPolicy: enabled ? Qt.StrongFocus : Qt.NoFocus
+                    enabled: newProfileNameField.text.trim() !== "" &&
+                             ConfigManager.mpvProfileNames.indexOf(newProfileNameField.text.trim()) < 0
+
+                    Keys.onUpPressed: {
+                        newProfileNameField.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onLeftPressed: {
+                        newProfileCancelBtn.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onReturnPressed: if (newProfileCreateBtn.enabled) newProfileDialog.accept()
+                    Keys.onEnterPressed: if (newProfileCreateBtn.enabled) newProfileDialog.accept()
+                    onEnabledChanged: {
+                        if (!enabled && activeFocus) {
+                            newProfileCancelBtn.forceActiveFocus()
+                        }
+                    }
+
+                    onClicked: newProfileDialog.accept()
+
+                    contentItem: Text {
+                        text: parent.text
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: parent.enabled ? Theme.textPrimary : Theme.textDisabled
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        implicitHeight: Theme.buttonHeightSmall
+                        radius: Theme.radiusSmall
+                        color: parent.enabled ? (newProfileCreateBtn.hovered ? Theme.buttonPrimaryBackgroundHover : Theme.buttonPrimaryBackground)
+                                             : Theme.buttonSecondaryBackground
+                        border.color: newProfileCreateBtn.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                        border.width: newProfileCreateBtn.activeFocus ? 2 : 1
+                    }
                 }
             }
-            
-            Button {
-                text: qsTr("Create")
-                enabled: newProfileNameField.text.trim() !== "" && 
-                         ConfigManager.mpvProfileNames.indexOf(newProfileNameField.text.trim()) < 0
-                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                
-                contentItem: Text {
-                    text: parent.text
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: parent.enabled ? Theme.textPrimary : Theme.textDisabled
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                
-                background: Rectangle {
-                    implicitWidth: 100
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: parent.enabled ? (parent.hovered ? Theme.buttonPrimaryBackgroundHover : Theme.buttonPrimaryBackground)
-                                         : Theme.buttonSecondaryBackground
-                }
-            }
+        }
+
+        onOpened: {
+            Qt.callLater(function() {
+                newProfileNameField.forceActiveFocus()
+                newProfileNameField.selectAll()
+            })
         }
         
         onAccepted: {
@@ -414,6 +493,17 @@ FocusScope {
         onRejected: {
             newProfileNameField.text = ""
         }
+
+        onClosed: {
+            Qt.callLater(function() {
+                if (newProfileDialog.restoreFocusTarget) {
+                    newProfileDialog.restoreFocusTarget.forceActiveFocus()
+                } else {
+                    newProfileBtn.forceActiveFocus()
+                }
+                newProfileDialog.restoreFocusTarget = null
+            })
+        }
     }
     
     // Delete Profile Confirmation Dialog
@@ -422,9 +512,11 @@ FocusScope {
         title: qsTr("Delete Profile")
         modal: true
         anchors.centerIn: parent
-        width: 400
+        width: Math.round(560 * Theme.layoutScale)
+        padding: Theme.spacingLarge
         
         property string profileToDelete: ""
+        property Item restoreFocusTarget: null
         
         background: Rectangle {
             color: Theme.cardBackground
@@ -435,7 +527,7 @@ FocusScope {
         
         header: Rectangle {
             color: "transparent"
-            height: 50
+            height: Math.round(68 * Theme.layoutScale)
             
             Text {
                 text: deleteProfileDialog.title
@@ -449,74 +541,117 @@ FocusScope {
             }
         }
         
-        contentItem: ColumnLayout {
-            spacing: Theme.spacingMedium
-            
-            Text {
-                text: qsTr("Are you sure you want to delete the profile \"%1\"?").arg(deleteProfileDialog.profileToDelete)
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-            
-            Text {
-                text: qsTr("This will also remove any library or series assignments using this profile.")
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
+        contentItem: Item {
+            implicitHeight: deleteProfileContent.implicitHeight + Theme.spacingSmall * 2
+            implicitWidth: deleteProfileContent.implicitWidth + Theme.spacingSmall * 2
+
+            ColumnLayout {
+                id: deleteProfileContent
+                anchors.fill: parent
+                anchors.margins: Theme.spacingSmall
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: qsTr("Are you sure you want to delete the profile \"%1\"?").arg(deleteProfileDialog.profileToDelete)
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                Text {
+                    text: qsTr("This will also remove any library or series assignments using this profile.")
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
             }
         }
         
-        footer: DialogButtonBox {
-            background: Rectangle { color: "transparent" }
-            
-            Button {
-                text: qsTr("Cancel")
-                DialogButtonBox.buttonRole: DialogButtonBox.RejectRole
-                
-                contentItem: Text {
-                    text: parent.text
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
+        footer: Item {
+            implicitHeight: Theme.buttonHeightSmall + Theme.spacingLarge * 2
+            implicitWidth: parent ? parent.width : 400
+
+            RowLayout {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingMedium
+                spacing: Theme.spacingSmall
+
+                Button {
+                    id: deleteDialogCancelBtn
+                    Layout.fillWidth: true
+                    text: qsTr("Cancel")
+                    focusPolicy: Qt.StrongFocus
+
+                    Keys.onRightPressed: {
+                        deleteDialogConfirmBtn.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onReturnPressed: deleteProfileDialog.reject()
+                    Keys.onEnterPressed: deleteProfileDialog.reject()
+
+                    onClicked: deleteProfileDialog.reject()
+
+                    contentItem: Text {
+                        text: parent.text
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: Theme.textSecondary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        implicitHeight: Theme.buttonHeightSmall
+                        radius: Theme.radiusSmall
+                        color: deleteDialogCancelBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground
+                        border.color: deleteDialogCancelBtn.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                        border.width: deleteDialogCancelBtn.activeFocus ? 2 : 1
+                    }
                 }
-                
-                background: Rectangle {
-                    implicitWidth: 100
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: parent.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground
+
+                Button {
+                    id: deleteDialogConfirmBtn
+                    Layout.fillWidth: true
+                    text: qsTr("Delete")
+                    focusPolicy: Qt.StrongFocus
+
+                    Keys.onLeftPressed: {
+                        deleteDialogCancelBtn.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onReturnPressed: deleteProfileDialog.accept()
+                    Keys.onEnterPressed: deleteProfileDialog.accept()
+
+                    onClicked: deleteProfileDialog.accept()
+
+                    contentItem: Text {
+                        text: parent.text
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: "#ff6b6b"
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        implicitHeight: Theme.buttonHeightSmall
+                        radius: Theme.radiusSmall
+                        color: deleteDialogConfirmBtn.hovered ? Qt.rgba(1, 0.4, 0.4, 0.2) : "transparent"
+                        border.color: deleteDialogConfirmBtn.activeFocus ? Theme.focusBorder : "#ff6b6b"
+                        border.width: deleteDialogConfirmBtn.activeFocus ? 2 : 1
+                    }
                 }
             }
-            
-            Button {
-                text: qsTr("Delete")
-                DialogButtonBox.buttonRole: DialogButtonBox.AcceptRole
-                
-                contentItem: Text {
-                    text: parent.text
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: "#ff6b6b"
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
-                
-                background: Rectangle {
-                    implicitWidth: 100
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: parent.hovered ? Qt.rgba(1, 0.4, 0.4, 0.2) : "transparent"
-                    border.color: "#ff6b6b"
-                    border.width: 1
-                }
-            }
+        }
+
+        onOpened: {
+            Qt.callLater(function() {
+                deleteDialogCancelBtn.forceActiveFocus()
+            })
         }
         
         onAccepted: {
@@ -529,6 +664,20 @@ FocusScope {
         
         onRejected: {
             profileToDelete = ""
+        }
+
+        onClosed: {
+            Qt.callLater(function() {
+                var target = deleteProfileDialog.restoreFocusTarget
+                if (target === deleteProfileBtn && !deleteProfileBtn.enabled) {
+                    duplicateProfileBtn.forceActiveFocus()
+                } else if (target) {
+                    target.forceActiveFocus()
+                } else {
+                    duplicateProfileBtn.forceActiveFocus()
+                }
+                deleteProfileDialog.restoreFocusTarget = null
+            })
         }
     }
     
@@ -713,9 +862,11 @@ FocusScope {
                     title: qsTr("Account")
                     icon: Icons.account
                     expanded: false
+                    previousSection: null
                     previousSectionButton: collapseAllButton
                     nextSectionButton: playbackSection.toggleButton
                     firstFocusableItem: signOutButton
+                    lastFocusableItem: signOutButton
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -805,9 +956,11 @@ FocusScope {
                     title: qsTr("Playback")
                     icon: Icons.playArrow
                     expanded: false
+                    previousSection: accountSection
                     previousSectionButton: accountSection.toggleButton
                     nextSectionButton: displaySection.toggleButton
                     firstFocusableItem: autoplaySwitch
+                    lastFocusableItem: themeSongLoopToggle
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -823,7 +976,7 @@ FocusScope {
                             Layout.fillWidth: true
                             focus: true
                             
-                            KeyNavigation.up: signOutButton
+                            KeyNavigation.up: playbackSection.toggleButton
                             KeyNavigation.down: thresholdSlider
                             
                             onToggled: function(value) {
@@ -1199,9 +1352,11 @@ FocusScope {
                     title: qsTr("Display")
                     icon: Icons.palette
                     expanded: false
+                    previousSection: playbackSection
                     previousSectionButton: playbackSection.toggleButton
                     nextSectionButton: videoSection.toggleButton
                     firstFocusableItem: themeCombo
+                    lastFocusableItem: dpiScaleSlider
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -1254,7 +1409,7 @@ FocusScope {
                                 // Custom navigation to prevent ComboBox from trapping arrow keys
                                 Keys.onUpPressed: function(event) {
                                     if (!popup.visible) {
-                                        themeSongLoopToggle.forceActiveFocus()
+                                        displaySection.toggleButton.forceActiveFocus()
                                         event.accepted = true
                                     }
                                 }
@@ -1429,9 +1584,11 @@ FocusScope {
                     title: qsTr("Video")
                     icon: Icons.videocam
                     expanded: false
+                    previousSection: displaySection
                     previousSectionButton: displaySection.toggleButton
                     nextSectionButton: mpvProfilesSection.toggleButton
                     firstFocusableItem: framerateMatchingSwitch
+                    lastFocusableItem: advancedToggle
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -1446,7 +1603,7 @@ FocusScope {
                             checked: ConfigManager.enableFramerateMatching
                             Layout.fillWidth: true
                             
-                            KeyNavigation.up: dpiScaleSlider
+                            KeyNavigation.up: videoSection.toggleButton
                             KeyNavigation.down: framerateDelaySlider
                             
                             onToggled: function(value) {
@@ -1535,7 +1692,7 @@ FocusScope {
                                 Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
                             }
                             
-                            KeyNavigation.up: dpiScaleSlider
+                            KeyNavigation.up: hdrSwitch
                             KeyNavigation.down: mpvProfilesSection.toggleButton
                             
                             onClicked: advancedExpanded = !advancedExpanded
@@ -1602,9 +1759,22 @@ FocusScope {
                     title: qsTr("MPV Profiles")
                     icon: Icons.tune
                     expanded: false
+                    previousSection: videoSection
                     previousSectionButton: videoSection.toggleButton
                     nextSectionButton: metadataSection.toggleButton
                     firstFocusableItem: defaultProfileCombo
+                    lastFocusableItem: libraryProfilesToggle
+                    focusBottomHandler: function() {
+                        if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
+                            libraryProfilesRepeater.itemAt(libraryProfilesRepeater.count - 1).children[1].forceActiveFocus()
+                            return
+                        }
+                        if (profileEditorToggle.expanded && profileEditor) {
+                            profileEditor.focusBottomAnchor()
+                            return
+                        }
+                        libraryProfilesToggle.forceActiveFocus()
+                    }
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -1678,7 +1848,7 @@ FocusScope {
                                 // Only use KeyNavigation when popup is closed
                                 Keys.onUpPressed: function(event) {
                                     if (!popup.visible) {
-                                        advancedToggle.forceActiveFocus()
+                                        mpvProfilesSection.toggleButton.forceActiveFocus()
                                         event.accepted = true
                                     }
                                 }
@@ -1885,13 +2055,25 @@ FocusScope {
                                     }
                                     Keys.onDownPressed: function(event) {
                                         if (!popup.visible) {
-                                            newProfileBtn.forceActiveFocus()
+                                            profileEditor.forceActiveFocus()
                                             event.accepted = true
                                         }
                                     }
                                     Keys.onRightPressed: function(event) {
                                         if (!popup.visible) {
                                             newProfileBtn.forceActiveFocus()
+                                            event.accepted = true
+                                        }
+                                    }
+                                    Keys.onReturnPressed: function(event) {
+                                        if (!popup.visible) {
+                                            popup.open()
+                                            event.accepted = true
+                                        }
+                                    }
+                                    Keys.onEnterPressed: function(event) {
+                                        if (!popup.visible) {
+                                            popup.open()
                                             event.accepted = true
                                         }
                                     }
@@ -1912,6 +2094,67 @@ FocusScope {
                                         verticalAlignment: Text.AlignVCenter
                                         leftPadding: Theme.spacingSmall
                                     }
+
+                                    delegate: ItemDelegate {
+                                        width: editProfileCombo.width
+                                        contentItem: Text {
+                                            text: modelData
+                                            color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                                            font.pixelSize: Theme.fontSizeBody
+                                            font.family: Theme.fontPrimary
+                                            verticalAlignment: Text.AlignVCenter
+                                        }
+                                        background: Rectangle {
+                                            color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                            radius: Theme.radiusSmall
+                                        }
+                                        highlighted: ListView.isCurrentItem || editProfileCombo.highlightedIndex === index
+                                    }
+
+                                    popup: Popup {
+                                        y: editProfileCombo.height + 5
+                                        width: editProfileCombo.width
+                                        implicitHeight: contentItem.implicitHeight
+                                        padding: 1
+
+                                        onOpened: {
+                                            editProfileList.currentIndex = editProfileCombo.highlightedIndex >= 0
+                                                ? editProfileCombo.highlightedIndex
+                                                : editProfileCombo.currentIndex
+                                            editProfileList.forceActiveFocus()
+                                        }
+                                        onClosed: editProfileCombo.forceActiveFocus()
+
+                                        contentItem: ListView {
+                                            id: editProfileList
+                                            clip: true
+                                            implicitHeight: contentHeight
+                                            model: editProfileCombo.popup.visible ? editProfileCombo.delegateModel : null
+                                            currentIndex: editProfileCombo.highlightedIndex >= 0
+                                                ? editProfileCombo.highlightedIndex
+                                                : editProfileCombo.currentIndex
+
+                                            ScrollIndicator.vertical: ScrollIndicator { }
+                                            onCurrentIndexChanged: editProfileCombo.highlightedIndex = currentIndex
+
+                                            Keys.onReturnPressed: {
+                                                editProfileCombo.currentIndex = currentIndex
+                                                editProfileCombo.popup.close()
+                                            }
+                                            Keys.onEnterPressed: {
+                                                editProfileCombo.currentIndex = currentIndex
+                                                editProfileCombo.popup.close()
+                                            }
+                                            Keys.onEscapePressed: editProfileCombo.popup.close()
+                                        }
+
+                                        background: Rectangle {
+                                            color: Theme.cardBackground
+                                            border.color: Theme.focusBorder
+                                            border.width: 1
+                                            radius: Theme.radiusSmall
+                                        }
+                                    }
                                 }
                                 
                                 Button {
@@ -1928,6 +2171,7 @@ FocusScope {
                                     Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
                                     Keys.onDownPressed: profileEditor.forceActiveFocus()
                                     Keys.onLeftPressed: editProfileCombo.forceActiveFocus()
+                                    Keys.onRightPressed: duplicateProfileBtn.forceActiveFocus()
                                     
                                     contentItem: Text {
                                         text: parent.text
@@ -1947,9 +2191,138 @@ FocusScope {
                                         border.width: newProfileBtn.activeFocus ? 2 : 1
                                     }
                                     
-                                    onClicked: newProfileDialog.open()
-                                    Keys.onReturnPressed: newProfileDialog.open()
-                                    Keys.onEnterPressed: newProfileDialog.open()
+                                    onClicked: root.openNewProfileDialog(newProfileBtn)
+                                    Keys.onReturnPressed: root.openNewProfileDialog(newProfileBtn)
+                                    Keys.onEnterPressed: root.openNewProfileDialog(newProfileBtn)
+                                }
+
+                                Button {
+                                    id: duplicateProfileBtn
+                                    text: qsTr("Duplicate")
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: qsTr("Duplicate selected profile")
+                                    focusPolicy: Qt.StrongFocus
+                                    enabled: editProfileCombo.currentText !== ""
+
+                                    onActiveFocusChanged: {
+                                        if (activeFocus) flickable.ensureFocusVisible(this)
+                                    }
+
+                                    Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
+                                    Keys.onDownPressed: profileEditor.forceActiveFocus()
+                                    Keys.onLeftPressed: newProfileBtn.forceActiveFocus()
+                                    Keys.onRightPressed: {
+                                        if (deleteProfileBtn.enabled) {
+                                            deleteProfileBtn.forceActiveFocus()
+                                        }
+                                        event.accepted = true
+                                    }
+
+                                    function duplicateSelectedProfile() {
+                                        var sourceName = editProfileCombo.currentText
+                                        if (!sourceName || sourceName === "")
+                                            return
+
+                                        var sourceProfile = ConfigManager.getMpvProfile(sourceName)
+                                        if (!sourceProfile)
+                                            return
+
+                                        var names = ConfigManager.mpvProfileNames || []
+                                        var baseName = sourceName + " Copy"
+                                        var candidate = baseName
+                                        var suffix = 2
+                                        while (names.indexOf(candidate) >= 0) {
+                                            candidate = baseName + " " + suffix
+                                            suffix++
+                                        }
+
+                                        ConfigManager.setMpvProfile(candidate, sourceProfile)
+
+                                        Qt.callLater(function() {
+                                            var idx = editProfileCombo.model ? editProfileCombo.model.indexOf(candidate) : -1
+                                            if (idx >= 0) {
+                                                editProfileCombo.currentIndex = idx
+                                            }
+                                        })
+                                    }
+
+                                    contentItem: Text {
+                                        text: parent.text
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        font.family: Theme.fontPrimary
+                                        color: duplicateProfileBtn.enabled ? Theme.accentPrimary : Theme.textDisabled
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+
+                                    background: Rectangle {
+                                        implicitWidth: 130
+                                        implicitHeight: Theme.buttonHeightSmall
+                                        radius: Theme.radiusSmall
+                                        color: duplicateProfileBtn.activeFocus || duplicateProfileBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
+                                        border.color: duplicateProfileBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary
+                                        border.width: duplicateProfileBtn.activeFocus ? 2 : 1
+                                        opacity: duplicateProfileBtn.enabled ? 1.0 : 0.5
+                                    }
+
+                                    onClicked: duplicateSelectedProfile()
+                                    Keys.onReturnPressed: duplicateSelectedProfile()
+                                    Keys.onEnterPressed: duplicateSelectedProfile()
+                                }
+
+                                Button {
+                                    id: deleteProfileBtn
+                                    text: qsTr("Delete")
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: qsTr("Delete selected profile")
+                                    focusPolicy: enabled ? Qt.StrongFocus : Qt.NoFocus
+                                    enabled: {
+                                        var name = editProfileCombo.currentText || ""
+                                        return name !== "" && name !== "Default" && name !== "High Quality"
+                                    }
+
+                                    onActiveFocusChanged: {
+                                        if (activeFocus) flickable.ensureFocusVisible(this)
+                                    }
+
+                                    Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
+                                    Keys.onDownPressed: profileEditor.forceActiveFocus()
+                                    Keys.onLeftPressed: duplicateProfileBtn.forceActiveFocus()
+
+                                    onEnabledChanged: {
+                                        if (!enabled && activeFocus) {
+                                            duplicateProfileBtn.forceActiveFocus()
+                                        }
+                                    }
+
+                                    function requestDeleteSelectedProfile() {
+                                        if (!enabled)
+                                            return
+                                        root.openDeleteProfileDialog(editProfileCombo.currentText, deleteProfileBtn)
+                                    }
+
+                                    contentItem: Text {
+                                        text: parent.text
+                                        font.pixelSize: Theme.fontSizeSmall
+                                        font.family: Theme.fontPrimary
+                                        color: deleteProfileBtn.enabled ? "#ff8c8c" : Theme.textDisabled
+                                        horizontalAlignment: Text.AlignHCenter
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+
+                                    background: Rectangle {
+                                        implicitWidth: 110
+                                        implicitHeight: Theme.buttonHeightSmall
+                                        radius: Theme.radiusSmall
+                                        color: deleteProfileBtn.activeFocus || deleteProfileBtn.hovered ? Qt.rgba(1, 0.4, 0.4, 0.2) : "transparent"
+                                        border.color: deleteProfileBtn.activeFocus ? Theme.focusBorder : "#ff8c8c"
+                                        border.width: deleteProfileBtn.activeFocus ? 2 : 1
+                                        opacity: deleteProfileBtn.enabled ? 1.0 : 0.5
+                                    }
+
+                                    onClicked: requestDeleteSelectedProfile()
+                                    Keys.onReturnPressed: requestDeleteSelectedProfile()
+                                    Keys.onEnterPressed: requestDeleteSelectedProfile()
                                 }
                             }
                             
@@ -1961,8 +2334,7 @@ FocusScope {
                                 parentFlickable: flickable
                                 
                                 onDeleteRequested: {
-                                    deleteProfileDialog.profileToDelete = profileName
-                                    deleteProfileDialog.open()
+                                    root.openDeleteProfileDialog(profileName, profileEditor)
                                 }
                                 
                                 onNavigateOut: function(direction) {
@@ -2016,9 +2388,18 @@ FocusScope {
                                 border.width: libraryProfilesToggle.activeFocus ? 2 : Theme.buttonBorderWidth
                             }
                             
-                            KeyNavigation.up: profileEditorToggle.expanded ? newProfileBtn : profileEditorToggle
+                            KeyNavigation.up: null
                             KeyNavigation.down: libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0 ? libraryProfilesRepeater.itemAt(0).children[1] : null
                             
+                            Keys.onUpPressed: {
+                                if (profileEditorToggle.expanded && profileEditor) {
+                                    profileEditor.focusBottomAnchor()
+                                } else {
+                                    profileEditorToggle.forceActiveFocus()
+                                }
+                                event.accepted = true
+                            }
+
                             Keys.onDownPressed: {
                                 if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(0).children[1].forceActiveFocus()
@@ -2134,8 +2515,18 @@ FocusScope {
                                                 event.accepted = true
                                             }
                                         }
-                                        Keys.onReturnPressed: popup.open()
-                                        Keys.onEnterPressed: popup.open()
+                                        Keys.onReturnPressed: function(event) {
+                                            if (!popup.visible) {
+                                                popup.open()
+                                                event.accepted = true
+                                            }
+                                        }
+                                        Keys.onEnterPressed: function(event) {
+                                            if (!popup.visible) {
+                                                popup.open()
+                                                event.accepted = true
+                                            }
+                                        }
                                         
                                         Component.onCompleted: {
                                             refreshSelection()
@@ -2265,9 +2656,11 @@ FocusScope {
                     title: qsTr("Metadata Providers")
                     icon: Icons.cloud
                     expanded: false
+                    previousSection: mpvProfilesSection
                     previousSectionButton: mpvProfilesSection.toggleButton
                     nextSectionButton: aboutSection.toggleButton
                     firstFocusableItem: mdbListApiKeyRow.input
+                    lastFocusableItem: mdbListApiKeyRow.input
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -2299,10 +2692,10 @@ FocusScope {
                             Layout.fillWidth: true
                             
                             Keys.onUpPressed: {
-                                if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
+                                if (mpvProfilesSection.expanded && libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(libraryProfilesRepeater.count - 1).children[1].forceActiveFocus()
                                 } else {
-                                    mpvProfilesSection.toggleButton.forceActiveFocus()
+                                    metadataSection.toggleButton.forceActiveFocus()
                                 }
                             }
                             
@@ -2322,9 +2715,11 @@ FocusScope {
                     title: qsTr("About")
                     icon: Icons.info
                     expanded: false
+                    previousSection: metadataSection
                     previousSectionButton: metadataSection.toggleButton
                     nextSectionButton: null
                     firstFocusableItem: null
+                    lastFocusableItem: null
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -2376,10 +2771,33 @@ FocusScope {
         property string icon: ""
         property bool expanded: false
         property Item firstFocusableItem: null
+        property Item lastFocusableItem: null
+        property var focusBottomHandler: null
+        property var previousSection: null
         property Item previousSectionButton: null
         property Item nextSectionButton: null
         property alias toggleButton: sectionHeaderButton
         default property alias content: sectionContent.data
+
+        function focusBottomAnchor() {
+            if (!expanded) {
+                toggleButton.forceActiveFocus()
+                return
+            }
+            if (typeof focusBottomHandler === "function") {
+                focusBottomHandler()
+                return
+            }
+            if (lastFocusableItem) {
+                lastFocusableItem.forceActiveFocus()
+                return
+            }
+            if (firstFocusableItem) {
+                firstFocusableItem.forceActiveFocus()
+                return
+            }
+            toggleButton.forceActiveFocus()
+        }
         
         Accessible.role: Accessible.Grouping
         Accessible.name: title
@@ -2444,7 +2862,10 @@ FocusScope {
                     }
                 }
                 Keys.onUpPressed: {
-                    if (sectionCard.previousSectionButton) {
+                    if (sectionCard.previousSection) {
+                        sectionCard.previousSection.focusBottomAnchor()
+                        event.accepted = true
+                    } else if (sectionCard.previousSectionButton) {
                         sectionCard.previousSectionButton.forceActiveFocus()
                         event.accepted = true
                     }
