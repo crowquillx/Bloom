@@ -3,6 +3,7 @@
 #include <QProcess>
 #include <QGuiApplication>
 #include <QScreen>
+#include <QtMath>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -11,6 +12,24 @@
 // Windows 10 SDK 10.0.26100.0+ already includes the necessary definitions.
 // For older SDKs, we'd need to define DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE,
 // but since we're targeting newer SDKs, we can rely on wingdi.h providing them.
+
+namespace {
+bool isCadenceCompatible(double currentHz, double targetHz)
+{
+    if (currentHz <= 0.0 || targetHz <= 0.0 || currentHz <= targetHz) {
+        return false;
+    }
+
+    const double ratio = currentHz / targetHz;
+    const int nearestIntegerMultiple = qRound(ratio);
+    if (nearestIntegerMultiple < 2) {
+        return false;
+    }
+
+    // Allow small drift for common fractional rates (23.976/29.97/59.94).
+    return qAbs(ratio - static_cast<double>(nearestIntegerMultiple)) <= 0.01;
+}
+}
 
 DisplayManager::DisplayManager(ConfigManager *config, QObject *parent)
     : QObject(parent)
@@ -43,6 +62,14 @@ bool DisplayManager::setRefreshRate(double hz)
     
     if (qAbs(current - hz) < 0.5) {
         qDebug() << "DisplayManager: Already at target refresh rate" << current << "Hz";
+        return true;
+    }
+
+    if (isCadenceCompatible(current, hz)) {
+        const double ratio = current / hz;
+        qDebug() << "DisplayManager: Current refresh rate" << current
+                 << "Hz is cadence-compatible with target" << hz
+                 << "Hz (ratio" << ratio << "), skipping mode switch";
         return true;
     }
 
@@ -185,6 +212,7 @@ bool DisplayManager::setRefreshRateWindows(double hz)
         LONG ret = ChangeDisplaySettingsEx(NULL, &dm, NULL, CDS_FULLSCREEN, NULL);
         if (ret == DISP_CHANGE_SUCCESSFUL) {
             qDebug() << "DisplayManager: Successfully set refresh rate to" << targetHz << "Hz";
+            qDebug() << "DisplayManager: Reported refresh after switch:" << getCurrentRefreshRate() << "Hz";
             return true;
         } else {
             QString errorMsg;

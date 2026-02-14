@@ -1551,15 +1551,18 @@ void PlayerController::startPlayback(const QString &url)
         
         if (m_displayManager->setRefreshRate(m_contentFramerate)) {
             qDebug() << "PlayerController: Successfully set display refresh rate for framerate" << m_contentFramerate;
-            
-            // Wait for display to stabilize after refresh rate change
-            // This prevents dropped frames caused by starting playback before
-            // the display/GPU has finished transitioning to the new mode
-            int delaySeconds = m_config->getFramerateMatchDelay();
-            if (delaySeconds > 0) {
-                qDebug() << "PlayerController: Scheduling mpv start in" << delaySeconds << "seconds for display to stabilize";
-                m_startDelayTimer->start(delaySeconds * 1000);
+
+            if (m_displayManager->hasActiveRefreshRateOverride()) {
+                // Wait for display to stabilize after an actual refresh rate change.
+                int delaySeconds = m_config->getFramerateMatchDelay();
+                if (delaySeconds > 0) {
+                    qDebug() << "PlayerController: Scheduling mpv start in" << delaySeconds << "seconds for display to stabilize";
+                    m_startDelayTimer->start(delaySeconds * 1000);
+                } else {
+                    initiateMpvStart();
+                }
             } else {
+                // No mode switch happened (already compatible), so start immediately.
                 initiateMpvStart();
             }
             return;  // Important: return early to avoid duplicate startMpv calls

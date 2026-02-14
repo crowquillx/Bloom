@@ -51,8 +51,10 @@ Display settings
 
 Video settings
 - `settings.video.enable_framerate_matching` (Q_PROPERTY `enableFramerateMatching`): When true, automatically switches the display refresh rate to match the video content framerate. Default: false. Configurable via Settings > Video > Enable Framerate Matching.
+  - If the current refresh rate is already cadence-compatible (for example 120Hz with 23.976/24fps content), Bloom skips the mode switch.
 - `settings.video.framerate_match_delay` (Q_PROPERTY `framerateMatchDelay`): Seconds to wait after switching refresh rate before starting playback. Range: 0-5 seconds. Default: 1 second.
   - This delay allows the display and GPU to stabilize after the mode switch, preventing dropped frames that can occur if playback starts immediately
+  - The delay is only applied when a real refresh-rate mode switch was performed
   - Especially important on Windows where display mode changes can be asynchronous
   - Set to 0 to disable the delay (not recommended if experiencing dropped frames)
   - Configurable via Settings > Video > Refresh Rate Switch Delay slider (always visible; disabled/grayed out when Framerate Matching is off, interactive only when enabled)

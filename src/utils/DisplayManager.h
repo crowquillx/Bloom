@@ -43,6 +43,11 @@ public slots:
      */
     double getCurrentRefreshRate();
 
+    /**
+     * @brief Whether playback is currently using a temporary refresh-rate override.
+     */
+    bool hasActiveRefreshRateOverride() const { return m_refreshRateChanged; }
+
 private:
     ConfigManager *m_config;
     
