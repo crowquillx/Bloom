@@ -63,8 +63,30 @@ jobs:
 
       - name: Fetch libmpv SDK
         shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
+          $ghHeaders = @{
+            "User-Agent" = "Bloom-CI"
+            "Accept" = "application/vnd.github+json"
+            "X-GitHub-Api-Version" = "2022-11-28"
+            "Authorization" = "Bearer $env:GITHUB_TOKEN"
+          }
+          Write-Host "Using github.token for authenticated GitHub API requests."
+
+          $release = $null
+          for ($attempt = 1; $attempt -le 3; $attempt++) {
+            try {
+              $release = Invoke-RestMethod -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" -Headers $ghHeaders
+              break
+            } catch {
+              if ($attempt -eq 3) { throw }
+              $sleepSec = 5 * $attempt
+              Write-Warning "GitHub API request failed (attempt $attempt/3). Retrying in $sleepSec seconds..."
+              Start-Sleep -Seconds $sleepSec
+            }
+          }
+
           $asset = $release.assets | Where-Object { $_.name -match '^mpv-dev-x86_64-.*\.(7z|zip)$' } | Select-Object -First 1
           if (-not $asset) {
             Write-Error "Could not find mpv-dev-x86_64 SDK asset in latest shinchiro/mpv-winbuild-cmake release."
@@ -72,7 +94,7 @@ jobs:
           }
 
           $downloadPath = Join-Path $PWD $asset.name
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $downloadPath
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $downloadPath -Headers $ghHeaders
 
           $extractRoot = Join-Path $PWD "third_party\mpv"
           if (Test-Path $extractRoot) { Remove-Item -Recurse -Force $extractRoot }
