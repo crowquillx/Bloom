@@ -12,6 +12,7 @@ cmake-build-*/
 out/
 _codeql_build_dir/
 third_party/
+lib/
 
 # ===========================
 # CMake Generated Files
