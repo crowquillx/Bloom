@@ -7,6 +7,8 @@
 #include <QPointer>
 #include <QRectF>
 #include <QVariant>
+#include <QImage>
+#include <QMutex>
 #include <atomic>
 
 class QQuickItem;
@@ -37,6 +39,11 @@ public:
     void setVideoViewport(const QRectF &viewport) override;
 
 private:
+    enum class RenderMode {
+        OpenGL,
+        Software
+    };
+
     bool initializeMpv(const QStringList &args);
     void teardownMpv();
     void processMpvEvents();
@@ -47,6 +54,8 @@ private:
     void handleWindowChanged(QQuickWindow *window);
     void initializeRenderContextIfNeeded();
     void teardownRenderContext();
+    bool createRenderContext(RenderMode mode);
+    bool switchToSoftwareRenderMode(const char *reason);
     void renderFrame();
 
     static void wakeupCallback(void *ctx);
@@ -72,4 +81,13 @@ private:
     int m_consecutiveZeroFboFrames = 0;
     bool m_renderFailureQueued = false;
     bool m_allowFbo0Fallback = false;
+    bool m_debugLogging = false;
+    bool m_enableSoftwareFallback = true;
+    bool m_forceSoftwareRender = false;
+    bool m_switchedToSoftwareFallback = false;
+    RenderMode m_renderMode = RenderMode::OpenGL;
+    QImage m_swRenderImage;
+    QMutex m_swLatestFrameMutex;
+    QImage m_swLatestFrame;
+    std::atomic_bool m_swFrameDispatchQueued{false};
 };

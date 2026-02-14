@@ -63,7 +63,10 @@ Linux embedded backend details (experimental)
   - typed `sendVariantCommand(...)` dispatch through libmpv command nodes,
   - `client-message`/`scriptMessage` forwarding parity,
   - `aid`/`sid` normalization parity with external backend contract (including node-typed mpv values like `no`/`auto`),
-  - render hardening for viewport bounds/FBO-state restoration/update-callback lifecycle, including coalesced render-update scheduling during teardown/re-init.
+  - render hardening for viewport bounds/FBO-state restoration/update-callback lifecycle, including coalesced render-update scheduling during teardown/re-init,
+  - stricter embedded arg filtering for render-critical options (`gpu-context`, `gpu-api`, and context-specific backend flags),
+  - debug instrumentation behind `BLOOM_LINUX_LIBMPV_DEBUG=1` for runtime graphics API/FBO diagnostics,
+  - automatic software-render fallback (`MPV_RENDER_API_TYPE_SW`) when OpenGL embedded rendering repeatedly reports an invalid framebuffer target on Linux runtime stacks.
 - Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing.
 - Current Linux support status: embedded path is not yet considered fully supported across compositor/driver combinations; treat `external-mpv-ipc` as the stable production path while Linux embedded validation continues.
 - Controller parity hardening now preserves next-up/autoplay context across playback teardown, so async `itemMarkedPlayed`/`nextUnplayedEpisode` flows keep the expected series/item/track state.
@@ -185,6 +188,11 @@ Security & privacy
 Troubleshooting
 - Ensure proper owner and permissions for socket/pipes when using Unix sockets.
 - On Wayland, avoid `--wid`; run mpv as a top-level window and use the compositor for overlays.
+- For embedded Linux diagnostics, set `BLOOM_LINUX_LIBMPV_DEBUG=1` to log graphics API/FBO details.
+- To disable automatic software fallback while debugging OpenGL-only behavior, set `BLOOM_LINUX_LIBMPV_SW_FALLBACK=0`.
+- Embedded Linux guardrails:
+  - Trickplay is disabled by default for `linux-libmpv-opengl` stability; set `BLOOM_LINUX_LIBMPV_ENABLE_TRICKPLAY=1` to opt in.
+  - MPV stats hotkeys (`I`, `Shift+I`, `0-9`) are disabled by default on embedded Linux; set `BLOOM_LINUX_LIBMPV_ENABLE_STATS_HOTKEYS=1` to opt in.
 - Test playback flows with typical server and client device combinations to ensure direct play vs transcode logic works.
 - If track selection doesn't sync, verify that `playSessionId` is being passed correctly in all reporting calls.
 - If track preferences aren't being restored, check that `track_preferences.json` exists and contains the expected season/movie IDs.

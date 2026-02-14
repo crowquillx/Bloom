@@ -26,6 +26,27 @@
 Q_LOGGING_CATEGORY(lcPlayback, "bloom.playback")
 
 namespace {
+bool isLinuxEmbeddedLibmpvBackend(const IPlayerBackend *backend)
+{
+    return backend && backend->backendName() == QStringLiteral("linux-libmpv-opengl");
+}
+
+bool mpvStatsHotkeysAllowed(const IPlayerBackend *backend)
+{
+    if (!isLinuxEmbeddedLibmpvBackend(backend)) {
+        return true;
+    }
+    return qEnvironmentVariableIntValue("BLOOM_LINUX_LIBMPV_ENABLE_STATS_HOTKEYS") == 1;
+}
+
+bool embeddedLinuxTrickplayAllowed(const IPlayerBackend *backend)
+{
+    if (!isLinuxEmbeddedLibmpvBackend(backend)) {
+        return true;
+    }
+    return qEnvironmentVariableIntValue("BLOOM_LINUX_LIBMPV_ENABLE_TRICKPLAY") == 1;
+}
+
 class NullPlayerBackend final : public IPlayerBackend
 {
 public:
@@ -1184,6 +1205,12 @@ void PlayerController::showMpvStatsOnce()
 {
     if (m_playbackState == Loading || m_playbackState == Buffering
         || m_playbackState == Playing || m_playbackState == Paused) {
+        if (!mpvStatsHotkeysAllowed(m_playerBackend)) {
+            qCWarning(lcPlayback)
+                << "Ignoring mpv stats hotkey on embedded linux libmpv backend"
+                << "(set BLOOM_LINUX_LIBMPV_ENABLE_STATS_HOTKEYS=1 to override)";
+            return;
+        }
         m_playerBackend->sendCommand({"script-binding", "stats/display-stats"});
     }
 }
@@ -1192,6 +1219,12 @@ void PlayerController::toggleMpvStats()
 {
     if (m_playbackState == Loading || m_playbackState == Buffering
         || m_playbackState == Playing || m_playbackState == Paused) {
+        if (!mpvStatsHotkeysAllowed(m_playerBackend)) {
+            qCWarning(lcPlayback)
+                << "Ignoring mpv stats hotkey on embedded linux libmpv backend"
+                << "(set BLOOM_LINUX_LIBMPV_ENABLE_STATS_HOTKEYS=1 to override)";
+            return;
+        }
         m_playerBackend->sendCommand({"script-binding", "stats/display-stats-toggle"});
     }
 }
@@ -1204,6 +1237,12 @@ void PlayerController::showMpvStatsPage(int page)
 
     if (m_playbackState == Loading || m_playbackState == Buffering
         || m_playbackState == Playing || m_playbackState == Paused) {
+        if (!mpvStatsHotkeysAllowed(m_playerBackend)) {
+            qCWarning(lcPlayback)
+                << "Ignoring mpv stats page hotkey on embedded linux libmpv backend"
+                << "(set BLOOM_LINUX_LIBMPV_ENABLE_STATS_HOTKEYS=1 to override)";
+            return;
+        }
         const int mappedPage = (page == 0) ? 10 : page;
         const QString binding = QStringLiteral("stats/display-page-%1").arg(mappedPage);
         m_playerBackend->sendCommand({"script-binding", binding});
@@ -1645,7 +1684,7 @@ void PlayerController::initiateMpvStart()
         };
 
         auto shouldSkipEmbeddedArg = [](const QString &name) -> bool {
-            return name == QStringLiteral("config-dir")
+            if (name == QStringLiteral("config-dir")
                 || name == QStringLiteral("config")
                 || name == QStringLiteral("input-conf")
                 || name == QStringLiteral("include")
@@ -1660,7 +1699,16 @@ void PlayerController::initiateMpvStart()
                 || name == QStringLiteral("input-ipc-server")
                 || name == QStringLiteral("idle")
                 || name == QStringLiteral("vo")
-                || name == QStringLiteral("hwdec");
+                || name == QStringLiteral("hwdec")
+                || name == QStringLiteral("gpu-context")
+                || name == QStringLiteral("gpu-api")) {
+                return true;
+            }
+
+            return name.startsWith(QStringLiteral("vulkan-"))
+                || name.startsWith(QStringLiteral("opengl-"))
+                || name.startsWith(QStringLiteral("wayland-"))
+                || name.startsWith(QStringLiteral("x11-"));
         };
 
         for (const QString &arg : std::as_const(finalArgs)) {
@@ -1941,6 +1989,13 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
     clearTrickplayPreview();
     if (wasTrickplayReady) {
         emit trickplayStateChanged();
+    }
+
+    if (!embeddedLinuxTrickplayAllowed(m_playerBackend)) {
+        qCInfo(lcPlayback)
+            << "Skipping trickplay processing for embedded linux libmpv backend"
+            << "(set BLOOM_LINUX_LIBMPV_ENABLE_TRICKPLAY=1 to override)";
+        return;
     }
 
     // Start trickplay processing - download tiles and create binary file

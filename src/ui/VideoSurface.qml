@@ -38,7 +38,7 @@ Item {
 
         function syncEmbeddedViewport() {
             if (width > 0 && height > 0) {
-                var topLeft = videoTarget.mapToScene(0, 0)
+                var topLeft = videoTarget.mapToItem(null, 0, 0)
                 PlayerController.setEmbeddedVideoViewport(topLeft.x, topLeft.y, width, height)
             }
         }

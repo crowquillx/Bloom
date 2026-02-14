@@ -56,22 +56,25 @@ Window {
         return sidebar.sidebarWidth
     }
     readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
+    readonly property bool useDetachedPlaybackOverlayWindow: Qt.platform.os === "windows"
     readonly property bool playbackOverlayNavigationActive: embeddedPlaybackActive
-                                                         && embeddedPlaybackOverlay.fullControlsVisible
+                                                         && activeEmbeddedPlaybackOverlay.fullControlsVisible
     readonly property bool playbackSelectorOpen: embeddedPlaybackActive
-                                              && embeddedPlaybackOverlay.selectorOpen
+                                              && activeEmbeddedPlaybackOverlay.selectorOpen
 
     function ensurePlaybackOverlayFocus() {
         if (!embeddedPlaybackActive) {
             return
         }
-        embeddedPlaybackOverlay.showControls()
+        activeEmbeddedPlaybackOverlay.showControls()
         window.requestActivate()
-        embeddedOverlayWindow.requestActivate()
+        if (useDetachedPlaybackOverlayWindow) {
+            embeddedOverlayWindow.requestActivate()
+        }
         Qt.callLater(function() {
-            embeddedPlaybackOverlay.activateOverlayFocus()
+            activeEmbeddedPlaybackOverlay.activateOverlayFocus()
             Qt.callLater(function() {
-                embeddedPlaybackOverlay.activateOverlayFocus()
+                activeEmbeddedPlaybackOverlay.activateOverlayFocus()
             })
         })
     }
@@ -83,13 +86,25 @@ Window {
         z: 900
     }
 
+    EmbeddedPlaybackOverlay {
+        id: embeddedPlaybackOverlayInline
+        anchors.fill: parent
+        visible: embeddedPlaybackActive && !useDetachedPlaybackOverlayWindow
+        z: 950
+    }
+
+    property var activeEmbeddedPlaybackOverlay: useDetachedPlaybackOverlayWindow
+                                                ? embeddedPlaybackOverlayDetached
+                                                : embeddedPlaybackOverlayInline
+
     Window {
         id: embeddedOverlayWindow
         flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         transientParent: window
         modality: Qt.NonModal
         color: "transparent"
-        visible: window.visible
+        visible: useDetachedPlaybackOverlayWindow
+                 && window.visible
                  && window.visibility !== Window.Minimized
                  && embeddedPlaybackActive
         x: window.x
@@ -103,7 +118,7 @@ Window {
         }
 
         EmbeddedPlaybackOverlay {
-            id: embeddedPlaybackOverlay
+            id: embeddedPlaybackOverlayDetached
             anchors.fill: parent
         }
     }
@@ -590,7 +605,7 @@ Window {
         sequences: ["Space", "K"]
         enabled: PlayerController.isPlaybackActive
         onActivated: {
-            embeddedPlaybackOverlay.showControls()
+            activeEmbeddedPlaybackOverlay.showControls()
             PlayerController.togglePause()
         }
     }
@@ -599,7 +614,7 @@ Window {
         sequence: "Esc"
         enabled: PlayerController.isPlaybackActive
         onActivated: {
-            if (embeddedPlaybackOverlay.closeSelectors()) {
+            if (activeEmbeddedPlaybackOverlay.closeSelectors()) {
                 return
             }
             PlayerController.stop()
@@ -611,9 +626,9 @@ Window {
         enabled: PlayerController.isPlaybackActive && !playbackSelectorOpen
         onActivated: {
             if (playbackOverlayNavigationActive) {
-                embeddedPlaybackOverlay.handleDirectionalKey("left")
+                activeEmbeddedPlaybackOverlay.handleDirectionalKey("left")
             } else {
-                embeddedPlaybackOverlay.showSeekPreview()
+                activeEmbeddedPlaybackOverlay.showSeekPreview()
                 PlayerController.seekRelative(-10)
             }
         }
@@ -624,9 +639,9 @@ Window {
         enabled: PlayerController.isPlaybackActive && !playbackSelectorOpen
         onActivated: {
             if (playbackOverlayNavigationActive) {
-                embeddedPlaybackOverlay.handleDirectionalKey("right")
+                activeEmbeddedPlaybackOverlay.handleDirectionalKey("right")
             } else {
-                embeddedPlaybackOverlay.showSeekPreview()
+                activeEmbeddedPlaybackOverlay.showSeekPreview()
                 PlayerController.seekRelative(10)
             }
         }
@@ -635,20 +650,20 @@ Window {
     Shortcut {
         sequence: "Up"
         enabled: embeddedPlaybackActive && !playbackSelectorOpen
-        onActivated: embeddedPlaybackOverlay.handleDirectionalKey("up")
+        onActivated: activeEmbeddedPlaybackOverlay.handleDirectionalKey("up")
     }
 
     Shortcut {
         sequence: "Down"
         enabled: embeddedPlaybackActive && !playbackSelectorOpen
-        onActivated: embeddedPlaybackOverlay.handleDirectionalKey("down")
+        onActivated: activeEmbeddedPlaybackOverlay.handleDirectionalKey("down")
     }
 
     Shortcut {
         sequence: "J"
         enabled: PlayerController.isPlaybackActive
         onActivated: {
-            embeddedPlaybackOverlay.showSeekPreview()
+            activeEmbeddedPlaybackOverlay.showSeekPreview()
             PlayerController.seekRelative(-10)
         }
     }
@@ -657,7 +672,7 @@ Window {
         sequence: "L"
         enabled: PlayerController.isPlaybackActive
         onActivated: {
-            embeddedPlaybackOverlay.showSeekPreview()
+            activeEmbeddedPlaybackOverlay.showSeekPreview()
             PlayerController.seekRelative(10)
         }
     }
