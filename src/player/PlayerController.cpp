@@ -8,9 +8,11 @@
 #include "../network/AuthenticationService.h"
 #include "../network/Types.h"
 #include <QFile>
+#include <QBuffer>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QImage>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDebug>
@@ -405,6 +407,11 @@ void PlayerController::onEnterIdleState()
     m_currentSegments.clear();
     m_hasTrickplayInfo = false;
     m_currentTrickplayInfo = TrickplayTileInfo{};
+    m_trickplayBinaryPath.clear();
+    m_currentTrickplayFrameIndex = -1;
+    m_hasTrickplayPreviewPositionOverride = false;
+    m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    clearTrickplayPreview();
     emit timelineChanged();
     emit trickplayStateChanged();
     
@@ -615,6 +622,10 @@ void PlayerController::onPositionChanged(double seconds)
     m_currentPosition = seconds;
     if (!qFuzzyCompare(previousPosition + 1.0, seconds + 1.0)) {
         emit timelineChanged();
+    }
+
+    if (m_hasTrickplayInfo && !m_hasTrickplayPreviewPositionOverride) {
+        updateTrickplayPreviewForPosition(seconds);
     }
     
     // First position update - transition from Loading to Buffering
@@ -945,6 +956,11 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     m_currentSegments.clear();
     m_hasTrickplayInfo = false;
     m_currentTrickplayInfo = TrickplayTileInfo{};
+    m_trickplayBinaryPath.clear();
+    m_currentTrickplayFrameIndex = -1;
+    m_hasTrickplayPreviewPositionOverride = false;
+    m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    clearTrickplayPreview();
     emit timelineChanged();
     emit trickplayStateChanged();
     if (!itemId.isEmpty()) {
@@ -1835,14 +1851,19 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
         qDebug() << "PlayerController: Ignoring trickplay info for different item:" << itemId;
         return;
     }
+
+    const bool wasTrickplayReady = m_hasTrickplayInfo;
     
     if (trickplayInfo.isEmpty()) {
         qDebug() << "PlayerController: No trickplay info available for item:" << itemId;
-        if (m_hasTrickplayInfo) {
-            m_hasTrickplayInfo = false;
-            m_currentTrickplayInfo = TrickplayTileInfo{};
-            emit trickplayStateChanged();
-        }
+        m_hasTrickplayInfo = false;
+        m_currentTrickplayInfo = TrickplayTileInfo{};
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
         return;
     }
     
@@ -1865,6 +1886,22 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
     }
     
     const TrickplayTileInfo &info = trickplayInfo[selectedWidth];
+
+    if (info.interval <= 0 || info.thumbnailCount <= 0 || info.width <= 0 || info.height <= 0) {
+        qWarning() << "PlayerController: Ignoring invalid trickplay info for item:" << itemId
+                   << "interval:" << info.interval
+                   << "count:" << info.thumbnailCount
+                   << "size:" << info.width << "x" << info.height;
+        m_hasTrickplayInfo = false;
+        m_currentTrickplayInfo = TrickplayTileInfo{};
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
+        return;
+    }
     
     qDebug() << "PlayerController: Received trickplay info for item:" << itemId
              << "selected width:" << selectedWidth
@@ -1874,9 +1911,16 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
              << "count:" << info.thumbnailCount;
     
     m_currentTrickplayInfo = info;
-    m_hasTrickplayInfo = true;
-    emit trickplayStateChanged();
-    
+    m_hasTrickplayInfo = false;
+    m_trickplayBinaryPath.clear();
+    m_currentTrickplayFrameIndex = -1;
+    m_hasTrickplayPreviewPositionOverride = false;
+    m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    clearTrickplayPreview();
+    if (wasTrickplayReady) {
+        emit trickplayStateChanged();
+    }
+
     // Start trickplay processing - download tiles and create binary file
     // This uses the jellyfin-mpv-shim approach for proper mpv overlay support
     m_trickplayProcessor->startProcessing(itemId, info);
@@ -1895,8 +1939,30 @@ void PlayerController::onTrickplayProcessingComplete(const QString &itemId, int 
              << "interval:" << intervalMs << "ms"
              << "size:" << width << "x" << height
              << "file:" << filePath;
-    
-    // Native overlay consumes trickplay metadata and processed files directly.
+
+    if (count <= 0 || intervalMs <= 0 || width <= 0 || height <= 0 || filePath.isEmpty() || !QFile::exists(filePath)) {
+        qWarning() << "PlayerController: Trickplay processing result is invalid, disabling trickplay for item:" << itemId;
+        m_hasTrickplayInfo = false;
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
+        return;
+    }
+
+    m_currentTrickplayInfo.thumbnailCount = count;
+    m_currentTrickplayInfo.interval = intervalMs;
+    m_currentTrickplayInfo.width = width;
+    m_currentTrickplayInfo.height = height;
+    m_trickplayBinaryPath = filePath;
+    m_hasTrickplayInfo = true;
+    m_currentTrickplayFrameIndex = -1;
+    updateTrickplayPreviewForPosition(
+        m_hasTrickplayPreviewPositionOverride ? m_trickplayPreviewPositionOverrideSeconds : m_currentPosition
+    );
+    emit trickplayStateChanged();
 }
 
 void PlayerController::onTrickplayProcessingFailed(const QString &itemId, const QString &error)
@@ -1907,8 +1973,137 @@ void PlayerController::onTrickplayProcessingFailed(const QString &itemId, const 
     
     qWarning() << "PlayerController: Trickplay processing failed for item:" << itemId << "error:" << error;
     // Trickplay thumbnails won't be available, but playback continues normally
+    m_hasTrickplayInfo = false;
+    m_trickplayBinaryPath.clear();
+    m_currentTrickplayFrameIndex = -1;
+    m_hasTrickplayPreviewPositionOverride = false;
+    m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    clearTrickplayPreview();
+    emit trickplayStateChanged();
+}
+
+void PlayerController::setTrickplayPreviewPositionSeconds(double seconds)
+{
+    m_hasTrickplayPreviewPositionOverride = true;
+    m_trickplayPreviewPositionOverrideSeconds = qMax(0.0, seconds);
     if (m_hasTrickplayInfo) {
-        m_hasTrickplayInfo = false;
-        emit trickplayStateChanged();
+        updateTrickplayPreviewForPosition(m_trickplayPreviewPositionOverrideSeconds);
     }
+}
+
+void PlayerController::clearTrickplayPreviewPositionOverride()
+{
+    if (!m_hasTrickplayPreviewPositionOverride) {
+        return;
+    }
+
+    m_hasTrickplayPreviewPositionOverride = false;
+    m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    if (m_hasTrickplayInfo) {
+        updateTrickplayPreviewForPosition(m_currentPosition);
+    }
+}
+
+void PlayerController::updateTrickplayPreviewForPosition(double seconds)
+{
+    if (!m_hasTrickplayInfo
+        || m_trickplayBinaryPath.isEmpty()
+        || m_currentTrickplayInfo.interval <= 0
+        || m_currentTrickplayInfo.thumbnailCount <= 0
+        || m_currentTrickplayInfo.width <= 0
+        || m_currentTrickplayInfo.height <= 0) {
+        clearTrickplayPreview();
+        return;
+    }
+
+    if (!QFile::exists(m_trickplayBinaryPath)) {
+        m_hasTrickplayInfo = false;
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
+        return;
+    }
+
+    const int requestedMs = qMax(0, static_cast<int>(seconds * 1000.0));
+    int frameIndex = requestedMs / m_currentTrickplayInfo.interval;
+    frameIndex = qBound(0, frameIndex, m_currentTrickplayInfo.thumbnailCount - 1);
+    if (frameIndex == m_currentTrickplayFrameIndex && !m_trickplayPreviewUrl.isEmpty()) {
+        return;
+    }
+
+    const QString previewUrl = buildTrickplayPreviewDataUrl(
+        m_trickplayBinaryPath,
+        frameIndex,
+        m_currentTrickplayInfo.width,
+        m_currentTrickplayInfo.height
+    );
+
+    if (previewUrl.isEmpty()) {
+        qWarning() << "PlayerController: Failed to load trickplay frame" << frameIndex << "for item" << m_currentItemId;
+        m_hasTrickplayInfo = false;
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
+        return;
+    }
+
+    m_currentTrickplayFrameIndex = frameIndex;
+    if (m_trickplayPreviewUrl != previewUrl) {
+        m_trickplayPreviewUrl = previewUrl;
+        emit trickplayPreviewChanged();
+    }
+}
+
+void PlayerController::clearTrickplayPreview()
+{
+    if (m_trickplayPreviewUrl.isEmpty()) {
+        return;
+    }
+    m_trickplayPreviewUrl.clear();
+    emit trickplayPreviewChanged();
+}
+
+QString PlayerController::buildTrickplayPreviewDataUrl(const QString &binaryPath, int frameIndex, int width, int height)
+{
+    if (binaryPath.isEmpty() || frameIndex < 0 || width <= 0 || height <= 0) {
+        return QString();
+    }
+
+    QFile file(binaryPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QString();
+    }
+
+    const qint64 frameSize = static_cast<qint64>(width) * height * 4;
+    if (frameSize <= 0) {
+        return QString();
+    }
+
+    const qint64 offset = frameSize * frameIndex;
+    if (!file.seek(offset)) {
+        return QString();
+    }
+
+    const QByteArray frame = file.read(frameSize);
+    if (frame.size() != frameSize) {
+        return QString();
+    }
+
+    // TrickplayProcessor stores frame data in BGRA byte order.
+    QImage image(reinterpret_cast<const uchar *>(frame.constData()), width, height, width * 4, QImage::Format_ARGB32);
+    QImage detached = image.copy();
+
+    QByteArray pngBytes;
+    QBuffer pngBuffer(&pngBytes);
+    if (!pngBuffer.open(QIODevice::WriteOnly) || !detached.save(&pngBuffer, "PNG")) {
+        return QString();
+    }
+
+    return QStringLiteral("data:image/png;base64,%1").arg(QString::fromLatin1(pngBytes.toBase64()));
 }

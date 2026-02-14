@@ -144,7 +144,7 @@ UI Components for Track Selection
   - Center group: skip back 10s, previous chapter, play/pause, next chapter, skip forward 10s.
   - Right group: volume/mute icon button.
   - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
-  - Trickplay preview bubble: currently a UI scaffold (visible on hover/active seek) with placeholder content; image rendering integration is intentionally deferred.
+  - Trickplay preview bubble: renders processed Jellyfin trickplay thumbnails from `PlayerController` and is hidden entirely when trickplay images are unavailable.
 
 Playback overlay metadata
 - `PlayerController` now exposes `overlayTitle` and `overlaySubtitle` for native overlay header text.

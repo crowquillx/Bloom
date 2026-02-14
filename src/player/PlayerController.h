@@ -65,6 +65,7 @@ class PlayerController : public QObject
     Q_PROPERTY(double progressRatio READ progressRatio NOTIFY timelineChanged)
     Q_PROPERTY(bool hasTrickplay READ hasTrickplay NOTIFY trickplayStateChanged)
     Q_PROPERTY(int trickplayIntervalMs READ trickplayIntervalMs NOTIFY trickplayStateChanged)
+    Q_PROPERTY(QString trickplayPreviewUrl READ trickplayPreviewUrl NOTIFY trickplayPreviewChanged)
     Q_PROPERTY(QString currentItemId READ currentItemId NOTIFY currentItemIdChanged)
     Q_PROPERTY(QString overlayTitle READ overlayTitle NOTIFY overlayMetadataChanged)
     Q_PROPERTY(QString overlaySubtitle READ overlaySubtitle NOTIFY overlayMetadataChanged)
@@ -134,7 +135,8 @@ public:
     double durationSeconds() const { return m_duration; }
     double progressRatio() const { return m_duration > 0.0 ? qBound(0.0, m_currentPosition / m_duration, 1.0) : 0.0; }
     bool hasTrickplay() const { return m_hasTrickplayInfo; }
-    int trickplayIntervalMs() const { return m_currentTrickplayInfo.interval; }
+    int trickplayIntervalMs() const { return m_hasTrickplayInfo ? m_currentTrickplayInfo.interval : 0; }
+    QString trickplayPreviewUrl() const { return m_trickplayPreviewUrl; }
     QString currentItemId() const { return m_currentItemId; }
     QString overlayTitle() const { return m_overlayTitle; }
     QString overlaySubtitle() const { return m_overlaySubtitle; }
@@ -185,6 +187,8 @@ public:
     Q_INVOKABLE void sendMpvKeypress(const QString &key);
     Q_INVOKABLE void setOverlayMetadata(const QString &title, const QString &subtitle = QString(), const QString &backdropUrl = QString());
     Q_INVOKABLE void clearOverlayMetadata();
+    Q_INVOKABLE void setTrickplayPreviewPositionSeconds(double seconds);
+    Q_INVOKABLE void clearTrickplayPreviewPositionOverride();
     
     // Get last used track preferences for a season (for episode continuity)
     Q_INVOKABLE int getLastAudioTrackForSeason(const QString &seasonId) const;
@@ -217,6 +221,7 @@ signals:
     void embeddedVideoShrinkEnabledChanged();
     void timelineChanged();
     void trickplayStateChanged();
+    void trickplayPreviewChanged();
     void currentItemIdChanged();
     void overlayMetadataChanged();
     
@@ -311,6 +316,9 @@ private:
     void loadConfig();
     void startPlayback(const QString &url);
     void initiateMpvStart();
+    void updateTrickplayPreviewForPosition(double seconds);
+    void clearTrickplayPreview();
+    static QString buildTrickplayPreviewDataUrl(const QString &binaryPath, int frameIndex, int width, int height);
     void connectBackendSignals(IPlayerBackend *backend);
     bool tryFallbackToExternalBackend(const QString &reason);
     void updateTrackMappings(const QVariantList &audioTrackMap, const QVariantList &subtitleTrackMap);
@@ -419,6 +427,11 @@ private:
     QList<MediaSegmentInfo> m_currentSegments;
     TrickplayTileInfo m_currentTrickplayInfo;
     bool m_hasTrickplayInfo = false;
+    QString m_trickplayBinaryPath;
+    int m_currentTrickplayFrameIndex = -1;
+    QString m_trickplayPreviewUrl;
+    bool m_hasTrickplayPreviewPositionOverride = false;
+    double m_trickplayPreviewPositionOverrideSeconds = 0.0;
 };
 
 // Hash functions required for QHash with enum types

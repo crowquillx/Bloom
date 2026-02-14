@@ -719,23 +719,30 @@ FocusScope {
                     id: trickplayBubble
                     width: Math.round(240 * Theme.layoutScale)
                     height: Math.round(136 * Theme.layoutScale)
-                    x: Math.max(0, Math.min(progressTrack.width - width, progressFill.width - width / 2))
-                    visible: seekPreviewActive || progressMouse.containsMouse
+                    readonly property real anchorX: (progressMouse.containsMouse && progressTrack.width > 0)
+                                                    ? Math.max(0, Math.min(progressTrack.width, progressMouse.mouseX))
+                                                    : progressFill.width
+                    x: Math.max(0, Math.min(progressTrack.width - width, anchorX - width / 2))
+                    visible: PlayerController.hasTrickplay && (seekPreviewActive || progressMouse.containsMouse)
 
                     Rectangle {
+                        id: trickplayFrame
                         anchors.fill: parent
                         radius: Theme.radiusLarge
                         color: Theme.cardBackground
                         border.width: 1
                         border.color: Theme.cardBorder
-                    }
+                        clip: true
 
-                    Text {
-                        anchors.centerIn: parent
-                        color: Theme.textSecondary
-                        font.family: Theme.fontPrimary
-                        font.pixelSize: Theme.fontSizeSmall
-                        text: PlayerController.hasTrickplay ? qsTr("Trickplay preview") : qsTr("Preview coming soon")
+                        Image {
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            source: PlayerController.trickplayPreviewUrl
+                            fillMode: Image.PreserveAspectCrop
+                            cache: false
+                            asynchronous: true
+                            smooth: true
+                        }
                     }
                 }
 
@@ -776,6 +783,13 @@ FocusScope {
                         id: progressMouse
                         anchors.fill: parent
                         hoverEnabled: true
+                        onPositionChanged: function(mouse) {
+                            if (!PlayerController.hasTrickplay || progressTrack.width <= 0 || PlayerController.durationSeconds <= 0) {
+                                return
+                            }
+                            var ratio = Math.max(0, Math.min(1, mouse.x / progressTrack.width))
+                            PlayerController.setTrickplayPreviewPositionSeconds(PlayerController.durationSeconds * ratio)
+                        }
                         onPressed: function(mouse) {
                             if (progressTrack.width <= 0 || PlayerController.durationSeconds <= 0) {
                                 return
@@ -784,8 +798,18 @@ FocusScope {
                             PlayerController.seek(PlayerController.durationSeconds * ratio)
                             root.showSeekPreview(true)
                         }
-                        onEntered: root.seekPreviewActive = true
-                        onExited: root.seekPreviewActive = false
+                        onEntered: function() {
+                            root.seekPreviewActive = true
+                            if (!PlayerController.hasTrickplay || progressTrack.width <= 0 || PlayerController.durationSeconds <= 0) {
+                                return
+                            }
+                            var ratio = Math.max(0, Math.min(1, mouseX / progressTrack.width))
+                            PlayerController.setTrickplayPreviewPositionSeconds(PlayerController.durationSeconds * ratio)
+                        }
+                        onExited: function() {
+                            root.seekPreviewActive = false
+                            PlayerController.clearTrickplayPreviewPositionOverride()
+                        }
                     }
                 }
 
