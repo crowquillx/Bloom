@@ -11,6 +11,7 @@ build-windows/
 cmake-build-*/
 out/
 _codeql_build_dir/
+third_party/
 
 # ===========================
 # CMake Generated Files

@@ -746,6 +746,12 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
         }
         
         qDebug() << "PlayerController: Autoplaying next episode";
+
+        QString subtitle = QStringLiteral("S%1 E%2").arg(seasonNumber).arg(episodeNumber);
+        if (!episodeName.isEmpty()) {
+            subtitle += QStringLiteral(" - ") + episodeName;
+        }
+        setOverlayMetadata(seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName, subtitle);
         
         // Emit signal for UI notification
         emit autoplayingNextEpisode(episodeName, seriesName);

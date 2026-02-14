@@ -13,14 +13,14 @@ FocusScope {
     readonly property bool paused: PlayerController.playbackState === PlayerController.Paused
     readonly property string mediaTitle: (PlayerController.overlayTitle && PlayerController.overlayTitle.length > 0)
                                         ? PlayerController.overlayTitle
-                                        : ((PlayerController.currentItemId && PlayerController.currentItemId.length > 0)
-                                           ? PlayerController.currentItemId
-                                           : qsTr("Now Playing"))
+                                        : qsTr("Now Playing")
     readonly property string mediaSubtitle: (PlayerController.overlaySubtitle && PlayerController.overlaySubtitle.length > 0)
                                            ? PlayerController.overlaySubtitle
                                            : (paused ? qsTr("Paused") : qsTr("Playing"))
     property bool controlsVisible: false
     property bool seekPreviewActive: false
+    property bool seekOnlyMode: false
+    readonly property bool fullControlsVisible: controlsVisible && !seekOnlyMode
     property int controlsAutoHideMs: 2500
     default property alias overlayContent: overlayRoot.data
 
@@ -44,11 +44,129 @@ FocusScope {
             return
         }
         controlsVisible = true
+        seekOnlyMode = false
         if (paused || seekPreviewActive || hasFocusedControl()) {
             hideTimer.stop()
         } else {
             hideTimer.restart()
         }
+    }
+
+    function activateOverlayFocus() {
+        if (!overlayActive) {
+            return
+        }
+        showControls()
+        root.forceActiveFocus()
+        Qt.callLater(function() { playPauseButton.forceActiveFocus() })
+    }
+
+    function showSeekPreview() {
+        if (!overlayActive) {
+            return
+        }
+        controlsVisible = true
+        seekOnlyMode = true
+        hideTimer.stop()
+        seekPreviewActive = true
+        seekPreviewTimer.restart()
+    }
+
+    function focusControl(target) {
+        if (target) {
+            target.forceActiveFocus()
+        }
+    }
+
+    function handleDirectionalKey(direction) {
+        if (!overlayActive) {
+            return false
+        }
+
+        if (seekOnlyMode) {
+            if (direction === "left") {
+                PlayerController.seekRelative(-10)
+                showSeekPreview()
+                return true
+            }
+            if (direction === "right") {
+                PlayerController.seekRelative(10)
+                showSeekPreview()
+                return true
+            }
+            if (direction === "up" || direction === "down") {
+                showControls()
+                focusControl(playPauseButton)
+                return true
+            }
+        }
+
+        if (!fullControlsVisible) {
+            showControls()
+            focusControl(playPauseButton)
+            return true
+        }
+
+        var active = root.Window.activeFocusItem
+        if (!active || !hasFocusedControl()) {
+            focusControl(playPauseButton)
+            return true
+        }
+
+        if (direction === "up") {
+            if (active === backButton) {
+                return true
+            }
+            if (active === progressFocus) {
+                focusControl(backButton)
+            } else {
+                focusControl(progressFocus)
+            }
+            return true
+        }
+
+        if (direction === "down") {
+            if (active === backButton || active === progressFocus) {
+                focusControl(playPauseButton)
+            }
+            return true
+        }
+
+        if (direction === "left") {
+            if (active === progressFocus) {
+                PlayerController.seekRelative(-10)
+                showSeekPreview()
+                return true
+            }
+            if (active === audioButton) focusControl(volumeButton)
+            else if (active === subtitleButton) focusControl(audioButton)
+            else if (active === skipBackButton) focusControl(subtitleButton)
+            else if (active === previousChapterButton) focusControl(skipBackButton)
+            else if (active === playPauseButton) focusControl(previousChapterButton)
+            else if (active === nextChapterButton) focusControl(playPauseButton)
+            else if (active === skipForwardButton) focusControl(nextChapterButton)
+            else if (active === volumeButton) focusControl(skipForwardButton)
+            return true
+        }
+
+        if (direction === "right") {
+            if (active === progressFocus) {
+                PlayerController.seekRelative(10)
+                showSeekPreview()
+                return true
+            }
+            if (active === audioButton) focusControl(subtitleButton)
+            else if (active === subtitleButton) focusControl(skipBackButton)
+            else if (active === skipBackButton) focusControl(previousChapterButton)
+            else if (active === previousChapterButton) focusControl(playPauseButton)
+            else if (active === playPauseButton) focusControl(nextChapterButton)
+            else if (active === nextChapterButton) focusControl(skipForwardButton)
+            else if (active === skipForwardButton) focusControl(volumeButton)
+            else if (active === volumeButton) focusControl(audioButton)
+            return true
+        }
+
+        return false
     }
 
     function hasFocusedControl() {
@@ -71,12 +189,13 @@ FocusScope {
 
     onOverlayActiveChanged: {
         if (overlayActive) {
-            showControls()
-            Qt.callLater(function() { playPauseButton.forceActiveFocus() })
+            activateOverlayFocus()
         } else {
             hideTimer.stop()
+            seekPreviewTimer.stop()
             controlsVisible = false
             seekPreviewActive = false
+            seekOnlyMode = false
         }
     }
 
@@ -92,11 +211,32 @@ FocusScope {
         }
     }
 
+    onControlsVisibleChanged: {
+        if (controlsVisible && !seekOnlyMode && !InputModeManager.pointerActive && overlayActive) {
+            Qt.callLater(function() { playPauseButton.forceActiveFocus() })
+        }
+    }
+
     Timer {
         id: hideTimer
         interval: root.controlsAutoHideMs
         repeat: false
         onTriggered: root.hideControlsIfAllowed()
+    }
+
+    Timer {
+        id: seekPreviewTimer
+        interval: 900
+        repeat: false
+        onTriggered: {
+            root.seekPreviewActive = false
+            if (root.seekOnlyMode && !root.paused) {
+                root.controlsVisible = false
+                root.seekOnlyMode = false
+            } else {
+                root.showControls()
+            }
+        }
     }
 
     MouseArea {
@@ -109,7 +249,17 @@ FocusScope {
     }
 
     Keys.onPressed: function(event) {
-        root.showControls()
+        if (event.key === Qt.Key_Left) {
+            event.accepted = root.handleDirectionalKey("left")
+        } else if (event.key === Qt.Key_Right) {
+            event.accepted = root.handleDirectionalKey("right")
+        } else if (event.key === Qt.Key_Up) {
+            event.accepted = root.handleDirectionalKey("up")
+        } else if (event.key === Qt.Key_Down) {
+            event.accepted = root.handleDirectionalKey("down")
+        } else {
+            root.showControls()
+        }
     }
 
     component GlassCircleButton: Button {
@@ -162,7 +312,7 @@ FocusScope {
         anchors.left: parent.left
         anchors.right: parent.right
         height: Math.round(150 * Theme.layoutScale)
-        visible: root.controlsVisible
+        visible: root.fullControlsVisible
         gradient: Gradient {
             GradientStop { position: 0.0; color: Qt.rgba(Theme.playbackOverlayTopTint.r, Theme.playbackOverlayTopTint.g, Theme.playbackOverlayTopTint.b, 0.70) }
             GradientStop { position: 1.0; color: "transparent" }
@@ -174,7 +324,7 @@ FocusScope {
         anchors.left: parent.left
         anchors.right: parent.right
         height: Math.round(300 * Theme.layoutScale)
-        visible: root.controlsVisible
+        visible: root.fullControlsVisible
         gradient: Gradient {
             GradientStop { position: 0.0; color: "transparent" }
             GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.60) }
@@ -183,7 +333,7 @@ FocusScope {
 
     Item {
         anchors.fill: parent
-        visible: root.controlsVisible
+        visible: root.fullControlsVisible
 
         Row {
             anchors.top: parent.top
@@ -309,7 +459,7 @@ FocusScope {
                             }
                             var ratio = Math.max(0, Math.min(1, mouse.x / progressTrack.width))
                             PlayerController.seek(PlayerController.durationSeconds * ratio)
-                            root.showControls()
+                            root.showSeekPreview()
                         }
                         onEntered: root.seekPreviewActive = true
                         onExited: root.seekPreviewActive = false
@@ -323,20 +473,15 @@ FocusScope {
                     activeFocusOnTab: true
                     KeyNavigation.up: backButton
                     KeyNavigation.down: playPauseButton
-                    Keys.onLeftPressed: {
+                    Keys.onLeftPressed: function(event) {
+                        event.accepted = true
                         PlayerController.seekRelative(-10)
-                        root.seekPreviewActive = true
-                        root.showControls()
+                        root.showSeekPreview()
                     }
-                    Keys.onRightPressed: {
+                    Keys.onRightPressed: function(event) {
+                        event.accepted = true
                         PlayerController.seekRelative(10)
-                        root.seekPreviewActive = true
-                        root.showControls()
-                    }
-                    Keys.onReleased: function(event) {
-                        if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
-                            root.seekPreviewActive = false
-                        }
+                        root.showSeekPreview()
                     }
 
                     RowLayout {
@@ -397,7 +542,10 @@ FocusScope {
                         diameter: Math.round(64 * Theme.layoutScale)
                         iconSize: Math.round(28 * Theme.layoutScale)
                         text: Icons.fastRewind
-                        onClicked: PlayerController.seekRelative(-10)
+                        onClicked: {
+                            PlayerController.seekRelative(-10)
+                            root.showSeekPreview()
+                        }
                         KeyNavigation.left: subtitleButton
                         KeyNavigation.right: previousChapterButton
                         KeyNavigation.up: progressFocus
@@ -442,7 +590,10 @@ FocusScope {
                         diameter: Math.round(64 * Theme.layoutScale)
                         iconSize: Math.round(28 * Theme.layoutScale)
                         text: Icons.fastForward
-                        onClicked: PlayerController.seekRelative(10)
+                        onClicked: {
+                            PlayerController.seekRelative(10)
+                            root.showSeekPreview()
+                        }
                         KeyNavigation.left: nextChapterButton
                         KeyNavigation.right: volumeButton
                         KeyNavigation.up: progressFocus

@@ -56,6 +56,8 @@ Window {
         return sidebar.sidebarWidth
     }
     readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
+    readonly property bool playbackOverlayNavigationActive: embeddedPlaybackActive
+                                                         && embeddedPlaybackOverlay.fullControlsVisible
 
     VideoSurface {
         id: videoSurface
@@ -77,6 +79,14 @@ Window {
         y: window.y
         width: window.width
         height: window.height
+        onVisibleChanged: {
+            if (visible) {
+                requestActivate()
+                Qt.callLater(function() {
+                    embeddedPlaybackOverlay.activateOverlayFocus()
+                })
+            }
+        }
 
         EmbeddedPlaybackOverlay {
             id: embeddedPlaybackOverlay
@@ -560,25 +570,57 @@ Window {
     Shortcut {
         sequence: "Left"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.seekRelative(-10)
+        onActivated: {
+            if (playbackOverlayNavigationActive) {
+                embeddedPlaybackOverlay.handleDirectionalKey("left")
+            } else {
+                embeddedPlaybackOverlay.showSeekPreview()
+                PlayerController.seekRelative(-10)
+            }
+        }
     }
 
     Shortcut {
         sequence: "Right"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.seekRelative(10)
+        onActivated: {
+            if (playbackOverlayNavigationActive) {
+                embeddedPlaybackOverlay.handleDirectionalKey("right")
+            } else {
+                embeddedPlaybackOverlay.showSeekPreview()
+                PlayerController.seekRelative(10)
+            }
+        }
+    }
+
+    Shortcut {
+        sequence: "Up"
+        enabled: embeddedPlaybackActive
+        onActivated: embeddedPlaybackOverlay.handleDirectionalKey("up")
+    }
+
+    Shortcut {
+        sequence: "Down"
+        enabled: embeddedPlaybackActive
+        onActivated: embeddedPlaybackOverlay.handleDirectionalKey("down")
     }
 
     Shortcut {
         sequence: "J"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.seekRelative(-10)
+        onActivated: {
+            embeddedPlaybackOverlay.showSeekPreview()
+            PlayerController.seekRelative(-10)
+        }
     }
 
     Shortcut {
         sequence: "L"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.seekRelative(10)
+        onActivated: {
+            embeddedPlaybackOverlay.showSeekPreview()
+            PlayerController.seekRelative(10)
+        }
     }
 
     Shortcut {
