@@ -118,10 +118,8 @@ bool DisplayManager::setRefreshRate(double hz)
 
 bool DisplayManager::restoreRefreshRate()
 {
-    if (!m_refreshRateChanged) {
-        // No temporary refresh override is active; clear any stale capture.
-        m_hasCapturedOriginalRefreshRate = false;
-        m_originalRefreshRate = 0.0;
+    const bool hasCapturedTarget = m_hasCapturedOriginalRefreshRate && m_originalRefreshRate > 0.0;
+    if (!m_refreshRateChanged && !hasCapturedTarget) {
         return true;
     }
 

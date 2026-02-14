@@ -61,3 +61,4 @@ Video settings
 - `settings.video.enable_hdr` (Q_PROPERTY `enableHDR`): When true, enables HDR output for HDR content. Default: false. Configurable via Settings > Video > Enable HDR.
   - For HDR content, Bloom waits briefly for the HDR mode switch to settle before applying framerate matching. This avoids some Windows/TV/GPU combinations reverting to 60Hz after HDR is enabled.
   - Bloom also snapshots the pre-HDR refresh rate and uses it as the restore target when playback ends.
+  - This pre-HDR restore path is applied even when framerate matching is disabled.
