@@ -10,7 +10,7 @@ FocusScope {
     focus: visible
 
     readonly property bool overlayActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
-    readonly property bool paused: PlayerController.stateName === "Paused"
+    readonly property bool paused: PlayerController.isPaused
     readonly property string mediaTitle: (PlayerController.overlayTitle && PlayerController.overlayTitle.length > 0)
                                         ? PlayerController.overlayTitle
                                         : qsTr("Now Playing")
@@ -385,8 +385,23 @@ FocusScope {
             event.accepted = root.handleDirectionalKey("up")
         } else if (event.key === Qt.Key_Down) {
             event.accepted = root.handleDirectionalKey("down")
+        } else if (event.key === Qt.Key_I) {
+            event.accepted = true
+            if (event.modifiers & Qt.ShiftModifier) {
+                PlayerController.showMpvStatsOnce()
+            } else {
+                PlayerController.toggleMpvStats()
+            }
+        } else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9) {
+            event.accepted = true
+            PlayerController.showMpvStatsPage(event.key - Qt.Key_0)
+        } else if (event.key === Qt.Key_Shift
+                   || event.key === Qt.Key_Control
+                   || event.key === Qt.Key_Alt
+                   || event.key === Qt.Key_Meta) {
+            event.accepted = false
         } else {
-            root.showControls()
+            event.accepted = false
         }
     }
 

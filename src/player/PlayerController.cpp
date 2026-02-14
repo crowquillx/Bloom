@@ -1164,6 +1164,36 @@ void PlayerController::toggleMute()
     }
 }
 
+void PlayerController::showMpvStatsOnce()
+{
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"script-binding", "stats/display-stats"});
+    }
+}
+
+void PlayerController::toggleMpvStats()
+{
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"script-binding", "stats/display-stats-toggle"});
+    }
+}
+
+void PlayerController::showMpvStatsPage(int page)
+{
+    if (page < 0 || page > 9) {
+        return;
+    }
+
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        const int mappedPage = (page == 0) ? 10 : page;
+        const QString binding = QStringLiteral("stats/display-page-%1").arg(mappedPage);
+        m_playerBackend->sendCommand({"script-binding", binding});
+    }
+}
+
 void PlayerController::sendMpvKeypress(const QString &key)
 {
     if (key.isEmpty()) {

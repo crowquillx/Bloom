@@ -671,72 +671,72 @@ Window {
     Shortcut {
         sequence: "I"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("i")
+        onActivated: PlayerController.toggleMpvStats()
     }
 
     Shortcut {
         sequence: "Shift+I"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("I")
+        onActivated: PlayerController.showMpvStatsOnce()
     }
 
     Shortcut {
         sequence: "0"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("0")
+        onActivated: PlayerController.showMpvStatsPage(0)
     }
 
     Shortcut {
         sequence: "1"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("1")
+        onActivated: PlayerController.showMpvStatsPage(1)
     }
 
     Shortcut {
         sequence: "2"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("2")
+        onActivated: PlayerController.showMpvStatsPage(2)
     }
 
     Shortcut {
         sequence: "3"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("3")
+        onActivated: PlayerController.showMpvStatsPage(3)
     }
 
     Shortcut {
         sequence: "4"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("4")
+        onActivated: PlayerController.showMpvStatsPage(4)
     }
 
     Shortcut {
         sequence: "5"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("5")
+        onActivated: PlayerController.showMpvStatsPage(5)
     }
 
     Shortcut {
         sequence: "6"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("6")
+        onActivated: PlayerController.showMpvStatsPage(6)
     }
 
     Shortcut {
         sequence: "7"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("7")
+        onActivated: PlayerController.showMpvStatsPage(7)
     }
 
     Shortcut {
         sequence: "8"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("8")
+        onActivated: PlayerController.showMpvStatsPage(8)
     }
 
     Shortcut {
         sequence: "9"
         enabled: PlayerController.isPlaybackActive
-        onActivated: PlayerController.sendMpvKeypress("9")
+        onActivated: PlayerController.showMpvStatsPage(9)
     }
 }

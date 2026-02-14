@@ -53,6 +53,7 @@ class PlayerController : public QObject
     Q_PROPERTY(QString stateName READ stateName NOTIFY stateChanged)
     Q_PROPERTY(bool isBuffering READ isBuffering NOTIFY isBufferingChanged)
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
+    Q_PROPERTY(bool isPaused READ isPaused NOTIFY playbackStateChanged)
     Q_PROPERTY(bool hasError READ hasError NOTIFY hasErrorChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(int bufferingProgress READ bufferingProgress NOTIFY bufferingProgressChanged)
@@ -111,6 +112,7 @@ public:
     QString stateName() const;
     bool isBuffering() const;
     bool isLoading() const;
+    bool isPaused() const { return m_playbackState == Paused; }
     bool hasError() const;
     QString errorMessage() const;
     int bufferingProgress() const;
@@ -175,6 +177,9 @@ public:
     Q_INVOKABLE void previousChapter();
     Q_INVOKABLE void nextChapter();
     Q_INVOKABLE void toggleMute();
+    Q_INVOKABLE void showMpvStatsOnce();
+    Q_INVOKABLE void toggleMpvStats();
+    Q_INVOKABLE void showMpvStatsPage(int page);
     Q_INVOKABLE void sendMpvKeypress(const QString &key);
     Q_INVOKABLE void setOverlayMetadata(const QString &title, const QString &subtitle = QString());
     Q_INVOKABLE void clearOverlayMetadata();
