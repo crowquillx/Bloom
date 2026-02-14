@@ -134,7 +134,7 @@ FocusScope {
 
     // Back shortcut only when browsing library grid/folders; detail views handle their own back key
     Shortcut {
-        sequences: ["Esc", "Back", "Backspace"]
+        sequences: ["Esc", "Back"]
         enabled: currentParentId !== "" && !showSeriesDetails && !showSeasonView && !showMovieDetails
         onActivated: navigateBack()
     }
@@ -1134,7 +1134,7 @@ FocusScope {
                     if (event.isAutoRepeat) {
                         return
                     }
-                    if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
+                    if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
                         if (currentParentId !== "") {
                             navigateBack()
                             event.accepted = true

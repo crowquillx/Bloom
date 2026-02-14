@@ -544,7 +544,7 @@ Window {
     }
 
     Shortcut {
-        sequences: ["Esc", "Backspace"]
+        sequences: ["Esc"]
         enabled: !PlayerController.isPlaybackActive
                  && stackView.depth > 1
                  && !sidebar.expanded

@@ -32,7 +32,7 @@ bool InputModeManager::eventFilter(QObject *watched, QEvent *event)
                 emit navigationKeyPressed();
             } else if (key == Qt::Key_Return || key == Qt::Key_Enter || key == Qt::Key_Space) {
                 emit selectKeyPressed();
-            } else if (key == Qt::Key_Escape || key == Qt::Key_Backspace) {
+            } else if (key == Qt::Key_Escape) {
                 emit backKeyPressed();
             }
         }

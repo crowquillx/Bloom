@@ -41,7 +41,7 @@ FocusScope {
             event.accepted = true
             return
         }
-        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape || event.key === Qt.Key_Backspace) {
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
             if (contextMenu.opened) {
                 console.log("[SeriesDetailsView] Ignoring Back/Escape - context menu is open")
                 event.accepted = true

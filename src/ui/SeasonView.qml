@@ -48,7 +48,7 @@ FocusScope {
             event.accepted = true
             return
         }
-        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
             console.log("[SeasonView] Back key pressed - triggering backRequested")
             root.backRequested()
             event.accepted = true
