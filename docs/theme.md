@@ -76,6 +76,21 @@ Standard component sizes.
 - `posterWidth` / `posterHeight` (standard 2:3 ratio)
 - `cardWidthMedium` / `cardHeightMedium` (standard 16:9 ratio)
 
+### Playback Overlay Tokens
+- `playbackOverlayTopTint`
+- `playbackOverlayBottomTint`
+- `playbackControlGlassBackground`
+- `playbackControlGlassBackgroundHover`
+- `playbackControlGlassBorder`
+- `playbackControlGlassBorderStrong`
+- `playbackProgressTrack`
+- `playbackProgressFill`
+- `playbackTimePrimary`
+- `playbackTimeSecondary`
+- `playbackIconColor`
+
+Use these instead of hardcoded playback overlay colors so both built-in themes remain consistent.
+
 ## Layout Patterns
 
 ### Proportional Sizing

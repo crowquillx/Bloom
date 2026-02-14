@@ -22,7 +22,10 @@ FocusScope {
     signal playRequested(string itemId, var startPositionTicks, double framerate, bool isHDR)
     signal playRequestedWithTracks(string itemId, var startPositionTicks, string mediaSourceId, 
                                     string playSessionId, int audioIndex, int subtitleIndex,
-                                    int mpvAudioTrack, int mpvSubtitleTrack, double framerate, bool isHDR)
+                                    int mpvAudioTrack, int mpvSubtitleTrack,
+                                    var audioTrackMap, var subtitleTrackMap,
+                                    var availableAudioTracks, var availableSubtitleTracks,
+                                    double framerate, bool isHDR)
     
     Connections {
         target: SeriesDetailsViewModel
@@ -454,51 +457,51 @@ FocusScope {
         console.log("[SeriesSeasonEpisodeView] applyTrackPreferences - selectedAudioIndex:", selectedAudioIndex, "selectedSubtitleIndex:", selectedSubtitleIndex)
     }
     
-    // MPV track conversion helpers - accept mediaSource as parameter to avoid timing issues
-    function getMpvAudioTrackNumber(jellyfinStreamIndex, mediaSource) {
-        if (!mediaSource || !mediaSource.mediaStreams || jellyfinStreamIndex < 0) return -1
-        var audioTrackNum = 0
+    // Canonical contract for Milestone D:
+    // - UI + PlayerController selected* use Jellyfin stream index.
+    // - mpv aid/sid use runtime track IDs, mapped by media-type order.
+    // - subtitle none stays Jellyfin -1 and maps to sid "no".
+    function buildTrackMap(streamType, mediaSource) {
+        var map = []
+        if (!mediaSource || !mediaSource.mediaStreams) return map
+        var mpvTrackId = 1
         for (var i = 0; i < mediaSource.mediaStreams.length; i++) {
             var stream = mediaSource.mediaStreams[i]
-            if (stream.type === "Audio") {
-                audioTrackNum++
-                if (stream.index === jellyfinStreamIndex) {
-                    return audioTrackNum
-                }
+            if (stream.type === streamType) {
+                map.push({ jellyfinIndex: stream.index, mpvTrackId: mpvTrackId })
+                mpvTrackId++
+            }
+        }
+        return map
+    }
+    
+    function resolveMpvTrackId(jellyfinStreamIndex, trackMap) {
+        if (jellyfinStreamIndex < 0) return -1
+        for (var i = 0; i < trackMap.length; i++) {
+            if (trackMap[i].jellyfinIndex === jellyfinStreamIndex) {
+                return trackMap[i].mpvTrackId
             }
         }
         return -1
     }
-    
-    function getMpvSubtitleTrackNumber(jellyfinStreamIndex, mediaSource) {
-        console.log("[SeriesSeasonEpisodeView] getMpvSubtitleTrackNumber called with jellyfinStreamIndex:", jellyfinStreamIndex);
-        if (!mediaSource) {
-            console.log("[SeriesSeasonEpisodeView] getMpvSubtitleTrackNumber returning -1: mediaSource is null/undefined");
-            return -1
+
+    function buildTrackOptions(streams) {
+        var tracks = []
+        for (var i = 0; i < streams.length; i++) {
+            var stream = streams[i]
+            tracks.push({
+                index: stream.index,
+                displayTitle: TrackUtils.formatTrackName(stream),
+                language: stream.language,
+                codec: stream.codec,
+                channels: stream.channels,
+                channelLayout: stream.channelLayout,
+                isDefault: stream.isDefault,
+                isForced: stream.isForced,
+                isHearingImpaired: stream.isHearingImpaired
+            })
         }
-        if (!mediaSource.mediaStreams) {
-            console.log("[SeriesSeasonEpisodeView] getMpvSubtitleTrackNumber returning -1: mediaSource.mediaStreams is null/undefined");
-            return -1
-        }
-        if (jellyfinStreamIndex < 0) {
-            console.log("[SeriesSeasonEpisodeView] getMpvSubtitleTrackNumber returning -1: jellyfinStreamIndex < 0");
-            return -1
-        }
-        var subTrackNum = 0
-        console.log("[SeriesSeasonEpisodeView] getMpvSubtitleTrackNumber scanning", mediaSource.mediaStreams.length, "streams");
-        for (var i = 0; i < mediaSource.mediaStreams.length; i++) {
-            var stream = mediaSource.mediaStreams[i]
-            if (stream.type === "Subtitle") {
-                subTrackNum++
-                console.log("[SeriesSeasonEpisodeView] Subtitle stream #" + subTrackNum + ": jellyfin index", stream.index, "(looking for:", jellyfinStreamIndex + ")");
-                if (stream.index === jellyfinStreamIndex) {
-                    console.log("[SeriesSeasonEpisodeView] ✓ Found matching subtitle! Jellyfin index:", stream.index, "-> mpv track:", subTrackNum);
-                    return subTrackNum
-                }
-            }
-        }
-        console.log("[SeriesSeasonEpisodeView] ✗ No matching subtitle stream found for jellyfin index:", jellyfinStreamIndex);
-        return -1
+        return tracks
     }
     
     function getVideoFramerate() {
@@ -596,12 +599,21 @@ FocusScope {
                     "currentMediaSource:", currentMediaSource !== null,
                     "mediaSource:", mediaSource !== null)
         console.log("[SeriesSeasonEpisodeView] performPlayback - selectedAudioIndex:", selectedAudioIndex, "selectedSubtitleIndex:", selectedSubtitleIndex)
+
+        var overlayTitle = seriesName || qsTr("Now Playing")
+        var episodePrefix = qsTr("S%1 E%2").arg(selectedSeasonNumber).arg(selectedEpisodeNumber)
+        var overlaySubtitle = selectedEpisodeName ? (episodePrefix + " - " + selectedEpisodeName) : episodePrefix
+        PlayerController.setOverlayMetadata(overlayTitle, overlaySubtitle, SeriesDetailsViewModel.backdropUrl || SeriesDetailsViewModel.posterUrl)
         
         if (info && mediaSource) {
             var mediaSourceId = mediaSource.id
             var playSessionId = info.playSessionId || ""
-            var mpvAudio = getMpvAudioTrackNumber(selectedAudioIndex, mediaSource)
-            var mpvSubtitle = getMpvSubtitleTrackNumber(selectedSubtitleIndex, mediaSource)
+            var audioTrackMap = buildTrackMap("Audio", mediaSource)
+            var subtitleTrackMap = buildTrackMap("Subtitle", mediaSource)
+            var mpvAudio = resolveMpvTrackId(selectedAudioIndex, audioTrackMap)
+            var mpvSubtitle = resolveMpvTrackId(selectedSubtitleIndex, subtitleTrackMap)
+            var availableAudioTracks = buildTrackOptions(getAudioStreams())
+            var availableSubtitleTracks = buildTrackOptions(getSubtitleStreams())
             
             console.log("[SeriesSeasonEpisodeView] Playback with tracks - mediaSourceId:", mediaSourceId,
                         "playSessionId:", playSessionId, "startPos:", startPos,
@@ -610,7 +622,10 @@ FocusScope {
             
             root.playRequestedWithTracks(selectedEpisodeId, startPos, mediaSourceId, playSessionId,
                                          selectedAudioIndex, selectedSubtitleIndex,
-                                         mpvAudio, mpvSubtitle, framerate, isHDR)
+                                         mpvAudio, mpvSubtitle,
+                                         audioTrackMap, subtitleTrackMap,
+                                         availableAudioTracks, availableSubtitleTracks,
+                                         framerate, isHDR)
             
             // Save track preferences
             var seasonId = SeriesDetailsViewModel.selectedSeasonId

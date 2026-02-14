@@ -32,6 +32,7 @@ FocusScope {
     
     // Visual customization
     property int preferredWidth: 300
+    property bool openUpward: false
     
     // Signals
     signal trackSelected(int index)
@@ -226,7 +227,7 @@ FocusScope {
             id: popup
             focus: true
             x: 0
-            y: selectorButton.height + 4
+            y: openUpward ? -implicitHeight - 4 : selectorButton.height + 4
             width: root.preferredWidth
             implicitHeight: Math.min(trackListView.contentHeight + 16, 250)
             padding: 8

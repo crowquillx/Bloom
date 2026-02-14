@@ -57,12 +57,114 @@ jobs:
         run: choco install ninja -y
         shell: pwsh
 
+      - name: Install 7zip
+        run: choco install 7zip -y
+        shell: pwsh
+
+      - name: Fetch libmpv SDK
+        shell: pwsh
+        run: |
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
+          $asset = $release.assets | Where-Object { $_.name -match '^mpv-dev-x86_64-.*\.(7z|zip)$' } | Select-Object -First 1
+          if (-not $asset) {
+            Write-Error "Could not find mpv-dev-x86_64 SDK asset in latest shinchiro/mpv-winbuild-cmake release."
+            exit 1
+          }
+
+          $downloadPath = Join-Path $PWD $asset.name
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $downloadPath
+
+          $extractRoot = Join-Path $PWD "third_party\mpv"
+          if (Test-Path $extractRoot) { Remove-Item -Recurse -Force $extractRoot }
+          New-Item -ItemType Directory -Path $extractRoot | Out-Null
+
+          if ($asset.name.ToLower().EndsWith(".zip")) {
+            Expand-Archive -Path $downloadPath -DestinationPath $extractRoot -Force
+          } else {
+            & 7z x $downloadPath "-o$extractRoot" -y | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "Failed to extract $($asset.name) with 7z."
+              exit 1
+            }
+          }
+
+          $mpvRootCandidate = Get-ChildItem -Path $extractRoot -Directory -Recurse |
+            Where-Object { Test-Path (Join-Path $_.FullName "include\mpv\client.h") } |
+            Select-Object -First 1
+
+          if ($mpvRootCandidate) {
+            $mpvRoot = $mpvRootCandidate.FullName
+          } elseif (Test-Path (Join-Path $extractRoot "include\mpv\client.h")) {
+            $mpvRoot = $extractRoot
+          } else {
+            Write-Error "Extracted mpv-dev SDK does not contain include\\mpv\\client.h"
+            exit 1
+          }
+
+          $importLib = Get-ChildItem -Path $mpvRoot -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -in @("libmpv-2.lib", "mpv-2.lib", "libmpv.lib", "mpv.lib") } |
+            Select-Object -First 1
+
+          if (-not $importLib) {
+            $mpvDll = Get-ChildItem -Path $mpvRoot -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -in @("libmpv-2.dll", "mpv-2.dll", "mpv.dll") } |
+              Select-Object -First 1
+
+            if (-not $mpvDll) {
+              Write-Error "mpv-dev bundle has no import library and no runtime DLL to generate one from."
+              exit 1
+            }
+
+            $libDir = Join-Path $mpvRoot "lib"
+            if (-not (Test-Path $libDir)) {
+              New-Item -ItemType Directory -Path $libDir | Out-Null
+            }
+
+            $exportsRaw = & dumpbin /exports $mpvDll.FullName
+            if ($LASTEXITCODE -ne 0) {
+              Write-Error "dumpbin failed while reading exports from $($mpvDll.FullName)"
+              exit 1
+            }
+
+            $exportNames = New-Object System.Collections.Generic.List[string]
+            foreach ($line in $exportsRaw) {
+              if ($line -match "^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)$") {
+                $name = $matches[1]
+                if ($name -and $name -ne "[NONAME]") {
+                  $exportNames.Add($name)
+                }
+              }
+            }
+
+            if ($exportNames.Count -eq 0) {
+              Write-Error "No exports parsed from $($mpvDll.FullName); cannot generate import library."
+              exit 1
+            }
+
+            $defPath = Join-Path $libDir "libmpv-2.def"
+            $defContent = @("LIBRARY libmpv-2.dll", "EXPORTS") + ($exportNames | Sort-Object -Unique)
+            Set-Content -Path $defPath -Value $defContent -Encoding ascii
+
+            $outLib = Join-Path $libDir "libmpv-2.lib"
+            & lib /def:$defPath /machine:x64 /out:$outLib
+            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outLib)) {
+              Write-Error "Failed to generate MSVC import library at $outLib"
+              exit 1
+            }
+
+            Write-Host "Generated import library: $outLib"
+          }
+
+          "MPV_ROOT=$mpvRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Using MPV_ROOT=$mpvRoot"
+
       - name: Cache sccache
         uses: actions/cache@v4
         with:
-          path: ~/.cache/sccache
-          key: ${{ runner.os }}-sccache-${{ github.sha }}
+          path: .sccache
+          key: ${{ runner.os }}-sccache-msvc2022-qt610-v2
           restore-keys: |
+            ${{ runner.os }}-sccache-msvc2022-qt610-
             ${{ runner.os }}-sccache-
 
       - name: Setup sccache
@@ -76,38 +178,53 @@ jobs:
 
       - name: Build
         env:
-          SCCACHE_DIR: ~/.cache/sccache
-          SCCACHE_CACHE_SIZE: "2G"
+          SCCACHE_DIR: ${{ github.workspace }}/.sccache
+          SCCACHE_CACHE_SIZE: "4G"
         shell: pwsh
         run: |
           sccache --start-server
-          if (-Not (Test-Path build)) {
-            New-Item -ItemType Directory -Path build
+          $installPrefix = [System.IO.Path]::GetFullPath((Join-Path $PWD "install-windows"))
+          if (-Not (Test-Path build-windows)) {
+            New-Item -ItemType Directory -Path build-windows
           }
-          cd build
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          cd build-windows
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX="$installPrefix" -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
           cmake --build .
+          cmake --install . --config Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $cacheFile = Join-Path $PWD "CMakeCache.txt"
+          if (Test-Path $cacheFile) {
+            $hasMpvHeaders = Select-String -Path $cacheFile -Pattern "^BLOOM_MPV_INCLUDE_DIR:PATH=.*$" | Select-Object -First 1
+            $hasMpvLib = Select-String -Path $cacheFile -Pattern "^BLOOM_MPV_LIBRARY:FILEPATH=.*$" | Select-Object -First 1
+            $mpvMissing = (($hasMpvHeaders -and $hasMpvHeaders.Line -match "NOTFOUND") -or ($hasMpvLib -and $hasMpvLib.Line -match "NOTFOUND") -or (-not $hasMpvHeaders) -or (-not $hasMpvLib))
+            if ($mpvMissing) {
+              Write-Error "libmpv SDK not detected during configure (BLOOM_MPV_INCLUDE_DIR/BLOOM_MPV_LIBRARY). Windows build requires direct libmpv support."
+              exit 1
+            }
+          }
+          if (Test-Path "$installPrefix\bin\Bloom.exe") {
+            Write-Host "Installed Bloom.exe at $installPrefix\bin\Bloom.exe"
+          } else {
+            Write-Warning "Bloom.exe not found at expected install path: $installPrefix\bin\Bloom.exe"
+            Get-ChildItem -Path "$installPrefix" -Recurse -ErrorAction SilentlyContinue | Select-Object FullName
+          }
           sccache --show-stats
           sccache --stop-server
 
       - name: Package App
+        shell: pwsh
         run: |
-          mkdir Bloom-Windows
-          cp build/src/Bloom.exe Bloom-Windows/
-          windeployqt Bloom-Windows/Bloom.exe --qmldir src/ui --release --no-translations
-          
-          # Debug: List all files to see where BloomUI is
-          Get-ChildItem -Path Bloom-Windows -Recurse | Select-Object FullName
-          
-          # Robust cleanup of redundant BloomUI module
-          $redundantModule = Get-ChildItem -Path Bloom-Windows -Filter "BloomUI" -Recurse -Directory
-          if ($redundantModule) {
-            Write-Host "Removing redundant BloomUI module found at: $($redundantModule.FullName)"
-            Remove-Item -Recurse -Force $redundantModule.FullName
-          } else {
-            Write-Host "WARNING: BloomUI module not found in deployment output."
+          ./scripts/package-windows.ps1 -InstallDir install-windows -OutputDir Bloom-Windows
+
+      - name: Verify libmpv Runtime Present
+        shell: pwsh
+        run: |
+          $libmpv = Get-ChildItem -Path Bloom-Windows -Filter "*mpv*.dll" -File -Recurse -ErrorAction SilentlyContinue
+          if (-not $libmpv) {
+            Write-Error "No libmpv runtime DLL found in Bloom-Windows package. Windows playback policy requires bundled libmpv."
+            exit 1
           }
+          Write-Host "Found libmpv runtime: $($libmpv[0].Name)"
 
       - name: Install NSIS
         run: |

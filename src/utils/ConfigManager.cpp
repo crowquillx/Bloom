@@ -77,7 +77,7 @@ QStringList ConfigManager::getMpvConfigArgs()
 {
     QStringList args;
     
-    // Disable built-in OSC since we use ModernX
+    // Disable mpv OSC; playback controls are handled by Bloom's native overlay.
     args << "--no-osc";
     
     QString mpvConfigDir = getMpvConfigDir();
@@ -91,11 +91,6 @@ QStringList ConfigManager::getMpvConfigArgs()
         // Explicitly enable config loading from our directory
         args << "--config=yes";
         
-        // Point mpv to our fonts directory for OSC icons (Material Design Iconic Font)
-        QString fontsDir = mpvConfigDir + "/fonts";
-        if (QDir(fontsDir).exists()) {
-            args << "--osd-fonts-dir=" + fontsDir;
-        }
     }
     
     // If we have a custom mpv.conf, use it
@@ -145,104 +140,7 @@ bool ConfigManager::ensureConfigDirExists()
         qDebug() << "ConfigManager: Created mpv config directory:" << mpvDir;
     }
     
-    // Create scripts subdirectory
-    QString scriptsDir = mpvDir + "/scripts";
-    QDir scripts(scriptsDir);
-    if (!scripts.exists()) {
-        if (!scripts.mkpath(".")) {
-            qWarning() << "ConfigManager: Failed to create mpv scripts directory:" << scriptsDir;
-            // Non-fatal, continue
-        } else {
-            qDebug() << "ConfigManager: Created mpv scripts directory:" << scriptsDir;
-        }
-    }
-    
     return true;
-}
-
-void ConfigManager::installBundledScripts()
-{
-    QString scriptsDir = getMpvConfigDir() + "/scripts";
-    QDir dir(scriptsDir);
-    if (!dir.exists()) {
-        if (!dir.mkpath(".")) {
-            qWarning() << "ConfigManager: Failed to create scripts directory for bundled scripts";
-            return;
-        }
-    }
-    
-    // List of bundled scripts to install
-    QStringList bundledScripts = {
-        "thumbfast.lua",
-        "modernx.lua"
-    };
-    
-    for (const QString &scriptName : bundledScripts) {
-        QString resourcePath = ":/scripts/" + scriptName;
-        QString destPath = scriptsDir + "/" + scriptName;
-        
-        QFile resourceFile(resourcePath);
-        if (!resourceFile.exists()) {
-            qWarning() << "ConfigManager: Bundled script not found:" << resourcePath;
-            continue;
-        }
-        
-        // Always overwrite to ensure latest version (scripts are managed by Bloom)
-        if (QFile::exists(destPath)) {
-            QFile::remove(destPath);
-        }
-        
-        if (resourceFile.copy(destPath)) {
-            // Make the file writable (QFile::copy preserves read-only from resources)
-            QFile::setPermissions(destPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup | QFile::ReadOther);
-            qDebug() << "ConfigManager: Installed bundled script:" << scriptName;
-        } else {
-            qWarning() << "ConfigManager: Failed to install script:" << scriptName << "to" << destPath;
-        }
-    }
-    
-    // Install bundled fonts for mpv OSC
-    installBundledFonts();
-}
-
-void ConfigManager::installBundledFonts()
-{
-    QString fontsDir = getMpvConfigDir() + "/fonts";
-    QDir dir(fontsDir);
-    if (!dir.exists()) {
-        if (!dir.mkpath(".")) {
-            qWarning() << "ConfigManager: Failed to create fonts directory for bundled fonts";
-            return;
-        }
-    }
-    
-    // List of bundled fonts to install (for mpv OSC)
-    QStringList bundledFonts = {
-        "Material-Design-Iconic-Font.ttf"
-    };
-    
-    for (const QString &fontName : bundledFonts) {
-        QString resourcePath = ":/fonts/" + fontName;
-        QString destPath = fontsDir + "/" + fontName;
-        
-        QFile resourceFile(resourcePath);
-        if (!resourceFile.exists()) {
-            qWarning() << "ConfigManager: Bundled font not found:" << resourcePath;
-            continue;
-        }
-        
-        // Always overwrite to ensure latest version
-        if (QFile::exists(destPath)) {
-            QFile::remove(destPath);
-        }
-        
-        if (resourceFile.copy(destPath)) {
-            QFile::setPermissions(destPath, QFile::ReadOwner | QFile::WriteOwner | QFile::ReadGroup | QFile::ReadOther);
-            qDebug() << "ConfigManager: Installed bundled font:" << fontName;
-        } else {
-            qWarning() << "ConfigManager: Failed to install font:" << fontName << "to" << destPath;
-        }
-    }
 }
 
 void ConfigManager::load()
@@ -525,6 +423,22 @@ bool ConfigManager::getRoundedImagePreprocessEnabled() const
     return envOverridesRoundedPreprocess(enabled);
 }
 
+QString ConfigManager::normalizePlayerBackendName(const QString &backendName) const
+{
+    const QString normalized = backendName.trimmed().toLower();
+    if (normalized.isEmpty() || normalized == "auto") {
+        return QString();
+    }
+    if (normalized == "external-mpv-ipc"
+        || normalized == "linux-libmpv-opengl"
+        || normalized == "win-libmpv") {
+        return normalized;
+    }
+
+    qWarning() << "ConfigManager: Ignoring unknown player backend preference:" << backendName;
+    return QString();
+}
+
 QString ConfigManager::normalizeRoundedMode(const QString &raw) const
 {
     const QString lowered = raw.trimmed().toLower();
@@ -707,6 +621,49 @@ bool ConfigManager::getAutoplayNextEpisode() const
         }
     }
     return true; // Default to enabled
+}
+
+void ConfigManager::setPlayerBackend(const QString &backendName)
+{
+    const QString normalizedBackend = normalizePlayerBackendName(backendName);
+    if (normalizedBackend == getPlayerBackend()) {
+        return;
+    }
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+
+    if (normalizedBackend.isEmpty()) {
+        playback.remove("player_backend");
+    } else {
+        playback["player_backend"] = normalizedBackend;
+    }
+
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit playerBackendChanged();
+}
+
+QString ConfigManager::getPlayerBackend() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("player_backend")) {
+                return normalizePlayerBackendName(playback["player_backend"].toString());
+            }
+        }
+    }
+
+    return QString();
 }
 
 void ConfigManager::setThemeSongVolume(int level)
@@ -1470,6 +1427,31 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV10ToV11(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 11;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject playback = settings.value("playback").toObject();
+        if (playback.contains("player_backend")) {
+            const QString normalized = playback.value("player_backend").toString().trimmed().toLower();
+            if (normalized.isEmpty() || normalized == "auto") {
+                playback.remove("player_backend");
+            } else if (normalized == "external-mpv-ipc"
+                       || normalized == "linux-libmpv-opengl"
+                       || normalized == "win-libmpv") {
+                playback["player_backend"] = normalized;
+            } else {
+                playback.remove("player_backend");
+            }
+        }
+
+        settings["playback"] = playback;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -1561,6 +1543,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 10) {
+            m_config = ConfigMigrator::migrateV10ToV11(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -1581,6 +1571,7 @@ bool ConfigManager::validateConfig(const QJsonObject &cfg)
     if (!settings.contains("playback") || !settings["playback"].isObject()) return false;
     QJsonObject playback = settings["playback"].toObject();
     if (!playback.contains("completion_threshold")) return false;
+    if (playback.contains("player_backend") && !playback["player_backend"].isString()) return false;
     return true;
 }
 

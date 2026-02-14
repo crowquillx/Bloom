@@ -1,12 +1,82 @@
 Playback — mpv & Jellyfin Integration
 
 Overview
-- mpv runs as an external, top-level process (avoid --wid embedding or transparent Qt overlays). Prefer `vo=gpu-next` on supported platforms.
-- Player is controlled via JSON IPC (Unix domain sockets on Linux; named pipes on Windows). The repo uses a PlayerProcessManager that launches mpv and exposes JSON IPC to the C++ controller.
+- Active production policy is platform-specific:
+  - Windows always uses embedded libmpv (`win-libmpv`).
+  - Linux keeps current fallback behavior; embedded libmpv remains experimental.
+- Linux embedded libmpv backend (`linux-libmpv-opengl`) is currently experimental and less tested than Windows/external playback paths.
+- Linux Wayland sessions currently default to `external-mpv-ipc` unless explicitly opted in (`BLOOM_ENABLE_WAYLAND_LIBMPV=1`) due to unresolved embedded render-path issues on some compositor/GPU combinations.
+- Linux non-Wayland runtime selection still attempts embedded backend when runtime requirements are met, with automatic fallback to `external-mpv-ipc` when unsupported.
+- Windows uses `win-libmpv`, which launches mpv with HWND embedding (`--wid`) against the attached `VideoSurface` target while preserving the external backend process path for non-Windows rollback/testing.
+- Other non-Linux platforms keep `external-mpv-ipc` as default.
+- `external-mpv-ipc` remains fully supported as an explicit backend override on non-Windows platforms via `BLOOM_PLAYER_BACKEND=external-mpv-ipc`.
+- Bundled mpv Lua UI/trickplay scripts are retired; playback controls/overlay behavior are handled natively by Bloom UI.
+
+Backend architecture
+- Playback now routes through `IPlayerBackend` (`src/player/backend/IPlayerBackend.h`).
+- `PlayerController` depends on the backend interface (not directly on `PlayerProcessManager`).
+- Default backend is platform-aware via `PlayerBackendFactory` (Linux prefers embedded backend when runtime-supported; Windows defaults to `win-libmpv`; others default external).
+- Active backend is logged at startup from `ApplicationInitializer`.
+- Optional environment override for backend selection: `BLOOM_PLAYER_BACKEND`.
+- Optional config backend preference: `settings.playback.player_backend` in `app.json` (`external-mpv-ipc`, `linux-libmpv-opengl`, `win-libmpv`, or unset for platform default).
+- Selection precedence is now:
+  - Windows: forced `win-libmpv` (env/config backend override values are ignored).
+  - Non-Windows: `BLOOM_PLAYER_BACKEND` env override -> config `player_backend` -> platform default.
+- Unknown backend names safely resolve to `external-mpv-ipc`.
+
+Windows embedded backend details
+- Added `WindowsMpvBackend` scaffold under `src/player/backend/`.
+- Selector token: `win-libmpv`.
+- Windows backend now resolves target `winId` from `MpvVideoItem`, creates a dedicated child host window, and keeps host geometry synced to `VideoSurface` viewport updates for embedded playback.
+- Windows backend now attempts a direct libmpv control path first (`mpv_create`/`mpv_initialize`/`mpv_command_node_async`/`mpv_observe_property`/`mpv_wait_event`) while preserving the `PlayerController` contract.
+- If direct libmpv initialization/load fails (or libmpv is unavailable at build time), `win-libmpv` reports an error; no implicit alternate backend is used.
+- Playback controls are now exercised through the direct Windows backend command path in the same migration slice: play/pause/resume/seek/stop plus audio/subtitle property commands.
+- Added `EmbeddedPlaybackOverlay.qml` as a backend-agnostic overlay host/state layer used by a transparent overlay window on Windows, intended for cross-platform overlay reuse.
+
+Windows embedded overlay layering model
+- Video is rendered by libmpv into a native child host window attached to the playback target (`--wid`).
+- Playback controls are rendered in a separate transparent QML overlay window that tracks the main window geometry and sits above video.
+- UX contract: showing/hiding controls must not resize, shift, or clip the video viewport.
+- Credits/next-up shrink mode remains a separate feature path and must continue to work independently of normal full-frame overlay behavior.
+
+Reference implementation notes (Plezy)
+- External reference: https://github.com/edde746/plezy
+- Bloom should use Plezy as a design reference for mpv integration choices (embedded window lifecycle, async command/event flow, observed-property mapping, and transition/flicker mitigation patterns), not as a direct code drop.
+- Because Plezy is Flutter-based and Bloom is Qt/C++, adopt the architecture decisions and sequencing, then map them onto Bloom backends (`IPlayerBackend`, `PlayerController`, Qt window/focus lifecycle, and existing services/tests).
+- For Windows work, prefer Plezy’s approach as the sanity baseline for: direct libmpv control path, explicit event loop handling, and window transition handling around minimize/maximize/fullscreen.
+
+- Plezy-aligned decisions already adopted in Bloom:
+  - direct libmpv command/property/event model on Windows,
+  - explicit window lifecycle handling for resize/move/minimize/maximize/fullscreen,
+  - Qt/C++ adaptation boundaries preserved (no Flutter/plugin coupling),
+  - direct-only `win-libmpv` behavior remains intentional (no implicit alternate backend path).
+
+Linux embedded backend details (experimental)
+- `IPlayerBackend` now includes embedded-video capability hooks:
+  - `supportsEmbeddedVideo()`
+  - `attachVideoTarget(...)` / `detachVideoTarget(...)`
+  - `setVideoViewport(...)`
+- Linux backend implementation entry point: `LinuxMpvBackend`.
+- `MpvVideoItem` + `VideoSurface.qml` added for minimal embedded surface plumbing.
+- `PlayerController` exposes minimal embedded-video passthrough and internal/manual shrink toggle API.
+- Linux backend now includes:
+  - typed `sendVariantCommand(...)` dispatch through libmpv command nodes,
+  - `client-message`/`scriptMessage` forwarding parity,
+  - `aid`/`sid` normalization parity with external backend contract (including node-typed mpv values like `no`/`auto`),
+  - render hardening for viewport bounds/FBO-state restoration/update-callback lifecycle, including coalesced render-update scheduling during teardown/re-init.
+- Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing.
+- Current Linux support status: embedded path is not yet considered fully supported across compositor/driver combinations; treat `external-mpv-ipc` as the stable production path while Linux embedded validation continues.
+- Controller parity hardening now preserves next-up/autoplay context across playback teardown, so async `itemMarkedPlayed`/`nextUnplayedEpisode` flows keep the expected series/item/track state.
+- Unit regression coverage now includes the mismatched-series guard for async next-episode callbacks to prevent stale-series autoplay context from being consumed.
 
 Key components
-- PlayerProcessManager: manages mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
-- PlayerController: state machine that handles play/pause/resume, listens for mpv property updates, manages track selection, and reports playback state to the Jellyfin server.
+- IPlayerBackend: playback backend contract used by `PlayerController`.
+- ExternalMpvBackend: adapter that delegates to `PlayerProcessManager`.
+- LinuxMpvBackend: Linux embedded backend entry point.
+- LinuxMpvBackend now includes basic `mpv_handle` lifecycle, property/event observation, and a Qt Quick `beforeRendering`-driven `mpv_render_context` render path (Linux runtime validation still pending).
+- MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
+- PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
+- PlayerController: state machine that handles play/pause/resume, listens for backend updates, manages track selection, and reports playback state to the Jellyfin server.
 - JellyfinClient: handles API communication for reporting playback events, track selections, and sessions.
 - TrackPreferencesManager: persists audio/subtitle track preferences to a separate JSON file for fast lookup and persistence across sessions.
 
@@ -15,6 +85,11 @@ Audio/Subtitle Track Selection
 - Each `MediaSourceInfo` contains `mediaStreams` array with `MediaStreamInfo` objects describing video, audio, and subtitle tracks.
 - The server provides `defaultAudioStreamIndex` and `defaultSubtitleStreamIndex` which reflect the user's preferences set on the Jellyfin server.
 - Use `PlayerController::setSelectedAudioTrack(index)` and `setSelectedSubtitleTrack(index)` to change tracks during playback via mpv IPC (`aid`, `sid` properties).
+- Canonical track mapping contract:
+  - UI and reporting state use Jellyfin `MediaStream.index`.
+  - Runtime mpv switching uses mapped mpv track IDs (1-based per media type order).
+  - Subtitle `None` is Jellyfin `-1` and is applied as `sid=no`.
+  - Startup applies resolved mapped selection deterministically; URL stream indices are treated as request hints/fallback.
 - Track selections are persisted per-season for TV shows and per-movie for films (see Track Preference Persistence below).
 - All playback reporting methods include `mediaSourceId`, `audioStreamIndex`, `subtitleStreamIndex`, and `playSessionId` for proper server sync.
 
@@ -64,6 +139,19 @@ UI Components for Track Selection
 - `TrackSelector.qml`: Reusable dropdown component for selecting audio/subtitle tracks with keyboard navigation.
 - `MediaInfoPanel.qml`: Displays video info (resolution, codec, HDR) and contains audio/subtitle `TrackSelector` components.
 - `SeriesSeasonEpisodeView.qml` and `MovieDetailsView.qml`: Integrate `MediaInfoPanel` to show track selection before playback.
+- `EmbeddedPlaybackOverlay.qml`: Native 10-foot playback overlay (top metadata bar + bottom transport row) rendered in the dedicated transparent overlay window for Windows embedded playback.
+  - Left group: audio/subtitle icon buttons (runtime track cycling via `PlayerController`).
+  - Center group: skip back 10s, previous chapter, play/pause, next chapter, skip forward 10s.
+  - Right group: volume/mute icon button.
+  - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
+  - Trickplay preview bubble: renders processed Jellyfin trickplay thumbnails from `PlayerController` and is hidden entirely when trickplay images are unavailable.
+
+Playback overlay metadata
+- `PlayerController` now exposes `overlayTitle` and `overlaySubtitle` for native overlay header text.
+- Detail views set metadata before playback starts:
+  - Movies: title + production year.
+  - Episodes: series title + `Sxx Exx - Episode Name`.
+- Fallback behavior still exists (`currentItemId`) when explicit metadata is not provided.
 
 Playback Reporting
 - Report sequence: Start -> Periodic Progress -> Pause/Resume -> Stop.

@@ -1,3 +1,5 @@
+include(GNUInstallDirs)
+
 qt_add_executable(Bloom
     core/ApplicationInitializer.cpp
     ui/WindowManager.cpp
@@ -7,14 +9,20 @@ qt_add_executable(Bloom
     core/ServiceLocator.h
     core/ServiceLocator.cpp
     resources/fonts.qrc
-    resources/scripts.qrc
     resources/sounds.qrc
     resources/images.qrc
     player/PlayerProcessManager.cpp
     player/PlayerController.cpp
+    player/MpvVideoItem.h
+    player/MpvVideoItem.cpp
     player/ThemeSongManager.cpp
     player/TrickplayProcessor.cpp
     player/TrickplayProcessor.h
+    player/backend/IPlayerBackend.h
+    player/backend/ExternalMpvBackend.h
+    player/backend/ExternalMpvBackend.cpp
+    player/backend/PlayerBackendFactory.h
+    player/backend/PlayerBackendFactory.cpp
     network/AuthenticationService.h
     network/AuthenticationService.cpp
     network/LibraryService.h
@@ -122,6 +130,8 @@ qt_add_qml_module(Bloom
         ui/Sidebar.qml
         ui/MediaProgressBar.qml
         ui/MpvProfileEditor.qml
+        ui/VideoSurface.qml
+        ui/EmbeddedPlaybackOverlay.qml
         ui/TrackSelector.qml
         ui/MediaInfoPanel.qml
         ui/ToastNotification.qml
@@ -129,6 +139,115 @@ qt_add_qml_module(Bloom
         ui/ActiveSessionsScreen.qml
         ui/TrackUtils.js
 )
+
+if(UNIX AND NOT APPLE)
+    target_sources(Bloom PRIVATE
+        player/backend/LinuxMpvBackend.h
+        player/backend/LinuxMpvBackend.cpp
+    )
+
+    if(COMMAND pkg_check_modules)
+        pkg_check_modules(LIBMPV QUIET mpv)
+    endif()
+
+    if(LIBMPV_FOUND)
+        target_include_directories(Bloom PRIVATE ${LIBMPV_INCLUDE_DIRS})
+        target_link_libraries(Bloom PRIVATE ${LIBMPV_LIBRARIES})
+        target_compile_definitions(Bloom PRIVATE BLOOM_HAS_LIBMPV=1)
+
+        find_library(BLOOM_LINUX_MPV_RUNTIME
+            NAMES mpv libmpv.so.2 libmpv.so
+            HINTS ${LIBMPV_LIBRARY_DIRS}
+        )
+
+        if(BLOOM_LINUX_MPV_RUNTIME)
+            add_custom_command(TARGET Bloom POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${BLOOM_LINUX_MPV_RUNTIME}
+                    $<TARGET_FILE_DIR:Bloom>
+                VERBATIM
+            )
+
+            install(FILES ${BLOOM_LINUX_MPV_RUNTIME}
+                DESTINATION ${CMAKE_INSTALL_LIBDIR}/bloom
+            )
+
+            # Ensure bundled runtime libs are discoverable from bin/Bloom.
+            set_property(TARGET Bloom APPEND PROPERTY BUILD_RPATH "$ORIGIN")
+            set_property(TARGET Bloom APPEND PROPERTY INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/bloom")
+        else()
+            message(WARNING "libmpv runtime library path not found; Linux embedded backend may fail on systems without system libmpv.")
+        endif()
+    else()
+        message(STATUS "libmpv development package not found; Linux embedded backend remains scaffold-only")
+    endif()
+endif()
+
+if(WIN32)
+    target_sources(Bloom PRIVATE
+        player/backend/WindowsMpvBackend.h
+        player/backend/WindowsMpvBackend.cpp
+    )
+
+    find_path(BLOOM_MPV_INCLUDE_DIR
+        NAMES mpv/client.h
+        HINTS
+            $ENV{MPV_ROOT}
+            $ENV{MPV_DIR}
+            $ENV{LIBMPV_ROOT}
+        PATH_SUFFIXES
+            include
+    )
+
+    find_library(BLOOM_MPV_LIBRARY
+        NAMES mpv mpv-2 libmpv libmpv-2
+        HINTS
+            $ENV{MPV_ROOT}
+            $ENV{MPV_DIR}
+            $ENV{LIBMPV_ROOT}
+        PATH_SUFFIXES
+            lib
+            lib64
+            x86_64
+            libs
+            bin
+    )
+
+    if(BLOOM_MPV_INCLUDE_DIR AND BLOOM_MPV_LIBRARY)
+        target_include_directories(Bloom PRIVATE ${BLOOM_MPV_INCLUDE_DIR})
+        target_link_libraries(Bloom PRIVATE ${BLOOM_MPV_LIBRARY})
+        target_compile_definitions(Bloom PRIVATE BLOOM_HAS_LIBMPV=1)
+
+        get_filename_component(_bloom_mpv_lib_dir ${BLOOM_MPV_LIBRARY} DIRECTORY)
+        get_filename_component(_bloom_mpv_root ${_bloom_mpv_lib_dir} DIRECTORY)
+
+        find_file(BLOOM_MPV_RUNTIME_DLL
+            NAMES mpv-2.dll libmpv-2.dll mpv.dll
+            HINTS
+                ${_bloom_mpv_root}
+                $ENV{MPV_ROOT}
+                $ENV{MPV_DIR}
+                $ENV{LIBMPV_ROOT}
+            PATH_SUFFIXES
+                bin
+                lib
+        )
+
+        if(BLOOM_MPV_RUNTIME_DLL)
+            add_custom_command(TARGET Bloom POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${BLOOM_MPV_RUNTIME_DLL}
+                    $<TARGET_FILE_DIR:Bloom>
+                VERBATIM
+            )
+            install(FILES ${BLOOM_MPV_RUNTIME_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR})
+        else()
+            message(WARNING "libmpv runtime DLL not found; direct embedded backend may fail at runtime.")
+        endif()
+    else()
+        message(WARNING "Windows libmpv SDK not found (headers/libs). Set MPV_ROOT (or MPV_DIR/LIBMPV_ROOT) to enable direct embedded backend.")
+    endif()
+endif()
 
 target_link_libraries(Bloom
     PRIVATE
@@ -143,11 +262,13 @@ target_link_libraries(Bloom
 
 )
 
+target_include_directories(Bloom PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/player)
+
 qt6_add_translations(Bloom
     TS_FILES resources/translations/Bloom_en.ts
     QM_FILES_OUTPUT_VARIABLE qm_files
 )
-install(FILES ${qm_files} DESTINATION ${CMAKE_BINARY_DIR}/translations)
+install(FILES ${qm_files} DESTINATION ${CMAKE_INSTALL_DATADIR}/bloom/translations)
 
 if (TARGET Qt6::MultimediaQuick)
     target_link_libraries(Bloom PRIVATE Qt6::MultimediaQuick)
@@ -168,16 +289,16 @@ endif()
 file(COPY ${CMAKE_SOURCE_DIR}/config/app.example.json DESTINATION ${CMAKE_BINARY_DIR}/config)
 
 install(TARGETS Bloom
-    RUNTIME DESTINATION bin
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     BUNDLE DESTINATION .
 )
 
 if(UNIX AND NOT APPLE)
     install(FILES resources/linux/com.github.bloom.desktop
-        DESTINATION ${CMAKE_INSTALL_PREFIX}/share/applications
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
     )
     install(FILES resources/images/app/logo_trans.svg
-        DESTINATION ${CMAKE_INSTALL_PREFIX}/share/icons/hicolor/scalable/apps
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
         RENAME com.github.bloom.svg
     )
 endif()

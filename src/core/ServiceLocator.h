@@ -24,11 +24,11 @@
  * Services must be registered in the following order due to dependencies:
  * 
  * 1. **ConfigManager** - No dependencies, loads configuration
- * 2. **PlayerProcessManager** - No dependencies, manages mpv process
+ * 2. **IPlayerBackend** - No dependencies, active playback backend implementation
  * 3. **AuthenticationService** - No dependencies, handles authentication/session
  * 4. **LibraryService** - Depends on: AuthenticationService (library/data APIs)
  * 5. **PlaybackService** - Depends on: AuthenticationService (playback/reporting APIs)
- * 6. **PlayerController** - Depends on: PlayerProcessManager, ConfigManager, TrackPreferencesManager, DisplayManager, LibraryService, PlaybackService, AuthenticationService
+ * 6. **PlayerController** - Depends on: IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, LibraryService, PlaybackService, AuthenticationService
  * 7. **InputModeManager** - Depends on: QGuiApplication (passed at construction)
  * 
  * ## Usage Example

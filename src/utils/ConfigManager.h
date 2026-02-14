@@ -61,6 +61,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(int playbackCompletionThreshold READ getPlaybackCompletionThreshold WRITE setPlaybackCompletionThreshold NOTIFY playbackCompletionThresholdChanged)
     Q_PROPERTY(int audioDelay READ getAudioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
     Q_PROPERTY(bool autoplayNextEpisode READ getAutoplayNextEpisode WRITE setAutoplayNextEpisode NOTIFY autoplayNextEpisodeChanged)
+    Q_PROPERTY(QString playerBackend READ getPlayerBackend WRITE setPlayerBackend NOTIFY playerBackendChanged)
     Q_PROPERTY(int backdropRotationInterval READ getBackdropRotationInterval WRITE setBackdropRotationInterval NOTIFY backdropRotationIntervalChanged)
     Q_PROPERTY(bool launchInFullscreen READ getLaunchInFullscreen WRITE setLaunchInFullscreen NOTIFY launchInFullscreenChanged)
     Q_PROPERTY(int themeSongVolume READ getThemeSongVolume WRITE setThemeSongVolume NOTIFY themeSongVolumeChanged)
@@ -147,6 +148,9 @@ public:
     
     void setAutoplayNextEpisode(bool enabled);
     bool getAutoplayNextEpisode() const;
+
+    void setPlayerBackend(const QString &backendName);
+    QString getPlayerBackend() const;
     
     // Theme Song Settings
     void setThemeSongVolume(int level);
@@ -254,7 +258,7 @@ public:
     /// Returns the path to the app config file (app.json)
     static QString getConfigPath();
     
-    /// Returns the path to Bloom's mpv config directory (contains mpv.conf, input.conf, scripts/)
+    /// Returns the path to Bloom's mpv config directory (contains mpv.conf, input.conf, and optional user scripts/)
     static QString getMpvConfigDir();
     
     /// Returns the path to Bloom's mpv.conf if it exists, empty string otherwise
@@ -272,13 +276,6 @@ public:
     
     /// Ensures the config directory structure exists
     static bool ensureConfigDirExists();
-    
-    /// Installs bundled Lua scripts (OSC, thumbfast) to the mpv scripts directory
-    /// Scripts are only copied if they don't exist or are older than bundled versions
-    static void installBundledScripts();
-    
-    /// Installs bundled fonts (for mpv OSC) to the mpv fonts directory
-    static void installBundledFonts();
     
     // Migration and validation (internal)
     bool migrateConfig();
@@ -321,6 +318,7 @@ signals:
     void playbackCompletionThresholdChanged();
     void audioDelayChanged();
     void autoplayNextEpisodeChanged();
+    void playerBackendChanged();
     void themeSongVolumeChanged();
     void themeSongLoopChanged();
     void uiSoundsEnabledChanged();
@@ -341,11 +339,12 @@ signals:
     void uiAnimationsEnabledChanged();
 
 private:
+    QString normalizePlayerBackendName(const QString &backendName) const;
     QString normalizeRoundedMode(const QString &raw) const;
     bool envOverridesRoundedPreprocess(bool current) const;
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 10;
+    static constexpr int kCurrentConfigVersion = 11;
     QJsonObject defaultConfig() const;
 };

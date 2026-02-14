@@ -5,7 +5,10 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QMap>
-#include "PlayerProcessManager.h"
+#include <QVariantList>
+#include <QtGlobal>
+#include <memory>
+#include "backend/IPlayerBackend.h"
 #include "TrickplayProcessor.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/TrackPreferencesManager.h"
@@ -50,16 +53,31 @@ class PlayerController : public QObject
     Q_PROPERTY(QString stateName READ stateName NOTIFY stateChanged)
     Q_PROPERTY(bool isBuffering READ isBuffering NOTIFY isBufferingChanged)
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
+    Q_PROPERTY(bool isPaused READ isPaused NOTIFY playbackStateChanged)
     Q_PROPERTY(bool hasError READ hasError NOTIFY hasErrorChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
     Q_PROPERTY(int bufferingProgress READ bufferingProgress NOTIFY bufferingProgressChanged)
     Q_PROPERTY(int audioDelay READ audioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
+    Q_PROPERTY(bool supportsEmbeddedVideo READ supportsEmbeddedVideo NOTIFY supportsEmbeddedVideoChanged)
+    Q_PROPERTY(bool embeddedVideoShrinkEnabled READ embeddedVideoShrinkEnabled WRITE setEmbeddedVideoShrinkEnabled NOTIFY embeddedVideoShrinkEnabledChanged)
+    Q_PROPERTY(double currentPositionSeconds READ currentPositionSeconds NOTIFY timelineChanged)
+    Q_PROPERTY(double durationSeconds READ durationSeconds NOTIFY timelineChanged)
+    Q_PROPERTY(double progressRatio READ progressRatio NOTIFY timelineChanged)
+    Q_PROPERTY(bool hasTrickplay READ hasTrickplay NOTIFY trickplayStateChanged)
+    Q_PROPERTY(int trickplayIntervalMs READ trickplayIntervalMs NOTIFY trickplayStateChanged)
+    Q_PROPERTY(QString trickplayPreviewUrl READ trickplayPreviewUrl NOTIFY trickplayPreviewChanged)
+    Q_PROPERTY(QString currentItemId READ currentItemId NOTIFY currentItemIdChanged)
+    Q_PROPERTY(QString overlayTitle READ overlayTitle NOTIFY overlayMetadataChanged)
+    Q_PROPERTY(QString overlaySubtitle READ overlaySubtitle NOTIFY overlayMetadataChanged)
+    Q_PROPERTY(QString overlayBackdropUrl READ overlayBackdropUrl NOTIFY overlayMetadataChanged)
     
     // Track selection properties
     Q_PROPERTY(int selectedAudioTrack READ selectedAudioTrack WRITE setSelectedAudioTrack NOTIFY selectedAudioTrackChanged)
     Q_PROPERTY(int selectedSubtitleTrack READ selectedSubtitleTrack WRITE setSelectedSubtitleTrack NOTIFY selectedSubtitleTrackChanged)
     Q_PROPERTY(QString mediaSourceId READ mediaSourceId NOTIFY mediaSourceIdChanged)
     Q_PROPERTY(QString playSessionId READ playSessionId NOTIFY playSessionIdChanged)
+    Q_PROPERTY(QVariantList availableAudioTracks READ availableAudioTracks NOTIFY availableTracksChanged)
+    Q_PROPERTY(QVariantList availableSubtitleTracks READ availableSubtitleTracks NOTIFY availableTracksChanged)
 
 public:
     /// Playback states for the state machine
@@ -88,7 +106,7 @@ public:
     };
     Q_ENUM(Event)
 
-    explicit PlayerController(PlayerProcessManager *processManager, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent = nullptr);
+    explicit PlayerController(IPlayerBackend *playerBackend, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent = nullptr);
     ~PlayerController();
 
     PlaybackState playbackState() const;
@@ -96,6 +114,7 @@ public:
     QString stateName() const;
     bool isBuffering() const;
     bool isLoading() const;
+    bool isPaused() const { return m_playbackState == Paused; }
     bool hasError() const;
     QString errorMessage() const;
     int bufferingProgress() const;
@@ -105,22 +124,44 @@ public:
     int selectedSubtitleTrack() const { return m_selectedSubtitleTrack; }
     QString mediaSourceId() const { return m_mediaSourceId; }
     QString playSessionId() const { return m_playSessionId; }
+    QVariantList availableAudioTracks() const { return m_availableAudioTracks; }
+    QVariantList availableSubtitleTracks() const { return m_availableSubtitleTracks; }
     
     // Audio Delay (ms)
     int audioDelay() const { return m_config->getAudioDelay(); }
+    bool supportsEmbeddedVideo() const;
+    bool embeddedVideoShrinkEnabled() const { return m_embeddedVideoShrinkEnabled; }
+    double currentPositionSeconds() const { return m_currentPosition; }
+    double durationSeconds() const { return m_duration; }
+    double progressRatio() const { return m_duration > 0.0 ? qBound(0.0, m_currentPosition / m_duration, 1.0) : 0.0; }
+    bool hasTrickplay() const { return m_hasTrickplayInfo; }
+    int trickplayIntervalMs() const { return m_hasTrickplayInfo ? m_currentTrickplayInfo.interval : 0; }
+    QString trickplayPreviewUrl() const { return m_trickplayPreviewUrl; }
+    QString currentItemId() const { return m_currentItemId; }
+    QString overlayTitle() const { return m_overlayTitle; }
+    QString overlaySubtitle() const { return m_overlaySubtitle; }
+    QString overlayBackdropUrl() const { return m_overlayBackdropUrl; }
     Q_INVOKABLE void setAudioDelay(int ms);
+    Q_INVOKABLE bool attachEmbeddedVideoTarget(QObject *target);
+    Q_INVOKABLE void detachEmbeddedVideoTarget(QObject *target = nullptr);
+    Q_INVOKABLE void setEmbeddedVideoViewport(qreal x, qreal y, qreal width, qreal height);
+    Q_INVOKABLE void setEmbeddedVideoShrinkEnabled(bool enabled);
 
     Q_INVOKABLE void playTestVideo();
     Q_INVOKABLE void playUrl(const QString &url, const QString &itemId = "", qint64 startPositionTicks = 0, const QString &seriesId = "", const QString &seasonId = "", const QString &libraryId = "", double framerate = 0.0, bool isHDR = false);
     
     // Extended playUrl with track selection
     // audioStreamIndex/subtitleStreamIndex: Jellyfin unified stream indices (for API reporting)
-    // mpvAudioTrack/mpvSubtitleTrack: mpv 1-based per-type track numbers (for mpv commands)
+    // mpvAudioTrack/mpvSubtitleTrack: mpv 1-based track IDs (for mpv commands)
     Q_INVOKABLE void playUrlWithTracks(const QString &url, const QString &itemId, qint64 startPositionTicks,
                                        const QString &seriesId, const QString &seasonId, const QString &libraryId,
                                        const QString &mediaSourceId, const QString &playSessionId,
                                        int audioStreamIndex, int subtitleStreamIndex,
                                        int mpvAudioTrack, int mpvSubtitleTrack,
+                                       const QVariantList &audioTrackMap = {},
+                                       const QVariantList &subtitleTrackMap = {},
+                                       const QVariantList &availableAudioTracks = {},
+                                       const QVariantList &availableSubtitleTracks = {},
                                        double framerate = 0.0, bool isHDR = false);
     
     Q_INVOKABLE void stop();
@@ -137,6 +178,17 @@ public:
     Q_INVOKABLE void setSelectedSubtitleTrack(int index);
     Q_INVOKABLE void cycleAudioTrack();
     Q_INVOKABLE void cycleSubtitleTrack();
+    Q_INVOKABLE void previousChapter();
+    Q_INVOKABLE void nextChapter();
+    Q_INVOKABLE void toggleMute();
+    Q_INVOKABLE void showMpvStatsOnce();
+    Q_INVOKABLE void toggleMpvStats();
+    Q_INVOKABLE void showMpvStatsPage(int page);
+    Q_INVOKABLE void sendMpvKeypress(const QString &key);
+    Q_INVOKABLE void setOverlayMetadata(const QString &title, const QString &subtitle = QString(), const QString &backdropUrl = QString());
+    Q_INVOKABLE void clearOverlayMetadata();
+    Q_INVOKABLE void setTrickplayPreviewPositionSeconds(double seconds);
+    Q_INVOKABLE void clearTrickplayPreviewPositionOverride();
     
     // Get last used track preferences for a season (for episode continuity)
     Q_INVOKABLE int getLastAudioTrackForSeason(const QString &seasonId) const;
@@ -165,12 +217,20 @@ signals:
     void bufferingProgressChanged();
     void audioDelayChanged();
     void isPlaybackActiveChanged();
+    void supportsEmbeddedVideoChanged();
+    void embeddedVideoShrinkEnabledChanged();
+    void timelineChanged();
+    void trickplayStateChanged();
+    void trickplayPreviewChanged();
+    void currentItemIdChanged();
+    void overlayMetadataChanged();
     
     // Track selection signals
     void selectedAudioTrackChanged();
     void selectedSubtitleTrackChanged();
     void mediaSourceIdChanged();
     void playSessionIdChanged();
+    void availableTracksChanged();
     
     /// Emitted when playback has stopped (user stop, playback end, or error)
     /// Use this to refresh UI elements that depend on playback state (e.g., watch progress)
@@ -217,6 +277,9 @@ private slots:
     void onTrickplayProcessingFailed(const QString &itemId, const QString &error);
 
 private:
+#ifdef BLOOM_TESTING
+    friend class PlayerControllerAutoplayContextTest;
+#endif
     // State machine
     void setupStateMachine();
     bool processEvent(Event event);
@@ -248,13 +311,24 @@ private:
     void reportPlaybackStop();
     void checkCompletionThreshold();
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
+    void stashPendingAutoplayContext();
+    void clearPendingAutoplayContext();
     void loadConfig();
     void startPlayback(const QString &url);
     void initiateMpvStart();
+    void updateTrickplayPreviewForPosition(double seconds);
+    void clearTrickplayPreview();
+    static QString buildTrickplayPreviewDataUrl(const QString &binaryPath, int frameIndex, int width, int height);
+    void connectBackendSignals(IPlayerBackend *backend);
+    bool tryFallbackToExternalBackend(const QString &reason);
+    void updateTrackMappings(const QVariantList &audioTrackMap, const QVariantList &subtitleTrackMap);
+    int mpvAudioTrackForJellyfinIndex(int jellyfinStreamIndex) const;
+    int mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) const;
     static QString stateToString(PlaybackState state);
     static QString eventToString(Event event);
 
-    PlayerProcessManager *m_processManager;
+    IPlayerBackend *m_playerBackend;
+    std::unique_ptr<IPlayerBackend> m_ownedBackend;
     ConfigManager *m_config;
     TrackPreferencesManager *m_trackPrefs;
     DisplayManager *m_displayManager;
@@ -296,14 +370,28 @@ private:
     double m_seekTargetWhileBuffering = -1;
     qint64 m_startPositionTicks = 0;  // Resume position in Jellyfin ticks
     bool m_shouldAutoplay = false;  // Flag to trigger autoplay on next episode loaded
+
+    // Persisted autoplay context across state teardown/idle transition
+    QString m_pendingAutoplayItemId;
+    QString m_pendingAutoplaySeriesId;
+    QString m_pendingAutoplaySeasonId;
+    QString m_pendingAutoplayLibraryId;
+    int m_pendingAutoplayAudioTrack = -1;
+    int m_pendingAutoplaySubtitleTrack = -1;
+    double m_pendingAutoplayFramerate = 0.0;
+    bool m_pendingAutoplayIsHDR = false;
     
     // Track selection state
     int m_selectedAudioTrack = -1;      // Jellyfin audio stream index (for API reporting)
     int m_selectedSubtitleTrack = -1;   // Jellyfin subtitle stream index (-1 = none)
     int m_mpvAudioTrack = -1;           // mpv audio track number (1-based, -1 = auto)
     int m_mpvSubtitleTrack = -1;        // mpv subtitle track number (1-based, -1 = disabled)
+    QHash<int, int> m_audioTrackMap;    // Jellyfin stream index -> mpv aid track ID (1-based)
+    QHash<int, int> m_subtitleTrackMap; // Jellyfin stream index -> mpv sid track ID (1-based)
     QString m_mediaSourceId;            // Current media source ID
     QString m_playSessionId;            // Playback session ID for reporting
+    QVariantList m_availableAudioTracks;
+    QVariantList m_availableSubtitleTracks;
     
     // Track preference persistence for season continuity
     // Maps season ID -> (audio track index, subtitle track index)
@@ -328,11 +416,22 @@ private:
     // Config cache
     QString m_mpvBin;
     QString m_testVideoUrl;
+
+    bool m_embeddedVideoShrinkEnabled = false;
+    bool m_attemptedLinuxEmbeddedFallback = false;
+    QString m_overlayTitle;
+    QString m_overlaySubtitle;
+    QString m_overlayBackdropUrl;
     
     // OSC and trickplay data
     QList<MediaSegmentInfo> m_currentSegments;
     TrickplayTileInfo m_currentTrickplayInfo;
     bool m_hasTrickplayInfo = false;
+    QString m_trickplayBinaryPath;
+    int m_currentTrickplayFrameIndex = -1;
+    QString m_trickplayPreviewUrl;
+    bool m_hasTrickplayPreviewPositionOverride = false;
+    double m_trickplayPreviewPositionOverrideSeconds = 0.0;
 };
 
 // Hash functions required for QHash with enum types

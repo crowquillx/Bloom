@@ -1,24 +1,56 @@
 #include "PlayerController.h"
 #include "TrickplayProcessor.h"
+#if !defined(BLOOM_TESTING)
+#include "backend/ExternalMpvBackend.h"
+#endif
 #include "../network/PlaybackService.h"
 #include "../network/LibraryService.h"
 #include "../network/AuthenticationService.h"
 #include "../network/Types.h"
 #include <QFile>
+#include <QBuffer>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QImage>
 #include <QCoreApplication>
 #include <QDir>
 #include <QDebug>
 #include <QThread>
 #include <QLoggingCategory>
+#include <QRectF>
+#include <QtGlobal>
+#include <QUrl>
+#include <QUrlQuery>
+#include <QSet>
 
 Q_LOGGING_CATEGORY(lcPlayback, "bloom.playback")
 
-PlayerController::PlayerController(PlayerProcessManager *processManager, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent)
+namespace {
+class NullPlayerBackend final : public IPlayerBackend
+{
+public:
+    explicit NullPlayerBackend(QObject *parent)
+        : IPlayerBackend(parent)
+    {
+    }
+
+    QString backendName() const override { return QStringLiteral("null-backend"); }
+    void startMpv(const QString &, const QStringList &, const QString &) override {}
+    void stopMpv() override {}
+    bool isRunning() const override { return false; }
+    void sendCommand(const QStringList &) override {}
+    void sendVariantCommand(const QVariantList &) override {}
+    bool supportsEmbeddedVideo() const override { return false; }
+    bool attachVideoTarget(QObject *) override { return false; }
+    void detachVideoTarget(QObject *) override {}
+    void setVideoViewport(const QRectF &) override {}
+};
+}
+
+PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent)
     : QObject(parent)
-    , m_processManager(processManager)
+    , m_playerBackend(playerBackend)
     , m_config(config)
     , m_trackPrefs(trackPrefs)
     , m_displayManager(displayManager)
@@ -31,51 +63,16 @@ PlayerController::PlayerController(PlayerProcessManager *processManager, ConfigM
     , m_progressReportTimer(new QTimer(this))
     , m_startDelayTimer(new QTimer(this))
 {
+    if (!m_playerBackend) {
+        qCWarning(lcPlayback) << "PlayerController initialized without backend; falling back to null backend";
+        m_playerBackend = new NullPlayerBackend(this);
+    }
+
     // Setup state machine transitions
     setupStateMachine();
-    
-    // Connect to PlayerProcessManager signals
-    connect(m_processManager, &PlayerProcessManager::stateChanged,
-            this, &PlayerController::onProcessStateChanged);
-    connect(m_processManager, &PlayerProcessManager::errorOccurred,
-            this, &PlayerController::onProcessError);
-    connect(m_processManager, &PlayerProcessManager::positionChanged,
-            this, &PlayerController::onPositionChanged);
-    connect(m_processManager, &PlayerProcessManager::durationChanged,
-            this, &PlayerController::onDurationChanged);
-    connect(m_processManager, &PlayerProcessManager::pauseChanged,
-            this, &PlayerController::onPauseChanged);
-    connect(m_processManager, &PlayerProcessManager::playbackEnded,
-            this, &PlayerController::onPlaybackEnded);
-    connect(m_processManager, &PlayerProcessManager::pausedForCacheChanged,
-            this, &PlayerController::onPausedForCacheChanged);
-    
-    // Connect track change signals from mpv
-    // NOTE: We ignore these signals during initial track application (m_applyingInitialTracks)
-    // because mpv auto-selects tracks before our set_property commands arrive, and the
-    // mpv track indices don't map directly to Jellyfin stream indices anyway.
-    // User track selections are preserved from playUrlWithTracks() and only updated
-    // when the user explicitly changes tracks via the UI during playback.
-    connect(m_processManager, &PlayerProcessManager::audioTrackChanged,
-            this, [this](int index) {
-                Q_UNUSED(index);
-                // Don't update m_selectedAudioTrack from mpv signals - it stores Jellyfin
-                // stream indices which don't correspond to mpv's per-type track numbers.
-                // Track changes during playback should go through setSelectedAudioTrack()
-                // which properly handles the index mapping.
-            });
-    connect(m_processManager, &PlayerProcessManager::subtitleTrackChanged,
-            this, [this](int index) {
-                Q_UNUSED(index);
-                // Don't update m_selectedSubtitleTrack from mpv signals - it stores Jellyfin
-                // stream indices which don't correspond to mpv's per-type track numbers.
-                // Track changes during playback should go through setSelectedSubtitleTrack()
-                // which properly handles the index mapping.
-            });
-    
-    // Connect script message handler for bidirectional IPC with mpv scripts
-    connect(m_processManager, &PlayerProcessManager::scriptMessage,
-            this, &PlayerController::onScriptMessage);
+
+    // Connect to player backend signals
+    connectBackendSignals(m_playerBackend);
     
     // Connect to LibraryService for autoplay next episode
     connect(m_libraryService, &LibraryService::nextUnplayedEpisodeLoaded,
@@ -116,9 +113,9 @@ PlayerController::PlayerController(PlayerProcessManager *processManager, ConfigM
             this, [this]() {
                 emit audioDelayChanged();
                 // If playing, apply immediately
-                if (m_processManager->isRunning()) {
+                if (m_playerBackend->isRunning()) {
                     double delaySeconds = static_cast<double>(m_config->getAudioDelay()) / 1000.0;
-                    m_processManager->sendVariantCommand({"set_property", "audio-delay", delaySeconds});
+                    m_playerBackend->sendVariantCommand({"set_property", "audio-delay", delaySeconds});
                 }
             });
     
@@ -132,6 +129,71 @@ PlayerController::~PlayerController()
     m_bufferingTimeoutTimer->stop();
     m_progressReportTimer->stop();
     m_startDelayTimer->stop();
+}
+
+void PlayerController::connectBackendSignals(IPlayerBackend *backend)
+{
+    if (!backend) {
+        return;
+    }
+
+    connect(backend, &IPlayerBackend::stateChanged,
+            this, &PlayerController::onProcessStateChanged);
+    connect(backend, &IPlayerBackend::errorOccurred,
+            this, &PlayerController::onProcessError);
+    connect(backend, &IPlayerBackend::positionChanged,
+            this, &PlayerController::onPositionChanged);
+    connect(backend, &IPlayerBackend::durationChanged,
+            this, &PlayerController::onDurationChanged);
+    connect(backend, &IPlayerBackend::pauseChanged,
+            this, &PlayerController::onPauseChanged);
+    connect(backend, &IPlayerBackend::playbackEnded,
+            this, &PlayerController::onPlaybackEnded);
+    connect(backend, &IPlayerBackend::pausedForCacheChanged,
+            this, &PlayerController::onPausedForCacheChanged);
+
+    // NOTE: We intentionally ignore mpv auto-selected track signals during startup.
+    connect(backend, &IPlayerBackend::audioTrackChanged,
+            this, [](int index) { Q_UNUSED(index); });
+    connect(backend, &IPlayerBackend::subtitleTrackChanged,
+            this, [](int index) { Q_UNUSED(index); });
+
+    connect(backend, &IPlayerBackend::scriptMessage,
+            this, &PlayerController::onScriptMessage);
+}
+
+bool PlayerController::tryFallbackToExternalBackend(const QString &reason)
+{
+    if (!m_playerBackend
+        || m_playerBackend->backendName() != QStringLiteral("linux-libmpv-opengl")
+        || m_attemptedLinuxEmbeddedFallback) {
+        return false;
+    }
+
+    m_attemptedLinuxEmbeddedFallback = true;
+    qCWarning(lcPlayback) << "Embedded Linux backend failed; switching to external-mpv-ipc. Reason:" << reason;
+
+    QObject::disconnect(m_playerBackend, nullptr, this, nullptr);
+    if (m_playerBackend->isRunning()) {
+        m_playerBackend->stopMpv();
+    }
+
+    #if defined(BLOOM_TESTING)
+    m_ownedBackend = std::make_unique<NullPlayerBackend>(this);
+    #else
+    m_ownedBackend = std::make_unique<ExternalMpvBackend>(this);
+    #endif
+
+    m_playerBackend = m_ownedBackend.get();
+    connectBackendSignals(m_playerBackend);
+    emit supportsEmbeddedVideoChanged();
+
+    if (m_playbackState == Loading && !m_pendingUrl.isEmpty()) {
+        qCInfo(lcPlayback) << "Retrying current media with external-mpv-ipc fallback backend";
+        initiateMpvStart();
+    }
+
+    return true;
 }
 
 void PlayerController::setupStateMachine()
@@ -305,7 +367,10 @@ void PlayerController::onEnterIdleState()
     }
     
     // Clear playback state
-    m_currentItemId.clear();
+    if (!m_currentItemId.isEmpty()) {
+        m_currentItemId.clear();
+        emit currentItemIdChanged();
+    }
     m_currentSeriesId.clear();
     m_currentSeasonId.clear();
     m_currentLibraryId.clear();
@@ -317,6 +382,7 @@ void PlayerController::onEnterIdleState()
     m_startPositionTicks = 0;
     m_contentFramerate = 0.0;
     m_contentIsHDR = false;
+    clearOverlayMetadata();
     setBufferingProgress(0);
     
     // Clear track selection state (but keep m_seriesTrackPreferences)
@@ -324,23 +390,33 @@ void PlayerController::onEnterIdleState()
     m_selectedSubtitleTrack = -1;
     m_mpvAudioTrack = -1;
     m_mpvSubtitleTrack = -1;
+    m_audioTrackMap.clear();
+    m_subtitleTrackMap.clear();
     m_mediaSourceId.clear();
     m_playSessionId.clear();
+    m_availableAudioTracks.clear();
+    m_availableSubtitleTracks.clear();
     m_applyingInitialTracks = false;
     emit selectedAudioTrackChanged();
     emit selectedSubtitleTrackChanged();
     emit mediaSourceIdChanged();
     emit playSessionIdChanged();
+    emit availableTracksChanged();
     
     // Clear OSC/trickplay state
     m_currentSegments.clear();
     m_hasTrickplayInfo = false;
+    m_currentTrickplayInfo = TrickplayTileInfo{};
+    m_trickplayBinaryPath.clear();
+    m_currentTrickplayFrameIndex = -1;
+    m_hasTrickplayPreviewPositionOverride = false;
+    m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    clearTrickplayPreview();
+    emit timelineChanged();
+    emit trickplayStateChanged();
     
-    // Clear trickplay processor data and notify Lua script
+    // Clear trickplay processor data
     m_trickplayProcessor->clear();
-    if (m_processManager->isRunning()) {
-        m_processManager->sendCommand({"script-message-to", "thumbfast", "shim-trickplay-clear"});
-    }
 }
 
 void PlayerController::onEnterLoadingState()
@@ -378,20 +454,49 @@ void PlayerController::onEnterBufferingState()
     
     // Apply pending track selections now that the file is loaded
     // Use mpv track numbers (1-based, per-type) for mpv commands
-    qDebug() << "PlayerController: onEnterBufferingState - m_mpvSubtitleTrack:" << m_mpvSubtitleTrack;
-    if (m_mpvAudioTrack > 0) {
-        qDebug() << "PlayerController: Applying pending audio track selection, mpv aid:" << m_mpvAudioTrack;
-        m_processManager->sendVariantCommand({"set_property", "aid", m_mpvAudioTrack});
+    QUrl pendingPlaybackUrl(m_pendingUrl);
+    QUrlQuery pendingPlaybackQuery(pendingPlaybackUrl);
+    const bool urlPinsAudioStream = pendingPlaybackQuery.hasQueryItem(QStringLiteral("AudioStreamIndex"));
+    const bool urlPinsSubtitleStream = pendingPlaybackQuery.hasQueryItem(QStringLiteral("SubtitleStreamIndex"));
+    const int pinnedAudioStreamIndex = pendingPlaybackQuery.queryItemValue(QStringLiteral("AudioStreamIndex")).toInt();
+    const int pinnedSubtitleStreamIndex = pendingPlaybackQuery.queryItemValue(QStringLiteral("SubtitleStreamIndex")).toInt();
+
+    const int desiredMpvAudioTrack = mpvAudioTrackForJellyfinIndex(m_selectedAudioTrack);
+    const int desiredMpvSubtitleTrack = mpvSubtitleTrackForJellyfinIndex(m_selectedSubtitleTrack);
+    const bool shouldOverridePinnedAudio = urlPinsAudioStream
+        && m_selectedAudioTrack >= 0
+        && m_selectedAudioTrack != pinnedAudioStreamIndex;
+    const bool shouldOverridePinnedSubtitle = urlPinsSubtitleStream
+        && ((m_selectedSubtitleTrack == -1)
+            || (m_selectedSubtitleTrack >= 0 && m_selectedSubtitleTrack != pinnedSubtitleStreamIndex));
+
+    qCDebug(lcPlayback) << "Track startup selection:"
+                        << "selectedAudio=" << m_selectedAudioTrack
+                        << "selectedSubtitle=" << m_selectedSubtitleTrack
+                        << "desiredMpvAudio=" << desiredMpvAudioTrack
+                        << "desiredMpvSubtitle=" << desiredMpvSubtitleTrack
+                        << "urlPinsAudio=" << urlPinsAudioStream
+                        << "urlPinsSubtitle=" << urlPinsSubtitleStream
+                        << "overridePinnedAudio=" << shouldOverridePinnedAudio
+                        << "overridePinnedSubtitle=" << shouldOverridePinnedSubtitle;
+
+    // Always apply resolved startup track selection if we have one. URL pins are treated as
+    // transport/request hints and fallback, but explicit startup selection must win deterministically.
+    if (desiredMpvAudioTrack > 0) {
+        qCDebug(lcPlayback) << "Applying startup audio track selection via aid:" << desiredMpvAudioTrack;
+        m_playerBackend->sendVariantCommand({"set_property", "aid", desiredMpvAudioTrack});
+    } else if (urlPinsAudioStream && !shouldOverridePinnedAudio) {
+        qCDebug(lcPlayback) << "Keeping URL-pinned audio stream index:" << pinnedAudioStreamIndex;
     }
-    if (m_mpvSubtitleTrack > 0) {
-        qDebug() << "PlayerController: Applying pending subtitle track selection, mpv sid:" << m_mpvSubtitleTrack;
-        m_processManager->sendVariantCommand({"set_property", "sid", m_mpvSubtitleTrack});
-    } else if (m_mpvSubtitleTrack == -1) {
-        // Explicitly disable subtitles if user selected "None"
-        qDebug() << "PlayerController: Disabling subtitles (user selection), m_mpvSubtitleTrack:" << m_mpvSubtitleTrack;
-        m_processManager->sendVariantCommand({"set_property", "sid", "no"});
-    } else {
-        qDebug() << "PlayerController: No subtitle action taken, m_mpvSubtitleTrack:" << m_mpvSubtitleTrack;
+
+    if (m_selectedSubtitleTrack == -1) {
+        qCDebug(lcPlayback) << "Applying startup subtitle selection: none";
+        m_playerBackend->sendVariantCommand({"set_property", "sid", "no"});
+    } else if (desiredMpvSubtitleTrack > 0) {
+        qCDebug(lcPlayback) << "Applying startup subtitle track selection via sid:" << desiredMpvSubtitleTrack;
+        m_playerBackend->sendVariantCommand({"set_property", "sid", desiredMpvSubtitleTrack});
+    } else if (urlPinsSubtitleStream && !shouldOverridePinnedSubtitle) {
+        qCDebug(lcPlayback) << "Keeping URL-pinned subtitle stream index:" << pinnedSubtitleStreamIndex;
     }
     
     // If there was a pending seek for resume playback, execute it directly
@@ -401,14 +506,14 @@ void PlayerController::onEnterBufferingState()
         double target = m_seekTargetWhileBuffering;
         m_seekTargetWhileBuffering = -1;
         qDebug() << "PlayerController: Executing queued seek to" << target << "seconds";
-        m_processManager->sendVariantCommand({"seek", target, "absolute"});
+        m_playerBackend->sendVariantCommand({"seek", target, "absolute"});
     }
     
     // Apply audio delay
     double delaySeconds = static_cast<double>(m_config->getAudioDelay()) / 1000.0;
     if (delaySeconds != 0.0) {
         qDebug() << "PlayerController: Applying audio delay:" << delaySeconds << "s";
-        m_processManager->sendVariantCommand({"set_property", "audio-delay", delaySeconds});
+        m_playerBackend->sendVariantCommand({"set_property", "audio-delay", delaySeconds});
     }
 }
 
@@ -454,8 +559,8 @@ void PlayerController::onEnterErrorState()
     m_progressReportTimer->stop();
     
     // Stop mpv if running
-    if (m_processManager->isRunning()) {
-        m_processManager->stopMpv();
+    if (m_playerBackend->isRunning()) {
+        m_playerBackend->stopMpv();
     }
 }
 
@@ -490,6 +595,7 @@ void PlayerController::onProcessStateChanged(bool running)
         // If threshold is met for an episode, set flag to request next episode after marking as played
         if (thresholdMet && !m_currentSeriesId.isEmpty()) {
             m_shouldAutoplay = true;
+            stashPendingAutoplayContext();
             qDebug() << "PlayerController: Process stopped, threshold met, will request next episode after marking current as played";
         }
 
@@ -500,6 +606,12 @@ void PlayerController::onProcessStateChanged(bool running)
 void PlayerController::onProcessError(const QString &error)
 {
     qDebug() << "PlayerController: Process error:" << error;
+
+    if (error.startsWith(QStringLiteral("linux-libmpv-render-unavailable"))
+        && tryFallbackToExternalBackend(error)) {
+        return;
+    }
+
     setErrorMessage(error);
     processEvent(Event::ErrorOccurred);
 }
@@ -508,6 +620,13 @@ void PlayerController::onPositionChanged(double seconds)
 {
     double previousPosition = m_currentPosition;
     m_currentPosition = seconds;
+    if (!qFuzzyCompare(previousPosition + 1.0, seconds + 1.0)) {
+        emit timelineChanged();
+    }
+
+    if (m_hasTrickplayInfo && !m_hasTrickplayPreviewPositionOverride) {
+        updateTrickplayPreviewForPosition(seconds);
+    }
     
     // First position update - transition from Loading to Buffering
     if (m_isWaitingForPosition && m_playbackState == Loading) {
@@ -541,7 +660,10 @@ void PlayerController::onPositionChanged(double seconds)
 
 void PlayerController::onDurationChanged(double seconds)
 {
-    m_duration = seconds;
+    if (!qFuzzyCompare(m_duration + 1.0, seconds + 1.0)) {
+        m_duration = seconds;
+        emit timelineChanged();
+    }
 }
 
 void PlayerController::onPausedForCacheChanged(bool pausedForCache)
@@ -588,6 +710,7 @@ void PlayerController::onPlaybackEnded()
     // If threshold met for an episode, set flag to request next episode after marking as played
     if (thresholdMet && !m_currentSeriesId.isEmpty()) {
         m_shouldAutoplay = true;  // Flag to handle the response after item is marked as played
+        stashPendingAutoplayContext();
         qDebug() << "PlayerController: Threshold met, will request next episode after marking current as played";
     }
     
@@ -600,11 +723,17 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     if (!m_shouldAutoplay) {
         return;
     }
+
+    if (!m_pendingAutoplaySeriesId.isEmpty() && seriesId != m_pendingAutoplaySeriesId) {
+        qDebug() << "PlayerController: Ignoring next episode for unexpected series:" << seriesId;
+        return;
+    }
     
     m_shouldAutoplay = false;
     
     if (episodeData.isEmpty()) {
         qDebug() << "PlayerController: No next episode available";
+        clearPendingAutoplayContext();
         return;
     }
     
@@ -628,6 +757,12 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
         }
         
         qDebug() << "PlayerController: Autoplaying next episode";
+
+        QString subtitle = QStringLiteral("S%1 E%2").arg(seasonNumber).arg(episodeNumber);
+        if (!episodeName.isEmpty()) {
+            subtitle += QStringLiteral(" - ") + episodeName;
+        }
+        setOverlayMetadata(seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName, subtitle);
         
         // Emit signal for UI notification
         emit autoplayingNextEpisode(episodeName, seriesName);
@@ -637,32 +772,34 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
         // since episodes in the same series typically have the same framerate
         // We also carry forward the current season ID for track preferences
         QString streamUrl = m_libraryService->getStreamUrl(episodeId);
-        playUrl(streamUrl, episodeId, startPositionTicks, seriesId, m_currentSeasonId, m_currentLibraryId, m_contentFramerate);
+        playUrl(streamUrl, episodeId, startPositionTicks, seriesId,
+            m_pendingAutoplaySeasonId, m_pendingAutoplayLibraryId,
+            m_pendingAutoplayFramerate, m_pendingAutoplayIsHDR);
     } else {
         // Autoplay disabled - emit navigation signal to show episode details
         // Include the track preferences from the just-completed episode
-        int lastAudioIndex = m_selectedAudioTrack;
-        int lastSubtitleIndex = m_selectedSubtitleTrack;
+        int lastAudioIndex = m_pendingAutoplayAudioTrack;
+        int lastSubtitleIndex = m_pendingAutoplaySubtitleTrack;
         
         qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with audio:" 
                  << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
         
         emit navigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex);
     }
+
+    clearPendingAutoplayContext();
 }
 
 // Handle item marked as played - request next episode if autoplay was requested
 void PlayerController::onItemMarkedPlayed(const QString &itemId)
 {
     // Only proceed if this is the item we just finished playing and we want autoplay/navigation
-    if (itemId != m_currentItemId || !m_shouldAutoplay || m_currentSeriesId.isEmpty()) {
+    if (!m_shouldAutoplay || m_pendingAutoplaySeriesId.isEmpty() || itemId != m_pendingAutoplayItemId) {
         return;
     }
-    
-    m_shouldAutoplay = false;  // Clear the flag
-    
-    qDebug() << "PlayerController: Item marked as played, requesting next episode for seriesId:" << m_currentSeriesId;
-    m_libraryService->getNextUnplayedEpisode(m_currentSeriesId);
+
+    qDebug() << "PlayerController: Item marked as played, requesting next episode for seriesId:" << m_pendingAutoplaySeriesId;
+    m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId);
 }
 
 // === PUBLIC API ===
@@ -717,14 +854,63 @@ int PlayerController::bufferingProgress() const
     return m_bufferingProgress;
 }
 
+bool PlayerController::supportsEmbeddedVideo() const
+{
+    return m_playerBackend && m_playerBackend->supportsEmbeddedVideo();
+}
+
+bool PlayerController::attachEmbeddedVideoTarget(QObject *target)
+{
+    if (!m_playerBackend) {
+        return false;
+    }
+
+    return m_playerBackend->attachVideoTarget(target);
+}
+
+void PlayerController::detachEmbeddedVideoTarget(QObject *target)
+{
+    if (!m_playerBackend) {
+        return;
+    }
+
+    m_playerBackend->detachVideoTarget(target);
+}
+
+void PlayerController::setEmbeddedVideoViewport(qreal x, qreal y, qreal width, qreal height)
+{
+    if (!m_playerBackend) {
+        return;
+    }
+
+    const QRectF viewport(x, y, width, height);
+    m_playerBackend->setVideoViewport(viewport);
+}
+
+void PlayerController::setEmbeddedVideoShrinkEnabled(bool enabled)
+{
+    if (m_embeddedVideoShrinkEnabled == enabled) {
+        return;
+    }
+
+    m_embeddedVideoShrinkEnabled = enabled;
+    emit embeddedVideoShrinkEnabledChanged();
+}
+
 void PlayerController::playTestVideo()
 {
-    m_currentItemId.clear();
+    clearPendingAutoplayContext();
+    m_shouldAutoplay = false;
+
+    if (!m_currentItemId.isEmpty()) {
+        m_currentItemId.clear();
+        emit currentItemIdChanged();
+    }
     m_pendingUrl = m_testVideoUrl;
     
-    if (m_processManager->isRunning()) {
+    if (m_playerBackend->isRunning()) {
         reportPlaybackStop();
-        m_processManager->stopMpv();
+        m_playerBackend->stopMpv();
     }
     
     processEvent(Event::Play);
@@ -741,14 +927,19 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
              << "isHDR:" << isHDR;
     
     // If already playing, stop first
-    if (m_processManager->isRunning()) {
+    if (m_playerBackend->isRunning()) {
         reportPlaybackStop();
         // Don't check completion threshold here - we're starting new content intentionally
-        m_processManager->stopMpv();
+        m_playerBackend->stopMpv();
     }
+
+    clearPendingAutoplayContext();
     
     // Store pending playback info before transition
-    m_currentItemId = itemId;
+    if (m_currentItemId != itemId) {
+        m_currentItemId = itemId;
+        emit currentItemIdChanged();
+    }
     m_currentSeriesId = seriesId;
     m_currentSeasonId = seasonId;
     m_currentLibraryId = libraryId;
@@ -764,6 +955,14 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     // Clear previous OSC/trickplay state and request new data
     m_currentSegments.clear();
     m_hasTrickplayInfo = false;
+    m_currentTrickplayInfo = TrickplayTileInfo{};
+    m_trickplayBinaryPath.clear();
+    m_currentTrickplayFrameIndex = -1;
+    m_hasTrickplayPreviewPositionOverride = false;
+    m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    clearTrickplayPreview();
+    emit timelineChanged();
+    emit trickplayStateChanged();
     if (!itemId.isEmpty()) {
         m_playbackService->getMediaSegments(itemId);
         m_playbackService->getTrickplayInfo(itemId);
@@ -784,31 +983,34 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
 void PlayerController::stop()
 {
     qDebug() << "PlayerController: stop requested";
+
+    clearPendingAutoplayContext();
+    m_shouldAutoplay = false;
     
     reportPlaybackStop();
     checkCompletionThreshold();
     
-    m_processManager->stopMpv();
+    m_playerBackend->stopMpv();
     processEvent(Event::Stop);
 }
 
 void PlayerController::pause()
 {
     if (m_playbackState == Playing || m_playbackState == Buffering) {
-        m_processManager->sendCommand({"set", "pause", "yes"});
+        m_playerBackend->sendCommand({"set", "pause", "yes"});
     }
 }
 
 void PlayerController::resume()
 {
     if (m_playbackState == Paused) {
-        m_processManager->sendCommand({"set", "pause", "no"});
+        m_playerBackend->sendCommand({"set", "pause", "no"});
     }
 }
 
 void PlayerController::togglePause()
 {
-    m_processManager->sendCommand({"cycle", "pause"});
+    m_playerBackend->sendCommand({"cycle", "pause"});
 }
 
 void PlayerController::seek(double seconds)
@@ -823,7 +1025,7 @@ void PlayerController::seek(double seconds)
     }
     
     if (m_playbackState == Playing || m_playbackState == Paused) {
-        m_processManager->sendVariantCommand({"seek", seconds, "absolute"});
+        m_playerBackend->sendVariantCommand({"seek", seconds, "absolute"});
     }
 }
 
@@ -839,7 +1041,7 @@ void PlayerController::seekRelative(double seconds)
     }
     
     if (m_playbackState == Playing || m_playbackState == Paused) {
-        m_processManager->sendVariantCommand({"seek", seconds, "relative"});
+        m_playerBackend->sendVariantCommand({"seek", seconds, "relative"});
     }
 }
 
@@ -866,18 +1068,24 @@ void PlayerController::clearError()
 void PlayerController::setSelectedAudioTrack(int index)
 {
     if (m_selectedAudioTrack != index) {
+        const int previousAudioTrack = m_selectedAudioTrack;
         m_selectedAudioTrack = index;
-        qDebug() << "PlayerController: Setting audio track to" << index;
+        qCDebug(lcPlayback) << "User audio track selection:"
+                            << "jellyfinIndex=" << index
+                            << "previousJellyfinIndex=" << previousAudioTrack;
         
-        // Send command to mpv to switch audio track
-        // mpv uses 1-based indexing for aid, but -1 means auto
         if (m_playbackState == Playing || m_playbackState == Paused) {
             if (index >= 0) {
-                // Convert from Jellyfin stream index to mpv track number
-                // mpv's audio tracks are 1-indexed starting from first audio stream
-                m_processManager->sendVariantCommand({"set_property", "aid", index + 1});
+                const int mpvTrackId = mpvAudioTrackForJellyfinIndex(index);
+                if (mpvTrackId > 0) {
+                    qCDebug(lcPlayback) << "Applying audio track switch via aid:" << mpvTrackId;
+                    m_playerBackend->sendVariantCommand({"set_property", "aid", mpvTrackId});
+                } else {
+                    qCWarning(lcPlayback) << "No mapped mpv audio track for jellyfin index" << index
+                                          << "- skipping runtime aid command";
+                }
             } else {
-                m_processManager->sendVariantCommand({"set_property", "aid", "auto"});
+                m_playerBackend->sendVariantCommand({"set_property", "aid", "auto"});
             }
         }
         
@@ -885,6 +1093,8 @@ void PlayerController::setSelectedAudioTrack(int index)
         if (!m_currentSeasonId.isEmpty()) {
             m_seasonTrackPreferences[m_currentSeasonId].first = index;
             m_trackPrefs->setAudioTrack(m_currentSeasonId, index);
+        } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
+            m_trackPrefs->setMovieAudioTrack(m_currentItemId, index);
         }
         
         emit selectedAudioTrackChanged();
@@ -899,16 +1109,24 @@ void PlayerController::setAudioDelay(int ms)
 void PlayerController::setSelectedSubtitleTrack(int index)
 {
     if (m_selectedSubtitleTrack != index) {
+        const int previousSubtitleTrack = m_selectedSubtitleTrack;
         m_selectedSubtitleTrack = index;
-        qDebug() << "PlayerController: Setting subtitle track to" << index;
+        qCDebug(lcPlayback) << "User subtitle track selection:"
+                            << "jellyfinIndex=" << index
+                            << "previousJellyfinIndex=" << previousSubtitleTrack;
         
-        // Send command to mpv to switch subtitle track
-        // mpv uses "no" or false to disable subtitles
         if (m_playbackState == Playing || m_playbackState == Paused) {
             if (index >= 0) {
-                m_processManager->sendVariantCommand({"set_property", "sid", index + 1});
+                const int mpvTrackId = mpvSubtitleTrackForJellyfinIndex(index);
+                if (mpvTrackId > 0) {
+                    qCDebug(lcPlayback) << "Applying subtitle track switch via sid:" << mpvTrackId;
+                    m_playerBackend->sendVariantCommand({"set_property", "sid", mpvTrackId});
+                } else {
+                    qCWarning(lcPlayback) << "No mapped mpv subtitle track for jellyfin index" << index
+                                          << "- skipping runtime sid command";
+                }
             } else {
-                m_processManager->sendVariantCommand({"set_property", "sid", "no"});
+                m_playerBackend->sendVariantCommand({"set_property", "sid", "no"});
             }
         }
         
@@ -916,6 +1134,8 @@ void PlayerController::setSelectedSubtitleTrack(int index)
         if (!m_currentSeasonId.isEmpty()) {
             m_seasonTrackPreferences[m_currentSeasonId].second = index;
             m_trackPrefs->setSubtitleTrack(m_currentSeasonId, index);
+        } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
+            m_trackPrefs->setMovieSubtitleTrack(m_currentItemId, index);
         }
         
         emit selectedSubtitleTrackChanged();
@@ -926,7 +1146,7 @@ void PlayerController::cycleAudioTrack()
 {
     qDebug() << "PlayerController: Cycling audio track";
     if (m_playbackState == Playing || m_playbackState == Paused) {
-        m_processManager->sendCommand({"cycle", "audio"});
+        m_playerBackend->sendCommand({"cycle", "audio"});
     }
 }
 
@@ -934,7 +1154,72 @@ void PlayerController::cycleSubtitleTrack()
 {
     qDebug() << "PlayerController: Cycling subtitle track";
     if (m_playbackState == Playing || m_playbackState == Paused) {
-        m_processManager->sendCommand({"cycle", "sub"});
+        m_playerBackend->sendCommand({"cycle", "sub"});
+    }
+}
+
+void PlayerController::previousChapter()
+{
+    if (m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"add", "chapter", "-1"});
+    }
+}
+
+void PlayerController::nextChapter()
+{
+    if (m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"add", "chapter", "1"});
+    }
+}
+
+void PlayerController::toggleMute()
+{
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"cycle", "mute"});
+    }
+}
+
+void PlayerController::showMpvStatsOnce()
+{
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"script-binding", "stats/display-stats"});
+    }
+}
+
+void PlayerController::toggleMpvStats()
+{
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"script-binding", "stats/display-stats-toggle"});
+    }
+}
+
+void PlayerController::showMpvStatsPage(int page)
+{
+    if (page < 0 || page > 9) {
+        return;
+    }
+
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        const int mappedPage = (page == 0) ? 10 : page;
+        const QString binding = QStringLiteral("stats/display-page-%1").arg(mappedPage);
+        m_playerBackend->sendCommand({"script-binding", binding});
+    }
+}
+
+void PlayerController::sendMpvKeypress(const QString &key)
+{
+    if (key.isEmpty()) {
+        return;
+    }
+
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        qCDebug(lcPlayback) << "Forwarding keypress to mpv:" << key;
+        m_playerBackend->sendCommand({"keypress", key});
     }
 }
 
@@ -1009,6 +1294,10 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
                                           const QString &mediaSourceId, const QString &playSessionId,
                                           int audioStreamIndex, int subtitleStreamIndex,
                                           int mpvAudioTrack, int mpvSubtitleTrack,
+                                          const QVariantList &audioTrackMap,
+                                          const QVariantList &subtitleTrackMap,
+                                          const QVariantList &availableAudioTracks,
+                                          const QVariantList &availableSubtitleTracks,
                                           double framerate, bool isHDR)
 {
     qDebug() << "PlayerController: playUrlWithTracks called with itemId:" << itemId 
@@ -1027,16 +1316,87 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
     // mpv track numbers for mpv commands
     m_mpvAudioTrack = mpvAudioTrack;
     m_mpvSubtitleTrack = mpvSubtitleTrack;
+    m_availableAudioTracks = availableAudioTracks;
+    m_availableSubtitleTracks = availableSubtitleTracks;
+    updateTrackMappings(audioTrackMap, subtitleTrackMap);
     
-    qDebug() << "PlayerController: Stored m_mpvSubtitleTrack:" << m_mpvSubtitleTrack;
+    qCDebug(lcPlayback) << "Track mapping contract initialized:"
+                        << "audioMapEntries=" << m_audioTrackMap.size()
+                        << "subtitleMapEntries=" << m_subtitleTrackMap.size()
+                        << "selectedAudio=" << m_selectedAudioTrack
+                        << "selectedSubtitle=" << m_selectedSubtitleTrack
+                        << "selectedMpvAudio=" << mpvAudioTrackForJellyfinIndex(m_selectedAudioTrack)
+                        << "selectedMpvSubtitle=" << mpvSubtitleTrackForJellyfinIndex(m_selectedSubtitleTrack);
     
     emit mediaSourceIdChanged();
     emit playSessionIdChanged();
     emit selectedAudioTrackChanged();
     emit selectedSubtitleTrackChanged();
+    emit availableTracksChanged();
     
     // Call base playUrl which handles the rest
     playUrl(url, itemId, startPositionTicks, seriesId, seasonId, libraryId, framerate, isHDR);
+}
+
+void PlayerController::updateTrackMappings(const QVariantList &audioTrackMap, const QVariantList &subtitleTrackMap)
+{
+    auto parseMap = [](const QVariantList &input, QHash<int, int> &output, const char *typeName) {
+        output.clear();
+        QSet<int> seenMpvTrackIds;
+
+        for (const QVariant &entryVariant : input) {
+            const QVariantMap entry = entryVariant.toMap();
+            const int jellyfinIndex = entry.value(QStringLiteral("jellyfinIndex"), -1).toInt();
+            const int mpvTrackId = entry.value(QStringLiteral("mpvTrackId"), -1).toInt();
+
+            if (jellyfinIndex < 0 || mpvTrackId <= 0) {
+                continue;
+            }
+            if (seenMpvTrackIds.contains(mpvTrackId)) {
+                qCWarning(lcPlayback) << "Duplicate mpv track id in" << typeName
+                                      << "mapping ignored:" << mpvTrackId;
+                continue;
+            }
+
+            seenMpvTrackIds.insert(mpvTrackId);
+            output.insert(jellyfinIndex, mpvTrackId);
+        }
+    };
+
+    parseMap(audioTrackMap, m_audioTrackMap, "audio");
+    parseMap(subtitleTrackMap, m_subtitleTrackMap, "subtitle");
+}
+
+int PlayerController::mpvAudioTrackForJellyfinIndex(int jellyfinStreamIndex) const
+{
+    if (jellyfinStreamIndex < 0) {
+        return -1;
+    }
+    if (m_audioTrackMap.contains(jellyfinStreamIndex)) {
+        return m_audioTrackMap.value(jellyfinStreamIndex);
+    }
+
+    // Compatibility fallback only for the startup-selected track carried by playUrlWithTracks.
+    if (m_selectedAudioTrack == jellyfinStreamIndex && m_mpvAudioTrack > 0) {
+        return m_mpvAudioTrack;
+    }
+    return -1;
+}
+
+int PlayerController::mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) const
+{
+    if (jellyfinStreamIndex < 0) {
+        return -1;
+    }
+    if (m_subtitleTrackMap.contains(jellyfinStreamIndex)) {
+        return m_subtitleTrackMap.value(jellyfinStreamIndex);
+    }
+
+    // Compatibility fallback only for the startup-selected track carried by playUrlWithTracks.
+    if (m_selectedSubtitleTrack == jellyfinStreamIndex && m_mpvSubtitleTrack > 0) {
+        return m_mpvSubtitleTrack;
+    }
+    return -1;
 }
 
 // === PRIVATE HELPERS ===
@@ -1136,6 +1496,30 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
     return false;  // Threshold not met
 }
 
+void PlayerController::stashPendingAutoplayContext()
+{
+    m_pendingAutoplayItemId = m_currentItemId;
+    m_pendingAutoplaySeriesId = m_currentSeriesId;
+    m_pendingAutoplaySeasonId = m_currentSeasonId;
+    m_pendingAutoplayLibraryId = m_currentLibraryId;
+    m_pendingAutoplayAudioTrack = m_selectedAudioTrack;
+    m_pendingAutoplaySubtitleTrack = m_selectedSubtitleTrack;
+    m_pendingAutoplayFramerate = m_contentFramerate;
+    m_pendingAutoplayIsHDR = m_contentIsHDR;
+}
+
+void PlayerController::clearPendingAutoplayContext()
+{
+    m_pendingAutoplayItemId.clear();
+    m_pendingAutoplaySeriesId.clear();
+    m_pendingAutoplaySeasonId.clear();
+    m_pendingAutoplayLibraryId.clear();
+    m_pendingAutoplayAudioTrack = -1;
+    m_pendingAutoplaySubtitleTrack = -1;
+    m_pendingAutoplayFramerate = 0.0;
+    m_pendingAutoplayIsHDR = false;
+}
+
 void PlayerController::startPlayback(const QString &url)
 {
     qDebug() << "PlayerController: Starting playback of" << url;
@@ -1205,7 +1589,7 @@ void PlayerController::initiateMpvStart()
         return;
     }
     
-    if (m_processManager->isRunning()) {
+    if (m_playerBackend->isRunning()) {
         qCWarning(lcPlayback) << "PlayerController: initiateMpvStart called but mpv already running, ignoring";
         return;
     }
@@ -1223,10 +1607,58 @@ void PlayerController::initiateMpvStart()
     QStringList finalArgs;
     finalArgs << ConfigManager::getMpvConfigArgs();  // mpv.conf, input.conf, scripts
     finalArgs << profileArgs;                        // Profile-specific args
-    
+
+#if defined(Q_OS_LINUX)
+    if (m_playerBackend->backendName() == QStringLiteral("linux-libmpv-opengl")) {
+        // Embedded libmpv render path should avoid external-process mpv config/scripts
+        // and profile switches that can override render-critical options.
+        QStringList filteredArgs;
+        filteredArgs.reserve(finalArgs.size());
+
+        auto optionNameForArg = [](const QString &arg) -> QString {
+            if (!arg.startsWith("--")) return QString();
+            const QString option = arg.mid(2);
+            const int equalsIndex = option.indexOf('=');
+            return equalsIndex >= 0 ? option.left(equalsIndex) : option;
+        };
+
+        auto shouldSkipEmbeddedArg = [](const QString &name) -> bool {
+            return name == QStringLiteral("config-dir")
+                || name == QStringLiteral("config")
+                || name == QStringLiteral("input-conf")
+                || name == QStringLiteral("include")
+                || name == QStringLiteral("script")
+                || name == QStringLiteral("script-opts")
+                || name == QStringLiteral("scripts")
+                || name == QStringLiteral("osc")
+                || name == QStringLiteral("no-osc")
+                || name == QStringLiteral("profile")
+                || name == QStringLiteral("fullscreen")
+                || name == QStringLiteral("wid")
+                || name == QStringLiteral("input-ipc-server")
+                || name == QStringLiteral("idle")
+                || name == QStringLiteral("vo")
+                || name == QStringLiteral("hwdec");
+        };
+
+        for (const QString &arg : std::as_const(finalArgs)) {
+            const QString name = optionNameForArg(arg);
+            if (!name.isEmpty() && shouldSkipEmbeddedArg(name)) {
+                continue;
+            }
+            filteredArgs << arg;
+        }
+
+        qDebug() << "PlayerController: Embedded linux backend filtered mpv args:"
+                 << "before=" << finalArgs.size()
+                 << "after=" << filteredArgs.size();
+        finalArgs = filteredArgs;
+    }
+#endif
+
     qDebug() << "PlayerController: Final mpv args:" << finalArgs;
     
-    m_processManager->startMpv(m_mpvBin, finalArgs, m_pendingUrl);
+    m_playerBackend->startMpv(m_mpvBin, finalArgs, m_pendingUrl);
 }
 
 QString PlayerController::stateToString(PlaybackState state)
@@ -1324,7 +1756,7 @@ void PlayerController::loadConfig()
         qDebug() << "PlayerController: Using input.conf from:" << ConfigManager::getMpvInputConfPath();
     }
     if (!ConfigManager::getMpvScriptsDir().isEmpty()) {
-        qDebug() << "PlayerController: Using scripts from:" << ConfigManager::getMpvScriptsDir();
+        qDebug() << "PlayerController: Detected user mpv scripts in:" << ConfigManager::getMpvScriptsDir();
     }
 }
 
@@ -1358,8 +1790,36 @@ void PlayerController::onScriptMessage(const QString &messageName, const QString
         }
         qDebug() << "PlayerController: No outro segment found to skip";
     }
-    // Note: Trickplay thumbnail requests are now handled entirely by thumbfast.lua
-    // using the pre-processed binary file from TrickplayProcessor
+    // Script-driven trickplay handlers were retired with the native overlay migration.
+}
+
+void PlayerController::setOverlayMetadata(const QString &title, const QString &subtitle, const QString &backdropUrl)
+{
+    const QString normalizedTitle = title.trimmed();
+    const QString normalizedSubtitle = subtitle.trimmed();
+    const QString normalizedBackdropUrl = backdropUrl.trimmed();
+    if (m_overlayTitle == normalizedTitle
+        && m_overlaySubtitle == normalizedSubtitle
+        && m_overlayBackdropUrl == normalizedBackdropUrl) {
+        return;
+    }
+
+    m_overlayTitle = normalizedTitle;
+    m_overlaySubtitle = normalizedSubtitle;
+    m_overlayBackdropUrl = normalizedBackdropUrl;
+    emit overlayMetadataChanged();
+}
+
+void PlayerController::clearOverlayMetadata()
+{
+    if (m_overlayTitle.isEmpty() && m_overlaySubtitle.isEmpty() && m_overlayBackdropUrl.isEmpty()) {
+        return;
+    }
+
+    m_overlayTitle.clear();
+    m_overlaySubtitle.clear();
+    m_overlayBackdropUrl.clear();
+    emit overlayMetadataChanged();
 }
 
 void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<MediaSegmentInfo> &segments)
@@ -1372,23 +1832,15 @@ void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<
     qDebug() << "PlayerController: Received" << segments.size() << "segments for item:" << itemId;
     m_currentSegments = segments;
     
-    // Send segment info to mpv ModernX OSC script
+    // Segment metadata is kept in controller state for native overlay handling.
     for (const auto &segment : segments) {
         double startSeconds = static_cast<double>(segment.startTicks) / 10000000.0;
         double endSeconds = static_cast<double>(segment.endTicks) / 10000000.0;
-        
+
         if (segment.type == MediaSegmentType::Intro) {
-            m_processManager->sendCommand({"script-message-to", "modernx", 
-                "bloom-segment-intro", 
-                QString::number(startSeconds, 'f', 3), 
-                QString::number(endSeconds, 'f', 3)});
-            qDebug() << "PlayerController: Sent intro segment to OSC:" << startSeconds << "->" << endSeconds;
+            qDebug() << "PlayerController: Intro segment:" << startSeconds << "->" << endSeconds;
         } else if (segment.type == MediaSegmentType::Outro) {
-            m_processManager->sendCommand({"script-message-to", "modernx", 
-                "bloom-segment-outro", 
-                QString::number(startSeconds, 'f', 3), 
-                QString::number(endSeconds, 'f', 3)});
-            qDebug() << "PlayerController: Sent outro segment to OSC:" << startSeconds << "->" << endSeconds;
+            qDebug() << "PlayerController: Outro segment:" << startSeconds << "->" << endSeconds;
         }
     }
 }
@@ -1399,9 +1851,19 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
         qDebug() << "PlayerController: Ignoring trickplay info for different item:" << itemId;
         return;
     }
+
+    const bool wasTrickplayReady = m_hasTrickplayInfo;
     
     if (trickplayInfo.isEmpty()) {
         qDebug() << "PlayerController: No trickplay info available for item:" << itemId;
+        m_hasTrickplayInfo = false;
+        m_currentTrickplayInfo = TrickplayTileInfo{};
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
         return;
     }
     
@@ -1424,6 +1886,22 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
     }
     
     const TrickplayTileInfo &info = trickplayInfo[selectedWidth];
+
+    if (info.interval <= 0 || info.thumbnailCount <= 0 || info.width <= 0 || info.height <= 0) {
+        qWarning() << "PlayerController: Ignoring invalid trickplay info for item:" << itemId
+                   << "interval:" << info.interval
+                   << "count:" << info.thumbnailCount
+                   << "size:" << info.width << "x" << info.height;
+        m_hasTrickplayInfo = false;
+        m_currentTrickplayInfo = TrickplayTileInfo{};
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
+        return;
+    }
     
     qDebug() << "PlayerController: Received trickplay info for item:" << itemId
              << "selected width:" << selectedWidth
@@ -1433,8 +1911,16 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
              << "count:" << info.thumbnailCount;
     
     m_currentTrickplayInfo = info;
-    m_hasTrickplayInfo = true;
-    
+    m_hasTrickplayInfo = false;
+    m_trickplayBinaryPath.clear();
+    m_currentTrickplayFrameIndex = -1;
+    m_hasTrickplayPreviewPositionOverride = false;
+    m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    clearTrickplayPreview();
+    if (wasTrickplayReady) {
+        emit trickplayStateChanged();
+    }
+
     // Start trickplay processing - download tiles and create binary file
     // This uses the jellyfin-mpv-shim approach for proper mpv overlay support
     m_trickplayProcessor->startProcessing(itemId, info);
@@ -1453,16 +1939,30 @@ void PlayerController::onTrickplayProcessingComplete(const QString &itemId, int 
              << "interval:" << intervalMs << "ms"
              << "size:" << width << "x" << height
              << "file:" << filePath;
-    
-    // Send trickplay BIF config to mpv thumbfast script using jellyfin-mpv-shim format
-    // Format: shim-trickplay-bif <count> <interval_ms> <width> <height> <file_path>
-    m_processManager->sendCommand({"script-message-to", "thumbfast", 
-        "shim-trickplay-bif",
-        QString::number(count),
-        QString::number(intervalMs),
-        QString::number(width),
-        QString::number(height),
-        filePath});
+
+    if (count <= 0 || intervalMs <= 0 || width <= 0 || height <= 0 || filePath.isEmpty() || !QFile::exists(filePath)) {
+        qWarning() << "PlayerController: Trickplay processing result is invalid, disabling trickplay for item:" << itemId;
+        m_hasTrickplayInfo = false;
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
+        return;
+    }
+
+    m_currentTrickplayInfo.thumbnailCount = count;
+    m_currentTrickplayInfo.interval = intervalMs;
+    m_currentTrickplayInfo.width = width;
+    m_currentTrickplayInfo.height = height;
+    m_trickplayBinaryPath = filePath;
+    m_hasTrickplayInfo = true;
+    m_currentTrickplayFrameIndex = -1;
+    updateTrickplayPreviewForPosition(
+        m_hasTrickplayPreviewPositionOverride ? m_trickplayPreviewPositionOverrideSeconds : m_currentPosition
+    );
+    emit trickplayStateChanged();
 }
 
 void PlayerController::onTrickplayProcessingFailed(const QString &itemId, const QString &error)
@@ -1474,4 +1974,136 @@ void PlayerController::onTrickplayProcessingFailed(const QString &itemId, const 
     qWarning() << "PlayerController: Trickplay processing failed for item:" << itemId << "error:" << error;
     // Trickplay thumbnails won't be available, but playback continues normally
     m_hasTrickplayInfo = false;
+    m_trickplayBinaryPath.clear();
+    m_currentTrickplayFrameIndex = -1;
+    m_hasTrickplayPreviewPositionOverride = false;
+    m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    clearTrickplayPreview();
+    emit trickplayStateChanged();
+}
+
+void PlayerController::setTrickplayPreviewPositionSeconds(double seconds)
+{
+    m_hasTrickplayPreviewPositionOverride = true;
+    m_trickplayPreviewPositionOverrideSeconds = qMax(0.0, seconds);
+    if (m_hasTrickplayInfo) {
+        updateTrickplayPreviewForPosition(m_trickplayPreviewPositionOverrideSeconds);
+    }
+}
+
+void PlayerController::clearTrickplayPreviewPositionOverride()
+{
+    if (!m_hasTrickplayPreviewPositionOverride) {
+        return;
+    }
+
+    m_hasTrickplayPreviewPositionOverride = false;
+    m_trickplayPreviewPositionOverrideSeconds = 0.0;
+    if (m_hasTrickplayInfo) {
+        updateTrickplayPreviewForPosition(m_currentPosition);
+    }
+}
+
+void PlayerController::updateTrickplayPreviewForPosition(double seconds)
+{
+    if (!m_hasTrickplayInfo
+        || m_trickplayBinaryPath.isEmpty()
+        || m_currentTrickplayInfo.interval <= 0
+        || m_currentTrickplayInfo.thumbnailCount <= 0
+        || m_currentTrickplayInfo.width <= 0
+        || m_currentTrickplayInfo.height <= 0) {
+        clearTrickplayPreview();
+        return;
+    }
+
+    if (!QFile::exists(m_trickplayBinaryPath)) {
+        m_hasTrickplayInfo = false;
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
+        return;
+    }
+
+    const int requestedMs = qMax(0, static_cast<int>(seconds * 1000.0));
+    int frameIndex = requestedMs / m_currentTrickplayInfo.interval;
+    frameIndex = qBound(0, frameIndex, m_currentTrickplayInfo.thumbnailCount - 1);
+    if (frameIndex == m_currentTrickplayFrameIndex && !m_trickplayPreviewUrl.isEmpty()) {
+        return;
+    }
+
+    const QString previewUrl = buildTrickplayPreviewDataUrl(
+        m_trickplayBinaryPath,
+        frameIndex,
+        m_currentTrickplayInfo.width,
+        m_currentTrickplayInfo.height
+    );
+
+    if (previewUrl.isEmpty()) {
+        qWarning() << "PlayerController: Failed to load trickplay frame" << frameIndex << "for item" << m_currentItemId;
+        m_hasTrickplayInfo = false;
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit trickplayStateChanged();
+        return;
+    }
+
+    m_currentTrickplayFrameIndex = frameIndex;
+    if (m_trickplayPreviewUrl != previewUrl) {
+        m_trickplayPreviewUrl = previewUrl;
+        emit trickplayPreviewChanged();
+    }
+}
+
+void PlayerController::clearTrickplayPreview()
+{
+    if (m_trickplayPreviewUrl.isEmpty()) {
+        return;
+    }
+    m_trickplayPreviewUrl.clear();
+    emit trickplayPreviewChanged();
+}
+
+QString PlayerController::buildTrickplayPreviewDataUrl(const QString &binaryPath, int frameIndex, int width, int height)
+{
+    if (binaryPath.isEmpty() || frameIndex < 0 || width <= 0 || height <= 0) {
+        return QString();
+    }
+
+    QFile file(binaryPath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        return QString();
+    }
+
+    const qint64 frameSize = static_cast<qint64>(width) * height * 4;
+    if (frameSize <= 0) {
+        return QString();
+    }
+
+    const qint64 offset = frameSize * frameIndex;
+    if (!file.seek(offset)) {
+        return QString();
+    }
+
+    const QByteArray frame = file.read(frameSize);
+    if (frame.size() != frameSize) {
+        return QString();
+    }
+
+    // TrickplayProcessor stores frame data in BGRA byte order.
+    QImage image(reinterpret_cast<const uchar *>(frame.constData()), width, height, width * 4, QImage::Format_ARGB32);
+    QImage detached = image.copy();
+
+    QByteArray pngBytes;
+    QBuffer pngBuffer(&pngBytes);
+    if (!pngBuffer.open(QIODevice::WriteOnly) || !detached.save(&pngBuffer, "PNG")) {
+        return QString();
+    }
+
+    return QStringLiteral("data:image/png;base64,%1").arg(QString::fromLatin1(pngBytes.toBase64()));
 }

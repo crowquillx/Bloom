@@ -55,6 +55,75 @@ Window {
         if (sidebar.overlayMode) return 0
         return sidebar.sidebarWidth
     }
+    readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
+    readonly property bool playbackOverlayNavigationActive: embeddedPlaybackActive
+                                                         && embeddedPlaybackOverlay.fullControlsVisible
+    readonly property bool playbackSelectorOpen: embeddedPlaybackActive
+                                              && embeddedPlaybackOverlay.selectorOpen
+
+    function ensurePlaybackOverlayFocus() {
+        if (!embeddedPlaybackActive) {
+            return
+        }
+        embeddedPlaybackOverlay.showControls()
+        window.requestActivate()
+        embeddedOverlayWindow.requestActivate()
+        Qt.callLater(function() {
+            embeddedPlaybackOverlay.activateOverlayFocus()
+            Qt.callLater(function() {
+                embeddedPlaybackOverlay.activateOverlayFocus()
+            })
+        })
+    }
+
+    VideoSurface {
+        id: videoSurface
+        anchors.fill: parent
+        visible: embeddedPlaybackActive
+        z: 900
+    }
+
+    Window {
+        id: embeddedOverlayWindow
+        flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        transientParent: window
+        modality: Qt.NonModal
+        color: "transparent"
+        visible: window.visible
+                 && window.visibility !== Window.Minimized
+                 && embeddedPlaybackActive
+        x: window.x
+        y: window.y
+        width: window.width
+        height: window.height
+        onVisibleChanged: {
+            if (visible) {
+                ensurePlaybackOverlayFocus()
+            }
+        }
+
+        EmbeddedPlaybackOverlay {
+            id: embeddedPlaybackOverlay
+            anchors.fill: parent
+        }
+    }
+
+    Connections {
+        target: PlayerController
+        function onIsPlaybackActiveChanged() {
+            if (PlayerController.isPlaybackActive) {
+                ensurePlaybackOverlayFocus()
+            }
+        }
+        function onPlaybackStateChanged() {
+            if (!embeddedPlaybackActive) {
+                return
+            }
+            if (PlayerController.playbackState === PlayerController.Paused) {
+                ensurePlaybackOverlayFocus()
+            }
+        }
+    }
     
     // ========================================
     // Main Content Area
@@ -68,6 +137,7 @@ Window {
         anchors.top: parent.top
         anchors.bottom: parent.bottom
         anchors.leftMargin: contentOffset
+        visible: !embeddedPlaybackActive
         
         Behavior on anchors.leftMargin {
             NumberAnimation { 
@@ -135,7 +205,7 @@ Window {
     Sidebar {
         id: sidebar
         anchors.fill: parent
-        visible: isLoggedIn
+        visible: isLoggedIn && !embeddedPlaybackActive
         overlayMode: window.width < overlayThreshold
         currentNavigation: "home"
         mainContent: mainContentArea  // Connect to main content for focus navigation
@@ -475,7 +545,10 @@ Window {
 
     Shortcut {
         sequences: ["Esc", "Backspace"]
-        enabled: stackView.depth > 1 && !sidebar.expanded && !(stackView.currentItem && stackView.currentItem.handlesOwnBackNavigation === true)
+        enabled: !PlayerController.isPlaybackActive
+                 && stackView.depth > 1
+                 && !sidebar.expanded
+                 && !(stackView.currentItem && stackView.currentItem.handlesOwnBackNavigation === true)
         onActivated: {
             console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "sidebar.expanded:", sidebar.expanded)
             if (stackView.depth > 1) {
@@ -511,5 +584,159 @@ Window {
             else
                 window.showFullScreen()
         }
+    }
+
+    Shortcut {
+        sequences: ["Space", "K"]
+        enabled: PlayerController.isPlaybackActive
+        onActivated: {
+            embeddedPlaybackOverlay.showControls()
+            PlayerController.togglePause()
+        }
+    }
+
+    Shortcut {
+        sequence: "Esc"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: {
+            if (embeddedPlaybackOverlay.closeSelectors()) {
+                return
+            }
+            PlayerController.stop()
+        }
+    }
+
+    Shortcut {
+        sequence: "Left"
+        enabled: PlayerController.isPlaybackActive && !playbackSelectorOpen
+        onActivated: {
+            if (playbackOverlayNavigationActive) {
+                embeddedPlaybackOverlay.handleDirectionalKey("left")
+            } else {
+                embeddedPlaybackOverlay.showSeekPreview()
+                PlayerController.seekRelative(-10)
+            }
+        }
+    }
+
+    Shortcut {
+        sequence: "Right"
+        enabled: PlayerController.isPlaybackActive && !playbackSelectorOpen
+        onActivated: {
+            if (playbackOverlayNavigationActive) {
+                embeddedPlaybackOverlay.handleDirectionalKey("right")
+            } else {
+                embeddedPlaybackOverlay.showSeekPreview()
+                PlayerController.seekRelative(10)
+            }
+        }
+    }
+
+    Shortcut {
+        sequence: "Up"
+        enabled: embeddedPlaybackActive && !playbackSelectorOpen
+        onActivated: embeddedPlaybackOverlay.handleDirectionalKey("up")
+    }
+
+    Shortcut {
+        sequence: "Down"
+        enabled: embeddedPlaybackActive && !playbackSelectorOpen
+        onActivated: embeddedPlaybackOverlay.handleDirectionalKey("down")
+    }
+
+    Shortcut {
+        sequence: "J"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: {
+            embeddedPlaybackOverlay.showSeekPreview()
+            PlayerController.seekRelative(-10)
+        }
+    }
+
+    Shortcut {
+        sequence: "L"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: {
+            embeddedPlaybackOverlay.showSeekPreview()
+            PlayerController.seekRelative(10)
+        }
+    }
+
+    Shortcut {
+        sequence: "S"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.stop()
+    }
+
+    Shortcut {
+        sequence: "I"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.toggleMpvStats()
+    }
+
+    Shortcut {
+        sequence: "Shift+I"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsOnce()
+    }
+
+    Shortcut {
+        sequence: "0"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsPage(0)
+    }
+
+    Shortcut {
+        sequence: "1"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsPage(1)
+    }
+
+    Shortcut {
+        sequence: "2"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsPage(2)
+    }
+
+    Shortcut {
+        sequence: "3"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsPage(3)
+    }
+
+    Shortcut {
+        sequence: "4"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsPage(4)
+    }
+
+    Shortcut {
+        sequence: "5"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsPage(5)
+    }
+
+    Shortcut {
+        sequence: "6"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsPage(6)
+    }
+
+    Shortcut {
+        sequence: "7"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsPage(7)
+    }
+
+    Shortcut {
+        sequence: "8"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsPage(8)
+    }
+
+    Shortcut {
+        sequence: "9"
+        enabled: PlayerController.isPlaybackActive
+        onActivated: PlayerController.showMpvStatsPage(9)
     }
 }

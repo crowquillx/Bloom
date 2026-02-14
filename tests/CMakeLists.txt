@@ -56,6 +56,71 @@ target_link_libraries(LibraryCacheStoreTest
 
 add_test(NAME LibraryCacheStoreTest COMMAND LibraryCacheStoreTest)
 
+# Player backend abstraction tests
+add_executable(PlayerBackendFactoryTest
+    PlayerBackendFactoryTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
+)
+
+if(UNIX AND NOT APPLE)
+    target_sources(PlayerBackendFactoryTest PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxMpvBackend.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxMpvBackend.cpp
+    )
+endif()
+
+if(WIN32)
+    target_sources(PlayerBackendFactoryTest PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.cpp
+    )
+endif()
+
+target_include_directories(PlayerBackendFactoryTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(PlayerBackendFactoryTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Quick
+        Qt6::Test
+)
+
+add_test(NAME PlayerBackendFactoryTest COMMAND PlayerBackendFactoryTest)
+
+add_executable(PlayerControllerAutoplayContextTest
+    PlayerControllerAutoplayContextTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
+)
+
+target_include_directories(PlayerControllerAutoplayContextTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_compile_definitions(PlayerControllerAutoplayContextTest PRIVATE BLOOM_TESTING=1)
+
+target_link_libraries(PlayerControllerAutoplayContextTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME PlayerControllerAutoplayContextTest COMMAND PlayerControllerAutoplayContextTest)
+
 # ============================================================================
 # Visual Regression Test Fixtures
 # ============================================================================
@@ -120,8 +185,15 @@ qt_add_executable(VisualRegressionTest
     # Player sources
     ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/MpvVideoItem.h
+    ${CMAKE_SOURCE_DIR}/src/player/MpvVideoItem.cpp
     ${CMAKE_SOURCE_DIR}/src/player/ThemeSongManager.cpp
     ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.cpp
     # UI sources
     ${CMAKE_SOURCE_DIR}/src/ui/WindowManager.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp
@@ -141,7 +213,6 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/security/SecretStoreFactory.cpp
     # Resources
     ${CMAKE_SOURCE_DIR}/src/resources/fonts.qrc
-    ${CMAKE_SOURCE_DIR}/src/resources/scripts.qrc
     ${CMAKE_SOURCE_DIR}/src/resources/sounds.qrc
     ${CMAKE_SOURCE_DIR}/src/resources/images.qrc
 )
@@ -181,9 +252,11 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/Sidebar.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaProgressBar.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MpvProfileEditor.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/EmbeddedPlaybackOverlay.qml
     ${CMAKE_SOURCE_DIR}/src/ui/TrackSelector.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaInfoPanel.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ToastNotification.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/VideoSurface.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RoundedImage.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ActiveSessionsScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/TrackUtils.js
@@ -223,7 +296,10 @@ else()
     message(STATUS "Qt6 ShaderTools not found - skipping shader generation for tests")
 endif()
 
-target_include_directories(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(VisualRegressionTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/player
+)
 
 target_link_libraries(VisualRegressionTest PRIVATE
     Qt6::Core
@@ -240,11 +316,19 @@ target_link_libraries(VisualRegressionTest PRIVATE
 
 # Platform-specific secure storage libraries
 if(UNIX AND NOT APPLE)
+    target_sources(VisualRegressionTest PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxMpvBackend.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxMpvBackend.cpp
+    )
     # Linux: link libsecret
     target_sources(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src/security/SecretStoreLinux.cpp)
     target_include_directories(VisualRegressionTest PRIVATE ${LIBSECRET_INCLUDE_DIRS})
     target_link_libraries(VisualRegressionTest PRIVATE ${LIBSECRET_LIBRARIES})
 elseif(WIN32)
+    target_sources(VisualRegressionTest PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.cpp
+    )
     # Windows: link advapi32 for Credential Manager API
     target_sources(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src/security/SecretStoreWindows.cpp)
     target_link_libraries(VisualRegressionTest PRIVATE advapi32)

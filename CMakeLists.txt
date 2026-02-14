@@ -10,6 +10,7 @@ set(CMAKE_AUTOUIC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network Sql Concurrent Multimedia Test ShaderTools LinguistTools)
 find_package(Qt6 COMPONENTS MultimediaQuick QUIET)
+include(CTest)
 
 # Platform-specific secure storage dependencies
 if(UNIX AND NOT APPLE)
@@ -20,4 +21,6 @@ endif()
 
 
 add_subdirectory(src)
-add_subdirectory(tests)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

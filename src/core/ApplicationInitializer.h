@@ -8,7 +8,7 @@ class ConfigManager;
 class DisplayManager;
 class ResponsiveLayoutManager;
 class TrackPreferencesManager;
-class PlayerProcessManager;
+class IPlayerBackend;
 class SecretStore;
 class AuthenticationService;
 class LibraryService;
@@ -48,7 +48,7 @@ private:
     std::unique_ptr<ConfigManager> m_configManager;
     std::unique_ptr<DisplayManager> m_displayManager;
     std::unique_ptr<TrackPreferencesManager> m_trackPreferencesManager;
-    std::unique_ptr<PlayerProcessManager> m_playerProcessManager;
+    std::unique_ptr<IPlayerBackend> m_playerBackend;
     // ISecretStore — owned here, raw pointer passed to AuthenticationService
     std::unique_ptr<ISecretStore> m_secretStore;
     

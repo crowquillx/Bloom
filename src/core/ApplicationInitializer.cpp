@@ -4,7 +4,8 @@
 #include "utils/DisplayManager.h"
 #include "ui/ResponsiveLayoutManager.h"
 #include "utils/TrackPreferencesManager.h"
-#include "player/PlayerProcessManager.h"
+#include "player/backend/IPlayerBackend.h"
+#include "player/backend/PlayerBackendFactory.h"
 #include "player/PlayerController.h"
 #include "player/ThemeSongManager.h"
 #include "security/SecretStoreFactory.h"
@@ -110,9 +111,6 @@ void ApplicationInitializer::registerServices()
     // Load configuration early so downstream services can read settings (e.g., cache size)
     m_configManager->load();
     
-    // Install bundled mpv scripts (OSC, thumbfast) to user config directory
-    ConfigManager::installBundledScripts();
-    
     // 1.5 DisplayManager - Depends on ConfigManager
     m_displayManager = std::make_unique<DisplayManager>(m_configManager.get());
     ServiceLocator::registerService<DisplayManager>(m_displayManager.get());
@@ -125,9 +123,10 @@ void ApplicationInitializer::registerServices()
     m_trackPreferencesManager = std::make_unique<TrackPreferencesManager>();
     ServiceLocator::registerService<TrackPreferencesManager>(m_trackPreferencesManager.get());
     
-    // 2. PlayerProcessManager - No dependencies
-    m_playerProcessManager = std::make_unique<PlayerProcessManager>();
-    ServiceLocator::registerService<PlayerProcessManager>(m_playerProcessManager.get());
+    // 2. Player backend - No dependencies
+    m_playerBackend = PlayerBackendFactory::create(m_configManager->getPlayerBackend());
+    ServiceLocator::registerService<IPlayerBackend>(m_playerBackend.get());
+    qInfo() << "ApplicationInitializer: Active player backend:" << m_playerBackend->backendName();
     
     // Check if we're in test mode
     bool isTestMode = TestModeController::instance()->isTestMode();
@@ -155,7 +154,7 @@ void ApplicationInitializer::registerServices()
         
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(
-            m_playerProcessManager.get(),
+            m_playerBackend.get(),
             m_configManager.get(),
             m_trackPreferencesManager.get(),
             m_displayManager.get(),
@@ -192,7 +191,7 @@ void ApplicationInitializer::registerServices()
         
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(
-            m_playerProcessManager.get(),
+            m_playerBackend.get(),
             m_configManager.get(),
             m_trackPreferencesManager.get(),
             m_displayManager.get(),

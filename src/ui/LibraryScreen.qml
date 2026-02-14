@@ -329,14 +329,16 @@ FocusScope {
             initialSeasonIndex: root._lastSelectedSeasonIndex
             initialEpisodeId: root.initialEpisodeId
             
-            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, framerate, isHDR) {
+            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
                 // Use Jellyfin indices for the URL (server needs these for stream selection)
                 var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
                 // Pass mpv track numbers to PlayerController for mpv commands
                 PlayerController.playUrlWithTracks(streamUrl, itemId, startPositionTicks || 0, 
                                                     root.currentSeriesId, SeriesDetailsViewModel.selectedSeasonId, root.currentLibraryId,
                                                     mediaSourceId, playSessionId, audioIndex, subtitleIndex, 
-                                                    mpvAudioTrack, mpvSubtitleTrack, framerate || 0.0, isHDR || false)
+                                                    mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap,
+                                                    availableAudioTracks, availableSubtitleTracks,
+                                                    framerate || 0.0, isHDR || false)
             }
             
             onBackRequested: {
@@ -354,18 +356,30 @@ FocusScope {
             
             onPlayRequested: function(itemId, startPositionTicks, framerate, isHDR) {
                 var streamUrl = LibraryService.getStreamUrl(itemId)
+                var title = root.currentMovieData && root.currentMovieData.Name ? root.currentMovieData.Name : qsTr("Now Playing")
+                var subtitle = root.currentMovieData && root.currentMovieData.ProductionYear
+                               ? String(root.currentMovieData.ProductionYear)
+                               : ""
+                PlayerController.setOverlayMetadata(title, subtitle, root.currentBackdropUrl)
                 PlayerController.playUrl(streamUrl, itemId, startPositionTicks || 0, "", "", root.currentLibraryId, framerate || 0.0, isHDR || false)
             }
             
-            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, framerate, isHDR) {
+            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
                 // Use Jellyfin indices for the URL (server needs these for stream selection)
                 var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
                 // Pass mpv track numbers to PlayerController for mpv commands
                 // Movies don't have seriesId or seasonId, so pass empty strings
+                var title = root.currentMovieData && root.currentMovieData.Name ? root.currentMovieData.Name : qsTr("Now Playing")
+                var subtitle = root.currentMovieData && root.currentMovieData.ProductionYear
+                               ? String(root.currentMovieData.ProductionYear)
+                               : ""
+                PlayerController.setOverlayMetadata(title, subtitle, root.currentBackdropUrl)
                 PlayerController.playUrlWithTracks(streamUrl, itemId, startPositionTicks || 0, 
                                                     "", "", root.currentLibraryId,
                                                     mediaSourceId, playSessionId, audioIndex, subtitleIndex, 
-                                                    mpvAudioTrack, mpvSubtitleTrack, framerate || 0.0, isHDR || false)
+                                                    mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap,
+                                                    availableAudioTracks, availableSubtitleTracks,
+                                                    framerate || 0.0, isHDR || false)
             }
             
             onBackRequested: {
@@ -1773,6 +1787,8 @@ FocusScope {
         console.log("[Library] Starting quick-play with framerate:", framerate, "isHDR:", isHDR)
         
         var streamUrl = PlaybackService.getStreamUrl(episodeId)
+        var quickPlayTitle = root.currentSeriesData && root.currentSeriesData.Name ? root.currentSeriesData.Name : qsTr("Now Playing")
+        PlayerController.setOverlayMetadata(quickPlayTitle, qsTr("Episode"), root.currentBackdropUrl)
         PlayerController.playUrl(streamUrl, episodeId, root.pendingQuickPlayStartPosition, 
                                   root.pendingQuickPlaySeriesId, root.pendingQuickPlaySeasonId, root.currentLibraryId, framerate, isHDR)
         

@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import QtQuick.Effects
 
 import BloomUI
+import "TrackUtils.js" as TrackUtils
 
 FocusScope {
     id: root
@@ -61,7 +62,10 @@ FocusScope {
     signal playRequested(string itemId, var startPositionTicks, double framerate, bool isHDR)
     signal playRequestedWithTracks(string itemId, var startPositionTicks, string mediaSourceId, 
                                     string playSessionId, int audioIndex, int subtitleIndex,
-                                    int mpvAudioTrack, int mpvSubtitleTrack, double framerate, bool isHDR)
+                                    int mpvAudioTrack, int mpvSubtitleTrack,
+                                    var audioTrackMap, var subtitleTrackMap,
+                                    var availableAudioTracks, var availableSubtitleTracks,
+                                    double framerate, bool isHDR)
     signal backRequested()
     
     // Helper function to get framerate from media source
@@ -90,49 +94,71 @@ FocusScope {
         return false
     }
     
-    // Convert Jellyfin stream index to mpv track number
-    // mpv uses 1-based indices that are separate for each track type (vid, aid, sid)
-    // Returns 1-based mpv track number, or -1 if not found
-    function getMpvAudioTrackNumber(jellyfinStreamIndex) {
-        if (!currentMediaSource || !currentMediaSource.mediaStreams || jellyfinStreamIndex < 0) return -1
-        var audioTrackNum = 0
+    // Canonical contract for Milestone D:
+    // - UI and reporting use Jellyfin stream indices (MediaStream.index)
+    // - mpv commands use mpv runtime track IDs (aid/sid, 1-based, per media type order)
+    // - subtitle none is represented as Jellyfin -1 and mpv sid "no"
+    function buildTrackMap(streamType) {
+        var map = []
+        if (!currentMediaSource || !currentMediaSource.mediaStreams) return map
+        var mpvTrackId = 1
         for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
             var stream = currentMediaSource.mediaStreams[i]
-            if (stream.type === "Audio") {
-                audioTrackNum++
-                if (stream.index === jellyfinStreamIndex) {
-                    return audioTrackNum  // 1-based
-                }
+            if (stream.type === streamType) {
+                map.push({ jellyfinIndex: stream.index, mpvTrackId: mpvTrackId })
+                mpvTrackId++
             }
         }
-        return -1  // Not found
+        return map
     }
     
-    function getMpvSubtitleTrackNumber(jellyfinStreamIndex) {
-        if (!currentMediaSource || !currentMediaSource.mediaStreams || jellyfinStreamIndex < 0) return -1
-        var subTrackNum = 0
-        for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
-            var stream = currentMediaSource.mediaStreams[i]
-            if (stream.type === "Subtitle") {
-                subTrackNum++
-                if (stream.index === jellyfinStreamIndex) {
-                    return subTrackNum  // 1-based
-                }
+    function resolveMpvTrackId(jellyfinStreamIndex, trackMap) {
+        if (jellyfinStreamIndex < 0) return -1
+        for (var i = 0; i < trackMap.length; i++) {
+            if (trackMap[i].jellyfinIndex === jellyfinStreamIndex) {
+                return trackMap[i].mpvTrackId
             }
         }
-        return -1  // Not found
+        return -1
+    }
+
+    function buildTrackOptions(streamType) {
+        var tracks = []
+        if (!currentMediaSource || !currentMediaSource.mediaStreams) return tracks
+
+        for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
+            var stream = currentMediaSource.mediaStreams[i]
+            if (stream.type !== streamType) continue
+            tracks.push({
+                index: stream.index,
+                displayTitle: TrackUtils.formatTrackName(stream),
+                language: stream.language,
+                codec: stream.codec,
+                channels: stream.channels,
+                channelLayout: stream.channelLayout,
+                isDefault: stream.isDefault,
+                isForced: stream.isForced,
+                isHearingImpaired: stream.isHearingImpaired
+            })
+        }
+        return tracks
     }
     
     // Function to start playback with current track selections
     function startPlaybackWithTracks() {
         var framerate = getVideoFramerate()
         var hdr = isVideoHDR()
+        var overlaySubtitle = productionYear > 0 ? String(productionYear) : ""
+        PlayerController.setOverlayMetadata(movieName || qsTr("Now Playing"), overlaySubtitle, backdropUrl)
         console.log("[MovieDetailsView] Starting playback with framerate:", framerate, "isHDR:", hdr)
         
         if (playbackInfo && currentMediaSource) {
-            // Convert Jellyfin stream indices to mpv track numbers
-            var mpvAudioTrack = getMpvAudioTrackNumber(selectedAudioIndex)
-            var mpvSubTrack = getMpvSubtitleTrackNumber(selectedSubtitleIndex)
+            var audioTrackMap = buildTrackMap("Audio")
+            var subtitleTrackMap = buildTrackMap("Subtitle")
+            var mpvAudioTrack = resolveMpvTrackId(selectedAudioIndex, audioTrackMap)
+            var mpvSubTrack = resolveMpvTrackId(selectedSubtitleIndex, subtitleTrackMap)
+            var availableAudioTracks = buildTrackOptions("Audio")
+            var availableSubtitleTracks = buildTrackOptions("Subtitle")
             
             console.log("[MovieDetailsView] Track mapping - Audio: Jellyfin", selectedAudioIndex, "-> mpv", mpvAudioTrack,
                         "Subtitle: Jellyfin", selectedSubtitleIndex, "-> mpv", mpvSubTrack)
@@ -146,6 +172,10 @@ FocusScope {
                 selectedSubtitleIndex,  // Jellyfin index for URL/API
                 mpvAudioTrack,          // mpv track number for mpv commands
                 mpvSubTrack,            // mpv track number for mpv commands
+                audioTrackMap,
+                subtitleTrackMap,
+                availableAudioTracks,
+                availableSubtitleTracks,
                 framerate,
                 hdr
             )
