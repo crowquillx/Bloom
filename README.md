@@ -12,19 +12,17 @@ A Jellyfin HTPC client for 10-foot TV interfaces, built with Qt 6/QML and mpv/li
 Bloom connects to a Jellyfin server and provides a TV-friendly interface for browsing and playing media. It uses mpv for video playback with `vo=gpu-next` for HDR support.
 
 **Current state:**
-- Basic library browsing (movies, series, seasons, episodes)
+- Trickplay
 - Skip intro/outro
-- Windows embedded playback via bundled `libmpv` (`win-libmpv`)
-- External mpv playback path retained for Linux/non-Windows fallback
+- Subtitle selection UI with track selection memory
 - Playback progress reporting to Jellyfin
-- Keyboard/remote navigation
+- Keyboard navigation
 - Linux (Wayland) and Windows support
+- On-screen playback controls
 
 **Not yet working or incomplete:**
 - Search (barebones implementation exists)
-- Subtitle selection UI (barebones implementation exists)
 - Gamepad support
-- On-screen playback controls (working but needs polish)
 - Many edge cases
 - Build systems are very tailored towards my local setup
 
@@ -88,6 +86,7 @@ CI currently uses `mpv-dev` artifacts from `shinchiro/mpv-winbuild-cmake`.
 ## Known Issues
 
 ### Linux
+#### This is mildly outdated already, by default linux will use the embedded player but it is quite experimental and untested so you may want to use external. 
 
 - Linux embedded libmpv playback (`linux-libmpv-opengl`) is currently less tested and not fully supported across all Wayland compositor/GPU combinations.
 - On Wayland, Bloom currently defaults to `external-mpv-ipc` unless embedded is explicitly opted in for validation.
@@ -112,8 +111,6 @@ BLOOM_PLAYER_BACKEND=linux-libmpv-opengl BLOOM_ENABLE_WAYLAND_LIBMPV=1 ./build-d
 Config file location:
 - Linux: `~/.config/Bloom/app.json`
 - Windows: `%APPDATA%/Bloom/app.json`
-
-Credentials are stored in the platform keychain, not in the config file.
 
 ## Controls
 
