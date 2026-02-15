@@ -30,6 +30,7 @@ Config API sample (high level)
 - `playbackCompletionThreshold` is a Q_PROPERTY (default 90) and `autoplayNextEpisode` default true.
 - `skipButtonAutoHideSeconds` is a Q_PROPERTY (default 6; range 0-15) for skip intro/credits popup visibility timing.
 - `autoSkipIntro` and `autoSkipOutro` are Q_PROPERTY booleans (both default false) for one-time-per-playback intro/credits auto-skip.
+- `playbackVolume` and `playbackMuted` persist the last playback volume/mute state across app restarts (`settings.playback.playback_volume`, `settings.playback.playback_muted`).
 
 When adding settings
 - Update `ConfigManager.h` (Q_PROPERTY & signals).

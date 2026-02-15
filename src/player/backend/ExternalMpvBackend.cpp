@@ -16,6 +16,10 @@ ExternalMpvBackend::ExternalMpvBackend(QObject *parent)
             this, &ExternalMpvBackend::pauseChanged);
     connect(m_processManager, &PlayerProcessManager::pausedForCacheChanged,
             this, &ExternalMpvBackend::pausedForCacheChanged);
+    connect(m_processManager, &PlayerProcessManager::volumeChanged,
+            this, &ExternalMpvBackend::volumeChanged);
+    connect(m_processManager, &PlayerProcessManager::muteChanged,
+            this, &ExternalMpvBackend::muteChanged);
     connect(m_processManager, &PlayerProcessManager::playbackEnded,
             this, &ExternalMpvBackend::playbackEnded);
     connect(m_processManager, &PlayerProcessManager::audioTrackChanged,

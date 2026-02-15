@@ -12,6 +12,7 @@
 #include <QMutexLocker>
 #include <QVector>
 #include <QtGlobal>
+#include <QtMath>
 #include <clocale>
 #include <algorithm>
 
@@ -647,6 +648,8 @@ void LinuxMpvBackend::observeMpvProperties(void *handlePtr)
     mpv_observe_property(handle, 0, "paused-for-cache", MPV_FORMAT_FLAG);
     mpv_observe_property(handle, 0, "aid", MPV_FORMAT_NODE);
     mpv_observe_property(handle, 0, "sid", MPV_FORMAT_NODE);
+    mpv_observe_property(handle, 0, "volume", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(handle, 0, "mute", MPV_FORMAT_FLAG);
 #endif
 }
 
@@ -745,6 +748,16 @@ void LinuxMpvBackend::handlePropertyChange(const QString &name, const QVariant &
     if (name == QStringLiteral("sid")) {
         const int mpvTrackId = value.toInt();
         emit subtitleTrackChanged(mpvTrackId > 0 ? mpvTrackId - 1 : -1);
+        return;
+    }
+
+    if (name == QStringLiteral("volume")) {
+        emit volumeChanged(qRound(value.toDouble()));
+        return;
+    }
+
+    if (name == QStringLiteral("mute")) {
+        emit muteChanged(value.toBool());
     }
 }
 

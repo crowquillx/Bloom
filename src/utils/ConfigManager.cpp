@@ -626,6 +626,73 @@ int ConfigManager::getAudioDelay() const
     return 0; // Default to 0ms
 }
 
+void ConfigManager::setPlaybackVolume(int volume)
+{
+    const int clamped = std::max(0, std::min(volume, 200));
+    if (clamped == getPlaybackVolume()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["playback_volume"] = clamped;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit playbackVolumeChanged();
+}
+
+int ConfigManager::getPlaybackVolume() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("playback_volume")) {
+                return std::max(0, std::min(playback["playback_volume"].toInt(), 200));
+            }
+        }
+    }
+    return 100;
+}
+
+void ConfigManager::setPlaybackMuted(bool muted)
+{
+    if (muted == getPlaybackMuted()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["playback_muted"] = muted;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit playbackMutedChanged();
+}
+
+bool ConfigManager::getPlaybackMuted() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("playback_muted")) {
+                return playback["playback_muted"].toBool();
+            }
+        }
+    }
+    return false;
+}
+
 void ConfigManager::setAutoplayNextEpisode(bool enabled)
 {
     if (enabled == getAutoplayNextEpisode()) return;
@@ -1740,6 +1807,8 @@ QJsonObject ConfigManager::defaultConfig() const
     playback["auto_skip_intro"] = false;
     playback["auto_skip_outro"] = false;
     playback["audio_delay"] = 0;
+    playback["playback_volume"] = 100;
+    playback["playback_muted"] = false;
     playback["skip_button_auto_hide_seconds"] = 6;
     playback["theme_song_volume"] = 0;
     playback["theme_song_loop"] = false;

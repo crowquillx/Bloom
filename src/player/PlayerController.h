@@ -60,6 +60,8 @@ class PlayerController : public QObject
     Q_PROPERTY(int audioDelay READ audioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
     Q_PROPERTY(bool supportsEmbeddedVideo READ supportsEmbeddedVideo NOTIFY supportsEmbeddedVideoChanged)
     Q_PROPERTY(bool embeddedVideoShrinkEnabled READ embeddedVideoShrinkEnabled WRITE setEmbeddedVideoShrinkEnabled NOTIFY embeddedVideoShrinkEnabledChanged)
+    Q_PROPERTY(int volume READ volume NOTIFY volumeChanged)
+    Q_PROPERTY(bool muted READ muted NOTIFY mutedChanged)
     Q_PROPERTY(double currentPositionSeconds READ currentPositionSeconds NOTIFY timelineChanged)
     Q_PROPERTY(double durationSeconds READ durationSeconds NOTIFY timelineChanged)
     Q_PROPERTY(double progressRatio READ progressRatio NOTIFY timelineChanged)
@@ -134,6 +136,8 @@ public:
     int audioDelay() const { return m_config->getAudioDelay(); }
     bool supportsEmbeddedVideo() const;
     bool embeddedVideoShrinkEnabled() const { return m_embeddedVideoShrinkEnabled; }
+    int volume() const { return m_volume; }
+    bool muted() const { return m_muted; }
     double currentPositionSeconds() const { return m_currentPosition; }
     double durationSeconds() const { return m_duration; }
     double progressRatio() const { return m_duration > 0.0 ? qBound(0.0, m_currentPosition / m_duration, 1.0) : 0.0; }
@@ -190,6 +194,9 @@ public:
     Q_INVOKABLE void previousChapter();
     Q_INVOKABLE void nextChapter();
     Q_INVOKABLE void toggleMute();
+    Q_INVOKABLE void setMuted(bool muted);
+    Q_INVOKABLE void setVolume(int volume);
+    Q_INVOKABLE void adjustVolume(int delta);
     Q_INVOKABLE void showMpvStatsOnce();
     Q_INVOKABLE void toggleMpvStats();
     Q_INVOKABLE void showMpvStatsPage(int page);
@@ -228,6 +235,8 @@ signals:
     void isPlaybackActiveChanged();
     void supportsEmbeddedVideoChanged();
     void embeddedVideoShrinkEnabledChanged();
+    void volumeChanged();
+    void mutedChanged();
     void timelineChanged();
     void skipSegmentsChanged();
     void trickplayStateChanged();
@@ -331,6 +340,8 @@ private:
     void clearTrickplayPreview();
     void updateSkipSegmentState();
     bool seekToSegmentEnd(MediaSegmentType segmentType);
+    void schedulePersistPlaybackVolumeState();
+    void persistPlaybackVolumeState();
     static QString buildTrickplayPreviewDataUrl(const QString &binaryPath, int frameIndex, int width, int height);
     void connectBackendSignals(IPlayerBackend *backend);
     bool tryFallbackToExternalBackend(const QString &reason);
@@ -364,7 +375,9 @@ private:
     
     // Progress reporting timer
     QTimer *m_progressReportTimer;
+    QTimer *m_volumePersistTimer;
     static constexpr int kProgressReportIntervalMs = 10000; // 10 seconds
+    static constexpr int kVolumePersistDebounceMs = 250;
     
     // State
     PlaybackState m_playbackState = Idle;
@@ -431,6 +444,8 @@ private:
     QString m_testVideoUrl;
 
     bool m_embeddedVideoShrinkEnabled = false;
+    int m_volume = 100;
+    bool m_muted = false;
     bool m_attemptedLinuxEmbeddedFallback = false;
     QString m_overlayTitle;
     QString m_overlaySubtitle;

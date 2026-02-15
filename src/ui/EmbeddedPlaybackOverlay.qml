@@ -30,7 +30,8 @@ FocusScope {
     property bool seekOnlyMode: false
     property bool audioSelectorOpen: false
     property bool subtitleSelectorOpen: false
-    readonly property bool selectorOpen: audioSelectorOpen || subtitleSelectorOpen
+    property bool volumeSelectorOpen: false
+    readonly property bool selectorOpen: audioSelectorOpen || subtitleSelectorOpen || volumeSelectorOpen
     readonly property bool fullControlsVisible: controlsVisible && !seekOnlyMode
     property bool hasPrimedPointerPosition: false
     property real lastPointerY: -1
@@ -162,6 +163,26 @@ FocusScope {
         return Math.max(0, p.y - panelHeight - Math.round(24 * Theme.layoutScale))
     }
 
+    function buttonAttachedPanelXInRoot(button, panelWidth) {
+        var buttonRight = button.mapToItem(root, button.width, 0).x
+        return Math.max(0, Math.min(root.width - panelWidth, buttonRight - panelWidth))
+    }
+
+    function buttonAttachedPanelYInRoot(button, panelHeight) {
+        var margin = Math.round(14 * Theme.layoutScale)
+        var buttonTop = button.mapToItem(root, 0, 0).y
+        var buttonBottom = button.mapToItem(root, 0, button.height).y
+        var below = buttonBottom + margin
+        if (below + panelHeight <= root.height) {
+            return below
+        }
+        var above = buttonTop - panelHeight - margin
+        if (above >= 0) {
+            return above
+        }
+        return Math.max(0, Math.min(root.height - panelHeight, below))
+    }
+
     function audioListIndexForTrack(trackIndex) {
         var tracks = PlayerController.availableAudioTracks
         for (var i = 0; i < tracks.length; i++) {
@@ -219,6 +240,7 @@ FocusScope {
             return
         }
         subtitleSelectorOpen = false
+        volumeSelectorOpen = false
         showControls()
         audioSelectorOpen = true
         var idx = audioListIndexForTrack(PlayerController.selectedAudioTrack)
@@ -238,6 +260,7 @@ FocusScope {
         }
         subtitleSelectorOpen = true
         audioSelectorOpen = false
+        volumeSelectorOpen = false
         showControls()
         var idx = subtitleListIndexForTrack(PlayerController.selectedSubtitleTrack)
         subtitleList.currentIndex = idx
@@ -253,10 +276,30 @@ FocusScope {
         var wasOpen = selectorOpen
         audioSelectorOpen = false
         subtitleSelectorOpen = false
+        volumeSelectorOpen = false
         if (wasOpen) {
             Qt.callLater(function() { playPauseButton.forceActiveFocus() })
         }
         return wasOpen
+    }
+
+    function openVolumeSelector() {
+        if (volumeSelectorOpen) {
+            volumeSelectorOpen = false
+            Qt.callLater(function() { volumeButton.forceActiveFocus() })
+            return
+        }
+
+        audioSelectorOpen = false
+        subtitleSelectorOpen = false
+        showControls()
+        volumeSelectorOpen = true
+        Qt.callLater(function() { volumeSliderFocus.forceActiveFocus() })
+    }
+
+    function adjustVolumeBy(delta) {
+        PlayerController.adjustVolume(delta)
+        showControls()
     }
 
     function handleDirectionalKey(direction) {
@@ -399,6 +442,7 @@ FocusScope {
             skipPopupTimer.stop()
             audioSelectorOpen = false
             subtitleSelectorOpen = false
+            volumeSelectorOpen = false
             controlsVisible = false
             seekPreviewActive = false
             seekOnlyMode = false
@@ -1248,12 +1292,107 @@ FocusScope {
                             id: volumeButton
                             diameter: Math.round(64 * Theme.layoutScale)
                             iconSize: Math.round(32 * Theme.layoutScale)
-                            text: Icons.volumeUp
-                            onClicked: PlayerController.toggleMute()
+                            text: PlayerController.muted || PlayerController.volume <= 0
+                                  ? Icons.volumeOff
+                                  : (PlayerController.volume < 50 ? Icons.volumeDown : Icons.volumeUp)
+                            onClicked: root.openVolumeSelector()
                             KeyNavigation.left: persistentSkipVisible ? persistentSkipButton : skipForwardButton
                             KeyNavigation.right: audioButton
                             KeyNavigation.up: progressFocus
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    Rectangle {
+        id: volumePanel
+        visible: root.volumeSelectorOpen
+        z: 1200
+        width: Math.round(380 * Theme.layoutScale)
+        height: Math.round(180 * Theme.layoutScale)
+        x: root.buttonAttachedPanelXInRoot(volumeButton, width)
+        y: root.buttonAttachedPanelYInRoot(volumeButton, height)
+        radius: Theme.radiusXLarge
+        color: Qt.rgba(0.01, 0.02, 0.05, 0.92)
+        border.width: 1
+        border.color: Theme.cardBorder
+
+        FocusScope {
+            id: volumeSliderFocus
+            anchors.fill: parent
+            anchors.margins: Math.round(24 * Theme.layoutScale)
+            activeFocusOnTab: true
+            focus: root.volumeSelectorOpen
+            KeyNavigation.down: volumeButton
+            KeyNavigation.up: progressFocus
+            Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Left) {
+                    event.accepted = true
+                    root.adjustVolumeBy(-5)
+                } else if (event.key === Qt.Key_Right) {
+                    event.accepted = true
+                    root.adjustVolumeBy(5)
+                } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                    event.accepted = true
+                    root.volumeSelectorOpen = false
+                    Qt.callLater(function() { volumeButton.forceActiveFocus() })
+                } else if (event.key === Qt.Key_Space) {
+                    event.accepted = true
+                    PlayerController.toggleMute()
+                } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                    event.accepted = true
+                    root.volumeSelectorOpen = false
+                    Qt.callLater(function() { volumeButton.forceActiveFocus() })
+                } else if (event.key === Qt.Key_Up || event.key === Qt.Key_Down) {
+                    event.accepted = true
+                }
+            }
+
+            ColumnLayout {
+                anchors.fill: parent
+                spacing: Math.round(14 * Theme.layoutScale)
+
+                Text {
+                    text: qsTr("Volume")
+                    color: Theme.textPrimary
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Math.round(42 * Theme.layoutScale * 0.6)
+                    font.weight: Font.DemiBold
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Math.round(14 * Theme.layoutScale)
+
+                    Text {
+                        text: PlayerController.muted || PlayerController.volume <= 0
+                              ? Icons.volumeOff
+                              : (PlayerController.volume < 50 ? Icons.volumeDown : Icons.volumeUp)
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Math.round(30 * Theme.layoutScale)
+                        color: Theme.textPrimary
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+
+                    Slider {
+                        id: volumeSlider
+                        Layout.fillWidth: true
+                        from: 0
+                        to: 200
+                        stepSize: 1
+                        value: PlayerController.volume
+                        onMoved: PlayerController.setVolume(Math.round(value))
+                    }
+
+                    Text {
+                        text: PlayerController.muted ? qsTr("Muted") : qsTr("%1%").arg(PlayerController.volume)
+                        color: Theme.textPrimary
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Math.round(20 * Theme.layoutScale)
+                        font.weight: Font.Medium
+                        Layout.alignment: Qt.AlignVCenter
                     }
                 }
             }

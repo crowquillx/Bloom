@@ -6,6 +6,7 @@
 #include <QDebug>
 #include <QThread>
 #include <QTimer>
+#include <QtMath>
 
 PlayerProcessManager::PlayerProcessManager(QObject *parent)
     : QObject(parent)
@@ -235,6 +236,8 @@ void PlayerProcessManager::onSocketConnected()
     sendVariantCommand(QVariantList{"observe_property", 4, "aid"});  // Audio track ID
     sendVariantCommand(QVariantList{"observe_property", 5, "sid"});  // Subtitle track ID
     sendVariantCommand(QVariantList{"observe_property", 6, "paused-for-cache"});  // Buffering state
+    sendVariantCommand(QVariantList{"observe_property", 7, "volume"});
+    sendVariantCommand(QVariantList{"observe_property", 8, "mute"});
     
     // Flush any commands that were queued while connecting
     flushPendingCommands();
@@ -282,6 +285,14 @@ void PlayerProcessManager::onSocketReadyRead()
             } else if (name == "paused-for-cache") {
                 if (!obj["data"].isNull()) {
                     emit pausedForCacheChanged(obj["data"].toBool());
+                }
+            } else if (name == "volume") {
+                if (!obj["data"].isNull()) {
+                    emit volumeChanged(qRound(obj["data"].toDouble()));
+                }
+            } else if (name == "mute") {
+                if (!obj["data"].isNull()) {
+                    emit muteChanged(obj["data"].toBool());
                 }
             }
         } else if (obj["event"].toString() == "end-file") {

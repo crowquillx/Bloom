@@ -6,6 +6,7 @@
 #include <QMetaObject>
 #include <QMetaType>
 #include <QVector>
+#include <QtMath>
 #if defined(Q_OS_WIN)
 #include <windows.h>
 #endif
@@ -763,6 +764,8 @@ void WindowsMpvBackend::observeMpvProperties(void *handlePtr)
     mpv_observe_property(handle, 0, "paused-for-cache", MPV_FORMAT_FLAG);
     mpv_observe_property(handle, 0, "aid", MPV_FORMAT_NODE);
     mpv_observe_property(handle, 0, "sid", MPV_FORMAT_NODE);
+    mpv_observe_property(handle, 0, "volume", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(handle, 0, "mute", MPV_FORMAT_FLAG);
 #else
     Q_UNUSED(handlePtr);
 #endif
@@ -846,6 +849,16 @@ void WindowsMpvBackend::handlePropertyChange(const QString &name, const QVariant
 
         const int mpvTrackId = value.toInt();
         emit subtitleTrackChanged(mpvTrackId > 0 ? mpvTrackId - 1 : -1);
+        return;
+    }
+
+    if (name == QStringLiteral("volume")) {
+        emit volumeChanged(qRound(value.toDouble()));
+        return;
+    }
+
+    if (name == QStringLiteral("mute")) {
+        emit muteChanged(value.toBool());
     }
 }
 

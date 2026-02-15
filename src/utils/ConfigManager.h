@@ -61,6 +61,8 @@ class ConfigManager : public QObject
     Q_PROPERTY(int playbackCompletionThreshold READ getPlaybackCompletionThreshold WRITE setPlaybackCompletionThreshold NOTIFY playbackCompletionThresholdChanged)
     Q_PROPERTY(int skipButtonAutoHideSeconds READ getSkipButtonAutoHideSeconds WRITE setSkipButtonAutoHideSeconds NOTIFY skipButtonAutoHideSecondsChanged)
     Q_PROPERTY(int audioDelay READ getAudioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
+    Q_PROPERTY(int playbackVolume READ getPlaybackVolume WRITE setPlaybackVolume NOTIFY playbackVolumeChanged)
+    Q_PROPERTY(bool playbackMuted READ getPlaybackMuted WRITE setPlaybackMuted NOTIFY playbackMutedChanged)
     Q_PROPERTY(bool autoplayNextEpisode READ getAutoplayNextEpisode WRITE setAutoplayNextEpisode NOTIFY autoplayNextEpisodeChanged)
     Q_PROPERTY(bool autoSkipIntro READ getAutoSkipIntro WRITE setAutoSkipIntro NOTIFY autoSkipIntroChanged)
     Q_PROPERTY(bool autoSkipOutro READ getAutoSkipOutro WRITE setAutoSkipOutro NOTIFY autoSkipOutroChanged)
@@ -148,6 +150,12 @@ public:
     // Audio Delay (milliseconds)
     void setAudioDelay(int ms);
     int getAudioDelay() const;
+
+    // Playback volume state for player overlay/session persistence.
+    void setPlaybackVolume(int volume);
+    int getPlaybackVolume() const;
+    void setPlaybackMuted(bool muted);
+    bool getPlaybackMuted() const;
 
     // Skip intro/outro pop-up auto-hide duration (seconds)
     // 0 disables the temporary pop-up while keeping the persistent overlay skip button.
@@ -330,6 +338,8 @@ signals:
     void playbackCompletionThresholdChanged();
     void skipButtonAutoHideSecondsChanged();
     void audioDelayChanged();
+    void playbackVolumeChanged();
+    void playbackMutedChanged();
     void autoplayNextEpisodeChanged();
     void autoSkipIntroChanged();
     void autoSkipOutroChanged();

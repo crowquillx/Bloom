@@ -35,6 +35,8 @@ signals:
     void pauseChanged(bool paused);
     void pausedForCacheChanged(bool paused);
     void playbackEnded();
+    void volumeChanged(int volume);
+    void muteChanged(bool muted);
     void audioTrackChanged(int trackIndex);
     void subtitleTrackChanged(int trackIndex);
     void scriptMessage(const QString &messageName, const QStringList &args);

@@ -28,6 +28,8 @@ signals:
     void pauseChanged(bool paused);
     void pausedForCacheChanged(bool paused);
     void playbackEnded();
+    void volumeChanged(int volume);
+    void muteChanged(bool muted);
     
     // Track change notifications (mpv track IDs are 1-indexed, we convert to 0-indexed for Jellyfin)
     void audioTrackChanged(int trackIndex);

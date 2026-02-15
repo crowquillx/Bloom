@@ -145,7 +145,7 @@ UI Components for Track Selection
 - `EmbeddedPlaybackOverlay.qml`: Native 10-foot playback overlay (top metadata bar + bottom transport row) rendered in the dedicated transparent overlay window for Windows embedded playback.
   - Left group: audio/subtitle icon buttons (runtime track cycling via `PlayerController`).
   - Center group: skip back 10s, previous chapter, play/pause, next chapter, skip forward 10s.
-  - Right group: volume/mute icon button.
+  - Right group: volume icon button opens a native volume panel (slider + muted state) with left/right keyboard/gamepad adjustment and Enter/Space mute toggle.
   - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
   - Trickplay preview bubble: renders processed Jellyfin trickplay thumbnails from `PlayerController` and is hidden entirely when trickplay images are unavailable.
   - Intro/outro skip UX: transient "Skip Intro"/"Skip Credits" pop-up button auto-focuses when a segment window starts, then a compact persistent skip button remains available until that segment ends.

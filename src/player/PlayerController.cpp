@@ -81,6 +81,7 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     , m_loadingTimeoutTimer(new QTimer(this))
     , m_bufferingTimeoutTimer(new QTimer(this))
     , m_progressReportTimer(new QTimer(this))
+    , m_volumePersistTimer(new QTimer(this))
     , m_startDelayTimer(new QTimer(this))
 {
     if (!m_playerBackend) {
@@ -127,6 +128,11 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     m_progressReportTimer->setInterval(kProgressReportIntervalMs);
     connect(m_progressReportTimer, &QTimer::timeout,
             this, &PlayerController::reportPlaybackProgress);
+
+    m_volumePersistTimer->setSingleShot(true);
+    m_volumePersistTimer->setInterval(kVolumePersistDebounceMs);
+    connect(m_volumePersistTimer, &QTimer::timeout,
+            this, &PlayerController::persistPlaybackVolumeState);
             
     // Connect to ConfigManager audio delay signal
     connect(m_config, &ConfigManager::audioDelayChanged,
@@ -140,6 +146,11 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             });
     
     loadConfig();
+
+    if (m_config) {
+        m_volume = m_config->getPlaybackVolume();
+        m_muted = m_config->getPlaybackMuted();
+    }
 }
 
 PlayerController::~PlayerController()
@@ -148,6 +159,7 @@ PlayerController::~PlayerController()
     m_loadingTimeoutTimer->stop();
     m_bufferingTimeoutTimer->stop();
     m_progressReportTimer->stop();
+    m_volumePersistTimer->stop();
     m_startDelayTimer->stop();
 }
 
@@ -171,6 +183,31 @@ void PlayerController::connectBackendSignals(IPlayerBackend *backend)
             this, &PlayerController::onPlaybackEnded);
     connect(backend, &IPlayerBackend::pausedForCacheChanged,
             this, &PlayerController::onPausedForCacheChanged);
+    connect(backend, &IPlayerBackend::volumeChanged,
+            this, [this](int volume) {
+                if (m_playbackState == Loading || m_playbackState == Buffering) {
+                    return;
+                }
+                const int clamped = qBound(0, volume, 200);
+                if (m_volume == clamped) {
+                    return;
+                }
+                m_volume = clamped;
+                emit volumeChanged();
+                schedulePersistPlaybackVolumeState();
+            });
+    connect(backend, &IPlayerBackend::muteChanged,
+            this, [this](bool muted) {
+                if (m_playbackState == Loading || m_playbackState == Buffering) {
+                    return;
+                }
+                if (m_muted == muted) {
+                    return;
+                }
+                m_muted = muted;
+                emit mutedChanged();
+                schedulePersistPlaybackVolumeState();
+            });
 
     // NOTE: We intentionally ignore mpv auto-selected track signals during startup.
     connect(backend, &IPlayerBackend::audioTrackChanged,
@@ -541,6 +578,9 @@ void PlayerController::onEnterBufferingState()
         qDebug() << "PlayerController: Applying audio delay:" << delaySeconds << "s";
         m_playerBackend->sendVariantCommand({"set_property", "audio-delay", delaySeconds});
     }
+
+    m_playerBackend->sendVariantCommand({"set_property", "volume", m_volume});
+    m_playerBackend->sendVariantCommand({"set_property", "mute", m_muted});
 }
 
 void PlayerController::onEnterPlayingState()
@@ -1227,10 +1267,74 @@ void PlayerController::nextChapter()
 
 void PlayerController::toggleMute()
 {
+    setMuted(!m_muted);
+}
+
+void PlayerController::setMuted(bool muted)
+{
+    if (m_muted == muted) {
+        if (m_playbackState == Loading || m_playbackState == Buffering
+            || m_playbackState == Playing || m_playbackState == Paused) {
+            m_playerBackend->sendVariantCommand({"set_property", "mute", muted});
+        }
+        return;
+    }
+
+    m_muted = muted;
+    emit mutedChanged();
+
     if (m_playbackState == Loading || m_playbackState == Buffering
         || m_playbackState == Playing || m_playbackState == Paused) {
-        m_playerBackend->sendCommand({"cycle", "mute"});
+        m_playerBackend->sendVariantCommand({"set_property", "mute", muted});
     }
+
+    schedulePersistPlaybackVolumeState();
+}
+
+void PlayerController::setVolume(int volume)
+{
+    const int clamped = qBound(0, volume, 200);
+    if (m_volume != clamped) {
+        m_volume = clamped;
+        emit volumeChanged();
+    }
+
+    if (clamped > 0 && m_muted) {
+        m_muted = false;
+        emit mutedChanged();
+    }
+
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendVariantCommand({"set_property", "volume", clamped});
+        if (clamped > 0 && m_muted == false) {
+            m_playerBackend->sendVariantCommand({"set_property", "mute", false});
+        }
+    }
+
+    schedulePersistPlaybackVolumeState();
+}
+
+void PlayerController::adjustVolume(int delta)
+{
+    setVolume(m_volume + delta);
+}
+
+void PlayerController::schedulePersistPlaybackVolumeState()
+{
+    if (!m_config || !m_volumePersistTimer) {
+        return;
+    }
+    m_volumePersistTimer->start();
+}
+
+void PlayerController::persistPlaybackVolumeState()
+{
+    if (!m_config) {
+        return;
+    }
+    m_config->setPlaybackVolume(m_volume);
+    m_config->setPlaybackMuted(m_muted);
 }
 
 void PlayerController::showMpvStatsOnce()
