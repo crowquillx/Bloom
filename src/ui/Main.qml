@@ -112,9 +112,7 @@ Window {
         width: window.width
         height: window.height
         onVisibleChanged: {
-            if (visible) {
-                ensurePlaybackOverlayFocus()
-            }
+            // Do not auto-open playback controls when overlay window becomes visible.
         }
 
         EmbeddedPlaybackOverlay {
@@ -126,15 +124,14 @@ Window {
     Connections {
         target: PlayerController
         function onIsPlaybackActiveChanged() {
-            if (PlayerController.isPlaybackActive) {
-                ensurePlaybackOverlayFocus()
-            }
+            // Do not auto-open controls on playback start.
         }
         function onPlaybackStateChanged() {
             if (!embeddedPlaybackActive) {
                 return
             }
-            if (PlayerController.playbackState === PlayerController.Paused) {
+            if (PlayerController.playbackState === PlayerController.Paused
+                    && PlayerController.currentPositionSeconds > 0.5) {
                 ensurePlaybackOverlayFocus()
             }
         }
@@ -611,6 +608,14 @@ Window {
         onActivated: {
             activeEmbeddedPlaybackOverlay.showControls()
             PlayerController.togglePause()
+        }
+    }
+
+    Shortcut {
+        sequences: ["Return", "Enter"]
+        enabled: PlayerController.isPlaybackActive && activeEmbeddedPlaybackOverlay.skipPopupVisible
+        onActivated: {
+            activeEmbeddedPlaybackOverlay.triggerActiveSkip()
         }
     }
 

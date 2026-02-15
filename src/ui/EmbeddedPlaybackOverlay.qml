@@ -32,9 +32,24 @@ FocusScope {
     property bool subtitleSelectorOpen: false
     readonly property bool selectorOpen: audioSelectorOpen || subtitleSelectorOpen
     readonly property bool fullControlsVisible: controlsVisible && !seekOnlyMode
+    property bool hasPrimedPointerPosition: false
+    property real lastPointerY: -1
+    readonly property bool introSegmentActive: PlayerController.isInIntroSegment
+    readonly property bool outroSegmentActive: PlayerController.isInOutroSegment
+    readonly property string activeSkipSegmentType: introSegmentActive ? "intro" : (outroSegmentActive ? "outro" : "")
+    readonly property string activeSkipLabel: introSegmentActive ? qsTr("Skip Intro") : qsTr("Skip Credits")
+    readonly property int skipPopupDurationMs: Math.max(0, ConfigManager.skipButtonAutoHideSeconds * 1000)
+    readonly property bool persistentSkipVisible: controlsVisible
+                                                 && !skipPopupVisible
+                                                 && !buffering
+                                                 && activeSkipSegmentType.length > 0
+    property bool skipPopupVisible: false
+    property string skipPopupSegmentType: ""
+    property double skipPopupWindowEndEpochMs: 0
     property int controlsAutoHideMs: 2500
     property int controlsHideAnimMs: 180
     property int seekPreviewHoldMs: 1800
+    property int sideRailWidth: Math.round(300 * Theme.layoutScale)
     property real controlsSlideDistance: Math.round(28 * Theme.layoutScale)
     property real topControlsOffset: fullControlsVisible ? 0 : -controlsSlideDistance
     property real bottomControlsOffset: controlsVisible ? 0 : controlsSlideDistance
@@ -59,6 +74,43 @@ FocusScope {
             return hours + ":" + String(minutes).padStart(2, "0") + ":" + String(secs).padStart(2, "0")
         }
         return minutes + ":" + String(secs).padStart(2, "0")
+    }
+
+    function overlayHotzoneContains(yValue) {
+        var topZone = Math.round(180 * Theme.layoutScale)
+        var bottomZone = Math.round(250 * Theme.layoutScale)
+        return yValue <= topZone || yValue >= (root.height - bottomZone)
+    }
+
+    function showSkipPopupIfEligible() {
+        if (!overlayActive || controlsVisible || activeSkipSegmentType.length === 0 || skipPopupDurationMs <= 0) {
+            skipPopupVisible = false
+            skipPopupTimer.stop()
+            return
+        }
+        var remainingMs = skipPopupWindowEndEpochMs > 0
+                        ? Math.max(0, Math.floor(skipPopupWindowEndEpochMs - Date.now()))
+                        : skipPopupDurationMs
+        if (remainingMs <= 0) {
+            skipPopupVisible = false
+            skipPopupTimer.stop()
+            return
+        }
+        skipPopupSegmentType = activeSkipSegmentType
+        skipPopupVisible = true
+        skipPopupTimer.interval = remainingMs
+        skipPopupTimer.restart()
+        root.forceActiveFocus(Qt.ActiveWindowFocusReason)
+        Qt.callLater(function() { skipPopupButton.forceActiveFocus(Qt.ActiveWindowFocusReason) })
+    }
+
+    function triggerActiveSkip() {
+        if (!overlayActive || activeSkipSegmentType.length === 0) {
+            return
+        }
+        PlayerController.skipActiveSegment()
+        skipPopupVisible = false
+        skipPopupTimer.stop()
     }
 
     function showControls() {
@@ -274,6 +326,10 @@ FocusScope {
                 showSeekPreview(true)
                 return true
             }
+            if (active === persistentSkipButton) {
+                focusControl(skipForwardButton)
+                return true
+            }
             if (active === audioButton) focusControl(volumeButton)
             else if (active === subtitleButton) focusControl(audioButton)
             else if (active === skipBackButton) focusControl(subtitleButton)
@@ -281,7 +337,7 @@ FocusScope {
             else if (active === playPauseButton) focusControl(previousChapterButton)
             else if (active === nextChapterButton) focusControl(playPauseButton)
             else if (active === skipForwardButton) focusControl(nextChapterButton)
-            else if (active === volumeButton) focusControl(skipForwardButton)
+            else if (active === volumeButton) focusControl(persistentSkipVisible ? persistentSkipButton : skipForwardButton)
             return true
         }
 
@@ -291,13 +347,17 @@ FocusScope {
                 showSeekPreview(true)
                 return true
             }
+            if (active === persistentSkipButton) {
+                focusControl(volumeButton)
+                return true
+            }
             if (active === audioButton) focusControl(subtitleButton)
             else if (active === subtitleButton) focusControl(skipBackButton)
             else if (active === skipBackButton) focusControl(previousChapterButton)
             else if (active === previousChapterButton) focusControl(playPauseButton)
             else if (active === playPauseButton) focusControl(nextChapterButton)
             else if (active === nextChapterButton) focusControl(skipForwardButton)
-            else if (active === skipForwardButton) focusControl(volumeButton)
+            else if (active === skipForwardButton) focusControl(persistentSkipVisible ? persistentSkipButton : volumeButton)
             else if (active === volumeButton) focusControl(audioButton)
             return true
         }
@@ -326,15 +386,25 @@ FocusScope {
 
     onOverlayActiveChanged: {
         if (overlayActive) {
-            activateOverlayFocus()
+            hideTimer.stop()
+            seekPreviewTimer.stop()
+            controlsVisible = false
+            seekOnlyMode = false
+            hasPrimedPointerPosition = false
+            lastPointerY = -1
+            showSkipPopupIfEligible()
         } else {
             hideTimer.stop()
             seekPreviewTimer.stop()
+            skipPopupTimer.stop()
             audioSelectorOpen = false
             subtitleSelectorOpen = false
             controlsVisible = false
             seekPreviewActive = false
             seekOnlyMode = false
+            skipPopupVisible = false
+            skipPopupSegmentType = ""
+            skipPopupWindowEndEpochMs = 0
         }
     }
 
@@ -342,16 +412,27 @@ FocusScope {
         if (!overlayActive) {
             return
         }
-        if (paused) {
+        // Avoid opening overlay during startup state churn; only refocus if controls are already shown.
+        if (paused && controlsVisible) {
             activateOverlayFocus()
-        } else {
-            showControls()
+        } else if (!paused && controlsVisible && !seekPreviewActive && !selectorOpen) {
+            hideTimer.restart()
         }
     }
 
     onControlsVisibleChanged: {
-        if (controlsVisible && !seekOnlyMode && !InputModeManager.pointerActive && overlayActive && !buffering) {
-            Qt.callLater(function() { playPauseButton.forceActiveFocus() })
+        if (controlsVisible) {
+            skipPopupVisible = false
+            skipPopupTimer.stop()
+        } else {
+            showSkipPopupIfEligible()
+        }
+        if (controlsVisible && !seekOnlyMode && overlayActive && !buffering && !selectorOpen) {
+            if (root.Window.window) {
+                root.Window.window.requestActivate()
+            }
+            root.forceActiveFocus(Qt.ActiveWindowFocusReason)
+            Qt.callLater(function() { playPauseButton.forceActiveFocus(Qt.ActiveWindowFocusReason) })
         }
     }
 
@@ -360,6 +441,20 @@ FocusScope {
             hideTimer.stop()
         } else {
             showControls()
+        }
+    }
+
+    onActiveSkipSegmentTypeChanged: {
+        if (activeSkipSegmentType.length === 0) {
+            skipPopupVisible = false
+            skipPopupTimer.stop()
+            skipPopupSegmentType = ""
+            skipPopupWindowEndEpochMs = 0
+            return
+        }
+        skipPopupWindowEndEpochMs = Date.now() + skipPopupDurationMs
+        if (activeSkipSegmentType !== skipPopupSegmentType) {
+            showSkipPopupIfEligible()
         }
     }
 
@@ -385,16 +480,47 @@ FocusScope {
         }
     }
 
+    Timer {
+        id: skipPopupTimer
+        interval: root.skipPopupDurationMs
+        repeat: false
+        onTriggered: {
+            root.skipPopupVisible = false
+        }
+    }
+
     MouseArea {
         anchors.fill: parent
         acceptedButtons: Qt.NoButton
         hoverEnabled: true
         propagateComposedEvents: true
         cursorShape: InputModeManager.pointerActive ? Qt.ArrowCursor : Qt.BlankCursor
-        onPositionChanged: root.showControls()
+        onPositionChanged: function(mouse) {
+            if (!root.overlayActive) {
+                return
+            }
+            if (!root.hasPrimedPointerPosition) {
+                root.hasPrimedPointerPosition = true
+                root.lastPointerY = mouse.y
+                return
+            }
+            if (Math.abs(mouse.y - root.lastPointerY) < 0.5) {
+                return
+            }
+            root.lastPointerY = mouse.y
+            if (!root.controlsVisible && root.overlayHotzoneContains(mouse.y)) {
+                root.showControls()
+            }
+        }
     }
 
     Keys.onPressed: function(event) {
+        if (root.skipPopupVisible
+                && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) {
+            event.accepted = true
+            root.triggerActiveSkip()
+            return
+        }
         if (event.key === Qt.Key_Left) {
             event.accepted = root.handleDirectionalKey("left")
         } else if (event.key === Qt.Key_Right) {
@@ -481,6 +607,84 @@ FocusScope {
         Behavior on scale { NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic } }
     }
 
+    component SkipPillButton: Button {
+        id: skipButton
+        property bool compact: false
+        property string labelText: ""
+        property bool emphasized: false
+        property bool showIcon: true
+        focusPolicy: Qt.StrongFocus
+        activeFocusOnTab: true
+        implicitHeight: Math.round((compact ? 46 : 56) * Theme.layoutScale)
+        implicitWidth: Math.round((compact ? 170 : 230) * Theme.layoutScale)
+        leftPadding: Math.round((compact ? 16 : 20) * Theme.layoutScale)
+        rightPadding: Math.round((compact ? 16 : 20) * Theme.layoutScale)
+        onPressed: root.showControls()
+        Keys.onReturnPressed: function(event) { event.accepted = true; skipButton.animateClick() }
+        Keys.onEnterPressed: function(event) { event.accepted = true; skipButton.animateClick() }
+        Keys.onSpacePressed: function(event) { event.accepted = true; skipButton.animateClick() }
+        background: Rectangle {
+            id: skipButtonBg
+            radius: height / 2
+            color: skipButton.hovered || skipButton.activeFocus
+                   ? Theme.playbackControlGlassBackgroundHover
+                   : (skipButton.emphasized
+                      ? Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.18)
+                      : Theme.playbackControlGlassBackground)
+            border.width: skipButton.activeFocus ? Theme.buttonFocusBorderWidth : (skipButton.emphasized ? 2 : 1)
+            border.color: skipButton.activeFocus
+                          ? Theme.focusBorder
+                          : (skipButton.emphasized ? Theme.accentPrimary : Theme.playbackControlGlassBorderStrong)
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                blurEnabled: true
+                blurMax: 30
+                blur: 0.35
+            }
+            Rectangle {
+                anchors.fill: parent
+                radius: parent.radius
+                color: "transparent"
+                border.width: skipButton.activeFocus ? Math.max(2, Theme.buttonFocusBorderWidth + 1) : 0
+                border.color: Qt.rgba(Theme.focusBorder.r, Theme.focusBorder.g, Theme.focusBorder.b, 0.55)
+                visible: skipButton.activeFocus
+            }
+            SequentialAnimation on opacity {
+                running: skipButton.emphasized && skipButton.visible && !skipButton.activeFocus
+                loops: Animation.Infinite
+                NumberAnimation { to: 0.90; duration: 750; easing.type: Easing.InOutQuad }
+                NumberAnimation { to: 1.0; duration: 750; easing.type: Easing.InOutQuad }
+            }
+        }
+        contentItem: Item {
+            anchors.fill: parent
+            implicitWidth: skipContentRow.implicitWidth
+            implicitHeight: skipContentRow.implicitHeight
+            Row {
+                id: skipContentRow
+                spacing: Math.round(8 * Theme.layoutScale)
+                anchors.centerIn: parent
+                Text {
+                    text: Icons.fastForward
+                    font.family: Theme.fontIcon
+                    font.pixelSize: Math.round((compact ? 20 : 22) * Theme.layoutScale)
+                    color: Theme.playbackIconColor
+                    anchors.verticalCenter: parent.verticalCenter
+                    visible: skipButton.showIcon
+                }
+                Text {
+                    text: skipButton.labelText
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Math.round((compact ? 18 : 21) * Theme.layoutScale)
+                    font.weight: Font.DemiBold
+                    color: Theme.textPrimary
+                    horizontalAlignment: Text.AlignHCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                }
+            }
+        }
+    }
+
     Rectangle {
         anchors.top: parent.top
         anchors.left: parent.left
@@ -511,6 +715,24 @@ FocusScope {
         Behavior on opacity {
             NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
         }
+    }
+
+    SkipPillButton {
+        id: skipPopupButton
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: Math.round(72 * Theme.layoutScale)
+        anchors.bottomMargin: Math.round(182 * Theme.layoutScale)
+        z: 640
+        compact: false
+        emphasized: true
+        labelText: root.activeSkipLabel
+        visible: opacity > 0.001
+        opacity: root.skipPopupVisible && !root.buffering ? 1.0 : 0.0
+        scale: root.skipPopupVisible && !root.buffering ? 1.0 : 0.95
+        onClicked: root.triggerActiveSkip()
+        Behavior on opacity { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
+        Behavior on scale { NumberAnimation { duration: 170; easing.type: Easing.OutCubic } }
     }
 
     Item {
@@ -878,39 +1100,50 @@ FocusScope {
                 }
             }
 
-            RowLayout {
+            Item {
                 visible: root.fullControlsVisible
                 width: parent.width
+                height: Math.round(116 * Theme.layoutScale)
 
-                RowLayout {
-                    spacing: Math.round(24 * Theme.layoutScale)
+                Item {
+                    id: leftRail
+                    anchors.left: parent.left
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: root.sideRailWidth
+                    height: parent.height
 
-                    GlassCircleButton {
-                        id: audioButton
-                        diameter: Math.round(64 * Theme.layoutScale)
-                        iconSize: Math.round(32 * Theme.layoutScale)
-                        text: Icons.audiotrack
-                        onClicked: root.openAudioSelector()
-                        KeyNavigation.right: subtitleButton
-                        KeyNavigation.left: volumeButton
-                        KeyNavigation.up: progressFocus
-                    }
+                    RowLayout {
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Math.round(24 * Theme.layoutScale)
 
-                    GlassCircleButton {
-                        id: subtitleButton
-                        diameter: Math.round(64 * Theme.layoutScale)
-                        iconSize: Math.round(32 * Theme.layoutScale)
-                        text: Icons.subtitles
-                        onClicked: root.openSubtitleSelector()
-                        KeyNavigation.left: audioButton
-                        KeyNavigation.right: skipBackButton
-                        KeyNavigation.up: progressFocus
+                        GlassCircleButton {
+                            id: audioButton
+                            diameter: Math.round(64 * Theme.layoutScale)
+                            iconSize: Math.round(32 * Theme.layoutScale)
+                            text: Icons.audiotrack
+                            onClicked: root.openAudioSelector()
+                            KeyNavigation.right: subtitleButton
+                            KeyNavigation.left: volumeButton
+                            KeyNavigation.up: progressFocus
+                        }
+
+                        GlassCircleButton {
+                            id: subtitleButton
+                            diameter: Math.round(64 * Theme.layoutScale)
+                            iconSize: Math.round(32 * Theme.layoutScale)
+                            text: Icons.subtitles
+                            onClicked: root.openSubtitleSelector()
+                            KeyNavigation.left: audioButton
+                            KeyNavigation.right: skipBackButton
+                            KeyNavigation.up: progressFocus
+                        }
                     }
                 }
 
-                Item { Layout.fillWidth: true }
-
                 RowLayout {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
                     spacing: Math.round(24 * Theme.layoutScale)
 
                     GlassCircleButton {
@@ -971,23 +1204,56 @@ FocusScope {
                             root.showSeekPreview(true)
                         }
                         KeyNavigation.left: nextChapterButton
-                        KeyNavigation.right: volumeButton
+                        KeyNavigation.right: persistentSkipVisible ? persistentSkipButton : volumeButton
                         KeyNavigation.up: progressFocus
                     }
                 }
 
-                Item { Layout.fillWidth: true }
+                Item {
+                    id: rightRail
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: root.sideRailWidth
+                    height: parent.height
 
-                RowLayout {
-                    GlassCircleButton {
-                        id: volumeButton
-                        diameter: Math.round(64 * Theme.layoutScale)
-                        iconSize: Math.round(32 * Theme.layoutScale)
-                        text: Icons.volumeUp
-                        onClicked: PlayerController.toggleMute()
-                        KeyNavigation.left: skipForwardButton
-                        KeyNavigation.right: audioButton
-                        KeyNavigation.up: progressFocus
+                    RowLayout {
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Math.round(22 * Theme.layoutScale)
+
+                        Item {
+                            Layout.preferredWidth: Math.round(170 * Theme.layoutScale)
+                            Layout.alignment: Qt.AlignVCenter
+                            implicitHeight: persistentSkipButton.implicitHeight
+
+                            SkipPillButton {
+                                id: persistentSkipButton
+                                anchors.centerIn: parent
+                                compact: true
+                                emphasized: false
+                                showIcon: false
+                                labelText: root.activeSkipLabel
+                                enabled: root.persistentSkipVisible
+                                opacity: root.persistentSkipVisible ? 1.0 : 0.0
+                                onClicked: root.triggerActiveSkip()
+                                KeyNavigation.left: skipForwardButton
+                                KeyNavigation.right: volumeButton
+                                KeyNavigation.up: progressFocus
+                                KeyNavigation.down: progressFocus
+                                Behavior on opacity { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+                            }
+                        }
+
+                        GlassCircleButton {
+                            id: volumeButton
+                            diameter: Math.round(64 * Theme.layoutScale)
+                            iconSize: Math.round(32 * Theme.layoutScale)
+                            text: Icons.volumeUp
+                            onClicked: PlayerController.toggleMute()
+                            KeyNavigation.left: persistentSkipVisible ? persistentSkipButton : skipForwardButton
+                            KeyNavigation.right: audioButton
+                            KeyNavigation.up: progressFocus
+                        }
                     }
                 }
             }
@@ -1223,6 +1489,4 @@ FocusScope {
             NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
         }
     }
-
-    Component.onCompleted: showControls()
 }

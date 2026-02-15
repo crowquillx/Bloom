@@ -148,6 +148,9 @@ UI Components for Track Selection
   - Right group: volume/mute icon button.
   - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
   - Trickplay preview bubble: renders processed Jellyfin trickplay thumbnails from `PlayerController` and is hidden entirely when trickplay images are unavailable.
+  - Intro/outro skip UX: transient "Skip Intro"/"Skip Credits" pop-up button auto-focuses when a segment window starts, then a compact persistent skip button remains available until that segment ends.
+    - Popup timing is controlled by `ConfigManager.skipButtonAutoHideSeconds` (`settings.playback.skip_button_auto_hide_seconds`, range 0-15; 0 disables popup only).
+    - Optional automatic skip is controlled by `ConfigManager.autoSkipIntro` and `ConfigManager.autoSkipOutro`; each auto-skip applies at most once per playback item even if the user seeks back.
 
 Playback overlay metadata
 - `PlayerController` now exposes `overlayTitle` and `overlaySubtitle` for native overlay header text.

@@ -59,8 +59,11 @@ class ConfigManager : public QObject
     
     // Playback settings exposed to QML
     Q_PROPERTY(int playbackCompletionThreshold READ getPlaybackCompletionThreshold WRITE setPlaybackCompletionThreshold NOTIFY playbackCompletionThresholdChanged)
+    Q_PROPERTY(int skipButtonAutoHideSeconds READ getSkipButtonAutoHideSeconds WRITE setSkipButtonAutoHideSeconds NOTIFY skipButtonAutoHideSecondsChanged)
     Q_PROPERTY(int audioDelay READ getAudioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
     Q_PROPERTY(bool autoplayNextEpisode READ getAutoplayNextEpisode WRITE setAutoplayNextEpisode NOTIFY autoplayNextEpisodeChanged)
+    Q_PROPERTY(bool autoSkipIntro READ getAutoSkipIntro WRITE setAutoSkipIntro NOTIFY autoSkipIntroChanged)
+    Q_PROPERTY(bool autoSkipOutro READ getAutoSkipOutro WRITE setAutoSkipOutro NOTIFY autoSkipOutroChanged)
     Q_PROPERTY(QString playerBackend READ getPlayerBackend WRITE setPlayerBackend NOTIFY playerBackendChanged)
     Q_PROPERTY(int backdropRotationInterval READ getBackdropRotationInterval WRITE setBackdropRotationInterval NOTIFY backdropRotationIntervalChanged)
     Q_PROPERTY(bool launchInFullscreen READ getLaunchInFullscreen WRITE setLaunchInFullscreen NOTIFY launchInFullscreenChanged)
@@ -145,9 +148,18 @@ public:
     // Audio Delay (milliseconds)
     void setAudioDelay(int ms);
     int getAudioDelay() const;
+
+    // Skip intro/outro pop-up auto-hide duration (seconds)
+    // 0 disables the temporary pop-up while keeping the persistent overlay skip button.
+    void setSkipButtonAutoHideSeconds(int seconds);
+    int getSkipButtonAutoHideSeconds() const;
     
     void setAutoplayNextEpisode(bool enabled);
     bool getAutoplayNextEpisode() const;
+    void setAutoSkipIntro(bool enabled);
+    bool getAutoSkipIntro() const;
+    void setAutoSkipOutro(bool enabled);
+    bool getAutoSkipOutro() const;
 
     void setPlayerBackend(const QString &backendName);
     QString getPlayerBackend() const;
@@ -316,8 +328,11 @@ signals:
     void linuxHDRCommandChanged();
     void windowsCustomHDRCommandChanged();
     void playbackCompletionThresholdChanged();
+    void skipButtonAutoHideSecondsChanged();
     void audioDelayChanged();
     void autoplayNextEpisodeChanged();
+    void autoSkipIntroChanged();
+    void autoSkipOutroChanged();
     void playerBackendChanged();
     void themeSongVolumeChanged();
     void themeSongLoopChanged();
@@ -345,6 +360,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 11;
+    static constexpr int kCurrentConfigVersion = 13;
     QJsonObject defaultConfig() const;
 };

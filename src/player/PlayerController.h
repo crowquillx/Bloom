@@ -63,6 +63,9 @@ class PlayerController : public QObject
     Q_PROPERTY(double currentPositionSeconds READ currentPositionSeconds NOTIFY timelineChanged)
     Q_PROPERTY(double durationSeconds READ durationSeconds NOTIFY timelineChanged)
     Q_PROPERTY(double progressRatio READ progressRatio NOTIFY timelineChanged)
+    Q_PROPERTY(bool isInIntroSegment READ isInIntroSegment NOTIFY skipSegmentsChanged)
+    Q_PROPERTY(bool isInOutroSegment READ isInOutroSegment NOTIFY skipSegmentsChanged)
+    Q_PROPERTY(bool hasActiveSkipSegment READ hasActiveSkipSegment NOTIFY skipSegmentsChanged)
     Q_PROPERTY(bool hasTrickplay READ hasTrickplay NOTIFY trickplayStateChanged)
     Q_PROPERTY(int trickplayIntervalMs READ trickplayIntervalMs NOTIFY trickplayStateChanged)
     Q_PROPERTY(QString trickplayPreviewUrl READ trickplayPreviewUrl NOTIFY trickplayPreviewChanged)
@@ -134,6 +137,9 @@ public:
     double currentPositionSeconds() const { return m_currentPosition; }
     double durationSeconds() const { return m_duration; }
     double progressRatio() const { return m_duration > 0.0 ? qBound(0.0, m_currentPosition / m_duration, 1.0) : 0.0; }
+    bool isInIntroSegment() const { return m_isInIntroSegment; }
+    bool isInOutroSegment() const { return m_isInOutroSegment; }
+    bool hasActiveSkipSegment() const { return m_isInIntroSegment || m_isInOutroSegment; }
     bool hasTrickplay() const { return m_hasTrickplayInfo; }
     int trickplayIntervalMs() const { return m_hasTrickplayInfo ? m_currentTrickplayInfo.interval : 0; }
     QString trickplayPreviewUrl() const { return m_trickplayPreviewUrl; }
@@ -170,6 +176,9 @@ public:
     Q_INVOKABLE void togglePause();
     Q_INVOKABLE void seek(double seconds);
     Q_INVOKABLE void seekRelative(double seconds);
+    Q_INVOKABLE void skipIntro();
+    Q_INVOKABLE void skipOutro();
+    Q_INVOKABLE void skipActiveSegment();
     Q_INVOKABLE void retry();
     Q_INVOKABLE void clearError();
     
@@ -220,6 +229,7 @@ signals:
     void supportsEmbeddedVideoChanged();
     void embeddedVideoShrinkEnabledChanged();
     void timelineChanged();
+    void skipSegmentsChanged();
     void trickplayStateChanged();
     void trickplayPreviewChanged();
     void currentItemIdChanged();
@@ -319,6 +329,8 @@ private:
     void initiateMpvStart();
     void updateTrickplayPreviewForPosition(double seconds);
     void clearTrickplayPreview();
+    void updateSkipSegmentState();
+    bool seekToSegmentEnd(MediaSegmentType segmentType);
     static QString buildTrickplayPreviewDataUrl(const QString &binaryPath, int frameIndex, int width, int height);
     void connectBackendSignals(IPlayerBackend *backend);
     bool tryFallbackToExternalBackend(const QString &reason);
@@ -426,6 +438,10 @@ private:
     
     // OSC and trickplay data
     QList<MediaSegmentInfo> m_currentSegments;
+    bool m_isInIntroSegment = false;
+    bool m_isInOutroSegment = false;
+    bool m_hasAutoSkippedIntroForCurrentItem = false;
+    bool m_hasAutoSkippedOutroForCurrentItem = false;
     TrickplayTileInfo m_currentTrickplayInfo;
     bool m_hasTrickplayInfo = false;
     QString m_trickplayBinaryPath;

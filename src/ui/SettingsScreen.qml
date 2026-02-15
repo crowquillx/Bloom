@@ -1017,10 +1017,59 @@ FocusScope {
                             Layout.fillWidth: true
                             
                             KeyNavigation.up: thresholdSlider
-                            KeyNavigation.down: uiSoundsToggle
+                            KeyNavigation.down: skipPopupDurationSlider
                             
                             onSpinBoxValueChanged: function(newValue) {
                                 ConfigManager.audioDelay = newValue
+                            }
+                        }
+
+                        SettingsSliderRow {
+                            id: skipPopupDurationSlider
+                            label: qsTr("Skip Intro/Credits Popup Duration")
+                            description: qsTr("How long the playback skip popup stays visible (0 disables popup)")
+                            value: ConfigManager.skipButtonAutoHideSeconds
+                            from: 0
+                            to: 15
+                            stepSize: 1
+                            unit: "s"
+                            Layout.fillWidth: true
+
+                            KeyNavigation.up: audioDelaySpinBox
+                            KeyNavigation.down: autoSkipIntroToggle
+
+                            onSliderValueChanged: function(newValue) {
+                                ConfigManager.skipButtonAutoHideSeconds = newValue
+                            }
+                        }
+
+                        SettingsToggleRow {
+                            id: autoSkipIntroToggle
+                            label: qsTr("Auto Skip Intro")
+                            description: qsTr("Automatically skip intro once when it first appears")
+                            checked: ConfigManager.autoSkipIntro
+                            Layout.fillWidth: true
+
+                            KeyNavigation.up: skipPopupDurationSlider
+                            KeyNavigation.down: autoSkipOutroToggle
+
+                            onToggled: function(value) {
+                                ConfigManager.autoSkipIntro = value
+                            }
+                        }
+
+                        SettingsToggleRow {
+                            id: autoSkipOutroToggle
+                            label: qsTr("Auto Skip Credits")
+                            description: qsTr("Automatically skip credits once when they first appear")
+                            checked: ConfigManager.autoSkipOutro
+                            Layout.fillWidth: true
+
+                            KeyNavigation.up: autoSkipIntroToggle
+                            KeyNavigation.down: uiSoundsToggle
+
+                            onToggled: function(value) {
+                                ConfigManager.autoSkipOutro = value
                             }
                         }
 
@@ -1032,7 +1081,7 @@ FocusScope {
                             checked: ConfigManager.uiSoundsEnabled
                             Layout.fillWidth: true
 
-                            KeyNavigation.up: audioDelaySpinBox
+                            KeyNavigation.up: autoSkipOutroToggle
                             KeyNavigation.down: uiSoundsVolumeCombo
 
                             onToggled: function(value) {

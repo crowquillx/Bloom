@@ -28,6 +28,8 @@ Session management
 Config API sample (high level)
 - `getMpvConfigArgs()` returns an array of command line args to pass to mpv.
 - `playbackCompletionThreshold` is a Q_PROPERTY (default 90) and `autoplayNextEpisode` default true.
+- `skipButtonAutoHideSeconds` is a Q_PROPERTY (default 6; range 0-15) for skip intro/credits popup visibility timing.
+- `autoSkipIntro` and `autoSkipOutro` are Q_PROPERTY booleans (both default false) for one-time-per-playback intro/credits auto-skip.
 
 When adding settings
 - Update `ConfigManager.h` (Q_PROPERTY & signals).

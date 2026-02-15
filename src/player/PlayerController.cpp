@@ -426,6 +426,10 @@ void PlayerController::onEnterIdleState()
     
     // Clear OSC/trickplay state
     m_currentSegments.clear();
+    m_isInIntroSegment = false;
+    m_isInOutroSegment = false;
+    m_hasAutoSkippedIntroForCurrentItem = false;
+    m_hasAutoSkippedOutroForCurrentItem = false;
     m_hasTrickplayInfo = false;
     m_currentTrickplayInfo = TrickplayTileInfo{};
     m_trickplayBinaryPath.clear();
@@ -434,6 +438,7 @@ void PlayerController::onEnterIdleState()
     m_trickplayPreviewPositionOverrideSeconds = 0.0;
     clearTrickplayPreview();
     emit timelineChanged();
+    emit skipSegmentsChanged();
     emit trickplayStateChanged();
     
     // Clear trickplay processor data
@@ -641,6 +646,7 @@ void PlayerController::onPositionChanged(double seconds)
 {
     double previousPosition = m_currentPosition;
     m_currentPosition = seconds;
+    updateSkipSegmentState();
     if (!qFuzzyCompare(previousPosition + 1.0, seconds + 1.0)) {
         emit timelineChanged();
     }
@@ -975,6 +981,10 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     
     // Clear previous OSC/trickplay state and request new data
     m_currentSegments.clear();
+    m_isInIntroSegment = false;
+    m_isInOutroSegment = false;
+    m_hasAutoSkippedIntroForCurrentItem = false;
+    m_hasAutoSkippedOutroForCurrentItem = false;
     m_hasTrickplayInfo = false;
     m_currentTrickplayInfo = TrickplayTileInfo{};
     m_trickplayBinaryPath.clear();
@@ -983,6 +993,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     m_trickplayPreviewPositionOverrideSeconds = 0.0;
     clearTrickplayPreview();
     emit timelineChanged();
+    emit skipSegmentsChanged();
     emit trickplayStateChanged();
     if (!itemId.isEmpty()) {
         m_playbackService->getMediaSegments(itemId);
@@ -1063,6 +1074,25 @@ void PlayerController::seekRelative(double seconds)
     
     if (m_playbackState == Playing || m_playbackState == Paused) {
         m_playerBackend->sendVariantCommand({"seek", seconds, "relative"});
+    }
+}
+
+void PlayerController::skipIntro()
+{
+    seekToSegmentEnd(MediaSegmentType::Intro);
+}
+
+void PlayerController::skipOutro()
+{
+    seekToSegmentEnd(MediaSegmentType::Outro);
+}
+
+void PlayerController::skipActiveSegment()
+{
+    if (m_isInIntroSegment) {
+        skipIntro();
+    } else if (m_isInOutroSegment) {
+        skipOutro();
     }
 }
 
@@ -1761,6 +1791,80 @@ QString PlayerController::eventToString(Event event)
     return QStringLiteral("Unknown");
 }
 
+void PlayerController::updateSkipSegmentState()
+{
+    const bool wasInIntro = m_isInIntroSegment;
+    const bool wasInOutro = m_isInOutroSegment;
+    bool inIntro = false;
+    bool inOutro = false;
+
+    for (const auto &segment : std::as_const(m_currentSegments)) {
+        if (segment.startTicks < 0 || segment.endTicks <= segment.startTicks) {
+            continue;
+        }
+
+        const double startSeconds = segment.startSeconds();
+        const double endSeconds = segment.endSeconds();
+        const bool containsPosition = m_currentPosition >= startSeconds && m_currentPosition < endSeconds;
+        if (!containsPosition) {
+            continue;
+        }
+
+        if (segment.type == MediaSegmentType::Intro) {
+            inIntro = true;
+        } else if (segment.type == MediaSegmentType::Outro) {
+            inOutro = true;
+        }
+    }
+
+    if (m_isInIntroSegment == inIntro && m_isInOutroSegment == inOutro) {
+        return;
+    }
+
+    m_isInIntroSegment = inIntro;
+    m_isInOutroSegment = inOutro;
+
+    const bool autoSkipAllowedNow = m_playbackState != Paused
+                                    && m_playbackState != Idle
+                                    && m_playbackState != Error;
+
+    // Auto-skip only on first entry into intro/outro segment for this playback item.
+    if (autoSkipAllowedNow
+        && !wasInIntro
+        && inIntro
+        && !m_hasAutoSkippedIntroForCurrentItem
+        && m_config->getAutoSkipIntro()) {
+        m_hasAutoSkippedIntroForCurrentItem = true;
+        skipIntro();
+    } else if (autoSkipAllowedNow
+               && !wasInOutro
+               && inOutro
+               && !m_hasAutoSkippedOutroForCurrentItem
+               && m_config->getAutoSkipOutro()) {
+        m_hasAutoSkippedOutroForCurrentItem = true;
+        skipOutro();
+    }
+
+    emit skipSegmentsChanged();
+}
+
+bool PlayerController::seekToSegmentEnd(MediaSegmentType segmentType)
+{
+    for (const auto &segment : std::as_const(m_currentSegments)) {
+        if (segment.type != segmentType || segment.endTicks <= 0) {
+            continue;
+        }
+
+        const double endSeconds = segment.endSeconds();
+        qDebug() << "PlayerController: Skipping segment type" << static_cast<int>(segmentType)
+                 << "seeking to" << endSeconds;
+        seek(endSeconds);
+        return true;
+    }
+
+    return false;
+}
+
 void PlayerController::loadConfig()
 {
     // Look for config in the standard config directory
@@ -1837,28 +1941,14 @@ void PlayerController::onScriptMessage(const QString &messageName, const QString
     qDebug() << "PlayerController: Received script message:" << messageName << "args:" << args;
     
     if (messageName == "bloom-skip-intro") {
-        // Find intro segment and seek to its end
-        for (const auto &segment : m_currentSegments) {
-            if (segment.type == MediaSegmentType::Intro && segment.endTicks > 0) {
-                double endSeconds = static_cast<double>(segment.endTicks) / 10000000.0;
-                qDebug() << "PlayerController: Skipping intro, seeking to" << endSeconds;
-                seek(endSeconds);
-                return;
-            }
+        if (!seekToSegmentEnd(MediaSegmentType::Intro)) {
+            qDebug() << "PlayerController: No intro segment found to skip";
         }
-        qDebug() << "PlayerController: No intro segment found to skip";
         
     } else if (messageName == "bloom-skip-outro") {
-        // Find outro segment and seek to its end (or next episode)
-        for (const auto &segment : m_currentSegments) {
-            if (segment.type == MediaSegmentType::Outro && segment.endTicks > 0) {
-                double endSeconds = static_cast<double>(segment.endTicks) / 10000000.0;
-                qDebug() << "PlayerController: Skipping outro, seeking to" << endSeconds;
-                seek(endSeconds);
-                return;
-            }
+        if (!seekToSegmentEnd(MediaSegmentType::Outro)) {
+            qDebug() << "PlayerController: No outro segment found to skip";
         }
-        qDebug() << "PlayerController: No outro segment found to skip";
     }
     // Script-driven trickplay handlers were retired with the native overlay migration.
 }
@@ -1901,6 +1991,7 @@ void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<
     
     qDebug() << "PlayerController: Received" << segments.size() << "segments for item:" << itemId;
     m_currentSegments = segments;
+    updateSkipSegmentState();
     
     // Segment metadata is kept in controller state for native overlay handling.
     for (const auto &segment : segments) {

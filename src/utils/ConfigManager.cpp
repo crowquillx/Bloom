@@ -558,6 +558,41 @@ int ConfigManager::getPlaybackCompletionThreshold() const
     return 90; // Default to 90%
 }
 
+void ConfigManager::setSkipButtonAutoHideSeconds(int seconds)
+{
+    const int clampedSeconds = std::max(0, std::min(seconds, 15));
+    if (clampedSeconds == getSkipButtonAutoHideSeconds()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["skip_button_auto_hide_seconds"] = clampedSeconds;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit skipButtonAutoHideSecondsChanged();
+}
+
+int ConfigManager::getSkipButtonAutoHideSeconds() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        const QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            const QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("skip_button_auto_hide_seconds")) {
+                const int value = playback["skip_button_auto_hide_seconds"].toInt();
+                return std::max(0, std::min(value, 15));
+            }
+        }
+    }
+    return 6; // Default to 6 seconds
+}
+
 void ConfigManager::setAudioDelay(int ms)
 {
     if (ms == getAudioDelay()) return;
@@ -622,6 +657,72 @@ bool ConfigManager::getAutoplayNextEpisode() const
         }
     }
     return true; // Default to enabled
+}
+
+void ConfigManager::setAutoSkipIntro(bool enabled)
+{
+    if (enabled == getAutoSkipIntro()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["auto_skip_intro"] = enabled;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit autoSkipIntroChanged();
+}
+
+bool ConfigManager::getAutoSkipIntro() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("auto_skip_intro")) {
+                return playback["auto_skip_intro"].toBool();
+            }
+        }
+    }
+    return false; // Default off
+}
+
+void ConfigManager::setAutoSkipOutro(bool enabled)
+{
+    if (enabled == getAutoSkipOutro()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["auto_skip_outro"] = enabled;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit autoSkipOutroChanged();
+}
+
+bool ConfigManager::getAutoSkipOutro() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("auto_skip_outro")) {
+                return playback["auto_skip_outro"].toBool();
+            }
+        }
+    }
+    return false; // Default off
 }
 
 void ConfigManager::setPlayerBackend(const QString &backendName)
@@ -1453,6 +1554,41 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV11ToV12(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 12;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject playback = settings.value("playback").toObject();
+        if (!playback.contains("skip_button_auto_hide_seconds")) {
+            playback["skip_button_auto_hide_seconds"] = 6;
+        }
+
+        settings["playback"] = playback;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
+
+    static QJsonObject migrateV12ToV13(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 13;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject playback = settings.value("playback").toObject();
+        if (!playback.contains("auto_skip_intro")) {
+            playback["auto_skip_intro"] = false;
+        }
+        if (!playback.contains("auto_skip_outro")) {
+            playback["auto_skip_outro"] = false;
+        }
+
+        settings["playback"] = playback;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -1552,6 +1688,22 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 11) {
+            m_config = ConfigMigrator::migrateV11ToV12(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
+        } else if (version == 12) {
+            m_config = ConfigMigrator::migrateV12ToV13(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -1585,7 +1737,10 @@ QJsonObject ConfigManager::defaultConfig() const
     QJsonObject playback;
     playback["completion_threshold"] = 90;
     playback["autoplay_next_episode"] = true;
+    playback["auto_skip_intro"] = false;
+    playback["auto_skip_outro"] = false;
     playback["audio_delay"] = 0;
+    playback["skip_button_auto_hide_seconds"] = 6;
     playback["theme_song_volume"] = 0;
     playback["theme_song_loop"] = false;
     playback["ui_sounds_enabled"] = true;
