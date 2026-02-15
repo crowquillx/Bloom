@@ -88,6 +88,33 @@ void MockLibraryService::getLatestMedia(const QString &parentId)
     emit latestMediaLoaded(parentId, items);
 }
 
+void MockLibraryService::getHomeBackdropItems(int limit)
+{
+    QJsonArray allItems;
+    for (const QJsonValue &val : m_movies["Items"].toArray()) {
+        allItems.append(val);
+    }
+    for (const QJsonValue &val : m_series["Items"].toArray()) {
+        allItems.append(val);
+    }
+    for (const QJsonValue &val : m_seasons["Items"].toArray()) {
+        allItems.append(val);
+    }
+    for (const QJsonValue &val : m_episodes["Items"].toArray()) {
+        allItems.append(val);
+    }
+
+    // Return first N items (deterministic for test mode).
+    QJsonArray result;
+    const int count = (limit > 0) ? qMin(limit, allItems.size()) : allItems.size();
+    for (int i = 0; i < count; ++i) {
+        result.append(allItems[i]);
+    }
+
+    qDebug() << "MockLibraryService::getHomeBackdropItems(" << limit << ") ->" << result.size() << "items";
+    emit homeBackdropItemsLoaded(result);
+}
+
 void MockLibraryService::getItem(const QString &itemId)
 {
     QJsonObject item = findItemById(itemId);

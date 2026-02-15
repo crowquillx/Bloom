@@ -5,6 +5,7 @@
 #include <QTimer>
 #include <QUrl>
 #include <QLoggingCategory>
+#include <memory>
 
 Q_LOGGING_CATEGORY(libraryService, "bloom.library")
 
@@ -372,6 +373,121 @@ void LibraryService::getLatestMedia(const QString &parentId)
             QJsonArray items = doc.array();
             emit latestMediaLoaded(parentId, items);
         });
+}
+
+void LibraryService::getHomeBackdropItems(int limit)
+{
+    if (!m_authService->isAuthenticated()) {
+        NetworkError error;
+        error.endpoint = "getHomeBackdropItems";
+        error.code = -1;
+        error.userMessage = tr("Not authenticated");
+        emitError(error);
+        return;
+    }
+
+    const QStringList fields = {
+        "Id",
+        "ImageTags",
+        "BackdropImageTags",
+        "ParentBackdropImageTags",
+        "ParentBackdropItemId",
+        "SeriesId"
+    };
+    const int requestedLimit = (limit > 0) ? qBound(50, limit, 20000) : 0;
+
+    // Fast starter query: small random sample so Home can show a backdrop quickly.
+    if (requestedLimit > 0) {
+        QString endpoint = QString("/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series,Season,Episode&SortBy=Random&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableTotalRecordCount=false&Limit=%3")
+                               .arg(m_authService->getUserId())
+                               .arg(fields.join(","))
+                               .arg(requestedLimit);
+
+        sendRequestWithRetry(endpoint,
+            [this, endpoint]() {
+                QNetworkRequest request = m_authService->createRequest(endpoint);
+                return m_authService->networkManager()->get(request);
+            },
+            [this, requestedLimit](QNetworkReply *reply) {
+                QByteArray data = reply->readAll();
+                QJsonDocument doc = QJsonDocument::fromJson(data);
+                if (!doc.isObject()) {
+                    NetworkError error;
+                    error.endpoint = "getHomeBackdropItems";
+                    error.code = -2;
+                    error.userMessage = tr("Invalid home backdrop response");
+                    emitError(error);
+                    return;
+                }
+                QJsonArray items = doc.object()["Items"].toArray();
+                qCDebug(libraryService) << "getHomeBackdropItems starter sample size:" << items.size()
+                                        << "requestedLimit:" << requestedLimit;
+                emit homeBackdropItemsLoaded(items);
+            });
+        return;
+    }
+
+    const int pageSize = 250;
+    const int pageDelayMs = 250;
+
+    auto aggregate = std::make_shared<QJsonArray>();
+    auto fetchPage = std::make_shared<std::function<void(int)>>();
+    *fetchPage = [this, fields, pageSize, requestedLimit, aggregate, fetchPage](int startIndex) {
+        QString endpoint = QString("/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series,Season,Episode&SortBy=SortName&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableTotalRecordCount=false&StartIndex=%3&Limit=%4")
+                               .arg(m_authService->getUserId())
+                               .arg(fields.join(","))
+                               .arg(startIndex)
+                               .arg(pageSize);
+
+        sendRequestWithRetry(endpoint,
+            [this, endpoint]() {
+                QNetworkRequest request = m_authService->createRequest(endpoint);
+                return m_authService->networkManager()->get(request);
+            },
+            [this, startIndex, pageSize, requestedLimit, aggregate, fetchPage](QNetworkReply *reply) {
+                QByteArray data = reply->readAll();
+                QJsonDocument doc = QJsonDocument::fromJson(data);
+                if (!doc.isObject()) {
+                    NetworkError error;
+                    error.endpoint = "getHomeBackdropItems";
+                    error.code = -2;
+                    error.userMessage = tr("Invalid home backdrop response");
+                    emitError(error);
+                    return;
+                }
+
+                QJsonObject obj = doc.object();
+                QJsonArray pageItems = obj["Items"].toArray();
+                qCDebug(libraryService) << "getHomeBackdropItems page startIndex:" << startIndex
+                                        << "pageItems:" << pageItems.size()
+                                        << "requestedLimit:" << requestedLimit;
+
+                // Emit progressively so Home can render backdrops immediately.
+                if (!pageItems.isEmpty()) {
+                    emit homeBackdropItemsLoaded(pageItems);
+                }
+
+                for (const QJsonValue &value : pageItems) {
+                    aggregate->append(value);
+                }
+
+                const bool reachedRequestedLimit = requestedLimit > 0 && aggregate->size() >= requestedLimit;
+                const bool reachedServerEndByPage = pageItems.size() < pageSize;
+
+                if (reachedRequestedLimit || reachedServerEndByPage) {
+                    qCDebug(libraryService) << "getHomeBackdropItems completed aggregate size:" << aggregate->size()
+                                            << "requestedLimit:" << requestedLimit;
+                    return;
+                }
+
+                const int nextStart = startIndex + pageItems.size();
+                QTimer::singleShot(pageDelayMs, this, [fetchPage, nextStart]() {
+                    (*fetchPage)(nextStart);
+                });
+            });
+    };
+
+    (*fetchPage)(0);
 }
 
 // ============================================================================

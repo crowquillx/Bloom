@@ -24,6 +24,7 @@ Performance
 - Lazy-load images and cache them (image caching service exists in project).
 - Offload heavy JSON parsing or expensive calculations to background threads and report results back to the UI thread.
 - Reuse delegates and avoid excessive property bindings that cause frequent re-evaluations.
+- Home rotating backdrops should use `LibraryService.getHomeBackdropItems(limit)` (single lightweight random query over recursive media) instead of only section-bound lists like Next Up/Latest.
 
 Coding style
 - Keep components small and single-purpose.

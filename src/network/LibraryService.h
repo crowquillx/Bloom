@@ -50,6 +50,9 @@ public:
     // Latest media for a library
     Q_INVOKABLE virtual void getLatestMedia(const QString &parentId);
     
+    // Fast global backdrop pool for Home screen rotation (limit <= 0 means all)
+    Q_INVOKABLE virtual void getHomeBackdropItems(int limit = 0);
+    
     // Generic Item Details
     Q_INVOKABLE virtual void getItem(const QString &itemId);
 
@@ -91,6 +94,7 @@ signals:
 
     void nextUpLoaded(const QJsonArray &items);
     void latestMediaLoaded(const QString &parentId, const QJsonArray &items);
+    void homeBackdropItemsLoaded(const QJsonArray &items);
     void seriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void seriesDetailsNotModified(const QString &seriesId);
     void nextUnplayedEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);

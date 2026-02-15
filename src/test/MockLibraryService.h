@@ -42,6 +42,9 @@ public:
     // Latest media for a library - returns data from fixture["latestItems"]
     Q_INVOKABLE void getLatestMedia(const QString &parentId) override;
     
+    // Global home backdrop pool
+    Q_INVOKABLE void getHomeBackdropItems(int limit = 0) override;
+    
     // Generic Item Details - searches all fixture items
     Q_INVOKABLE void getItem(const QString &itemId) override;
 

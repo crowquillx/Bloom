@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
+import QtCore
 
 import BloomUI
 
@@ -40,6 +41,19 @@ FocusScope {
     // Rotating backdrop properties
     property var backdropCandidates: []  // Array of {itemId, backdropTag} objects
     property string currentBackdropUrl: ""
+    property var backdropShuffleOrder: []
+    property int backdropShuffleCursor: 0
+    property int backdropRngState: 1
+    property bool globalBackdropPoolLoaded: false
+    property bool loadingGlobalBackdropPool: false
+    property bool useSectionBackdropFallback: false
+    property bool fullBackdropIndexRequested: false
+
+    Settings {
+        id: homeBackdropSettings
+        category: "HomeBackdrop"
+        property string lastBackdropUrl: ""
+    }
     
     // Signal to request navigation to library screen
     signal navigateToLibrary(var libraryId, var libraryName)
@@ -58,6 +72,59 @@ FocusScope {
         for (var i = 0; i < librariesModel.length; i++) {
             LibraryService.getLatestMedia(librariesModel[i].Id)
         }
+    }
+
+    function hydrateBackdropFallbackFromSections() {
+        for (var i = 0; i < nextUpModel.length; i++) {
+            addBackdropCandidate(nextUpModel[i])
+        }
+        for (var key in recentlyAddedMap) {
+            var items = recentlyAddedMap[key] || []
+            for (var j = 0; j < items.length; j++) {
+                addBackdropCandidate(items[j])
+            }
+        }
+        if (backdropCandidates.length > 0) {
+            invalidateBackdropShuffle()
+            selectRandomBackdrop()
+        }
+    }
+
+    function reseedBackdropRng() {
+        var seed = Date.now() & 0x7fffffff
+        if (seed === 0) {
+            seed = 1
+        }
+        backdropRngState = seed
+    }
+
+    function nextBackdropRandomInt(maxExclusive) {
+        if (maxExclusive <= 0) {
+            return 0
+        }
+        backdropRngState = (1103515245 * backdropRngState + 12345) & 0x7fffffff
+        return backdropRngState % maxExclusive
+    }
+
+    function invalidateBackdropShuffle() {
+        backdropShuffleOrder = []
+        backdropShuffleCursor = 0
+    }
+
+    function rebuildBackdropShuffle() {
+        var order = []
+        for (var i = 0; i < backdropCandidates.length; i++) {
+            order.push(i)
+        }
+        // Fisher-Yates shuffle for full-cycle non-repeating rotation.
+        for (var j = order.length - 1; j > 0; j--) {
+            var k = nextBackdropRandomInt(j + 1)
+            var tmp = order[j]
+            order[j] = order[k]
+            order[k] = tmp
+        }
+        backdropShuffleOrder = order
+        backdropShuffleCursor = 0
     }
 
     function orderLibraries(views) {
@@ -275,6 +342,9 @@ FocusScope {
         // Check for direct backdrop
         if (item.BackdropImageTags && item.BackdropImageTags.length > 0) {
             backdropTag = item.BackdropImageTags[0]
+        } else if (item.ImageTags && item.ImageTags.Backdrop) {
+            // Some Jellyfin item queries expose backdrop as ImageTags.Backdrop.
+            backdropTag = item.ImageTags.Backdrop
         }
         // Check for parent backdrop (for episodes/seasons)
         else if (item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0) {
@@ -296,9 +366,11 @@ FocusScope {
                 backdropTag: backdropTag
             })
             backdropCandidates = newCandidates
+            invalidateBackdropShuffle()
             
-            // If this is the first backdrop, show it immediately
-            if (backdropCandidates.length === 1) {
+            // If this is the first backdrop, show it immediately unless we are still
+            // populating the global pool (avoid deterministic "first item" startup).
+            if (backdropCandidates.length === 1 && !loadingGlobalBackdropPool) {
                 selectRandomBackdrop()
             }
         }
@@ -310,9 +382,14 @@ FocusScope {
             currentBackdropUrl = ""
             return
         }
-        
-        var randomIndex = Math.floor(Math.random() * backdropCandidates.length)
-        var candidate = backdropCandidates[randomIndex]
+
+        if (backdropShuffleOrder.length !== backdropCandidates.length || backdropShuffleCursor >= backdropShuffleOrder.length) {
+            rebuildBackdropShuffle()
+        }
+
+        var candidateIndex = backdropShuffleOrder[backdropShuffleCursor]
+        backdropShuffleCursor++
+        var candidate = backdropCandidates[candidateIndex]
         
         // Construct backdrop URL
         var url = LibraryService.getCachedImageUrlWithWidth(candidate.itemId, "Backdrop", 1920)
@@ -379,6 +456,9 @@ FocusScope {
             if (img.source.toString() !== root.currentBackdropUrl) return
 
             if (img.status === Image.Ready || (img.status === Image.Null && root.currentBackdropUrl === "")) {
+                if (img.status === Image.Ready && root.currentBackdropUrl !== "") {
+                    homeBackdropSettings.lastBackdropUrl = root.currentBackdropUrl
+                }
                 // New image loaded (or cleared), switch to it
                 if (img === backdrop1) showBackdrop1 = true
                 else showBackdrop1 = false
@@ -1403,9 +1483,9 @@ FocusScope {
                 }
                 // Only apply default My Media focus on initial screen activation.
                 // Returning from detail screens should use restoreFocusState().
-                if (!hasBeenActivated && lastFocusedSection === "myMedia" && StackView.status === StackView.Active) {
+                if (!hasBeenActivated && lastFocusedSection === "myMedia" && root.StackView.status === StackView.Active) {
                     Qt.callLater(function() {
-                        if (!hasBeenActivated && lastFocusedSection === "myMedia" && StackView.status === StackView.Active) {
+                        if (!hasBeenActivated && lastFocusedSection === "myMedia" && root.StackView.status === StackView.Active) {
                             myMediaList.forceActiveFocus()
                             root.ensureSectionVisible(myMediaSection)
                         }
@@ -1420,19 +1500,34 @@ FocusScope {
             for (var i = 0; i < orderedViews.length; i++) {
                 LibraryService.getLatestMedia(orderedViews[i].Id)
             }
+
+            // Fetch a larger random pool from all available media for backdrop rotation.
+            // Phase 1: fast randomized starter sample so first backdrop appears quickly.
+            loadingGlobalBackdropPool = true
+            globalBackdropPoolLoaded = false
+            useSectionBackdropFallback = false
+            fullBackdropIndexRequested = false
+            backdropCandidates = []
+            root.invalidateBackdropShuffle()
+            globalBackdropTimeout.restart()
+            LibraryService.getHomeBackdropItems(80)
+            // Phase 2: build full index in background without blocking initial paint.
+            fullBackdropIndexTimer.restart()
         }
         
         function onNextUpLoaded(items) {
             nextUpModel = items
             
-            // Collect backdrops from Next Up items
-            for (var i = 0; i < items.length; i++) {
-                root.addBackdropCandidate(items[i])
+            // Use section fallback only if global pool is unavailable.
+            if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
+                for (var i = 0; i < items.length; i++) {
+                    root.addBackdropCandidate(items[i])
+                }
             }
             
             // Restore focus if we had focus in Next Up section AND we're still the active screen
             Qt.callLater(function() {
-                if (lastFocusedSection === "nextUp" && StackView.status === StackView.Active) {
+                if (lastFocusedSection === "nextUp" && root.StackView.status === StackView.Active) {
                     restoreFocusState()
                 }
             })
@@ -1447,18 +1542,44 @@ FocusScope {
             newMap[parentId] = items
             recentlyAddedMap = newMap
             
-            // Collect backdrops from recently added items
-            for (var i = 0; i < items.length; i++) {
-                root.addBackdropCandidate(items[i])
+            // Use section fallback only if global pool is unavailable.
+            if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
+                for (var i = 0; i < items.length; i++) {
+                    root.addBackdropCandidate(items[i])
+                }
             }
             
             // Note: We removed the aggressive recentlyAddedRepeater.model = null reset
             // because updating recentlyAddedMap (with a new object reference) is sufficient 
             // for the inner ListViews to update their 'items' binding.
         }
+
+        function onHomeBackdropItemsLoaded(items) {
+            globalBackdropPoolLoaded = true
+            loadingGlobalBackdropPool = false
+            globalBackdropTimeout.stop()
+            console.log("[HomeBackdrop] global items received:", items ? items.length : 0)
+            for (var i = 0; i < items.length; i++) {
+                root.addBackdropCandidate(items[i])
+            }
+            console.log("[HomeBackdrop] candidates built:", backdropCandidates.length)
+            if (backdropCandidates.length === 0)
+                return
+            useSectionBackdropFallback = false
+            // Force immediate reselection from the full global pool.
+            if (currentBackdropUrl === "") {
+                root.invalidateBackdropShuffle()
+                root.selectRandomBackdrop()
+            }
+        }
         
         function onErrorOccurred(endpoint, error) {
             console.error("Error in " + endpoint + ": " + error)
+            if (endpoint === "getHomeBackdropItems") {
+                loadingGlobalBackdropPool = false
+                useSectionBackdropFallback = true
+                root.hydrateBackdropFallbackFromSections()
+            }
         }
     }
 
@@ -1485,8 +1606,38 @@ FocusScope {
         repeat: false
         onTriggered: root.refreshDynamicContent()
     }
+
+    Timer {
+        id: globalBackdropTimeout
+        interval: 6000
+        repeat: false
+        onTriggered: {
+            if (!globalBackdropPoolLoaded) {
+                console.log("[HomeBackdrop] global pool timeout; enabling section fallback")
+                loadingGlobalBackdropPool = false
+                useSectionBackdropFallback = true
+                root.hydrateBackdropFallbackFromSections()
+            }
+        }
+    }
+
+    Timer {
+        id: fullBackdropIndexTimer
+        interval: 300
+        repeat: false
+        onTriggered: {
+            if (fullBackdropIndexRequested)
+                return
+            fullBackdropIndexRequested = true
+            LibraryService.getHomeBackdropItems()
+        }
+    }
     
     Component.onCompleted: {
+        reseedBackdropRng()
+        if (homeBackdropSettings.lastBackdropUrl !== "") {
+            currentBackdropUrl = homeBackdropSettings.lastBackdropUrl
+        }
         console.log("[FocusDebug] HomeScreen completed, requesting initial views")
         LibraryService.getViews()
     }
