@@ -1049,10 +1049,12 @@ void PlayerController::seek(double seconds)
 {
     qDebug() << "PlayerController: seek to" << seconds;
     
-    // If buffering, queue the seek for when buffering completes
-    if (m_playbackState == Buffering) {
+    // If loading/buffering, queue the seek for when buffering setup completes.
+    // This is required for early intro auto-skip where segments can arrive before
+    // we transition out of Loading.
+    if (m_playbackState == Loading || m_playbackState == Buffering) {
         m_seekTargetWhileBuffering = seconds;
-        qDebug() << "PlayerController: Queued seek for after buffering";
+        qDebug() << "PlayerController: Queued seek for after loading/buffering";
         return;
     }
     
@@ -1992,6 +1994,39 @@ void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<
     qDebug() << "PlayerController: Received" << segments.size() << "segments for item:" << itemId;
     m_currentSegments = segments;
     updateSkipSegmentState();
+
+    // Handle early intro/outro segments that can be loaded slightly after playback starts.
+    // This keeps auto-skip reliable for intros that begin at/near 0s.
+    if (m_playbackState != Paused && m_playbackState != Idle && m_playbackState != Error) {
+        constexpr double kEarlySegmentGraceSeconds = 2.0;
+        for (const auto &segment : segments) {
+            const double startSeconds = segment.startSeconds();
+            const double endSeconds = segment.endSeconds();
+            if (endSeconds <= startSeconds) {
+                continue;
+            }
+
+            if (segment.type == MediaSegmentType::Intro
+                && !m_hasAutoSkippedIntroForCurrentItem
+                && m_config->getAutoSkipIntro()
+                && startSeconds <= kEarlySegmentGraceSeconds
+                && m_currentPosition < endSeconds) {
+                m_hasAutoSkippedIntroForCurrentItem = true;
+                skipIntro();
+                break;
+            }
+
+            if (segment.type == MediaSegmentType::Outro
+                && !m_hasAutoSkippedOutroForCurrentItem
+                && m_config->getAutoSkipOutro()
+                && startSeconds <= kEarlySegmentGraceSeconds
+                && m_currentPosition < endSeconds) {
+                m_hasAutoSkippedOutroForCurrentItem = true;
+                skipOutro();
+                break;
+            }
+        }
+    }
     
     // Segment metadata is kept in controller state for native overlay handling.
     for (const auto &segment : segments) {
