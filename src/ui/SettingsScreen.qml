@@ -2777,13 +2777,13 @@ FocusScope {
                         
                         SettingsInfoRow {
                             label: qsTr("Version")
-                            value: "0.1.0-dev"
+                            value: appVersion
                             Layout.fillWidth: true
                         }
                         
                         SettingsInfoRow {
                             label: qsTr("Qt Version")
-                            value: "6.x"
+                            value: qtVersion
                             Layout.fillWidth: true
                         }
                         

@@ -117,6 +117,10 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("AuthenticationService", ServiceLocator::get<AuthenticationService>());
     context->setContextProperty("LibraryService", ServiceLocator::get<LibraryService>());
     context->setContextProperty("PlaybackService", ServiceLocator::get<PlaybackService>());
+
+    // App metadata for QML
+    context->setContextProperty("appVersion", QCoreApplication::applicationVersion());
+    context->setContextProperty("qtVersion", QString(qVersion()));
 }
 
 void WindowManager::load()

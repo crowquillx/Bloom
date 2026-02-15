@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
     paths-ignore:
       - '*.md'
       - 'docs/**'
@@ -258,14 +259,34 @@ jobs:
           echo "zip_hash=$zipHash" >> $env:GITHUB_OUTPUT
           echo "ZIP Hash: $zipHash"
 
-          if (Test-Path "Bloom-Setup-0.1.0.exe") {
-            $installerHash = (Get-FileHash Bloom-Setup-0.1.0.exe -Algorithm SHA256).Hash
+          if (Test-Path "Bloom-Setup-0.3.0.exe") {
+            $installerHash = (Get-FileHash Bloom-Setup-0.3.0.exe -Algorithm SHA256).Hash
             echo "installer_hash=$installerHash" >> $env:GITHUB_OUTPUT
             echo "Installer Hash: $installerHash"
           }
         shell: pwsh
 
-      - name: Create Release
+      - name: Create Tagged Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Bloom ${{ github.ref_name }}
+          body: |
+            ## Bloom ${{ github.ref_name }}
+
+            ### Portable ZIP
+            SHA256: `${{ steps.archive.outputs.zip_hash }}`
+
+            ### Installer
+            SHA256: `${{ steps.archive.outputs.installer_hash }}`
+          prerelease: false
+          files: |
+            Bloom-Windows.zip
+            Bloom-Setup-0.3.0.exe
+          fail_on_unmatched_files: true
+
+      - name: Create Dev Release
         uses: softprops/action-gh-release@v2
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
@@ -282,10 +303,31 @@ jobs:
           prerelease: true
           files: |
             Bloom-Windows.zip
-            Bloom-Setup-0.1.0.exe
+            Bloom-Setup-0.3.0.exe
           fail_on_unmatched_files: true
 
-      - name: Trigger Scoop Bucket Update
+      - name: Trigger Scoop Bucket Update (Stable)
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $payload = @{
+            event_type = "update-stable-manifest"
+            client_payload = @{
+              hash = "${{ steps.archive.outputs.zip_hash }}"
+              url = "https://github.com/crowquillx/Bloom/releases/download/$tag/Bloom-Windows.zip"
+              version = $version
+            }
+          } | ConvertTo-Json -Compress
+          
+          curl.exe -X POST `
+            -H "Accept: application/vnd.github+json" `
+            -H "Authorization: Bearer ${{ secrets.SCOOP_REPO_TOKEN }}" `
+            https://api.github.com/repos/crowquillx/scoop-bloom/dispatches `
+            -d $payload
+
+      - name: Trigger Scoop Bucket Update (Dev)
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: pwsh
         run: |
@@ -313,10 +355,10 @@ jobs:
 
       - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
-        if: hashFiles('Bloom-Setup-0.1.0.exe') != ''
+        if: hashFiles('Bloom-Setup-0.3.0.exe') != ''
         with:
           name: Bloom-Windows-Installer
-          path: Bloom-Setup-0.1.0.exe
+          path: Bloom-Setup-0.3.0.exe
 
   linux:
     name: Linux Build & Package
@@ -443,6 +485,19 @@ jobs:
         with:
           name: Bloom-Linux-Tarball
           path: artifacts/Bloom-Linux.tar.gz
+
+      - name: Update tagged release with Linux artifacts
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Bloom ${{ github.ref_name }}
+          prerelease: false
+          files: |
+            artifacts/Bloom-*.AppImage
+            artifacts/bloom_*.deb
+            artifacts/Bloom-Linux.tar.gz
+          fail_on_unmatched_files: false
 
       - name: Update dev-latest release with Linux artifacts
         uses: softprops/action-gh-release@v2

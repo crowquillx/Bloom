@@ -8,6 +8,8 @@
 #include <QDebug>
 #include <clocale>
 
+#include "config/version.h"
+
 #include "utils/CacheMigrator.h"
 #include "ui/FontLoader.h"
 #include "core/ApplicationInitializer.h"
@@ -26,6 +28,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationName("Bloom");
     QCoreApplication::setOrganizationDomain("com.github.bloom");
     QCoreApplication::setApplicationName("Bloom");
+    QCoreApplication::setApplicationVersion(BLOOM_VERSION);
     
     // Set Qt Quick Controls style
     QQuickStyle::setStyle("Basic");

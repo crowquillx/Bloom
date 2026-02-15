@@ -1,0 +1,2 @@
+#pragma once
+#define BLOOM_VERSION "@PROJECT_VERSION@"

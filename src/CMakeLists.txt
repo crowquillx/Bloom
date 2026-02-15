@@ -1,3 +1,5 @@
+configure_file(config/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/config/version.h)
+
 include(GNUInstallDirs)
 
 qt_add_executable(Bloom
@@ -263,6 +265,7 @@ target_link_libraries(Bloom
 )
 
 target_include_directories(Bloom PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/player)
+target_include_directories(Bloom PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 qt6_add_translations(Bloom
     TS_FILES resources/translations/Bloom_en.ts
