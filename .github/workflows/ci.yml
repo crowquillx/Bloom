@@ -372,9 +372,13 @@ jobs:
           INSTALL_DIR: ${{ github.workspace }}/install-linux/usr
           OUTPUT_DIR: ${{ github.workspace }}/artifacts
         run: |
-          # Remove Qt image format plugins with unavailable deps on ubuntu-latest
-          # (Qt's TIFF plugin needs libtiff.so.5 but Ubuntu 24.04 ships libtiff.so.6)
+          # Remove Qt plugins with deps unavailable on ubuntu-latest.
+          # Bloom only needs SQLite; Qt ships Oracle/ODBC/MySQL/Postgres drivers we don't use.
           find "$RUNNER_WORKSPACE/Qt" -name "libqtiff.so" -delete 2>/dev/null || true
+          find "$RUNNER_WORKSPACE/Qt" -name "libqsqloci.so" -delete 2>/dev/null || true
+          find "$RUNNER_WORKSPACE/Qt" -name "libqsqlodbc.so" -delete 2>/dev/null || true
+          find "$RUNNER_WORKSPACE/Qt" -name "libqsqlmysql.so" -delete 2>/dev/null || true
+          find "$RUNNER_WORKSPACE/Qt" -name "libqsqlpsql.so" -delete 2>/dev/null || true
           ./scripts/package-linux-appimage.sh \
             --install-dir "$INSTALL_DIR" \
             --output-dir "$OUTPUT_DIR"
