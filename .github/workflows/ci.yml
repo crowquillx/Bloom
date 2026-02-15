@@ -339,6 +339,7 @@ jobs:
             libsecret-1-dev \
             libmpv-dev \
             libsqlite3-dev \
+            libtiff-dev \
             libfuse2 \
             dpkg-dev \
             file
