@@ -1,0 +1,40 @@
+app-id: com.github.crowquillx.Bloom
+runtime: org.kde.Platform
+runtime-version: "6.10"
+sdk: org.kde.Sdk
+command: bloom
+
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=pulseaudio
+  - --share=network
+  # Config and cache directories
+  - --filesystem=xdg-config/Bloom:create
+  - --filesystem=xdg-cache/Bloom:create
+  # mpv IPC socket (for external mpv backend)
+  - --filesystem=xdg-run/mpv:create
+
+modules:
+  - name: libmpv
+    buildsystem: meson
+    config-opts:
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dtests=false
+      - -Dmanpage-build=disabled
+    sources:
+      - type: archive
+        url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.39.0.tar.gz
+        sha256: 2ca92437affb62c2b559b4419ea4571c2c532f1a3b4bc5c0a9b2e3ddf2c98413
+
+  - name: bloom
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_TESTING=OFF
+    sources:
+      - type: dir
+        path: .

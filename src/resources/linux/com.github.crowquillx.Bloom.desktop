@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Bloom
+Comment=Jellyfin HTPC client with 10-foot UI
+Exec=bloom
+Icon=com.github.crowquillx.Bloom
+Categories=AudioVideo;Video;Player;TV;
+Keywords=Jellyfin;Media;HTPC;Streaming;TV;
+Terminal=false
+StartupWMClass=Bloom

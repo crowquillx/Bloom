@@ -294,11 +294,14 @@ install(TARGETS Bloom
 )
 
 if(UNIX AND NOT APPLE)
-    install(FILES resources/linux/com.github.bloom.desktop
+    install(FILES resources/linux/com.github.crowquillx.Bloom.desktop
         DESTINATION ${CMAKE_INSTALL_DATADIR}/applications
     )
     install(FILES resources/images/app/logo_trans.svg
         DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps
-        RENAME com.github.bloom.svg
+        RENAME com.github.crowquillx.Bloom.svg
+    )
+    install(FILES resources/linux/com.github.crowquillx.Bloom.metainfo.xml
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/metainfo
     )
 endif()

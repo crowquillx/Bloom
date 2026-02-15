@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.github.crowquillx.Bloom</id>
+  <name>Bloom</name>
+  <summary>Jellyfin HTPC client with 10-foot UI</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+
+  <description>
+    <p>
+      Bloom is a dedicated Jellyfin media client built for the living room.
+      It features a 10-foot interface designed for keyboard, gamepad, and remote
+      control navigation, with high-quality mpv-based video playback.
+    </p>
+    <p>Features:</p>
+    <ul>
+      <li>Full keyboard and gamepad navigation — no mouse required</li>
+      <li>High-quality video playback powered by mpv</li>
+      <li>Responsive UI that adapts to any screen size and DPI</li>
+      <li>Wayland-first Linux support</li>
+      <li>Series, movies, and library browsing with rich metadata</li>
+    </ul>
+  </description>
+
+  <launchable type="desktop-id">com.github.crowquillx.Bloom.desktop</launchable>
+
+  <url type="homepage">https://github.com/crowquillx/Bloom</url>
+  <url type="bugtracker">https://github.com/crowquillx/Bloom/issues</url>
+  <url type="vcs-browser">https://github.com/crowquillx/Bloom</url>
+
+  <developer id="com.github.crowquillx">
+    <name>crowquillx</name>
+  </developer>
+
+  <provides>
+    <binary>bloom</binary>
+  </provides>
+
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.2.0" date="2026-02-14">
+      <description>
+        <p>Development build with responsive layout system and Linux packaging support.</p>
+      </description>
+    </release>
+  </releases>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+    <category>Player</category>
+    <category>TV</category>
+  </categories>
+</component>
