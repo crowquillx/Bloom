@@ -372,6 +372,8 @@ jobs:
           INSTALL_DIR: ${{ github.workspace }}/install-linux/usr
           OUTPUT_DIR: ${{ github.workspace }}/artifacts
         run: |
+          # Remove Qt image format plugins with unavailable deps on ubuntu-latest
+          rm -f "$Qt6_DIR/plugins/imageformats/libqtiff.so"
           ./scripts/package-linux-appimage.sh \
             --install-dir "$INSTALL_DIR" \
             --output-dir "$OUTPUT_DIR"
