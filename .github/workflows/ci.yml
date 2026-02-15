@@ -3,36 +3,28 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.clang-tidy'
+      - '.clangd'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      - '.clang-tidy'
+      - '.clangd'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  changes:
-    name: Detect Changes
-    runs-on: ubuntu-latest
-    outputs:
-      ui: ${{ steps.filter.outputs.ui }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Filter paths
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            ui:
-              - 'src/ui/**'
-              - 'src/viewmodels/**'
-              - 'src/test/**'
-              - 'tests/fixtures/**'
-              - 'tests/VisualRegressionTest*'
-              - 'docs/responsive.md'
-              - '.github/workflows/ci.yml'
-
   windows:
     name: Windows
     runs-on: windows-latest
@@ -326,15 +318,12 @@ jobs:
           name: Bloom-Windows-Installer
           path: Bloom-Setup-0.1.0.exe
 
-  visual-regression:
-    name: Visual Regression Tests (Linux)
+  linux:
+    name: Linux Build & Package
     runs-on: ubuntu-latest
-    needs: changes
-    if: false # Temporarily sidelined; re-enable once visual test CI is stabilized.
-    
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install system dependencies
         run: |
@@ -343,54 +332,122 @@ jobs:
             build-essential \
             cmake \
             ninja-build \
+            pkg-config \
             libgl1-mesa-dev \
             libxkbcommon-dev \
-            xvfb \
-            mesa-vulkan-drivers \
+            libwayland-dev \
             libsecret-1-dev \
-            libwayland-dev
+            libmpv-dev \
+            libsqlite3-dev \
+            libfuse2 \
+            dpkg-dev \
+            file
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
         with:
           version: "6.10.0"
           cache: true
-          modules: "qtmultimedia qtshadertools qtimageformats qt5compat"
-      
+          modules: "qtmultimedia qtshadertools qtimageformats qt5compat qtwayland"
+
       - name: Configure CMake
         run: |
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=ON
-      
+            -DCMAKE_INSTALL_PREFIX=/usr \
+            -DBUILD_TESTING=OFF
+
       - name: Build
-        run: cmake --build build --parallel --target VisualRegressionTest
-      
-      - name: Run visual regression tests
+        run: cmake --build build --parallel
+
+      - name: Install to staging directory
         run: |
-          ./build/tests/VisualRegressionTest
+          DESTDIR=${{ github.workspace }}/install-linux cmake --install build
+          echo "=== Install tree ==="
+          find ${{ github.workspace }}/install-linux -type f | head -50
+
+      - name: Build AppImage
         env:
-          QT_QPA_PLATFORM: offscreen
-          QT_QPA_OFFSCREEN_SURFACE_SIZE: 1920x1080
-          
-      - name: Upload diff images on failure
-        if: failure()
+          INSTALL_DIR: ${{ github.workspace }}/install-linux/usr
+          OUTPUT_DIR: ${{ github.workspace }}/artifacts
+        run: |
+          ./scripts/package-linux-appimage.sh \
+            --install-dir "$INSTALL_DIR" \
+            --output-dir "$OUTPUT_DIR"
+
+      - name: Build .deb package
+        env:
+          INSTALL_DIR: ${{ github.workspace }}/install-linux/usr
+          OUTPUT_DIR: ${{ github.workspace }}/artifacts
+        run: |
+          VERSION=$(date -u +%Y.%m.%d.%H%M)
+          ./scripts/package-linux-deb.sh \
+            --install-dir "$INSTALL_DIR" \
+            --output-dir "$OUTPUT_DIR" \
+            --version "$VERSION"
+
+      - name: Create Linux tarball
+        run: |
+          cd ${{ github.workspace }}/install-linux
+          tar -czf ${{ github.workspace }}/artifacts/Bloom-Linux.tar.gz .
+
+      - name: Compute SHA256 hashes
+        id: linux_hashes
+        run: |
+          cd ${{ github.workspace }}/artifacts
+          echo "=== Linux Artifacts ==="
+          ls -la
+
+          APPIMAGE=$(ls Bloom-*.AppImage 2>/dev/null | head -1)
+          DEB=$(ls bloom_*.deb 2>/dev/null | head -1)
+
+          if [ -n "$APPIMAGE" ]; then
+            APPIMAGE_HASH=$(sha256sum "$APPIMAGE" | cut -d' ' -f1)
+            echo "appimage_hash=$APPIMAGE_HASH" >> $GITHUB_OUTPUT
+            echo "appimage_name=$APPIMAGE" >> $GITHUB_OUTPUT
+            echo "AppImage SHA256: $APPIMAGE_HASH"
+          fi
+
+          if [ -n "$DEB" ]; then
+            DEB_HASH=$(sha256sum "$DEB" | cut -d' ' -f1)
+            echo "deb_hash=$DEB_HASH" >> $GITHUB_OUTPUT
+            echo "deb_name=$DEB" >> $GITHUB_OUTPUT
+            echo ".deb SHA256: $DEB_HASH"
+          fi
+
+          TARBALL_HASH=$(sha256sum Bloom-Linux.tar.gz | cut -d' ' -f1)
+          echo "tarball_hash=$TARBALL_HASH" >> $GITHUB_OUTPUT
+          echo "Tarball SHA256: $TARBALL_HASH"
+
+      - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
         with:
-          name: visual-diffs
-          path: |
-            tests/diffs/
-            tests/captures/
-            build/tests/diffs/
-            build/tests/captures/
-          retention-days: 7
-          
-      - name: Upload golden screenshots
-        if: success()
+          name: Bloom-Linux-AppImage
+          path: artifacts/Bloom-*.AppImage
+          if-no-files-found: warn
+
+      - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
         with:
-          name: golden-screenshots
-          path: |
-            tests/golden/
-            build/tests/golden/
-          retention-days: 30
+          name: Bloom-Linux-Deb
+          path: artifacts/bloom_*.deb
+          if-no-files-found: warn
+
+      - name: Upload tarball artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bloom-Linux-Tarball
+          path: artifacts/Bloom-Linux.tar.gz
+
+      - name: Update dev-latest release with Linux artifacts
+        uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          tag_name: dev-latest
+          name: Development Build
+          prerelease: true
+          files: |
+            artifacts/Bloom-*.AppImage
+            artifacts/bloom_*.deb
+            artifacts/Bloom-Linux.tar.gz
+          fail_on_unmatched_files: false
