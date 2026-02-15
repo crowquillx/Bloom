@@ -373,12 +373,9 @@ jobs:
           OUTPUT_DIR: ${{ github.workspace }}/artifacts
         run: |
           # Remove Qt plugins with deps unavailable on ubuntu-latest.
-          # Bloom only needs SQLite; Qt ships Oracle/ODBC/MySQL/Postgres drivers we don't use.
+          # Bloom only needs SQLite — remove all other SQL drivers and the TIFF plugin.
           find "$RUNNER_WORKSPACE/Qt" -name "libqtiff.so" -delete 2>/dev/null || true
-          find "$RUNNER_WORKSPACE/Qt" -name "libqsqloci.so" -delete 2>/dev/null || true
-          find "$RUNNER_WORKSPACE/Qt" -name "libqsqlodbc.so" -delete 2>/dev/null || true
-          find "$RUNNER_WORKSPACE/Qt" -name "libqsqlmysql.so" -delete 2>/dev/null || true
-          find "$RUNNER_WORKSPACE/Qt" -name "libqsqlpsql.so" -delete 2>/dev/null || true
+          find "$RUNNER_WORKSPACE/Qt" -path "*/sqldrivers/*" ! -name "libqsqlite.so" -name "*.so" -delete 2>/dev/null || true
           ./scripts/package-linux-appimage.sh \
             --install-dir "$INSTALL_DIR" \
             --output-dir "$OUTPUT_DIR"
