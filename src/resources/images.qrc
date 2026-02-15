@@ -23,5 +23,7 @@
     </qresource>
     <qresource prefix="/images">
         <file alias="logo.ico">images/app/logo.ico</file>
+        <file alias="app/login.jpg">images/app/login.jpg</file>
+        <file alias="app/logo_trans.svg">images/app/logo_trans.svg</file>
     </qresource>
 </RCC>

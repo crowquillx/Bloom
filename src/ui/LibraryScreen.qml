@@ -106,8 +106,9 @@ FocusScope {
         }
         
         var isActive = StackView.status === StackView.Active
+        var playbackActive = PlayerController && PlayerController.isPlaybackActive
 
-        if (isActive && inSeriesContext && ConfigManager.themeSongVolume > 0) {
+        if (isActive && inSeriesContext && !playbackActive && ConfigManager.themeSongVolume > 0) {
             ThemeSongManager.play(currentSeriesId)
         } else {
             ThemeSongManager.fadeOutAndStop()
@@ -130,6 +131,11 @@ FocusScope {
                 ThemeSongManager.setLoopEnabled(ConfigManager.themeSongLoop)
             }
         }
+    }
+    
+    Connections {
+        target: PlayerController
+        function onIsPlaybackActiveChanged() { updateThemeSongPlayback() }
     }
 
     // Back shortcut only when browsing library grid/folders; detail views handle their own back key
