@@ -5,6 +5,7 @@ Overview
 - The main config file is `app.json` stored in platform-specific locations:
   - Linux: `~/.config/Bloom/app.json`
   - Windows: `%APPDATA%/Bloom/app.json`
+- On Windows, Bloom automatically migrates legacy nested config folders (for example `%APPDATA%/Bloom/Bloom`) into `%APPDATA%/Bloom` when needed.
 
 Responsibilities
 - Persist session information: server URL, access tokens (obfuscated or protected as feasible).

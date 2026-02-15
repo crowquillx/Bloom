@@ -401,14 +401,20 @@ void WindowsMpvBackend::logHdrDiagnostics(const QStringList &args, const QString
         }
     }
 
-    const bool hasHdrHint = args.contains(QStringLiteral("--target-colorspace-hint=yes"));
+    bool hasHdrHintAuto = false;
+    for (const QString &arg : args) {
+        if (arg == QStringLiteral("--target-colorspace-hint=auto")) {
+            hasHdrHintAuto = true;
+            break;
+        }
+    }
     const bool hasGpuNext = args.contains(QStringLiteral("--vo=gpu-next"));
 
     qCInfo(lcWindowsLibmpvBackend)
         << "HDR diagnostics"
         << "media=" << mediaUrl
         << "hasGpuNext=" << hasGpuNext
-        << "hasHdrHint=" << hasHdrHint
+        << "hasHdrHintAuto=" << hasHdrHintAuto
         << "hdrArgCount=" << hdrArgs.size();
 
     if (!hdrArgs.isEmpty()) {

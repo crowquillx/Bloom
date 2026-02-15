@@ -33,6 +33,7 @@ FocusScope {
     // Signals for navigation and actions
     signal navigateToSeasons(int seasonIndex)
     signal playNextEpisode(string episodeId, var startPositionTicks)
+    signal navigateToEpisode(var episodeData)
     signal backRequested()
     
     // Key handling for back navigation
@@ -1039,7 +1040,7 @@ FocusScope {
                                 id: seasonCoverArt
                                 anchors.fill: parent
                                 source: seasonDelegate.imageUrl !== "" ? seasonDelegate.imageUrl : posterUrl
-                                fillMode: Image.PreserveAspectFit
+                                fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 cache: true
                                 visible: true
@@ -1051,27 +1052,20 @@ FocusScope {
                                 }
                             }
                             
-                            Item {
+                            Rectangle {
                                 id: seasonMask
                                 anchors.fill: parent
+                                radius: Theme.imageRadius
                                 visible: false
                                 layer.enabled: true
                                 layer.smooth: true
-                                
-                                Rectangle {
-                                    anchors.centerIn: parent
-                                    width: seasonCoverArt.paintedWidth
-                                    height: seasonCoverArt.paintedHeight
-                                    radius: Theme.imageRadius
-                                    color: "white"
-                                }
                             }
                             
                             // Focus border overlay
                             Rectangle {
                                 anchors.centerIn: parent
-                                width: seasonCoverArt.paintedWidth + border.width * 2
-                                height: seasonCoverArt.paintedHeight + border.width * 2
+                                width: parent.width + border.width * 2
+                                height: parent.height + border.width * 2
                                 radius: Theme.imageRadius + border.width
                                 color: "transparent"
                                 border.width: seasonDelegate.isFocused ? Theme.buttonFocusBorderWidth : 0
@@ -1095,9 +1089,9 @@ FocusScope {
                             UnwatchedBadge {
                                 anchors.top: parent.top
                                 anchors.right: parent.right
-                                anchors.topMargin: (parent.height - seasonCoverArt.paintedHeight) / 2
-                                anchors.rightMargin: (parent.width - seasonCoverArt.paintedWidth) / 2
-                                parentWidth: seasonCoverArt.paintedWidth
+                                anchors.topMargin: 0
+                                anchors.rightMargin: 0
+                                parentWidth: parent.width
                                 count: seasonDelegate.unplayedItemCount
                                 isFullyWatched: seasonDelegate.isPlayed
                             }
@@ -1178,37 +1172,20 @@ FocusScope {
                 NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
             }
             
-            // Series Poster - Frosted glass container
-            Rectangle {
+            // Series Poster - Edge-to-edge artwork (no outer card chrome)
+            Item {
                 id: posterCard
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.min(width * 1.5, parent.height * 0.45)
-                radius: Theme.radiusMedium
-                color: Theme.cardBackground
-                border.width: 1
-                border.color: Theme.cardBorder
-                clip: true
-                
-                layer.enabled: true
-                layer.smooth: true
-                layer.effect: MultiEffect {
-                    shadowEnabled: true
-                    shadowHorizontalOffset: 0
-                    shadowVerticalOffset: 10
-                    shadowBlur: 0.5
-                    shadowColor: Theme.overlayDark
-                }
                 
                 // Poster image container with rounded corners
                 Rectangle {
                     id: posterImageContainer
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingSmall
                     radius: Theme.imageRadius
-                    clip: true
+                    clip: false
                     color: "transparent"
 
-                    // Rounded image
                     Image {
                         id: posterImage
                         anchors.fill: parent
@@ -1218,16 +1195,47 @@ FocusScope {
                         cache: true
                         opacity: status === Image.Ready ? 1.0 : 0.0
                         Behavior on opacity { NumberAnimation { duration: 300 } }
+
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            maskEnabled: true
+                            maskSource: posterMask
+                        }
+                    }
+
+                    Item {
+                        id: posterMask
+                        anchors.fill: parent
+                        visible: false
+                        layer.enabled: true
+                        layer.smooth: true
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: posterImage.paintedWidth
+                            height: posterImage.paintedHeight
+                            radius: Theme.imageRadius
+                            color: "white"
+                        }
+                    }
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "..."
+                        color: Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        visible: posterImage.status !== Image.Ready
                     }
                 }
             }
             
-            // Next Up Box - Frosted glass container with keyboard navigation
+            // Next Up - edge-to-edge preview with keyboard navigation
             FocusScope {
                 id: nextUpContainer
                 visible: hasNextEpisode
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(Theme.nextUpHeight, (parent.height - posterCard.height - Theme.spacingMedium * 3) * 0.95)
+                Layout.preferredHeight: Math.min(Theme.nextUpHeight, nextUpContent.implicitHeight)
                 focus: false
                 
                 property bool isFocused: activeFocus
@@ -1241,7 +1249,7 @@ FocusScope {
                         event.accepted = true
                         return
                     }
-                    playNextUp()
+                    openNextUp()
                     event.accepted = true
                 }
                 Keys.onEnterPressed: (event) => {
@@ -1249,131 +1257,147 @@ FocusScope {
                         event.accepted = true
                         return
                     }
-                    playNextUp()
+                    openNextUp()
                     event.accepted = true
                 }
                 
-                function playNextUp() {
-                    if (hasNextEpisode) {
-                        root.playNextEpisode(SeriesDetailsViewModel.nextEpisodeId, SeriesDetailsViewModel.nextEpisodePlaybackPositionTicks)
+                function openNextUp() {
+                    if (!hasNextEpisode) {
+                        return
                     }
+                    root.navigateToEpisode(SeriesDetailsViewModel.getNextEpisodeData())
                 }
                 
-                Rectangle {
-                    id: nextUpCard
+                ColumnLayout {
+                    id: nextUpContent
                     anchors.fill: parent
-                    color: nextUpContainer.isFocused ? Theme.cardBackgroundFocused : (nextUpContainer.isHovered ? Theme.cardBackgroundHover : Theme.cardBackground)
-                    radius: Theme.radiusLarge
-                    border.width: nextUpContainer.isFocused ? 2 : 1
-                    border.color: nextUpContainer.isFocused ? Theme.cardBorderFocused : (nextUpContainer.isHovered ? Theme.cardBorderHover : Theme.cardBorder)
+                    spacing: 0
                     
-                    Behavior on color { ColorAnimation { duration: 150 } }
-                    Behavior on border.color { ColorAnimation { duration: 150 } }
+                    Text {
+                        text: "Next Up"
+                        font.pixelSize: Theme.fontSizeTitle
+                        font.family: Theme.fontPrimary
+                        font.bold: true
+                        color: Theme.textPrimary
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        Layout.bottomMargin: Math.round(2 * Theme.layoutScale)
+                    }
                     
-                    ColumnLayout {
-                        anchors.fill: parent
-                        anchors.margins: Theme.spacingMedium
-                        spacing: Theme.spacingMedium
-                        
-                        Text {
-                            text: "Next Up"
-                            font.pixelSize: Theme.fontSizeTitle
-                            font.family: Theme.fontPrimary
-                            font.bold: true
-                            color: Theme.textPrimary
+                    Rectangle {
+                        id: nextEpImageContainer
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Theme.nextUpImageHeight
+                        radius: Theme.imageRadius
+                        clip: false
+                        color: "transparent"
+
+                        Image {
+                            id: nextEpImage
+                            anchors.fill: parent
+                            source: SeriesDetailsViewModel.nextEpisodeImageUrl !== "" ? SeriesDetailsViewModel.nextEpisodeImageUrl : posterUrl
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: true
+                            opacity: status === Image.Ready ? 1.0 : 0.0
+                            Behavior on opacity { NumberAnimation { duration: 300 } }
+
+                            layer.enabled: true
+                            layer.effect: MultiEffect {
+                                maskEnabled: true
+                                maskSource: nextUpMask
+                            }
                         }
-                        
-                        // Next episode thumbnail with rounded corners
+
                         Rectangle {
-                            id: nextEpImageContainer
-                            Layout.fillWidth: true
-                            Layout.preferredHeight: Theme.nextUpImageHeight
+                            id: nextUpMask
+                            anchors.fill: parent
                             radius: Theme.imageRadius
-                            clip: true
+                            visible: false
+                            layer.enabled: true
+                            layer.smooth: true
+                        }
+
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: parent.width + border.width * 2
+                            height: parent.height + border.width * 2
+                            radius: Theme.imageRadius + border.width
                             color: "transparent"
-
-                            // Rounded image
-                            Image {
-                                id: nextEpImage
-                                anchors.fill: parent
-                                source: SeriesDetailsViewModel.nextEpisodeImageUrl !== "" ? SeriesDetailsViewModel.nextEpisodeImageUrl : posterUrl
-                                fillMode: Image.PreserveAspectCrop
-                                asynchronous: true
-                                cache: true
-                                opacity: status === Image.Ready ? 1.0 : 0.0
-                                Behavior on opacity { NumberAnimation { duration: 300 } }
-                            }
-                            
-                            // Play icon overlay
-                            Rectangle {
-                                anchors.centerIn: parent
-                                width: Math.round(48 * Theme.layoutScale)
-                                height: Math.round(48 * Theme.layoutScale)
-                                radius: Math.round(24 * Theme.layoutScale)
-                                color: Qt.rgba(0, 0, 0, 0.7)
-                                visible: nextUpContainer.isFocused || nextUpContainer.isHovered
-                                opacity: nextUpContainer.isFocused ? 1.0 : 0.8
-                                
-                                Behavior on opacity { NumberAnimation { duration: 150 } }
-                                
-                                Text {
-                                    anchors.centerIn: parent
-                                    anchors.horizontalCenterOffset: Math.round(2 * Theme.layoutScale)  // Optical centering for play icon
-                                    text: Icons.playArrow
-                                    font.family: Theme.fontIcon
-                                    font.pixelSize: Math.round(28 * Theme.layoutScale)
-                                    color: Theme.textPrimary
-                                }
-                            }
-
-                            // Progress bar for resume position
-                            MediaProgressBar {
-                                anchors.left: parent.left
-                                anchors.right: parent.right
-                                anchors.bottom: parent.bottom
-                                positionTicks: SeriesDetailsViewModel.nextEpisodePlaybackPositionTicks
-                                runtimeTicks: {
-                                    var data = SeriesDetailsViewModel.getNextEpisodeData()
-                                    return data && data.RunTimeTicks ? data.RunTimeTicks : 0
-                                }
-                            }
-
-                            // Placeholder background
-                            Rectangle {
-                                anchors.fill: parent
-                                radius: Theme.imageRadius
-                                color: Qt.rgba(0.1, 0.1, 0.1, 0.6)
-                                visible: nextEpImage.status !== Image.Ready
-                            }
+                            border.width: nextUpContainer.isFocused ? Theme.buttonFocusBorderWidth : (nextUpContainer.isHovered ? Theme.buttonFocusBorderWidth - 1 : 0)
+                            border.color: Theme.accentPrimary
+                            antialiasing: true
+                            visible: border.width > 0
+                            Behavior on border.width { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
                         }
                         
-                        Text {
-                            visible: hasNextEpisode
-                            text: {
-                                if (!hasNextEpisode) return ""
-                                var s = SeriesDetailsViewModel.nextSeasonNumber || "?"
-                                var e = SeriesDetailsViewModel.nextEpisodeNumber || "?"
-                                return "S" + s + "E" + e + " - " + (SeriesDetailsViewModel.nextEpisodeName || "")
+                        Rectangle {
+                            anchors.centerIn: parent
+                            width: Math.round(48 * Theme.layoutScale)
+                            height: Math.round(48 * Theme.layoutScale)
+                            radius: Math.round(24 * Theme.layoutScale)
+                            color: Qt.rgba(0, 0, 0, 0.7)
+                            visible: nextUpContainer.isFocused || nextUpContainer.isHovered
+                            opacity: nextUpContainer.isFocused ? 1.0 : 0.8
+                            Behavior on opacity { NumberAnimation { duration: 150 } }
+                            
+                            Text {
+                                anchors.centerIn: parent
+                                anchors.horizontalCenterOffset: Math.round(2 * Theme.layoutScale)
+                                text: Icons.playArrow
+                                font.family: Theme.fontIcon
+                                font.pixelSize: Math.round(28 * Theme.layoutScale)
+                                color: Theme.textPrimary
                             }
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            font.bold: true
-                            color: Theme.textPrimary
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            maximumLineCount: 2
-                            elide: Text.ElideRight
+                        }
+
+                        MediaProgressBar {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.bottom: parent.bottom
+                            positionTicks: SeriesDetailsViewModel.nextEpisodePlaybackPositionTicks
+                            runtimeTicks: {
+                                var data = SeriesDetailsViewModel.getNextEpisodeData()
+                                return data && data.RunTimeTicks ? data.RunTimeTicks : 0
+                            }
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: Theme.imageRadius
+                            color: Qt.rgba(0.1, 0.1, 0.1, 0.6)
+                            visible: nextEpImage.status !== Image.Ready
                         }
                     }
                     
-                    MouseArea {
-                        id: nextUpMouseArea
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        onClicked: {
-                            nextUpContainer.forceActiveFocus()
-                            nextUpContainer.playNextUp()
+                    Text {
+                        visible: hasNextEpisode
+                        Layout.topMargin: 0
+                        text: {
+                            if (!hasNextEpisode) return ""
+                            var s = SeriesDetailsViewModel.nextSeasonNumber || "?"
+                            var e = SeriesDetailsViewModel.nextEpisodeNumber || "?"
+                            return "S" + s + "E" + e + " - " + (SeriesDetailsViewModel.nextEpisodeName || "")
                         }
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        font.bold: true
+                        color: Theme.textPrimary
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignHCenter
+                        wrapMode: Text.WordWrap
+                        maximumLineCount: 2
+                        elide: Text.ElideRight
+                    }
+                }
+
+                MouseArea {
+                    id: nextUpMouseArea
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    onClicked: {
+                        nextUpContainer.forceActiveFocus()
+                        nextUpContainer.openNextUp()
                     }
                 }
             }

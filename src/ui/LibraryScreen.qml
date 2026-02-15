@@ -317,6 +317,10 @@ FocusScope {
                 // Fetch playback info first to get framerate
                 root.requestQuickPlay(episodeId, startPositionTicks, root.currentSeriesId, "")
             }
+
+            onNavigateToEpisode: function(episodeData) {
+                showEpisodeDetails(episodeData)
+            }
             
             onBackRequested: {
                 exitSeriesDetails()
@@ -1583,13 +1587,11 @@ FocusScope {
         // Store the episode ID so SeriesSeasonEpisodeView can highlight it
         initialEpisodeId = episodeData.itemId || episodeData.Id || ""
 
-        // [FIX] Extract seasonId from episode data BEFORE showing the view
-        // If we don't have a seasonId yet (e.g., coming from HomeScreen or post-playback navigation),
-        // extract it from the episode data so the view initializes with the correct season.
-        if (!currentSeasonId && episodeData) {
+        // Extract seasonId from episode data so the view initializes with the correct season.
+        if (episodeData) {
             var extractedSeasonId = episodeData.SeasonId || episodeData.ParentId || ""
-            if (extractedSeasonId) {
-                console.log("[Library] Extracted seasonId from episode data:", extractedSeasonId)
+            if (extractedSeasonId && currentSeasonId !== extractedSeasonId) {
+                console.log("[Library] Using seasonId from episode data:", extractedSeasonId)
                 currentSeasonId = extractedSeasonId
             }
         }

@@ -516,8 +516,8 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId)
         return;
     }
     
-    QString endpoint = QString("/Shows/%1/Episodes?UserId=%2&Fields=Overview,UserData,RunTimeTicks&IsPlayed=false&Limit=1&SortBy=ParentIndexNumber,IndexNumber")
-        .arg(seriesId, m_authService->getUserId());
+    QString endpoint = QString("/Shows/NextUp?UserId=%1&SeriesId=%2&Limit=1&Fields=Overview,UserData,RunTimeTicks,ImageTags,ParentId,SeriesId,IndexNumber,ParentIndexNumber&EnableImageTypes=Primary,Thumb")
+        .arg(m_authService->getUserId(), seriesId);
     
     sendRequestWithRetry(endpoint,
         [this, endpoint]() {

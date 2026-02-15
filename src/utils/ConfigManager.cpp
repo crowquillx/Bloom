@@ -14,6 +14,84 @@
 #include <QMetaType>
 #include <algorithm>
 
+namespace {
+
+QString preferredConfigDir()
+{
+#ifdef Q_OS_WIN
+    // Keep Windows config rooted at %APPDATA%/Bloom (no nested org/app suffix).
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/Bloom";
+#else
+    return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/Bloom";
+#endif
+}
+
+#ifdef Q_OS_WIN
+QString legacyWindowsConfigDir()
+{
+    // Historical path logic used AppDataLocation and could resolve to .../Bloom/Bloom.
+    QString appData = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    QDir dir(appData);
+    dir.cdUp();
+    return dir.absoluteFilePath("Bloom");
+}
+
+bool migrateLegacyWindowsConfigDirIfNeeded(const QString &targetDirPath)
+{
+    const QString legacyDirPath = legacyWindowsConfigDir();
+    if (legacyDirPath == targetDirPath) {
+        return true;
+    }
+
+    QDir legacyDir(legacyDirPath);
+    if (!legacyDir.exists()) {
+        return true;
+    }
+
+    QDir targetDir(targetDirPath);
+    if (!targetDir.exists() && !targetDir.mkpath(".")) {
+        qWarning() << "ConfigManager: Failed to create target config directory for migration:" << targetDirPath;
+        return false;
+    }
+
+    const QFileInfoList entries = legacyDir.entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries);
+    for (const QFileInfo &entry : entries) {
+        const QString srcPath = entry.absoluteFilePath();
+        const QString dstPath = targetDir.absoluteFilePath(entry.fileName());
+
+        if (QFileInfo::exists(dstPath)) {
+            qWarning() << "ConfigManager: Skipping legacy config entry because target already exists:" << dstPath;
+            continue;
+        }
+
+        bool migrated = false;
+        if (entry.isDir()) {
+            migrated = QDir().rename(srcPath, dstPath);
+        } else {
+            migrated = QFile::rename(srcPath, dstPath);
+        }
+
+        if (!migrated) {
+            qWarning() << "ConfigManager: Failed to migrate legacy config entry:" << srcPath << "->" << dstPath;
+        } else {
+            qDebug() << "ConfigManager: Migrated legacy config entry:" << srcPath << "->" << dstPath;
+        }
+    }
+
+    // Best-effort cleanup: remove legacy directory if it is now empty.
+    if (legacyDir.exists() &&
+        legacyDir.entryInfoList(QDir::NoDotAndDotDot | QDir::AllEntries).isEmpty()) {
+        QDir parent = legacyDir;
+        parent.cdUp();
+        parent.rmdir(legacyDir.dirName());
+    }
+
+    return true;
+}
+#endif
+
+} // namespace
+
 ConfigManager::ConfigManager(QObject *parent)
     : QObject(parent)
 {
@@ -21,19 +99,7 @@ ConfigManager::ConfigManager(QObject *parent)
 
 QString ConfigManager::getConfigDir()
 {
-#ifdef Q_OS_WIN
-    // Windows: Use AppData/Roaming/Bloom
-    QString appData = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
-    // AppDataLocation returns something like C:/Users/<user>/AppData/Roaming/<appname>
-    // We want C:/Users/<user>/AppData/Roaming/Bloom specifically
-    QDir dir(appData);
-    dir.cdUp(); // Go up from auto-generated app name
-    return dir.absoluteFilePath("Bloom");
-#else
-    // Linux/macOS: Use ~/.config/Bloom
-    QString configHome = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
-    return configHome + "/Bloom";
-#endif
+    return preferredConfigDir();
 }
 
 QString ConfigManager::getConfigPath()
@@ -121,6 +187,12 @@ QStringList ConfigManager::getMpvConfigArgs()
 
 bool ConfigManager::ensureConfigDirExists()
 {
+#ifdef Q_OS_WIN
+    if (!migrateLegacyWindowsConfigDirIfNeeded(getConfigDir())) {
+        return false;
+    }
+#endif
+
     QDir dir(getConfigDir());
     if (!dir.exists()) {
         if (!dir.mkpath(".")) {
@@ -2293,9 +2365,16 @@ QStringList ConfigManager::getMpvArgsForProfile(const QString &profileName) cons
             args.prepend("--vo=gpu-next");
         }
         
-        // Add HDR hint if not present
-        if (!args.contains("--target-colorspace-hint=yes")) {
-            args << "--target-colorspace-hint=yes";
+        // Normalize colorspace hint for HDR to avoid conflicting values from profiles.
+        bool hasTargetColorspaceHint = false;
+        for (int i = 0; i < args.size(); ++i) {
+            if (args[i].startsWith("--target-colorspace-hint=")) {
+                args[i] = "--target-colorspace-hint=auto";
+                hasTargetColorspaceHint = true;
+            }
+        }
+        if (!hasTargetColorspaceHint) {
+            args << "--target-colorspace-hint=auto";
         }
     }
     
