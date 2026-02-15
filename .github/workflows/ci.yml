@@ -373,7 +373,8 @@ jobs:
           OUTPUT_DIR: ${{ github.workspace }}/artifacts
         run: |
           # Remove Qt image format plugins with unavailable deps on ubuntu-latest
-          rm -f "$Qt6_DIR/plugins/imageformats/libqtiff.so"
+          # (Qt's TIFF plugin needs libtiff.so.5 but Ubuntu 24.04 ships libtiff.so.6)
+          find "$RUNNER_WORKSPACE/Qt" -name "libqtiff.so" -delete 2>/dev/null || true
           ./scripts/package-linux-appimage.sh \
             --install-dir "$INSTALL_DIR" \
             --output-dir "$OUTPUT_DIR"
