@@ -3,8 +3,6 @@
 #include <QProcess>
 #include <QGuiApplication>
 #include <QScreen>
-#include <QDateTime>
-#include <QThread>
 #include <QtMath>
 #include <QElapsedTimer>
 #include <QLoggingCategory>
@@ -171,30 +169,7 @@ bool DisplayManager::setHDR(bool enabled)
     hdrTimer.start();
     qCInfo(lcDisplayTrace) << "setHDR begin"
                            << "requested=" << enabled
-                           << "knownStateValid=" << m_hasKnownHdrState
-                           << "knownState=" << m_knownHdrState
                            << "hdrChanged=" << m_hdrChanged;
-
-    if (m_hasKnownHdrState && m_knownHdrState == enabled) {
-        qDebug() << "DisplayManager: HDR already at requested state" << enabled << "- skipping";
-        qCInfo(lcDisplayTrace) << "setHDR short-circuit known-state match"
-                               << "elapsedMs=" << hdrTimer.elapsed();
-        return true;
-    }
-
-    // Some Windows GPU/TV stacks are unstable when HDR toggles are issued too close together.
-    // Serialize successive transitions with a short settle window.
-    static constexpr qint64 kMinHdrToggleIntervalMs = 1200;
-    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
-    if (m_lastHdrToggleMs > 0) {
-        const qint64 elapsedMs = nowMs - m_lastHdrToggleMs;
-        if (elapsedMs >= 0 && elapsedMs < kMinHdrToggleIntervalMs) {
-            const int waitMs = static_cast<int>(kMinHdrToggleIntervalMs - elapsedMs);
-            qDebug() << "DisplayManager: Waiting" << waitMs
-                     << "ms before HDR toggle to avoid rapid back-to-back transitions";
-            QThread::msleep(static_cast<unsigned long>(waitMs));
-        }
-    }
 
 #ifdef Q_OS_WIN
     // Check if we have a custom command override
@@ -214,9 +189,6 @@ bool DisplayManager::setHDR(bool enabled)
                                << "exitCode=" << process.exitCode()
                                << "elapsedMs=" << hdrTimer.elapsed();
         if (success) {
-            m_lastHdrToggleMs = QDateTime::currentMSecsSinceEpoch();
-            m_hasKnownHdrState = true;
-            m_knownHdrState = enabled;
             m_hdrChanged = true;
         }
         return success;
@@ -224,9 +196,6 @@ bool DisplayManager::setHDR(bool enabled)
     
     if (setHDRWindows(enabled)) {
         m_hdrChanged = true;
-        m_lastHdrToggleMs = QDateTime::currentMSecsSinceEpoch();
-        m_hasKnownHdrState = true;
-        m_knownHdrState = enabled;
         // We don't track original state perfectly here as querying it is hard,
         // but we assume if we toggled it ON, we should toggle it OFF later.
         // Ideally we'd query first.
@@ -235,9 +204,6 @@ bool DisplayManager::setHDR(bool enabled)
 #else
     if (setHDRLinux(enabled)) {
         m_hdrChanged = true;
-        m_lastHdrToggleMs = QDateTime::currentMSecsSinceEpoch();
-        m_hasKnownHdrState = true;
-        m_knownHdrState = enabled;
         return true;
     }
 #endif

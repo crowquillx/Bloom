@@ -1071,6 +1071,8 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     m_shouldAutoplay = false;
     m_contentFramerate = framerate;
     m_contentIsHDR = isHDR;
+    m_hasReportedStopForAttempt = false;
+    m_hasEvaluatedCompletionForAttempt = false;
     
     // Clear previous OSC/trickplay state and request new data
     m_currentSegments.clear();
@@ -1116,7 +1118,11 @@ void PlayerController::stop()
     checkCompletionThreshold();
     
     m_playerBackend->stopMpv();
-    processEvent(Event::Stop);
+    // Some backends emit stateChanged(false) synchronously from stopMpv(), which
+    // can already transition us to Idle via onProcessStateChanged().
+    if (m_playbackState != Idle && m_playbackState != Error) {
+        processEvent(Event::Stop);
+    }
 }
 
 void PlayerController::pause()
@@ -1691,6 +1697,11 @@ void PlayerController::reportPlaybackProgress()
 
 void PlayerController::reportPlaybackStop()
 {
+    if (m_hasReportedStopForAttempt) {
+        qCDebug(lcPlayback) << "Skipping duplicate playback stop report for attempt" << m_playbackAttemptId;
+        return;
+    }
+
     if (!m_currentItemId.isEmpty() && m_playbackService) {
         double percentage = m_duration > 0 ? (m_currentPosition / m_duration) * 100.0 : 0;
         qCInfo(lcPlayback) << "Playback stopped: itemId=" << m_currentItemId 
@@ -1700,6 +1711,7 @@ void PlayerController::reportPlaybackStop()
         m_playbackService->reportPlaybackStopped(m_currentItemId, ticks, m_mediaSourceId,
                                          m_selectedAudioTrack, m_selectedSubtitleTrack,
                                          m_playSessionId);
+        m_hasReportedStopForAttempt = true;
     }
 }
 
@@ -1710,7 +1722,12 @@ void PlayerController::checkCompletionThreshold()
 
 bool PlayerController::checkCompletionThresholdAndAutoplay()
 {
+    if (m_hasEvaluatedCompletionForAttempt) {
+        qCDebug(lcPlayback) << "Skipping duplicate completion-threshold evaluation for attempt" << m_playbackAttemptId;
+        return false;
+    }
     if (m_currentItemId.isEmpty() || m_duration <= 0) return false;
+    m_hasEvaluatedCompletionForAttempt = true;
     
     double percentage = (m_currentPosition / m_duration) * 100.0;
     int threshold = m_config->getPlaybackCompletionThreshold();

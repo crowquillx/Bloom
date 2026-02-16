@@ -64,9 +64,6 @@ private:
     bool m_hasCapturedOriginalRefreshRate = false;
     bool m_hdrChanged = false;
     bool m_originalHDRState = false;
-    bool m_hasKnownHdrState = false;
-    bool m_knownHdrState = false;
-    qint64 m_lastHdrToggleMs = 0;
 
     // Platform-specific helpers
 #ifdef Q_OS_WIN
