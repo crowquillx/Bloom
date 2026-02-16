@@ -55,12 +55,7 @@ Window {
         if (sidebar.overlayMode) return 0
         return sidebar.sidebarWidth
     }
-    // Keep embedded surface hidden during Loading so Windows HDR mode switches
-    // happen before native child-window composition is activated.
-    readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo
-                                                && PlayerController.playbackState !== PlayerController.Idle
-                                                && PlayerController.playbackState !== PlayerController.Error
-                                                && PlayerController.playbackState !== PlayerController.Loading
+    readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
     readonly property bool useDetachedPlaybackOverlayWindow: Qt.platform.os === "windows"
     readonly property bool playbackOverlayNavigationActive: embeddedPlaybackActive
                                                          && activeEmbeddedPlaybackOverlay.fullControlsVisible
@@ -112,6 +107,7 @@ Window {
                  && window.visible
                  && window.visibility !== Window.Minimized
                  && embeddedPlaybackActive
+                 && PlayerController.playbackState !== PlayerController.Loading
         x: window.x
         y: window.y
         width: window.width
