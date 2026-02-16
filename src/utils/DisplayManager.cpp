@@ -6,6 +6,7 @@
 #include <QtMath>
 #include <QElapsedTimer>
 #include <QLoggingCategory>
+#include <vector>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -40,6 +41,29 @@ QString formatAdapterId(const LUID &adapterId)
     return QStringLiteral("%1:%2")
         .arg(static_cast<qulonglong>(adapterId.HighPart))
         .arg(static_cast<qulonglong>(adapterId.LowPart));
+}
+
+struct AdvancedColorStateQueryResult
+{
+    bool ok = false;
+    bool enabled = false;
+    LONG ret = ERROR_GEN_FAILURE;
+};
+
+AdvancedColorStateQueryResult queryAdvancedColorState(const DISPLAYCONFIG_PATH_INFO &pathInfo)
+{
+    DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO getAdvancedColorInfo = {};
+    getAdvancedColorInfo.header.type = DISPLAYCONFIG_DEVICE_INFO_GET_ADVANCED_COLOR_INFO;
+    getAdvancedColorInfo.header.size = sizeof(DISPLAYCONFIG_GET_ADVANCED_COLOR_INFO);
+    getAdvancedColorInfo.header.adapterId = pathInfo.targetInfo.adapterId;
+    getAdvancedColorInfo.header.id = pathInfo.targetInfo.id;
+
+    const LONG ret = DisplayConfigGetDeviceInfo(&getAdvancedColorInfo.header);
+    AdvancedColorStateQueryResult result;
+    result.ok = (ret == ERROR_SUCCESS);
+    result.enabled = getAdvancedColorInfo.advancedColorEnabled != 0;
+    result.ret = ret;
+    return result;
 }
 #endif
 }
@@ -379,6 +403,21 @@ bool DisplayManager::setHDRWindows(bool enabled)
     
     // Try to set for all active paths (usually just one for primary)
     for (UINT32 i = 0; i < numPathArrayElements; ++i) {
+        const AdvancedColorStateQueryResult preState = queryAdvancedColorState(pathArray[i]);
+        qCInfo(lcDisplayTrace) << "setHDRWindows pre-state"
+                               << "path=" << i
+                               << "adapter=" << formatAdapterId(pathArray[i].targetInfo.adapterId)
+                               << "targetId=" << pathArray[i].targetInfo.id
+                               << "queryRet=" << preState.ret
+                               << "enabled=" << preState.enabled;
+        if (preState.ok && preState.enabled == enabled) {
+            qCInfo(lcDisplayTrace) << "setHDRWindows no-op (already requested state)"
+                                   << "path=" << i
+                                   << "requested=" << enabled;
+            success = true;
+            continue;
+        }
+
         DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE setAdvancedColorState = {};
         setAdvancedColorState.header.type = DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE;
         setAdvancedColorState.header.size = sizeof(DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE);
@@ -396,6 +435,11 @@ bool DisplayManager::setHDRWindows(bool enabled)
                                << "ret=" << ret;
         if (ret == ERROR_SUCCESS) {
             qDebug() << "DisplayManager: Successfully set HDR to" << enabled << "for path" << i;
+            const AdvancedColorStateQueryResult postState = queryAdvancedColorState(pathArray[i]);
+            qCInfo(lcDisplayTrace) << "setHDRWindows post-state"
+                                   << "path=" << i
+                                   << "queryRet=" << postState.ret
+                                   << "enabled=" << postState.enabled;
             success = true;
         } else {
             qWarning() << "DisplayManager: Failed to set HDR for path" << i << "error:" << ret;
