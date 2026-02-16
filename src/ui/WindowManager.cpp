@@ -20,8 +20,11 @@
 
 #include <QQmlContext>
 #include <QQuickStyle>
+#include <QLoggingCategory>
 
 using namespace Qt::StringLiterals;
+
+Q_LOGGING_CATEGORY(lcUiSceneGraph, "bloom.ui.scenegraph")
 
 WindowManager::WindowManager(QGuiApplication* app, QObject *parent)
     : QObject(parent)
@@ -78,6 +81,15 @@ void WindowManager::setup(ConfigManager* configManager)
     connect(&m_engine, &QQmlApplicationEngine::objectCreated,
             m_app, [this](QObject *obj, const QUrl &) {
         if (auto *window = qobject_cast<QQuickWindow *>(obj)) {
+            connect(window, &QQuickWindow::sceneGraphError,
+                    this, [window](QQuickWindow::SceneGraphError error, const QString &message) {
+                qCCritical(lcUiSceneGraph)
+                    << "Scene graph error"
+                    << "window=" << window
+                    << "error=" << static_cast<int>(error)
+                    << "message=" << message;
+            }, Qt::UniqueConnection);
+
             m_gpuMemoryTrimmer->setWindow(window);
             // Also set window on ResponsiveLayoutManager for viewport tracking
             auto* responsiveLayoutManager = ServiceLocator::tryGet<ResponsiveLayoutManager>();

@@ -7,6 +7,7 @@
 #include <QSize>
 #include <QDebug>
 #include <clocale>
+#include <exception>
 
 #include "config/version.h"
 
@@ -17,8 +18,40 @@
 #include "network/Types.h"
 #include "test/TestModeController.h"
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
+#ifdef Q_OS_WIN
+namespace {
+LONG WINAPI bloomUnhandledExceptionFilter(EXCEPTION_POINTERS *exceptionInfo)
+{
+    if (!exceptionInfo || !exceptionInfo->ExceptionRecord) {
+        qCritical() << "Unhandled exception with missing exception record";
+        return EXCEPTION_EXECUTE_HANDLER;
+    }
+
+    const auto *record = exceptionInfo->ExceptionRecord;
+    qCritical().nospace()
+        << "Unhandled exception"
+        << " code=0x" << QString::number(static_cast<qulonglong>(record->ExceptionCode), 16)
+        << " flags=0x" << QString::number(static_cast<qulonglong>(record->ExceptionFlags), 16)
+        << " address=" << record->ExceptionAddress;
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+}
+#endif
+
 int main(int argc, char *argv[])
 {
+#ifdef Q_OS_WIN
+    SetUnhandledExceptionFilter(bloomUnhandledExceptionFilter);
+#endif
+    std::set_terminate([]() {
+        qCritical() << "std::terminate called";
+        std::abort();
+    });
+
     // libmpv requires C numeric locale for reliable option/property parsing.
     if (setlocale(LC_NUMERIC, "C") == nullptr) {
         qWarning() << "Failed to force LC_NUMERIC=C; libmpv initialization may fail on non-C locales";
