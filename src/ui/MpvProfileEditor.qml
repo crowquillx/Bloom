@@ -852,12 +852,14 @@ FocusScope {
         // Advanced Content
         Rectangle {
             Layout.fillWidth: true
+            implicitHeight: advancedContentColumn.implicitHeight + (Theme.spacingMedium * 2)
             radius: Theme.radiusMedium
             color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.45)
             border.color: Theme.cardBorder
             border.width: Theme.borderWidth
             visible: advancedToggleBtn.expanded
             ColumnLayout {
+                id: advancedContentColumn
                 anchors.fill: parent
                 anchors.margins: Theme.spacingMedium
                 Layout.fillWidth: true
@@ -1033,50 +1035,50 @@ FocusScope {
                         }
                     }
                 }
-            }
 
-            Button {
-                id: addArgButton
-                text: "Add Argument"
-                focusPolicy: Qt.StrongFocus
-                Accessible.role: Accessible.Button
-                Accessible.name: "Add MPV argument"
+                Button {
+                    id: addArgButton
+                    text: "Add Argument"
+                    focusPolicy: Qt.StrongFocus
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Add MPV argument"
 
-                onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
+                    onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
 
-                Keys.onUpPressed: {
-                    if (argRepeater.count > 0) {
-                        var last = argRepeater.itemAt(argRepeater.count - 1)
-                        if (last && last.argumentField) {
-                            last.argumentField.forceActiveFocus()
+                    Keys.onUpPressed: {
+                        if (argRepeater.count > 0) {
+                            var last = argRepeater.itemAt(argRepeater.count - 1)
+                            if (last && last.argumentField) {
+                                last.argumentField.forceActiveFocus()
+                            }
+                        } else {
+                            advancedToggleBtn.forceActiveFocus()
                         }
-                    } else {
-                        advancedToggleBtn.forceActiveFocus()
+                        event.accepted = true
                     }
-                    event.accepted = true
-                }
-                Keys.onDownPressed: root.navigateOut("down")
+                    Keys.onDownPressed: root.navigateOut("down")
 
-                onClicked: root.addExtraArg()
-                Keys.onReturnPressed: root.addExtraArg()
-                Keys.onEnterPressed: root.addExtraArg()
+                    onClicked: root.addExtraArg()
+                    Keys.onReturnPressed: root.addExtraArg()
+                    Keys.onEnterPressed: root.addExtraArg()
 
-                contentItem: Text {
-                    text: parent.text
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.family: Theme.fontPrimary
-                    color: Theme.accentPrimary
-                    horizontalAlignment: Text.AlignHCenter
-                    verticalAlignment: Text.AlignVCenter
-                }
+                    contentItem: Text {
+                        text: parent.text
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        color: Theme.accentPrimary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
 
-                background: Rectangle {
-                    implicitWidth: Math.round(170 * Theme.layoutScale)
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: addArgButton.activeFocus || addArgButton.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
-                    border.color: addArgButton.activeFocus ? Theme.focusBorder : Theme.accentPrimary
-                    border.width: addArgButton.activeFocus ? 2 : 1
+                    background: Rectangle {
+                        implicitWidth: Math.round(170 * Theme.layoutScale)
+                        implicitHeight: Theme.buttonHeightSmall
+                        radius: Theme.radiusSmall
+                        color: addArgButton.activeFocus || addArgButton.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
+                        border.color: addArgButton.activeFocus ? Theme.focusBorder : Theme.accentPrimary
+                        border.width: addArgButton.activeFocus ? 2 : 1
+                    }
                 }
             }
 
