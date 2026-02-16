@@ -51,7 +51,7 @@
         # Buildable package so users can `nix build .#Bloom`
         Bloom = pkgs.stdenv.mkDerivation {
           pname = "bloom";
-          version = "0.3.2";
+          version = "0.3.3";
           src = ./.; # flake root
 
           nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config qt.wrapQtAppsHook ];
