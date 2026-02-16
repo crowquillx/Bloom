@@ -2343,13 +2343,14 @@ QString ConfigManager::resolveProfileForItem(const QString &libraryId, const QSt
     return getDefaultProfileName();
 }
 
-QStringList ConfigManager::getMpvArgsForProfile(const QString &profileName) const
+QStringList ConfigManager::getMpvArgsForProfile(const QString &profileName, bool isHdrContent) const
 {
     MpvProfile profile = getMpvProfileStruct(profileName);
     QStringList args = profile.buildArgs();
     
-    // If HDR is enabled globally, ensure we have the required args
-    if (getEnableHDR()) {
+    // Only apply HDR-specific renderer hints for HDR items.
+    // Applying these globally can trigger HDR behavior for SDR playback on some stacks.
+    if (getEnableHDR() && isHdrContent) {
         // Ensure gpu-next for HDR
         bool hasGpuNext = false;
         for (int i = 0; i < args.size(); ++i) {

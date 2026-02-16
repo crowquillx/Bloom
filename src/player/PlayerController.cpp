@@ -22,6 +22,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QSet>
+#include <QThread>
 
 Q_LOGGING_CATEGORY(lcPlayback, "bloom.playback")
 
@@ -417,9 +418,17 @@ void PlayerController::onEnterIdleState()
     if (m_displayManager) {
         // If we enabled HDR for this content, disable it first.
         // Some setups cannot apply higher refresh rates while HDR is active.
+        bool hdrDisabledForRestore = false;
         if (m_config->getEnableHDR() && m_contentIsHDR) {
             qDebug() << "PlayerController: Restoring HDR to off after HDR content playback";
-            m_displayManager->setHDR(false);
+            hdrDisabledForRestore = m_displayManager->setHDR(false);
+        }
+
+        if (hdrDisabledForRestore) {
+            static constexpr unsigned long kHdrOffSettleDelayMs = 300;
+            qDebug() << "PlayerController: Waiting" << kHdrOffSettleDelayMs
+                     << "ms after HDR-off before refresh restore";
+            QThread::msleep(kHdrOffSettleDelayMs);
         }
         m_displayManager->restoreRefreshRate();
     }
@@ -1798,7 +1807,7 @@ void PlayerController::initiateMpvStart()
              << "series:" << m_currentSeriesId;
     
     // Get the args from the profile (includes HDR overrides if enabled)
-    QStringList profileArgs = m_config->getMpvArgsForProfile(profileName);
+    QStringList profileArgs = m_config->getMpvArgsForProfile(profileName, m_contentIsHDR);
     
     // Build final args: Bloom config args + profile args
     QStringList finalArgs;

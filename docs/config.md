@@ -63,6 +63,7 @@ Video settings
   - Set to 0 to disable the delay (not recommended if experiencing dropped frames)
   - Configurable via Settings > Video > Refresh Rate Switch Delay slider (always visible; disabled/grayed out when Framerate Matching is off, interactive only when enabled)
 - `settings.video.enable_hdr` (Q_PROPERTY `enableHDR`): When true, enables HDR output for HDR content. Default: false. Configurable via Settings > Video > Enable HDR.
+  - HDR-specific mpv arguments are now applied only when the current item is detected as HDR content (not for SDR items).
   - For HDR content, Bloom waits briefly for the HDR mode switch to settle before applying framerate matching. This avoids some Windows/TV/GPU combinations reverting to 60Hz after HDR is enabled.
   - Bloom also snapshots the pre-HDR refresh rate and uses it as the restore target when playback ends.
   - This pre-HDR restore path is applied even when framerate matching is disabled.

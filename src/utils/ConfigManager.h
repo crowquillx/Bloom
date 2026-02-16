@@ -262,10 +262,11 @@ public:
     /// @return The resolved profile name
     Q_INVOKABLE QString resolveProfileForItem(const QString &libraryId, const QString &seriesId) const;
     
-    /// Get the final mpv args for playback, applying HDR overrides if needed
+    /// Get the final mpv args for playback, applying HDR overrides only for HDR content
     /// @param profileName The profile to use
+    /// @param isHdrContent Whether the current item is HDR content
     /// @return List of mpv command-line arguments
-    QStringList getMpvArgsForProfile(const QString &profileName) const;
+    QStringList getMpvArgsForProfile(const QString &profileName, bool isHdrContent = false) const;
     
     /// Create the two default profiles (used by migration)
     static QJsonObject defaultMpvProfiles();
