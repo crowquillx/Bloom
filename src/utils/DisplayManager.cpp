@@ -6,6 +6,8 @@
 #include <QDateTime>
 #include <QThread>
 #include <QtMath>
+#include <QElapsedTimer>
+#include <QLoggingCategory>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -16,6 +18,8 @@
 // but since we're targeting newer SDKs, we can rely on wingdi.h providing them.
 
 namespace {
+Q_LOGGING_CATEGORY(lcDisplayTrace, "bloom.playback.displaytrace")
+
 bool isCadenceCompatible(double currentHz, double targetHz)
 {
     if (currentHz <= 0.0 || targetHz <= 0.0 || currentHz <= targetHz) {
@@ -31,6 +35,15 @@ bool isCadenceCompatible(double currentHz, double targetHz)
     // Allow small drift for common fractional rates (23.976/29.97/59.94).
     return qAbs(ratio - static_cast<double>(nearestIntegerMultiple)) <= 0.01;
 }
+
+#ifdef Q_OS_WIN
+QString formatAdapterId(const LUID &adapterId)
+{
+    return QStringLiteral("%1:%2")
+        .arg(static_cast<qulonglong>(adapterId.HighPart))
+        .arg(static_cast<qulonglong>(adapterId.LowPart));
+}
+#endif
 }
 
 DisplayManager::DisplayManager(ConfigManager *config, QObject *parent)
@@ -65,6 +78,9 @@ void DisplayManager::captureOriginalRefreshRate()
     m_originalRefreshRate = current;
     m_hasCapturedOriginalRefreshRate = true;
     qDebug() << "DisplayManager: Captured original refresh rate:" << m_originalRefreshRate << "Hz";
+    qCInfo(lcDisplayTrace) << "captureOriginalRefreshRate"
+                           << "capturedHz=" << m_originalRefreshRate
+                           << "refreshOverrideActive=" << m_refreshRateChanged;
 }
 
 bool DisplayManager::setRefreshRate(double hz)
@@ -121,7 +137,12 @@ bool DisplayManager::setRefreshRate(double hz)
 bool DisplayManager::restoreRefreshRate()
 {
     const bool hasCapturedTarget = m_hasCapturedOriginalRefreshRate && m_originalRefreshRate > 0.0;
+    qCInfo(lcDisplayTrace) << "restoreRefreshRate begin"
+                           << "refreshChanged=" << m_refreshRateChanged
+                           << "hasCapturedTarget=" << hasCapturedTarget
+                           << "capturedHz=" << m_originalRefreshRate;
     if (!m_refreshRateChanged && !hasCapturedTarget) {
+        qCInfo(lcDisplayTrace) << "restoreRefreshRate no-op";
         return true;
     }
 
@@ -137,13 +158,27 @@ bool DisplayManager::restoreRefreshRate()
         m_hasCapturedOriginalRefreshRate = false;
         m_originalRefreshRate = 0.0;
     }
+    qCInfo(lcDisplayTrace) << "restoreRefreshRate done"
+                           << "success=" << success
+                           << "refreshChanged=" << m_refreshRateChanged
+                           << "hasCapturedTarget=" << m_hasCapturedOriginalRefreshRate;
     return success;
 }
 
 bool DisplayManager::setHDR(bool enabled)
 {
+    QElapsedTimer hdrTimer;
+    hdrTimer.start();
+    qCInfo(lcDisplayTrace) << "setHDR begin"
+                           << "requested=" << enabled
+                           << "knownStateValid=" << m_hasKnownHdrState
+                           << "knownState=" << m_knownHdrState
+                           << "hdrChanged=" << m_hdrChanged;
+
     if (m_hasKnownHdrState && m_knownHdrState == enabled) {
         qDebug() << "DisplayManager: HDR already at requested state" << enabled << "- skipping";
+        qCInfo(lcDisplayTrace) << "setHDR short-circuit known-state match"
+                               << "elapsedMs=" << hdrTimer.elapsed();
         return true;
     }
 
@@ -174,6 +209,10 @@ bool DisplayManager::setHDR(bool enabled)
         process.startCommand(cmd);
         process.waitForFinished();
         const bool success = process.exitCode() == 0;
+        qCInfo(lcDisplayTrace) << "setHDR custom-command result"
+                               << "requested=" << enabled
+                               << "exitCode=" << process.exitCode()
+                               << "elapsedMs=" << hdrTimer.elapsed();
         if (success) {
             m_lastHdrToggleMs = QDateTime::currentMSecsSinceEpoch();
             m_hasKnownHdrState = true;
@@ -202,6 +241,9 @@ bool DisplayManager::setHDR(bool enabled)
         return true;
     }
 #endif
+    qCWarning(lcDisplayTrace) << "setHDR failed"
+                              << "requested=" << enabled
+                              << "elapsedMs=" << hdrTimer.elapsed();
     return false;
 }
 
@@ -342,7 +384,13 @@ bool DisplayManager::setHDRWindows(bool enabled)
     UINT32 numPathArrayElements = 0;
     UINT32 numModeInfoArrayElements = 0;
     
-    if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, &numModeInfoArrayElements) != ERROR_SUCCESS) {
+    const LONG sizeRet = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, &numModeInfoArrayElements);
+    qCInfo(lcDisplayTrace) << "setHDRWindows buffer-sizes"
+                           << "requested=" << enabled
+                           << "ret=" << sizeRet
+                           << "paths=" << numPathArrayElements
+                           << "modes=" << numModeInfoArrayElements;
+    if (sizeRet != ERROR_SUCCESS) {
         qWarning() << "DisplayManager: GetDisplayConfigBufferSizes failed";
         return false;
     }
@@ -350,7 +398,13 @@ bool DisplayManager::setHDRWindows(bool enabled)
     std::vector<DISPLAYCONFIG_PATH_INFO> pathArray(numPathArrayElements);
     std::vector<DISPLAYCONFIG_MODE_INFO> modeInfoArray(numModeInfoArrayElements);
     
-    if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, pathArray.data(), &numModeInfoArrayElements, modeInfoArray.data(), nullptr) != ERROR_SUCCESS) {
+    const LONG queryRet = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, pathArray.data(), &numModeInfoArrayElements, modeInfoArray.data(), nullptr);
+    qCInfo(lcDisplayTrace) << "setHDRWindows query-display-config"
+                           << "requested=" << enabled
+                           << "ret=" << queryRet
+                           << "paths=" << numPathArrayElements
+                           << "modes=" << numModeInfoArrayElements;
+    if (queryRet != ERROR_SUCCESS) {
         qWarning() << "DisplayManager: QueryDisplayConfig failed";
         return false;
     }
@@ -368,6 +422,12 @@ bool DisplayManager::setHDRWindows(bool enabled)
         setAdvancedColorState.value = enabled ? 1 : 0;
         
         LONG ret = DisplayConfigSetDeviceInfo(&setAdvancedColorState.header);
+        qCInfo(lcDisplayTrace) << "setHDRWindows path"
+                               << i
+                               << "adapter=" << formatAdapterId(pathArray[i].targetInfo.adapterId)
+                               << "targetId=" << pathArray[i].targetInfo.id
+                               << "requested=" << enabled
+                               << "ret=" << ret;
         if (ret == ERROR_SUCCESS) {
             qDebug() << "DisplayManager: Successfully set HDR to" << enabled << "for path" << i;
             success = true;

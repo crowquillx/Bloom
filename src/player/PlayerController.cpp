@@ -23,10 +23,14 @@
 #include <QUrlQuery>
 #include <QSet>
 #include <QThread>
+#include <atomic>
 
 Q_LOGGING_CATEGORY(lcPlayback, "bloom.playback")
+Q_LOGGING_CATEGORY(lcPlaybackTrace, "bloom.playback.trace")
 
 namespace {
+std::atomic<quint64> gPlaybackAttemptCounter{0};
+
 bool isLinuxEmbeddedLibmpvBackend(const IPlayerBackend *backend)
 {
     return backend && backend->backendName() == QStringLiteral("linux-libmpv-opengl");
@@ -296,10 +300,17 @@ void PlayerController::setupStateMachine()
 bool PlayerController::processEvent(Event event)
 {
     StateTransition transition{m_playbackState, event};
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId << "] event"
+                            << eventToString(event)
+                            << "state=" << stateToString(m_playbackState);
     
     if (!m_transitions.contains(transition)) {
         qWarning() << "PlayerController: Invalid transition from" 
                    << stateToString(m_playbackState) << "on event" << eventToString(event);
+        qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                   << "] invalid-transition"
+                                   << "state=" << stateToString(m_playbackState)
+                                   << "event=" << eventToString(event);
         return false;
     }
     
@@ -404,6 +415,11 @@ void PlayerController::onExitErrorState()
 void PlayerController::onEnterIdleState()
 {
     qCInfo(lcPlayback) << "Entering Idle state (playback ended)";
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] enter-idle"
+                            << "itemId=" << m_currentItemId
+                            << "contentIsHDR=" << m_contentIsHDR
+                            << "contentFramerate=" << m_contentFramerate;
     
     // Stop all timers
     m_loadingTimeoutTimer->stop();
@@ -421,7 +437,11 @@ void PlayerController::onEnterIdleState()
         bool hdrDisabledForRestore = false;
         if (m_config->getEnableHDR() && m_contentIsHDR) {
             qDebug() << "PlayerController: Restoring HDR to off after HDR content playback";
+            qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                    << "] restore-display: setHDR(false) begin";
             hdrDisabledForRestore = m_displayManager->setHDR(false);
+            qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                    << "] restore-display: setHDR(false) result=" << hdrDisabledForRestore;
         }
 
         if (hdrDisabledForRestore) {
@@ -430,7 +450,11 @@ void PlayerController::onEnterIdleState()
                      << "ms after HDR-off before refresh restore";
             QThread::msleep(kHdrOffSettleDelayMs);
         }
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] restore-display: restoreRefreshRate begin";
         m_displayManager->restoreRefreshRate();
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] restore-display: restoreRefreshRate done";
     }
     
     // Clear playback state
@@ -660,6 +684,10 @@ void PlayerController::onBufferingTimeout()
 void PlayerController::onProcessStateChanged(bool running)
 {
     qDebug() << "PlayerController: Process state changed, running:" << running;
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] process-state"
+                            << "running=" << running
+                            << "state=" << stateToString(m_playbackState);
     
     if (!running && m_playbackState != Idle && m_playbackState != Error) {
         // Process stopped unexpectedly (e.g., mpv quit via 'q' or crash)
@@ -681,6 +709,9 @@ void PlayerController::onProcessStateChanged(bool running)
 void PlayerController::onProcessError(const QString &error)
 {
     qDebug() << "PlayerController: Process error:" << error;
+    qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                               << "] process-error"
+                               << error;
 
     if (error.startsWith(QStringLiteral("linux-libmpv-render-unavailable"))
         && tryFallbackToExternalBackend(error)) {
@@ -777,6 +808,10 @@ void PlayerController::onPauseChanged(bool paused)
 void PlayerController::onPlaybackEnded()
 {
     qDebug() << "PlayerController: Playback ended";
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] playback-ended"
+                            << "position=" << m_currentPosition
+                            << "duration=" << m_duration;
     
     reportPlaybackStop();
     
@@ -994,6 +1029,7 @@ void PlayerController::playTestVideo()
 
 void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionTicks, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR)
 {
+    m_playbackAttemptId = ++gPlaybackAttemptCounter;
     qDebug() << "PlayerController: playUrl called with itemId:" << itemId 
              << "startPositionTicks:" << startPositionTicks
              << "seriesId:" << seriesId
@@ -1001,6 +1037,14 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
              << "libraryId:" << libraryId
              << "framerate:" << framerate
              << "isHDR:" << isHDR;
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] play-url"
+                            << "itemId=" << itemId
+                            << "startTicks=" << startPositionTicks
+                            << "framerate=" << framerate
+                            << "isHDR=" << isHDR
+                            << "enableHDRSetting=" << m_config->getEnableHDR()
+                            << "enableFramerateMatchSetting=" << m_config->getEnableFramerateMatching();
     
     // If already playing, stop first
     if (m_playerBackend->isRunning()) {
@@ -1707,6 +1751,11 @@ void PlayerController::clearPendingAutoplayContext()
 void PlayerController::startPlayback(const QString &url)
 {
     qDebug() << "PlayerController: Starting playback of" << url;
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] start-playback"
+                            << "contentIsHDR=" << m_contentIsHDR
+                            << "contentFramerate=" << m_contentFramerate
+                            << "url=" << url;
     
     // Cancel any pending deferred mpv start from previous playback
     m_startDelayTimer->stop();
@@ -1719,7 +1768,11 @@ void PlayerController::startPlayback(const QString &url)
         // and we want restore to return to the pre-HDR rate.
         m_displayManager->captureOriginalRefreshRate();
         qDebug() << "PlayerController: Enabling HDR for HDR content";
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] setHDR(true) begin";
         hdrEnabled = m_displayManager->setHDR(true);
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] setHDR(true) result=" << hdrEnabled;
     } else if (m_config->getEnableHDR() && !m_contentIsHDR) {
         qDebug() << "PlayerController: HDR toggle enabled but content is SDR, not switching display HDR";
     }
@@ -1742,8 +1795,19 @@ void PlayerController::applyFramerateMatchingAndStart()
     // Defensive checks: the deferred HDR settle callback may fire after state changes.
     if (m_playbackState != Loading || m_pendingUrl.isEmpty()) {
         qCWarning(lcPlayback) << "PlayerController: applyFramerateMatchingAndStart called in invalid state, ignoring";
+        qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                   << "] apply-framerate-and-start skipped"
+                                   << "state=" << stateToString(m_playbackState)
+                                   << "pendingUrlEmpty=" << m_pendingUrl.isEmpty();
         return;
     }
+
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] apply-framerate-and-start"
+                            << "enableFramerateMatchSetting=" << m_config->getEnableFramerateMatching()
+                            << "contentFramerate=" << m_contentFramerate
+                            << "enableHDRSetting=" << m_config->getEnableHDR()
+                            << "contentIsHDR=" << m_contentIsHDR;
 
     // Handle Display Settings - Framerate Matching
     if (m_config->getEnableFramerateMatching() && m_contentFramerate > 0) {
@@ -1754,6 +1818,8 @@ void PlayerController::applyFramerateMatchingAndStart()
         
         if (m_displayManager->setRefreshRate(m_contentFramerate)) {
             qDebug() << "PlayerController: Successfully set display refresh rate for framerate" << m_contentFramerate;
+            qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                    << "] refresh-rate switch success";
 
             if (m_displayManager->hasActiveRefreshRateOverride()) {
                 // Wait for display to stabilize after an actual refresh rate change.
@@ -1771,9 +1837,13 @@ void PlayerController::applyFramerateMatchingAndStart()
             return;  // Important: return early to avoid duplicate startMpv calls
         } else {
             qWarning() << "PlayerController: Failed to set display refresh rate for framerate" << m_contentFramerate;
+            qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                       << "] refresh-rate switch failed";
         }
     } else if (m_config->getEnableFramerateMatching()) {
         qDebug() << "PlayerController: Framerate matching enabled but no framerate info available (framerate:" << m_contentFramerate << ")";
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] framerate-matching enabled but no content framerate";
     }
     
     // No framerate matching or delay needed - start immediately
@@ -1787,16 +1857,23 @@ void PlayerController::initiateMpvStart()
     if (m_playbackState != Loading) {
         qCWarning(lcPlayback) << "PlayerController: initiateMpvStart called but not in Loading state (state="
                               << stateToString(m_playbackState) << "), ignoring";
+        qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                   << "] initiate-mpv skipped: invalid state"
+                                   << stateToString(m_playbackState);
         return;
     }
     
     if (m_pendingUrl.isEmpty()) {
         qCWarning(lcPlayback) << "PlayerController: initiateMpvStart called but no pending URL, ignoring";
+        qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                   << "] initiate-mpv skipped: pending URL empty";
         return;
     }
     
     if (m_playerBackend->isRunning()) {
         qCWarning(lcPlayback) << "PlayerController: initiateMpvStart called but mpv already running, ignoring";
+        qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                   << "] initiate-mpv skipped: backend already running";
         return;
     }
     
@@ -1805,6 +1882,10 @@ void PlayerController::initiateMpvStart()
     qDebug() << "PlayerController: Using MPV profile:" << profileName
              << "for library:" << m_currentLibraryId
              << "series:" << m_currentSeriesId;
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] initiate-mpv"
+                            << "profile=" << profileName
+                            << "backend=" << m_playerBackend->backendName();
     
     // Get the args from the profile (includes HDR overrides if enabled)
     QStringList profileArgs = m_config->getMpvArgsForProfile(profileName, m_contentIsHDR);

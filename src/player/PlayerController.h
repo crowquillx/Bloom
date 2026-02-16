@@ -433,6 +433,7 @@ private:
     
     // Content HDR flag for display HDR switching
     bool m_contentIsHDR = false;
+    quint64 m_playbackAttemptId = 0;
     
     // Buffering detection
     QElapsedTimer m_lastPositionUpdateTime;
