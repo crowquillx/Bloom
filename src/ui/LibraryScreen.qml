@@ -342,9 +342,10 @@ FocusScope {
             onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
                 // Use Jellyfin indices for the URL (server needs these for stream selection)
                 var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
+                var playbackLibraryId = resolveLibraryIdForPlayback()
                 // Pass mpv track numbers to PlayerController for mpv commands
                 PlayerController.playUrlWithTracks(streamUrl, itemId, startPositionTicks || 0, 
-                                                    root.currentSeriesId, SeriesDetailsViewModel.selectedSeasonId, root.currentLibraryId,
+                                                    root.currentSeriesId, SeriesDetailsViewModel.selectedSeasonId, playbackLibraryId,
                                                     mediaSourceId, playSessionId, audioIndex, subtitleIndex, 
                                                     mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap,
                                                     availableAudioTracks, availableSubtitleTracks,
@@ -366,17 +367,19 @@ FocusScope {
             
             onPlayRequested: function(itemId, startPositionTicks, framerate, isHDR) {
                 var streamUrl = LibraryService.getStreamUrl(itemId)
+                var playbackLibraryId = resolveLibraryIdForPlayback()
                 var title = root.currentMovieData && root.currentMovieData.Name ? root.currentMovieData.Name : qsTr("Now Playing")
                 var subtitle = root.currentMovieData && root.currentMovieData.ProductionYear
                                ? String(root.currentMovieData.ProductionYear)
                                : ""
                 PlayerController.setOverlayMetadata(title, subtitle, root.currentBackdropUrl)
-                PlayerController.playUrl(streamUrl, itemId, startPositionTicks || 0, "", "", root.currentLibraryId, framerate || 0.0, isHDR || false)
+                PlayerController.playUrl(streamUrl, itemId, startPositionTicks || 0, "", "", playbackLibraryId, framerate || 0.0, isHDR || false)
             }
             
             onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
                 // Use Jellyfin indices for the URL (server needs these for stream selection)
                 var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
+                var playbackLibraryId = resolveLibraryIdForPlayback()
                 // Pass mpv track numbers to PlayerController for mpv commands
                 // Movies don't have seriesId or seasonId, so pass empty strings
                 var title = root.currentMovieData && root.currentMovieData.Name ? root.currentMovieData.Name : qsTr("Now Playing")
@@ -385,7 +388,7 @@ FocusScope {
                                : ""
                 PlayerController.setOverlayMetadata(title, subtitle, root.currentBackdropUrl)
                 PlayerController.playUrlWithTracks(streamUrl, itemId, startPositionTicks || 0, 
-                                                    "", "", root.currentLibraryId,
+                                                    "", "", playbackLibraryId,
                                                     mediaSourceId, playSessionId, audioIndex, subtitleIndex, 
                                                     mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap,
                                                     availableAudioTracks, availableSubtitleTracks,
@@ -1724,6 +1727,22 @@ FocusScope {
             return item.ParentId
         return currentSeriesId || ""
     }
+
+    function resolveLibraryIdForPlayback() {
+        if (currentLibraryId && currentLibraryId !== "") {
+            return currentLibraryId
+        }
+
+        if (currentSeriesData && currentSeriesData.ParentId) {
+            return currentSeriesData.ParentId
+        }
+
+        if (currentMovieData && currentMovieData.ParentId) {
+            return currentMovieData.ParentId
+        }
+
+        return ""
+    }
     
     // Helper function to extract framerate from playback info media source
     function getFramerateFromPlaybackInfo(playbackInfo) {
@@ -1801,10 +1820,11 @@ FocusScope {
         console.log("[Library] Starting quick-play with framerate:", framerate, "isHDR:", isHDR)
         
         var streamUrl = PlaybackService.getStreamUrl(episodeId)
+        var playbackLibraryId = resolveLibraryIdForPlayback()
         var quickPlayTitle = root.currentSeriesData && root.currentSeriesData.Name ? root.currentSeriesData.Name : qsTr("Now Playing")
         PlayerController.setOverlayMetadata(quickPlayTitle, qsTr("Episode"), root.currentBackdropUrl)
         PlayerController.playUrl(streamUrl, episodeId, root.pendingQuickPlayStartPosition, 
-                                  root.pendingQuickPlaySeriesId, root.pendingQuickPlaySeasonId, root.currentLibraryId, framerate, isHDR)
+                                  root.pendingQuickPlaySeriesId, root.pendingQuickPlaySeasonId, playbackLibraryId, framerate, isHDR)
         
         // Clear pending state
         root.pendingQuickPlayItem = null
@@ -1910,6 +1930,13 @@ FocusScope {
             if (seriesId === currentSeriesId) {
                 currentSeriesData = seriesData
                 console.log("[Library] Series details loaded:", seriesData.Name)
+
+                // In direct-navigation contexts (search/home/post-playback), currentLibraryId can
+                // start empty. Backfill from series ParentId so playback profile resolution works.
+                if (!currentLibraryId && seriesData.ParentId) {
+                    currentLibraryId = seriesData.ParentId
+                    console.log("[Library] Backfilled library ID from series details:", currentLibraryId)
+                }
                 
                 // If we came from direct navigation (Home screen), update backdrop now
                 // that we have the series data
