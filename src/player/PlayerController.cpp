@@ -1795,18 +1795,6 @@ void PlayerController::startPlayback(const QString &url)
         qDebug() << "PlayerController: HDR toggle enabled but content is SDR, not switching display HDR";
     }
 
-    // HDR mode changes can complete asynchronously and reset refresh after return.
-    // The settle delay is only useful when we intend to change refresh rate after HDR.
-    // If framerate matching is disabled, skip the delay to avoid sitting in a fragile
-    // post-HDR/pre-playback window.
-    if (shouldAttemptHdrToggle && m_config->getEnableFramerateMatching()) {
-        static constexpr int kHdrSettleDelayMs = 750;
-        qDebug() << "PlayerController: HDR toggle attempted (success:" << hdrEnabled
-                 << "), waiting" << kHdrSettleDelayMs << "ms before framerate matching";
-        QTimer::singleShot(kHdrSettleDelayMs, this, &PlayerController::applyFramerateMatchingAndStart);
-        return;
-    }
-
     applyFramerateMatchingAndStart();
 }
 

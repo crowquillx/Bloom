@@ -83,6 +83,35 @@ bool waitForAdvancedColorState(const DISPLAYCONFIG_PATH_INFO &pathInfo, bool ena
     const AdvancedColorStateQueryResult finalState = queryAdvancedColorState(pathInfo);
     return finalState.ok && finalState.enabled == enabled;
 }
+
+bool isAnyAdvancedColorEnabled()
+{
+    UINT32 numPathArrayElements = 0;
+    UINT32 numModeInfoArrayElements = 0;
+    if (GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, &numModeInfoArrayElements) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    std::vector<DISPLAYCONFIG_PATH_INFO> pathArray(numPathArrayElements);
+    std::vector<DISPLAYCONFIG_MODE_INFO> modeInfoArray(numModeInfoArrayElements);
+    if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS,
+                           &numPathArrayElements,
+                           pathArray.data(),
+                           &numModeInfoArrayElements,
+                           modeInfoArray.data(),
+                           nullptr) != ERROR_SUCCESS) {
+        return false;
+    }
+
+    for (UINT32 i = 0; i < numPathArrayElements; ++i) {
+        const AdvancedColorStateQueryResult state = queryAdvancedColorState(pathArray[i]);
+        if (state.ok && state.enabled) {
+            return true;
+        }
+    }
+
+    return false;
+}
 #endif
 }
 
@@ -90,6 +119,8 @@ DisplayManager::DisplayManager(ConfigManager *config, QObject *parent)
     : QObject(parent)
     , m_config(config)
 {
+    // Baseline target used for restore if runtime capture happens while HDR is already on.
+    m_baselineRefreshRate = getCurrentRefreshRate();
 }
 
 DisplayManager::~DisplayManager()
@@ -109,7 +140,15 @@ void DisplayManager::captureOriginalRefreshRate()
         return;
     }
 
-    const double current = getCurrentRefreshRate();
+    double current = getCurrentRefreshRate();
+#ifdef Q_OS_WIN
+    if (isAnyAdvancedColorEnabled() && m_baselineRefreshRate > 0.0) {
+        qCDebug(lcDisplayTrace) << "captureOriginalRefreshRate using baseline because HDR is already enabled"
+                                << "baselineHz=" << m_baselineRefreshRate
+                                << "currentHz=" << current;
+        current = m_baselineRefreshRate;
+    }
+#endif
     if (current <= 0.0) {
         qWarning() << "DisplayManager: Failed to capture original refresh rate (current:" << current << ")";
         return;
@@ -363,10 +402,11 @@ bool DisplayManager::setRefreshRateWindows(double hz)
 
 bool DisplayManager::restoreRefreshRateWindows()
 {
-    if (m_originalRefreshRate > 0.0) {
+    const double targetHz = (m_originalRefreshRate > 0.0) ? m_originalRefreshRate : m_baselineRefreshRate;
+    if (targetHz > 0.0) {
         qDebug() << "DisplayManager: Restoring display refresh to captured original rate"
-                 << m_originalRefreshRate << "Hz";
-        if (setRefreshRateWindows(m_originalRefreshRate)) {
+                 << targetHz << "Hz";
+        if (setRefreshRateWindows(targetHz)) {
             return true;
         }
         qWarning() << "DisplayManager: Failed to restore to captured rate, falling back to registry defaults";

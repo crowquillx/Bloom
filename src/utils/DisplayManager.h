@@ -61,6 +61,7 @@ private:
     // State tracking
     bool m_refreshRateChanged = false;
     double m_originalRefreshRate = 0.0;
+    double m_baselineRefreshRate = 0.0;
     bool m_hasCapturedOriginalRefreshRate = false;
     bool m_hdrChanged = false;
     bool m_originalHDRState = false;
