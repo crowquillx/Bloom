@@ -6,6 +6,7 @@
 #include <QtMath>
 #include <QElapsedTimer>
 #include <QLoggingCategory>
+#include <QThread>
 #include <vector>
 
 #ifdef Q_OS_WIN
@@ -64,6 +65,23 @@ AdvancedColorStateQueryResult queryAdvancedColorState(const DISPLAYCONFIG_PATH_I
     result.enabled = getAdvancedColorInfo.advancedColorEnabled != 0;
     result.ret = ret;
     return result;
+}
+
+bool waitForAdvancedColorState(const DISPLAYCONFIG_PATH_INFO &pathInfo, bool enabled, int timeoutMs, int pollMs)
+{
+    QElapsedTimer timer;
+    timer.start();
+
+    while (timer.elapsed() < timeoutMs) {
+        const AdvancedColorStateQueryResult state = queryAdvancedColorState(pathInfo);
+        if (state.ok && state.enabled == enabled) {
+            return true;
+        }
+        QThread::msleep(static_cast<unsigned long>(pollMs));
+    }
+
+    const AdvancedColorStateQueryResult finalState = queryAdvancedColorState(pathInfo);
+    return finalState.ok && finalState.enabled == enabled;
 }
 #endif
 }
@@ -435,11 +453,22 @@ bool DisplayManager::setHDRWindows(bool enabled)
                                << "ret=" << ret;
         if (ret == ERROR_SUCCESS) {
             qDebug() << "DisplayManager: Successfully set HDR to" << enabled << "for path" << i;
+            static constexpr int kHdrSettleTimeoutMs = 5000;
+            static constexpr int kHdrSettlePollMs = 50;
+            const bool settled = waitForAdvancedColorState(pathArray[i], enabled, kHdrSettleTimeoutMs, kHdrSettlePollMs);
             const AdvancedColorStateQueryResult postState = queryAdvancedColorState(pathArray[i]);
             qCInfo(lcDisplayTrace) << "setHDRWindows post-state"
                                    << "path=" << i
+                                   << "settled=" << settled
                                    << "queryRet=" << postState.ret
                                    << "enabled=" << postState.enabled;
+            if (!settled) {
+                qCWarning(lcDisplayTrace) << "setHDRWindows settle-timeout"
+                                          << "path=" << i
+                                          << "requested=" << enabled
+                                          << "timeoutMs=" << kHdrSettleTimeoutMs;
+                continue;
+            }
             success = true;
         } else {
             qWarning() << "DisplayManager: Failed to set HDR for path" << i << "error:" << ret;

@@ -1779,8 +1779,9 @@ void PlayerController::startPlayback(const QString &url)
     
     // Handle Display Settings - HDR FIRST (must be done before refresh rate change)
     // Toggling HDR can reset the display mode, so we set HDR first, then refresh rate
+    const bool shouldAttemptHdrToggle = m_config->getEnableHDR() && m_contentIsHDR;
     bool hdrEnabled = false;
-    if (m_config->getEnableHDR() && m_contentIsHDR) {
+    if (shouldAttemptHdrToggle) {
         // Snapshot refresh before HDR toggle. Some setups force 60Hz in HDR,
         // and we want restore to return to the pre-HDR rate.
         m_displayManager->captureOriginalRefreshRate();
@@ -1795,11 +1796,12 @@ void PlayerController::startPlayback(const QString &url)
     }
 
     // HDR mode changes can complete asynchronously and reset refresh after return.
-    // Wait briefly before refresh matching to avoid landing on post-HDR fallback (often 60Hz).
-    if (hdrEnabled) {
+    // Wait briefly before refresh matching whenever we attempted an HDR toggle,
+    // even if the immediate state query failed to settle in time.
+    if (shouldAttemptHdrToggle) {
         static constexpr int kHdrSettleDelayMs = 750;
-        qDebug() << "PlayerController: HDR switched, waiting" << kHdrSettleDelayMs
-                 << "ms before framerate matching";
+        qDebug() << "PlayerController: HDR toggle attempted (success:" << hdrEnabled
+                 << "), waiting" << kHdrSettleDelayMs << "ms before framerate matching";
         QTimer::singleShot(kHdrSettleDelayMs, this, &PlayerController::applyFramerateMatchingAndStart);
         return;
     }
