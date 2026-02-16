@@ -9,7 +9,7 @@
 !define DESCRIPTION "Jellyfin HTPC Client"
 !define VERSIONMAJOR 0
 !define VERSIONMINOR 3
-!define VERSIONBUILD 0
+!define VERSIONBUILD 1
 
 !define HELPURL "https://github.com/crowquillx/Bloom"
 !define UPDATEURL "https://github.com/crowquillx/Bloom/releases"
