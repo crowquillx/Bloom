@@ -22,6 +22,9 @@ Bloom connects to a Jellyfin server and provides a TV-friendly interface for bro
 
 **Not yet working or incomplete:**
 - Search (barebones implementation exists)
+- AutoPlay is a bit cringe.
+- Playlists
+- Filtering library/search
 - Gamepad support
 - Many edge cases
 - Build systems are very tailored towards my local setup
@@ -89,7 +92,6 @@ CI currently uses `mpv-dev` artifacts from `shinchiro/mpv-winbuild-cmake`.
 #### This is mildly outdated already, by default linux will use the embedded player but it is quite experimental and untested so you may want to use external. 
 
 - Linux embedded libmpv playback (`linux-libmpv-opengl`) is currently less tested and not fully supported across all Wayland compositor/GPU combinations.
-- On Wayland, Bloom currently defaults to `external-mpv-ipc` unless embedded is explicitly opted in for validation.
 - Recommended stable Linux path today:
   - `BLOOM_PLAYER_BACKEND=external-mpv-ipc`
 
