@@ -305,8 +305,8 @@ FocusScope {
                 // Play Button
                 Button {
                     id: playButton
-                    text: hasNextEpisode ? "▶ Play" : "No Episodes Available"
-                    enabled: hasNextEpisode
+                    text: hasNextEpisode ? "▶ Play" : "↺ Rewatch"
+                    enabled: seriesId !== ""
                     Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                     Layout.preferredHeight: Theme.buttonHeightLarge
                     
@@ -350,6 +350,20 @@ FocusScope {
                     onClicked: {
                         if (hasNextEpisode) {
                             root.playNextEpisode(SeriesDetailsViewModel.nextEpisodeId, SeriesDetailsViewModel.nextEpisodePlaybackPositionTicks)
+                        } else {
+                            // All episodes watched — find the first real season (IndexNumber >= 1)
+                            // to avoid landing on Specials (IndexNumber 0), which are often listed first
+                            var firstRealSeasonIndex = -1
+                            var count = SeriesDetailsViewModel.seasonsModel.rowCount()
+                            for (var i = 0; i < count; i++) {
+                                var s = SeriesDetailsViewModel.seasonsModel.getItem(i)
+                                if (s && (s.IndexNumber >= 1 || s.indexNumber >= 1)) {
+                                    firstRealSeasonIndex = i
+                                    break
+                                }
+                            }
+                            // Fall back to index 0 if there are no numbered seasons
+                            root.navigateToSeasons(firstRealSeasonIndex >= 0 ? firstRealSeasonIndex : 0)
                         }
                     }
                     
