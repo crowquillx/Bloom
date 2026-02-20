@@ -1054,7 +1054,7 @@ FocusScope {
                                 id: seasonCoverArt
                                 anchors.fill: parent
                                 source: seasonDelegate.imageUrl !== "" ? seasonDelegate.imageUrl : posterUrl
-                                fillMode: Image.PreserveAspectCrop
+                                fillMode: Image.PreserveAspectFit
                                 asynchronous: true
                                 cache: true
                                 visible: true
@@ -1066,27 +1066,20 @@ FocusScope {
                                 }
                             }
                             
-                            Rectangle {
+                            Item {
                                 id: seasonMask
                                 anchors.fill: parent
-                                radius: Theme.imageRadius
                                 visible: false
                                 layer.enabled: true
                                 layer.smooth: true
-                            }
-                            
-                            // Focus border overlay
-                            Rectangle {
-                                anchors.centerIn: parent
-                                width: parent.width + border.width * 2
-                                height: parent.height + border.width * 2
-                                radius: Theme.imageRadius + border.width
-                                color: "transparent"
-                                border.width: seasonDelegate.isFocused ? Theme.buttonFocusBorderWidth : 0
-                                border.color: Theme.accentPrimary
-                                antialiasing: true
-                                visible: border.width > 0
-                                Behavior on border.width { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
+
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: seasonCoverArt.paintedWidth
+                                    height: seasonCoverArt.paintedHeight
+                                    radius: Theme.imageRadius
+                                    color: "white"
+                                }
                             }
                             
                             // Loading placeholder
@@ -1098,16 +1091,39 @@ FocusScope {
                                 font.family: Theme.fontPrimary
                                 visible: seasonCoverArt.status !== Image.Ready
                             }
-                            
-                            // Unwatched episode count badge
-                            UnwatchedBadge {
-                                anchors.top: parent.top
-                                anchors.right: parent.right
-                                anchors.topMargin: 0
-                                anchors.rightMargin: 0
-                                parentWidth: parent.width
-                                count: seasonDelegate.unplayedItemCount
-                                isFullyWatched: seasonDelegate.isPlayed
+
+                            // Overlay item sized to the painted image area so focus ring
+                            // and badge track the actual image bounds, not the container.
+                            Item {
+                                id: paintedImageBounds
+                                width: seasonCoverArt.paintedWidth
+                                height: seasonCoverArt.paintedHeight
+                                anchors.centerIn: parent
+
+                                // Focus border overlay
+                                Rectangle {
+                                    anchors.centerIn: parent
+                                    width: parent.width + border.width * 2
+                                    height: parent.height + border.width * 2
+                                    radius: Theme.imageRadius + border.width
+                                    color: "transparent"
+                                    border.width: seasonDelegate.isFocused ? Theme.buttonFocusBorderWidth : 0
+                                    border.color: Theme.accentPrimary
+                                    antialiasing: true
+                                    visible: border.width > 0
+                                    Behavior on border.width { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
+                                }
+
+                                // Unwatched episode count badge
+                                UnwatchedBadge {
+                                    anchors.top: parent.top
+                                    anchors.right: parent.right
+                                    anchors.topMargin: 0
+                                    anchors.rightMargin: 0
+                                    parentWidth: parent.width
+                                    count: seasonDelegate.unplayedItemCount
+                                    isFullyWatched: seasonDelegate.isPlayed
+                                }
                             }
                         }
                         
