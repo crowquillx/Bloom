@@ -1015,7 +1015,10 @@ FocusScope {
                                 id: autoplayCountdownCombo
                                 model: ["5s", "10s", "15s", "20s", "25s", "30s"]
                                 // Map ConfigManager value to index: 5→0, 10→1, 15→2, etc.
-                                currentIndex: Math.max(0, Math.round((ConfigManager.autoplayCountdownSeconds - 5) / 5))
+                                currentIndex: Math.max(0, Math.min(
+                                    Math.round((ConfigManager.autoplayCountdownSeconds - 5) / 5),
+                                    model.length - 1
+                                ))
                                 Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                                 focusPolicy: Qt.StrongFocus
                                 enabled: ConfigManager.autoplayNextEpisode

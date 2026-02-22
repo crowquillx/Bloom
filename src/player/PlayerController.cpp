@@ -666,6 +666,7 @@ void PlayerController::onEnterErrorState()
     if (m_playerBackend->isRunning()) {
         m_playerBackend->stopMpv();
     }
+    clearPendingAutoplayContext();
     clearNextEpisodePrefetchState();
 }
 
@@ -1020,8 +1021,6 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     playUrl(streamUrl, episodeId, startPositionTicks, seriesId,
         m_pendingAutoplaySeasonId, m_pendingAutoplayLibraryId,
         m_pendingAutoplayFramerate, m_pendingAutoplayIsHDR);
-    
-    clearPendingAutoplayContext();
 }
 
 /**

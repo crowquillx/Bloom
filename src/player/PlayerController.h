@@ -370,142 +370,120 @@ private:
     void handlePlaybackStopAndAutoplay(Event stopEvent);
     void maybeTriggerNextEpisodePrefetch();
     /**
- * Returns whether a prefetched "next episode" payload is available and usable for navigation.
- * @returns `true` if a prefetched next-episode item is ready and applicable to consume, `false` otherwise.
- */
-
-/**
- * Consume any prefetched next-episode payload and navigate to it using the stored autoplay/context.
- */
-
-/**
- * Clear any stored state related to next-episode prefetching and resolution.
- */
-
-/**
- * Preserve the current autoplay/navigation context so it can be restored after teardown or state transitions.
- */
-
-/**
- * Set whether the controller is currently awaiting resolution of the next-episode decision.
- * @param awaiting `true` when awaiting next-episode resolution, `false` otherwise.
- */
-
-/**
- * Load runtime configuration values from the ConfigManager into cached controller state.
- */
-
-/**
- * Begin playback of the given URL using the current playback configuration and state.
- * @param url Media resource URL to start playback for.
- */
-
-/**
- * Apply framerate-matching decisions (if any) to the pending playback context and start playback.
- */
-
-/**
- * Initiate mpv (or configured internal player) startup sequence according to the pending playback context.
- */
-
-/**
- * Update the trickplay preview image/URL for the specified playback position.
- * @param seconds Position in seconds for which to update the trickplay preview.
- */
-
-/**
- * Clear any active trickplay preview override and associated preview URL/state.
- */
-
-/**
- * Re-evaluate and update flags that indicate whether the player is currently inside intro/outro or other skip segments.
- */
-
-/**
- * Seek to the end boundary of the specified media segment type (e.g., intro or outro).
- * @param segmentType Type of media segment whose end should be sought.
- * @returns `true` if a seek was performed to the segment end, `false` if no applicable segment was found.
- */
-
-/**
- * Schedule a debounced persistence of the current playback volume state to configuration/storage.
- */
-
-/**
- * Persist the current playback volume and mute state immediately.
- */
-
-/**
- * Build a data URL referencing a trickplay preview frame stored in a binary file.
- * @param binaryPath Filesystem path to the trickplay binary data.
- * @param frameIndex Zero-based index of the frame within the binary.
- * @param width Frame width in pixels.
- * @param height Frame height in pixels.
- * @returns A QString containing the data URL suitable for use as an image source, or an empty string on failure.
- */
-
-/**
- * Connect required signals from the provided player backend into this controller.
- * @param backend Backend instance whose signals should be connected.
- */
-
-/**
- * Attempt to fall back from the internal player backend to an external backend for the current attempt.
- * @param reason Human-readable reason for attempting the fallback.
- * @returns `true` if a fallback was initiated, `false` otherwise.
- */
-
-/**
- * Update internal mappings from Jellyfin stream indices to mpv track identifiers.
- * @param audioTrackMap Mapping list for audio tracks (Jellyfin -> mpv).
- * @param subtitleTrackMap Mapping list for subtitle tracks (Jellyfin -> mpv).
- */
-
-/**
- * Map a Jellyfin audio stream index to the corresponding mpv audio track number.
- * @param jellyfinStreamIndex Jellyfin audio stream index.
- * @returns 1-based mpv audio track number, or -1 when auto/none is intended.
- */
-
-/**
- * Map a Jellyfin subtitle stream index to the corresponding mpv subtitle track number.
- * @param jellyfinStreamIndex Jellyfin subtitle stream index.
- * @returns 1-based mpv subtitle track number, or -1 when subtitles are disabled.
- */
-
-/**
- * Convert a playback state enum value to a human-readable string.
- * @param state PlaybackState value to convert.
- * @returns A QString representation of `state`.
- */
-
-/**
- * Convert an event enum value to a human-readable string.
- * @param event Event value to convert.
- * @returns A QString representation of `event`.
- */
-bool hasUsablePrefetchedNextEpisode() const;
+     * Returns whether a prefetched "next episode" payload is available and usable for navigation.
+     * @returns `true` if a prefetched next-episode item is ready and applicable to consume, `false` otherwise.
+     */
+    bool hasUsablePrefetchedNextEpisode() const;
+    /**
+     * Consume any prefetched next-episode payload and navigate to it using the stored autoplay/context.
+     */
     void consumePrefetchedNextEpisodeAndNavigate();
+    /**
+     * Clear any stored state related to next-episode prefetching and resolution.
+     */
     void clearNextEpisodePrefetchState();
+    /**
+     * Preserve the current autoplay/navigation context so it can be restored after teardown or state transitions.
+     */
     void stashPendingAutoplayContext();
+    /**
+     * Set whether the controller is currently awaiting resolution of the next-episode decision.
+     * @param awaiting `true` when awaiting next-episode resolution, `false` otherwise.
+     */
     void setAwaitingNextEpisodeResolution(bool awaiting);
+    /**
+     * Load runtime configuration values from the ConfigManager into cached controller state.
+     */
     void loadConfig();
+    /**
+     * Begin playback of the given URL using the current playback configuration and state.
+     * @param url Media resource URL to start playback for.
+     */
     void startPlayback(const QString &url);
+    /**
+     * Apply framerate-matching decisions (if any) to the pending playback context and start playback.
+     */
     void applyFramerateMatchingAndStart();
+    /**
+     * Initiate mpv (or configured internal player) startup sequence according to the pending playback context.
+     */
     void initiateMpvStart();
+    /**
+     * Update the trickplay preview image/URL for the specified playback position.
+     * @param seconds Position in seconds for which to update the trickplay preview.
+     */
     void updateTrickplayPreviewForPosition(double seconds);
+    /**
+     * Clear any active trickplay preview override and associated preview URL/state.
+     */
     void clearTrickplayPreview();
+    /**
+     * Re-evaluate and update flags that indicate whether the player is currently inside intro/outro or other skip segments.
+     */
     void updateSkipSegmentState();
+    /**
+     * Seek to the end boundary of the specified media segment type (e.g., intro or outro).
+     * @param segmentType Type of media segment whose end should be sought.
+     * @returns `true` if a seek was performed to the segment end, `false` if no applicable segment was found.
+     */
     bool seekToSegmentEnd(MediaSegmentType segmentType);
+    /**
+     * Schedule a debounced persistence of the current playback volume state to configuration/storage.
+     */
     void schedulePersistPlaybackVolumeState();
+    /**
+     * Persist the current playback volume and mute state immediately.
+     */
     void persistPlaybackVolumeState();
+    /**
+     * Build a data URL referencing a trickplay preview frame stored in a binary file.
+     * @param binaryPath Filesystem path to the trickplay binary data.
+     * @param frameIndex Zero-based index of the frame within the binary.
+     * @param width Frame width in pixels.
+     * @param height Frame height in pixels.
+     * @returns A QString containing the data URL suitable for use as an image source, or an empty string on failure.
+     */
     static QString buildTrickplayPreviewDataUrl(const QString &binaryPath, int frameIndex, int width, int height);
+    /**
+     * Connect required signals from the provided player backend into this controller.
+     * @param backend Backend instance whose signals should be connected.
+     */
     void connectBackendSignals(IPlayerBackend *backend);
+    /**
+     * Attempt to fall back from the internal player backend to an external backend for the current attempt.
+     * @param reason Human-readable reason for attempting the fallback.
+     * @returns `true` if a fallback was initiated, `false` otherwise.
+     */
     bool tryFallbackToExternalBackend(const QString &reason);
+    /**
+     * Update internal mappings from Jellyfin stream indices to mpv track identifiers.
+     * @param audioTrackMap Mapping list for audio tracks (Jellyfin -> mpv).
+     * @param subtitleTrackMap Mapping list for subtitle tracks (Jellyfin -> mpv).
+     */
     void updateTrackMappings(const QVariantList &audioTrackMap, const QVariantList &subtitleTrackMap);
+    /**
+     * Map a Jellyfin audio stream index to the corresponding mpv audio track number.
+     * @param jellyfinStreamIndex Jellyfin audio stream index.
+     * @returns 1-based mpv audio track number, or -1 when auto/none is intended.
+     */
     int mpvAudioTrackForJellyfinIndex(int jellyfinStreamIndex) const;
+    /**
+     * Map a Jellyfin subtitle stream index to the corresponding mpv subtitle track number.
+     * @param jellyfinStreamIndex Jellyfin subtitle stream index.
+     * @returns 1-based mpv subtitle track number, or -1 when subtitles are disabled.
+     */
     int mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) const;
+    /**
+     * Convert a playback state enum value to a human-readable string.
+     * @param state PlaybackState value to convert.
+     * @returns A QString representation of `state`.
+     */
     static QString stateToString(PlaybackState state);
+    /**
+     * Convert an event enum value to a human-readable string.
+     * @param event Event value to convert.
+     * @returns A QString representation of `event`.
+     */
     static QString eventToString(Event event);
 
     IPlayerBackend *m_playerBackend;
