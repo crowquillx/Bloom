@@ -998,14 +998,14 @@ FocusScope {
                                     text: qsTr("Autoplay Countdown")
                                     font.pixelSize: Theme.fontSizeBody
                                     font.family: Theme.fontPrimary
-                                    color: Theme.textPrimary
+                                    color: autoplayCountdownCombo.enabled ? Theme.textPrimary : Theme.textDisabled
                                 }
 
                                 Text {
                                     text: qsTr("Seconds before next episode auto-plays")
                                     font.pixelSize: Theme.fontSizeSmall
                                     font.family: Theme.fontPrimary
-                                    color: Theme.textSecondary
+                                    color: autoplayCountdownCombo.enabled ? Theme.textSecondary : Theme.textDisabled
                                     wrapMode: Text.WordWrap
                                     Layout.fillWidth: true
                                 }
@@ -1014,14 +1014,41 @@ FocusScope {
                             ComboBox {
                                 id: autoplayCountdownCombo
                                 model: ["5s", "10s", "15s", "20s", "25s", "30s"]
-                                // Map ConfigManager value to index: 5→0, 10→1, 15→2, etc.
-                                currentIndex: Math.max(0, Math.min(
-                                    Math.round((ConfigManager.autoplayCountdownSeconds - 5) / 5),
-                                    model.length - 1
-                                ))
+                                currentIndex: 0
                                 Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                                 focusPolicy: Qt.StrongFocus
                                 enabled: ConfigManager.autoplayNextEpisode
+                                property bool initialized: false
+                                property bool updatingSelection: false
+
+                                function configSecondsToIndex(seconds) {
+                                    return Math.max(0, Math.min(
+                                        Math.round((seconds - 5) / 5),
+                                        model.length - 1
+                                    ))
+                                }
+
+                                function refreshSelectionFromConfig() {
+                                    var idx = configSecondsToIndex(ConfigManager.autoplayCountdownSeconds)
+                                    if (currentIndex === idx) {
+                                        return
+                                    }
+                                    updatingSelection = true
+                                    currentIndex = idx
+                                    updatingSelection = false
+                                }
+
+                                Component.onCompleted: {
+                                    refreshSelectionFromConfig()
+                                    initialized = true
+                                }
+
+                                Connections {
+                                    target: ConfigManager
+                                    function onAutoplayCountdownSecondsChanged() {
+                                        autoplayCountdownCombo.refreshSelectionFromConfig()
+                                    }
+                                }
 
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
@@ -1035,6 +1062,9 @@ FocusScope {
                                 }
 
                                 onCurrentIndexChanged: {
+                                    if (!initialized || updatingSelection) {
+                                        return
+                                    }
                                     var seconds = (currentIndex * 5) + 5
                                     if (seconds !== ConfigManager.autoplayCountdownSeconds) {
                                         ConfigManager.autoplayCountdownSeconds = seconds

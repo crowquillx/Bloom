@@ -17,6 +17,7 @@
 #include <QDir>
 #include <QDebug>
 #include <QLoggingCategory>
+#include <QMetaObject>
 #include <QRectF>
 #include <QtGlobal>
 #include <QUrl>
@@ -924,6 +925,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     if (episodeData.isEmpty()) {
         qDebug() << "PlayerController: No next episode available";
         clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
         return;
     }
     
@@ -947,7 +949,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
              << autoplay << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
 
     setAwaitingNextEpisodeResolution(false);
-    emit navigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay);
+    emitNavigateToNextEpisodeQueued(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay);
     
     // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
 }
@@ -1017,9 +1019,16 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
                         << "subtitle=" << m_selectedSubtitleTrack;
 
     // Build stream URL and start playback using stashed autoplay context
+    QString targetSeasonId = episodeData.value(QStringLiteral("SeasonId")).toString();
+    if (targetSeasonId.isEmpty()) {
+        targetSeasonId = episodeData.value(QStringLiteral("ParentId")).toString();
+    }
+    if (targetSeasonId.isEmpty()) {
+        targetSeasonId = m_pendingAutoplaySeasonId;
+    }
     QString streamUrl = m_libraryService->getStreamUrl(episodeId);
     playUrl(streamUrl, episodeId, startPositionTicks, seriesId,
-        m_pendingAutoplaySeasonId, m_pendingAutoplayLibraryId,
+        targetSeasonId, m_pendingAutoplayLibraryId,
         m_pendingAutoplayFramerate, m_pendingAutoplayIsHDR);
 }
 
@@ -2015,12 +2024,29 @@ void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
                         << "itemId=" << m_pendingAutoplayItemId
                         << "seriesId=" << prefetchedSeriesId;
 
-    emit navigateToNextEpisode(m_prefetchedNextEpisodeData,
-                               prefetchedSeriesId,
-                               lastAudioIndex,
-                               lastSubtitleIndex,
-                               autoplay);
+    emitNavigateToNextEpisodeQueued(m_prefetchedNextEpisodeData,
+                                    prefetchedSeriesId,
+                                    lastAudioIndex,
+                                    lastSubtitleIndex,
+                                    autoplay);
     clearNextEpisodePrefetchState();
+}
+
+void PlayerController::emitNavigateToNextEpisodeQueued(const QJsonObject &episodeData,
+                                                       const QString &seriesId,
+                                                       int lastAudioIndex,
+                                                       int lastSubtitleIndex,
+                                                       bool autoplay)
+{
+    QMetaObject::invokeMethod(this,
+                              [this, episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay]() {
+                                  emit navigateToNextEpisode(episodeData,
+                                                             seriesId,
+                                                             lastAudioIndex,
+                                                             lastSubtitleIndex,
+                                                             autoplay);
+                              },
+                              Qt::QueuedConnection);
 }
 
 /**
@@ -2076,7 +2102,6 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplaySubtitleTrack = -1;
     m_pendingAutoplayFramerate = 0.0;
     m_pendingAutoplayIsHDR = false;
-    m_waitingForNextEpisodeAtPlaybackEnd = false;
     setAwaitingNextEpisodeResolution(false);
 }
 

@@ -119,36 +119,36 @@ public:
      * Returns the current playback state.
      * @returns The current PlaybackState.
      */
+    PlaybackState playbackState() const;
     /**
      * Indicates whether playback is currently active.
      * @returns `true` if playback is active, `false` otherwise.
      */
+    bool isPlaybackActive() const;
     /**
      * Indicates whether the controller is awaiting resolution of the next episode (prefetch/navigation).
      * @returns `true` if awaiting next-episode resolution, `false` otherwise.
      */
+    bool awaitingNextEpisodeResolution() const { return m_awaitingNextEpisodeResolution; }
     /**
      * Returns a human-readable name for the current playback state.
      * @returns The playback state's name as a QString.
      */
+    QString stateName() const;
     /**
      * Indicates whether the player is currently buffering.
      * @returns `true` if buffering, `false` otherwise.
      */
+    bool isBuffering() const;
     /**
      * Indicates whether the player is currently loading content.
      * @returns `true` if loading, `false` otherwise.
      */
+    bool isLoading() const;
     /**
      * Indicates whether playback is currently paused.
      * @returns `true` if paused, `false` otherwise.
      */
-    PlaybackState playbackState() const;
-    bool isPlaybackActive() const;
-    bool awaitingNextEpisodeResolution() const { return m_awaitingNextEpisodeResolution; }
-    QString stateName() const;
-    bool isBuffering() const;
-    bool isLoading() const;
     bool isPaused() const { return m_playbackState == Paused; }
     bool hasError() const;
     QString errorMessage() const;
@@ -194,6 +194,13 @@ public:
     /// @param episodeData JSON object with episode details (Id, Name, SeriesName, etc.)
     /// @param seriesId The series this episode belongs to
     Q_INVOKABLE void playNextEpisode(const QJsonObject &episodeData, const QString &seriesId);
+    /**
+     * @brief Clears any stored pending autoplay context.
+     *
+     * Resets stashed identifiers and playback hints used by Up Next/autoplay flows and
+     * marks next-episode resolution as no longer pending. Used when navigation is canceled
+     * or playback context is intentionally replaced.
+     */
     Q_INVOKABLE void clearPendingAutoplayContext();
     
     // Extended playUrl with track selection
@@ -386,6 +393,8 @@ private:
      * Preserve the current autoplay/navigation context so it can be restored after teardown or state transitions.
      */
     void stashPendingAutoplayContext();
+    void emitNavigateToNextEpisodeQueued(const QJsonObject &episodeData, const QString &seriesId,
+                                         int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
     /**
      * Set whether the controller is currently awaiting resolution of the next-episode decision.
      * @param awaiting `true` when awaiting next-episode resolution, `false` otherwise.
@@ -513,6 +522,7 @@ private:
     QTimer *m_volumePersistTimer;
     static constexpr int kProgressReportIntervalMs = 10000; // 10 seconds
     static constexpr int kVolumePersistDebounceMs = 250;
+    static constexpr double kNextEpisodePrefetchTriggerPercent = 70.0;
     
     // State
     PlaybackState m_playbackState = Idle;
@@ -531,7 +541,9 @@ private:
     double m_seekTargetWhileBuffering = -1;
     qint64 m_startPositionTicks = 0;  // Resume position in Jellyfin ticks
     bool m_shouldAutoplay = false;  // Flag to trigger autoplay on next episode loaded
+    // QML-visible/property-facing flag for waiting on next-episode resolution callbacks.
     bool m_awaitingNextEpisodeResolution = false;
+    // Internal playback-end flow gate used to act only on expected post-end next-episode events.
     bool m_waitingForNextEpisodeAtPlaybackEnd = false;
     bool m_nextEpisodePrefetchRequestedForAttempt = false;
     bool m_nextEpisodePrefetchReady = false;
@@ -578,7 +590,6 @@ private:
     quint64 m_playbackAttemptId = 0;
     bool m_hasReportedStopForAttempt = false;
     bool m_hasEvaluatedCompletionForAttempt = false;
-    static constexpr double kNextEpisodePrefetchTriggerPercent = 70.0;
     
     // Buffering detection
     QElapsedTimer m_lastPositionUpdateTime;
