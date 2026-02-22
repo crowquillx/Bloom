@@ -1021,7 +1021,14 @@ FocusScope {
                                 enabled: ConfigManager.autoplayNextEpisode
 
                                 onActiveFocusChanged: {
-                                    if (activeFocus) flickable.ensureFocusVisible(this)
+                                    if (activeFocus) {
+                                        flickable.ensureFocusVisible(this)
+                                        InputModeManager.setNavigationMode("keyboard")
+                                        InputModeManager.hideCursor(true)
+                                    } else if (!popup.visible) {
+                                        InputModeManager.setNavigationMode("pointer")
+                                        InputModeManager.hideCursor(false)
+                                    }
                                 }
 
                                 onCurrentIndexChanged: {
@@ -1089,12 +1096,18 @@ FocusScope {
                                     padding: 1
 
                                     onOpened: {
+                                        InputModeManager.setNavigationMode("keyboard")
+                                        InputModeManager.hideCursor(true)
                                         autoplayCountdownList.currentIndex = autoplayCountdownCombo.highlightedIndex >= 0
                                             ? autoplayCountdownCombo.highlightedIndex
                                             : autoplayCountdownCombo.currentIndex
                                         autoplayCountdownList.forceActiveFocus()
                                     }
-                                    onClosed: autoplayCountdownCombo.forceActiveFocus()
+                                    onClosed: {
+                                        autoplayCountdownCombo.forceActiveFocus()
+                                        InputModeManager.setNavigationMode("pointer")
+                                        InputModeManager.hideCursor(false)
+                                    }
 
                                     contentItem: ListView {
                                         id: autoplayCountdownList
@@ -1108,6 +1121,13 @@ FocusScope {
                                         ScrollIndicator.vertical: ScrollIndicator { }
 
                                         onCurrentIndexChanged: autoplayCountdownCombo.highlightedIndex = currentIndex
+
+                                        onActiveFocusChanged: {
+                                            if (activeFocus) {
+                                                InputModeManager.setNavigationMode("keyboard")
+                                                InputModeManager.hideCursor(true)
+                                            }
+                                        }
 
                                         Keys.onReturnPressed: {
                                             autoplayCountdownCombo.currentIndex = currentIndex

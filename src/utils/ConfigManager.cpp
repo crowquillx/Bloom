@@ -852,7 +852,8 @@ int ConfigManager::getAutoplayCountdownSeconds() const
             QJsonObject playback = settings["playback"].toObject();
             if (playback.contains("autoplay_countdown_seconds")) {
                 int val = playback["autoplay_countdown_seconds"].toInt();
-                return std::max(5, std::min(val, 30));
+                int clamped = std::max(5, std::min(val, 30));
+                return ((clamped + 2) / 5) * 5;
             }
         }
     }

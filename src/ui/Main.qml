@@ -220,6 +220,18 @@ Window {
         visible: awaitingUpNextTransition
         color: Qt.rgba(0, 0, 0, 0.88)
 
+        MouseArea {
+            anchors.fill: parent
+            enabled: awaitingUpNextTransition
+            hoverEnabled: enabled
+            acceptedButtons: Qt.AllButtons
+            preventStealing: true
+            onPressed: function(mouse) { mouse.accepted = true }
+            onReleased: function(mouse) { mouse.accepted = true }
+            onClicked: function(mouse) { mouse.accepted = true }
+            onWheel: function(wheel) { wheel.accepted = true }
+        }
+
         ColumnLayout {
             anchors.centerIn: parent
             spacing: Theme.spacingMedium
@@ -608,31 +620,11 @@ Window {
                     })
                     
                     LibraryService.getSeriesDetails(seriesId)
-
-                    var attempts = 0
-                    var maxAttempts = 12
-                    var applyEpisodeContextTimer = Qt.createQmlObject(
-                        'import QtQuick; Timer { interval: 50; repeat: true }',
-                        window,
-                        "applyEpisodeContextWhenReadyTimer"
-                    )
-
-                    applyEpisodeContextTimer.triggered.connect(function() {
-                        var screen = libraryScreen || stackView.currentItem
-                        if (screen && screen.showEpisodeDetails) {
-                            screen.showEpisodeDetails(targetEpisodeData)
-                            applyEpisodeContextTimer.stop()
-                            applyEpisodeContextTimer.destroy()
-                            return;
-                        }
-                        attempts++
-                        if (attempts >= maxAttempts) {
-                            console.warn("[Main] Up Next: Could not apply episode context to LibraryScreen")
-                            applyEpisodeContextTimer.stop()
-                            applyEpisodeContextTimer.destroy()
-                        }
-                    })
-                    applyEpisodeContextTimer.start()
+                    if (libraryScreen) {
+                        libraryScreen.pendingEpisodeData = targetEpisodeData
+                    } else {
+                        console.warn("[Main] Up Next: LibraryScreen push failed, could not set pendingEpisodeData")
+                    }
                 })
                 
                 // Go back to home
@@ -641,6 +633,9 @@ Window {
                     PlayerController.clearPendingAutoplayContext()
                     stackView.pop(null, StackView.Immediate)
                 })
+            } else {
+                console.warn("[Main] Failed to create Up Next screen, clearing pending autoplay context")
+                PlayerController.clearPendingAutoplayContext()
             }
         }
         

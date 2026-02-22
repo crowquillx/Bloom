@@ -996,7 +996,25 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     setOverlayMetadata(seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName, subtitle);
     
     emit autoplayingNextEpisode(episodeName, seriesName);
-    
+
+    // Preserve stashed Jellyfin track indices across playUrl() clearing autoplay context.
+    const int stashedAudioTrack = m_pendingAutoplayAudioTrack;
+    const int stashedSubtitleTrack = m_pendingAutoplaySubtitleTrack;
+    const bool audioTrackChanged = m_selectedAudioTrack != stashedAudioTrack;
+    const bool subtitleTrackChanged = m_selectedSubtitleTrack != stashedSubtitleTrack;
+    m_selectedAudioTrack = stashedAudioTrack;
+    m_selectedSubtitleTrack = stashedSubtitleTrack;
+    if (audioTrackChanged) {
+        emit selectedAudioTrackChanged();
+    }
+    if (subtitleTrackChanged) {
+        emit selectedSubtitleTrackChanged();
+    }
+
+    qCDebug(lcPlayback) << "playNextEpisode startup track selections"
+                        << "audio=" << m_selectedAudioTrack
+                        << "subtitle=" << m_selectedSubtitleTrack;
+
     // Build stream URL and start playback using stashed autoplay context
     QString streamUrl = m_libraryService->getStreamUrl(episodeId);
     playUrl(streamUrl, episodeId, startPositionTicks, seriesId,

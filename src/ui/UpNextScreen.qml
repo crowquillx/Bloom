@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Effects
+import BloomUI
 
 /**
  * UpNextScreen - Post-playback interstitial showing the next episode
@@ -62,7 +63,9 @@ FocusScope {
     }
 
     // ---- Countdown timer ----
-    property int countdown: autoplay ? (typeof ConfigManager !== 'undefined' ? ConfigManager.autoplayCountdownSeconds : 10) : -1
+    property int countdown: autoplay
+        ? Math.max(1, (typeof ConfigManager !== 'undefined' ? ConfigManager.autoplayCountdownSeconds : 10))
+        : -1
     readonly property bool countdownActive: autoplay && countdown > 0
 
     Timer {
@@ -167,7 +170,7 @@ FocusScope {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 visible: root.autoplay && root.countdown > 0
-                text: "Next episode in " + root.countdown
+                text: qsTr("Next episode in %1").arg(root.countdown)
                 font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
                 font.weight: Font.DemiBold
@@ -178,7 +181,7 @@ FocusScope {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 visible: root.autoplay && root.countdown <= 0 && root.countdown !== -1
-                text: "Starting…"
+                text: qsTr("Starting…")
                 font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
                 font.weight: Font.DemiBold
@@ -189,7 +192,7 @@ FocusScope {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
                 visible: !root.autoplay || root.countdown === -1
-                text: "Up Next"
+                text: qsTr("Up Next")
                 font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
                 font.weight: Font.Bold
@@ -327,6 +330,7 @@ FocusScope {
                             color: Theme.accentPrimary
                             width: {
                                 var total = typeof ConfigManager !== 'undefined' ? ConfigManager.autoplayCountdownSeconds : 10
+                                total = Math.max(1, total)
                                 return parent.width * (1.0 - root.countdown / total)
                             }
                             Behavior on width { NumberAnimation { duration: 900; easing.type: Easing.Linear } }
