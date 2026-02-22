@@ -50,6 +50,7 @@ class PlayerController : public QObject
     Q_OBJECT
     Q_PROPERTY(PlaybackState playbackState READ playbackState NOTIFY playbackStateChanged)
     Q_PROPERTY(bool isPlaybackActive READ isPlaybackActive NOTIFY isPlaybackActiveChanged)
+    Q_PROPERTY(bool awaitingNextEpisodeResolution READ awaitingNextEpisodeResolution NOTIFY awaitingNextEpisodeResolutionChanged)
     Q_PROPERTY(QString stateName READ stateName NOTIFY stateChanged)
     Q_PROPERTY(bool isBuffering READ isBuffering NOTIFY isBufferingChanged)
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
@@ -116,6 +117,7 @@ public:
 
     PlaybackState playbackState() const;
     bool isPlaybackActive() const;
+    bool awaitingNextEpisodeResolution() const { return m_awaitingNextEpisodeResolution; }
     QString stateName() const;
     bool isBuffering() const;
     bool isLoading() const;
@@ -238,6 +240,7 @@ signals:
     void bufferingProgressChanged();
     void audioDelayChanged();
     void isPlaybackActiveChanged();
+    void awaitingNextEpisodeResolutionChanged();
     void supportsEmbeddedVideoChanged();
     void embeddedVideoShrinkEnabledChanged();
     void volumeChanged();
@@ -337,6 +340,7 @@ private:
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
     void stashPendingAutoplayContext();
     void clearPendingAutoplayContext();
+    void setAwaitingNextEpisodeResolution(bool awaiting);
     void loadConfig();
     void startPlayback(const QString &url);
     void applyFramerateMatchingAndStart();
@@ -401,6 +405,7 @@ private:
     double m_seekTargetWhileBuffering = -1;
     qint64 m_startPositionTicks = 0;  // Resume position in Jellyfin ticks
     bool m_shouldAutoplay = false;  // Flag to trigger autoplay on next episode loaded
+    bool m_awaitingNextEpisodeResolution = false;
 
     // Persisted autoplay context across state teardown/idle transition
     QString m_pendingAutoplayItemId;

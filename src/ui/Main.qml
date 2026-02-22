@@ -61,6 +61,8 @@ Window {
                                                          && activeEmbeddedPlaybackOverlay.fullControlsVisible
     readonly property bool playbackSelectorOpen: embeddedPlaybackActive
                                               && activeEmbeddedPlaybackOverlay.selectorOpen
+    readonly property bool awaitingUpNextTransition: PlayerController.awaitingNextEpisodeResolution
+                                                  && !PlayerController.isPlaybackActive
 
     function ensurePlaybackOverlayFocus() {
         if (!embeddedPlaybackActive) {
@@ -207,6 +209,37 @@ Window {
                     console.log("[FocusDebug] Skipping focus - sidebar is expanded, will restore later")
                 }
                 updateSidebarNavigation()
+            }
+        }
+    }
+
+    Rectangle {
+        id: upNextBlockingOverlay
+        anchors.fill: parent
+        z: 850
+        visible: awaitingUpNextTransition
+        color: Qt.rgba(0, 0, 0, 0.88)
+
+        ColumnLayout {
+            anchors.centerIn: parent
+            spacing: Theme.spacingMedium
+
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: qsTr("Up Next")
+                font.pixelSize: Theme.fontSizeHeader
+                font.family: Theme.fontPrimary
+                font.bold: true
+                color: Theme.textPrimary
+            }
+
+            BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                running: upNextBlockingOverlay.visible
+                width: Math.round(52 * Theme.layoutScale)
+                height: Math.round(52 * Theme.layoutScale)
+                palette.dark: Theme.textPrimary
+                palette.light: Theme.accentSecondary
             }
         }
     }
@@ -524,7 +557,7 @@ Window {
             
             // Pop back to the root level (home screen) first
             while (stackView.depth > 1) {
-                stackView.pop(null)  // Pop without transition
+                stackView.pop(null, StackView.Immediate)
             }
             
             // Push the Up Next interstitial screen
@@ -534,20 +567,25 @@ Window {
                 lastAudioIndex: lastAudioIndex,
                 lastSubtitleIndex: lastSubtitleIndex,
                 autoplay: autoplay
-            })
+            }, StackView.Immediate)
             
             if (upNextScreen) {
+                Qt.callLater(function() {
+                    if (upNextScreen && upNextScreen.focusPrimaryAction) {
+                        upNextScreen.focusPrimaryAction()
+                    }
+                })
                 // Play the next episode
                 upNextScreen.playRequested.connect(function() {
                     console.log("[Main] Up Next: Play requested")
-                    stackView.pop()
+                    stackView.pop(null, StackView.Immediate)
                     PlayerController.playNextEpisode(episodeData, seriesId)
                 })
                 
                 // Navigate to the episode list (same as ESC)
                 upNextScreen.moreEpisodesRequested.connect(function() {
                     console.log("[Main] Up Next: More episodes requested")
-                    stackView.pop()
+                    stackView.pop(null, StackView.Immediate)
                     
                     stackView.push("LibraryScreen.qml", {
                         currentParentId: "",
@@ -572,7 +610,7 @@ Window {
                 // Go back to home
                 upNextScreen.backToHomeRequested.connect(function() {
                     console.log("[Main] Up Next: Back to home requested")
-                    stackView.pop()
+                    stackView.pop(null, StackView.Immediate)
                 })
             }
         }

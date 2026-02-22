@@ -866,7 +866,8 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     
     qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with autoplay:" 
              << autoplay << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
-    
+
+    setAwaitingNextEpisodeResolution(false);
     emit navigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay);
     
     // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
@@ -882,6 +883,7 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     
     if (episodeId.isEmpty()) {
         qWarning() << "PlayerController::playNextEpisode: Empty episode ID";
+        clearPendingAutoplayContext();
         return;
     }
     
@@ -1762,6 +1764,7 @@ void PlayerController::stashPendingAutoplayContext()
     m_pendingAutoplaySubtitleTrack = m_selectedSubtitleTrack;
     m_pendingAutoplayFramerate = m_contentFramerate;
     m_pendingAutoplayIsHDR = m_contentIsHDR;
+    setAwaitingNextEpisodeResolution(true);
 }
 
 void PlayerController::clearPendingAutoplayContext()
@@ -1774,6 +1777,16 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplaySubtitleTrack = -1;
     m_pendingAutoplayFramerate = 0.0;
     m_pendingAutoplayIsHDR = false;
+    setAwaitingNextEpisodeResolution(false);
+}
+
+void PlayerController::setAwaitingNextEpisodeResolution(bool awaiting)
+{
+    if (m_awaitingNextEpisodeResolution == awaiting) {
+        return;
+    }
+    m_awaitingNextEpisodeResolution = awaiting;
+    emit awaitingNextEpisodeResolutionChanged();
 }
 
 void PlayerController::startPlayback(const QString &url)

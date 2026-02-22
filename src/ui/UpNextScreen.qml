@@ -100,6 +100,24 @@ FocusScope {
         root.countdownActive = false
     }
 
+    function focusPrimaryAction() {
+        Qt.callLater(function() {
+            thumbnailFocus.forceActiveFocus()
+        })
+    }
+
+    onActiveFocusChanged: {
+        if (activeFocus) {
+            focusPrimaryAction()
+        }
+    }
+
+    StackView.onStatusChanged: {
+        if (StackView.status === StackView.Active) {
+            focusPrimaryAction()
+        }
+    }
+
     // ---- Background ----
     Rectangle {
         anchors.fill: parent
@@ -556,6 +574,6 @@ FocusScope {
 
     // Initial focus
     Component.onCompleted: {
-        thumbnailFocus.forceActiveFocus()
+        focusPrimaryAction()
     }
 }
