@@ -621,7 +621,7 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
         });
 }
 
-void LibraryService::getNextUnplayedEpisode(const QString &seriesId)
+void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId)
 {
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
@@ -632,15 +632,17 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId)
         return;
     }
     
-    QString endpoint = QString("/Shows/NextUp?UserId=%1&SeriesId=%2&Limit=1&Fields=Overview,UserData,RunTimeTicks,ImageTags,ParentId,SeriesId,IndexNumber,ParentIndexNumber&EnableImageTypes=Primary,Thumb")
-        .arg(m_authService->getUserId(), seriesId);
+    const int limit = excludeItemId.isEmpty() ? 1 : 5;
+    QString endpoint = QString("/Shows/NextUp?UserId=%1&SeriesId=%2&Limit=%3&Fields=Overview,UserData,RunTimeTicks,ImageTags,ParentId,SeasonId,SeriesId,IndexNumber,ParentIndexNumber&EnableImageTypes=Primary,Thumb")
+        .arg(m_authService->getUserId(), seriesId)
+        .arg(limit);
     
     sendRequestWithRetry(endpoint,
         [this, endpoint]() {
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, seriesId](QNetworkReply *reply) {
+        [this, seriesId, excludeItemId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
@@ -653,11 +655,21 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId)
             }
             QJsonArray items = doc.object()["Items"].toArray();
             
-            if (!items.isEmpty()) {
-                emit nextUnplayedEpisodeLoaded(seriesId, items.first().toObject());
-            } else {
-                emit nextUnplayedEpisodeLoaded(seriesId, QJsonObject());
+            QJsonObject selectedEpisode;
+            for (const QJsonValue &value : items) {
+                if (!value.isObject()) {
+                    continue;
+                }
+                const QJsonObject episode = value.toObject();
+                const QString episodeId = episode.value(QStringLiteral("Id")).toString();
+                if (!excludeItemId.isEmpty() && episodeId == excludeItemId) {
+                    continue;
+                }
+                selectedEpisode = episode;
+                break;
             }
+
+            emit nextUnplayedEpisodeLoaded(seriesId, selectedEpisode);
         });
 }
 

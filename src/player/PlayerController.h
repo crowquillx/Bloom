@@ -338,6 +338,10 @@ private:
     void reportPlaybackStop();
     void checkCompletionThreshold();
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
+    void maybeTriggerNextEpisodePrefetch();
+    bool hasUsablePrefetchedNextEpisode() const;
+    void consumePrefetchedNextEpisodeAndNavigate();
+    void clearNextEpisodePrefetchState();
     void stashPendingAutoplayContext();
     void clearPendingAutoplayContext();
     void setAwaitingNextEpisodeResolution(bool awaiting);
@@ -406,6 +410,12 @@ private:
     qint64 m_startPositionTicks = 0;  // Resume position in Jellyfin ticks
     bool m_shouldAutoplay = false;  // Flag to trigger autoplay on next episode loaded
     bool m_awaitingNextEpisodeResolution = false;
+    bool m_waitingForNextEpisodeAtPlaybackEnd = false;
+    bool m_nextEpisodePrefetchRequestedForAttempt = false;
+    bool m_nextEpisodePrefetchReady = false;
+    QJsonObject m_prefetchedNextEpisodeData;
+    QString m_prefetchedNextEpisodeSeriesId;
+    QString m_prefetchedForItemId;
 
     // Persisted autoplay context across state teardown/idle transition
     QString m_pendingAutoplayItemId;
@@ -446,6 +456,7 @@ private:
     quint64 m_playbackAttemptId = 0;
     bool m_hasReportedStopForAttempt = false;
     bool m_hasEvaluatedCompletionForAttempt = false;
+    static constexpr double kNextEpisodePrefetchTriggerPercent = 70.0;
     
     // Buffering detection
     QElapsedTimer m_lastPositionUpdateTime;

@@ -58,7 +58,7 @@ public:
 
     // Series details and episodes
     Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);
-    Q_INVOKABLE virtual void getNextUnplayedEpisode(const QString &seriesId);
+    Q_INVOKABLE virtual void getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId = QString());
     Q_INVOKABLE virtual void markSeriesWatched(const QString &seriesId);
     Q_INVOKABLE virtual void markSeriesUnwatched(const QString &seriesId);
     Q_INVOKABLE virtual void markItemPlayed(const QString &itemId);

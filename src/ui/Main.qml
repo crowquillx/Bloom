@@ -586,25 +586,43 @@ Window {
                 upNextScreen.moreEpisodesRequested.connect(function() {
                     console.log("[Main] Up Next: More episodes requested")
                     stackView.pop(null, StackView.Immediate)
+
+                    var targetEpisodeData = Object.assign({}, episodeData || {})
+                    if (!targetEpisodeData.itemId && targetEpisodeData.Id) {
+                        targetEpisodeData.itemId = targetEpisodeData.Id
+                    }
+                    if (!targetEpisodeData.SeasonId && targetEpisodeData.ParentId) {
+                        targetEpisodeData.SeasonId = targetEpisodeData.ParentId
+                    }
                     
-                    stackView.push("LibraryScreen.qml", {
+                    var libraryScreen = stackView.push("LibraryScreen.qml", {
                         currentParentId: "",
                         currentLibraryId: "",
                         currentLibraryName: "",
                         currentSeriesId: seriesId,
                         directNavigationMode: true,
                         pendingAudioTrackIndex: lastAudioIndex,
-                        pendingSubtitleTrackIndex: lastSubtitleIndex
+                        pendingSubtitleTrackIndex: lastSubtitleIndex,
+                        currentSeasonId: targetEpisodeData.SeasonId || ""
                     })
                     
                     LibraryService.getSeriesDetails(seriesId)
-                    
-                    Qt.callLater(function() {
-                        var screen = stackView.currentItem
+
+                    var attemptsRemaining = 12
+                    function applyEpisodeContextWhenReady() {
+                        var screen = libraryScreen || stackView.currentItem
                         if (screen && screen.showEpisodeDetails) {
-                            screen.showEpisodeDetails(episodeData)
+                            screen.showEpisodeDetails(targetEpisodeData)
+                            return
                         }
-                    })
+                        attemptsRemaining--
+                        if (attemptsRemaining > 0) {
+                            Qt.callLater(applyEpisodeContextWhenReady)
+                        } else {
+                            console.warn("[Main] Up Next: Could not apply episode context to LibraryScreen")
+                        }
+                    }
+                    Qt.callLater(applyEpisodeContextWhenReady)
                 })
                 
                 // Go back to home

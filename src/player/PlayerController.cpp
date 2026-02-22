@@ -661,6 +661,7 @@ void PlayerController::onEnterErrorState()
     if (m_playerBackend->isRunning()) {
         m_playerBackend->stopMpv();
     }
+    clearNextEpisodePrefetchState();
 }
 
 // === TIMEOUT HANDLERS ===
@@ -694,15 +695,22 @@ void PlayerController::onProcessStateChanged(bool running)
         // Treat this like an explicit stop so we report progress and consider autoplay.
         reportPlaybackStop();
         bool thresholdMet = checkCompletionThresholdAndAutoplay();
+        bool prefetchedReady = false;
 
         // If threshold is met for an episode, set flag to request next episode after marking as played
         if (thresholdMet && !m_currentSeriesId.isEmpty()) {
             m_shouldAutoplay = true;
+            m_waitingForNextEpisodeAtPlaybackEnd = true;
             stashPendingAutoplayContext();
+            prefetchedReady = hasUsablePrefetchedNextEpisode();
             qDebug() << "PlayerController: Process stopped, threshold met, will request next episode after marking current as played";
         }
 
         processEvent(Event::Stop);
+
+        if (prefetchedReady) {
+            consumePrefetchedNextEpisodeAndNavigate();
+        }
     }
 }
 
@@ -760,6 +768,8 @@ void PlayerController::onPositionChanged(double seconds)
             setBufferingProgress(progress);
         }
     }
+
+    maybeTriggerNextEpisodePrefetch();
     
     m_lastPosition = seconds;
     m_lastPositionUpdateTime.restart();
@@ -817,19 +827,48 @@ void PlayerController::onPlaybackEnded()
     
     // Check if we should navigate to next episode (or autoplay)
     bool thresholdMet = checkCompletionThresholdAndAutoplay();
+    bool prefetchedReady = false;
     
     // If threshold met for an episode, set flag to request next episode after marking as played
     if (thresholdMet && !m_currentSeriesId.isEmpty()) {
         m_shouldAutoplay = true;  // Flag to handle the response after item is marked as played
+        m_waitingForNextEpisodeAtPlaybackEnd = true;
         stashPendingAutoplayContext();
+        prefetchedReady = hasUsablePrefetchedNextEpisode();
         qDebug() << "PlayerController: Threshold met, will request next episode after marking current as played";
     }
     
     processEvent(Event::PlaybackEnd);
+
+    if (prefetchedReady) {
+        consumePrefetchedNextEpisodeAndNavigate();
+    }
 }
 
 void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData)
 {
+    if (!m_waitingForNextEpisodeAtPlaybackEnd) {
+        if (seriesId != m_currentSeriesId || m_currentSeriesId.isEmpty()) {
+            return;
+        }
+
+        const QString prefetchedEpisodeId = episodeData.value(QStringLiteral("Id")).toString();
+        const bool pointsToCurrentEpisode = !prefetchedEpisodeId.isEmpty() && prefetchedEpisodeId == m_currentItemId;
+        m_prefetchedNextEpisodeData = episodeData;
+        m_prefetchedNextEpisodeSeriesId = seriesId;
+        m_prefetchedForItemId = m_currentItemId;
+        m_nextEpisodePrefetchReady = !episodeData.isEmpty()
+                                  && !prefetchedEpisodeId.isEmpty()
+                                  && !pointsToCurrentEpisode;
+        qCDebug(lcPlayback) << "Next-episode prefetch result cached"
+                            << "itemId=" << m_prefetchedForItemId
+                            << "seriesId=" << m_prefetchedNextEpisodeSeriesId
+                            << "episodeId=" << prefetchedEpisodeId
+                            << "pointsToCurrentEpisode=" << pointsToCurrentEpisode
+                            << "ready=" << m_nextEpisodePrefetchReady;
+        return;
+    }
+
     // Only handle this if we're expecting an autoplay/navigation
     if (!m_shouldAutoplay) {
         return;
@@ -841,6 +880,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     }
     
     m_shouldAutoplay = false;
+    m_waitingForNextEpisodeAtPlaybackEnd = false;
     
     if (episodeData.isEmpty()) {
         qDebug() << "PlayerController: No next episode available";
@@ -923,7 +963,7 @@ void PlayerController::onItemMarkedPlayed(const QString &itemId)
     }
 
     qDebug() << "PlayerController: Item marked as played, requesting next episode for seriesId:" << m_pendingAutoplaySeriesId;
-    m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId);
+    m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId, m_pendingAutoplayItemId);
 }
 
 // === PUBLIC API ===
@@ -1024,6 +1064,7 @@ void PlayerController::setEmbeddedVideoShrinkEnabled(bool enabled)
 void PlayerController::playTestVideo()
 {
     clearPendingAutoplayContext();
+    clearNextEpisodePrefetchState();
     m_shouldAutoplay = false;
 
     if (!m_currentItemId.isEmpty()) {
@@ -1067,6 +1108,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     }
 
     clearPendingAutoplayContext();
+    clearNextEpisodePrefetchState();
     
     // Store pending playback info before transition
     if (m_currentItemId != itemId) {
@@ -1125,6 +1167,7 @@ void PlayerController::stop()
     qDebug() << "PlayerController: stop requested";
 
     clearPendingAutoplayContext();
+    clearNextEpisodePrefetchState();
     m_shouldAutoplay = false;
     
     reportPlaybackStop();
@@ -1754,6 +1797,90 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
     return false;  // Threshold not met
 }
 
+void PlayerController::maybeTriggerNextEpisodePrefetch()
+{
+    if (m_nextEpisodePrefetchRequestedForAttempt
+        || m_currentSeriesId.isEmpty()
+        || m_currentItemId.isEmpty()
+        || m_duration <= 0.0
+        || (m_playbackState != Playing && m_playbackState != Paused)) {
+        return;
+    }
+
+    const double progressPercent = (m_currentPosition / m_duration) * 100.0;
+    if (progressPercent < kNextEpisodePrefetchTriggerPercent) {
+        return;
+    }
+
+    m_nextEpisodePrefetchRequestedForAttempt = true;
+    qCDebug(lcPlayback) << "Triggering next-episode prefetch"
+                        << "itemId=" << m_currentItemId
+                        << "seriesId=" << m_currentSeriesId
+                        << "progressPercent=" << progressPercent;
+    m_libraryService->getNextUnplayedEpisode(m_currentSeriesId, m_currentItemId);
+}
+
+bool PlayerController::hasUsablePrefetchedNextEpisode() const
+{
+    const QString prefetchedEpisodeId = m_prefetchedNextEpisodeData.value(QStringLiteral("Id")).toString();
+    if (!m_nextEpisodePrefetchReady
+        || m_prefetchedNextEpisodeData.isEmpty()
+        || prefetchedEpisodeId.isEmpty()) {
+        return false;
+    }
+    if (m_prefetchedNextEpisodeSeriesId.isEmpty()
+        || m_prefetchedNextEpisodeSeriesId != m_pendingAutoplaySeriesId) {
+        return false;
+    }
+    if (m_prefetchedForItemId.isEmpty()
+        || m_prefetchedForItemId != m_pendingAutoplayItemId) {
+        return false;
+    }
+    // Jellyfin may still return the currently playing episode until mark-played settles.
+    // Never consume a prefetched candidate that points to the just-finished item.
+    if (prefetchedEpisodeId == m_pendingAutoplayItemId) {
+        return false;
+    }
+    return true;
+}
+
+void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
+{
+    if (!hasUsablePrefetchedNextEpisode()) {
+        return;
+    }
+
+    const bool autoplay = m_config->getAutoplayNextEpisode();
+    const int lastAudioIndex = m_pendingAutoplayAudioTrack;
+    const int lastSubtitleIndex = m_pendingAutoplaySubtitleTrack;
+    const QString prefetchedSeriesId = m_prefetchedNextEpisodeSeriesId;
+
+    m_shouldAutoplay = false;
+    m_waitingForNextEpisodeAtPlaybackEnd = false;
+    setAwaitingNextEpisodeResolution(false);
+
+    qCDebug(lcPlayback) << "Using prefetched next episode for Up Next"
+                        << "itemId=" << m_pendingAutoplayItemId
+                        << "seriesId=" << prefetchedSeriesId;
+
+    emit navigateToNextEpisode(m_prefetchedNextEpisodeData,
+                               prefetchedSeriesId,
+                               lastAudioIndex,
+                               lastSubtitleIndex,
+                               autoplay);
+    clearNextEpisodePrefetchState();
+}
+
+void PlayerController::clearNextEpisodePrefetchState()
+{
+    m_waitingForNextEpisodeAtPlaybackEnd = false;
+    m_nextEpisodePrefetchRequestedForAttempt = false;
+    m_nextEpisodePrefetchReady = false;
+    m_prefetchedNextEpisodeData = QJsonObject();
+    m_prefetchedNextEpisodeSeriesId.clear();
+    m_prefetchedForItemId.clear();
+}
+
 void PlayerController::stashPendingAutoplayContext()
 {
     m_pendingAutoplayItemId = m_currentItemId;
@@ -1777,6 +1904,7 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplaySubtitleTrack = -1;
     m_pendingAutoplayFramerate = 0.0;
     m_pendingAutoplayIsHDR = false;
+    m_waitingForNextEpisodeAtPlaybackEnd = false;
     setAwaitingNextEpisodeResolution(false);
 }
 
