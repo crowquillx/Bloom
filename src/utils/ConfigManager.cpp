@@ -798,6 +798,44 @@ bool ConfigManager::getAutoplayNextEpisode() const
     return true; // Default to enabled
 }
 
+void ConfigManager::setAutoplayCountdownSeconds(int seconds)
+{
+    // Clamp to valid range: 5, 10, 15, 20, 25, 30
+    int clamped = std::max(5, std::min(seconds, 30));
+    // Round to nearest multiple of 5
+    clamped = ((clamped + 2) / 5) * 5;
+    if (clamped == getAutoplayCountdownSeconds()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["autoplay_countdown_seconds"] = clamped;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit autoplayCountdownSecondsChanged();
+}
+
+int ConfigManager::getAutoplayCountdownSeconds() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("autoplay_countdown_seconds")) {
+                int val = playback["autoplay_countdown_seconds"].toInt();
+                return std::max(5, std::min(val, 30));
+            }
+        }
+    }
+    return 10; // Default to 10 seconds
+}
+
 void ConfigManager::setAutoSkipIntro(bool enabled)
 {
     if (enabled == getAutoSkipIntro()) return;

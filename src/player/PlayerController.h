@@ -160,6 +160,11 @@ public:
     Q_INVOKABLE void playTestVideo();
     Q_INVOKABLE void playUrl(const QString &url, const QString &itemId = "", qint64 startPositionTicks = 0, const QString &seriesId = "", const QString &seasonId = "", const QString &libraryId = "", double framerate = 0.0, bool isHDR = false);
     
+    /// Play the next episode from the Up Next screen
+    /// @param episodeData JSON object with episode details (Id, Name, SeriesName, etc.)
+    /// @param seriesId The series this episode belongs to
+    Q_INVOKABLE void playNextEpisode(const QJsonObject &episodeData, const QString &seriesId);
+    
     // Extended playUrl with track selection
     // audioStreamIndex/subtitleStreamIndex: Jellyfin unified stream indices (for API reporting)
     // mpvAudioTrack/mpvSubtitleTrack: mpv 1-based track IDs (for mpv commands)
@@ -266,7 +271,7 @@ signals:
     /// @param lastAudioIndex The audio track index used in the completed episode
     /// @param lastSubtitleIndex The subtitle track index used in the completed episode
     void navigateToNextEpisode(const QJsonObject &episodeData, const QString &seriesId,
-                                int lastAudioIndex, int lastSubtitleIndex);
+                                int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
 
 private slots:
     void onProcessStateChanged(bool running);

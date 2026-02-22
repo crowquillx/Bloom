@@ -858,46 +858,57 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     qDebug() << "PlayerController: Next episode found:" << seriesName 
              << "S" << seasonNumber << "E" << episodeNumber << "-" << episodeName;
     
-    // Check if autoplay is enabled
-    if (m_config->getAutoplayNextEpisode()) {
-        // Get resume position if any
-        qint64 startPositionTicks = 0;
-        if (episodeData.contains("UserData") && episodeData["UserData"].isObject()) {
-            QJsonObject userData = episodeData["UserData"].toObject();
-            startPositionTicks = static_cast<qint64>(userData["PlaybackPositionTicks"].toDouble());
-        }
-        
-        qDebug() << "PlayerController: Autoplaying next episode";
+    // Always emit navigateToNextEpisode to show the Up Next screen
+    // The QML screen will handle autoplay countdown vs manual play
+    bool autoplay = m_config->getAutoplayNextEpisode();
+    int lastAudioIndex = m_pendingAutoplayAudioTrack;
+    int lastSubtitleIndex = m_pendingAutoplaySubtitleTrack;
+    
+    qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with autoplay:" 
+             << autoplay << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
+    
+    emit navigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay);
+    
+    // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
+}
 
-        QString subtitle = QStringLiteral("S%1 E%2").arg(seasonNumber).arg(episodeNumber);
-        if (!episodeName.isEmpty()) {
-            subtitle += QStringLiteral(" - ") + episodeName;
-        }
-        setOverlayMetadata(seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName, subtitle);
-        
-        // Emit signal for UI notification
-        emit autoplayingNextEpisode(episodeName, seriesName);
-        
-        // Build stream URL and start playback
-        // Note: For autoplay, we reuse the existing display settings (framerate/HDR)
-        // since episodes in the same series typically have the same framerate
-        // We also carry forward the current season ID for track preferences
-        QString streamUrl = m_libraryService->getStreamUrl(episodeId);
-        playUrl(streamUrl, episodeId, startPositionTicks, seriesId,
-            m_pendingAutoplaySeasonId, m_pendingAutoplayLibraryId,
-            m_pendingAutoplayFramerate, m_pendingAutoplayIsHDR);
-    } else {
-        // Autoplay disabled - emit navigation signal to show episode details
-        // Include the track preferences from the just-completed episode
-        int lastAudioIndex = m_pendingAutoplayAudioTrack;
-        int lastSubtitleIndex = m_pendingAutoplaySubtitleTrack;
-        
-        qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with audio:" 
-                 << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
-        
-        emit navigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex);
+void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QString &seriesId)
+{
+    QString episodeId = episodeData["Id"].toString();
+    QString episodeName = episodeData["Name"].toString();
+    QString seriesName = episodeData["SeriesName"].toString();
+    int seasonNumber = episodeData["ParentIndexNumber"].toInt();
+    int episodeNumber = episodeData["IndexNumber"].toInt();
+    
+    if (episodeId.isEmpty()) {
+        qWarning() << "PlayerController::playNextEpisode: Empty episode ID";
+        return;
     }
-
+    
+    // Get resume position if any
+    qint64 startPositionTicks = 0;
+    if (episodeData.contains("UserData") && episodeData["UserData"].isObject()) {
+        QJsonObject userData = episodeData["UserData"].toObject();
+        startPositionTicks = static_cast<qint64>(userData["PlaybackPositionTicks"].toDouble());
+    }
+    
+    qDebug() << "PlayerController: Playing next episode from Up Next screen:" << seriesName
+             << "S" << seasonNumber << "E" << episodeNumber << "-" << episodeName;
+    
+    QString subtitle = QStringLiteral("S%1 E%2").arg(seasonNumber).arg(episodeNumber);
+    if (!episodeName.isEmpty()) {
+        subtitle += QStringLiteral(" - ") + episodeName;
+    }
+    setOverlayMetadata(seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName, subtitle);
+    
+    emit autoplayingNextEpisode(episodeName, seriesName);
+    
+    // Build stream URL and start playback using stashed autoplay context
+    QString streamUrl = m_libraryService->getStreamUrl(episodeId);
+    playUrl(streamUrl, episodeId, startPositionTicks, seriesId,
+        m_pendingAutoplaySeasonId, m_pendingAutoplayLibraryId,
+        m_pendingAutoplayFramerate, m_pendingAutoplayIsHDR);
+    
     clearPendingAutoplayContext();
 }
 

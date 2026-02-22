@@ -977,10 +977,156 @@ FocusScope {
                             focus: true
                             
                             KeyNavigation.up: playbackSection.toggleButton
-                            KeyNavigation.down: thresholdSlider
+                            KeyNavigation.down: autoplayCountdownCombo
                             
                             onToggled: function(value) {
                                 ConfigManager.autoplayNextEpisode = value
+                            }
+                        }
+                        
+                        // Autoplay Countdown Duration
+                        RowLayout {
+                            id: autoplayCountdownRow
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingMedium
+
+                            ColumnLayout {
+                                spacing: Math.round(4 * Theme.layoutScale)
+                                Layout.fillWidth: true
+
+                                Text {
+                                    text: qsTr("Autoplay Countdown")
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    color: Theme.textPrimary
+                                }
+
+                                Text {
+                                    text: qsTr("Seconds before next episode auto-plays")
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                    color: Theme.textSecondary
+                                    wrapMode: Text.WordWrap
+                                    Layout.fillWidth: true
+                                }
+                            }
+
+                            ComboBox {
+                                id: autoplayCountdownCombo
+                                model: ["5s", "10s", "15s", "20s", "25s", "30s"]
+                                // Map ConfigManager value to index: 5→0, 10→1, 15→2, etc.
+                                currentIndex: Math.max(0, Math.round((ConfigManager.autoplayCountdownSeconds - 5) / 5))
+                                Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
+                                focusPolicy: Qt.StrongFocus
+                                enabled: ConfigManager.autoplayNextEpisode
+
+                                onActiveFocusChanged: {
+                                    if (activeFocus) flickable.ensureFocusVisible(this)
+                                }
+
+                                onCurrentIndexChanged: {
+                                    var seconds = (currentIndex * 5) + 5
+                                    if (seconds !== ConfigManager.autoplayCountdownSeconds) {
+                                        ConfigManager.autoplayCountdownSeconds = seconds
+                                    }
+                                }
+
+                                Keys.onUpPressed: function(event) {
+                                    if (!popup.visible) {
+                                        autoplaySwitch.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                }
+                                Keys.onDownPressed: function(event) {
+                                    if (!popup.visible) {
+                                        thresholdSlider.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                }
+
+                                Keys.onReturnPressed: popup.open()
+                                Keys.onEnterPressed: popup.open()
+
+                                background: Rectangle {
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    radius: Theme.radiusSmall
+                                    color: Theme.inputBackground
+                                    border.color: autoplayCountdownCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                    border.width: autoplayCountdownCombo.activeFocus ? 2 : 1
+                                    opacity: autoplayCountdownCombo.enabled ? 1.0 : 0.5
+                                }
+
+                                contentItem: Text {
+                                    text: autoplayCountdownCombo.displayText
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    color: autoplayCountdownCombo.enabled ? Theme.textPrimary : Theme.textDisabled
+                                    verticalAlignment: Text.AlignVCenter
+                                    leftPadding: Theme.spacingSmall
+                                }
+
+                                delegate: ItemDelegate {
+                                    width: autoplayCountdownCombo.width
+                                    enabled: autoplayCountdownCombo.enabled
+                                    contentItem: Text {
+                                        text: modelData
+                                        color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                                        font.pixelSize: Theme.fontSizeBody
+                                        font.family: Theme.fontPrimary
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    background: Rectangle {
+                                        color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                        radius: Theme.radiusSmall
+                                    }
+                                    highlighted: ListView.isCurrentItem || autoplayCountdownCombo.highlightedIndex === index
+                                }
+
+                                popup: Popup {
+                                    y: autoplayCountdownCombo.height + 5
+                                    width: autoplayCountdownCombo.width
+                                    implicitHeight: contentItem.implicitHeight
+                                    padding: 1
+
+                                    onOpened: {
+                                        autoplayCountdownList.currentIndex = autoplayCountdownCombo.highlightedIndex >= 0
+                                            ? autoplayCountdownCombo.highlightedIndex
+                                            : autoplayCountdownCombo.currentIndex
+                                        autoplayCountdownList.forceActiveFocus()
+                                    }
+                                    onClosed: autoplayCountdownCombo.forceActiveFocus()
+
+                                    contentItem: ListView {
+                                        id: autoplayCountdownList
+                                        clip: true
+                                        implicitHeight: contentHeight
+                                        model: autoplayCountdownCombo.popup.visible ? autoplayCountdownCombo.delegateModel : null
+                                        currentIndex: autoplayCountdownCombo.highlightedIndex >= 0
+                                            ? autoplayCountdownCombo.highlightedIndex
+                                            : autoplayCountdownCombo.currentIndex
+
+                                        ScrollIndicator.vertical: ScrollIndicator { }
+
+                                        onCurrentIndexChanged: autoplayCountdownCombo.highlightedIndex = currentIndex
+
+                                        Keys.onReturnPressed: {
+                                            autoplayCountdownCombo.currentIndex = currentIndex
+                                            autoplayCountdownCombo.popup.close()
+                                        }
+                                        Keys.onEnterPressed: {
+                                            autoplayCountdownCombo.currentIndex = currentIndex
+                                            autoplayCountdownCombo.popup.close()
+                                        }
+                                        Keys.onEscapePressed: autoplayCountdownCombo.popup.close()
+                                    }
+
+                                    background: Rectangle {
+                                        color: Theme.cardBackground
+                                        border.color: Theme.focusBorder
+                                        border.width: 1
+                                        radius: Theme.radiusSmall
+                                    }
+                                }
                             }
                         }
                         
@@ -996,7 +1142,7 @@ FocusScope {
                             unit: "%"
                             Layout.fillWidth: true
                             
-                            KeyNavigation.up: autoplaySwitch
+                            KeyNavigation.up: autoplayCountdownCombo
                             KeyNavigation.down: audioDelaySpinBox
                             
                             onSliderValueChanged: function(newValue) {

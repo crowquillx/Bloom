@@ -517,39 +517,64 @@ Window {
     Connections {
         target: PlayerController
         
-        function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex) {
-            console.log("[Main] Navigating to next episode after playback:", 
+        function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay) {
+            console.log("[Main] Up Next screen for:", 
                         episodeData.SeriesName, "S" + episodeData.ParentIndexNumber + "E" + episodeData.IndexNumber,
-                        "Audio:", lastAudioIndex, "Subtitle:", lastSubtitleIndex)
+                        "Autoplay:", autoplay)
             
-            // Pop back to the root level (home screen) first, then navigate to the episode
+            // Pop back to the root level (home screen) first
             while (stackView.depth > 1) {
                 stackView.pop(null)  // Pop without transition
             }
             
-            // Navigate to the episode view via LibraryScreen
-            // We use empty library info since we're coming from playback context
-            stackView.push("LibraryScreen.qml", {
-                currentParentId: "",
-                currentLibraryId: "",
-                currentLibraryName: "",
-                currentSeriesId: seriesId,
-                directNavigationMode: true,
-                // Pass the track preferences to be applied
-                pendingAudioTrackIndex: lastAudioIndex,
-                pendingSubtitleTrackIndex: lastSubtitleIndex
+            // Push the Up Next interstitial screen
+            var upNextScreen = stackView.push("UpNextScreen.qml", {
+                episodeData: episodeData,
+                seriesId: seriesId,
+                lastAudioIndex: lastAudioIndex,
+                lastSubtitleIndex: lastSubtitleIndex,
+                autoplay: autoplay
             })
             
-            // Load series details for context
-            LibraryService.getSeriesDetails(seriesId)
-            
-            // Defer calling showEpisodeDetails until screen is ready
-            Qt.callLater(function() {
-                var screen = stackView.currentItem
-                if (screen && screen.showEpisodeDetails) {
-                    screen.showEpisodeDetails(episodeData)
-                }
-            })
+            if (upNextScreen) {
+                // Play the next episode
+                upNextScreen.playRequested.connect(function() {
+                    console.log("[Main] Up Next: Play requested")
+                    stackView.pop()
+                    PlayerController.playNextEpisode(episodeData, seriesId)
+                })
+                
+                // Navigate to the episode list (same as ESC)
+                upNextScreen.moreEpisodesRequested.connect(function() {
+                    console.log("[Main] Up Next: More episodes requested")
+                    stackView.pop()
+                    
+                    stackView.push("LibraryScreen.qml", {
+                        currentParentId: "",
+                        currentLibraryId: "",
+                        currentLibraryName: "",
+                        currentSeriesId: seriesId,
+                        directNavigationMode: true,
+                        pendingAudioTrackIndex: lastAudioIndex,
+                        pendingSubtitleTrackIndex: lastSubtitleIndex
+                    })
+                    
+                    LibraryService.getSeriesDetails(seriesId)
+                    
+                    Qt.callLater(function() {
+                        var screen = stackView.currentItem
+                        if (screen && screen.showEpisodeDetails) {
+                            screen.showEpisodeDetails(episodeData)
+                        }
+                    })
+                })
+                
+                // Go back to home
+                upNextScreen.backToHomeRequested.connect(function() {
+                    console.log("[Main] Up Next: Back to home requested")
+                    stackView.pop()
+                })
+            }
         }
         
         ignoreUnknownSignals: true
@@ -559,7 +584,6 @@ Window {
         sequence: "Ctrl+Q"
         onActivated: Qt.quit()
     }
-
     Shortcut {
         sequences: ["Esc"]
         enabled: !PlayerController.isPlaybackActive

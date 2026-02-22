@@ -19,6 +19,7 @@ MpvProfileEditor 1.0 MpvProfileEditor.qml
 TrackSelector 1.0 TrackSelector.qml
 MediaInfoPanel 1.0 MediaInfoPanel.qml
 ToastNotification 1.0 ToastNotification.qml
+UpNextScreen 1.0 UpNextScreen.qml
 A11yButton 1.0 A11yButton.qml
 RetryButton 1.0 RetryButton.qml
 singleton AccessibilityHelpers 1.0 AccessibilityHelpers.qml
