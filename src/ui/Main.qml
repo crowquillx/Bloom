@@ -586,6 +586,7 @@ Window {
                 upNextScreen.moreEpisodesRequested.connect(function() {
                     console.log("[Main] Up Next: More episodes requested")
                     stackView.pop(null, StackView.Immediate)
+                    PlayerController.clearPendingAutoplayContext()
 
                     var targetEpisodeData = Object.assign({}, episodeData || {})
                     if (!targetEpisodeData.itemId && targetEpisodeData.Id) {
@@ -608,26 +609,36 @@ Window {
                     
                     LibraryService.getSeriesDetails(seriesId)
 
-                    var attemptsRemaining = 12
-                    function applyEpisodeContextWhenReady() {
+                    var attempts = 0
+                    var maxAttempts = 12
+                    var applyEpisodeContextTimer = Qt.createQmlObject(
+                        'import QtQuick; Timer { interval: 50; repeat: true }',
+                        window,
+                        "applyEpisodeContextWhenReadyTimer"
+                    )
+
+                    applyEpisodeContextTimer.triggered.connect(function() {
                         var screen = libraryScreen || stackView.currentItem
                         if (screen && screen.showEpisodeDetails) {
                             screen.showEpisodeDetails(targetEpisodeData)
-                            return
+                            applyEpisodeContextTimer.stop()
+                            applyEpisodeContextTimer.destroy()
+                            return;
                         }
-                        attemptsRemaining--
-                        if (attemptsRemaining > 0) {
-                            Qt.callLater(applyEpisodeContextWhenReady)
-                        } else {
+                        attempts++
+                        if (attempts >= maxAttempts) {
                             console.warn("[Main] Up Next: Could not apply episode context to LibraryScreen")
+                            applyEpisodeContextTimer.stop()
+                            applyEpisodeContextTimer.destroy()
                         }
-                    }
-                    Qt.callLater(applyEpisodeContextWhenReady)
+                    })
+                    applyEpisodeContextTimer.start()
                 })
                 
                 // Go back to home
                 upNextScreen.backToHomeRequested.connect(function() {
                     console.log("[Main] Up Next: Back to home requested")
+                    PlayerController.clearPendingAutoplayContext()
                     stackView.pop(null, StackView.Immediate)
                 })
             }

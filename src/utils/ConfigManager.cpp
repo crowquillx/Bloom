@@ -1766,6 +1766,22 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV13ToV14(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 14;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject playback = settings.value("playback").toObject();
+        if (!playback.contains("autoplay_countdown_seconds")) {
+            playback["autoplay_countdown_seconds"] = 10;
+        }
+
+        settings["playback"] = playback;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -1881,6 +1897,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 13) {
+            m_config = ConfigMigrator::migrateV13ToV14(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -1914,6 +1938,7 @@ QJsonObject ConfigManager::defaultConfig() const
     QJsonObject playback;
     playback["completion_threshold"] = 90;
     playback["autoplay_next_episode"] = true;
+    playback["autoplay_countdown_seconds"] = 10;
     playback["auto_skip_intro"] = false;
     playback["auto_skip_outro"] = false;
     playback["audio_delay"] = 0;

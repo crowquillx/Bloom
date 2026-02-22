@@ -977,7 +977,7 @@ FocusScope {
                             focus: true
                             
                             KeyNavigation.up: playbackSection.toggleButton
-                            KeyNavigation.down: autoplayCountdownCombo
+                            KeyNavigation.down: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : thresholdSlider
                             
                             onToggled: function(value) {
                                 ConfigManager.autoplayNextEpisode = value
@@ -1142,7 +1142,7 @@ FocusScope {
                             unit: "%"
                             Layout.fillWidth: true
                             
-                            KeyNavigation.up: autoplayCountdownCombo
+                            KeyNavigation.up: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : autoplaySwitch
                             KeyNavigation.down: audioDelaySpinBox
                             
                             onSliderValueChanged: function(newValue) {

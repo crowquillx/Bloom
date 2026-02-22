@@ -166,6 +166,7 @@ public:
     /// @param episodeData JSON object with episode details (Id, Name, SeriesName, etc.)
     /// @param seriesId The series this episode belongs to
     Q_INVOKABLE void playNextEpisode(const QJsonObject &episodeData, const QString &seriesId);
+    Q_INVOKABLE void clearPendingAutoplayContext();
     
     // Extended playUrl with track selection
     // audioStreamIndex/subtitleStreamIndex: Jellyfin unified stream indices (for API reporting)
@@ -338,12 +339,12 @@ private:
     void reportPlaybackStop();
     void checkCompletionThreshold();
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
+    void handlePlaybackStopAndAutoplay(Event stopEvent);
     void maybeTriggerNextEpisodePrefetch();
     bool hasUsablePrefetchedNextEpisode() const;
     void consumePrefetchedNextEpisodeAndNavigate();
     void clearNextEpisodePrefetchState();
     void stashPendingAutoplayContext();
-    void clearPendingAutoplayContext();
     void setAwaitingNextEpisodeResolution(bool awaiting);
     void loadConfig();
     void startPlayback(const QString &url);

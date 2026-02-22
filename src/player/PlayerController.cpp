@@ -693,24 +693,7 @@ void PlayerController::onProcessStateChanged(bool running)
     if (!running && m_playbackState != Idle && m_playbackState != Error) {
         // Process stopped unexpectedly (e.g., mpv quit via 'q' or crash)
         // Treat this like an explicit stop so we report progress and consider autoplay.
-        reportPlaybackStop();
-        bool thresholdMet = checkCompletionThresholdAndAutoplay();
-        bool prefetchedReady = false;
-
-        // If threshold is met for an episode, set flag to request next episode after marking as played
-        if (thresholdMet && !m_currentSeriesId.isEmpty()) {
-            m_shouldAutoplay = true;
-            m_waitingForNextEpisodeAtPlaybackEnd = true;
-            stashPendingAutoplayContext();
-            prefetchedReady = hasUsablePrefetchedNextEpisode();
-            qDebug() << "PlayerController: Process stopped, threshold met, will request next episode after marking current as played";
-        }
-
-        processEvent(Event::Stop);
-
-        if (prefetchedReady) {
-            consumePrefetchedNextEpisodeAndNavigate();
-        }
+        handlePlaybackStopAndAutoplay(Event::Stop);
     }
 }
 
@@ -823,22 +806,26 @@ void PlayerController::onPlaybackEnded()
                             << "position=" << m_currentPosition
                             << "duration=" << m_duration;
     
+    handlePlaybackStopAndAutoplay(Event::PlaybackEnd);
+}
+
+void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
+{
     reportPlaybackStop();
-    
-    // Check if we should navigate to next episode (or autoplay)
+
     bool thresholdMet = checkCompletionThresholdAndAutoplay();
     bool prefetchedReady = false;
-    
-    // If threshold met for an episode, set flag to request next episode after marking as played
+
+    // If threshold met for an episode, request next episode after mark-played confirmation.
     if (thresholdMet && !m_currentSeriesId.isEmpty()) {
-        m_shouldAutoplay = true;  // Flag to handle the response after item is marked as played
+        m_shouldAutoplay = true;
         m_waitingForNextEpisodeAtPlaybackEnd = true;
         stashPendingAutoplayContext();
         prefetchedReady = hasUsablePrefetchedNextEpisode();
         qDebug() << "PlayerController: Threshold met, will request next episode after marking current as played";
     }
-    
-    processEvent(Event::PlaybackEnd);
+
+    processEvent(stopEvent);
 
     if (prefetchedReady) {
         consumePrefetchedNextEpisodeAndNavigate();

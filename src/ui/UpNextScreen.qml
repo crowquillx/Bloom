@@ -63,7 +63,7 @@ FocusScope {
 
     // ---- Countdown timer ----
     property int countdown: autoplay ? (typeof ConfigManager !== 'undefined' ? ConfigManager.autoplayCountdownSeconds : 10) : -1
-    property bool countdownActive: autoplay && countdown > 0
+    readonly property bool countdownActive: autoplay && countdown > 0
 
     Timer {
         id: countdownTimer
@@ -97,7 +97,6 @@ FocusScope {
     function cancelCountdown() {
         countdownTimer.stop()
         root.countdown = -1
-        root.countdownActive = false
     }
 
     function focusPrimaryAction() {
@@ -173,11 +172,6 @@ FocusScope {
                 font.family: Theme.fontPrimary
                 font.weight: Font.DemiBold
                 color: Theme.textSecondary
-
-                Text {
-                    // Inline coloured countdown number sits at the end via anchoring
-                    // We use a separate render; simpler than rich text
-                }
             }
 
             Text {
@@ -237,7 +231,7 @@ FocusScope {
                 }
 
                 KeyNavigation.down: backToHomeBtn
-                KeyNavigation.right: metadataColumn
+                KeyNavigation.right: backToHomeBtn
 
                 Rectangle {
                     id: thumbnailCard
@@ -343,7 +337,7 @@ FocusScope {
                 // Mouse/touch play
                 MouseArea {
                     anchors.fill: parent
-                    cursorShape: Qt.PointingHandCursor
+                    cursorShape: InputModeManager.pointerActive ? Qt.PointingHandCursor : Qt.BlankCursor
                     onClicked: {
                         root.cancelCountdown()
                         root.playRequested()
