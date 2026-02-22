@@ -50,6 +50,7 @@ class PlayerController : public QObject
     Q_OBJECT
     Q_PROPERTY(PlaybackState playbackState READ playbackState NOTIFY playbackStateChanged)
     Q_PROPERTY(bool isPlaybackActive READ isPlaybackActive NOTIFY isPlaybackActiveChanged)
+    Q_PROPERTY(bool awaitingNextEpisodeResolution READ awaitingNextEpisodeResolution NOTIFY awaitingNextEpisodeResolutionChanged)
     Q_PROPERTY(QString stateName READ stateName NOTIFY stateChanged)
     Q_PROPERTY(bool isBuffering READ isBuffering NOTIFY isBufferingChanged)
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
@@ -114,11 +115,40 @@ public:
     explicit PlayerController(IPlayerBackend *playerBackend, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent = nullptr);
     ~PlayerController();
 
+    /**
+     * Returns the current playback state.
+     * @returns The current PlaybackState.
+     */
     PlaybackState playbackState() const;
+    /**
+     * Indicates whether playback is currently active.
+     * @returns `true` if playback is active, `false` otherwise.
+     */
     bool isPlaybackActive() const;
+    /**
+     * Indicates whether the controller is awaiting resolution of the next episode (prefetch/navigation).
+     * @returns `true` if awaiting next-episode resolution, `false` otherwise.
+     */
+    bool awaitingNextEpisodeResolution() const { return m_awaitingNextEpisodeResolution; }
+    /**
+     * Returns a human-readable name for the current playback state.
+     * @returns The playback state's name as a QString.
+     */
     QString stateName() const;
+    /**
+     * Indicates whether the player is currently buffering.
+     * @returns `true` if buffering, `false` otherwise.
+     */
     bool isBuffering() const;
+    /**
+     * Indicates whether the player is currently loading content.
+     * @returns `true` if loading, `false` otherwise.
+     */
     bool isLoading() const;
+    /**
+     * Indicates whether playback is currently paused.
+     * @returns `true` if paused, `false` otherwise.
+     */
     bool isPaused() const { return m_playbackState == Paused; }
     bool hasError() const;
     QString errorMessage() const;
@@ -159,6 +189,19 @@ public:
 
     Q_INVOKABLE void playTestVideo();
     Q_INVOKABLE void playUrl(const QString &url, const QString &itemId = "", qint64 startPositionTicks = 0, const QString &seriesId = "", const QString &seasonId = "", const QString &libraryId = "", double framerate = 0.0, bool isHDR = false);
+    
+    /// Play the next episode from the Up Next screen
+    /// @param episodeData JSON object with episode details (Id, Name, SeriesName, etc.)
+    /// @param seriesId The series this episode belongs to
+    Q_INVOKABLE void playNextEpisode(const QJsonObject &episodeData, const QString &seriesId);
+    /**
+     * @brief Clears any stored pending autoplay context.
+     *
+     * Resets stashed identifiers and playback hints used by Up Next/autoplay flows and
+     * marks next-episode resolution as no longer pending. Used when navigation is canceled
+     * or playback context is intentionally replaced.
+     */
+    Q_INVOKABLE void clearPendingAutoplayContext();
     
     // Extended playUrl with track selection
     // audioStreamIndex/subtitleStreamIndex: Jellyfin unified stream indices (for API reporting)
@@ -233,6 +276,7 @@ signals:
     void bufferingProgressChanged();
     void audioDelayChanged();
     void isPlaybackActiveChanged();
+    void awaitingNextEpisodeResolutionChanged();
     void supportsEmbeddedVideoChanged();
     void embeddedVideoShrinkEnabledChanged();
     void volumeChanged();
@@ -266,7 +310,7 @@ signals:
     /// @param lastAudioIndex The audio track index used in the completed episode
     /// @param lastSubtitleIndex The subtitle track index used in the completed episode
     void navigateToNextEpisode(const QJsonObject &episodeData, const QString &seriesId,
-                                int lastAudioIndex, int lastSubtitleIndex);
+                                int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
 
 private slots:
     void onProcessStateChanged(bool running);
@@ -330,25 +374,125 @@ private:
     void reportPlaybackStop();
     void checkCompletionThreshold();
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
+    void handlePlaybackStopAndAutoplay(Event stopEvent);
+    void maybeTriggerNextEpisodePrefetch();
+    /**
+     * Returns whether a prefetched "next episode" payload is available and usable for navigation.
+     * @returns `true` if a prefetched next-episode item is ready and applicable to consume, `false` otherwise.
+     */
+    bool hasUsablePrefetchedNextEpisode() const;
+    /**
+     * Consume any prefetched next-episode payload and navigate to it using the stored autoplay/context.
+     */
+    void consumePrefetchedNextEpisodeAndNavigate();
+    /**
+     * Clear any stored state related to next-episode prefetching and resolution.
+     */
+    void clearNextEpisodePrefetchState();
+    /**
+     * Preserve the current autoplay/navigation context so it can be restored after teardown or state transitions.
+     */
     void stashPendingAutoplayContext();
-    void clearPendingAutoplayContext();
+    void emitNavigateToNextEpisodeQueued(const QJsonObject &episodeData, const QString &seriesId,
+                                         int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
+    /**
+     * Set whether the controller is currently awaiting resolution of the next-episode decision.
+     * @param awaiting `true` when awaiting next-episode resolution, `false` otherwise.
+     */
+    void setAwaitingNextEpisodeResolution(bool awaiting);
+    /**
+     * Load runtime configuration values from the ConfigManager into cached controller state.
+     */
     void loadConfig();
+    /**
+     * Begin playback of the given URL using the current playback configuration and state.
+     * @param url Media resource URL to start playback for.
+     */
     void startPlayback(const QString &url);
+    /**
+     * Apply framerate-matching decisions (if any) to the pending playback context and start playback.
+     */
     void applyFramerateMatchingAndStart();
+    /**
+     * Initiate mpv (or configured internal player) startup sequence according to the pending playback context.
+     */
     void initiateMpvStart();
+    /**
+     * Update the trickplay preview image/URL for the specified playback position.
+     * @param seconds Position in seconds for which to update the trickplay preview.
+     */
     void updateTrickplayPreviewForPosition(double seconds);
+    /**
+     * Clear any active trickplay preview override and associated preview URL/state.
+     */
     void clearTrickplayPreview();
+    /**
+     * Re-evaluate and update flags that indicate whether the player is currently inside intro/outro or other skip segments.
+     */
     void updateSkipSegmentState();
+    /**
+     * Seek to the end boundary of the specified media segment type (e.g., intro or outro).
+     * @param segmentType Type of media segment whose end should be sought.
+     * @returns `true` if a seek was performed to the segment end, `false` if no applicable segment was found.
+     */
     bool seekToSegmentEnd(MediaSegmentType segmentType);
+    /**
+     * Schedule a debounced persistence of the current playback volume state to configuration/storage.
+     */
     void schedulePersistPlaybackVolumeState();
+    /**
+     * Persist the current playback volume and mute state immediately.
+     */
     void persistPlaybackVolumeState();
+    /**
+     * Build a data URL referencing a trickplay preview frame stored in a binary file.
+     * @param binaryPath Filesystem path to the trickplay binary data.
+     * @param frameIndex Zero-based index of the frame within the binary.
+     * @param width Frame width in pixels.
+     * @param height Frame height in pixels.
+     * @returns A QString containing the data URL suitable for use as an image source, or an empty string on failure.
+     */
     static QString buildTrickplayPreviewDataUrl(const QString &binaryPath, int frameIndex, int width, int height);
+    /**
+     * Connect required signals from the provided player backend into this controller.
+     * @param backend Backend instance whose signals should be connected.
+     */
     void connectBackendSignals(IPlayerBackend *backend);
+    /**
+     * Attempt to fall back from the internal player backend to an external backend for the current attempt.
+     * @param reason Human-readable reason for attempting the fallback.
+     * @returns `true` if a fallback was initiated, `false` otherwise.
+     */
     bool tryFallbackToExternalBackend(const QString &reason);
+    /**
+     * Update internal mappings from Jellyfin stream indices to mpv track identifiers.
+     * @param audioTrackMap Mapping list for audio tracks (Jellyfin -> mpv).
+     * @param subtitleTrackMap Mapping list for subtitle tracks (Jellyfin -> mpv).
+     */
     void updateTrackMappings(const QVariantList &audioTrackMap, const QVariantList &subtitleTrackMap);
+    /**
+     * Map a Jellyfin audio stream index to the corresponding mpv audio track number.
+     * @param jellyfinStreamIndex Jellyfin audio stream index.
+     * @returns 1-based mpv audio track number, or -1 when auto/none is intended.
+     */
     int mpvAudioTrackForJellyfinIndex(int jellyfinStreamIndex) const;
+    /**
+     * Map a Jellyfin subtitle stream index to the corresponding mpv subtitle track number.
+     * @param jellyfinStreamIndex Jellyfin subtitle stream index.
+     * @returns 1-based mpv subtitle track number, or -1 when subtitles are disabled.
+     */
     int mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) const;
+    /**
+     * Convert a playback state enum value to a human-readable string.
+     * @param state PlaybackState value to convert.
+     * @returns A QString representation of `state`.
+     */
     static QString stateToString(PlaybackState state);
+    /**
+     * Convert an event enum value to a human-readable string.
+     * @param event Event value to convert.
+     * @returns A QString representation of `event`.
+     */
     static QString eventToString(Event event);
 
     IPlayerBackend *m_playerBackend;
@@ -378,6 +522,7 @@ private:
     QTimer *m_volumePersistTimer;
     static constexpr int kProgressReportIntervalMs = 10000; // 10 seconds
     static constexpr int kVolumePersistDebounceMs = 250;
+    static constexpr double kNextEpisodePrefetchTriggerPercent = 70.0;
     
     // State
     PlaybackState m_playbackState = Idle;
@@ -396,6 +541,15 @@ private:
     double m_seekTargetWhileBuffering = -1;
     qint64 m_startPositionTicks = 0;  // Resume position in Jellyfin ticks
     bool m_shouldAutoplay = false;  // Flag to trigger autoplay on next episode loaded
+    // QML-visible/property-facing flag for waiting on next-episode resolution callbacks.
+    bool m_awaitingNextEpisodeResolution = false;
+    // Internal playback-end flow gate used to act only on expected post-end next-episode events.
+    bool m_waitingForNextEpisodeAtPlaybackEnd = false;
+    bool m_nextEpisodePrefetchRequestedForAttempt = false;
+    bool m_nextEpisodePrefetchReady = false;
+    QJsonObject m_prefetchedNextEpisodeData;
+    QString m_prefetchedNextEpisodeSeriesId;
+    QString m_prefetchedForItemId;
 
     // Persisted autoplay context across state teardown/idle transition
     QString m_pendingAutoplayItemId;

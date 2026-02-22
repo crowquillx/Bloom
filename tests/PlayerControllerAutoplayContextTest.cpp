@@ -96,8 +96,9 @@ public:
     {
     }
 
-    void getNextUnplayedEpisode(const QString &seriesId) override
+    void getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId = QString()) override
     {
+        Q_UNUSED(excludeItemId);
         requestedSeriesIds.append(seriesId);
     }
 

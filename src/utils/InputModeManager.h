@@ -4,6 +4,7 @@
 
 class QGuiApplication;
 class QEvent;
+class QString;
 
 class InputModeManager : public QObject
 {
@@ -14,6 +15,8 @@ public:
     explicit InputModeManager(QGuiApplication *app);
 
     bool pointerActive() const;
+    Q_INVOKABLE void setNavigationMode(const QString &mode);
+    Q_INVOKABLE void hideCursor(bool hide);
 
 signals:
     void pointerActiveChanged();

@@ -67,6 +67,7 @@ FocusScope {
     property var pendingQuickPlayStartPosition: 0
     property bool pendingQuickPlayLoading: false
     property var pendingPlaybackRequest: null
+    property var pendingEpisodeData: null
     
     // Only show pagination/filter controls at the library level (not in series/seasons/episodes/movies)
     property bool showPaginationControls: {
@@ -92,6 +93,15 @@ FocusScope {
     StackView.onStatusChanged: {
         if (StackView.status === StackView.Active) {
             console.log("[LibraryScreen] Screen activated, transferring focus to content")
+            if (pendingEpisodeData) {
+                var episodeData = pendingEpisodeData
+                pendingEpisodeData = null
+                Qt.callLater(function() {
+                    if (root.showEpisodeDetails) {
+                        root.showEpisodeDetails(episodeData)
+                    }
+                })
+            }
             Qt.callLater(function() {
                 if (contentLoader.item) {
                     contentLoader.item.forceActiveFocus()

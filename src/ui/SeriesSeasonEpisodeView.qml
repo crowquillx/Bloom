@@ -266,6 +266,9 @@ FocusScope {
     Connections {
         target: PlayerController
         function onPlaybackStopped() {
+            if (PlayerController.awaitingNextEpisodeResolution) {
+                return
+            }
             // Reload episodes to update watch progress
             if (SeriesDetailsViewModel.selectedSeasonId) {
                 refreshEpisodesTimer.start()

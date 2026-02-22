@@ -3,13 +3,11 @@
 #include "network/LibraryService.h"
 
 /**
- * @brief Mock implementation of LibraryService for visual regression testing.
- * 
- * This service returns deterministic data from a test fixture JSON file
- * instead of making network requests to a Jellyfin server.
- * 
- * All methods emit their signals immediately with fixture data, enabling
- * consistent and reproducible UI states for screenshot comparison.
+ * @brief Find and emit the next unplayed episode for a series, optionally excluding an episode.
+ *
+ * Searches the loaded fixture for the next episode of the specified series that is not marked as played and emits the corresponding signal immediately. If `excludeItemId` is provided, that item is ignored during the search.
+ * @param seriesId Series identifier to search episodes for.
+ * @param excludeItemId Optional item identifier to exclude from consideration.
  */
 class MockLibraryService : public LibraryService
 {
@@ -50,7 +48,7 @@ public:
 
     // Series details and episodes
     Q_INVOKABLE void getSeriesDetails(const QString &seriesId) override;
-    Q_INVOKABLE void getNextUnplayedEpisode(const QString &seriesId) override;
+    Q_INVOKABLE void getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId = QString()) override;
     Q_INVOKABLE void markSeriesWatched(const QString &seriesId) override;
     Q_INVOKABLE void markSeriesUnwatched(const QString &seriesId) override;
     Q_INVOKABLE void markItemPlayed(const QString &itemId) override;

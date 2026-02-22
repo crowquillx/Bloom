@@ -14,15 +14,17 @@
 class AuthenticationService;
 
 /**
- * @brief Handles library browsing, item fetching, and metadata retrieval.
- * 
- * This service manages:
- * - Library views and item listings
- * - Series/season/episode details
- * - Search functionality
- * - Image and stream URL generation
- * 
- * Part of the service decomposition formerly handled by the legacy client (Roadmap 1.1).
+ * Service for browsing a media library and retrieving items, metadata, and related URLs.
+ *
+ * Provides methods to:
+ * - Fetch library views, paginated item lists, latest media, and next-up episodes.
+ * - Retrieve series, season, and episode details, including next unplayed episode lookup.
+ * - Update item and series user state (played/unplayed, watched/unwatched, favorite toggles).
+ * - Perform searches and fetch random items.
+ * - Build stream and image URLs (including cached and width-specific variants).
+ *
+ * Emits signals for successful loads, not-modified cache cases, user-data changes,
+ * progress of long-running parsing operations, and network or endpoint errors.
  */
 class LibraryService : public QObject
 {
@@ -58,7 +60,7 @@ public:
 
     // Series details and episodes
     Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);
-    Q_INVOKABLE virtual void getNextUnplayedEpisode(const QString &seriesId);
+    Q_INVOKABLE virtual void getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId = QString());
     Q_INVOKABLE virtual void markSeriesWatched(const QString &seriesId);
     Q_INVOKABLE virtual void markSeriesUnwatched(const QString &seriesId);
     Q_INVOKABLE virtual void markItemPlayed(const QString &itemId);

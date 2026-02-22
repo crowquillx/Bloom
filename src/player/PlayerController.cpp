@@ -17,6 +17,7 @@
 #include <QDir>
 #include <QDebug>
 #include <QLoggingCategory>
+#include <QMetaObject>
 #include <QRectF>
 #include <QtGlobal>
 #include <QUrl>
@@ -648,6 +649,11 @@ void PlayerController::onEnterPausedState()
     }
 }
 
+/**
+ * @brief Handles entry into the Error playback state.
+ *
+ * Logs the current error message, stops all playback-related timers, stops the backend MPV process if it is running, and clears any prefetched next-episode state.
+ */
 void PlayerController::onEnterErrorState()
 {
     qDebug() << "PlayerController: Entering Error state -" << m_errorMessage;
@@ -661,6 +667,8 @@ void PlayerController::onEnterErrorState()
     if (m_playerBackend->isRunning()) {
         m_playerBackend->stopMpv();
     }
+    clearPendingAutoplayContext();
+    clearNextEpisodePrefetchState();
 }
 
 // === TIMEOUT HANDLERS ===
@@ -679,7 +687,15 @@ void PlayerController::onBufferingTimeout()
     processEvent(Event::ErrorOccurred);
 }
 
-// === PROCESS MANAGER SIGNAL HANDLERS ===
+/**
+ * @brief Handle changes to the backend process running state.
+ *
+ * When the backend reports it is no longer running and the controller's
+ * playback state is neither Idle nor Error, this method treats the event
+ * as an unexpected stop and triggers the playback stop / autoplay handling.
+ *
+ * @param running True if the backend process is running, false otherwise.
+ */
 
 void PlayerController::onProcessStateChanged(bool running)
 {
@@ -692,17 +708,7 @@ void PlayerController::onProcessStateChanged(bool running)
     if (!running && m_playbackState != Idle && m_playbackState != Error) {
         // Process stopped unexpectedly (e.g., mpv quit via 'q' or crash)
         // Treat this like an explicit stop so we report progress and consider autoplay.
-        reportPlaybackStop();
-        bool thresholdMet = checkCompletionThresholdAndAutoplay();
-
-        // If threshold is met for an episode, set flag to request next episode after marking as played
-        if (thresholdMet && !m_currentSeriesId.isEmpty()) {
-            m_shouldAutoplay = true;
-            stashPendingAutoplayContext();
-            qDebug() << "PlayerController: Process stopped, threshold met, will request next episode after marking current as played";
-        }
-
-        processEvent(Event::Stop);
+        handlePlaybackStopAndAutoplay(Event::Stop);
     }
 }
 
@@ -722,6 +728,16 @@ void PlayerController::onProcessError(const QString &error)
     processEvent(Event::ErrorOccurred);
 }
 
+/**
+ * @brief Handle updated playback position and advance related playback state.
+ *
+ * Updates internal position tracking, notifies observers, refreshes trickplay preview,
+ * resets buffering timeouts and progress while buffering, triggers state transitions
+ * from Loading->Buffering and Buffering->Playing when appropriate, and may request
+ * a next-episode prefetch.
+ *
+ * @param seconds Current playback position in seconds.
+ */
 void PlayerController::onPositionChanged(double seconds)
 {
     double previousPosition = m_currentPosition;
@@ -760,6 +776,8 @@ void PlayerController::onPositionChanged(double seconds)
             setBufferingProgress(progress);
         }
     }
+
+    maybeTriggerNextEpisodePrefetch();
     
     m_lastPosition = seconds;
     m_lastPositionUpdateTime.restart();
@@ -805,6 +823,11 @@ void PlayerController::onPauseChanged(bool paused)
     }
 }
 
+/**
+ * @brief Handle end of the current playback session.
+ *
+ * Processes end-of-playback state, performs stop-related reporting, and initiates any configured autoplay or next-episode navigation logic.
+ */
 void PlayerController::onPlaybackEnded()
 {
     qDebug() << "PlayerController: Playback ended";
@@ -813,23 +836,79 @@ void PlayerController::onPlaybackEnded()
                             << "position=" << m_currentPosition
                             << "duration=" << m_duration;
     
-    reportPlaybackStop();
-    
-    // Check if we should navigate to next episode (or autoplay)
-    bool thresholdMet = checkCompletionThresholdAndAutoplay();
-    
-    // If threshold met for an episode, set flag to request next episode after marking as played
-    if (thresholdMet && !m_currentSeriesId.isEmpty()) {
-        m_shouldAutoplay = true;  // Flag to handle the response after item is marked as played
-        stashPendingAutoplayContext();
-        qDebug() << "PlayerController: Threshold met, will request next episode after marking current as played";
-    }
-    
-    processEvent(Event::PlaybackEnd);
+    handlePlaybackStopAndAutoplay(Event::PlaybackEnd);
 }
 
+/**
+ * @brief Handle end-of-playback duties and trigger autoplay or prefetched navigation when appropriate.
+ *
+ * Checks completion progress and, if the configured completion threshold is met for the current series,
+ * marks the session for autoplay, stashes the pending autoplay context, and awaits next-episode resolution.
+ * Always reports playback stop and processes the provided stop event through the state machine.
+ * If a usable prefetched next episode is available, consumes that prefetched data and navigates to it.
+ *
+ * @param stopEvent Event value representing how playback ended (e.g., Stop, PlaybackEnd) to be processed.
+ */
+void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
+{
+    reportPlaybackStop();
+
+    bool thresholdMet = checkCompletionThresholdAndAutoplay();
+    bool prefetchedReady = false;
+
+    // If threshold met for an episode, request next episode after mark-played confirmation.
+    if (thresholdMet && !m_currentSeriesId.isEmpty()) {
+        m_shouldAutoplay = true;
+        m_waitingForNextEpisodeAtPlaybackEnd = true;
+        stashPendingAutoplayContext();
+        prefetchedReady = hasUsablePrefetchedNextEpisode();
+        qDebug() << "PlayerController: Threshold met, will request next episode after marking current as played";
+    }
+
+    processEvent(stopEvent);
+
+    if (prefetchedReady) {
+        consumePrefetchedNextEpisodeAndNavigate();
+    }
+}
+
+/**
+ * @brief Handle a loaded "next episode" payload and either cache it for later or trigger navigation/autoplay.
+ *
+ * If the controller is not currently awaiting a next-episode resolution, caches the provided episode payload
+ * and related series/item identifiers for potential later consumption. If the controller is awaiting a next-episode
+ * resolution and autoplay is required, validates the series, clears awaiting state, and emits navigateToNextEpisode
+ * with the episode payload, series id, selected audio/subtitle indices, and the configured autoplay flag. If no
+ * episode data is available, clears the pending autoplay context instead of emitting navigation.
+ *
+ * @param seriesId Series identifier associated with the loaded next-episode payload.
+ * @param episodeData JSON object containing the next-episode metadata (expected keys include "Id", "Name",
+ *                    "SeriesName", "ParentIndexNumber", "IndexNumber", and user data used when starting playback).
+ */
 void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData)
 {
+    if (!m_waitingForNextEpisodeAtPlaybackEnd) {
+        if (seriesId != m_currentSeriesId || m_currentSeriesId.isEmpty()) {
+            return;
+        }
+
+        const QString prefetchedEpisodeId = episodeData.value(QStringLiteral("Id")).toString();
+        const bool pointsToCurrentEpisode = !prefetchedEpisodeId.isEmpty() && prefetchedEpisodeId == m_currentItemId;
+        m_prefetchedNextEpisodeData = episodeData;
+        m_prefetchedNextEpisodeSeriesId = seriesId;
+        m_prefetchedForItemId = m_currentItemId;
+        m_nextEpisodePrefetchReady = !episodeData.isEmpty()
+                                  && !prefetchedEpisodeId.isEmpty()
+                                  && !pointsToCurrentEpisode;
+        qCDebug(lcPlayback) << "Next-episode prefetch result cached"
+                            << "itemId=" << m_prefetchedForItemId
+                            << "seriesId=" << m_prefetchedNextEpisodeSeriesId
+                            << "episodeId=" << prefetchedEpisodeId
+                            << "pointsToCurrentEpisode=" << pointsToCurrentEpisode
+                            << "ready=" << m_nextEpisodePrefetchReady;
+        return;
+    }
+
     // Only handle this if we're expecting an autoplay/navigation
     if (!m_shouldAutoplay) {
         return;
@@ -841,10 +920,12 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     }
     
     m_shouldAutoplay = false;
+    m_waitingForNextEpisodeAtPlaybackEnd = false;
     
     if (episodeData.isEmpty()) {
         qDebug() << "PlayerController: No next episode available";
         clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
         return;
     }
     
@@ -858,50 +939,108 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     qDebug() << "PlayerController: Next episode found:" << seriesName 
              << "S" << seasonNumber << "E" << episodeNumber << "-" << episodeName;
     
-    // Check if autoplay is enabled
-    if (m_config->getAutoplayNextEpisode()) {
-        // Get resume position if any
-        qint64 startPositionTicks = 0;
-        if (episodeData.contains("UserData") && episodeData["UserData"].isObject()) {
-            QJsonObject userData = episodeData["UserData"].toObject();
-            startPositionTicks = static_cast<qint64>(userData["PlaybackPositionTicks"].toDouble());
-        }
-        
-        qDebug() << "PlayerController: Autoplaying next episode";
+    // Always emit navigateToNextEpisode to show the Up Next screen
+    // The QML screen will handle autoplay countdown vs manual play
+    bool autoplay = m_config->getAutoplayNextEpisode();
+    int lastAudioIndex = m_pendingAutoplayAudioTrack;
+    int lastSubtitleIndex = m_pendingAutoplaySubtitleTrack;
+    
+    qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with autoplay:" 
+             << autoplay << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
 
-        QString subtitle = QStringLiteral("S%1 E%2").arg(seasonNumber).arg(episodeNumber);
-        if (!episodeName.isEmpty()) {
-            subtitle += QStringLiteral(" - ") + episodeName;
-        }
-        setOverlayMetadata(seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName, subtitle);
-        
-        // Emit signal for UI notification
-        emit autoplayingNextEpisode(episodeName, seriesName);
-        
-        // Build stream URL and start playback
-        // Note: For autoplay, we reuse the existing display settings (framerate/HDR)
-        // since episodes in the same series typically have the same framerate
-        // We also carry forward the current season ID for track preferences
-        QString streamUrl = m_libraryService->getStreamUrl(episodeId);
-        playUrl(streamUrl, episodeId, startPositionTicks, seriesId,
-            m_pendingAutoplaySeasonId, m_pendingAutoplayLibraryId,
-            m_pendingAutoplayFramerate, m_pendingAutoplayIsHDR);
-    } else {
-        // Autoplay disabled - emit navigation signal to show episode details
-        // Include the track preferences from the just-completed episode
-        int lastAudioIndex = m_pendingAutoplayAudioTrack;
-        int lastSubtitleIndex = m_pendingAutoplaySubtitleTrack;
-        
-        qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with audio:" 
-                 << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
-        
-        emit navigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex);
-    }
-
-    clearPendingAutoplayContext();
+    setAwaitingNextEpisodeResolution(false);
+    emitNavigateToNextEpisodeQueued(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay);
+    
+    // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
 }
 
-// Handle item marked as played - request next episode if autoplay was requested
+/**
+ * @brief Starts playback of the provided next-episode item and applies Up Next autoplay context.
+ *
+ * Extracts episode metadata (ID, title, season/episode numbers) and an optional resume
+ * position from the episode JSON, updates the on-screen overlay, emits the autoplayingNextEpisode
+ * signal, resolves a stream URL from the LibraryService, and begins playback using the
+ * currently stashed autoplay parameters. Clears the pending autoplay context on success
+ * or if the episode data is invalid.
+ *
+ * @param episodeData JSON object describing the episode. If present, the function reads
+ *                    "Id", "Name", "SeriesName", "ParentIndexNumber" (season), "IndexNumber"
+ *                    (episode), and "UserData.PlaybackPositionTicks" (resume position).
+ * @param seriesId    Series identifier associated with the episode (used for playback metadata).
+ */
+void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QString &seriesId)
+{
+    QString episodeId = episodeData["Id"].toString();
+    QString episodeName = episodeData["Name"].toString();
+    QString seriesName = episodeData["SeriesName"].toString();
+    int seasonNumber = episodeData["ParentIndexNumber"].toInt();
+    int episodeNumber = episodeData["IndexNumber"].toInt();
+    
+    if (episodeId.isEmpty()) {
+        qWarning() << "PlayerController::playNextEpisode: Empty episode ID";
+        clearPendingAutoplayContext();
+        return;
+    }
+    
+    // Get resume position if any
+    qint64 startPositionTicks = 0;
+    if (episodeData.contains("UserData") && episodeData["UserData"].isObject()) {
+        QJsonObject userData = episodeData["UserData"].toObject();
+        startPositionTicks = static_cast<qint64>(userData["PlaybackPositionTicks"].toDouble());
+    }
+    
+    qDebug() << "PlayerController: Playing next episode from Up Next screen:" << seriesName
+             << "S" << seasonNumber << "E" << episodeNumber << "-" << episodeName;
+    
+    QString subtitle = QStringLiteral("S%1 E%2").arg(seasonNumber).arg(episodeNumber);
+    if (!episodeName.isEmpty()) {
+        subtitle += QStringLiteral(" - ") + episodeName;
+    }
+    setOverlayMetadata(seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName, subtitle);
+    
+    emit autoplayingNextEpisode(episodeName, seriesName);
+
+    // Preserve stashed Jellyfin track indices across playUrl() clearing autoplay context.
+    const int stashedAudioTrack = m_pendingAutoplayAudioTrack;
+    const int stashedSubtitleTrack = m_pendingAutoplaySubtitleTrack;
+    const bool audioTrackChanged = m_selectedAudioTrack != stashedAudioTrack;
+    const bool subtitleTrackChanged = m_selectedSubtitleTrack != stashedSubtitleTrack;
+    m_selectedAudioTrack = stashedAudioTrack;
+    m_selectedSubtitleTrack = stashedSubtitleTrack;
+    if (audioTrackChanged) {
+        emit selectedAudioTrackChanged();
+    }
+    if (subtitleTrackChanged) {
+        emit selectedSubtitleTrackChanged();
+    }
+
+    qCDebug(lcPlayback) << "playNextEpisode startup track selections"
+                        << "audio=" << m_selectedAudioTrack
+                        << "subtitle=" << m_selectedSubtitleTrack;
+
+    // Build stream URL and start playback using stashed autoplay context
+    QString targetSeasonId = episodeData.value(QStringLiteral("SeasonId")).toString();
+    if (targetSeasonId.isEmpty()) {
+        targetSeasonId = episodeData.value(QStringLiteral("ParentId")).toString();
+    }
+    if (targetSeasonId.isEmpty()) {
+        targetSeasonId = m_pendingAutoplaySeasonId;
+    }
+    QString streamUrl = m_libraryService->getStreamUrl(episodeId);
+    playUrl(streamUrl, episodeId, startPositionTicks, seriesId,
+        targetSeasonId, m_pendingAutoplayLibraryId,
+        m_pendingAutoplayFramerate, m_pendingAutoplayIsHDR);
+}
+
+/**
+ * @brief Handle a recently marked-played item and request the next episode when appropriate.
+ *
+ * If autoplay is enabled, a pending autoplay series ID exists, and the provided `itemId`
+ * matches the pending autoplay item, this method asks the LibraryService for the next
+ * unplayed episode for that series.
+ *
+ * @param itemId The identifier of the item that was marked as played.
+ */
 void PlayerController::onItemMarkedPlayed(const QString &itemId)
 {
     // Only proceed if this is the item we just finished playing and we want autoplay/navigation
@@ -910,7 +1049,7 @@ void PlayerController::onItemMarkedPlayed(const QString &itemId)
     }
 
     qDebug() << "PlayerController: Item marked as played, requesting next episode for seriesId:" << m_pendingAutoplaySeriesId;
-    m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId);
+    m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId, m_pendingAutoplayItemId);
 }
 
 // === PUBLIC API ===
@@ -1008,9 +1147,18 @@ void PlayerController::setEmbeddedVideoShrinkEnabled(bool enabled)
     emit embeddedVideoShrinkEnabledChanged();
 }
 
+/**
+ * @brief Start playback of the configured test video.
+ *
+ * Clears any pending autoplay context and next-episode prefetch state, disables autoplay,
+ * clears the current item identifier, sets the pending URL to the configured test video,
+ * stops any currently running backend playback, and triggers the player state machine to
+ * begin loading and playing the test video.
+ */
 void PlayerController::playTestVideo()
 {
     clearPendingAutoplayContext();
+    clearNextEpisodePrefetchState();
     m_shouldAutoplay = false;
 
     if (!m_currentItemId.isEmpty()) {
@@ -1027,6 +1175,24 @@ void PlayerController::playTestVideo()
     processEvent(Event::Play);
 }
 
+/**
+ * @brief Begin playback of the given media URL and prepare the controller state for a new item.
+ *
+ * Updates internal playback context (current item/series/season/library IDs, playback attempt),
+ * stops any currently running playback, clears autoplay and next-episode prefetch state, requests
+ * media segments and trickplay info for the item, queues an initial seek if a start position is
+ * provided, and transitions the internal state machine to start loading the URL.
+ *
+ * @param url Playback URL to open.
+ * @param itemId Optional content item identifier (empty if unknown).
+ * @param startPositionTicks Resume/start position in 100-nanosecond ticks (Jellyfin units); if
+ *        greater than zero the controller will seek to the corresponding position after buffering.
+ * @param seriesId Optional series identifier for episodic content.
+ * @param seasonId Optional season identifier for episodic content.
+ * @param libraryId Optional library identifier where the item resides.
+ * @param framerate Content framerate in frames per second, used for framerate-matching decisions.
+ * @param isHDR True if the content is HDR, used for HDR-related display handling.
+ */
 void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionTicks, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR)
 {
     m_playbackAttemptId = ++gPlaybackAttemptCounter;
@@ -1054,6 +1220,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     }
 
     clearPendingAutoplayContext();
+    clearNextEpisodePrefetchState();
     
     // Store pending playback info before transition
     if (m_currentItemId != itemId) {
@@ -1107,11 +1274,24 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     processEvent(Event::Play);
 }
 
+/**
+ * @brief Stops current playback and clears autoplay/prefetch state.
+ *
+ * Clears any pending autoplay context and next-episode prefetch data, disables
+ * automatic autoplay for the current session, reports playback stop and checks
+ * the completion threshold for the current item, and instructs the player
+ * backend to stop playback. If the controller is not already in Idle or Error
+ * state, processes a Stop event to transition the playback state machine.
+ *
+ * Note: some backends may emit a synchronous state change when stopped; that
+ * may already transition the controller to Idle via onProcessStateChanged.
+ */
 void PlayerController::stop()
 {
     qDebug() << "PlayerController: stop requested";
 
     clearPendingAutoplayContext();
+    clearNextEpisodePrefetchState();
     m_shouldAutoplay = false;
     
     reportPlaybackStop();
@@ -1720,6 +1900,15 @@ void PlayerController::checkCompletionThreshold()
     checkCompletionThresholdAndAutoplay();
 }
 
+/**
+ * @brief Evaluate whether the current playback has met the configured completion threshold and trigger marking the item as played.
+ *
+ * If the configured completion percentage is reached, the current item is marked played via PlaybackService and the function reports that the threshold was met.
+ * The check is performed at most once per playback attempt; subsequent calls for the same attempt are no-ops.
+ * The function does nothing and returns false if there is no current item or the duration is not positive.
+ *
+ * @return true if the completion threshold was met and the item was marked played; false otherwise.
+ */
 bool PlayerController::checkCompletionThresholdAndAutoplay()
 {
     if (m_hasEvaluatedCompletionForAttempt) {
@@ -1741,6 +1930,149 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
     return false;  // Threshold not met
 }
 
+/**
+ * @brief Attempts to prefetch the next episode when playback nears completion.
+ *
+ * If playback is in Playing or Paused state, a current series and item are present,
+ * duration is positive, and a prefetch has not already been requested for this
+ * playback attempt, this will set the internal prefetch-requested flag and ask
+ * the LibraryService for the next unplayed episode for the current series/item.
+ *
+ * Does nothing when any prerequisite is missing (no series/item, non-positive
+ * duration, playback not active, or a prefetch already requested).
+ */
+void PlayerController::maybeTriggerNextEpisodePrefetch()
+{
+    if (m_nextEpisodePrefetchRequestedForAttempt
+        || m_currentSeriesId.isEmpty()
+        || m_currentItemId.isEmpty()
+        || m_duration <= 0.0
+        || (m_playbackState != Playing && m_playbackState != Paused)) {
+        return;
+    }
+
+    const double progressPercent = (m_currentPosition / m_duration) * 100.0;
+    if (progressPercent < kNextEpisodePrefetchTriggerPercent) {
+        return;
+    }
+
+    m_nextEpisodePrefetchRequestedForAttempt = true;
+    qCDebug(lcPlayback) << "Triggering next-episode prefetch"
+                        << "itemId=" << m_currentItemId
+                        << "seriesId=" << m_currentSeriesId
+                        << "progressPercent=" << progressPercent;
+    m_libraryService->getNextUnplayedEpisode(m_currentSeriesId, m_currentItemId);
+}
+
+/**
+ * Determines whether a prefetched next-episode payload is valid and applicable for autoplay.
+ *
+ * Checks that a prefetched payload exists and is marked ready, that it contains a valid episode id,
+ * and that its series and item ids match the current pending autoplay context. Also ensures the
+ * prefetched episode is not the same as the item that just finished playing.
+ *
+ * @return `true` if the prefetched next-episode can be consumed for autoplay, `false` otherwise.
+ */
+bool PlayerController::hasUsablePrefetchedNextEpisode() const
+{
+    const QString prefetchedEpisodeId = m_prefetchedNextEpisodeData.value(QStringLiteral("Id")).toString();
+    if (!m_nextEpisodePrefetchReady
+        || m_prefetchedNextEpisodeData.isEmpty()
+        || prefetchedEpisodeId.isEmpty()) {
+        return false;
+    }
+    if (m_prefetchedNextEpisodeSeriesId.isEmpty()
+        || m_prefetchedNextEpisodeSeriesId != m_pendingAutoplaySeriesId) {
+        return false;
+    }
+    if (m_prefetchedForItemId.isEmpty()
+        || m_prefetchedForItemId != m_pendingAutoplayItemId) {
+        return false;
+    }
+    // Jellyfin may still return the currently playing episode until mark-played settles.
+    // Never consume a prefetched candidate that points to the just-finished item.
+    if (prefetchedEpisodeId == m_pendingAutoplayItemId) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief Consume a prefetched "next episode" payload and trigger navigation to it.
+ *
+ * If a usable prefetched next-episode is available, emits navigateToNextEpisode with
+ * the prefetched episode data, series id, requested audio/subtitle indices, and the
+ * current autoplay setting. Clears the prefetch state and related awaiting/autoplay
+ * flags after emitting. If no usable prefetched episode exists, this is a no-op.
+ */
+void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
+{
+    if (!hasUsablePrefetchedNextEpisode()) {
+        return;
+    }
+
+    const bool autoplay = m_config->getAutoplayNextEpisode();
+    const int lastAudioIndex = m_pendingAutoplayAudioTrack;
+    const int lastSubtitleIndex = m_pendingAutoplaySubtitleTrack;
+    const QString prefetchedSeriesId = m_prefetchedNextEpisodeSeriesId;
+
+    m_shouldAutoplay = false;
+    m_waitingForNextEpisodeAtPlaybackEnd = false;
+    setAwaitingNextEpisodeResolution(false);
+
+    qCDebug(lcPlayback) << "Using prefetched next episode for Up Next"
+                        << "itemId=" << m_pendingAutoplayItemId
+                        << "seriesId=" << prefetchedSeriesId;
+
+    emitNavigateToNextEpisodeQueued(m_prefetchedNextEpisodeData,
+                                    prefetchedSeriesId,
+                                    lastAudioIndex,
+                                    lastSubtitleIndex,
+                                    autoplay);
+    clearNextEpisodePrefetchState();
+}
+
+void PlayerController::emitNavigateToNextEpisodeQueued(const QJsonObject &episodeData,
+                                                       const QString &seriesId,
+                                                       int lastAudioIndex,
+                                                       int lastSubtitleIndex,
+                                                       bool autoplay)
+{
+    QMetaObject::invokeMethod(this,
+                              [this, episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay]() {
+                                  emit navigateToNextEpisode(episodeData,
+                                                             seriesId,
+                                                             lastAudioIndex,
+                                                             lastSubtitleIndex,
+                                                             autoplay);
+                              },
+                              Qt::QueuedConnection);
+}
+
+/**
+ * @brief Clears any staged next-episode prefetch state and cached prefetched data.
+ *
+ * Resets flags that track awaiting resolution, request attempts, and readiness,
+ * and clears the stored prefetched episode JSON payload, its series identifier,
+ * and the associated item id.
+ */
+void PlayerController::clearNextEpisodePrefetchState()
+{
+    m_waitingForNextEpisodeAtPlaybackEnd = false;
+    m_nextEpisodePrefetchRequestedForAttempt = false;
+    m_nextEpisodePrefetchReady = false;
+    m_prefetchedNextEpisodeData = QJsonObject();
+    m_prefetchedNextEpisodeSeriesId.clear();
+    m_prefetchedForItemId.clear();
+}
+
+/**
+ * @brief Save the current playback context for a pending autoplay (next-episode) action.
+ *
+ * Copies the current item, series, season, library, selected audio/subtitle tracks,
+ * framerate, and HDR flag into the controller's pending-autoplay fields and marks
+ * the controller as awaiting next-episode resolution.
+ */
 void PlayerController::stashPendingAutoplayContext()
 {
     m_pendingAutoplayItemId = m_currentItemId;
@@ -1751,8 +2083,15 @@ void PlayerController::stashPendingAutoplayContext()
     m_pendingAutoplaySubtitleTrack = m_selectedSubtitleTrack;
     m_pendingAutoplayFramerate = m_contentFramerate;
     m_pendingAutoplayIsHDR = m_contentIsHDR;
+    setAwaitingNextEpisodeResolution(true);
 }
 
+/**
+ * @brief Clears any stored context for a pending autoplay (Up Next) action.
+ *
+ * Resets identifiers, track/framerate/HDR hints, and autoplay-related flags so no pending
+ * autoplay will be consumed or awaited.
+ */
 void PlayerController::clearPendingAutoplayContext()
 {
     m_pendingAutoplayItemId.clear();
@@ -1763,8 +2102,35 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplaySubtitleTrack = -1;
     m_pendingAutoplayFramerate = 0.0;
     m_pendingAutoplayIsHDR = false;
+    setAwaitingNextEpisodeResolution(false);
 }
 
+/**
+ * @brief Set whether the controller is waiting for the next-episode resolution.
+ *
+ * Updates the awaiting-next-episode flag and, when the flag actually changes,
+ * emits awaitingNextEpisodeResolutionChanged().
+ *
+ * @param awaiting True to mark that the controller is awaiting a next-episode resolution, false otherwise.
+ */
+void PlayerController::setAwaitingNextEpisodeResolution(bool awaiting)
+{
+    if (m_awaitingNextEpisodeResolution == awaiting) {
+        return;
+    }
+    m_awaitingNextEpisodeResolution = awaiting;
+    emit awaitingNextEpisodeResolutionChanged();
+}
+
+/**
+ * @brief Begin playback of the specified media URL.
+ *
+ * Starts playback for the provided URL, applies display settings required for the content
+ * (enables HDR when allowed and content is HDR, capturing the original refresh rate so
+ * it can be restored later), and then initiates framerate matching and the backend start sequence.
+ *
+ * @param url The media resource URL to play.
+ */
 void PlayerController::startPlayback(const QString &url)
 {
     qDebug() << "PlayerController: Starting playback of" << url;

@@ -64,6 +64,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(int playbackVolume READ getPlaybackVolume WRITE setPlaybackVolume NOTIFY playbackVolumeChanged)
     Q_PROPERTY(bool playbackMuted READ getPlaybackMuted WRITE setPlaybackMuted NOTIFY playbackMutedChanged)
     Q_PROPERTY(bool autoplayNextEpisode READ getAutoplayNextEpisode WRITE setAutoplayNextEpisode NOTIFY autoplayNextEpisodeChanged)
+    Q_PROPERTY(int autoplayCountdownSeconds READ getAutoplayCountdownSeconds WRITE setAutoplayCountdownSeconds NOTIFY autoplayCountdownSecondsChanged)
     Q_PROPERTY(bool autoSkipIntro READ getAutoSkipIntro WRITE setAutoSkipIntro NOTIFY autoSkipIntroChanged)
     Q_PROPERTY(bool autoSkipOutro READ getAutoSkipOutro WRITE setAutoSkipOutro NOTIFY autoSkipOutroChanged)
     Q_PROPERTY(QString playerBackend READ getPlayerBackend WRITE setPlayerBackend NOTIFY playerBackendChanged)
@@ -164,6 +165,8 @@ public:
     
     void setAutoplayNextEpisode(bool enabled);
     bool getAutoplayNextEpisode() const;
+    void setAutoplayCountdownSeconds(int seconds);
+    int getAutoplayCountdownSeconds() const;
     void setAutoSkipIntro(bool enabled);
     bool getAutoSkipIntro() const;
     void setAutoSkipOutro(bool enabled);
@@ -342,6 +345,7 @@ signals:
     void playbackVolumeChanged();
     void playbackMutedChanged();
     void autoplayNextEpisodeChanged();
+    void autoplayCountdownSecondsChanged();
     void autoSkipIntroChanged();
     void autoSkipOutroChanged();
     void playerBackendChanged();
@@ -371,6 +375,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 13;
+    static constexpr int kCurrentConfigVersion = 14;
     QJsonObject defaultConfig() const;
 };

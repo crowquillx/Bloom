@@ -784,6 +784,13 @@ void ConfigManager::setAutoplayNextEpisode(bool enabled)
     emit autoplayNextEpisodeChanged();
 }
 
+/**
+ * @brief Determine whether autoplaying the next episode is enabled.
+ *
+ * Reads the stored playback setting and falls back to enabled when absent.
+ *
+ * @return `true` if autoplaying the next episode is enabled, `false` otherwise.
+ */
 bool ConfigManager::getAutoplayNextEpisode() const
 {
     if (m_config.contains("settings") && m_config["settings"].isObject()) {
@@ -798,6 +805,68 @@ bool ConfigManager::getAutoplayNextEpisode() const
     return true; // Default to enabled
 }
 
+/**
+ * @brief Set the autoplay countdown duration used before automatically playing the next episode.
+ *
+ * Clamps the provided value to the range 5–30 seconds and rounds it to the nearest multiple of 5
+ * (allowed values: 5, 10, 15, 20, 25, 30). If the normalized value differs from the current
+ * setting, updates the stored configuration, persists it, and emits autoplayCountdownSecondsChanged().
+ *
+ * @param seconds Desired countdown duration in seconds; will be normalized to a valid value.
+ */
+void ConfigManager::setAutoplayCountdownSeconds(int seconds)
+{
+    // Clamp to valid range: 5, 10, 15, 20, 25, 30
+    int clamped = std::max(5, std::min(seconds, 30));
+    // Round to nearest multiple of 5
+    clamped = ((clamped + 2) / 5) * 5;
+    if (clamped == getAutoplayCountdownSeconds()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["autoplay_countdown_seconds"] = clamped;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit autoplayCountdownSecondsChanged();
+}
+
+/**
+ * @brief Gets the autoplay countdown duration used before automatically playing the next episode.
+ *
+ * Reads the value from settings.playback.autoplay_countdown_seconds and clamps it to the range 5–30.
+ *
+ * @return int Autoplay countdown in seconds (clamped to 5–30); returns 10 if the setting is absent.
+ */
+int ConfigManager::getAutoplayCountdownSeconds() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("autoplay_countdown_seconds")) {
+                int val = playback["autoplay_countdown_seconds"].toInt();
+                int clamped = std::max(5, std::min(val, 30));
+                return ((clamped + 2) / 5) * 5;
+            }
+        }
+    }
+    return 10; // Default to 10 seconds
+}
+
+/**
+ * @brief Enables or disables automatic skipping of episode intros.
+ *
+ * Updates the persisted configuration's playback.auto_skip_intro value, saves the configuration, and emits autoSkipIntroChanged().
+ *
+ * @param enabled true to enable auto-skip of intros, false to disable.
+ */
 void ConfigManager::setAutoSkipIntro(bool enabled)
 {
     if (enabled == getAutoSkipIntro()) return;
@@ -1710,6 +1779,17 @@ public:
         return newConfig;
     }
 
+    /**
+     * @brief Migrate a configuration object from version 12 to version 13.
+     *
+     * Ensures the top-level "version" is set to 13 and guarantees the playback
+     * settings contain the boolean keys "auto_skip_intro" and "auto_skip_outro",
+     * defaulting each to `false` if they are not present. All other keys from
+     * the input configuration are preserved.
+     *
+     * @param oldConfig The configuration object at version 12.
+     * @return QJsonObject The migrated configuration object at version 13.
+     */
     static QJsonObject migrateV12ToV13(const QJsonObject &oldConfig)
     {
         QJsonObject newConfig = oldConfig;
@@ -1728,9 +1808,43 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    /**
+     * @brief Migrate a configuration object to schema version 14.
+     *
+     * Ensures the top-level "version" is set to 14 and that
+     * settings.playback.autoplay_countdown_seconds exists (defaults to 10 if absent).
+     *
+     * @param oldConfig The original configuration object (expected version 13).
+     * @return QJsonObject The migrated configuration object updated to version 14.
+     */
+    static QJsonObject migrateV13ToV14(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 14;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject playback = settings.value("playback").toObject();
+        if (!playback.contains("autoplay_countdown_seconds")) {
+            playback["autoplay_countdown_seconds"] = 10;
+        }
+
+        settings["playback"] = playback;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
+/**
+ * @brief Incrementally migrates the in-memory configuration object to the current schema version.
+ *
+ * Applies successive versioned migrations to m_config until it reaches kCurrentConfigVersion.
+ * If any migration produces an invalid config (missing numeric "version") or an unknown version
+ * is encountered, migration aborts and the function returns false.
+ *
+ * @return true if m_config was migrated to kCurrentConfigVersion, false on failure or unknown version.
+ */
 bool ConfigManager::migrateConfig()
 {
     int version = 0;
@@ -1843,6 +1957,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 13) {
+            m_config = ConfigMigrator::migrateV13ToV14(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -1867,6 +1989,20 @@ bool ConfigManager::validateConfig(const QJsonObject &cfg)
     return true;
 }
 
+/**
+ * @brief Constructs the application's default configuration for the current config version.
+ *
+ * The returned object contains a top-level `version` set to `kCurrentConfigVersion` and a
+ * `settings` object pre-populated with reasonable defaults for playback, video, cache, UI,
+ * manual DPI override, and MPV profile management. Notable defaults include a playback
+ * completion threshold of 90, autoplay countdown of 10 seconds, image cache size of 500 MB,
+ * and `manualDpiScaleOverride` set to 1.0. MPV profiles are initialized via `defaultMpvProfiles()`
+ * with `"Default"` selected as the default profile; `library_profiles` and `series_profiles` are
+ * initialized empty.
+ *
+ * @return QJsonObject The complete default configuration object ready to be persisted or used
+ *                     as a fallback when no valid config is available.
+ */
 QJsonObject ConfigManager::defaultConfig() const
 {
     QJsonObject cfg;
@@ -1876,6 +2012,7 @@ QJsonObject ConfigManager::defaultConfig() const
     QJsonObject playback;
     playback["completion_threshold"] = 90;
     playback["autoplay_next_episode"] = true;
+    playback["autoplay_countdown_seconds"] = 10;
     playback["auto_skip_intro"] = false;
     playback["auto_skip_outro"] = false;
     playback["audio_delay"] = 0;

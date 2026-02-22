@@ -61,6 +61,8 @@ Window {
                                                          && activeEmbeddedPlaybackOverlay.fullControlsVisible
     readonly property bool playbackSelectorOpen: embeddedPlaybackActive
                                               && activeEmbeddedPlaybackOverlay.selectorOpen
+    readonly property bool awaitingUpNextTransition: PlayerController.awaitingNextEpisodeResolution
+                                                  && !PlayerController.isPlaybackActive
 
     function ensurePlaybackOverlayFocus() {
         if (!embeddedPlaybackActive) {
@@ -207,6 +209,49 @@ Window {
                     console.log("[FocusDebug] Skipping focus - sidebar is expanded, will restore later")
                 }
                 updateSidebarNavigation()
+            }
+        }
+    }
+
+    Rectangle {
+        id: upNextBlockingOverlay
+        anchors.fill: parent
+        z: 850
+        visible: awaitingUpNextTransition
+        color: Qt.rgba(0, 0, 0, 0.88)
+
+        MouseArea {
+            anchors.fill: parent
+            enabled: awaitingUpNextTransition
+            hoverEnabled: enabled
+            acceptedButtons: Qt.AllButtons
+            preventStealing: true
+            onPressed: function(mouse) { mouse.accepted = true }
+            onReleased: function(mouse) { mouse.accepted = true }
+            onClicked: function(mouse) { mouse.accepted = true }
+            onWheel: function(wheel) { wheel.accepted = true }
+        }
+
+        ColumnLayout {
+            anchors.centerIn: parent
+            spacing: Theme.spacingMedium
+
+            Text {
+                Layout.alignment: Qt.AlignHCenter
+                text: qsTr("Up Next")
+                font.pixelSize: Theme.fontSizeHeader
+                font.family: Theme.fontPrimary
+                font.bold: true
+                color: Theme.textPrimary
+            }
+
+            BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                running: upNextBlockingOverlay.visible
+                width: Math.round(52 * Theme.layoutScale)
+                height: Math.round(52 * Theme.layoutScale)
+                palette.dark: Theme.textPrimary
+                palette.light: Theme.accentSecondary
             }
         }
     }
@@ -517,39 +562,81 @@ Window {
     Connections {
         target: PlayerController
         
-        function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex) {
-            console.log("[Main] Navigating to next episode after playback:", 
+        function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay) {
+            console.log("[Main] Up Next screen for:", 
                         episodeData.SeriesName, "S" + episodeData.ParentIndexNumber + "E" + episodeData.IndexNumber,
-                        "Audio:", lastAudioIndex, "Subtitle:", lastSubtitleIndex)
+                        "Autoplay:", autoplay)
             
-            // Pop back to the root level (home screen) first, then navigate to the episode
+            // Pop back to the root level (home screen) first
             while (stackView.depth > 1) {
-                stackView.pop(null)  // Pop without transition
+                stackView.pop(null, StackView.Immediate)
             }
             
-            // Navigate to the episode view via LibraryScreen
-            // We use empty library info since we're coming from playback context
-            stackView.push("LibraryScreen.qml", {
-                currentParentId: "",
-                currentLibraryId: "",
-                currentLibraryName: "",
-                currentSeriesId: seriesId,
-                directNavigationMode: true,
-                // Pass the track preferences to be applied
-                pendingAudioTrackIndex: lastAudioIndex,
-                pendingSubtitleTrackIndex: lastSubtitleIndex
-            })
+            // Push the Up Next interstitial screen
+            var upNextScreen = stackView.push("UpNextScreen.qml", {
+                episodeData: episodeData,
+                seriesId: seriesId,
+                lastAudioIndex: lastAudioIndex,
+                lastSubtitleIndex: lastSubtitleIndex,
+                autoplay: autoplay
+            }, StackView.Immediate)
             
-            // Load series details for context
-            LibraryService.getSeriesDetails(seriesId)
-            
-            // Defer calling showEpisodeDetails until screen is ready
-            Qt.callLater(function() {
-                var screen = stackView.currentItem
-                if (screen && screen.showEpisodeDetails) {
-                    screen.showEpisodeDetails(episodeData)
-                }
-            })
+            if (upNextScreen) {
+                Qt.callLater(function() {
+                    if (upNextScreen && upNextScreen.focusPrimaryAction) {
+                        upNextScreen.focusPrimaryAction()
+                    }
+                })
+                // Play the next episode
+                upNextScreen.playRequested.connect(function() {
+                    console.log("[Main] Up Next: Play requested")
+                    stackView.pop(null, StackView.Immediate)
+                    PlayerController.playNextEpisode(episodeData, seriesId)
+                })
+                
+                // Navigate to the episode list (same as ESC)
+                upNextScreen.moreEpisodesRequested.connect(function() {
+                    console.log("[Main] Up Next: More episodes requested")
+                    stackView.pop(null, StackView.Immediate)
+                    PlayerController.clearPendingAutoplayContext()
+
+                    var targetEpisodeData = Object.assign({}, episodeData || {})
+                    if (!targetEpisodeData.itemId && targetEpisodeData.Id) {
+                        targetEpisodeData.itemId = targetEpisodeData.Id
+                    }
+                    if (!targetEpisodeData.SeasonId && targetEpisodeData.ParentId) {
+                        targetEpisodeData.SeasonId = targetEpisodeData.ParentId
+                    }
+                    
+                    var libraryScreen = stackView.push("LibraryScreen.qml", {
+                        currentParentId: "",
+                        currentLibraryId: "",
+                        currentLibraryName: "",
+                        currentSeriesId: seriesId,
+                        directNavigationMode: true,
+                        pendingAudioTrackIndex: lastAudioIndex,
+                        pendingSubtitleTrackIndex: lastSubtitleIndex,
+                        currentSeasonId: targetEpisodeData.SeasonId || ""
+                    })
+                    
+                    LibraryService.getSeriesDetails(seriesId)
+                    if (libraryScreen) {
+                        libraryScreen.pendingEpisodeData = targetEpisodeData
+                    } else {
+                        console.warn("[Main] Up Next: LibraryScreen push failed, could not set pendingEpisodeData")
+                    }
+                })
+                
+                // Go back to home
+                upNextScreen.backToHomeRequested.connect(function() {
+                    console.log("[Main] Up Next: Back to home requested")
+                    PlayerController.clearPendingAutoplayContext()
+                    stackView.pop(null, StackView.Immediate)
+                })
+            } else {
+                console.warn("[Main] Failed to create Up Next screen, clearing pending autoplay context")
+                PlayerController.clearPendingAutoplayContext()
+            }
         }
         
         ignoreUnknownSignals: true
@@ -559,7 +646,6 @@ Window {
         sequence: "Ctrl+Q"
         onActivated: Qt.quit()
     }
-
     Shortcut {
         sequences: ["Esc"]
         enabled: !PlayerController.isPlaybackActive

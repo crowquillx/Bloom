@@ -4,6 +4,7 @@
 #include <QCursor>
 #include <QGuiApplication>
 #include <QKeyEvent>
+#include <QString>
 
 InputModeManager::InputModeManager(QGuiApplication *app)
     : QObject(app)
@@ -17,6 +18,23 @@ InputModeManager::InputModeManager(QGuiApplication *app)
 bool InputModeManager::pointerActive() const
 {
     return m_pointerActive;
+}
+
+void InputModeManager::setNavigationMode(const QString &mode)
+{
+    const QString normalized = mode.trimmed().toLower();
+    if (normalized == QStringLiteral("pointer")) {
+        setPointerActive(true);
+        return;
+    }
+    if (normalized == QStringLiteral("keyboard") || normalized == QStringLiteral("remote")) {
+        setPointerActive(false);
+    }
+}
+
+void InputModeManager::hideCursor(bool hide)
+{
+    setPointerActive(!hide);
 }
 
 bool InputModeManager::eventFilter(QObject *watched, QEvent *event)

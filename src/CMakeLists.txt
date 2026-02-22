@@ -137,6 +137,7 @@ qt_add_qml_module(Bloom
         ui/TrackSelector.qml
         ui/MediaInfoPanel.qml
         ui/ToastNotification.qml
+        ui/UpNextScreen.qml
         ui/RoundedImage.qml
         ui/ActiveSessionsScreen.qml
         ui/TrackUtils.js
