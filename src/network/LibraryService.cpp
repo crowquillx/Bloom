@@ -558,7 +558,16 @@ void LibraryService::getItem(const QString &itemId)
 
 // ============================================================================
 // Series Details
-// ============================================================================
+/**
+ * Loads detailed metadata for the specified series and emits the result or an error.
+ *
+ * Sends a GET request for the series item fields and, on success, emits the parsed JSON object.
+ * If a 304 Not Modified response is returned the method emits seriesDetailsNotModified(seriesId).
+ * On authentication failure or invalid server response it emits an error via emitError.
+ * When present, the response ETag and Last-Modified headers are stored in the service's cache.
+ *
+ * @param seriesId The identifier of the series to fetch.
+ */
 
 void LibraryService::getSeriesDetails(const QString &seriesId)
 {
@@ -621,6 +630,16 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
         });
 }
 
+/**
+ * @brief Requests the next unplayed episode for a series, optionally skipping a specific episode.
+ *
+ * Queries the server for the next unplayed episode of the given series and emits the result.
+ * On success emits nextUnplayedEpisodeLoaded(seriesId, episode) where `episode` is the selected episode object
+ * or an empty object if no eligible episode was found. On error emits an error via emitError.
+ *
+ * @param seriesId The series identifier to query.
+ * @param excludeItemId If non-empty, the returned episode will not have this Id; pass an empty string to allow any episode.
+ */
 void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId)
 {
     if (!m_authService->isAuthenticated()) {

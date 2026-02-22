@@ -648,6 +648,11 @@ void PlayerController::onEnterPausedState()
     }
 }
 
+/**
+ * @brief Handles entry into the Error playback state.
+ *
+ * Logs the current error message, stops all playback-related timers, stops the backend MPV process if it is running, and clears any prefetched next-episode state.
+ */
 void PlayerController::onEnterErrorState()
 {
     qDebug() << "PlayerController: Entering Error state -" << m_errorMessage;
@@ -680,7 +685,15 @@ void PlayerController::onBufferingTimeout()
     processEvent(Event::ErrorOccurred);
 }
 
-// === PROCESS MANAGER SIGNAL HANDLERS ===
+/**
+ * @brief Handle changes to the backend process running state.
+ *
+ * When the backend reports it is no longer running and the controller's
+ * playback state is neither Idle nor Error, this method treats the event
+ * as an unexpected stop and triggers the playback stop / autoplay handling.
+ *
+ * @param running True if the backend process is running, false otherwise.
+ */
 
 void PlayerController::onProcessStateChanged(bool running)
 {
@@ -713,6 +726,16 @@ void PlayerController::onProcessError(const QString &error)
     processEvent(Event::ErrorOccurred);
 }
 
+/**
+ * @brief Handle updated playback position and advance related playback state.
+ *
+ * Updates internal position tracking, notifies observers, refreshes trickplay preview,
+ * resets buffering timeouts and progress while buffering, triggers state transitions
+ * from Loading->Buffering and Buffering->Playing when appropriate, and may request
+ * a next-episode prefetch.
+ *
+ * @param seconds Current playback position in seconds.
+ */
 void PlayerController::onPositionChanged(double seconds)
 {
     double previousPosition = m_currentPosition;
@@ -798,6 +821,11 @@ void PlayerController::onPauseChanged(bool paused)
     }
 }
 
+/**
+ * @brief Handle end of the current playback session.
+ *
+ * Processes end-of-playback state, performs stop-related reporting, and initiates any configured autoplay or next-episode navigation logic.
+ */
 void PlayerController::onPlaybackEnded()
 {
     qDebug() << "PlayerController: Playback ended";
@@ -809,6 +837,16 @@ void PlayerController::onPlaybackEnded()
     handlePlaybackStopAndAutoplay(Event::PlaybackEnd);
 }
 
+/**
+ * @brief Handle end-of-playback duties and trigger autoplay or prefetched navigation when appropriate.
+ *
+ * Checks completion progress and, if the configured completion threshold is met for the current series,
+ * marks the session for autoplay, stashes the pending autoplay context, and awaits next-episode resolution.
+ * Always reports playback stop and processes the provided stop event through the state machine.
+ * If a usable prefetched next episode is available, consumes that prefetched data and navigates to it.
+ *
+ * @param stopEvent Event value representing how playback ended (e.g., Stop, PlaybackEnd) to be processed.
+ */
 void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
 {
     reportPlaybackStop();
@@ -832,6 +870,19 @@ void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
     }
 }
 
+/**
+ * @brief Handle a loaded "next episode" payload and either cache it for later or trigger navigation/autoplay.
+ *
+ * If the controller is not currently awaiting a next-episode resolution, caches the provided episode payload
+ * and related series/item identifiers for potential later consumption. If the controller is awaiting a next-episode
+ * resolution and autoplay is required, validates the series, clears awaiting state, and emits navigateToNextEpisode
+ * with the episode payload, series id, selected audio/subtitle indices, and the configured autoplay flag. If no
+ * episode data is available, clears the pending autoplay context instead of emitting navigation.
+ *
+ * @param seriesId Series identifier associated with the loaded next-episode payload.
+ * @param episodeData JSON object containing the next-episode metadata (expected keys include "Id", "Name",
+ *                    "SeriesName", "ParentIndexNumber", "IndexNumber", and user data used when starting playback).
+ */
 void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData)
 {
     if (!m_waitingForNextEpisodeAtPlaybackEnd) {
@@ -900,6 +951,20 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
 }
 
+/**
+ * @brief Starts playback of the provided next-episode item and applies Up Next autoplay context.
+ *
+ * Extracts episode metadata (ID, title, season/episode numbers) and an optional resume
+ * position from the episode JSON, updates the on-screen overlay, emits the autoplayingNextEpisode
+ * signal, resolves a stream URL from the LibraryService, and begins playback using the
+ * currently stashed autoplay parameters. Clears the pending autoplay context on success
+ * or if the episode data is invalid.
+ *
+ * @param episodeData JSON object describing the episode. If present, the function reads
+ *                    "Id", "Name", "SeriesName", "ParentIndexNumber" (season), "IndexNumber"
+ *                    (episode), and "UserData.PlaybackPositionTicks" (resume position).
+ * @param seriesId    Series identifier associated with the episode (used for playback metadata).
+ */
 void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QString &seriesId)
 {
     QString episodeId = episodeData["Id"].toString();
@@ -941,7 +1006,15 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     clearPendingAutoplayContext();
 }
 
-// Handle item marked as played - request next episode if autoplay was requested
+/**
+ * @brief Handle a recently marked-played item and request the next episode when appropriate.
+ *
+ * If autoplay is enabled, a pending autoplay series ID exists, and the provided `itemId`
+ * matches the pending autoplay item, this method asks the LibraryService for the next
+ * unplayed episode for that series.
+ *
+ * @param itemId The identifier of the item that was marked as played.
+ */
 void PlayerController::onItemMarkedPlayed(const QString &itemId)
 {
     // Only proceed if this is the item we just finished playing and we want autoplay/navigation
@@ -1048,6 +1121,14 @@ void PlayerController::setEmbeddedVideoShrinkEnabled(bool enabled)
     emit embeddedVideoShrinkEnabledChanged();
 }
 
+/**
+ * @brief Start playback of the configured test video.
+ *
+ * Clears any pending autoplay context and next-episode prefetch state, disables autoplay,
+ * clears the current item identifier, sets the pending URL to the configured test video,
+ * stops any currently running backend playback, and triggers the player state machine to
+ * begin loading and playing the test video.
+ */
 void PlayerController::playTestVideo()
 {
     clearPendingAutoplayContext();
@@ -1068,6 +1149,24 @@ void PlayerController::playTestVideo()
     processEvent(Event::Play);
 }
 
+/**
+ * @brief Begin playback of the given media URL and prepare the controller state for a new item.
+ *
+ * Updates internal playback context (current item/series/season/library IDs, playback attempt),
+ * stops any currently running playback, clears autoplay and next-episode prefetch state, requests
+ * media segments and trickplay info for the item, queues an initial seek if a start position is
+ * provided, and transitions the internal state machine to start loading the URL.
+ *
+ * @param url Playback URL to open.
+ * @param itemId Optional content item identifier (empty if unknown).
+ * @param startPositionTicks Resume/start position in 100-nanosecond ticks (Jellyfin units); if
+ *        greater than zero the controller will seek to the corresponding position after buffering.
+ * @param seriesId Optional series identifier for episodic content.
+ * @param seasonId Optional season identifier for episodic content.
+ * @param libraryId Optional library identifier where the item resides.
+ * @param framerate Content framerate in frames per second, used for framerate-matching decisions.
+ * @param isHDR True if the content is HDR, used for HDR-related display handling.
+ */
 void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionTicks, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR)
 {
     m_playbackAttemptId = ++gPlaybackAttemptCounter;
@@ -1149,6 +1248,18 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     processEvent(Event::Play);
 }
 
+/**
+ * @brief Stops current playback and clears autoplay/prefetch state.
+ *
+ * Clears any pending autoplay context and next-episode prefetch data, disables
+ * automatic autoplay for the current session, reports playback stop and checks
+ * the completion threshold for the current item, and instructs the player
+ * backend to stop playback. If the controller is not already in Idle or Error
+ * state, processes a Stop event to transition the playback state machine.
+ *
+ * Note: some backends may emit a synchronous state change when stopped; that
+ * may already transition the controller to Idle via onProcessStateChanged.
+ */
 void PlayerController::stop()
 {
     qDebug() << "PlayerController: stop requested";
@@ -1763,6 +1874,15 @@ void PlayerController::checkCompletionThreshold()
     checkCompletionThresholdAndAutoplay();
 }
 
+/**
+ * @brief Evaluate whether the current playback has met the configured completion threshold and trigger marking the item as played.
+ *
+ * If the configured completion percentage is reached, the current item is marked played via PlaybackService and the function reports that the threshold was met.
+ * The check is performed at most once per playback attempt; subsequent calls for the same attempt are no-ops.
+ * The function does nothing and returns false if there is no current item or the duration is not positive.
+ *
+ * @return true if the completion threshold was met and the item was marked played; false otherwise.
+ */
 bool PlayerController::checkCompletionThresholdAndAutoplay()
 {
     if (m_hasEvaluatedCompletionForAttempt) {
@@ -1784,6 +1904,17 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
     return false;  // Threshold not met
 }
 
+/**
+ * @brief Attempts to prefetch the next episode when playback nears completion.
+ *
+ * If playback is in Playing or Paused state, a current series and item are present,
+ * duration is positive, and a prefetch has not already been requested for this
+ * playback attempt, this will set the internal prefetch-requested flag and ask
+ * the LibraryService for the next unplayed episode for the current series/item.
+ *
+ * Does nothing when any prerequisite is missing (no series/item, non-positive
+ * duration, playback not active, or a prefetch already requested).
+ */
 void PlayerController::maybeTriggerNextEpisodePrefetch()
 {
     if (m_nextEpisodePrefetchRequestedForAttempt
@@ -1807,6 +1938,15 @@ void PlayerController::maybeTriggerNextEpisodePrefetch()
     m_libraryService->getNextUnplayedEpisode(m_currentSeriesId, m_currentItemId);
 }
 
+/**
+ * Determines whether a prefetched next-episode payload is valid and applicable for autoplay.
+ *
+ * Checks that a prefetched payload exists and is marked ready, that it contains a valid episode id,
+ * and that its series and item ids match the current pending autoplay context. Also ensures the
+ * prefetched episode is not the same as the item that just finished playing.
+ *
+ * @return `true` if the prefetched next-episode can be consumed for autoplay, `false` otherwise.
+ */
 bool PlayerController::hasUsablePrefetchedNextEpisode() const
 {
     const QString prefetchedEpisodeId = m_prefetchedNextEpisodeData.value(QStringLiteral("Id")).toString();
@@ -1831,6 +1971,14 @@ bool PlayerController::hasUsablePrefetchedNextEpisode() const
     return true;
 }
 
+/**
+ * @brief Consume a prefetched "next episode" payload and trigger navigation to it.
+ *
+ * If a usable prefetched next-episode is available, emits navigateToNextEpisode with
+ * the prefetched episode data, series id, requested audio/subtitle indices, and the
+ * current autoplay setting. Clears the prefetch state and related awaiting/autoplay
+ * flags after emitting. If no usable prefetched episode exists, this is a no-op.
+ */
 void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
 {
     if (!hasUsablePrefetchedNextEpisode()) {
@@ -1858,6 +2006,13 @@ void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
     clearNextEpisodePrefetchState();
 }
 
+/**
+ * @brief Clears any staged next-episode prefetch state and cached prefetched data.
+ *
+ * Resets flags that track awaiting resolution, request attempts, and readiness,
+ * and clears the stored prefetched episode JSON payload, its series identifier,
+ * and the associated item id.
+ */
 void PlayerController::clearNextEpisodePrefetchState()
 {
     m_waitingForNextEpisodeAtPlaybackEnd = false;
@@ -1868,6 +2023,13 @@ void PlayerController::clearNextEpisodePrefetchState()
     m_prefetchedForItemId.clear();
 }
 
+/**
+ * @brief Save the current playback context for a pending autoplay (next-episode) action.
+ *
+ * Copies the current item, series, season, library, selected audio/subtitle tracks,
+ * framerate, and HDR flag into the controller's pending-autoplay fields and marks
+ * the controller as awaiting next-episode resolution.
+ */
 void PlayerController::stashPendingAutoplayContext()
 {
     m_pendingAutoplayItemId = m_currentItemId;
@@ -1881,6 +2043,12 @@ void PlayerController::stashPendingAutoplayContext()
     setAwaitingNextEpisodeResolution(true);
 }
 
+/**
+ * @brief Clears any stored context for a pending autoplay (Up Next) action.
+ *
+ * Resets identifiers, track/framerate/HDR hints, and autoplay-related flags so no pending
+ * autoplay will be consumed or awaited.
+ */
 void PlayerController::clearPendingAutoplayContext()
 {
     m_pendingAutoplayItemId.clear();
@@ -1895,6 +2063,14 @@ void PlayerController::clearPendingAutoplayContext()
     setAwaitingNextEpisodeResolution(false);
 }
 
+/**
+ * @brief Set whether the controller is waiting for the next-episode resolution.
+ *
+ * Updates the awaiting-next-episode flag and, when the flag actually changes,
+ * emits awaitingNextEpisodeResolutionChanged().
+ *
+ * @param awaiting True to mark that the controller is awaiting a next-episode resolution, false otherwise.
+ */
 void PlayerController::setAwaitingNextEpisodeResolution(bool awaiting)
 {
     if (m_awaitingNextEpisodeResolution == awaiting) {
@@ -1904,6 +2080,15 @@ void PlayerController::setAwaitingNextEpisodeResolution(bool awaiting)
     emit awaitingNextEpisodeResolutionChanged();
 }
 
+/**
+ * @brief Begin playback of the specified media URL.
+ *
+ * Starts playback for the provided URL, applies display settings required for the content
+ * (enables HDR when allowed and content is HDR, capturing the original refresh rate so
+ * it can be restored later), and then initiates framerate matching and the backend start sequence.
+ *
+ * @param url The media resource URL to play.
+ */
 void PlayerController::startPlayback(const QString &url)
 {
     qDebug() << "PlayerController: Starting playback of" << url;

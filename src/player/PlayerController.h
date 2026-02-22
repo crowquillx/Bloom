@@ -115,6 +115,34 @@ public:
     explicit PlayerController(IPlayerBackend *playerBackend, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent = nullptr);
     ~PlayerController();
 
+    /**
+     * Returns the current playback state.
+     * @returns The current PlaybackState.
+     */
+    /**
+     * Indicates whether playback is currently active.
+     * @returns `true` if playback is active, `false` otherwise.
+     */
+    /**
+     * Indicates whether the controller is awaiting resolution of the next episode (prefetch/navigation).
+     * @returns `true` if awaiting next-episode resolution, `false` otherwise.
+     */
+    /**
+     * Returns a human-readable name for the current playback state.
+     * @returns The playback state's name as a QString.
+     */
+    /**
+     * Indicates whether the player is currently buffering.
+     * @returns `true` if buffering, `false` otherwise.
+     */
+    /**
+     * Indicates whether the player is currently loading content.
+     * @returns `true` if loading, `false` otherwise.
+     */
+    /**
+     * Indicates whether playback is currently paused.
+     * @returns `true` if paused, `false` otherwise.
+     */
     PlaybackState playbackState() const;
     bool isPlaybackActive() const;
     bool awaitingNextEpisodeResolution() const { return m_awaitingNextEpisodeResolution; }
@@ -341,7 +369,122 @@ private:
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
     void handlePlaybackStopAndAutoplay(Event stopEvent);
     void maybeTriggerNextEpisodePrefetch();
-    bool hasUsablePrefetchedNextEpisode() const;
+    /**
+ * Returns whether a prefetched "next episode" payload is available and usable for navigation.
+ * @returns `true` if a prefetched next-episode item is ready and applicable to consume, `false` otherwise.
+ */
+
+/**
+ * Consume any prefetched next-episode payload and navigate to it using the stored autoplay/context.
+ */
+
+/**
+ * Clear any stored state related to next-episode prefetching and resolution.
+ */
+
+/**
+ * Preserve the current autoplay/navigation context so it can be restored after teardown or state transitions.
+ */
+
+/**
+ * Set whether the controller is currently awaiting resolution of the next-episode decision.
+ * @param awaiting `true` when awaiting next-episode resolution, `false` otherwise.
+ */
+
+/**
+ * Load runtime configuration values from the ConfigManager into cached controller state.
+ */
+
+/**
+ * Begin playback of the given URL using the current playback configuration and state.
+ * @param url Media resource URL to start playback for.
+ */
+
+/**
+ * Apply framerate-matching decisions (if any) to the pending playback context and start playback.
+ */
+
+/**
+ * Initiate mpv (or configured internal player) startup sequence according to the pending playback context.
+ */
+
+/**
+ * Update the trickplay preview image/URL for the specified playback position.
+ * @param seconds Position in seconds for which to update the trickplay preview.
+ */
+
+/**
+ * Clear any active trickplay preview override and associated preview URL/state.
+ */
+
+/**
+ * Re-evaluate and update flags that indicate whether the player is currently inside intro/outro or other skip segments.
+ */
+
+/**
+ * Seek to the end boundary of the specified media segment type (e.g., intro or outro).
+ * @param segmentType Type of media segment whose end should be sought.
+ * @returns `true` if a seek was performed to the segment end, `false` if no applicable segment was found.
+ */
+
+/**
+ * Schedule a debounced persistence of the current playback volume state to configuration/storage.
+ */
+
+/**
+ * Persist the current playback volume and mute state immediately.
+ */
+
+/**
+ * Build a data URL referencing a trickplay preview frame stored in a binary file.
+ * @param binaryPath Filesystem path to the trickplay binary data.
+ * @param frameIndex Zero-based index of the frame within the binary.
+ * @param width Frame width in pixels.
+ * @param height Frame height in pixels.
+ * @returns A QString containing the data URL suitable for use as an image source, or an empty string on failure.
+ */
+
+/**
+ * Connect required signals from the provided player backend into this controller.
+ * @param backend Backend instance whose signals should be connected.
+ */
+
+/**
+ * Attempt to fall back from the internal player backend to an external backend for the current attempt.
+ * @param reason Human-readable reason for attempting the fallback.
+ * @returns `true` if a fallback was initiated, `false` otherwise.
+ */
+
+/**
+ * Update internal mappings from Jellyfin stream indices to mpv track identifiers.
+ * @param audioTrackMap Mapping list for audio tracks (Jellyfin -> mpv).
+ * @param subtitleTrackMap Mapping list for subtitle tracks (Jellyfin -> mpv).
+ */
+
+/**
+ * Map a Jellyfin audio stream index to the corresponding mpv audio track number.
+ * @param jellyfinStreamIndex Jellyfin audio stream index.
+ * @returns 1-based mpv audio track number, or -1 when auto/none is intended.
+ */
+
+/**
+ * Map a Jellyfin subtitle stream index to the corresponding mpv subtitle track number.
+ * @param jellyfinStreamIndex Jellyfin subtitle stream index.
+ * @returns 1-based mpv subtitle track number, or -1 when subtitles are disabled.
+ */
+
+/**
+ * Convert a playback state enum value to a human-readable string.
+ * @param state PlaybackState value to convert.
+ * @returns A QString representation of `state`.
+ */
+
+/**
+ * Convert an event enum value to a human-readable string.
+ * @param event Event value to convert.
+ * @returns A QString representation of `event`.
+ */
+bool hasUsablePrefetchedNextEpisode() const;
     void consumePrefetchedNextEpisodeAndNavigate();
     void clearNextEpisodePrefetchState();
     void stashPendingAutoplayContext();

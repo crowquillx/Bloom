@@ -127,6 +127,15 @@ void MockLibraryService::getItem(const QString &itemId)
     }
 }
 
+/**
+ * @brief Load detailed data for a series and emit the appropriate result signal.
+ *
+ * Loads the series object for the provided seriesId and emits seriesDetailsLoaded(seriesId, seriesData)
+ * where `seriesData` contains the original series object with added `Seasons` and `Episodes` arrays.
+ * If the series cannot be found, emits errorOccurred("getSeriesDetails", "Series not found: " + seriesId).
+ *
+ * @param seriesId Identifier of the series to load details for.
+ */
 void MockLibraryService::getSeriesDetails(const QString &seriesId)
 {
     QJsonObject series = findItemById(seriesId);
@@ -148,6 +157,19 @@ void MockLibraryService::getSeriesDetails(const QString &seriesId)
     }
 }
 
+/**
+ * @brief Finds the next unplayed episode for a series, optionally skipping a specified episode.
+ *
+ * Searches the fixture's episodes for the given series and emits the first episode whose
+ * UserData.Played flag is false. If an episode ID is provided via excludeItemId, that episode
+ * is ignored during the search.
+ *
+ * @param seriesId The series identifier to search episodes for.
+ * @param excludeItemId An optional episode Id to skip; pass an empty string to skip none.
+ *
+ * @remarks Emits nextUnplayedEpisodeLoaded(seriesId, episode) with the found episode as a QJsonObject,
+ * or with an empty QJsonObject if no unplayed episode is found.
+ */
 void MockLibraryService::getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId)
 {
     // Find the next unplayed episode for this series
