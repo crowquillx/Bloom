@@ -420,8 +420,8 @@ FocusScope {
                     font.family: Theme.fontPrimary
                     color: Theme.textSecondary
                     Layout.alignment: Qt.AlignHCenter
-                    visible: hasSearched && waitingForSeerrSearch
-                    opacity: visible ? 1 : 0
+                    visible: hasSearched
+                    opacity: hasSearched ? (waitingForSeerrSearch ? 1 : 0) : 0
 
                     Behavior on opacity {
                         NumberAnimation { duration: Theme.durationMedium }
@@ -794,8 +794,13 @@ FocusScope {
 
                         onCurrentIndexChanged: {
                             if (currentItem) {
-                                currentItem.forceActiveFocus()
-                                root.ensureItemVisibleInResults(currentItem)
+                                const capturedItem = currentItem
+                                Qt.callLater(() => {
+                                    if (capturedItem) {
+                                        capturedItem.forceActiveFocus()
+                                        root.ensureItemVisibleInResults(capturedItem)
+                                    }
+                                })
                             }
                         }
                     }
