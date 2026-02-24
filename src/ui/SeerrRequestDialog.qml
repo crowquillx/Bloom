@@ -712,7 +712,7 @@ Dialog {
                         focusPolicy: Qt.StrongFocus
                         activeFocusOnTab: true
                         text: qsTr("All Seasons")
-                        checked: requestAllSeasons
+                        checked: true
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
 
@@ -779,12 +779,12 @@ Dialog {
                         }
 
                         Keys.onReturnPressed: function(event) {
-                            checked = !checked
+                            toggle()
                             event.accepted = true
                         }
 
                         Keys.onEnterPressed: function(event) {
-                            checked = !checked
+                            toggle()
                             event.accepted = true
                         }
                     }
@@ -889,12 +889,12 @@ Dialog {
                                 }
 
                                 Keys.onReturnPressed: function(event) {
-                                    checked = !checked
+                                    toggle()
                                     event.accepted = true
                                 }
 
                                 Keys.onEnterPressed: function(event) {
-                                    checked = !checked
+                                    toggle()
                                     event.accepted = true
                                 }
                             }
@@ -1075,6 +1075,12 @@ Dialog {
             }
             restoreFocusTarget = null
         })
+    }
+
+    onRequestAllSeasonsChanged: {
+        if (allSeasonsCheck && allSeasonsCheck.checked !== requestAllSeasons) {
+            allSeasonsCheck.checked = requestAllSeasons
+        }
     }
 
     Connections {
