@@ -37,6 +37,9 @@ Dialog {
     property bool statusError: false
 
     readonly property bool isTv: mediaType === "tv"
+    readonly property bool hasValidRequestSelections: selectedServerId >= 0
+                                                   && selectedProfileId >= 0
+                                                   && selectedRootFolderPath.trim().length > 0
 
     function setKeyboardNavigationMode() {
         if (typeof InputModeManager !== "undefined") {
@@ -141,6 +144,13 @@ Dialog {
     function submitRequest() {
         statusText = ""
         statusError = false
+
+        if (!hasValidRequestSelections) {
+            statusText = qsTr("Please select server/profile/root")
+            statusError = true
+            submitting = false
+            return
+        }
 
         if (tmdbId <= 0 || (mediaType !== "movie" && mediaType !== "tv")) {
             statusText = qsTr("Invalid request target")
@@ -1032,7 +1042,7 @@ Dialog {
                 focusPolicy: Qt.StrongFocus
                 activeFocusOnTab: true
                 text: submitting ? qsTr("Requesting...") : qsTr("Request")
-                enabled: !loadingOptions && !submitting
+                enabled: !loadingOptions && !submitting && hasValidRequestSelections
                 onClicked: submitRequest()
 
                 KeyNavigation.up: isTv && seasonCount > 0 ? allSeasonsCheck : rootFolderCombo

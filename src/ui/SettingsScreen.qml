@@ -3572,12 +3572,21 @@ FocusScope {
             Layout.fillWidth: true
             font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
+            cursorVisible: activeFocus && (typeof InputModeManager === "undefined" || InputModeManager.pointerActive)
             
             color: Theme.textPrimary
             placeholderTextColor: Theme.textSecondary
             
             // Ensure focus visibility
             onActiveFocusChanged: {
+                if (activeFocus && typeof InputModeManager !== "undefined") {
+                    if (InputModeManager.pointerActive) {
+                        InputModeManager.hideCursor(false)
+                    } else {
+                        InputModeManager.setNavigationMode("keyboard")
+                        InputModeManager.hideCursor(true)
+                    }
+                }
                 if (activeFocus && typeof flickable !== "undefined") flickable.ensureFocusVisible(textInputRow)
             }
             
@@ -3592,6 +3601,10 @@ FocusScope {
             }
             
             Keys.onUpPressed: function(event) {
+                if (typeof InputModeManager !== "undefined") {
+                    InputModeManager.setNavigationMode("keyboard")
+                    InputModeManager.hideCursor(true)
+                }
                 if (typeof textInputRow.keyUpHandler === "function") {
                     textInputRow.keyUpHandler(event)
                     if (event.accepted) {
@@ -3605,6 +3618,10 @@ FocusScope {
             }
 
             Keys.onDownPressed: function(event) {
+                if (typeof InputModeManager !== "undefined") {
+                    InputModeManager.setNavigationMode("keyboard")
+                    InputModeManager.hideCursor(true)
+                }
                 if (typeof textInputRow.keyDownHandler === "function") {
                     textInputRow.keyDownHandler(event)
                     if (event.accepted) {
