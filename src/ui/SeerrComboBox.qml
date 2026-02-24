@@ -18,6 +18,8 @@ ComboBox {
     function resolveOptionText(modelData) {
         if (textRole.length > 0 && modelData && modelData[textRole] !== undefined && modelData[textRole] !== null) {
             return String(modelData[textRole])
+        } else if (modelData !== null && modelData !== undefined) {
+            return String(modelData)
         }
         return ""
     }

@@ -259,7 +259,7 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
             const QJsonObject item = value.toObject();
             QString resolvedMediaType = item.value("mediaType").toString().toLower();
             if (resolvedMediaType.isEmpty()) {
-                resolvedMediaType = item.value("normalizedMediaType").toString().toLower();
+                resolvedMediaType = normalizedMediaType;
             }
 
             if (resolvedMediaType == "movie" || resolvedMediaType == "tv") {
