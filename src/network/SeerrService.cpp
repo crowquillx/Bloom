@@ -78,6 +78,7 @@ void SeerrService::validateConnection()
     static const QString endpoint = QStringLiteral("auth/me");
 
     if (!m_authService || !m_authService->networkManager()) {
+        emit errorOccurred(endpoint, tr("Network manager unavailable"));
         emit connectionValidated(false, tr("Network manager unavailable"));
         return;
     }
@@ -256,9 +257,15 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
         QJsonArray mappedResults;
         for (const QJsonValue &value : rawResults) {
             const QJsonObject item = value.toObject();
-            const QString itemMediaType = item.value("mediaType").toString().toLower();
-            if (itemMediaType == "movie" || itemMediaType == "tv") {
-                mappedResults.append(mapSearchResultItem(item));
+            QString resolvedMediaType = item.value("mediaType").toString().toLower();
+            if (resolvedMediaType.isEmpty()) {
+                resolvedMediaType = item.value("normalizedMediaType").toString().toLower();
+            }
+
+            if (resolvedMediaType == "movie" || resolvedMediaType == "tv") {
+                QJsonObject normalizedItem = item;
+                normalizedItem["mediaType"] = resolvedMediaType;
+                mappedResults.append(mapSearchResultItem(normalizedItem));
             }
         }
 
@@ -394,9 +401,6 @@ void SeerrService::prepareRequest(const QString &mediaType, int tmdbId, const QS
 
                 const QJsonObject tv = tvDoc.object();
                 int seasonCount = tv.value("numberOfSeasons").toInt(0);
-                if (seasonCount <= 0) {
-                    seasonCount = tv.value("numberOfSeason").toInt(0);
-                }
                 payload["seasonCount"] = seasonCount;
 
                 emit requestPreparationLoaded(normalizedMediaType, tmdbId, payload);
