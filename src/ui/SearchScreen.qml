@@ -36,6 +36,25 @@ FocusScope {
     property bool hasSearched: false
     property bool waitingForLibrarySearch: false
     property bool waitingForSeerrSearch: false
+
+    function ensureItemVisibleInResults(item) {
+        if (!item || !contentFlickable || !contentColumn) {
+            return
+        }
+
+        var pointInContent = item.mapToItem(contentColumn, 0, 0)
+        var itemTop = pointInContent.y
+        var itemBottom = itemTop + item.height
+        var viewTop = contentFlickable.contentY
+        var viewBottom = viewTop + contentFlickable.height
+
+        if (itemTop < viewTop) {
+            contentFlickable.contentY = Math.max(0, itemTop - Theme.spacingMedium)
+        } else if (itemBottom > viewBottom) {
+            var maxY = Math.max(0, contentFlickable.contentHeight - contentFlickable.height)
+            contentFlickable.contentY = Math.min(maxY, itemBottom - contentFlickable.height + Theme.spacingMedium)
+        }
+    }
     
     // Debounce timer for search input
     Timer {
@@ -514,6 +533,7 @@ FocusScope {
                         onCurrentIndexChanged: {
                             if (currentItem) {
                                 currentItem.forceActiveFocus()
+                                root.ensureItemVisibleInResults(currentItem)
                             }
                         }
                     }
@@ -628,6 +648,7 @@ FocusScope {
                         onCurrentIndexChanged: {
                             if (currentItem) {
                                 currentItem.forceActiveFocus()
+                                root.ensureItemVisibleInResults(currentItem)
                             }
                         }
                     }
@@ -745,6 +766,7 @@ FocusScope {
                         onCurrentIndexChanged: {
                             if (currentItem) {
                                 currentItem.forceActiveFocus()
+                                root.ensureItemVisibleInResults(currentItem)
                             }
                         }
                     }

@@ -293,7 +293,7 @@ Dialog {
                         required property var modelData
                         width: serverCombo.width
                         enabled: serverCombo.enabled
-                        highlighted: ListView.isCurrentItem || serverCombo.highlightedIndex === index
+                        highlighted: ListView.isCurrentItem
 
                         contentItem: Text {
                             text: modelData.name || ""
@@ -319,9 +319,9 @@ Dialog {
 
                         onOpened: {
                             setKeyboardNavigationMode()
-                            serverList.currentIndex = serverCombo.highlightedIndex >= 0
-                                ? serverCombo.highlightedIndex
-                                : serverCombo.currentIndex
+                            var indexToFocus = Math.max(0, serverCombo.currentIndex)
+                            serverCombo.highlightedIndex = indexToFocus
+                            serverList.currentIndex = indexToFocus
                             serverList.forceActiveFocus()
                         }
 
@@ -332,9 +332,7 @@ Dialog {
                             clip: true
                             implicitHeight: contentHeight
                             model: serverCombo.popup.visible ? serverCombo.delegateModel : null
-                            currentIndex: serverCombo.highlightedIndex >= 0
-                                ? serverCombo.highlightedIndex
-                                : serverCombo.currentIndex
+                            currentIndex: Math.max(0, serverCombo.currentIndex)
 
                             onCurrentIndexChanged: serverCombo.highlightedIndex = currentIndex
 
@@ -439,7 +437,7 @@ Dialog {
                         required property var modelData
                         width: profileCombo.width
                         enabled: profileCombo.enabled
-                        highlighted: ListView.isCurrentItem || profileCombo.highlightedIndex === index
+                        highlighted: ListView.isCurrentItem
 
                         contentItem: Text {
                             text: modelData.name || ""
@@ -465,9 +463,9 @@ Dialog {
 
                         onOpened: {
                             setKeyboardNavigationMode()
-                            profileList.currentIndex = profileCombo.highlightedIndex >= 0
-                                ? profileCombo.highlightedIndex
-                                : profileCombo.currentIndex
+                            var indexToFocus = Math.max(0, profileCombo.currentIndex)
+                            profileCombo.highlightedIndex = indexToFocus
+                            profileList.currentIndex = indexToFocus
                             profileList.forceActiveFocus()
                         }
 
@@ -478,9 +476,7 @@ Dialog {
                             clip: true
                             implicitHeight: contentHeight
                             model: profileCombo.popup.visible ? profileCombo.delegateModel : null
-                            currentIndex: profileCombo.highlightedIndex >= 0
-                                ? profileCombo.highlightedIndex
-                                : profileCombo.currentIndex
+                            currentIndex: Math.max(0, profileCombo.currentIndex)
 
                             onCurrentIndexChanged: profileCombo.highlightedIndex = currentIndex
 
@@ -585,7 +581,7 @@ Dialog {
                         required property var modelData
                         width: rootFolderCombo.width
                         enabled: rootFolderCombo.enabled
-                        highlighted: ListView.isCurrentItem || rootFolderCombo.highlightedIndex === index
+                        highlighted: ListView.isCurrentItem
 
                         contentItem: Text {
                             text: modelData.path || ""
@@ -611,9 +607,9 @@ Dialog {
 
                         onOpened: {
                             setKeyboardNavigationMode()
-                            rootFolderList.currentIndex = rootFolderCombo.highlightedIndex >= 0
-                                ? rootFolderCombo.highlightedIndex
-                                : rootFolderCombo.currentIndex
+                            var indexToFocus = Math.max(0, rootFolderCombo.currentIndex)
+                            rootFolderCombo.highlightedIndex = indexToFocus
+                            rootFolderList.currentIndex = indexToFocus
                             rootFolderList.forceActiveFocus()
                         }
 
@@ -624,9 +620,7 @@ Dialog {
                             clip: true
                             implicitHeight: contentHeight
                             model: rootFolderCombo.popup.visible ? rootFolderCombo.delegateModel : null
-                            currentIndex: rootFolderCombo.highlightedIndex >= 0
-                                ? rootFolderCombo.highlightedIndex
-                                : rootFolderCombo.currentIndex
+                            currentIndex: Math.max(0, rootFolderCombo.currentIndex)
 
                             onCurrentIndexChanged: rootFolderCombo.highlightedIndex = currentIndex
 
@@ -742,6 +736,16 @@ Dialog {
                             rootFolderCombo.forceActiveFocus()
                             event.accepted = true
                         }
+
+                        Keys.onReturnPressed: function(event) {
+                            checked = !checked
+                            event.accepted = true
+                        }
+
+                        Keys.onEnterPressed: function(event) {
+                            checked = !checked
+                            event.accepted = true
+                        }
                     }
 
                     GridLayout {
@@ -837,6 +841,16 @@ Dialog {
                                         event.accepted = true
                                     }
                                 }
+
+                                Keys.onReturnPressed: function(event) {
+                                    checked = !checked
+                                    event.accepted = true
+                                }
+
+                                Keys.onEnterPressed: function(event) {
+                                    checked = !checked
+                                    event.accepted = true
+                                }
                             }
                         }
                     }
@@ -900,6 +914,16 @@ Dialog {
                     event.accepted = true
                 }
 
+                Keys.onReturnPressed: function(event) {
+                    clicked()
+                    event.accepted = true
+                }
+
+                Keys.onEnterPressed: function(event) {
+                    clicked()
+                    event.accepted = true
+                }
+
                 Keys.onUpPressed: function(event) {
                     if (isTv && seasonCount > 0) {
                         if (!requestAllSeasons && seasonRepeater.count > 0) {
@@ -954,6 +978,20 @@ Dialog {
 
                 Keys.onLeftPressed: function(event) {
                     cancelButton.forceActiveFocus()
+                    event.accepted = true
+                }
+
+                Keys.onReturnPressed: function(event) {
+                    if (enabled) {
+                        clicked()
+                    }
+                    event.accepted = true
+                }
+
+                Keys.onEnterPressed: function(event) {
+                    if (enabled) {
+                        clicked()
+                    }
                     event.accepted = true
                 }
 
