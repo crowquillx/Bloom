@@ -13,6 +13,7 @@ class SecretStore;
 class AuthenticationService;
 class LibraryService;
 class PlaybackService;
+class SeerrService;
 class PlayerController;
 class ThemeSongManager;
 class InputModeManager;
@@ -55,6 +56,7 @@ private:
     std::unique_ptr<AuthenticationService> m_authService;
     std::unique_ptr<LibraryService> m_libraryService;
     std::unique_ptr<PlaybackService> m_playbackService;
+    std::unique_ptr<SeerrService> m_seerrService;
     std::unique_ptr<PlayerController> m_playerController;
     std::unique_ptr<ThemeSongManager> m_themeSongManager;
     std::unique_ptr<InputModeManager> m_inputModeManager;

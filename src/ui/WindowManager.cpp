@@ -16,6 +16,7 @@
 #include "network/AuthenticationService.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
+#include "network/SeerrService.h"
 #include "core/ServiceLocator.h"
 
 #include <QQmlContext>
@@ -129,6 +130,7 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("AuthenticationService", ServiceLocator::get<AuthenticationService>());
     context->setContextProperty("LibraryService", ServiceLocator::get<LibraryService>());
     context->setContextProperty("PlaybackService", ServiceLocator::get<PlaybackService>());
+    context->setContextProperty("SeerrService", ServiceLocator::get<SeerrService>());
 
     // App metadata for QML
     context->setContextProperty("appVersion", QCoreApplication::applicationVersion());

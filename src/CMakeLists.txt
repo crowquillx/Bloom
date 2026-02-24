@@ -31,6 +31,8 @@ qt_add_executable(Bloom
     network/LibraryService.cpp
     network/PlaybackService.h
     network/PlaybackService.cpp
+    network/SeerrService.h
+    network/SeerrService.cpp
     network/Types.h
     network/Types.cpp
     network/SessionManager.h

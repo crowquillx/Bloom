@@ -179,6 +179,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp

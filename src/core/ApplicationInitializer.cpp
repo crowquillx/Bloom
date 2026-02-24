@@ -13,6 +13,7 @@
 #include "network/AuthenticationService.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
+#include "network/SeerrService.h"
 #include "utils/InputModeManager.h"
 #include "viewmodels/LibraryViewModel.h"
 #include "viewmodels/SeriesDetailsViewModel.h"
@@ -152,6 +153,10 @@ void ApplicationInitializer::registerServices()
         m_playbackService = std::make_unique<PlaybackService>(m_mockAuthService.get());
         ServiceLocator::registerService<PlaybackService>(m_playbackService.get());
         
+        // 3.3 SeerrService - Third-party search/request integration
+        m_seerrService = std::make_unique<SeerrService>(m_mockAuthService.get(), m_configManager.get());
+        ServiceLocator::registerService<SeerrService>(m_seerrService.get());
+        
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(
             m_playerBackend.get(),
@@ -188,6 +193,10 @@ void ApplicationInitializer::registerServices()
         // 3.2 PlaybackService - Depends on AuthenticationService
         m_playbackService = std::make_unique<PlaybackService>(m_authService.get());
         ServiceLocator::registerService<PlaybackService>(m_playbackService.get());
+        
+        // 3.3 SeerrService - Depends on AuthenticationService + ConfigManager
+        m_seerrService = std::make_unique<SeerrService>(m_authService.get(), m_configManager.get());
+        ServiceLocator::registerService<SeerrService>(m_seerrService.get());
         
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(
