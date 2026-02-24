@@ -10,6 +10,7 @@ Dialog {
     focus: true
     anchors.centerIn: parent
     width: Math.round(720 * Theme.layoutScale)
+    height: Math.round(860 * Theme.layoutScale)
     padding: Theme.spacingLarge
 
     property Item restoreFocusTarget: null
@@ -169,6 +170,26 @@ Dialog {
         }
     }
 
+    function ensureDialogItemVisible(item) {
+        if (!item || !requestLayout || !contentScroll || !contentScroll.contentItem) {
+            return
+        }
+
+        var flick = contentScroll.contentItem
+        var pointInContent = item.mapToItem(requestLayout, 0, 0)
+        var itemTop = pointInContent.y
+        var itemBottom = itemTop + item.height
+        var viewTop = flick.contentY
+        var viewBottom = viewTop + flick.height
+
+        if (itemTop < viewTop) {
+            flick.contentY = Math.max(0, itemTop - Theme.spacingSmall)
+        } else if (itemBottom > viewBottom) {
+            var maxY = Math.max(0, flick.contentHeight - flick.height)
+            flick.contentY = Math.min(maxY, itemBottom - flick.height + Theme.spacingSmall)
+        }
+    }
+
     title: qsTr("Request on Seerr")
 
     Keys.onPressed: function(event) {
@@ -203,39 +224,45 @@ Dialog {
 
     contentItem: Item {
         implicitWidth: Math.round(640 * Theme.layoutScale)
-        implicitHeight: requestLayout.implicitHeight
+        implicitHeight: Math.round(720 * Theme.layoutScale)
 
-        ColumnLayout {
-            id: requestLayout
+        ScrollView {
+            id: contentScroll
             anchors.fill: parent
-            spacing: Theme.spacingMedium
-
-            Text {
-                text: mediaTitle
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                elide: Text.ElideRight
-                Layout.fillWidth: true
-            }
-
-            Text {
-                text: isTv ? qsTr("TV Series") : qsTr("Movie")
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                color: Theme.textSecondary
-            }
-
-            BusyIndicator {
-                running: loadingOptions
-                visible: loadingOptions
-                Layout.alignment: Qt.AlignHCenter
-            }
+            clip: true
+            ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
             ColumnLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacingSmall
-                visible: !loadingOptions
+                id: requestLayout
+                width: contentScroll.availableWidth
+                spacing: Theme.spacingMedium
+
+                Text {
+                    text: mediaTitle
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+                    elide: Text.ElideRight
+                    Layout.fillWidth: true
+                }
+
+                Text {
+                    text: isTv ? qsTr("TV Series") : qsTr("Movie")
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                }
+
+                BusyIndicator {
+                    running: loadingOptions
+                    visible: loadingOptions
+                    Layout.alignment: Qt.AlignHCenter
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+                    visible: !loadingOptions
 
                 Text {
                     text: qsTr("Server")
@@ -722,6 +749,14 @@ Dialog {
                             requestAllSeasons = checked
                             if (checked) {
                                 rebuildSeasonSelection()
+                            } else {
+                                Qt.callLater(function() {
+                                    var first = seasonRepeater.itemAt(0)
+                                    if (first) {
+                                        ensureDialogItemVisible(first)
+                                        first.forceActiveFocus()
+                                    }
+                                })
                             }
                         }
 
@@ -756,7 +791,7 @@ Dialog {
 
                     GridLayout {
                         columns: 4
-                        rowSpacing: Theme.spacingSmall
+                        rowSpacing: Theme.spacingMedium
                         columnSpacing: Theme.spacingMedium
                         visible: !requestAllSeasons
 
@@ -773,6 +808,11 @@ Dialog {
                                 text: qsTr("S%1").arg(seasonNumber)
                                 checked: selectedSeasons.indexOf(seasonNumber) >= 0
                                 onToggled: toggleSeason(seasonNumber, checked)
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        ensureDialogItemVisible(seasonCheck)
+                                    }
+                                }
                                 font.pixelSize: Theme.fontSizeSmall
                                 font.family: Theme.fontPrimary
 
@@ -863,14 +903,15 @@ Dialog {
                 }
             }
 
-            Text {
-                text: statusText
-                visible: statusText.length > 0
-                color: statusError ? "#ff6b6b" : Theme.textSecondary
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
+                Text {
+                    text: statusText
+                    visible: statusText.length > 0
+                    color: statusError ? "#ff6b6b" : Theme.textSecondary
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
             }
         }
     }
