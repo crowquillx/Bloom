@@ -242,9 +242,7 @@ jobs:
           Write-Host "Found libmpv runtime: $($libmpv[0].Name)"
 
       - name: Install NSIS
-        run: |
-          choco install nsis -y
-        shell: pwsh
+        uses: ./.github/actions/setup-nsis
 
       - name: Build Installer
         run: |
