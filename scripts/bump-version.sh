@@ -71,12 +71,17 @@ echo -e "\033[36m========================================\033[0m"
 echo -e "\033[36m Version bumped to $VERSION\033[0m"
 echo -e "\033[36m========================================\033[0m"
 
+# --- Generate release notes ---
+echo ""
+echo -e "\033[36mGenerating release notes...\033[0m"
+bash "$SCRIPT_DIR/generate-release-notes.sh" "$VERSION"
+
 if $TAG; then
     echo -e "\n\033[36mCommitting and tagging...\033[0m"
     cd "$REPO_ROOT"
     git add -A
-    git commit -m "Bump version to $VERSION"
-    git tag -a "v$VERSION" -m "Release v$VERSION"
+    git commit -m "release: v$VERSION"
+    git tag -a "v$VERSION" -m "Release v$VERSION" --file="$REPO_ROOT/RELEASE_NOTES.md"
 
     echo -e "\n\033[33m Next steps:\033[0m"
     echo "  1. Push to trigger the release CI:"
@@ -87,8 +92,8 @@ if $TAG; then
 else
     echo -e "\n\033[33m Next steps:\033[0m"
     echo "  1. Review the changes:  git diff"
-    echo "  2. Commit:              git add -A && git commit -m \"Bump version to $VERSION\""
-    echo "  3. Tag:                 git tag -a v$VERSION -m \"Release v$VERSION\""
+    echo "  2. Commit:              git add -A && git commit -m \"release: v$VERSION\""
+    echo "  3. Tag:                 git tag -a v$VERSION -F RELEASE_NOTES.md"
     echo "  4. Push:                git push origin main --tags"
     echo ""
     echo "  Or re-run with --tag to do steps 2-3 automatically:"

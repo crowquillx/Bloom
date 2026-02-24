@@ -75,12 +75,17 @@ Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host " Version bumped to $Version" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 
+# --- Generate release notes ---
+Write-Host "`nGenerating release notes..." -ForegroundColor Cyan
+& "$PSScriptRoot\generate-release-notes.ps1" -Version $Version
+
 if ($Tag) {
     Write-Host "`nCommitting and tagging..." -ForegroundColor Cyan
     Push-Location $repoRoot
     git add -A
-    git commit -m "Bump version to $Version"
-    git tag -a "v$Version" -m "Release v$Version"
+    git commit -m "release: v$Version"
+    $releaseNotesPath = Join-Path $repoRoot "RELEASE_NOTES.md"
+    git tag -a "v$Version" -m "Release v$Version" -F $releaseNotesPath
     Pop-Location
 
     Write-Host "`n Next steps:" -ForegroundColor Yellow
@@ -93,8 +98,8 @@ if ($Tag) {
 else {
     Write-Host "`n Next steps:" -ForegroundColor Yellow
     Write-Host "  1. Review the changes:  git diff" -ForegroundColor White
-    Write-Host "  2. Commit:              git add -A && git commit -m `"Bump version to $Version`"" -ForegroundColor White
-    Write-Host "  3. Tag:                 git tag -a v$Version -m `"Release v$Version`"" -ForegroundColor White
+    Write-Host "  2. Commit:              git add -A && git commit -m `"release: v$Version`"" -ForegroundColor White
+    Write-Host "  3. Tag:                 git tag -a v$Version -F RELEASE_NOTES.md" -ForegroundColor White
     Write-Host "  4. Push:                git push origin main --tags" -ForegroundColor White
     Write-Host "`n  Or re-run with -Tag to do steps 2-3 automatically:" -ForegroundColor Gray
     Write-Host "     .\scripts\bump-version.ps1 $Version -Tag" -ForegroundColor Gray
