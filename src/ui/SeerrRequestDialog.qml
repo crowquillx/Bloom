@@ -7,6 +7,7 @@ import BloomUI
 Dialog {
     id: dialog
     modal: true
+    focus: true
     anchors.centerIn: parent
     width: Math.round(720 * Theme.layoutScale)
     padding: Theme.spacingLarge
@@ -35,10 +36,31 @@ Dialog {
 
     readonly property bool isTv: mediaType === "tv"
 
-    Keys.onPressed: function(event) {
-        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
-            close()
-            event.accepted = true
+    function setKeyboardNavigationMode() {
+        if (typeof InputModeManager !== "undefined") {
+            InputModeManager.setNavigationMode("keyboard")
+            InputModeManager.hideCursor(true)
+        }
+    }
+
+    function restorePointerNavigationMode() {
+        if (typeof InputModeManager !== "undefined") {
+            InputModeManager.setNavigationMode("pointer")
+            InputModeManager.hideCursor(false)
+        }
+    }
+
+    function focusInitialControl() {
+        if (!visible) return
+        dialog.forceActiveFocus()
+        if (loadingOptions) {
+            cancelButton.forceActiveFocus()
+            return
+        }
+        if (serverCombo.visible && serverCombo.enabled) {
+            serverCombo.forceActiveFocus()
+        } else {
+            cancelButton.forceActiveFocus()
         }
     }
 
@@ -92,7 +114,9 @@ Dialog {
             var season = selectedSeasons[i]
             if (season === seasonNumber) {
                 exists = true
-                if (checked) updated.push(season)
+                if (checked) {
+                    updated.push(season)
+                }
             } else {
                 updated.push(season)
             }
@@ -133,7 +157,26 @@ Dialog {
         )
     }
 
+    function focusPreviousFromServer() {
+        cancelButton.forceActiveFocus()
+    }
+
+    function focusNextFromRoot() {
+        if (isTv && seasonCount > 0) {
+            allSeasonsCheck.forceActiveFocus()
+        } else {
+            cancelButton.forceActiveFocus()
+        }
+    }
+
     title: qsTr("Request on Seerr")
+
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+            close()
+            event.accepted = true
+        }
+    }
 
     background: Rectangle {
         color: Theme.cardBackground
@@ -204,8 +247,117 @@ Dialog {
                 ComboBox {
                     id: serverCombo
                     Layout.fillWidth: true
+                    focusPolicy: Qt.StrongFocus
+                    activeFocusOnTab: true
+                    Keys.priority: Keys.BeforeItem
                     model: servers
                     textRole: "name"
+                    enabled: servers.length > 0
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+
+                    KeyNavigation.up: cancelButton
+                    KeyNavigation.down: profileCombo
+
+                    contentItem: Text {
+                        text: serverCombo.displayText
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: serverCombo.enabled ? Theme.textPrimary : Theme.textDisabled
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: Theme.spacingSmall
+                        rightPadding: Theme.spacingXLarge
+                        elide: Text.ElideRight
+                    }
+
+                    indicator: Text {
+                        text: "▼"
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        color: Theme.textSecondary
+                        anchors.right: parent.right
+                        anchors.rightMargin: Theme.spacingMedium
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    background: Rectangle {
+                        implicitHeight: Theme.buttonHeightSmall
+                        radius: Theme.radiusSmall
+                        color: Theme.inputBackground
+                        border.color: serverCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                        border.width: serverCombo.activeFocus ? 2 : 1
+                        opacity: serverCombo.enabled ? 1.0 : 0.5
+                    }
+
+                    delegate: ItemDelegate {
+                        required property var modelData
+                        width: serverCombo.width
+                        enabled: serverCombo.enabled
+                        highlighted: ListView.isCurrentItem || serverCombo.highlightedIndex === index
+
+                        contentItem: Text {
+                            text: modelData.name || ""
+                            color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+
+                        background: Rectangle {
+                            color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                            radius: Theme.radiusSmall
+                        }
+                    }
+
+                    popup: Popup {
+                        y: serverCombo.height + 5
+                        width: serverCombo.width
+                        implicitHeight: Math.min(contentItem.implicitHeight, 280)
+                        padding: 1
+                        closePolicy: Popup.CloseOnEscape
+
+                        onOpened: {
+                            setKeyboardNavigationMode()
+                            serverList.currentIndex = serverCombo.highlightedIndex >= 0
+                                ? serverCombo.highlightedIndex
+                                : serverCombo.currentIndex
+                            serverList.forceActiveFocus()
+                        }
+
+                        onClosed: serverCombo.forceActiveFocus()
+
+                        contentItem: ListView {
+                            id: serverList
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: serverCombo.popup.visible ? serverCombo.delegateModel : null
+                            currentIndex: serverCombo.highlightedIndex >= 0
+                                ? serverCombo.highlightedIndex
+                                : serverCombo.currentIndex
+
+                            onCurrentIndexChanged: serverCombo.highlightedIndex = currentIndex
+
+                            Keys.onReturnPressed: {
+                                serverCombo.currentIndex = currentIndex
+                                serverCombo.popup.close()
+                            }
+
+                            Keys.onEnterPressed: {
+                                serverCombo.currentIndex = currentIndex
+                                serverCombo.popup.close()
+                            }
+
+                            Keys.onEscapePressed: serverCombo.popup.close()
+                        }
+
+                        background: Rectangle {
+                            color: Theme.cardBackground
+                            border.color: Theme.focusBorder
+                            border.width: 1
+                            radius: Theme.radiusSmall
+                        }
+                    }
 
                     onActivated: function(index) {
                         if (index >= 0 && index < servers.length) {
@@ -213,16 +365,19 @@ Dialog {
                         }
                     }
 
-                    Keys.onDownPressed: function(event) {
+                    Keys.onReturnPressed: popup.open()
+                    Keys.onEnterPressed: popup.open()
+
+                    Keys.onUpPressed: function(event) {
                         if (!popup.visible) {
-                            profileCombo.forceActiveFocus()
+                            focusPreviousFromServer()
                             event.accepted = true
                         }
                     }
 
-                    Keys.onUpPressed: function(event) {
+                    Keys.onDownPressed: function(event) {
                         if (!popup.visible) {
-                            cancelButton.forceActiveFocus()
+                            profileCombo.forceActiveFocus()
                             event.accepted = true
                         }
                     }
@@ -238,8 +393,117 @@ Dialog {
                 ComboBox {
                     id: profileCombo
                     Layout.fillWidth: true
+                    focusPolicy: Qt.StrongFocus
+                    activeFocusOnTab: true
+                    Keys.priority: Keys.BeforeItem
                     model: profiles
                     textRole: "name"
+                    enabled: profiles.length > 0
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+
+                    KeyNavigation.up: serverCombo
+                    KeyNavigation.down: rootFolderCombo
+
+                    contentItem: Text {
+                        text: profileCombo.displayText
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: profileCombo.enabled ? Theme.textPrimary : Theme.textDisabled
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: Theme.spacingSmall
+                        rightPadding: Theme.spacingXLarge
+                        elide: Text.ElideRight
+                    }
+
+                    indicator: Text {
+                        text: "▼"
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        color: Theme.textSecondary
+                        anchors.right: parent.right
+                        anchors.rightMargin: Theme.spacingMedium
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    background: Rectangle {
+                        implicitHeight: Theme.buttonHeightSmall
+                        radius: Theme.radiusSmall
+                        color: Theme.inputBackground
+                        border.color: profileCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                        border.width: profileCombo.activeFocus ? 2 : 1
+                        opacity: profileCombo.enabled ? 1.0 : 0.5
+                    }
+
+                    delegate: ItemDelegate {
+                        required property var modelData
+                        width: profileCombo.width
+                        enabled: profileCombo.enabled
+                        highlighted: ListView.isCurrentItem || profileCombo.highlightedIndex === index
+
+                        contentItem: Text {
+                            text: modelData.name || ""
+                            color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+
+                        background: Rectangle {
+                            color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                            radius: Theme.radiusSmall
+                        }
+                    }
+
+                    popup: Popup {
+                        y: profileCombo.height + 5
+                        width: profileCombo.width
+                        implicitHeight: Math.min(contentItem.implicitHeight, 280)
+                        padding: 1
+                        closePolicy: Popup.CloseOnEscape
+
+                        onOpened: {
+                            setKeyboardNavigationMode()
+                            profileList.currentIndex = profileCombo.highlightedIndex >= 0
+                                ? profileCombo.highlightedIndex
+                                : profileCombo.currentIndex
+                            profileList.forceActiveFocus()
+                        }
+
+                        onClosed: profileCombo.forceActiveFocus()
+
+                        contentItem: ListView {
+                            id: profileList
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: profileCombo.popup.visible ? profileCombo.delegateModel : null
+                            currentIndex: profileCombo.highlightedIndex >= 0
+                                ? profileCombo.highlightedIndex
+                                : profileCombo.currentIndex
+
+                            onCurrentIndexChanged: profileCombo.highlightedIndex = currentIndex
+
+                            Keys.onReturnPressed: {
+                                profileCombo.currentIndex = currentIndex
+                                profileCombo.popup.close()
+                            }
+
+                            Keys.onEnterPressed: {
+                                profileCombo.currentIndex = currentIndex
+                                profileCombo.popup.close()
+                            }
+
+                            Keys.onEscapePressed: profileCombo.popup.close()
+                        }
+
+                        background: Rectangle {
+                            color: Theme.cardBackground
+                            border.color: Theme.focusBorder
+                            border.width: 1
+                            radius: Theme.radiusSmall
+                        }
+                    }
 
                     onActivated: function(index) {
                         if (index >= 0 && index < profiles.length) {
@@ -247,16 +511,19 @@ Dialog {
                         }
                     }
 
-                    Keys.onDownPressed: function(event) {
-                        if (!popup.visible) {
-                            rootFolderCombo.forceActiveFocus()
-                            event.accepted = true
-                        }
-                    }
+                    Keys.onReturnPressed: popup.open()
+                    Keys.onEnterPressed: popup.open()
 
                     Keys.onUpPressed: function(event) {
                         if (!popup.visible) {
                             serverCombo.forceActiveFocus()
+                            event.accepted = true
+                        }
+                    }
+
+                    Keys.onDownPressed: function(event) {
+                        if (!popup.visible) {
+                            rootFolderCombo.forceActiveFocus()
                             event.accepted = true
                         }
                     }
@@ -272,8 +539,117 @@ Dialog {
                 ComboBox {
                     id: rootFolderCombo
                     Layout.fillWidth: true
+                    focusPolicy: Qt.StrongFocus
+                    activeFocusOnTab: true
+                    Keys.priority: Keys.BeforeItem
                     model: rootFolders
                     textRole: "path"
+                    enabled: rootFolders.length > 0
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+
+                    KeyNavigation.up: profileCombo
+                    KeyNavigation.down: isTv && seasonCount > 0 ? allSeasonsCheck : cancelButton
+
+                    contentItem: Text {
+                        text: rootFolderCombo.displayText
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: rootFolderCombo.enabled ? Theme.textPrimary : Theme.textDisabled
+                        verticalAlignment: Text.AlignVCenter
+                        leftPadding: Theme.spacingSmall
+                        rightPadding: Theme.spacingXLarge
+                        elide: Text.ElideRight
+                    }
+
+                    indicator: Text {
+                        text: "▼"
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        color: Theme.textSecondary
+                        anchors.right: parent.right
+                        anchors.rightMargin: Theme.spacingMedium
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    background: Rectangle {
+                        implicitHeight: Theme.buttonHeightSmall
+                        radius: Theme.radiusSmall
+                        color: Theme.inputBackground
+                        border.color: rootFolderCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                        border.width: rootFolderCombo.activeFocus ? 2 : 1
+                        opacity: rootFolderCombo.enabled ? 1.0 : 0.5
+                    }
+
+                    delegate: ItemDelegate {
+                        required property var modelData
+                        width: rootFolderCombo.width
+                        enabled: rootFolderCombo.enabled
+                        highlighted: ListView.isCurrentItem || rootFolderCombo.highlightedIndex === index
+
+                        contentItem: Text {
+                            text: modelData.path || ""
+                            color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            elide: Text.ElideRight
+                        }
+
+                        background: Rectangle {
+                            color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                            radius: Theme.radiusSmall
+                        }
+                    }
+
+                    popup: Popup {
+                        y: rootFolderCombo.height + 5
+                        width: rootFolderCombo.width
+                        implicitHeight: Math.min(contentItem.implicitHeight, 280)
+                        padding: 1
+                        closePolicy: Popup.CloseOnEscape
+
+                        onOpened: {
+                            setKeyboardNavigationMode()
+                            rootFolderList.currentIndex = rootFolderCombo.highlightedIndex >= 0
+                                ? rootFolderCombo.highlightedIndex
+                                : rootFolderCombo.currentIndex
+                            rootFolderList.forceActiveFocus()
+                        }
+
+                        onClosed: rootFolderCombo.forceActiveFocus()
+
+                        contentItem: ListView {
+                            id: rootFolderList
+                            clip: true
+                            implicitHeight: contentHeight
+                            model: rootFolderCombo.popup.visible ? rootFolderCombo.delegateModel : null
+                            currentIndex: rootFolderCombo.highlightedIndex >= 0
+                                ? rootFolderCombo.highlightedIndex
+                                : rootFolderCombo.currentIndex
+
+                            onCurrentIndexChanged: rootFolderCombo.highlightedIndex = currentIndex
+
+                            Keys.onReturnPressed: {
+                                rootFolderCombo.currentIndex = currentIndex
+                                rootFolderCombo.popup.close()
+                            }
+
+                            Keys.onEnterPressed: {
+                                rootFolderCombo.currentIndex = currentIndex
+                                rootFolderCombo.popup.close()
+                            }
+
+                            Keys.onEscapePressed: rootFolderCombo.popup.close()
+                        }
+
+                        background: Rectangle {
+                            color: Theme.cardBackground
+                            border.color: Theme.focusBorder
+                            border.width: 1
+                            radius: Theme.radiusSmall
+                        }
+                    }
 
                     onActivated: function(index) {
                         if (index >= 0 && index < rootFolders.length) {
@@ -281,20 +657,19 @@ Dialog {
                         }
                     }
 
-                    Keys.onDownPressed: function(event) {
-                        if (!popup.visible) {
-                            if (isTv && seasonCount > 0) {
-                                allSeasonsCheck.forceActiveFocus()
-                            } else {
-                                cancelButton.forceActiveFocus()
-                            }
-                            event.accepted = true
-                        }
-                    }
+                    Keys.onReturnPressed: popup.open()
+                    Keys.onEnterPressed: popup.open()
 
                     Keys.onUpPressed: function(event) {
                         if (!popup.visible) {
                             profileCombo.forceActiveFocus()
+                            event.accepted = true
+                        }
+                    }
+
+                    Keys.onDownPressed: function(event) {
+                        if (!popup.visible) {
+                            focusNextFromRoot()
                             event.accepted = true
                         }
                     }
@@ -307,8 +682,42 @@ Dialog {
 
                     CheckBox {
                         id: allSeasonsCheck
+                        focusPolicy: Qt.StrongFocus
+                        activeFocusOnTab: true
                         text: qsTr("All Seasons")
                         checked: requestAllSeasons
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+
+                        KeyNavigation.up: rootFolderCombo
+                        KeyNavigation.down: !requestAllSeasons && seasonRepeater.count > 0 ? seasonRepeater.itemAt(0) : cancelButton
+
+                        indicator: Rectangle {
+                            implicitWidth: 20
+                            implicitHeight: 20
+                            radius: Theme.radiusSmall
+                            color: allSeasonsCheck.checked ? Theme.buttonPrimaryBackground : Theme.inputBackground
+                            border.color: allSeasonsCheck.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: allSeasonsCheck.activeFocus ? 2 : 1
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: allSeasonsCheck.checked ? "✓" : ""
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+                            }
+                        }
+
+                        contentItem: Text {
+                            text: allSeasonsCheck.text
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            leftPadding: allSeasonsCheck.indicator.width + Theme.spacingSmall
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
                         onToggled: {
                             requestAllSeasons = checked
                             if (checked) {
@@ -346,11 +755,42 @@ Dialog {
                             model: seasonCount
 
                             CheckBox {
+                                id: seasonCheck
                                 required property int index
                                 readonly property int seasonNumber: index + 1
+                                focusPolicy: Qt.StrongFocus
+                                activeFocusOnTab: true
                                 text: qsTr("S%1").arg(seasonNumber)
                                 checked: selectedSeasons.indexOf(seasonNumber) >= 0
                                 onToggled: toggleSeason(seasonNumber, checked)
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.family: Theme.fontPrimary
+
+                                indicator: Rectangle {
+                                    implicitWidth: 18
+                                    implicitHeight: 18
+                                    radius: Theme.radiusSmall
+                                    color: seasonCheck.checked ? Theme.buttonPrimaryBackground : Theme.inputBackground
+                                    border.color: seasonCheck.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                    border.width: seasonCheck.activeFocus ? 2 : 1
+
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: seasonCheck.checked ? "✓" : ""
+                                        font.pixelSize: Theme.fontSizeCaption
+                                        font.family: Theme.fontPrimary
+                                        color: Theme.textPrimary
+                                    }
+                                }
+
+                                contentItem: Text {
+                                    text: seasonCheck.text
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                    color: Theme.textPrimary
+                                    leftPadding: seasonCheck.indicator.width + Theme.spacingSmall
+                                    verticalAlignment: Text.AlignVCenter
+                                }
 
                                 Keys.onLeftPressed: function(event) {
                                     if ((index % 4) > 0) {
@@ -427,8 +867,33 @@ Dialog {
             Button {
                 id: cancelButton
                 Layout.fillWidth: true
+                focusPolicy: Qt.StrongFocus
+                activeFocusOnTab: true
                 text: qsTr("Cancel")
                 onClicked: dialog.close()
+
+                KeyNavigation.up: isTv && seasonCount > 0 ? allSeasonsCheck : rootFolderCombo
+                KeyNavigation.right: requestButton
+                KeyNavigation.down: serverCombo.visible ? serverCombo : null
+
+                contentItem: Text {
+                    text: cancelButton.text
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                background: Rectangle {
+                    implicitHeight: Theme.buttonHeightSmall
+                    radius: Theme.radiusSmall
+                    color: cancelButton.down
+                        ? Theme.buttonSecondaryBackgroundPressed
+                        : (cancelButton.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground)
+                    border.color: cancelButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                    border.width: cancelButton.activeFocus ? 2 : 1
+                }
 
                 Keys.onRightPressed: function(event) {
                     requestButton.forceActiveFocus()
@@ -456,9 +921,36 @@ Dialog {
             Button {
                 id: requestButton
                 Layout.fillWidth: true
+                focusPolicy: Qt.StrongFocus
+                activeFocusOnTab: true
                 text: submitting ? qsTr("Requesting...") : qsTr("Request")
                 enabled: !loadingOptions && !submitting
                 onClicked: submitRequest()
+
+                KeyNavigation.up: isTv && seasonCount > 0 ? allSeasonsCheck : rootFolderCombo
+                KeyNavigation.left: cancelButton
+                KeyNavigation.down: serverCombo.visible ? serverCombo : null
+
+                contentItem: Text {
+                    text: requestButton.text
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: requestButton.enabled ? Theme.textPrimary : Theme.textDisabled
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+
+                background: Rectangle {
+                    implicitHeight: Theme.buttonHeightSmall
+                    radius: Theme.radiusSmall
+                    color: requestButton.enabled
+                        ? (requestButton.down
+                           ? Theme.buttonPrimaryBackgroundPressed
+                           : (requestButton.hovered ? Theme.buttonPrimaryBackgroundHover : Theme.buttonPrimaryBackground))
+                        : Theme.buttonSecondaryBackground
+                    border.color: requestButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                    border.width: requestButton.activeFocus ? 2 : 1
+                }
 
                 Keys.onLeftPressed: function(event) {
                     cancelButton.forceActiveFocus()
@@ -486,16 +978,12 @@ Dialog {
     }
 
     onOpened: {
-        Qt.callLater(function() {
-            if (loadingOptions) {
-                cancelButton.forceActiveFocus()
-            } else {
-                serverCombo.forceActiveFocus()
-            }
-        })
+        setKeyboardNavigationMode()
+        Qt.callLater(function() { focusInitialControl() })
     }
 
     onClosed: {
+        restorePointerNavigationMode()
         Qt.callLater(function() {
             if (restoreFocusTarget) {
                 restoreFocusTarget.forceActiveFocus()
@@ -508,7 +996,9 @@ Dialog {
         target: SeerrService
 
         function onRequestPreparationLoaded(prepMediaType, prepTmdbId, data) {
-            if (!dialog.visible || prepMediaType !== mediaType || prepTmdbId !== tmdbId) return
+            if (!dialog.visible || prepMediaType !== mediaType || prepTmdbId !== tmdbId) {
+                return
+            }
 
             loadingOptions = false
 
@@ -553,11 +1043,26 @@ Dialog {
                 }
             }
 
-            Qt.callLater(function() { serverCombo.forceActiveFocus() })
+            if (servers.length > 0 && selectedServerId < 0) {
+                serverCombo.currentIndex = 0
+                selectedServerId = servers[0].id
+            }
+            if (profiles.length > 0 && selectedProfileId < 0) {
+                profileCombo.currentIndex = 0
+                selectedProfileId = profiles[0].id
+            }
+            if (rootFolders.length > 0 && selectedRootFolderPath === "") {
+                rootFolderCombo.currentIndex = 0
+                selectedRootFolderPath = rootFolders[0].path || ""
+            }
+
+            Qt.callLater(function() { focusInitialControl() })
         }
 
         function onRequestCreated(requestMediaType, requestTmdbId, requestData) {
-            if (!dialog.visible || requestMediaType !== mediaType || requestTmdbId !== tmdbId) return
+            if (!dialog.visible || requestMediaType !== mediaType || requestTmdbId !== tmdbId) {
+                return
+            }
 
             submitting = false
             statusError = false
@@ -574,14 +1079,19 @@ Dialog {
         }
 
         function onErrorOccurred(endpoint, error) {
-            if (!dialog.visible) return
+            if (!dialog.visible) {
+                return
+            }
+
             if (endpoint !== "prepareRequest" && endpoint !== "service/radarr" && endpoint !== "service/sonarr" && endpoint !== "service/details" && endpoint !== "tv/details" && endpoint !== "request") {
                 return
             }
+
             loadingOptions = false
             submitting = false
             statusText = error
             statusError = true
+            Qt.callLater(function() { cancelButton.forceActiveFocus() })
         }
     }
 }

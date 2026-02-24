@@ -761,6 +761,6 @@ FocusScope {
 
     SeerrRequestDialog {
         id: seerrRequestDialog
-        parent: root
+        parent: Overlay.overlay
     }
 }
