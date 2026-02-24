@@ -27,7 +27,6 @@ Item {
     property string itemYear: itemData.ProductionYear ? String(itemData.ProductionYear) : ""
     property string itemId: itemData.Id || ""
     property bool isPlayed: itemData.UserData ? itemData.UserData.Played : false
-    property string posterPath: itemData.PosterPath || ""
     property int seerrStatus: itemData.SeerrMediaInfo && itemData.SeerrMediaInfo.status ? itemData.SeerrMediaInfo.status : 0
     property string seerrStatusLabel: {
         switch (seerrStatus) {
@@ -40,10 +39,9 @@ Item {
         }
     }
     property string posterSource: {
-        if (isSeerr) {
-            if (!posterPath || posterPath.length === 0) return ""
-            if (posterPath.indexOf("http://") === 0 || posterPath.indexOf("https://") === 0) return posterPath
-            return "https://image.tmdb.org/t/p/w342" + posterPath
+        const seerrImageUrl = itemData.imageUrl || ""
+        if (seerrImageUrl.length > 0) {
+            return seerrImageUrl
         }
         return itemId ? LibraryService.getCachedImageUrlWithWidth(itemId, "Primary", 300) : ""
     }

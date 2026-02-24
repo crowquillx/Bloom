@@ -70,6 +70,7 @@ FocusScope {
 
                 if (SeerrService.isConfigured()) {
                     waitingForSeerrSearch = true
+                    seerrResults = []
                     SeerrService.search(searchTerm.trim())
                 } else {
                     waitingForSeerrSearch = false
@@ -538,8 +539,13 @@ FocusScope {
                         
                         onCurrentIndexChanged: {
                             if (currentItem) {
-                                currentItem.forceActiveFocus()
-                                root.ensureItemVisibleInResults(currentItem)
+                                const item = currentItem
+                                Qt.callLater(() => {
+                                    if (item) {
+                                        item.forceActiveFocus()
+                                        root.ensureItemVisibleInResults(item)
+                                    }
+                                })
                             }
                         }
                     }
@@ -659,8 +665,13 @@ FocusScope {
                         
                         onCurrentIndexChanged: {
                             if (currentItem) {
-                                currentItem.forceActiveFocus()
-                                root.ensureItemVisibleInResults(currentItem)
+                                const item = currentItem
+                                Qt.callLater(() => {
+                                    if (item) {
+                                        item.forceActiveFocus()
+                                        root.ensureItemVisibleInResults(item)
+                                    }
+                                })
                             }
                         }
                     }
