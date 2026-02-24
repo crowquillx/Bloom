@@ -85,7 +85,7 @@ if ($Tag) {
     git add -A
     git commit -m "release: v$Version"
     $releaseNotesPath = Join-Path $repoRoot "RELEASE_NOTES.md"
-    git tag -a "v$Version" -m "Release v$Version" -F $releaseNotesPath
+    git tag -a "v$Version" -F $releaseNotesPath
     Pop-Location
 
     Write-Host "`n Next steps:" -ForegroundColor Yellow

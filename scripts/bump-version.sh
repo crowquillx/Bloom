@@ -81,7 +81,7 @@ if $TAG; then
     cd "$REPO_ROOT"
     git add -A
     git commit -m "release: v$VERSION"
-    git tag -a "v$VERSION" -m "Release v$VERSION" --file="$REPO_ROOT/RELEASE_NOTES.md"
+    git tag -a "v$VERSION" -F "$REPO_ROOT/RELEASE_NOTES.md"
 
     echo -e "\n\033[33m Next steps:\033[0m"
     echo "  1. Push to trigger the release CI:"
