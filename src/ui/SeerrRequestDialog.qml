@@ -29,6 +29,7 @@ Dialog {
 
     property bool requestAllSeasons: true
     property var selectedSeasons: []
+    property bool syncingSeasonChecks: false
 
     property bool loadingOptions: false
     property bool submitting: false
@@ -104,10 +105,6 @@ Dialog {
         }
     }
 
-    function updateAllSeasonsFlag() {
-        requestAllSeasons = (seasonCount > 0 && selectedSeasons.length === seasonCount)
-    }
-
     function toggleSeason(seasonNumber, checked) {
         var updated = []
         var exists = false
@@ -127,7 +124,18 @@ Dialog {
         }
         updated.sort(function(a, b) { return a - b })
         selectedSeasons = updated
-        updateAllSeasonsFlag()
+    }
+
+    function syncSeasonChecks() {
+        if (!seasonRepeater) return
+        syncingSeasonChecks = true
+        for (var i = 0; i < seasonRepeater.count; ++i) {
+            var item = seasonRepeater.itemAt(i)
+            if (item) {
+                item.checked = selectedSeasons.indexOf(item.seasonNumber) >= 0
+            }
+        }
+        syncingSeasonChecks = false
     }
 
     function submitRequest() {
@@ -820,6 +828,9 @@ Dialog {
                         Repeater {
                             id: seasonRepeater
                             model: seasonCount
+                            onItemAdded: function(index, item) {
+                                syncSeasonChecks()
+                            }
 
                             CheckBox {
                                 id: seasonCheck
@@ -828,8 +839,12 @@ Dialog {
                                 focusPolicy: Qt.StrongFocus
                                 activeFocusOnTab: true
                                 text: qsTr("S%1").arg(seasonNumber)
-                                checked: selectedSeasons.indexOf(seasonNumber) >= 0
-                                onToggled: toggleSeason(seasonNumber, checked)
+                                checked: false
+                                onToggled: {
+                                    if (!syncingSeasonChecks) {
+                                        toggleSeason(seasonNumber, checked)
+                                    }
+                                }
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
                                         ensureDialogItemVisible(seasonCheck)
@@ -1097,6 +1112,10 @@ Dialog {
             }
             restoreFocusTarget = null
         })
+    }
+
+    onSelectedSeasonsChanged: {
+        Qt.callLater(function() { syncSeasonChecks() })
     }
 
     Connections {
