@@ -17,7 +17,7 @@ runs:
         $maxAttempts = 4
         for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
           try {
-            Write-Host "Attempt $attempt/$maxAttempts: choco install nsis"
+            Write-Host "Attempt ${attempt}/${maxAttempts}: choco install nsis"
             choco install nsis -y --no-progress
             if (Test-Path $nsisExe) {
               Write-Host "NSIS installed via Chocolatey at $nsisExe"
