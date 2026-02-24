@@ -463,6 +463,12 @@ FocusScope {
                             
                             required property var modelData
                             required property int index
+
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    root.ensureItemVisibleInResults(seriesDelegateScope)
+                                }
+                            }
                             
                             SearchResultCard {
                                 id: seriesCard
@@ -575,6 +581,12 @@ FocusScope {
                             
                             required property var modelData
                             required property int index
+
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    root.ensureItemVisibleInResults(movieDelegateScope)
+                                }
+                            }
                             
                             SearchResultCard {
                                 id: movieCard
@@ -694,6 +706,12 @@ FocusScope {
 
                             required property var modelData
                             required property int index
+
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    root.ensureItemVisibleInResults(seerrDelegateScope)
+                                }
+                            }
 
                             SearchResultCard {
                                 id: seerrCard

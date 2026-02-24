@@ -293,11 +293,11 @@ Dialog {
                         required property var modelData
                         width: serverCombo.width
                         enabled: serverCombo.enabled
-                        highlighted: ListView.isCurrentItem
+                        readonly property bool isCurrent: ListView.isCurrentItem
 
                         contentItem: Text {
                             text: modelData.name || ""
-                            color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                            color: isCurrent ? Theme.textPrimary : Theme.textSecondary
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             verticalAlignment: Text.AlignVCenter
@@ -305,7 +305,7 @@ Dialog {
                         }
 
                         background: Rectangle {
-                            color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                            color: isCurrent ? Theme.buttonPrimaryBackground : "transparent"
                             radius: Theme.radiusSmall
                         }
                     }
@@ -319,9 +319,7 @@ Dialog {
 
                         onOpened: {
                             setKeyboardNavigationMode()
-                            var indexToFocus = Math.max(0, serverCombo.currentIndex)
-                            serverCombo.highlightedIndex = indexToFocus
-                            serverList.currentIndex = indexToFocus
+                            serverList.currentIndex = Math.max(0, serverCombo.currentIndex)
                             serverList.forceActiveFocus()
                         }
 
@@ -334,16 +332,16 @@ Dialog {
                             model: serverCombo.popup.visible ? serverCombo.delegateModel : null
                             currentIndex: Math.max(0, serverCombo.currentIndex)
 
-                            onCurrentIndexChanged: serverCombo.highlightedIndex = currentIndex
-
-                            Keys.onReturnPressed: {
+                            Keys.onReturnPressed: function(event) {
                                 serverCombo.currentIndex = currentIndex
                                 serverCombo.popup.close()
+                                event.accepted = true
                             }
 
-                            Keys.onEnterPressed: {
+                            Keys.onEnterPressed: function(event) {
                                 serverCombo.currentIndex = currentIndex
                                 serverCombo.popup.close()
+                                event.accepted = true
                             }
 
                             Keys.onEscapePressed: serverCombo.popup.close()
@@ -363,8 +361,12 @@ Dialog {
                         }
                     }
 
-                    Keys.onReturnPressed: popup.open()
-                    Keys.onEnterPressed: popup.open()
+                    Keys.onPressed: function(event) {
+                        if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !popup.visible) {
+                            popup.open()
+                            event.accepted = true
+                        }
+                    }
 
                     Keys.onUpPressed: function(event) {
                         if (!popup.visible) {
@@ -437,11 +439,11 @@ Dialog {
                         required property var modelData
                         width: profileCombo.width
                         enabled: profileCombo.enabled
-                        highlighted: ListView.isCurrentItem
+                        readonly property bool isCurrent: ListView.isCurrentItem
 
                         contentItem: Text {
                             text: modelData.name || ""
-                            color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                            color: isCurrent ? Theme.textPrimary : Theme.textSecondary
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             verticalAlignment: Text.AlignVCenter
@@ -449,7 +451,7 @@ Dialog {
                         }
 
                         background: Rectangle {
-                            color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                            color: isCurrent ? Theme.buttonPrimaryBackground : "transparent"
                             radius: Theme.radiusSmall
                         }
                     }
@@ -463,9 +465,7 @@ Dialog {
 
                         onOpened: {
                             setKeyboardNavigationMode()
-                            var indexToFocus = Math.max(0, profileCombo.currentIndex)
-                            profileCombo.highlightedIndex = indexToFocus
-                            profileList.currentIndex = indexToFocus
+                            profileList.currentIndex = Math.max(0, profileCombo.currentIndex)
                             profileList.forceActiveFocus()
                         }
 
@@ -478,16 +478,16 @@ Dialog {
                             model: profileCombo.popup.visible ? profileCombo.delegateModel : null
                             currentIndex: Math.max(0, profileCombo.currentIndex)
 
-                            onCurrentIndexChanged: profileCombo.highlightedIndex = currentIndex
-
-                            Keys.onReturnPressed: {
+                            Keys.onReturnPressed: function(event) {
                                 profileCombo.currentIndex = currentIndex
                                 profileCombo.popup.close()
+                                event.accepted = true
                             }
 
-                            Keys.onEnterPressed: {
+                            Keys.onEnterPressed: function(event) {
                                 profileCombo.currentIndex = currentIndex
                                 profileCombo.popup.close()
+                                event.accepted = true
                             }
 
                             Keys.onEscapePressed: profileCombo.popup.close()
@@ -507,8 +507,12 @@ Dialog {
                         }
                     }
 
-                    Keys.onReturnPressed: popup.open()
-                    Keys.onEnterPressed: popup.open()
+                    Keys.onPressed: function(event) {
+                        if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !popup.visible) {
+                            popup.open()
+                            event.accepted = true
+                        }
+                    }
 
                     Keys.onUpPressed: function(event) {
                         if (!popup.visible) {
@@ -581,11 +585,11 @@ Dialog {
                         required property var modelData
                         width: rootFolderCombo.width
                         enabled: rootFolderCombo.enabled
-                        highlighted: ListView.isCurrentItem
+                        readonly property bool isCurrent: ListView.isCurrentItem
 
                         contentItem: Text {
                             text: modelData.path || ""
-                            color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                            color: isCurrent ? Theme.textPrimary : Theme.textSecondary
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             verticalAlignment: Text.AlignVCenter
@@ -593,7 +597,7 @@ Dialog {
                         }
 
                         background: Rectangle {
-                            color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                            color: isCurrent ? Theme.buttonPrimaryBackground : "transparent"
                             radius: Theme.radiusSmall
                         }
                     }
@@ -607,9 +611,7 @@ Dialog {
 
                         onOpened: {
                             setKeyboardNavigationMode()
-                            var indexToFocus = Math.max(0, rootFolderCombo.currentIndex)
-                            rootFolderCombo.highlightedIndex = indexToFocus
-                            rootFolderList.currentIndex = indexToFocus
+                            rootFolderList.currentIndex = Math.max(0, rootFolderCombo.currentIndex)
                             rootFolderList.forceActiveFocus()
                         }
 
@@ -622,16 +624,16 @@ Dialog {
                             model: rootFolderCombo.popup.visible ? rootFolderCombo.delegateModel : null
                             currentIndex: Math.max(0, rootFolderCombo.currentIndex)
 
-                            onCurrentIndexChanged: rootFolderCombo.highlightedIndex = currentIndex
-
-                            Keys.onReturnPressed: {
+                            Keys.onReturnPressed: function(event) {
                                 rootFolderCombo.currentIndex = currentIndex
                                 rootFolderCombo.popup.close()
+                                event.accepted = true
                             }
 
-                            Keys.onEnterPressed: {
+                            Keys.onEnterPressed: function(event) {
                                 rootFolderCombo.currentIndex = currentIndex
                                 rootFolderCombo.popup.close()
+                                event.accepted = true
                             }
 
                             Keys.onEscapePressed: rootFolderCombo.popup.close()
@@ -651,8 +653,12 @@ Dialog {
                         }
                     }
 
-                    Keys.onReturnPressed: popup.open()
-                    Keys.onEnterPressed: popup.open()
+                    Keys.onPressed: function(event) {
+                        if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !popup.visible) {
+                            popup.open()
+                            event.accepted = true
+                        }
+                    }
 
                     Keys.onUpPressed: function(event) {
                         if (!popup.visible) {
