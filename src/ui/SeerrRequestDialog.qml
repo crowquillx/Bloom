@@ -41,6 +41,13 @@ Dialog {
                                                    && selectedProfileId >= 0
                                                    && selectedRootFolderPath.trim().length > 0
 
+    Timer {
+        id: closeTimer
+        interval: 1500
+        repeat: false
+        onTriggered: dialog.close()
+    }
+
     function setKeyboardNavigationMode() {
         if (typeof InputModeManager !== "undefined") {
             InputModeManager.setNavigationMode("keyboard")
@@ -70,6 +77,7 @@ Dialog {
     }
 
     function openForItem(itemData, focusTarget) {
+        closeTimer.stop()
         restoreFocusTarget = focusTarget || null
 
         mediaType = String(itemData.SeerrMediaType || "").toLowerCase()
@@ -289,116 +297,17 @@ Dialog {
                     color: Theme.textSecondary
                 }
 
-                ComboBox {
+                SeerrComboBox {
                     id: serverCombo
                     Layout.fillWidth: true
-                    focusPolicy: Qt.StrongFocus
-                    activeFocusOnTab: true
-                    Keys.priority: Keys.BeforeItem
                     model: servers
                     textRole: "name"
                     enabled: servers.length > 0
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
 
                     KeyNavigation.up: cancelButton
                     KeyNavigation.down: profileCombo
 
-                    contentItem: Text {
-                        text: serverCombo.displayText
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: serverCombo.enabled ? Theme.textPrimary : Theme.textDisabled
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: Theme.spacingSmall
-                        rightPadding: Theme.spacingXLarge
-                        elide: Text.ElideRight
-                    }
-
-                    indicator: Text {
-                        text: "▼"
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                        anchors.right: parent.right
-                        anchors.rightMargin: Theme.spacingMedium
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    background: Rectangle {
-                        implicitHeight: Theme.buttonHeightSmall
-                        radius: Theme.radiusSmall
-                        color: Theme.inputBackground
-                        border.color: serverCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                        border.width: serverCombo.activeFocus ? 2 : 1
-                        opacity: serverCombo.enabled ? 1.0 : 0.5
-                    }
-
-                    delegate: ItemDelegate {
-                        required property var modelData
-                        width: serverCombo.width
-                        enabled: serverCombo.enabled
-                        readonly property bool isCurrent: ListView.isCurrentItem
-
-                        contentItem: Text {
-                            text: modelData.name || ""
-                            color: isCurrent ? Theme.textPrimary : Theme.textSecondary
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                        }
-
-                        background: Rectangle {
-                            color: isCurrent ? Theme.buttonPrimaryBackground : "transparent"
-                            radius: Theme.radiusSmall
-                        }
-                    }
-
-                    popup: Popup {
-                        y: serverCombo.height + 5
-                        width: serverCombo.width
-                        implicitHeight: Math.min(contentItem.implicitHeight, 280)
-                        padding: 1
-                        closePolicy: Popup.CloseOnEscape
-
-                        onOpened: {
-                            setKeyboardNavigationMode()
-                            serverList.currentIndex = Math.max(0, serverCombo.currentIndex)
-                            serverList.forceActiveFocus()
-                        }
-
-                        onClosed: serverCombo.forceActiveFocus()
-
-                        contentItem: ListView {
-                            id: serverList
-                            clip: true
-                            implicitHeight: contentHeight
-                            model: serverCombo.popup.visible ? serverCombo.delegateModel : null
-                            currentIndex: Math.max(0, serverCombo.currentIndex)
-
-                            Keys.onReturnPressed: function(event) {
-                                serverCombo.currentIndex = currentIndex
-                                serverCombo.popup.close()
-                                event.accepted = true
-                            }
-
-                            Keys.onEnterPressed: function(event) {
-                                serverCombo.currentIndex = currentIndex
-                                serverCombo.popup.close()
-                                event.accepted = true
-                            }
-
-                            Keys.onEscapePressed: serverCombo.popup.close()
-                        }
-
-                        background: Rectangle {
-                            color: Theme.cardBackground
-                            border.color: Theme.focusBorder
-                            border.width: 1
-                            radius: Theme.radiusSmall
-                        }
-                    }
+                    onPopupOpenedForKeyboardNav: setKeyboardNavigationMode()
 
                     onActivated: function(index) {
                         if (index >= 0 && index < servers.length) {
@@ -406,26 +315,8 @@ Dialog {
                         }
                     }
 
-                    Keys.onPressed: function(event) {
-                        if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !popup.visible) {
-                            popup.open()
-                            event.accepted = true
-                        }
-                    }
-
-                    Keys.onUpPressed: function(event) {
-                        if (!popup.visible) {
-                            focusPreviousFromServer()
-                            event.accepted = true
-                        }
-                    }
-
-                    Keys.onDownPressed: function(event) {
-                        if (!popup.visible) {
-                            profileCombo.forceActiveFocus()
-                            event.accepted = true
-                        }
-                    }
+                    onNavigateUpRequested: focusPreviousFromServer()
+                    onNavigateDownRequested: profileCombo.forceActiveFocus()
                 }
 
                 Text {
@@ -435,116 +326,17 @@ Dialog {
                     color: Theme.textSecondary
                 }
 
-                ComboBox {
+                SeerrComboBox {
                     id: profileCombo
                     Layout.fillWidth: true
-                    focusPolicy: Qt.StrongFocus
-                    activeFocusOnTab: true
-                    Keys.priority: Keys.BeforeItem
                     model: profiles
                     textRole: "name"
                     enabled: profiles.length > 0
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
 
                     KeyNavigation.up: serverCombo
                     KeyNavigation.down: rootFolderCombo
 
-                    contentItem: Text {
-                        text: profileCombo.displayText
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: profileCombo.enabled ? Theme.textPrimary : Theme.textDisabled
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: Theme.spacingSmall
-                        rightPadding: Theme.spacingXLarge
-                        elide: Text.ElideRight
-                    }
-
-                    indicator: Text {
-                        text: "▼"
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                        anchors.right: parent.right
-                        anchors.rightMargin: Theme.spacingMedium
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    background: Rectangle {
-                        implicitHeight: Theme.buttonHeightSmall
-                        radius: Theme.radiusSmall
-                        color: Theme.inputBackground
-                        border.color: profileCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                        border.width: profileCombo.activeFocus ? 2 : 1
-                        opacity: profileCombo.enabled ? 1.0 : 0.5
-                    }
-
-                    delegate: ItemDelegate {
-                        required property var modelData
-                        width: profileCombo.width
-                        enabled: profileCombo.enabled
-                        readonly property bool isCurrent: ListView.isCurrentItem
-
-                        contentItem: Text {
-                            text: modelData.name || ""
-                            color: isCurrent ? Theme.textPrimary : Theme.textSecondary
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                        }
-
-                        background: Rectangle {
-                            color: isCurrent ? Theme.buttonPrimaryBackground : "transparent"
-                            radius: Theme.radiusSmall
-                        }
-                    }
-
-                    popup: Popup {
-                        y: profileCombo.height + 5
-                        width: profileCombo.width
-                        implicitHeight: Math.min(contentItem.implicitHeight, 280)
-                        padding: 1
-                        closePolicy: Popup.CloseOnEscape
-
-                        onOpened: {
-                            setKeyboardNavigationMode()
-                            profileList.currentIndex = Math.max(0, profileCombo.currentIndex)
-                            profileList.forceActiveFocus()
-                        }
-
-                        onClosed: profileCombo.forceActiveFocus()
-
-                        contentItem: ListView {
-                            id: profileList
-                            clip: true
-                            implicitHeight: contentHeight
-                            model: profileCombo.popup.visible ? profileCombo.delegateModel : null
-                            currentIndex: Math.max(0, profileCombo.currentIndex)
-
-                            Keys.onReturnPressed: function(event) {
-                                profileCombo.currentIndex = currentIndex
-                                profileCombo.popup.close()
-                                event.accepted = true
-                            }
-
-                            Keys.onEnterPressed: function(event) {
-                                profileCombo.currentIndex = currentIndex
-                                profileCombo.popup.close()
-                                event.accepted = true
-                            }
-
-                            Keys.onEscapePressed: profileCombo.popup.close()
-                        }
-
-                        background: Rectangle {
-                            color: Theme.cardBackground
-                            border.color: Theme.focusBorder
-                            border.width: 1
-                            radius: Theme.radiusSmall
-                        }
-                    }
+                    onPopupOpenedForKeyboardNav: setKeyboardNavigationMode()
 
                     onActivated: function(index) {
                         if (index >= 0 && index < profiles.length) {
@@ -552,26 +344,8 @@ Dialog {
                         }
                     }
 
-                    Keys.onPressed: function(event) {
-                        if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !popup.visible) {
-                            popup.open()
-                            event.accepted = true
-                        }
-                    }
-
-                    Keys.onUpPressed: function(event) {
-                        if (!popup.visible) {
-                            serverCombo.forceActiveFocus()
-                            event.accepted = true
-                        }
-                    }
-
-                    Keys.onDownPressed: function(event) {
-                        if (!popup.visible) {
-                            rootFolderCombo.forceActiveFocus()
-                            event.accepted = true
-                        }
-                    }
+                    onNavigateUpRequested: serverCombo.forceActiveFocus()
+                    onNavigateDownRequested: rootFolderCombo.forceActiveFocus()
                 }
 
                 Text {
@@ -581,116 +355,17 @@ Dialog {
                     color: Theme.textSecondary
                 }
 
-                ComboBox {
+                SeerrComboBox {
                     id: rootFolderCombo
                     Layout.fillWidth: true
-                    focusPolicy: Qt.StrongFocus
-                    activeFocusOnTab: true
-                    Keys.priority: Keys.BeforeItem
                     model: rootFolders
                     textRole: "path"
                     enabled: rootFolders.length > 0
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
 
                     KeyNavigation.up: profileCombo
                     KeyNavigation.down: isTv && seasonCount > 0 ? allSeasonsCheck : cancelButton
 
-                    contentItem: Text {
-                        text: rootFolderCombo.displayText
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: rootFolderCombo.enabled ? Theme.textPrimary : Theme.textDisabled
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: Theme.spacingSmall
-                        rightPadding: Theme.spacingXLarge
-                        elide: Text.ElideRight
-                    }
-
-                    indicator: Text {
-                        text: "▼"
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                        anchors.right: parent.right
-                        anchors.rightMargin: Theme.spacingMedium
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    background: Rectangle {
-                        implicitHeight: Theme.buttonHeightSmall
-                        radius: Theme.radiusSmall
-                        color: Theme.inputBackground
-                        border.color: rootFolderCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                        border.width: rootFolderCombo.activeFocus ? 2 : 1
-                        opacity: rootFolderCombo.enabled ? 1.0 : 0.5
-                    }
-
-                    delegate: ItemDelegate {
-                        required property var modelData
-                        width: rootFolderCombo.width
-                        enabled: rootFolderCombo.enabled
-                        readonly property bool isCurrent: ListView.isCurrentItem
-
-                        contentItem: Text {
-                            text: modelData.path || ""
-                            color: isCurrent ? Theme.textPrimary : Theme.textSecondary
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            elide: Text.ElideRight
-                        }
-
-                        background: Rectangle {
-                            color: isCurrent ? Theme.buttonPrimaryBackground : "transparent"
-                            radius: Theme.radiusSmall
-                        }
-                    }
-
-                    popup: Popup {
-                        y: rootFolderCombo.height + 5
-                        width: rootFolderCombo.width
-                        implicitHeight: Math.min(contentItem.implicitHeight, 280)
-                        padding: 1
-                        closePolicy: Popup.CloseOnEscape
-
-                        onOpened: {
-                            setKeyboardNavigationMode()
-                            rootFolderList.currentIndex = Math.max(0, rootFolderCombo.currentIndex)
-                            rootFolderList.forceActiveFocus()
-                        }
-
-                        onClosed: rootFolderCombo.forceActiveFocus()
-
-                        contentItem: ListView {
-                            id: rootFolderList
-                            clip: true
-                            implicitHeight: contentHeight
-                            model: rootFolderCombo.popup.visible ? rootFolderCombo.delegateModel : null
-                            currentIndex: Math.max(0, rootFolderCombo.currentIndex)
-
-                            Keys.onReturnPressed: function(event) {
-                                rootFolderCombo.currentIndex = currentIndex
-                                rootFolderCombo.popup.close()
-                                event.accepted = true
-                            }
-
-                            Keys.onEnterPressed: function(event) {
-                                rootFolderCombo.currentIndex = currentIndex
-                                rootFolderCombo.popup.close()
-                                event.accepted = true
-                            }
-
-                            Keys.onEscapePressed: rootFolderCombo.popup.close()
-                        }
-
-                        background: Rectangle {
-                            color: Theme.cardBackground
-                            border.color: Theme.focusBorder
-                            border.width: 1
-                            radius: Theme.radiusSmall
-                        }
-                    }
+                    onPopupOpenedForKeyboardNav: setKeyboardNavigationMode()
 
                     onActivated: function(index) {
                         if (index >= 0 && index < rootFolders.length) {
@@ -698,26 +373,8 @@ Dialog {
                         }
                     }
 
-                    Keys.onPressed: function(event) {
-                        if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && !popup.visible) {
-                            popup.open()
-                            event.accepted = true
-                        }
-                    }
-
-                    Keys.onUpPressed: function(event) {
-                        if (!popup.visible) {
-                            profileCombo.forceActiveFocus()
-                            event.accepted = true
-                        }
-                    }
-
-                    Keys.onDownPressed: function(event) {
-                        if (!popup.visible) {
-                            focusNextFromRoot()
-                            event.accepted = true
-                        }
-                    }
+                    onNavigateUpRequested: profileCombo.forceActiveFocus()
+                    onNavigateDownRequested: focusNextFromRoot()
                 }
 
                 ColumnLayout {
@@ -796,37 +453,6 @@ Dialog {
                             event.accepted = true
                         }
 
-                        Keys.onReturnPressed: function(event) {
-                            requestAllSeasons = !requestAllSeasons
-                            if (requestAllSeasons) {
-                                rebuildSeasonSelection()
-                            } else {
-                                Qt.callLater(function() {
-                                    var first = seasonRepeater.itemAt(0)
-                                    if (first) {
-                                        ensureDialogItemVisible(first)
-                                        first.forceActiveFocus()
-                                    }
-                                })
-                            }
-                            event.accepted = true
-                        }
-
-                        Keys.onEnterPressed: function(event) {
-                            requestAllSeasons = !requestAllSeasons
-                            if (requestAllSeasons) {
-                                rebuildSeasonSelection()
-                            } else {
-                                Qt.callLater(function() {
-                                    var first = seasonRepeater.itemAt(0)
-                                    if (first) {
-                                        ensureDialogItemVisible(first)
-                                        first.forceActiveFocus()
-                                    }
-                                })
-                            }
-                            event.accepted = true
-                        }
                     }
 
                     GridLayout {
@@ -1115,6 +741,7 @@ Dialog {
     }
 
     onClosed: {
+        closeTimer.stop()
         restorePointerNavigationMode()
         Qt.callLater(function() {
             if (restoreFocusTarget) {
@@ -1211,7 +838,7 @@ Dialog {
                 statusText = qsTr("Request submitted")
             }
 
-            Qt.callLater(function() { dialog.close() })
+            closeTimer.start()
         }
 
         function onErrorOccurred(endpoint, error) {
