@@ -712,12 +712,12 @@ Dialog {
                         focusPolicy: Qt.StrongFocus
                         activeFocusOnTab: true
                         text: qsTr("All Seasons")
-                        checked: true
+                        checked: requestAllSeasons
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
 
                         KeyNavigation.up: rootFolderCombo
-                        KeyNavigation.down: !requestAllSeasons && seasonRepeater.count > 0 ? seasonRepeater.itemAt(0) : cancelButton
+                        KeyNavigation.down: !allSeasonsCheck.checked && seasonRepeater.count > 0 ? seasonRepeater.itemAt(0) : cancelButton
 
                         indicator: Rectangle {
                             implicitWidth: 20
@@ -761,7 +761,7 @@ Dialog {
                         }
 
                         Keys.onDownPressed: function(event) {
-                            if (!requestAllSeasons && seasonCount > 0 && seasonRepeater.count > 0) {
+                            if (!allSeasonsCheck.checked && seasonCount > 0 && seasonRepeater.count > 0) {
                                 var first = seasonRepeater.itemAt(0)
                                 if (first) {
                                     first.forceActiveFocus()
@@ -779,12 +779,34 @@ Dialog {
                         }
 
                         Keys.onReturnPressed: function(event) {
-                            toggle()
+                            requestAllSeasons = !requestAllSeasons
+                            if (requestAllSeasons) {
+                                rebuildSeasonSelection()
+                            } else {
+                                Qt.callLater(function() {
+                                    var first = seasonRepeater.itemAt(0)
+                                    if (first) {
+                                        ensureDialogItemVisible(first)
+                                        first.forceActiveFocus()
+                                    }
+                                })
+                            }
                             event.accepted = true
                         }
 
                         Keys.onEnterPressed: function(event) {
-                            toggle()
+                            requestAllSeasons = !requestAllSeasons
+                            if (requestAllSeasons) {
+                                rebuildSeasonSelection()
+                            } else {
+                                Qt.callLater(function() {
+                                    var first = seasonRepeater.itemAt(0)
+                                    if (first) {
+                                        ensureDialogItemVisible(first)
+                                        first.forceActiveFocus()
+                                    }
+                                })
+                            }
                             event.accepted = true
                         }
                     }
@@ -793,7 +815,7 @@ Dialog {
                         columns: 4
                         rowSpacing: Theme.spacingMedium
                         columnSpacing: Theme.spacingMedium
-                        visible: !requestAllSeasons
+                        visible: !allSeasonsCheck.checked
 
                         Repeater {
                             id: seasonRepeater
@@ -889,12 +911,12 @@ Dialog {
                                 }
 
                                 Keys.onReturnPressed: function(event) {
-                                    toggle()
+                                    toggleSeason(seasonNumber, !checked)
                                     event.accepted = true
                                 }
 
                                 Keys.onEnterPressed: function(event) {
-                                    toggle()
+                                    toggleSeason(seasonNumber, !checked)
                                     event.accepted = true
                                 }
                             }
@@ -1075,12 +1097,6 @@ Dialog {
             }
             restoreFocusTarget = null
         })
-    }
-
-    onRequestAllSeasonsChanged: {
-        if (allSeasonsCheck && allSeasonsCheck.checked !== requestAllSeasons) {
-            allSeasonsCheck.checked = requestAllSeasons
-        }
     }
 
     Connections {
