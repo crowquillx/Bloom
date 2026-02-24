@@ -39,6 +39,8 @@ Documentation & update policy:
 - For small changes (UI tweaks, single-property changes): update the relevant `docs/` file (or add a small note). Include documentation updates in the same PR whenever practical.
 - For major architecture or convention changes: update `AGENTS.md` (briefly), update relevant `docs/*` pages with details, and include a short migration/compatibility note.
 
+If making a commit, use Conventional Commits spec.
+
 PR checklist (docs):
 - [ ] Documentation updated in the appropriate `docs/` page(s).
 - [ ] `AGENTS.md` updated if the change is architectural or alters project conventions.
