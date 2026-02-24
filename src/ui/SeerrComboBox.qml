@@ -80,7 +80,7 @@ ComboBox {
         width: control.width
         implicitHeight: Math.min(contentItem.implicitHeight, 280)
         padding: 1
-        closePolicy: Popup.CloseOnEscape
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
         onOpened: {
             control.popupOpenedForKeyboardNav()
