@@ -77,6 +77,11 @@ void SeerrService::validateConnection()
 {
     static const QString endpoint = QStringLiteral("auth/me");
 
+    if (!m_authService || !m_authService->networkManager()) {
+        emit connectionValidated(false, tr("Network manager unavailable"));
+        return;
+    }
+
     if (!ensureConfigured(endpoint)) {
         emit connectionValidated(false, tr("Seerr URL or API key is not configured"));
         return;
@@ -108,12 +113,22 @@ void SeerrService::validateConnection()
 QJsonObject SeerrService::mapSearchResultItem(const QJsonObject &item) const
 {
     const QString mediaType = item.value("mediaType").toString().toLower();
+    const QString posterPath = item.value("posterPath").toString();
+    QString imageUrl;
+    if (!posterPath.isEmpty()) {
+        if (posterPath.startsWith("http://") || posterPath.startsWith("https://")) {
+            imageUrl = posterPath;
+        } else {
+            imageUrl = QStringLiteral("https://image.tmdb.org/t/p/w342%1").arg(posterPath);
+        }
+    }
 
     QJsonObject mapped;
     mapped["Source"] = "Seerr";
     mapped["SeerrMediaType"] = mediaType;
     mapped["SeerrTmdbId"] = item.value("id").toInt();
-    mapped["PosterPath"] = item.value("posterPath").toString();
+    mapped["PosterPath"] = posterPath;
+    mapped["imageUrl"] = imageUrl;
     mapped["BackdropPath"] = item.value("backdropPath").toString();
     mapped["Overview"] = item.value("overview").toString();
 

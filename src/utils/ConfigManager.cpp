@@ -1150,7 +1150,8 @@ QString ConfigManager::getSeerrBaseUrl() const
 
 void ConfigManager::setSeerrApiKey(const QString &key)
 {
-    if (key == getSeerrApiKey()) return;
+    const QString normalized = key.trimmed();
+    if (normalized == getSeerrApiKey()) return;
 
     QJsonObject settings;
     if (m_config.contains("settings") && m_config["settings"].isObject()) {
@@ -1160,7 +1161,7 @@ void ConfigManager::setSeerrApiKey(const QString &key)
     if (settings.contains("seerr") && settings["seerr"].isObject()) {
         seerr = settings["seerr"].toObject();
     }
-    seerr["api_key"] = key;
+    seerr["api_key"] = normalized;
     settings["seerr"] = seerr;
     m_config["settings"] = settings;
     save();
