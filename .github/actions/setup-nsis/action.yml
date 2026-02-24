@@ -38,6 +38,12 @@ runs:
         $installerPath = Join-Path $env:RUNNER_TEMP "nsis-3.11-setup.exe"
         $downloadUrl = "https://prdownloads.sourceforge.net/nsis/nsis-3.11-setup.exe?download"
         Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
+        $expectedSha256 = "38d49f8fe09b1c332b01d0940e57b7258f4447733643273a01c59959ad9d3b0a"
+        $actualSha256 = (Get-FileHash -Path $installerPath -Algorithm SHA256).Hash.ToLower()
+        if ($actualSha256 -ne $expectedSha256) {
+          Write-Error "NSIS installer checksum mismatch. Expected: $expectedSha256, Actual: $actualSha256"
+          exit 1
+        }
         Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait -NoNewWindow
 
         if (-not (Test-Path $nsisExe)) {
