@@ -2938,14 +2938,16 @@ FocusScope {
                             placeholderText: qsTr("API Key")
                             echoMode: TextInput.Password
                             Layout.fillWidth: true
-                            
-                            Keys.onUpPressed: {
+
+                            keyUpHandler: function(event) {
                                 if (mpvProfilesSection.expanded && libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(libraryProfilesRepeater.count - 1).children[1].forceActiveFocus()
                                 } else {
                                     thirdPartySection.toggleButton.forceActiveFocus()
                                 }
+                                event.accepted = true
                             }
+                            keyDownTarget: seerrBaseUrlRow.input
                             
                             onEditingFinished: {
                                 ConfigManager.mdbListApiKey = text
@@ -2974,10 +2976,8 @@ FocusScope {
                             text: ConfigManager.seerrBaseUrl
                             placeholderText: qsTr("http://localhost:5055")
                             Layout.fillWidth: true
-                            
-                            Keys.onUpPressed: mdbListApiKeyRow.input.forceActiveFocus()
-                            
-                            Keys.onDownPressed: seerrApiKeyRow.input.forceActiveFocus()
+                            keyUpTarget: mdbListApiKeyRow.input
+                            keyDownTarget: seerrApiKeyRow.input
                             
                             onEditingFinished: {
                                 ConfigManager.seerrBaseUrl = text
@@ -2991,8 +2991,8 @@ FocusScope {
                             placeholderText: qsTr("API Key")
                             echoMode: TextInput.Password
                             Layout.fillWidth: true
-                            
-                            Keys.onUpPressed: seerrBaseUrlRow.input.forceActiveFocus()
+                            keyUpTarget: seerrBaseUrlRow.input
+                            keyDownTarget: aboutSection.toggleButton
                             
                             onEditingFinished: {
                                 ConfigManager.seerrApiKey = text
@@ -3546,6 +3546,10 @@ FocusScope {
         property alias text: textField.text
         property alias placeholderText: textField.placeholderText
         property alias echoMode: textField.echoMode
+        property Item keyUpTarget: null
+        property Item keyDownTarget: null
+        property var keyUpHandler: null
+        property var keyDownHandler: null
         
         Accessible.role: Accessible.EditableText
         Accessible.name: label
@@ -3587,6 +3591,32 @@ FocusScope {
                 Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
             }
             
+            Keys.onUpPressed: function(event) {
+                if (typeof textInputRow.keyUpHandler === "function") {
+                    textInputRow.keyUpHandler(event)
+                    if (event.accepted) {
+                        return
+                    }
+                }
+                if (textInputRow.keyUpTarget) {
+                    textInputRow.keyUpTarget.forceActiveFocus()
+                    event.accepted = true
+                }
+            }
+
+            Keys.onDownPressed: function(event) {
+                if (typeof textInputRow.keyDownHandler === "function") {
+                    textInputRow.keyDownHandler(event)
+                    if (event.accepted) {
+                        return
+                    }
+                }
+                if (textInputRow.keyDownTarget) {
+                    textInputRow.keyDownTarget.forceActiveFocus()
+                    event.accepted = true
+                }
+            }
+
             onTextEdited: textInputRow.textEdited(text)
             onEditingFinished: textInputRow.editingFinished()
         }

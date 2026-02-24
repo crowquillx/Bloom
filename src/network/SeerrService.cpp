@@ -299,7 +299,7 @@ void SeerrService::prepareRequest(const QString &mediaType, int tmdbId, const QS
         const QJsonArray servers = serversDoc.array();
         const QJsonObject defaultServer = pickDefaultServer(servers);
         const int serverId = defaultServer.value("id").toInt(-1);
-        if (serverId <= 0) {
+        if (serverId < 0) {
             emit errorOccurred(servicePath, tr("No Seerr service instances are available"));
             return;
         }
@@ -432,10 +432,10 @@ void SeerrService::createRequest(const QString &mediaType,
         }
     }
 
-    if (serverId > 0) {
+    if (serverId >= 0) {
         payload["serverId"] = serverId;
     }
-    if (profileId > 0) {
+    if (profileId >= 0) {
         payload["profileId"] = profileId;
     }
     if (!rootFolderPath.trimmed().isEmpty()) {

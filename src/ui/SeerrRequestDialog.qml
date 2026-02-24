@@ -35,6 +35,13 @@ Dialog {
 
     readonly property bool isTv: mediaType === "tv"
 
+    Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+            close()
+            event.accepted = true
+        }
+    }
+
     function openForItem(itemData, focusTarget) {
         restoreFocusTarget = focusTarget || null
 
@@ -205,6 +212,20 @@ Dialog {
                             selectedServerId = servers[index].id
                         }
                     }
+
+                    Keys.onDownPressed: function(event) {
+                        if (!popup.visible) {
+                            profileCombo.forceActiveFocus()
+                            event.accepted = true
+                        }
+                    }
+
+                    Keys.onUpPressed: function(event) {
+                        if (!popup.visible) {
+                            cancelButton.forceActiveFocus()
+                            event.accepted = true
+                        }
+                    }
                 }
 
                 Text {
@@ -223,6 +244,20 @@ Dialog {
                     onActivated: function(index) {
                         if (index >= 0 && index < profiles.length) {
                             selectedProfileId = profiles[index].id
+                        }
+                    }
+
+                    Keys.onDownPressed: function(event) {
+                        if (!popup.visible) {
+                            rootFolderCombo.forceActiveFocus()
+                            event.accepted = true
+                        }
+                    }
+
+                    Keys.onUpPressed: function(event) {
+                        if (!popup.visible) {
+                            serverCombo.forceActiveFocus()
+                            event.accepted = true
                         }
                     }
                 }
@@ -245,6 +280,24 @@ Dialog {
                             selectedRootFolderPath = rootFolders[index].path || ""
                         }
                     }
+
+                    Keys.onDownPressed: function(event) {
+                        if (!popup.visible) {
+                            if (isTv && seasonCount > 0) {
+                                allSeasonsCheck.forceActiveFocus()
+                            } else {
+                                cancelButton.forceActiveFocus()
+                            }
+                            event.accepted = true
+                        }
+                    }
+
+                    Keys.onUpPressed: function(event) {
+                        if (!popup.visible) {
+                            profileCombo.forceActiveFocus()
+                            event.accepted = true
+                        }
+                    }
                 }
 
                 ColumnLayout {
@@ -262,6 +315,24 @@ Dialog {
                                 rebuildSeasonSelection()
                             }
                         }
+
+                        Keys.onDownPressed: function(event) {
+                            if (!requestAllSeasons && seasonCount > 0 && seasonRepeater.count > 0) {
+                                var first = seasonRepeater.itemAt(0)
+                                if (first) {
+                                    first.forceActiveFocus()
+                                    event.accepted = true
+                                    return
+                                }
+                            }
+                            cancelButton.forceActiveFocus()
+                            event.accepted = true
+                        }
+
+                        Keys.onUpPressed: function(event) {
+                            rootFolderCombo.forceActiveFocus()
+                            event.accepted = true
+                        }
                     }
 
                     GridLayout {
@@ -271,6 +342,7 @@ Dialog {
                         visible: !requestAllSeasons
 
                         Repeater {
+                            id: seasonRepeater
                             model: seasonCount
 
                             CheckBox {
@@ -279,6 +351,52 @@ Dialog {
                                 text: qsTr("S%1").arg(seasonNumber)
                                 checked: selectedSeasons.indexOf(seasonNumber) >= 0
                                 onToggled: toggleSeason(seasonNumber, checked)
+
+                                Keys.onLeftPressed: function(event) {
+                                    if ((index % 4) > 0) {
+                                        var prev = seasonRepeater.itemAt(index - 1)
+                                        if (prev) {
+                                            prev.forceActiveFocus()
+                                            event.accepted = true
+                                        }
+                                    }
+                                }
+
+                                Keys.onRightPressed: function(event) {
+                                    if (((index + 1) % 4) !== 0 && (index + 1) < seasonRepeater.count) {
+                                        var next = seasonRepeater.itemAt(index + 1)
+                                        if (next) {
+                                            next.forceActiveFocus()
+                                            event.accepted = true
+                                        }
+                                    }
+                                }
+
+                                Keys.onUpPressed: function(event) {
+                                    if (index >= 4) {
+                                        var up = seasonRepeater.itemAt(index - 4)
+                                        if (up) {
+                                            up.forceActiveFocus()
+                                            event.accepted = true
+                                        }
+                                    } else {
+                                        allSeasonsCheck.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                }
+
+                                Keys.onDownPressed: function(event) {
+                                    if (index + 4 < seasonRepeater.count) {
+                                        var down = seasonRepeater.itemAt(index + 4)
+                                        if (down) {
+                                            down.forceActiveFocus()
+                                            event.accepted = true
+                                        }
+                                    } else {
+                                        cancelButton.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                }
                             }
                         }
                     }
@@ -311,6 +429,28 @@ Dialog {
                 Layout.fillWidth: true
                 text: qsTr("Cancel")
                 onClicked: dialog.close()
+
+                Keys.onRightPressed: function(event) {
+                    requestButton.forceActiveFocus()
+                    event.accepted = true
+                }
+
+                Keys.onUpPressed: function(event) {
+                    if (isTv && seasonCount > 0) {
+                        if (!requestAllSeasons && seasonRepeater.count > 0) {
+                            var last = seasonRepeater.itemAt(seasonRepeater.count - 1)
+                            if (last) {
+                                last.forceActiveFocus()
+                                event.accepted = true
+                                return
+                            }
+                        }
+                        allSeasonsCheck.forceActiveFocus()
+                    } else {
+                        rootFolderCombo.forceActiveFocus()
+                    }
+                    event.accepted = true
+                }
             }
 
             Button {
@@ -319,6 +459,28 @@ Dialog {
                 text: submitting ? qsTr("Requesting...") : qsTr("Request")
                 enabled: !loadingOptions && !submitting
                 onClicked: submitRequest()
+
+                Keys.onLeftPressed: function(event) {
+                    cancelButton.forceActiveFocus()
+                    event.accepted = true
+                }
+
+                Keys.onUpPressed: function(event) {
+                    if (isTv && seasonCount > 0) {
+                        if (!requestAllSeasons && seasonRepeater.count > 0) {
+                            var last = seasonRepeater.itemAt(seasonRepeater.count - 1)
+                            if (last) {
+                                last.forceActiveFocus()
+                                event.accepted = true
+                                return
+                            }
+                        }
+                        allSeasonsCheck.forceActiveFocus()
+                    } else {
+                        rootFolderCombo.forceActiveFocus()
+                    }
+                    event.accepted = true
+                }
             }
         }
     }
@@ -354,8 +516,8 @@ Dialog {
             profiles = data.profiles || []
             rootFolders = data.rootFolders || []
 
-            selectedServerId = data.selectedServerId || -1
-            selectedProfileId = data.selectedProfileId || -1
+            selectedServerId = (data.selectedServerId !== undefined && data.selectedServerId !== null) ? data.selectedServerId : -1
+            selectedProfileId = (data.selectedProfileId !== undefined && data.selectedProfileId !== null) ? data.selectedProfileId : -1
             selectedRootFolderPath = data.selectedRootFolderPath || ""
 
             if (isTv) {
