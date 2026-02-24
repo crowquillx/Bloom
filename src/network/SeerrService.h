@@ -20,6 +20,7 @@ public:
     Q_INVOKABLE bool isConfigured() const;
     Q_INVOKABLE void validateConnection();
     Q_INVOKABLE void search(const QString &searchTerm, int page = 1);
+    Q_INVOKABLE void getSimilar(const QString &mediaType, int tmdbId, int page = 1);
     Q_INVOKABLE void prepareRequest(const QString &mediaType, int tmdbId, const QString &title = QString());
     Q_INVOKABLE void createRequest(const QString &mediaType,
                                    int tmdbId,
@@ -32,6 +33,7 @@ public:
 signals:
     void connectionValidated(bool ok, const QString &message);
     void searchResultsLoaded(const QString &searchTerm, const QJsonArray &results);
+    void similarResultsLoaded(const QString &mediaType, int tmdbId, const QJsonArray &results);
     void requestPreparationLoaded(const QString &mediaType, int tmdbId, const QJsonObject &data);
     void requestCreated(const QString &mediaType, int tmdbId, const QJsonObject &requestData);
     void errorOccurred(const QString &endpoint, const QString &error);

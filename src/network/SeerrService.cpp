@@ -199,6 +199,58 @@ void SeerrService::search(const QString &searchTerm, int page)
     });
 }
 
+void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
+{
+    const QString normalizedMediaType = mediaType.trimmed().toLower();
+    if (tmdbId <= 0 || (normalizedMediaType != "movie" && normalizedMediaType != "tv")) {
+        emit errorOccurred("similar", tr("Invalid media target for similar titles"));
+        emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
+        return;
+    }
+
+    if (!ensureConfigured("similar")) {
+        emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
+        return;
+    }
+
+    const QString endpoint = normalizedMediaType == "movie"
+        ? QStringLiteral("movie/%1/similar").arg(tmdbId)
+        : QStringLiteral("tv/%1/similar").arg(tmdbId);
+
+    QUrlQuery query;
+    query.addQueryItem("page", QString::number(qMax(1, page)));
+
+    QNetworkReply *reply = m_authService->networkManager()->get(createRequest(endpoint, query));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, normalizedMediaType, tmdbId]() {
+        reply->deleteLater();
+
+        if (reply->error() != QNetworkReply::NoError) {
+            emit errorOccurred("similar", tr("Failed loading similar titles: %1").arg(reply->errorString()));
+            emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
+            return;
+        }
+
+        const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+        if (!doc.isObject()) {
+            emit errorOccurred("similar", tr("Invalid similar titles response"));
+            emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
+            return;
+        }
+
+        const QJsonArray rawResults = doc.object().value("results").toArray();
+        QJsonArray mappedResults;
+        for (const QJsonValue &value : rawResults) {
+            const QJsonObject item = value.toObject();
+            const QString itemMediaType = item.value("mediaType").toString().toLower();
+            if (itemMediaType == "movie" || itemMediaType == "tv") {
+                mappedResults.append(mapSearchResultItem(item));
+            }
+        }
+
+        emit similarResultsLoaded(normalizedMediaType, tmdbId, mappedResults);
+    });
+}
+
 QJsonObject SeerrService::pickDefaultServer(const QJsonArray &servers) const
 {
     for (const QJsonValue &value : servers) {

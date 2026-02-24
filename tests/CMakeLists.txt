@@ -245,6 +245,7 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/HomeScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SettingsScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SearchScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SeerrRequestDialog.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SearchResultCard.qml
     ${CMAKE_SOURCE_DIR}/src/ui/UnwatchedBadge.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RetryButton.qml

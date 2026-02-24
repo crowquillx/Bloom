@@ -21,11 +21,32 @@ Item {
     property bool isFocused: false
     
     // Computed properties
+    property bool isSeerr: itemData.Source === "Seerr"
     property string itemName: itemData.Name || ""
     property string itemType: itemData.Type || ""
     property string itemYear: itemData.ProductionYear ? String(itemData.ProductionYear) : ""
     property string itemId: itemData.Id || ""
     property bool isPlayed: itemData.UserData ? itemData.UserData.Played : false
+    property string posterPath: itemData.PosterPath || ""
+    property int seerrStatus: itemData.SeerrMediaInfo && itemData.SeerrMediaInfo.status ? itemData.SeerrMediaInfo.status : 0
+    property string seerrStatusLabel: {
+        switch (seerrStatus) {
+        case 2: return qsTr("Pending")
+        case 3: return qsTr("Processing")
+        case 4: return qsTr("Partial")
+        case 5: return qsTr("Available")
+        case 6: return qsTr("Deleted")
+        default: return ""
+        }
+    }
+    property string posterSource: {
+        if (isSeerr) {
+            if (!posterPath || posterPath.length === 0) return ""
+            if (posterPath.indexOf("http://") === 0 || posterPath.indexOf("https://") === 0) return posterPath
+            return "https://image.tmdb.org/t/p/w342" + posterPath
+        }
+        return itemId ? LibraryService.getCachedImageUrlWithWidth(itemId, "Primary", 300) : ""
+    }
     
     // ========================================
     // Signals
@@ -81,7 +102,7 @@ Item {
                 Image {
                     id: posterImage
                     anchors.fill: parent
-                    source: itemId ? LibraryService.getCachedImageUrlWithWidth(itemId, "Primary", 300) : ""
+                    source: posterSource
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     smooth: true
@@ -126,7 +147,7 @@ Item {
                     count: (itemType === "Series" && itemData.UserData) 
                            ? (itemData.UserData.UnplayedItemCount || 0) : 0
                     isFullyWatched: isPlayed
-                    visible: itemType === "Series"
+                    visible: !isSeerr && itemType === "Series"
                 }
 
                 // Watched indicator (for Movies only)
@@ -138,7 +159,7 @@ Item {
                     height: 24
                     radius: 12
                     color: Theme.accentPrimary
-                    visible: itemType === "Movie" && isPlayed
+                    visible: !isSeerr && itemType === "Movie" && isPlayed
                     
                     Text {
                         anchors.centerIn: parent
@@ -146,6 +167,42 @@ Item {
                         font.pixelSize: 16
                         font.family: Theme.fontIcon
                         color: Theme.textPrimary
+                    }
+                }
+
+                Rectangle {
+                    id: seerrBadge
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: Theme.spacingSmall
+                    width: seerrBadgeContent.implicitWidth + Theme.spacingSmall * 2
+                    height: seerrBadgeContent.implicitHeight + Theme.spacingSmall * 2
+                    radius: Theme.radiusSmall
+                    color: Theme.overlayDark
+                    visible: isSeerr
+
+                    RowLayout {
+                        id: seerrBadgeContent
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.leftMargin: Theme.spacingSmall
+                        anchors.topMargin: Theme.spacingSmall
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: "Seerr"
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+
+                        Text {
+                            text: seerrStatusLabel
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            visible: seerrStatusLabel.length > 0
+                        }
                     }
                 }
             }
