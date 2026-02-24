@@ -6,9 +6,22 @@ import QtQuick.Effects
 import BloomUI
 
 /**
- * SearchResultCard - A card displaying a movie or series in search results
- * 
- * Shows poster image, title, year, and watched indicator
+ * SearchResultCard - A card displaying a movie or series in search results.
+ *
+ * Supports both Jellyfin library items and Seerr items (detected via itemData.Source === "Seerr").
+ * Shows poster image (TMDb CDN for Seerr; ImageCacheProvider for Jellyfin), title, production
+ * year, and contextual badges:
+ *  - Series: unwatched episode count badge (Jellyfin only).
+ *  - Movie:  watched checkmark (Jellyfin only).
+ *  - Seerr:  "Seerr" label + availability status badge (Pending / Processing / Available / etc.).
+ *
+ * Responds to both pointer hover (scale 1.02) and keyboard/gamepad focus (scale 1.05) via
+ * InputModeManager.pointerActive.  Emits clicked() on mouse press or keyboard activation.
+ *
+ * Key computed properties:
+ *  - isSeerr          true when the item originates from a Seerr search.
+ *  - seerrStatusLabel Human-readable label derived from SeerrMediaInfo.status (0 = no label).
+ *  - posterSource     Full image URL; prefers itemData.imageUrl (Seerr) over the Jellyfin cache.
  */
 Item {
     id: root
@@ -21,11 +34,30 @@ Item {
     property bool isFocused: false
     
     // Computed properties
+    property bool isSeerr: itemData.Source === "Seerr"
     property string itemName: itemData.Name || ""
     property string itemType: itemData.Type || ""
     property string itemYear: itemData.ProductionYear ? String(itemData.ProductionYear) : ""
     property string itemId: itemData.Id || ""
     property bool isPlayed: itemData.UserData ? itemData.UserData.Played : false
+    property int seerrStatus: itemData.SeerrMediaInfo && itemData.SeerrMediaInfo.status ? itemData.SeerrMediaInfo.status : 0
+    property string seerrStatusLabel: {
+        switch (seerrStatus) {
+        case 2: return qsTr("Pending")
+        case 3: return qsTr("Processing")
+        case 4: return qsTr("Partial")
+        case 5: return qsTr("Available")
+        case 6: return qsTr("Deleted")
+        default: return ""
+        }
+    }
+    property string posterSource: {
+        const seerrImageUrl = itemData.imageUrl || ""
+        if (seerrImageUrl.length > 0) {
+            return seerrImageUrl
+        }
+        return itemId ? LibraryService.getCachedImageUrlWithWidth(itemId, "Primary", 300) : ""
+    }
     
     // ========================================
     // Signals
@@ -81,7 +113,7 @@ Item {
                 Image {
                     id: posterImage
                     anchors.fill: parent
-                    source: itemId ? LibraryService.getCachedImageUrlWithWidth(itemId, "Primary", 300) : ""
+                    source: posterSource
                     fillMode: Image.PreserveAspectCrop
                     asynchronous: true
                     smooth: true
@@ -126,7 +158,7 @@ Item {
                     count: (itemType === "Series" && itemData.UserData) 
                            ? (itemData.UserData.UnplayedItemCount || 0) : 0
                     isFullyWatched: isPlayed
-                    visible: itemType === "Series"
+                    visible: !isSeerr && itemType === "Series"
                 }
 
                 // Watched indicator (for Movies only)
@@ -138,7 +170,7 @@ Item {
                     height: 24
                     radius: 12
                     color: Theme.accentPrimary
-                    visible: itemType === "Movie" && isPlayed
+                    visible: !isSeerr && itemType === "Movie" && isPlayed
                     
                     Text {
                         anchors.centerIn: parent
@@ -146,6 +178,42 @@ Item {
                         font.pixelSize: 16
                         font.family: Theme.fontIcon
                         color: Theme.textPrimary
+                    }
+                }
+
+                Rectangle {
+                    id: seerrBadge
+                    anchors.left: parent.left
+                    anchors.top: parent.top
+                    anchors.margins: Theme.spacingSmall
+                    width: seerrBadgeContent.implicitWidth + Theme.spacingSmall * 2
+                    height: seerrBadgeContent.implicitHeight + Theme.spacingSmall * 2
+                    radius: Theme.radiusSmall
+                    color: Theme.overlayDark
+                    visible: isSeerr
+
+                    RowLayout {
+                        id: seerrBadgeContent
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.leftMargin: Theme.spacingSmall
+                        anchors.topMargin: Theme.spacingSmall
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: "Seerr"
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+
+                        Text {
+                            text: seerrStatusLabel
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            visible: seerrStatusLabel.length > 0
+                        }
                     }
                 }
             }

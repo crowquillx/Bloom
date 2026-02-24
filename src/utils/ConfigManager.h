@@ -107,6 +107,10 @@ class ConfigManager : public QObject
     // MDBList Integration
     Q_PROPERTY(QString mdbListApiKey READ getMdbListApiKey WRITE setMdbListApiKey NOTIFY mdbListApiKeyChanged)
     
+    // Seerr Integration
+    Q_PROPERTY(QString seerrBaseUrl READ getSeerrBaseUrl WRITE setSeerrBaseUrl NOTIFY seerrBaseUrlChanged)
+    Q_PROPERTY(QString seerrApiKey READ getSeerrApiKey WRITE setSeerrApiKey NOTIFY seerrApiKeyChanged)
+    
     // Manual DPI Scale Override
     Q_PROPERTY(qreal manualDpiScaleOverride READ getManualDpiScaleOverride WRITE setManualDpiScaleOverride NOTIFY manualDpiScaleOverrideChanged)
     
@@ -131,7 +135,25 @@ public:
     Q_INVOKABLE void exitApplication();
     
     // Session Management
+    /**
+     * @brief Persists a Jellyfin session after a successful login.
+     *
+     * Stores serverUrl, userId, and username in the config file.  The access token
+     * is intentionally omitted here and stored separately in SecretStore by
+     * AuthenticationService.
+     *
+     * @param serverUrl   The Jellyfin server base URL.
+     * @param userId      The authenticated user's ID.
+     * @param accessToken Ignored (pass "" or the real token; it is not written here).
+     * @param username    The authenticated user's display name.
+     */
     void setJellyfinSession(const QString &serverUrl, const QString &userId, const QString &accessToken, const QString &username);
+
+    /**
+     * @brief Removes all persisted Jellyfin session fields from the config file.
+     *
+     * Called on logout or session expiry.  Emits sessionChanged().
+     */
     void clearJellyfinSession();
     
     struct SessionData {
@@ -322,6 +344,16 @@ public:
     void setMdbListApiKey(const QString &key);
     QString getMdbListApiKey() const;
     
+    // Seerr
+    /// @brief Stores the Jellyseerr/Overseerr base URL (e.g. http://localhost:5055).
+    void setSeerrBaseUrl(const QString &url);
+    /// @brief Returns the configured Seerr base URL, or an empty string if unset.
+    QString getSeerrBaseUrl() const;
+    /// @brief Stores the Seerr API key used for all SeerrService requests.
+    void setSeerrApiKey(const QString &key);
+    /// @brief Returns the configured Seerr API key, or an empty string if unset.
+    QString getSeerrApiKey() const;
+    
     // Manual DPI Scale Override
     void setManualDpiScaleOverride(qreal scale);
     qreal getManualDpiScaleOverride() const;
@@ -365,6 +397,8 @@ signals:
 
     void performanceModeEnabledChanged();
     void mdbListApiKeyChanged();
+    void seerrBaseUrlChanged();
+    void seerrApiKeyChanged();
     void manualDpiScaleOverrideChanged();
     void uiAnimationsEnabledChanged();
 

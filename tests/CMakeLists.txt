@@ -179,6 +179,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
@@ -244,6 +245,7 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/HomeScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SettingsScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SearchScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SeerrRequestDialog.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SearchResultCard.qml
     ${CMAKE_SOURCE_DIR}/src/ui/UnwatchedBadge.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RetryButton.qml

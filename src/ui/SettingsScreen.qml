@@ -11,6 +11,7 @@ import BloomUI
  * - Account: Server info, user info, sign out
  * - Playback: Completion threshold, autoplay settings
  * - Display: Backdrop rotation interval
+ * - Third Party: Jellyseerr/Seerr URL and API key configuration
  * - About: App version and info
  * 
  * All settings are persisted immediately via ConfigManager.
@@ -74,7 +75,7 @@ FocusScope {
         displaySection.expanded = expanded
         videoSection.expanded = expanded
         mpvProfilesSection.expanded = expanded
-        metadataSection.expanded = expanded
+        thirdPartySection.expanded = expanded
         aboutSection.expanded = expanded
     }
 
@@ -2009,7 +2010,7 @@ FocusScope {
                     expanded: false
                     previousSection: videoSection
                     previousSectionButton: videoSection.toggleButton
-                    nextSectionButton: metadataSection.toggleButton
+                    nextSectionButton: thirdPartySection.toggleButton
                     firstFocusableItem: defaultProfileCombo
                     lastFocusableItem: libraryProfilesToggle
                     focusBottomHandler: function() {
@@ -2652,7 +2653,7 @@ FocusScope {
                                 if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(0).children[1].forceActiveFocus()
                                 } else {
-                                    metadataSection.toggleButton.forceActiveFocus()
+                                    thirdPartySection.toggleButton.forceActiveFocus()
                                 }
                                 event.accepted = true
                             }
@@ -2758,7 +2759,7 @@ FocusScope {
                                                 if (libraryDelegate.index < libraryProfilesRepeater.count - 1) {
                                                     libraryProfilesRepeater.itemAt(libraryDelegate.index + 1).children[1].forceActiveFocus()
                                                 } else {
-                                                    metadataSection.toggleButton.forceActiveFocus()
+                                                    thirdPartySection.toggleButton.forceActiveFocus()
                                                 }
                                                 event.accepted = true
                                             }
@@ -2896,19 +2897,19 @@ FocusScope {
                 }
                 
                 // ========================================
-                // Metadata Providers
+                // Third Party
                 // ========================================
                 
                 SettingsSection {
-                    id: metadataSection
-                    title: qsTr("Metadata Providers")
+                    id: thirdPartySection
+                    title: qsTr("Third Party")
                     icon: Icons.cloud
                     expanded: false
                     previousSection: mpvProfilesSection
                     previousSectionButton: mpvProfilesSection.toggleButton
                     nextSectionButton: aboutSection.toggleButton
                     firstFocusableItem: mdbListApiKeyRow.input
-                    lastFocusableItem: mdbListApiKeyRow.input
+                    lastFocusableItem: seerrApiKeyRow.input
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -2938,17 +2939,64 @@ FocusScope {
                             placeholderText: qsTr("API Key")
                             echoMode: TextInput.Password
                             Layout.fillWidth: true
-                            
-                            Keys.onUpPressed: {
+
+                            keyUpHandler: function(event) {
                                 if (mpvProfilesSection.expanded && libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(libraryProfilesRepeater.count - 1).children[1].forceActiveFocus()
                                 } else {
-                                    metadataSection.toggleButton.forceActiveFocus()
+                                    thirdPartySection.toggleButton.forceActiveFocus()
                                 }
+                                event.accepted = true
                             }
+                            keyDownTarget: seerrBaseUrlRow.input
                             
                             onEditingFinished: {
                                 ConfigManager.mdbListApiKey = text
+                            }
+                        }
+                        
+                        Text {
+                            text: qsTr("Jellyseerr")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+                        
+                        Text {
+                            text: qsTr("Configure a Jellyseerr/Seerr server to search and request titles not currently in your library.")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                        
+                        SettingsTextInputRow {
+                            id: seerrBaseUrlRow
+                            label: qsTr("Seerr URL")
+                            text: ConfigManager.seerrBaseUrl
+                            placeholderText: qsTr("http://localhost:5055")
+                            Layout.fillWidth: true
+                            keyUpTarget: mdbListApiKeyRow.input
+                            keyDownTarget: seerrApiKeyRow.input
+                            
+                            onEditingFinished: {
+                                ConfigManager.seerrBaseUrl = text
+                            }
+                        }
+                        
+                        SettingsTextInputRow {
+                            id: seerrApiKeyRow
+                            label: qsTr("Seerr API Key")
+                            text: ConfigManager.seerrApiKey
+                            placeholderText: qsTr("API Key")
+                            echoMode: TextInput.Password
+                            Layout.fillWidth: true
+                            keyUpTarget: seerrBaseUrlRow.input
+                            keyDownTarget: aboutSection.toggleButton
+                            
+                            onEditingFinished: {
+                                ConfigManager.seerrApiKey = text
                             }
                         }
                     }
@@ -2963,8 +3011,8 @@ FocusScope {
                     title: qsTr("About")
                     icon: Icons.info
                     expanded: false
-                    previousSection: metadataSection
-                    previousSectionButton: metadataSection.toggleButton
+                    previousSection: thirdPartySection
+                    previousSectionButton: thirdPartySection.toggleButton
                     nextSectionButton: null
                     firstFocusableItem: null
                     lastFocusableItem: null
@@ -3499,6 +3547,10 @@ FocusScope {
         property alias text: textField.text
         property alias placeholderText: textField.placeholderText
         property alias echoMode: textField.echoMode
+        property Item keyUpTarget: null
+        property Item keyDownTarget: null
+        property var keyUpHandler: null
+        property var keyDownHandler: null
         
         Accessible.role: Accessible.EditableText
         Accessible.name: label
@@ -3521,12 +3573,21 @@ FocusScope {
             Layout.fillWidth: true
             font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
+            cursorVisible: activeFocus && (typeof InputModeManager === "undefined" || InputModeManager.pointerActive)
             
             color: Theme.textPrimary
             placeholderTextColor: Theme.textSecondary
             
             // Ensure focus visibility
             onActiveFocusChanged: {
+                if (activeFocus && typeof InputModeManager !== "undefined") {
+                    if (InputModeManager.pointerActive) {
+                        InputModeManager.hideCursor(false)
+                    } else {
+                        InputModeManager.setNavigationMode("keyboard")
+                        InputModeManager.hideCursor(true)
+                    }
+                }
                 if (activeFocus && typeof flickable !== "undefined") flickable.ensureFocusVisible(textInputRow)
             }
             
@@ -3540,6 +3601,40 @@ FocusScope {
                 Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
             }
             
+            Keys.onUpPressed: function(event) {
+                if (typeof InputModeManager !== "undefined") {
+                    InputModeManager.setNavigationMode("keyboard")
+                    InputModeManager.hideCursor(true)
+                }
+                if (typeof textInputRow.keyUpHandler === "function") {
+                    textInputRow.keyUpHandler(event)
+                    if (event.accepted) {
+                        return
+                    }
+                }
+                if (textInputRow.keyUpTarget) {
+                    textInputRow.keyUpTarget.forceActiveFocus()
+                    event.accepted = true
+                }
+            }
+
+            Keys.onDownPressed: function(event) {
+                if (typeof InputModeManager !== "undefined") {
+                    InputModeManager.setNavigationMode("keyboard")
+                    InputModeManager.hideCursor(true)
+                }
+                if (typeof textInputRow.keyDownHandler === "function") {
+                    textInputRow.keyDownHandler(event)
+                    if (event.accepted) {
+                        return
+                    }
+                }
+                if (textInputRow.keyDownTarget) {
+                    textInputRow.keyDownTarget.forceActiveFocus()
+                    event.accepted = true
+                }
+            }
+
             onTextEdited: textInputRow.textEdited(text)
             onEditingFinished: textInputRow.editingFinished()
         }

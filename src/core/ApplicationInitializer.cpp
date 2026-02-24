@@ -13,6 +13,7 @@
 #include "network/AuthenticationService.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
+#include "network/SeerrService.h"
 #include "utils/InputModeManager.h"
 #include "viewmodels/LibraryViewModel.h"
 #include "viewmodels/SeriesDetailsViewModel.h"
@@ -31,8 +32,17 @@
 #include <QDebug>
 #include <cstdio>
 
-// Qt message handler to forward all Qt logs to custom Logger
-// Uses shared thread_local guard (inQtMessageHandler from Logger.h) to prevent deadlock from recursive logging
+/**
+ * @brief Qt message handler that forwards all Qt diagnostic output to the custom Logger.
+ *
+ * Installed via qInstallMessageHandler() during registerServices().  A thread-local
+ * re-entrancy guard (inQtMessageHandler) prevents deadlock when Logger itself emits
+ * Qt diagnostics; recursive calls fall back directly to stderr.
+ *
+ * @param type    Severity level from Qt's messaging system.
+ * @param context Source location and category metadata provided by Qt.
+ * @param msg     The formatted message string.
+ */
 static void qtMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
     // Prevent recursive logging (e.g., if Logger or Qt internals emit debug output)
@@ -152,6 +162,10 @@ void ApplicationInitializer::registerServices()
         m_playbackService = std::make_unique<PlaybackService>(m_mockAuthService.get());
         ServiceLocator::registerService<PlaybackService>(m_playbackService.get());
         
+        // 3.3 SeerrService - Third-party search/request integration
+        m_seerrService = std::make_unique<SeerrService>(m_mockAuthService.get(), m_configManager.get());
+        ServiceLocator::registerService<SeerrService>(m_seerrService.get());
+        
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(
             m_playerBackend.get(),
@@ -188,6 +202,10 @@ void ApplicationInitializer::registerServices()
         // 3.2 PlaybackService - Depends on AuthenticationService
         m_playbackService = std::make_unique<PlaybackService>(m_authService.get());
         ServiceLocator::registerService<PlaybackService>(m_playbackService.get());
+        
+        // 3.3 SeerrService - Depends on AuthenticationService + ConfigManager
+        m_seerrService = std::make_unique<SeerrService>(m_authService.get(), m_configManager.get());
+        ServiceLocator::registerService<SeerrService>(m_seerrService.get());
         
         // 4. PlayerController
         m_playerController = std::make_unique<PlayerController>(

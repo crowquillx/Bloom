@@ -1,0 +1,54 @@
+name: Setup NSIS
+description: Installs NSIS with Chocolatey retry and fallback to official installer
+runs:
+  using: composite
+  steps:
+    - name: Install NSIS with retry and fallback
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = "Stop"
+        $nsisExe = "C:\Program Files (x86)\NSIS\makensis.exe"
+
+        if (Test-Path $nsisExe) {
+          Write-Host "NSIS already present at $nsisExe"
+          exit 0
+        }
+
+        $maxAttempts = 4
+        for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+          try {
+            Write-Host "Attempt ${attempt}/${maxAttempts}: choco install nsis"
+            choco install nsis -y --no-progress
+            if (Test-Path $nsisExe) {
+              Write-Host "NSIS installed via Chocolatey at $nsisExe"
+              exit 0
+            }
+          } catch {
+            Write-Warning "Chocolatey attempt failed: $($_.Exception.Message)"
+          }
+
+          if ($attempt -lt $maxAttempts) {
+            $delay = [Math]::Min(45, 8 * $attempt)
+            Write-Host "Retrying in $delay seconds..."
+            Start-Sleep -Seconds $delay
+          }
+        }
+
+        Write-Warning "Chocolatey installation did not succeed. Falling back to official NSIS installer."
+        $installerPath = Join-Path $env:RUNNER_TEMP "nsis-3.11-setup.exe"
+        $downloadUrl = "https://prdownloads.sourceforge.net/nsis/nsis-3.11-setup.exe?download"
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
+        $expectedSha256 = "38d49f8fe09b1c332b01d0940e57b7258f4447733643273a01c59959ad9d3b0a"
+        $actualSha256 = (Get-FileHash -Path $installerPath -Algorithm SHA256).Hash.ToLower()
+        if ($actualSha256 -ne $expectedSha256) {
+          Write-Error "NSIS installer checksum mismatch. Expected: $expectedSha256, Actual: $actualSha256"
+          exit 1
+        }
+        Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait -NoNewWindow
+
+        if (-not (Test-Path $nsisExe)) {
+          Write-Error "NSIS installation failed after Chocolatey retries and fallback installer."
+          exit 1
+        }
+
+        Write-Host "NSIS installed via fallback at $nsisExe"

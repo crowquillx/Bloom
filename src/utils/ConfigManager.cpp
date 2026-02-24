@@ -1110,6 +1110,78 @@ QString ConfigManager::getMdbListApiKey() const
     return QString();
 }
 
+void ConfigManager::setSeerrBaseUrl(const QString &url)
+{
+    QString normalized = url.trimmed();
+    while (normalized.endsWith('/')) {
+        normalized.chop(1);
+    }
+
+    if (normalized == getSeerrBaseUrl()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject seerr;
+    if (settings.contains("seerr") && settings["seerr"].isObject()) {
+        seerr = settings["seerr"].toObject();
+    }
+    seerr["base_url"] = normalized;
+    settings["seerr"] = seerr;
+    m_config["settings"] = settings;
+    save();
+    emit seerrBaseUrlChanged();
+}
+
+QString ConfigManager::getSeerrBaseUrl() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("seerr") && settings["seerr"].isObject()) {
+            QJsonObject seerr = settings["seerr"].toObject();
+            if (seerr.contains("base_url")) {
+                return seerr["base_url"].toString().trimmed();
+            }
+        }
+    }
+    return QString();
+}
+
+void ConfigManager::setSeerrApiKey(const QString &key)
+{
+    const QString normalized = key.trimmed();
+    if (normalized == getSeerrApiKey()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject seerr;
+    if (settings.contains("seerr") && settings["seerr"].isObject()) {
+        seerr = settings["seerr"].toObject();
+    }
+    seerr["api_key"] = normalized;
+    settings["seerr"] = seerr;
+    m_config["settings"] = settings;
+    save();
+    emit seerrApiKeyChanged();
+}
+
+QString ConfigManager::getSeerrApiKey() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("seerr") && settings["seerr"].isObject()) {
+            QJsonObject seerr = settings["seerr"].toObject();
+            if (seerr.contains("api_key")) {
+                return seerr["api_key"].toString();
+            }
+        }
+    }
+    return QString();
+}
+
 void ConfigManager::setManualDpiScaleOverride(qreal scale)
 {
     // Clamp to reasonable range (0.5 to 2.0)
@@ -2053,6 +2125,12 @@ QJsonObject ConfigManager::defaultConfig() const
     settings["default_profile"] = "Default";
     settings["library_profiles"] = QJsonObject();
     settings["series_profiles"] = QJsonObject();
+    
+    // Third-party integrations
+    QJsonObject seerr;
+    seerr["base_url"] = "";
+    seerr["api_key"] = "";
+    settings["seerr"] = seerr;
 
     cfg["settings"] = settings;
     return cfg;

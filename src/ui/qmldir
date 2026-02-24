@@ -12,6 +12,7 @@ HomeScreen 1.0 HomeScreen.qml
 SettingsScreen 1.0 SettingsScreen.qml
 SearchScreen 1.0 SearchScreen.qml
 SearchResultCard 1.0 SearchResultCard.qml
+SeerrComboBox 1.0 SeerrComboBox.qml
 UnwatchedBadge 1.0 UnwatchedBadge.qml
 Sidebar 1.0 Sidebar.qml
 MediaProgressBar 1.0 MediaProgressBar.qml
@@ -23,7 +24,6 @@ UpNextScreen 1.0 UpNextScreen.qml
 A11yButton 1.0 A11yButton.qml
 RetryButton 1.0 RetryButton.qml
 singleton AccessibilityHelpers 1.0 AccessibilityHelpers.qml
-
 
 
 

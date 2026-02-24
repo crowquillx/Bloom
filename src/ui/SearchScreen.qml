@@ -31,8 +31,39 @@ FocusScope {
     property var suggestions: []
     property var movieResults: []
     property var seriesResults: []
+    property var seerrResults: []
     property bool isSearching: false
     property bool hasSearched: false
+    property bool waitingForLibrarySearch: false
+    property bool waitingForSeerrSearch: false
+
+    /**
+     * Scrolls contentFlickable so that @p item is fully within the visible viewport.
+     *
+     * Maps the item's top-left into contentColumn coordinates and adjusts
+     * contentFlickable.contentY as needed.  A small spacingMedium margin is added
+     * so the item is not flush against the viewport edge.
+     *
+     * @param item  The QML Item that should be brought into view.
+     */
+    function ensureItemVisibleInResults(item) {
+        if (!item || !contentFlickable || !contentColumn) {
+            return
+        }
+
+        var pointInContent = item.mapToItem(contentColumn, 0, 0)
+        var itemTop = pointInContent.y
+        var itemBottom = itemTop + item.height
+        var viewTop = contentFlickable.contentY
+        var viewBottom = viewTop + contentFlickable.height
+
+        if (itemTop < viewTop) {
+            contentFlickable.contentY = Math.max(0, itemTop - Theme.spacingMedium)
+        } else if (itemBottom > viewBottom) {
+            var maxY = Math.max(0, contentFlickable.contentHeight - contentFlickable.height)
+            contentFlickable.contentY = Math.min(maxY, itemBottom - contentFlickable.height + Theme.spacingMedium)
+        }
+    }
     
     // Debounce timer for search input
     Timer {
@@ -41,12 +72,27 @@ FocusScope {
         repeat: false
         onTriggered: {
             if (searchTerm.trim().length > 0) {
+                waitingForLibrarySearch = true
+                hasSearched = false
                 isSearching = true
                 LibraryService.search(searchTerm.trim())
+
+                if (SeerrService.isConfigured()) {
+                    waitingForSeerrSearch = true
+                    seerrResults = []
+                    SeerrService.search(searchTerm.trim())
+                } else {
+                    waitingForSeerrSearch = false
+                    seerrResults = []
+                }
             } else {
                 hasSearched = false
+                waitingForLibrarySearch = false
+                waitingForSeerrSearch = false
+                isSearching = false
                 movieResults = []
                 seriesResults = []
+                seerrResults = []
             }
         }
     }
@@ -85,6 +131,7 @@ FocusScope {
         
         function onSearchResultsLoaded(term, movies, series) {
             if (term === searchTerm.trim()) {
+                waitingForLibrarySearch = false
                 isSearching = false
                 hasSearched = true
                 
@@ -99,6 +146,28 @@ FocusScope {
                     seriesResults.push(series[j])
                 }
                 seriesResultsChanged()
+            }
+        }
+    }
+
+    Connections {
+        target: SeerrService
+
+        function onSearchResultsLoaded(term, results) {
+            if (term === searchTerm.trim()) {
+                waitingForSeerrSearch = false
+
+                seerrResults = []
+                for (var i = 0; i < results.length; i++) {
+                    seerrResults.push(results[i])
+                }
+                seerrResultsChanged()
+            }
+        }
+
+        function onErrorOccurred(endpoint, error) {
+            if (endpoint === "search") {
+                waitingForSeerrSearch = false
             }
         }
     }
@@ -177,6 +246,9 @@ FocusScope {
                                 } else if (hasSearched && movieResults.length > 0) {
                                     moviesGrid.forceActiveFocus()
                                     moviesGrid.currentIndex = 0
+                                } else if (hasSearched && seerrResults.length > 0) {
+                                    seerrGrid.forceActiveFocus()
+                                    seerrGrid.currentIndex = 0
                                 } else if (!hasSearched && suggestions.length > 0) {
                                     suggestionsColumn.children[0].forceActiveFocus()
                                 }
@@ -348,6 +420,21 @@ FocusScope {
                     color: Theme.textSecondary
                     Layout.alignment: Qt.AlignHCenter
                     visible: hasSearched && !isSearching && seriesResults.length === 0 && movieResults.length === 0
+                             && seerrResults.length === 0 && !waitingForSeerrSearch
+                }
+
+                Text {
+                    text: "Searching Seerr..."
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: hasSearched
+                    opacity: hasSearched ? (waitingForSeerrSearch ? 1 : 0) : 0
+
+                    Behavior on opacity {
+                        NumberAnimation { duration: Theme.durationMedium }
+                    }
                 }
                 
                 // TV Shows section
@@ -386,6 +473,12 @@ FocusScope {
                             
                             required property var modelData
                             required property int index
+
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    root.ensureItemVisibleInResults(seriesDelegateScope)
+                                }
+                            }
                             
                             SearchResultCard {
                                 id: seriesCard
@@ -433,6 +526,9 @@ FocusScope {
                                 } else if (movieResults.length > 0) {
                                     moviesGrid.forceActiveFocus()
                                     moviesGrid.currentIndex = 0
+                                } else if (seerrResults.length > 0) {
+                                    seerrGrid.forceActiveFocus()
+                                    seerrGrid.currentIndex = 0
                                 }
                             }
                             
@@ -452,7 +548,13 @@ FocusScope {
                         
                         onCurrentIndexChanged: {
                             if (currentItem) {
-                                currentItem.forceActiveFocus()
+                                const item = currentItem
+                                Qt.callLater(() => {
+                                    if (item) {
+                                        item.forceActiveFocus()
+                                        root.ensureItemVisibleInResults(item)
+                                    }
+                                })
                             }
                         }
                     }
@@ -494,6 +596,12 @@ FocusScope {
                             
                             required property var modelData
                             required property int index
+
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    root.ensureItemVisibleInResults(movieDelegateScope)
+                                }
+                            }
                             
                             SearchResultCard {
                                 id: movieCard
@@ -544,6 +652,9 @@ FocusScope {
                                 var columns = Math.floor(moviesGrid.width / moviesGrid.cellWidth)
                                 if (index + columns < movieResults.length) {
                                     moviesGrid.currentIndex = index + columns
+                                } else if (seerrResults.length > 0) {
+                                    seerrGrid.forceActiveFocus()
+                                    seerrGrid.currentIndex = 0
                                 }
                             }
                             
@@ -563,7 +674,142 @@ FocusScope {
                         
                         onCurrentIndexChanged: {
                             if (currentItem) {
-                                currentItem.forceActiveFocus()
+                                const item = currentItem
+                                Qt.callLater(() => {
+                                    if (item) {
+                                        item.forceActiveFocus()
+                                        root.ensureItemVisibleInResults(item)
+                                    }
+                                })
+                            }
+                        }
+                    }
+                }
+
+                // Seerr section
+                ColumnLayout {
+                    id: seerrSection
+                    Layout.fillWidth: true
+                    Layout.leftMargin: Theme.spacingXLarge
+                    Layout.rightMargin: Theme.spacingXLarge
+                    spacing: Theme.spacingMedium
+                    visible: hasSearched && seerrResults.length > 0
+                    opacity: visible ? 1 : 0
+
+                    Behavior on opacity {
+                        NumberAnimation { duration: Theme.durationMedium }
+                    }
+
+                    Text {
+                        text: "Seerr"
+                        font.pixelSize: Theme.fontSizeTitle
+                        font.family: Theme.fontPrimary
+                        font.weight: Font.DemiBold
+                        color: Theme.textPrimary
+                    }
+
+                    GridView {
+                        id: seerrGrid
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.ceil(count / Math.max(1, Math.floor(width / cellWidth))) * cellHeight
+
+                        cellWidth: Math.round(220 * Theme.layoutScale)
+                        cellHeight: Math.round(380 * Theme.layoutScale)
+                        interactive: false
+
+                        model: seerrResults
+
+                        delegate: FocusScope {
+                            id: seerrDelegateScope
+                            width: seerrGrid.cellWidth
+                            height: seerrGrid.cellHeight
+
+                            required property var modelData
+                            required property int index
+
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    root.ensureItemVisibleInResults(seerrDelegateScope)
+                                }
+                            }
+
+                            SearchResultCard {
+                                id: seerrCard
+                                anchors.fill: parent
+                                anchors.margins: Theme.spacingSmall
+
+                                itemData: seerrDelegateScope.modelData
+                                isFocused: seerrDelegateScope.activeFocus
+
+                                onClicked: {
+                                    seerrRequestDialog.openForItem(seerrDelegateScope.modelData, seerrDelegateScope)
+                                }
+                            }
+
+                            Keys.onReturnPressed: (event) => {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                seerrCard.clicked()
+                                event.accepted = true
+                            }
+                            Keys.onEnterPressed: (event) => {
+                                if (event.isAutoRepeat) {
+                                    event.accepted = true
+                                    return
+                                }
+                                seerrCard.clicked()
+                                event.accepted = true
+                            }
+
+                            Keys.onUpPressed: {
+                                var columns = Math.floor(seerrGrid.width / seerrGrid.cellWidth)
+                                if (index < columns) {
+                                    if (movieResults.length > 0) {
+                                        moviesGrid.forceActiveFocus()
+                                        moviesGrid.currentIndex = Math.min(movieResults.length - 1, index)
+                                    } else if (seriesResults.length > 0) {
+                                        seriesGrid.forceActiveFocus()
+                                        seriesGrid.currentIndex = Math.min(seriesResults.length - 1, index)
+                                    } else {
+                                        searchInput.forceActiveFocus()
+                                    }
+                                } else {
+                                    seerrGrid.currentIndex = index - columns
+                                }
+                            }
+
+                            Keys.onDownPressed: {
+                                var columns = Math.floor(seerrGrid.width / seerrGrid.cellWidth)
+                                if (index + columns < seerrResults.length) {
+                                    seerrGrid.currentIndex = index + columns
+                                }
+                            }
+
+                            Keys.onLeftPressed: {
+                                if (index % Math.floor(seerrGrid.width / seerrGrid.cellWidth) > 0) {
+                                    seerrGrid.currentIndex = index - 1
+                                }
+                            }
+
+                            Keys.onRightPressed: {
+                                var columns = Math.floor(seerrGrid.width / seerrGrid.cellWidth)
+                                if ((index + 1) % columns !== 0 && index + 1 < seerrResults.length) {
+                                    seerrGrid.currentIndex = index + 1
+                                }
+                            }
+                        }
+
+                        onCurrentIndexChanged: {
+                            if (currentItem) {
+                                const capturedItem = currentItem
+                                Qt.callLater(() => {
+                                    if (capturedItem) {
+                                        capturedItem.forceActiveFocus()
+                                        root.ensureItemVisibleInResults(capturedItem)
+                                    }
+                                })
                             }
                         }
                     }
@@ -576,5 +822,10 @@ FocusScope {
                 }
             }
         }
+    }
+
+    SeerrRequestDialog {
+        id: seerrRequestDialog
+        parent: Overlay.overlay
     }
 }

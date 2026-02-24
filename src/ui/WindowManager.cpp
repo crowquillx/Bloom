@@ -16,6 +16,7 @@
 #include "network/AuthenticationService.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
+#include "network/SeerrService.h"
 #include "core/ServiceLocator.h"
 
 #include <QQmlContext>
@@ -30,17 +31,32 @@ WindowManager::WindowManager(QGuiApplication* app, QObject *parent)
     : QObject(parent)
     , m_app(app)
 {
-    // Set Qt Quick Controls style to "Basic" is done in main() before QGuiApplication
-    
-    // Add qrc root to import path
+    // Qt Quick Controls style is set to "Basic" in main() before QGuiApplication is created.
+
+    // Add the qrc root so QML can resolve "qrc:/" imports directly.
     m_engine.addImportPath("qrc:/");
 }
 
 WindowManager::~WindowManager()
 {
-    // Stack allocated in main or parented to this, so auto cleanup
+    // Services owned by ApplicationInitializer; nothing to release here.
 }
 
+/**
+ * @brief Initialises subsystems that depend on a live QQmlApplicationEngine.
+ *
+ * Must be called after ApplicationInitializer::registerServices() and before
+ * exposeContextProperties() / load().  Responsibilities:
+ *
+ *  - Creates and configures the ImageCacheProvider (image cache size, rounded-image
+ *    pre-processing) and registers it as a QML image provider under the "cached" scheme.
+ *  - Creates GpuMemoryTrimmer and wires it to ConfigManager and PlayerController so
+ *    VRAM trimming responds to performance-mode and playback-state changes.
+ *  - Connects objectCreated to forward the root QQuickWindow to GpuMemoryTrimmer and
+ *    ResponsiveLayoutManager, and to hook up scene-graph error logging.
+ *
+ * @param configManager The already-loaded ConfigManager instance.
+ */
 void WindowManager::setup(ConfigManager* configManager)
 {
     // ImageCacheProvider
@@ -108,6 +124,18 @@ void WindowManager::setup(ConfigManager* configManager)
     });
 }
 
+/**
+ * @brief Registers all C++ services and objects as named QML context properties.
+ *
+ * Each service retrieved from ServiceLocator is set on the root QQmlContext so
+ * that QML files can reference it by name (e.g. ConfigManager, SeerrService).
+ * Also exposes application metadata: appVersion and qtVersion.
+ *
+ * Must be called after setup() and before load().
+ *
+ * @param appInit The ApplicationInitializer; currently unused directly but kept
+ *                as a parameter for future per-initializer context needs.
+ */
 void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
 {
     // Expose services to QML
@@ -129,12 +157,23 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("AuthenticationService", ServiceLocator::get<AuthenticationService>());
     context->setContextProperty("LibraryService", ServiceLocator::get<LibraryService>());
     context->setContextProperty("PlaybackService", ServiceLocator::get<PlaybackService>());
+    context->setContextProperty("SeerrService", ServiceLocator::get<SeerrService>());
 
     // App metadata for QML
     context->setContextProperty("appVersion", QCoreApplication::applicationVersion());
     context->setContextProperty("qtVersion", QString(qVersion()));
 }
 
+/**
+ * @brief Loads the root QML file and shows the application window.
+ *
+ * Loads qrc:/BloomUI/ui/Main.qml into the engine.  If the root object cannot be
+ * created (e.g. syntax error in QML), the application exits with code -1.
+ * After loading, the root QQuickWindow is forwarded to GpuMemoryTrimmer and
+ * ResponsiveLayoutManager for viewport tracking.
+ *
+ * Must be called after exposeContextProperties().
+ */
 void WindowManager::load()
 {
     const QUrl url(u"qrc:/BloomUI/ui/Main.qml"_s);

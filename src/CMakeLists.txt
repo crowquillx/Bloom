@@ -31,6 +31,8 @@ qt_add_executable(Bloom
     network/LibraryService.cpp
     network/PlaybackService.h
     network/PlaybackService.cpp
+    network/SeerrService.h
+    network/SeerrService.cpp
     network/Types.h
     network/Types.cpp
     network/SessionManager.h
@@ -124,6 +126,7 @@ qt_add_qml_module(Bloom
         ui/HomeScreen.qml
         ui/SettingsScreen.qml
         ui/SearchScreen.qml
+        ui/SeerrRequestDialog.qml
         ui/SearchResultCard.qml
         ui/UnwatchedBadge.qml
         ui/RetryButton.qml
