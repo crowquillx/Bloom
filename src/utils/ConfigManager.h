@@ -107,6 +107,10 @@ class ConfigManager : public QObject
     // MDBList Integration
     Q_PROPERTY(QString mdbListApiKey READ getMdbListApiKey WRITE setMdbListApiKey NOTIFY mdbListApiKeyChanged)
     
+    // Seerr Integration
+    Q_PROPERTY(QString seerrBaseUrl READ getSeerrBaseUrl WRITE setSeerrBaseUrl NOTIFY seerrBaseUrlChanged)
+    Q_PROPERTY(QString seerrApiKey READ getSeerrApiKey WRITE setSeerrApiKey NOTIFY seerrApiKeyChanged)
+    
     // Manual DPI Scale Override
     Q_PROPERTY(qreal manualDpiScaleOverride READ getManualDpiScaleOverride WRITE setManualDpiScaleOverride NOTIFY manualDpiScaleOverrideChanged)
     
@@ -322,6 +326,12 @@ public:
     void setMdbListApiKey(const QString &key);
     QString getMdbListApiKey() const;
     
+    // Seerr
+    void setSeerrBaseUrl(const QString &url);
+    QString getSeerrBaseUrl() const;
+    void setSeerrApiKey(const QString &key);
+    QString getSeerrApiKey() const;
+    
     // Manual DPI Scale Override
     void setManualDpiScaleOverride(qreal scale);
     qreal getManualDpiScaleOverride() const;
@@ -365,6 +375,8 @@ signals:
 
     void performanceModeEnabledChanged();
     void mdbListApiKeyChanged();
+    void seerrBaseUrlChanged();
+    void seerrApiKeyChanged();
     void manualDpiScaleOverrideChanged();
     void uiAnimationsEnabledChanged();
 

@@ -74,7 +74,7 @@ FocusScope {
         displaySection.expanded = expanded
         videoSection.expanded = expanded
         mpvProfilesSection.expanded = expanded
-        metadataSection.expanded = expanded
+        thirdPartySection.expanded = expanded
         aboutSection.expanded = expanded
     }
 
@@ -2009,7 +2009,7 @@ FocusScope {
                     expanded: false
                     previousSection: videoSection
                     previousSectionButton: videoSection.toggleButton
-                    nextSectionButton: metadataSection.toggleButton
+                    nextSectionButton: thirdPartySection.toggleButton
                     firstFocusableItem: defaultProfileCombo
                     lastFocusableItem: libraryProfilesToggle
                     focusBottomHandler: function() {
@@ -2652,7 +2652,7 @@ FocusScope {
                                 if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(0).children[1].forceActiveFocus()
                                 } else {
-                                    metadataSection.toggleButton.forceActiveFocus()
+                                    thirdPartySection.toggleButton.forceActiveFocus()
                                 }
                                 event.accepted = true
                             }
@@ -2758,7 +2758,7 @@ FocusScope {
                                                 if (libraryDelegate.index < libraryProfilesRepeater.count - 1) {
                                                     libraryProfilesRepeater.itemAt(libraryDelegate.index + 1).children[1].forceActiveFocus()
                                                 } else {
-                                                    metadataSection.toggleButton.forceActiveFocus()
+                                                    thirdPartySection.toggleButton.forceActiveFocus()
                                                 }
                                                 event.accepted = true
                                             }
@@ -2896,19 +2896,19 @@ FocusScope {
                 }
                 
                 // ========================================
-                // Metadata Providers
+                // Third Party
                 // ========================================
                 
                 SettingsSection {
-                    id: metadataSection
-                    title: qsTr("Metadata Providers")
+                    id: thirdPartySection
+                    title: qsTr("Third Party")
                     icon: Icons.cloud
                     expanded: false
                     previousSection: mpvProfilesSection
                     previousSectionButton: mpvProfilesSection.toggleButton
                     nextSectionButton: aboutSection.toggleButton
                     firstFocusableItem: mdbListApiKeyRow.input
-                    lastFocusableItem: mdbListApiKeyRow.input
+                    lastFocusableItem: seerrApiKeyRow.input
                     Layout.fillWidth: true
                     
                     ColumnLayout {
@@ -2943,12 +2943,59 @@ FocusScope {
                                 if (mpvProfilesSection.expanded && libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
                                     libraryProfilesRepeater.itemAt(libraryProfilesRepeater.count - 1).children[1].forceActiveFocus()
                                 } else {
-                                    metadataSection.toggleButton.forceActiveFocus()
+                                    thirdPartySection.toggleButton.forceActiveFocus()
                                 }
                             }
                             
                             onEditingFinished: {
                                 ConfigManager.mdbListApiKey = text
+                            }
+                        }
+                        
+                        Text {
+                            text: qsTr("Jellyseerr")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+                        
+                        Text {
+                            text: qsTr("Configure a Jellyseerr/Seerr server to search and request titles not currently in your library.")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                        
+                        SettingsTextInputRow {
+                            id: seerrBaseUrlRow
+                            label: qsTr("Seerr URL")
+                            text: ConfigManager.seerrBaseUrl
+                            placeholderText: qsTr("http://localhost:5055")
+                            Layout.fillWidth: true
+                            
+                            Keys.onUpPressed: mdbListApiKeyRow.input.forceActiveFocus()
+                            
+                            Keys.onDownPressed: seerrApiKeyRow.input.forceActiveFocus()
+                            
+                            onEditingFinished: {
+                                ConfigManager.seerrBaseUrl = text
+                            }
+                        }
+                        
+                        SettingsTextInputRow {
+                            id: seerrApiKeyRow
+                            label: qsTr("Seerr API Key")
+                            text: ConfigManager.seerrApiKey
+                            placeholderText: qsTr("API Key")
+                            echoMode: TextInput.Password
+                            Layout.fillWidth: true
+                            
+                            Keys.onUpPressed: seerrBaseUrlRow.input.forceActiveFocus()
+                            
+                            onEditingFinished: {
+                                ConfigManager.seerrApiKey = text
                             }
                         }
                     }
@@ -2963,8 +3010,8 @@ FocusScope {
                     title: qsTr("About")
                     icon: Icons.info
                     expanded: false
-                    previousSection: metadataSection
-                    previousSectionButton: metadataSection.toggleButton
+                    previousSection: thirdPartySection
+                    previousSectionButton: thirdPartySection.toggleButton
                     nextSectionButton: null
                     firstFocusableItem: null
                     lastFocusableItem: null
