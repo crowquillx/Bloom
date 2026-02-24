@@ -111,6 +111,13 @@ void SeerrService::validateConnection()
     });
 }
 
+/**
+ * @brief Converts a raw Seerr API result object into the normalised item map used by UI delegates.
+ *
+ * Poster paths that are relative (not already a full URL) are expanded to the TMDB
+ * image CDN at w342 resolution.  A synthetic "seerr:{type}:{tmdbId}" Id is generated so
+ * delegates can key on items from both Jellyfin and Seerr sources consistently.
+ */
 QJsonObject SeerrService::mapSearchResultItem(const QJsonObject &item) const
 {
     const QString mediaType = item.value("mediaType").toString().toLower();

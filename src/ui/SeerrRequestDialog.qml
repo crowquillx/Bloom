@@ -4,6 +4,33 @@ import QtQuick.Layouts
 
 import BloomUI
 
+/**
+ * SeerrRequestDialog - Modal dialog for submitting a media download request via Seerr.
+ *
+ * Opens with openForItem(), which populates the dialog from a search-result item and
+ * triggers SeerrService.prepareRequest() to load server/profile/root-folder options.
+ * While options are loading a BusyIndicator is shown.  Once ready, the user selects
+ * a server, quality profile, and root folder.  For TV series an optional per-season
+ * selection grid is provided.
+ *
+ * On success the dialog displays a status message and auto-closes after 1.5 s via
+ * closeTimer.  On error the message is shown in red and the dialog stays open.
+ *
+ * Focus management:
+ *  - On open: keyboard mode is requested via InputModeManager; focus goes to the
+ *    first available combo box (or Cancel if still loading).
+ *  - On close: pointer mode is restored and focus returns to restoreFocusTarget.
+ *
+ * Properties set by caller:
+ *  - restoreFocusTarget  Item to refocus after the dialog closes.
+ *
+ * Key properties (internal state):
+ *  - mediaType, tmdbId, mediaTitle  Identify the item being requested.
+ *  - servers, profiles, rootFolders  Arrays populated by SeerrService.
+ *  - selectedServerId, selectedProfileId, selectedRootFolderPath  Current selections.
+ *  - seasonCount, requestAllSeasons, selectedSeasons  TV-only season selection state.
+ *  - loadingOptions, submitting, statusText, statusError  UI state flags.
+ */
 Dialog {
     id: dialog
     modal: true
@@ -48,6 +75,7 @@ Dialog {
         onTriggered: dialog.close()
     }
 
+    /** @brief Switches InputModeManager to keyboard/gamepad navigation and hides the cursor. */
     function setKeyboardNavigationMode() {
         if (typeof InputModeManager !== "undefined") {
             InputModeManager.setNavigationMode("keyboard")
@@ -55,6 +83,7 @@ Dialog {
         }
     }
 
+    /** @brief Restores InputModeManager to pointer navigation and shows the cursor. */
     function restorePointerNavigationMode() {
         if (typeof InputModeManager !== "undefined") {
             InputModeManager.setNavigationMode("pointer")
@@ -62,6 +91,12 @@ Dialog {
         }
     }
 
+    /**
+     * Moves focus to the most appropriate control after the dialog becomes visible.
+     *
+     * Routes to serverCombo when options are loaded and available, otherwise falls
+     * back to cancelButton so the user can always dismiss the dialog via keyboard.
+     */
     function focusInitialControl() {
         if (!visible) return
         dialog.forceActiveFocus()
@@ -76,6 +111,17 @@ Dialog {
         }
     }
 
+    /**
+     * Resets all state and opens the dialog for the given search-result item.
+     *
+     * Extracts mediaType, tmdbId, and mediaTitle from itemData then calls
+     * SeerrService.prepareRequest() to populate server/profile/root-folder options
+     * asynchronously.  If itemData is missing required fields the dialog shows an
+     * error immediately without making a network call.
+     *
+     * @param itemData     A normalised search-result map (must contain SeerrMediaType and SeerrTmdbId).
+     * @param focusTarget  Optional Item to restore focus to when the dialog closes.
+     */
     function openForItem(itemData, focusTarget) {
         closeTimer.stop()
         restoreFocusTarget = focusTarget || null
@@ -109,6 +155,10 @@ Dialog {
         }
     }
 
+    /**
+     * Populates selectedSeasons with all season numbers from 1 to seasonCount.
+     * Called when the dialog opens for a TV item or when "All Seasons" is re-checked.
+     */
     function rebuildSeasonSelection() {
         selectedSeasons = []
         for (var i = 1; i <= seasonCount; ++i) {
@@ -116,6 +166,12 @@ Dialog {
         }
     }
 
+    /**
+     * Adds or removes a season number from selectedSeasons.
+     *
+     * @param seasonNumber  The 1-based season number to toggle.
+     * @param checked       true to include the season, false to exclude it.
+     */
     function toggleSeason(seasonNumber, checked) {
         var updated = []
         var exists = false
@@ -137,6 +193,12 @@ Dialog {
         selectedSeasons = updated
     }
 
+    /**
+     * Synchronises the checked state of every season CheckBox with selectedSeasons.
+     *
+     * Uses syncingSeasonChecks to suppress re-entrant toggleSeason() calls triggered
+     * by the programmatic check-state changes.
+     */
     function syncSeasonChecks() {
         if (!seasonRepeater) return
         syncingSeasonChecks = true
@@ -149,6 +211,14 @@ Dialog {
         syncingSeasonChecks = false
     }
 
+    /**
+     * Validates selections and calls SeerrService.createRequest() to submit the request.
+     *
+     * Validates that a server, profile, and root folder are selected; for TV items with
+     * per-season selection, also validates that at least one season is chosen.  Sets
+     * statusText and statusError on validation failure.  On success, sets submitting=true
+     * and waits for the onRequestCreated or onErrorOccurred signal.
+     */
     function submitRequest() {
         statusText = ""
         statusError = false
@@ -184,10 +254,12 @@ Dialog {
         )
     }
 
+    /** @brief Moves focus back to cancelButton when navigating up from serverCombo. */
     function focusPreviousFromServer() {
         cancelButton.forceActiveFocus()
     }
 
+    /** @brief Moves focus forward from rootFolderCombo to the season section (TV) or cancelButton (movies). */
     function focusNextFromRoot() {
         if (isTv && seasonCount > 0) {
             allSeasonsCheck.forceActiveFocus()
@@ -196,6 +268,15 @@ Dialog {
         }
     }
 
+    /**
+     * Scrolls the dialog's ScrollView so that @p item is fully visible.
+     *
+     * Maps the item's position into the content column coordinate space and
+     * adjusts contentFlickable.contentY if the item is above or below the
+     * current viewport.
+     *
+     * @param item  The QML Item that should be scrolled into view.
+     */
     function ensureDialogItemVisible(item) {
         if (!item || !requestLayout || !contentScroll || !contentScroll.contentItem) {
             return

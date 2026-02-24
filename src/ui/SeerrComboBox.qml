@@ -3,6 +3,25 @@ import QtQuick.Controls
 
 import BloomUI
 
+/**
+ * SeerrComboBox - Themed ComboBox with full keyboard and gamepad navigation.
+ *
+ * Extends the Qt Quick Controls ComboBox with:
+ *  - Bloom theme tokens applied to all visual sub-components (content, indicator,
+ *    background, delegate, popup).
+ *  - Keyboard/gamepad-aware popup: opens on Return/Enter, closes on Escape or an
+ *    outside click (Popup.CloseOnEscape | Popup.CloseOnPressOutside).
+ *  - Up/Down arrow keys delegate navigation upward/downward to the parent view via
+ *    navigateUpRequested / navigateDownRequested signals when the popup is closed.
+ *  - resolveOptionText() supports both object models (via textRole) and plain
+ *    string/number models (fallback to String(modelData)).
+ *
+ * Signals:
+ *  - navigateUpRequested()        Emitted on Up arrow when popup is closed.
+ *  - navigateDownRequested()      Emitted on Down arrow when popup is closed.
+ *  - popupOpenedForKeyboardNav()  Emitted when the popup opens so callers can
+ *                                 switch InputModeManager to keyboard mode.
+ */
 ComboBox {
     id: control
     focusPolicy: Qt.StrongFocus
@@ -15,6 +34,19 @@ ComboBox {
     signal navigateDownRequested()
     signal popupOpenedForKeyboardNav()
 
+    /**
+     * Resolves the display string for a delegate item.
+     *
+     * Primary path: when textRole is set and modelData is an object that has the
+     * named role, returns String(modelData[textRole]).
+     *
+     * Fallback: when modelData is a plain value (string, number, etc.) and no
+     * role-based match is found, returns String(modelData).  Returns "" only when
+     * modelData is null or undefined.
+     *
+     * @param modelData  The raw model item passed to each delegate.
+     * @returns          A string suitable for display in the combo or its popup list.
+     */
     function resolveOptionText(modelData) {
         if (textRole.length > 0 && modelData && modelData[textRole] !== undefined && modelData[textRole] !== null) {
             return String(modelData[textRole])

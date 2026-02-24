@@ -32,8 +32,17 @@
 #include <QDebug>
 #include <cstdio>
 
-// Qt message handler to forward all Qt logs to custom Logger
-// Uses shared thread_local guard (inQtMessageHandler from Logger.h) to prevent deadlock from recursive logging
+/**
+ * @brief Qt message handler that forwards all Qt diagnostic output to the custom Logger.
+ *
+ * Installed via qInstallMessageHandler() during registerServices().  A thread-local
+ * re-entrancy guard (inQtMessageHandler) prevents deadlock when Logger itself emits
+ * Qt diagnostics; recursive calls fall back directly to stderr.
+ *
+ * @param type    Severity level from Qt's messaging system.
+ * @param context Source location and category metadata provided by Qt.
+ * @param msg     The formatted message string.
+ */
 static void qtMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
     // Prevent recursive logging (e.g., if Logger or Qt internals emit debug output)

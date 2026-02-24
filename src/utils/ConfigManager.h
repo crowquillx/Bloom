@@ -135,7 +135,25 @@ public:
     Q_INVOKABLE void exitApplication();
     
     // Session Management
+    /**
+     * @brief Persists a Jellyfin session after a successful login.
+     *
+     * Stores serverUrl, userId, and username in the config file.  The access token
+     * is intentionally omitted here and stored separately in SecretStore by
+     * AuthenticationService.
+     *
+     * @param serverUrl   The Jellyfin server base URL.
+     * @param userId      The authenticated user's ID.
+     * @param accessToken Ignored (pass "" or the real token; it is not written here).
+     * @param username    The authenticated user's display name.
+     */
     void setJellyfinSession(const QString &serverUrl, const QString &userId, const QString &accessToken, const QString &username);
+
+    /**
+     * @brief Removes all persisted Jellyfin session fields from the config file.
+     *
+     * Called on logout or session expiry.  Emits sessionChanged().
+     */
     void clearJellyfinSession();
     
     struct SessionData {
@@ -327,9 +345,13 @@ public:
     QString getMdbListApiKey() const;
     
     // Seerr
+    /// @brief Stores the Jellyseerr/Overseerr base URL (e.g. http://localhost:5055).
     void setSeerrBaseUrl(const QString &url);
+    /// @brief Returns the configured Seerr base URL, or an empty string if unset.
     QString getSeerrBaseUrl() const;
+    /// @brief Stores the Seerr API key used for all SeerrService requests.
     void setSeerrApiKey(const QString &key);
+    /// @brief Returns the configured Seerr API key, or an empty string if unset.
     QString getSeerrApiKey() const;
     
     // Manual DPI Scale Override

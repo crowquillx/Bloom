@@ -37,6 +37,15 @@ FocusScope {
     property bool waitingForLibrarySearch: false
     property bool waitingForSeerrSearch: false
 
+    /**
+     * Scrolls contentFlickable so that @p item is fully within the visible viewport.
+     *
+     * Maps the item's top-left into contentColumn coordinates and adjusts
+     * contentFlickable.contentY as needed.  A small spacingMedium margin is added
+     * so the item is not flush against the viewport edge.
+     *
+     * @param item  The QML Item that should be brought into view.
+     */
     function ensureItemVisibleInResults(item) {
         if (!item || !contentFlickable || !contentColumn) {
             return

@@ -6,9 +6,22 @@ import QtQuick.Effects
 import BloomUI
 
 /**
- * SearchResultCard - A card displaying a movie or series in search results
- * 
- * Shows poster image, title, year, and watched indicator
+ * SearchResultCard - A card displaying a movie or series in search results.
+ *
+ * Supports both Jellyfin library items and Seerr items (detected via itemData.Source === "Seerr").
+ * Shows poster image (TMDb CDN for Seerr; ImageCacheProvider for Jellyfin), title, production
+ * year, and contextual badges:
+ *  - Series: unwatched episode count badge (Jellyfin only).
+ *  - Movie:  watched checkmark (Jellyfin only).
+ *  - Seerr:  "Seerr" label + availability status badge (Pending / Processing / Available / etc.).
+ *
+ * Responds to both pointer hover (scale 1.02) and keyboard/gamepad focus (scale 1.05) via
+ * InputModeManager.pointerActive.  Emits clicked() on mouse press or keyboard activation.
+ *
+ * Key computed properties:
+ *  - isSeerr          true when the item originates from a Seerr search.
+ *  - seerrStatusLabel Human-readable label derived from SeerrMediaInfo.status (0 = no label).
+ *  - posterSource     Full image URL; prefers itemData.imageUrl (Seerr) over the Jellyfin cache.
  */
 Item {
     id: root

@@ -11,6 +11,7 @@ import BloomUI
  * - Account: Server info, user info, sign out
  * - Playback: Completion threshold, autoplay settings
  * - Display: Backdrop rotation interval
+ * - Third Party: Jellyseerr/Seerr URL and API key configuration
  * - About: App version and info
  * 
  * All settings are persisted immediately via ConfigManager.
