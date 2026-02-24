@@ -39,7 +39,9 @@ Documentation & update policy:
 - For small changes (UI tweaks, single-property changes): update the relevant `docs/` file (or add a small note). Include documentation updates in the same PR whenever practical.
 - For major architecture or convention changes: update `AGENTS.md` (briefly), update relevant `docs/*` pages with details, and include a short migration/compatibility note.
 
-If making a commit, use Conventional Commits spec.
+If making a commit, use Conventional Commits spec. See [docs/conventional-commits.md](docs/conventional-commits.md) for the canonical guidance.
+
+
 
 PR checklist (docs):
 - [ ] Documentation updated in the appropriate `docs/` page(s).
@@ -60,5 +62,6 @@ See also:
 - docs/responsive.md — Deprecated: see docs/theme.md for ResponsiveLayoutManager
 - docs/developer_notes.md — Conventions, focus, QML patterns, and best practices
 - docs/viewmodels.md — BaseViewModel patterns and MovieDetailsViewModel
+- docs/conventional-commits.md — commit messages must follow the Conventional Commits spec so tooling and changelogs stay accurate
 
 License: See `LICENSE`.
