@@ -12,6 +12,7 @@ Key services
 - `AuthenticationService` — Login, logout, session persistence, token validation; owns shared `QNetworkAccessManager`.
 - `LibraryService` — Library views/items, series details, search, image/theme-song URLs.
 - `PlaybackService` — Playback reporting, stream info, media segments, trickplay URLs and info.
+- `SeerrService` — Seerr/Jellyseerr search integration, request-option loading, request submission, and similar-title provider endpoints.
 - `PlayerController` — Orchestrates playback using `IPlayerBackend` and services; owns `TrickplayProcessor`.
 - `TrickplayProcessor` — Uses `AuthenticationService` (network) + `PlaybackService` (tile URLs) to build trickplay binaries.
 - `ThemeSongManager` — Uses `LibraryService` for theme songs plus `ConfigManager` and `PlayerController` for state.
@@ -23,11 +24,12 @@ Initialization order (recommended)
 3. AuthenticationService — handles session management; provides shared `QNetworkAccessManager`.
 4. LibraryService — depends on AuthenticationService.
 5. PlaybackService — depends on AuthenticationService.
-6. PlayerController — depends on IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, PlaybackService, LibraryService, AuthenticationService.
-7. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService.
-8. ThemeSongManager — depends on LibraryService, ConfigManager, PlayerController.
-9. InputModeManager — depends on QGuiApplication.
-10. ViewModels — e.g., LibraryViewModel, SeriesDetailsViewModel (depend on LibraryService).
+6. SeerrService — depends on AuthenticationService + ConfigManager.
+7. PlayerController — depends on IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, PlaybackService, LibraryService, AuthenticationService.
+8. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService.
+9. ThemeSongManager — depends on LibraryService, ConfigManager, PlayerController.
+10. InputModeManager — depends on QGuiApplication.
+11. ViewModels — e.g., LibraryViewModel, SeriesDetailsViewModel (depend on LibraryService).
 
 Usage
 - Register services at main startup using `ServiceLocator::registerService<T>(&instance);`.

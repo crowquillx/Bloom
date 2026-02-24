@@ -54,6 +54,7 @@ See also:
 - docs/theme.md     — Theme.qml tokens and design system
 - docs/services.md  — ServiceLocator pattern & initialization order
 - docs/config.md    — ConfigManager Q_PROPERTY and runtime settings
+- docs/seerr.md     — Seerr/Jellyseerr integration (search, request flow, and similar-title hook)
 - docs/responsive.md — Deprecated: see docs/theme.md for ResponsiveLayoutManager
 - docs/developer_notes.md — Conventions, focus, QML patterns, and best practices
 - docs/viewmodels.md — BaseViewModel patterns and MovieDetailsViewModel

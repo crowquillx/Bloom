@@ -32,6 +32,7 @@ Config API sample (high level)
 - `skipButtonAutoHideSeconds` is a Q_PROPERTY (default 6; range 0-15) for skip intro/credits popup visibility timing.
 - `autoSkipIntro` and `autoSkipOutro` are Q_PROPERTY booleans (both default false) for one-time-per-playback intro/credits auto-skip.
 - `playbackVolume` and `playbackMuted` persist the last playback volume/mute state across app restarts (`settings.playback.playback_volume`, `settings.playback.playback_muted`).
+- `seerrBaseUrl` and `seerrApiKey` persist Seerr/Jellyseerr connection details (`settings.seerr.base_url`, `settings.seerr.api_key`).
 
 When adding settings
 - Update `ConfigManager.h` (Q_PROPERTY & signals).
