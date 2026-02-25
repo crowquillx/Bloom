@@ -1,5 +1,5 @@
 {
-    "version": 4,
+    "version": 14,
     "settings": {
         "mpv": {
             "path": "mpv",
@@ -18,22 +18,69 @@
         "playback": {
             "completion_threshold": 90,
             "autoplay_next_episode": true,
+            "autoplay_countdown_seconds": 10,
+            "auto_skip_intro": false,
+            "auto_skip_outro": false,
             "audio_delay": 0,
+            "playback_volume": 100,
+            "playback_muted": false,
+            "skip_button_auto_hide_seconds": 6,
             "theme_song_volume": 0,
-            "theme_song_loop": false
-        },
-        "ui": {
-            "backdrop_rotation_interval": 30000
+            "theme_song_loop": false,
+            "ui_sounds_enabled": true,
+            "ui_sounds_volume": 3,
+            "performance_mode_enabled": false
         },
         "video": {
-            "enable_hdr": false,
             "enable_framerate_matching": false,
+            "framerate_match_delay": 1,
+            "enable_hdr": false,
             "linux_refresh_rate_command": "xrandr --output HDMI-1 --rate {RATE}",
             "linux_hdr_command": "",
             "windows_custom_hdr_command": ""
         },
         "cache": {
-            "image_cache_size_mb": 500
+            "image_cache_size_mb": 500,
+            "rounded_image_mode": "auto",
+            "rounded_preprocess_enabled": true
+        },
+        "ui": {
+            "backdrop_rotation_interval": 30000,
+            "launch_in_fullscreen": false,
+            "ui_animations_enabled": true
+        },
+        "manualDpiScaleOverride": 1.0,
+        "mpv_profiles": {
+            "Default": {
+                "hwdec_enabled": true,
+                "hwdec_method": "auto",
+                "deinterlace": false,
+                "deinterlace_method": "",
+                "video_output": "gpu-next",
+                "interpolation": false,
+                "extra_args": [
+                    "--fullscreen"
+                ]
+            },
+            "High Quality": {
+                "hwdec_enabled": true,
+                "hwdec_method": "auto",
+                "deinterlace": false,
+                "deinterlace_method": "",
+                "video_output": "gpu-next",
+                "interpolation": false,
+                "extra_args": [
+                    "--fullscreen",
+                    "--profile=high-quality"
+                ]
+            }
+        },
+        "default_profile": "Default",
+        "library_profiles": {},
+        "series_profiles": {},
+        "seerr": {
+            "base_url": "",
+            "api_key": ""
         }
     }
 }

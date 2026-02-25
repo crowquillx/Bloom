@@ -32,7 +32,15 @@ Config API sample (high level)
 - `skipButtonAutoHideSeconds` is a Q_PROPERTY (default 6; range 0-15) for skip intro/credits popup visibility timing.
 - `autoSkipIntro` and `autoSkipOutro` are Q_PROPERTY booleans (both default false) for one-time-per-playback intro/credits auto-skip.
 - `playbackVolume` and `playbackMuted` persist the last playback volume/mute state across app restarts (`settings.playback.playback_volume`, `settings.playback.playback_muted`).
+- `autoplayCountdownSeconds` drives the countdown shown before autoplay launches the next episode; the default is 10 seconds and disabling autoplay simply skips the timer.
+- `uiSoundsEnabled` / `uiSoundsVolume` keep the remote/keyboard navigation sounds available (default on at level 3) or let you mute them without touching the media volume slider.
+- `performanceModeEnabled` allows the player backend to trim VRAM more aggressively when true (default false).
 - `seerrBaseUrl` and `seerrApiKey` persist Seerr/Jellyseerr connection details (`settings.seerr.base_url`, `settings.seerr.api_key`).
+
+MPV profile management
+- `settings.mpv_profiles` contains the base set of profiles (`Default`, `High Quality`, plus any user-created profiles) and their structured options (hwdec, interpolation, extra args).
+- `settings.default_profile` names the profile to use when no library/series override is present.
+- `settings.library_profiles` and `settings.series_profiles` hold dictionaries keyed by Jellyfin library/series IDs when an override is required at a higher level.
 
 When adding settings
 - Update `ConfigManager.h` (Q_PROPERTY & signals).
@@ -41,10 +49,13 @@ When adding settings
 
 Cache settings
 - `settings.cache.image_cache_size_mb` controls the disk image cache size in megabytes. Default 500; minimum enforced at 50MB; config-only (no UI).
+- `settings.cache.rounded_image_mode` controls how rounded thumbnails are generated and cached. Defaults to `auto` (platform decides); you can force `always` (preprocess every image) or `never`.
+- `settings.cache.rounded_preprocess_enabled` toggles whether rounded thumbnails are created ahead of time; keep it true for smooth UI animations or turn it off if caching takes too much work on low-end devices.
 
 UI settings
 - `settings.ui.launch_in_fullscreen` (Q_PROPERTY `launchInFullscreen`): When true, the application starts in fullscreen mode. Default false; configurable via Settings > Display > Launch in Fullscreen.
 - `settings.ui.backdrop_rotation_interval`: Backdrop rotation interval in milliseconds. Default 30000 (30 seconds).
+- `settings.ui.ui_animations_enabled` (Q_PROPERTY `uiAnimationsEnabled`): Toggle the QML transition/animation flourishes for keyboard/remote navigation; defaults to true but can be toggled to reduce GPU load.
 
 Display settings
 - `settings.manualDpiScaleOverride` (Q_PROPERTY `manualDpiScaleOverride`): Manual DPI scale multiplier applied to automatic DPI detection. Range: 0.5 to 2.0. Default: 1.0 (automatic, no override).
@@ -68,3 +79,4 @@ Video settings
   - For HDR content, Bloom waits briefly for the HDR mode switch to settle before applying framerate matching. This avoids some Windows/TV/GPU combinations reverting to 60Hz after HDR is enabled.
   - Bloom also snapshots the pre-HDR refresh rate and uses it as the restore target when playback ends.
   - This pre-HDR restore path is applied even when framerate matching is disabled.
+- `settings.video.linux_refresh_rate_command`, `settings.video.linux_hdr_command`, and `settings.video.windows_custom_hdr_command` store the optional OS-specific commands that Bloom executes when switching refresh rate or HDR modes; leave them blank to use the bundled defaults or specify custom commands for your display hardware.
