@@ -1303,6 +1303,14 @@ FocusScope {
             Item { height: Theme.paddingLarge }
         } // end mainColumn
     } // end Flickable
+
+    WheelStepScroller {
+        anchors.fill: mainFlickable
+        target: mainFlickable
+        // Home was too jumpy with proportional wheel handling; keep movement tighter.
+        stepPx: (homeCardHeight + Theme.spacingLarge) * 0.45
+        pixelDeltaMultiplier: 0.7
+    }
     
     // Scrollbar for mainFlickable
     ScrollBar {
