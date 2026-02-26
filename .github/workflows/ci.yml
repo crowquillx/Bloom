@@ -257,8 +257,8 @@ jobs:
           echo "zip_hash=$zipHash" >> $env:GITHUB_OUTPUT
           echo "ZIP Hash: $zipHash"
 
-          if (Test-Path "Bloom-Setup-0.4.0.exe") {
-            $installerHash = (Get-FileHash Bloom-Setup-0.4.0.exe -Algorithm SHA256).Hash
+          if (Test-Path "Bloom-Setup-0.4.1.exe") {
+            $installerHash = (Get-FileHash Bloom-Setup-0.4.1.exe -Algorithm SHA256).Hash
             echo "installer_hash=$installerHash" >> $env:GITHUB_OUTPUT
             echo "Installer Hash: $installerHash"
           }
@@ -274,7 +274,7 @@ jobs:
           prerelease: false
           files: |
             Bloom-Windows.zip
-            Bloom-Setup-0.4.0.exe
+            Bloom-Setup-0.4.1.exe
           fail_on_unmatched_files: true
 
       - name: Create Dev Release
@@ -294,7 +294,7 @@ jobs:
           prerelease: true
           files: |
             Bloom-Windows.zip
-            Bloom-Setup-0.4.0.exe
+            Bloom-Setup-0.4.1.exe
           fail_on_unmatched_files: true
 
       - name: Trigger Scoop Bucket Update (Stable)
@@ -346,10 +346,10 @@ jobs:
 
       - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
-        if: hashFiles('Bloom-Setup-0.4.0.exe') != ''
+        if: hashFiles('Bloom-Setup-0.4.1.exe') != ''
         with:
           name: Bloom-Windows-Installer
-          path: Bloom-Setup-0.4.0.exe
+          path: Bloom-Setup-0.4.1.exe
 
   linux:
     name: Linux Build & Package
