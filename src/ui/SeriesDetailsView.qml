@@ -1185,6 +1185,12 @@ FocusScope {
             }
             }  // End of leftContentColumn ColumnLayout
         }  // End of leftContentFlickable Flickable
+
+        WheelStepScroller {
+            anchors.fill: leftContentFlickable
+            target: leftContentFlickable
+            stepPx: Math.round(140 * Theme.layoutScale)
+        }
         
         // Right Sidebar (30%)
         ColumnLayout {

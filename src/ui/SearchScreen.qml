@@ -824,6 +824,12 @@ FocusScope {
         }
     }
 
+    WheelStepScroller {
+        anchors.fill: contentFlickable
+        target: contentFlickable
+        stepPx: Math.round(120 * Theme.layoutScale)
+    }
+
     SeerrRequestDialog {
         id: seerrRequestDialog
         parent: Overlay.overlay

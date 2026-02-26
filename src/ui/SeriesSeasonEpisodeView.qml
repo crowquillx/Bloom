@@ -1476,6 +1476,12 @@ FocusScope {
         }
     }  // End of mainContentColumn ColumnLayout
     }  // End of mainContentFlickable
+
+    WheelStepScroller {
+        anchors.fill: mainContentFlickable
+        target: mainContentFlickable
+        stepPx: Math.round(130 * Theme.layoutScale)
+    }
     
     // Context Menu for Audio/Subtitle Selection
     Menu {

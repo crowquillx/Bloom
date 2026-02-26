@@ -898,6 +898,12 @@ FocusScope {
             }
         }
     }
+
+    WheelStepScroller {
+        anchors.fill: episodesList
+        target: episodesList
+        stepPx: Math.max(Theme.episodeCardMinHeight, Theme.episodeCardHeight)
+    }
     
     Component.onCompleted: {
         // Set initial focus - if we have a pending episode index, restore it

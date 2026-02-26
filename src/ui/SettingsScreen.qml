@@ -3053,6 +3053,12 @@ FocusScope {
             }
         }
     }
+
+    WheelStepScroller {
+        anchors.fill: scrollView
+        target: flickable
+        stepPx: Math.round(88 * Theme.layoutScale)
+    }
     
     // ========================================
     // Reusable Components

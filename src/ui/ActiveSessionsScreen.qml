@@ -277,6 +277,12 @@ FocusScope {
         }
     }
 
+    WheelStepScroller {
+        anchors.fill: sessionsList
+        target: sessionsList
+        stepPx: Math.round(80 * Theme.layoutScale)
+    }
+
     // Toast notification
     ToastNotification {
         id: toast
