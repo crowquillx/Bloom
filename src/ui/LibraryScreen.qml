@@ -461,8 +461,8 @@ FocusScope {
         
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: Theme.paddingLarge
-        anchors.rightMargin: Theme.paddingLarge
+        anchors.leftMargin: Theme.spacingMedium
+        anchors.rightMargin: Theme.spacingMedium
         anchors.topMargin: Theme.spacingMedium
         anchors.bottomMargin: 0
         spacing: Theme.spacingLarge
@@ -863,15 +863,25 @@ FocusScope {
                     }
                 }
                 focus: true
-                clip: true
+                // Allow focused-scale/border overflow at viewport edges.
+                clip: false
                 boundsBehavior: Flickable.StopAtBounds
-                snapMode: GridView.SnapToRow
+                // Fractional wheel/touchpad deltas can be pulled back by row snapping.
+                // Keep free scrolling so the first gesture always sticks.
+                snapMode: GridView.NoSnap
                 flow: GridView.FlowLeftToRight
-                // Add top margin to prevent clipping of scaled items on the first row
-                topMargin: Math.round(28 * Theme.layoutScale)
+                // Outer RowLayout margins handle horizontal padding.
+                leftMargin: 0
+                rightMargin: 0
+                // Extra headroom so focused first-row posters/badges do not clip at the top.
+                topMargin: Math.round(42 * Theme.layoutScale)
                 preferredHighlightBegin: height * 0.05
                 preferredHighlightEnd: height * 0.95
-                highlightRangeMode: GridView.ApplyRange
+                // ApplyRange can clamp pointer-driven wheel scrolling to the current item.
+                // Keep it for keyboard/remote navigation, disable for pointer scrolling.
+                highlightRangeMode: (typeof InputModeManager !== "undefined" && InputModeManager.pointerActive)
+                    ? GridView.NoHighlightRange
+                    : GridView.ApplyRange
                 
                 // Performance optimizations
                 // Cache 3 rows worth of items above and below viewport
@@ -910,6 +920,15 @@ FocusScope {
 
                 ScrollBar.vertical: ScrollBar {
                     policy: ScrollBar.AsNeeded
+                }
+
+                WheelStepScroller {
+                    anchors.fill: parent
+                    target: grid
+                    // Match HomeScreen scroll feel.
+                    stepPx: grid.cellHeight * 0.45
+                    pixelDeltaMultiplier: 0.7
+                    z: 2
                 }
                 
                 // Loading indicator footer for infinite scroll
@@ -1213,6 +1232,7 @@ FocusScope {
                     }
                 }
             }
+
         }
 
         Column {
