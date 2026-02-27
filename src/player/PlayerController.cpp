@@ -1186,6 +1186,7 @@ void PlayerController::playTestVideo()
 void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionTicks, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR)
 {
     m_playbackAttemptId = ++gPlaybackAttemptCounter;
+    m_reportProgressOnNextPositionUpdate = false;
     qDebug() << "PlayerController: playUrl called with itemId:" << itemId 
              << "startPositionTicks:" << startPositionTicks
              << "seriesId:" << seriesId
@@ -1375,6 +1376,7 @@ void PlayerController::retry()
     qDebug() << "PlayerController: retry requested";
     
     if (m_playbackState == Error && !m_pendingUrl.isEmpty()) {
+        m_reportProgressOnNextPositionUpdate = false;
         processEvent(Event::Play);
     }
 }
@@ -2379,8 +2381,10 @@ QString PlayerController::inferPlayMethod(const QString &url)
         || normalized.contains(QStringLiteral("hls"))) {
         return QStringLiteral("Transcode");
     }
-    if (normalized.contains(QStringLiteral("/stream"))
-        || normalized.contains(QStringLiteral("static=true"))) {
+    if (normalized.contains(QStringLiteral("/stream"))) {
+        return QStringLiteral("DirectStream");
+    }
+    if (normalized.contains(QStringLiteral("static=true"))) {
         return QStringLiteral("DirectPlay");
     }
     return QStringLiteral("DirectPlay");
