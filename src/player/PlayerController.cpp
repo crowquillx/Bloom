@@ -938,9 +938,17 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
         clearNextEpisodePrefetchState();
         return;
     }
-    
+
+    const QString episodeId = episodeData.value(QStringLiteral("Id")).toString();
+    if (!episodeId.isEmpty() && episodeId == m_pendingAutoplayItemId) {
+        qCWarning(lcPlayback) << "Ignoring next-episode response that points to the current item"
+                              << "itemId=" << episodeId;
+        clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
+        return;
+    }
+
     // Extract episode info
-    QString episodeId = episodeData["Id"].toString();
     QString episodeName = episodeData["Name"].toString();
     QString seriesName = episodeData["SeriesName"].toString();
     int seasonNumber = episodeData["ParentIndexNumber"].toInt();
@@ -2375,18 +2383,29 @@ QString PlayerController::eventToString(Event event)
 
 QString PlayerController::inferPlayMethod(const QString &url)
 {
-    const QString normalized = url.toLower();
-    if (normalized.contains(QStringLiteral("transcode"))
-        || normalized.contains(QStringLiteral("master.m3u8"))
-        || normalized.contains(QStringLiteral("hls"))) {
+    const QUrl parsedUrl(url);
+    const QString path = parsedUrl.path(QUrl::FullyDecoded).toLower();
+    const QStringList pathSegments = path.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+
+    if (pathSegments.contains(QStringLiteral("transcode"))
+        || pathSegments.contains(QStringLiteral("hls"))
+        || path.endsWith(QStringLiteral("master.m3u8"))) {
         return QStringLiteral("Transcode");
     }
-    if (normalized.contains(QStringLiteral("/stream"))) {
+    if (pathSegments.contains(QStringLiteral("stream"))) {
         return QStringLiteral("DirectStream");
     }
-    if (normalized.contains(QStringLiteral("static=true"))) {
-        return QStringLiteral("DirectPlay");
+
+    const QUrlQuery query(parsedUrl);
+    const auto queryItems = query.queryItems(QUrl::FullyDecoded);
+    for (const auto &item : queryItems) {
+        if (item.first.compare(QStringLiteral("static"), Qt::CaseInsensitive) == 0
+            && (item.second.compare(QStringLiteral("true"), Qt::CaseInsensitive) == 0
+                || item.second == QStringLiteral("1"))) {
+            return QStringLiteral("DirectPlay");
+        }
     }
+
     return QStringLiteral("DirectPlay");
 }
 
