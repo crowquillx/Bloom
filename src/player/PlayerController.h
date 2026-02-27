@@ -538,6 +538,7 @@ private:
     double m_duration = 0;
     bool m_hasReportedStart = false;
     double m_seekTargetWhileBuffering = -1;
+    bool m_reportProgressOnNextPositionUpdate = false;
     qint64 m_startPositionTicks = 0;  // Resume position in Jellyfin ticks
     bool m_shouldAutoplay = false;  // Flag to trigger autoplay on next episode loaded
     // QML-visible/property-facing flag for waiting on next-episode resolution callbacks.

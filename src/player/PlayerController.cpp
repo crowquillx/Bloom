@@ -469,6 +469,7 @@ void PlayerController::onEnterIdleState()
     m_duration = 0;
     m_hasReportedStart = false;
     m_seekTargetWhileBuffering = -1;
+    m_reportProgressOnNextPositionUpdate = false;
     m_startPositionTicks = 0;
     m_contentFramerate = 0.0;
     m_contentIsHDR = false;
@@ -742,6 +743,11 @@ void PlayerController::onPositionChanged(double seconds)
 {
     double previousPosition = m_currentPosition;
     m_currentPosition = seconds;
+    if (m_reportProgressOnNextPositionUpdate
+        && (m_playbackState == Playing || m_playbackState == Paused)) {
+        reportPlaybackProgressNow();
+        m_reportProgressOnNextPositionUpdate = false;
+    }
     updateSkipSegmentState();
     if (!qFuzzyCompare(previousPosition + 1.0, seconds + 1.0)) {
         emit timelineChanged();
@@ -1324,7 +1330,7 @@ void PlayerController::seek(double seconds)
     
     if (m_playbackState == Playing || m_playbackState == Paused) {
         m_playerBackend->sendVariantCommand({"seek", seconds, "absolute"});
-        reportPlaybackProgressNow();
+        m_reportProgressOnNextPositionUpdate = true;
     }
 }
 
@@ -1341,7 +1347,7 @@ void PlayerController::seekRelative(double seconds)
     
     if (m_playbackState == Playing || m_playbackState == Paused) {
         m_playerBackend->sendVariantCommand({"seek", seconds, "relative"});
-        reportPlaybackProgressNow();
+        m_reportProgressOnNextPositionUpdate = true;
     }
 }
 
