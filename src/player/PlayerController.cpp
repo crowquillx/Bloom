@@ -110,8 +110,6 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             this, &PlayerController::onMediaSegmentsLoaded);
     connect(m_playbackService, &PlaybackService::trickplayInfoLoaded,
             this, &PlayerController::onTrickplayInfoLoaded);
-    connect(m_playbackService, &PlaybackService::itemMarkedPlayed,
-            this, &PlayerController::onItemMarkedPlayed);
     
     // Connect TrickplayProcessor signals
     connect(m_trickplayProcessor, &TrickplayProcessor::processingComplete,
@@ -474,6 +472,7 @@ void PlayerController::onEnterIdleState()
     m_startPositionTicks = 0;
     m_contentFramerate = 0.0;
     m_contentIsHDR = false;
+    m_playMethod = QStringLiteral("DirectPlay");
     clearOverlayMetadata();
     setBufferingProgress(0);
     
@@ -644,8 +643,9 @@ void PlayerController::onEnterPausedState()
     // Report pause to server
     if (!m_currentItemId.isEmpty()) {
         m_playbackService->reportPlaybackPaused(m_currentItemId, static_cast<qint64>(m_currentPosition * 10000000),
-                                        m_mediaSourceId, m_selectedAudioTrack, m_selectedSubtitleTrack,
-                                        m_playSessionId);
+                                                m_mediaSourceId, m_selectedAudioTrack, m_selectedSubtitleTrack,
+                                                m_playSessionId, m_duration > 0.0, m_muted,
+                                                m_playMethod);
     }
 }
 
@@ -817,8 +817,9 @@ void PlayerController::onPauseChanged(bool paused)
     } else if (!paused && m_playbackState == Paused) {
         // Report resume to server
         m_playbackService->reportPlaybackResumed(m_currentItemId, static_cast<qint64>(m_currentPosition * 10000000),
-                                         m_mediaSourceId, m_selectedAudioTrack, m_selectedSubtitleTrack,
-                                         m_playSessionId);
+                                                 m_mediaSourceId, m_selectedAudioTrack, m_selectedSubtitleTrack,
+                                                 m_playSessionId, m_duration > 0.0, m_muted,
+                                                 m_playMethod);
         processEvent(Event::Resume);
     }
 }
@@ -856,13 +857,16 @@ void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
     bool thresholdMet = checkCompletionThresholdAndAutoplay();
     bool prefetchedReady = false;
 
-    // If threshold met for an episode, request next episode after mark-played confirmation.
+    // If threshold met for an episode, request next episode directly.
     if (thresholdMet && !m_currentSeriesId.isEmpty()) {
         m_shouldAutoplay = true;
         m_waitingForNextEpisodeAtPlaybackEnd = true;
         stashPendingAutoplayContext();
         prefetchedReady = hasUsablePrefetchedNextEpisode();
-        qDebug() << "PlayerController: Threshold met, will request next episode after marking current as played";
+        if (!prefetchedReady) {
+            m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId, m_pendingAutoplayItemId);
+        }
+        qDebug() << "PlayerController: Threshold met, requesting next episode for autoplay";
     }
 
     processEvent(stopEvent);
@@ -1030,26 +1034,6 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     playUrl(streamUrl, episodeId, startPositionTicks, seriesId,
         targetSeasonId, m_pendingAutoplayLibraryId,
         m_pendingAutoplayFramerate, m_pendingAutoplayIsHDR);
-}
-
-/**
- * @brief Handle a recently marked-played item and request the next episode when appropriate.
- *
- * If autoplay is enabled, a pending autoplay series ID exists, and the provided `itemId`
- * matches the pending autoplay item, this method asks the LibraryService for the next
- * unplayed episode for that series.
- *
- * @param itemId The identifier of the item that was marked as played.
- */
-void PlayerController::onItemMarkedPlayed(const QString &itemId)
-{
-    // Only proceed if this is the item we just finished playing and we want autoplay/navigation
-    if (!m_shouldAutoplay || m_pendingAutoplaySeriesId.isEmpty() || itemId != m_pendingAutoplayItemId) {
-        return;
-    }
-
-    qDebug() << "PlayerController: Item marked as played, requesting next episode for seriesId:" << m_pendingAutoplaySeriesId;
-    m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId, m_pendingAutoplayItemId);
 }
 
 // === PUBLIC API ===
@@ -1238,6 +1222,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     m_shouldAutoplay = false;
     m_contentFramerate = framerate;
     m_contentIsHDR = isHDR;
+    m_playMethod = inferPlayMethod(url);
     m_hasReportedStopForAttempt = false;
     m_hasEvaluatedCompletionForAttempt = false;
     
@@ -1339,6 +1324,7 @@ void PlayerController::seek(double seconds)
     
     if (m_playbackState == Playing || m_playbackState == Paused) {
         m_playerBackend->sendVariantCommand({"seek", seconds, "absolute"});
+        reportPlaybackProgressNow();
     }
 }
 
@@ -1355,6 +1341,7 @@ void PlayerController::seekRelative(double seconds)
     
     if (m_playbackState == Playing || m_playbackState == Paused) {
         m_playerBackend->sendVariantCommand({"seek", seconds, "relative"});
+        reportPlaybackProgressNow();
     }
 }
 
@@ -1860,8 +1847,9 @@ void PlayerController::reportPlaybackStart()
                            << "audio=" << m_selectedAudioTrack 
                            << "subtitle=" << m_selectedSubtitleTrack;
         m_playbackService->reportPlaybackStart(m_currentItemId, m_mediaSourceId,
-                                       m_selectedAudioTrack, m_selectedSubtitleTrack,
-                                       m_playSessionId);
+                                               m_selectedAudioTrack, m_selectedSubtitleTrack,
+                                               m_playSessionId, m_duration > 0.0, false, m_muted,
+                                               m_playMethod);
     }
 }
 
@@ -1870,8 +1858,22 @@ void PlayerController::reportPlaybackProgress()
     if (!m_currentItemId.isEmpty() && m_playbackService && m_playbackState == Playing) {
         qint64 ticks = static_cast<qint64>(m_currentPosition * 10000000); // 100ns ticks
         m_playbackService->reportPlaybackProgress(m_currentItemId, ticks, m_mediaSourceId,
-                                          m_selectedAudioTrack, m_selectedSubtitleTrack,
-                                          m_playSessionId);
+                                                  m_selectedAudioTrack, m_selectedSubtitleTrack,
+                                                  m_playSessionId, m_duration > 0.0, false, m_muted,
+                                                  m_playMethod);
+    }
+}
+
+void PlayerController::reportPlaybackProgressNow()
+{
+    if (!m_currentItemId.isEmpty() && m_playbackService
+        && (m_playbackState == Playing || m_playbackState == Paused)) {
+        qint64 ticks = static_cast<qint64>(m_currentPosition * 10000000); // 100ns ticks
+        m_playbackService->reportPlaybackProgress(m_currentItemId, ticks, m_mediaSourceId,
+                                                  m_selectedAudioTrack, m_selectedSubtitleTrack,
+                                                  m_playSessionId, m_duration > 0.0,
+                                                  m_playbackState == Paused, m_muted,
+                                                  m_playMethod);
     }
 }
 
@@ -1888,9 +1890,12 @@ void PlayerController::reportPlaybackStop()
                            << "position=" << m_currentPosition << "s /" << m_duration << "s"
                            << "(" << percentage << "%)";
         qint64 ticks = static_cast<qint64>(m_currentPosition * 10000000);
+        reportPlaybackProgressNow();
         m_playbackService->reportPlaybackStopped(m_currentItemId, ticks, m_mediaSourceId,
-                                         m_selectedAudioTrack, m_selectedSubtitleTrack,
-                                         m_playSessionId);
+                                                 m_selectedAudioTrack, m_selectedSubtitleTrack,
+                                                 m_playSessionId, m_duration > 0.0,
+                                                 m_playbackState == Paused, m_muted,
+                                                 m_playMethod);
         m_hasReportedStopForAttempt = true;
     }
 }
@@ -1901,13 +1906,13 @@ void PlayerController::checkCompletionThreshold()
 }
 
 /**
- * @brief Evaluate whether the current playback has met the configured completion threshold and trigger marking the item as played.
+ * @brief Evaluate whether the current playback has met the configured completion threshold.
  *
- * If the configured completion percentage is reached, the current item is marked played via PlaybackService and the function reports that the threshold was met.
+ * If the configured completion percentage is reached, the function reports that the threshold was met.
  * The check is performed at most once per playback attempt; subsequent calls for the same attempt are no-ops.
  * The function does nothing and returns false if there is no current item or the duration is not positive.
  *
- * @return true if the completion threshold was met and the item was marked played; false otherwise.
+ * @return true if the completion threshold was met; false otherwise.
  */
 bool PlayerController::checkCompletionThresholdAndAutoplay()
 {
@@ -1922,9 +1927,8 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
     int threshold = m_config->getPlaybackCompletionThreshold();
     
     if (percentage >= threshold) {
-        qDebug() << "PlayerController: Marking item" << m_currentItemId 
-                 << "as played (" << percentage << "% >= " << threshold << "% threshold)";
-        m_playbackService->markItemPlayed(m_currentItemId);
+        qDebug() << "PlayerController: Completion threshold met for item" << m_currentItemId
+                 << "(" << percentage << "% >= " << threshold << "% threshold)";
         return true;  // Threshold met - eligible for autoplay
     }
     return false;  // Threshold not met
@@ -2359,6 +2363,21 @@ QString PlayerController::eventToString(Event event)
     case Event::Recover: return QStringLiteral("Recover");
     }
     return QStringLiteral("Unknown");
+}
+
+QString PlayerController::inferPlayMethod(const QString &url)
+{
+    const QString normalized = url.toLower();
+    if (normalized.contains(QStringLiteral("transcode"))
+        || normalized.contains(QStringLiteral("master.m3u8"))
+        || normalized.contains(QStringLiteral("hls"))) {
+        return QStringLiteral("Transcode");
+    }
+    if (normalized.contains(QStringLiteral("/stream"))
+        || normalized.contains(QStringLiteral("static=true"))) {
+        return QStringLiteral("DirectPlay");
+    }
+    return QStringLiteral("DirectPlay");
 }
 
 void PlayerController::updateSkipSegmentState()

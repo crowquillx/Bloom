@@ -322,9 +322,6 @@ private slots:
     void onPlaybackEnded();
     void onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
     
-    // Item marked as played handler
-    void onItemMarkedPlayed(const QString &itemId);
-    
     // Timeout handlers
     void onLoadingTimeout();
     void onBufferingTimeout();
@@ -371,6 +368,7 @@ private:
     void setBufferingProgress(int progress);
     void reportPlaybackStart();
     void reportPlaybackProgress();
+    void reportPlaybackProgressNow();
     void reportPlaybackStop();
     void checkCompletionThreshold();
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
@@ -494,6 +492,7 @@ private:
      * @returns A QString representation of `event`.
      */
     static QString eventToString(Event event);
+    static QString inferPlayMethod(const QString &url);
 
     IPlayerBackend *m_playerBackend;
     std::unique_ptr<IPlayerBackend> m_ownedBackend;
@@ -603,6 +602,7 @@ private:
     bool m_embeddedVideoShrinkEnabled = false;
     int m_volume = 100;
     bool m_muted = false;
+    QString m_playMethod = QStringLiteral("DirectPlay");
     bool m_attemptedLinuxEmbeddedFallback = false;
     QString m_overlayTitle;
     QString m_overlaySubtitle;

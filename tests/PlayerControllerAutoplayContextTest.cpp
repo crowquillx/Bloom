@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 #include <QtTest/QSignalSpy>
+#include <QCoreApplication>
 
 #include "player/PlayerController.h"
 
@@ -115,7 +116,7 @@ class PlayerControllerAutoplayContextTest : public QObject
     Q_OBJECT
 
 private slots:
-    void itemMarkedPlayedUsesPendingContext();
+    void thresholdMetRequestsNextEpisodeDirectly();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
     void embeddedVideoShrinkToggleEmitsAndPersists();
@@ -124,10 +125,11 @@ private slots:
     void runtimeTrackSelectionUsesCanonicalMapAndSubtitleNone();
 };
 
-void PlayerControllerAutoplayContextTest::itemMarkedPlayedUsesPendingContext()
+void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectly()
 {
     ConfigManager config;
     config.setAutoplayNextEpisode(false);
+    config.setPlaybackCompletionThreshold(90);
     TrackPreferencesManager trackPrefs;
     DisplayManager displayManager(&config);
     AuthenticationService authService(nullptr);
@@ -143,21 +145,23 @@ void PlayerControllerAutoplayContextTest::itemMarkedPlayedUsesPendingContext()
                                 &libraryService,
                                 &authService);
 
-    controller.m_shouldAutoplay = true;
-    controller.m_pendingAutoplayItemId = QStringLiteral("item-1");
-    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-1");
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 95.0;
+    controller.m_playbackState = PlayerController::Playing;
 
-    QVERIFY(QMetaObject::invokeMethod(&controller,
-                                      "onItemMarkedPlayed",
-                                      Qt::DirectConnection,
-                                      Q_ARG(QString, QStringLiteral("item-1"))));
+    controller.handlePlaybackStopAndAutoplay(PlayerController::Event::PlaybackEnd);
+
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
     QCOMPARE(libraryService.requestedSeriesIds.first(), QStringLiteral("series-1"));
+    QVERIFY(controller.m_shouldAutoplay);
+    QVERIFY(controller.m_waitingForNextEpisodeAtPlaybackEnd);
+    QCOMPARE(controller.m_pendingAutoplayItemId, QStringLiteral("item-1"));
+    QCOMPARE(controller.m_pendingAutoplaySeriesId, QStringLiteral("series-1"));
 
-    QVERIFY(QMetaObject::invokeMethod(&controller,
-                                      "onItemMarkedPlayed",
-                                      Qt::DirectConnection,
-                                      Q_ARG(QString, QStringLiteral("different-item"))));
+    controller.m_hasEvaluatedCompletionForAttempt = true;
+    controller.handlePlaybackStopAndAutoplay(PlayerController::Event::PlaybackEnd);
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
 }
 
@@ -181,6 +185,7 @@ void PlayerControllerAutoplayContextTest::nextEpisodeNavigationUsesPendingTrackC
                                 &authService);
 
     controller.m_shouldAutoplay = true;
+    controller.m_waitingForNextEpisodeAtPlaybackEnd = true;
     controller.m_pendingAutoplayItemId = QStringLiteral("item-1");
     controller.m_pendingAutoplaySeriesId = QStringLiteral("series-1");
     controller.m_pendingAutoplayAudioTrack = 3;
@@ -201,6 +206,7 @@ void PlayerControllerAutoplayContextTest::nextEpisodeNavigationUsesPendingTrackC
                                       Qt::DirectConnection,
                                       Q_ARG(QString, QStringLiteral("series-1")),
                                       Q_ARG(QJsonObject, episodeData)));
+    QCoreApplication::processEvents();
 
     QCOMPARE(navigationSpy.count(), 1);
     const QList<QVariant> signalArgs = navigationSpy.takeFirst();
@@ -209,10 +215,11 @@ void PlayerControllerAutoplayContextTest::nextEpisodeNavigationUsesPendingTrackC
     QCOMPARE(signalArgs.at(3).toInt(), 6);
 
     QVERIFY(!controller.m_shouldAutoplay);
-    QCOMPARE(controller.m_pendingAutoplayItemId, QString());
-    QCOMPARE(controller.m_pendingAutoplaySeriesId, QString());
-    QCOMPARE(controller.m_pendingAutoplayAudioTrack, -1);
-    QCOMPARE(controller.m_pendingAutoplaySubtitleTrack, -1);
+    // Pending autoplay context is intentionally kept until playNextEpisode() consumes it.
+    QCOMPARE(controller.m_pendingAutoplayItemId, QStringLiteral("item-1"));
+    QCOMPARE(controller.m_pendingAutoplaySeriesId, QStringLiteral("series-1"));
+    QCOMPARE(controller.m_pendingAutoplayAudioTrack, 3);
+    QCOMPARE(controller.m_pendingAutoplaySubtitleTrack, 6);
 }
 
 void PlayerControllerAutoplayContextTest::nextEpisodeIgnoresMismatchedSeries()
@@ -235,6 +242,7 @@ void PlayerControllerAutoplayContextTest::nextEpisodeIgnoresMismatchedSeries()
                                 &authService);
 
     controller.m_shouldAutoplay = true;
+    controller.m_waitingForNextEpisodeAtPlaybackEnd = true;
     controller.m_pendingAutoplayItemId = QStringLiteral("item-1");
     controller.m_pendingAutoplaySeriesId = QStringLiteral("series-1");
     controller.m_pendingAutoplayAudioTrack = 4;
@@ -255,6 +263,7 @@ void PlayerControllerAutoplayContextTest::nextEpisodeIgnoresMismatchedSeries()
                                       Qt::DirectConnection,
                                       Q_ARG(QString, QStringLiteral("series-other")),
                                       Q_ARG(QJsonObject, episodeData)));
+    QCoreApplication::processEvents();
 
     QCOMPARE(navigationSpy.count(), 0);
     QVERIFY(controller.m_shouldAutoplay);

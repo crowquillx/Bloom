@@ -9,6 +9,37 @@
 
 Q_LOGGING_CATEGORY(playbackService, "bloom.playback")
 
+namespace {
+QJsonObject buildPlaybackPayload(const QString &itemId, qint64 positionTicks,
+                                 const QString &mediaSourceId,
+                                 int audioStreamIndex, int subtitleStreamIndex,
+                                 const QString &playSessionId,
+                                 bool canSeek, bool isPaused, bool isMuted,
+                                 const QString &playMethod,
+                                 const QString &repeatMode,
+                                 const QString &playbackOrder)
+{
+    QJsonObject json;
+    json["ItemId"] = itemId;
+    if (positionTicks >= 0) {
+        json["PositionTicks"] = positionTicks;
+    }
+    json["CanSeek"] = canSeek;
+    json["IsPaused"] = isPaused;
+    json["IsMuted"] = isMuted;
+    json["PlayMethod"] = playMethod.isEmpty() ? QStringLiteral("DirectPlay") : playMethod;
+    json["RepeatMode"] = repeatMode.isEmpty() ? QStringLiteral("RepeatNone") : repeatMode;
+    json["PlaybackOrder"] = playbackOrder.isEmpty() ? QStringLiteral("Default") : playbackOrder;
+
+    if (!mediaSourceId.isEmpty()) json["MediaSourceId"] = mediaSourceId;
+    if (audioStreamIndex >= 0) json["AudioStreamIndex"] = audioStreamIndex;
+    if (subtitleStreamIndex >= 0) json["SubtitleStreamIndex"] = subtitleStreamIndex;
+    if (!playSessionId.isEmpty()) json["PlaySessionId"] = playSessionId;
+
+    return json;
+}
+}
+
 PlaybackService::PlaybackService(AuthenticationService *authService, QObject *parent)
     : QObject(parent)
     , m_authService(authService)
@@ -328,8 +359,12 @@ QString PlaybackService::getTrickplayTileUrl(const QString &itemId, int width, i
 // ============================================================================
 
 void PlaybackService::reportPlaybackStart(const QString &itemId, const QString &mediaSourceId,
-                                           int audioStreamIndex, int subtitleStreamIndex,
-                                           const QString &playSessionId)
+                                          int audioStreamIndex, int subtitleStreamIndex,
+                                          const QString &playSessionId,
+                                          bool canSeek, bool isPaused, bool isMuted,
+                                          const QString &playMethod,
+                                          const QString &repeatMode,
+                                          const QString &playbackOrder)
 {
     if (!m_authService->isAuthenticated()) return;
 
@@ -338,14 +373,11 @@ void PlaybackService::reportPlaybackStart(const QString &itemId, const QString &
                              << "audioIndex:" << audioStreamIndex
                              << "subtitleIndex:" << subtitleStreamIndex;
 
-    QJsonObject json;
-    json["ItemId"] = itemId;
-    
-    if (!mediaSourceId.isEmpty()) json["MediaSourceId"] = mediaSourceId;
-    if (audioStreamIndex >= 0) json["AudioStreamIndex"] = audioStreamIndex;
-    if (subtitleStreamIndex >= 0) json["SubtitleStreamIndex"] = subtitleStreamIndex;
-    if (!playSessionId.isEmpty()) json["PlaySessionId"] = playSessionId;
-    json["PlayMethod"] = "DirectPlay";
+    QJsonObject json = buildPlaybackPayload(itemId, -1, mediaSourceId,
+                                            audioStreamIndex, subtitleStreamIndex,
+                                            playSessionId,
+                                            canSeek, isPaused, isMuted,
+                                            playMethod, repeatMode, playbackOrder);
     
     QNetworkRequest request = m_authService->createRequest("/Sessions/Playing");
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -364,22 +396,23 @@ void PlaybackService::reportPlaybackStart(const QString &itemId, const QString &
 void PlaybackService::reportPlaybackProgress(const QString &itemId, qint64 positionTicks,
                                               const QString &mediaSourceId,
                                               int audioStreamIndex, int subtitleStreamIndex,
-                                              const QString &playSessionId)
+                                              const QString &playSessionId,
+                                              bool canSeek, bool isPaused, bool isMuted,
+                                              const QString &playMethod,
+                                              const QString &repeatMode,
+                                              const QString &playbackOrder)
 {
     if (!m_authService->isAuthenticated()) return;
 
     qCDebug(playbackService) << "Reporting playback progress for item:" << itemId 
                              << "position:" << positionTicks;
 
-    QJsonObject json;
-    json["ItemId"] = itemId;
-    json["PositionTicks"] = positionTicks;
+    QJsonObject json = buildPlaybackPayload(itemId, positionTicks, mediaSourceId,
+                                            audioStreamIndex, subtitleStreamIndex,
+                                            playSessionId,
+                                            canSeek, isPaused, isMuted,
+                                            playMethod, repeatMode, playbackOrder);
     json["EventName"] = "TimeUpdate";
-    
-    if (!mediaSourceId.isEmpty()) json["MediaSourceId"] = mediaSourceId;
-    if (audioStreamIndex >= 0) json["AudioStreamIndex"] = audioStreamIndex;
-    if (subtitleStreamIndex >= 0) json["SubtitleStreamIndex"] = subtitleStreamIndex;
-    if (!playSessionId.isEmpty()) json["PlaySessionId"] = playSessionId;
     
     QNetworkRequest request = m_authService->createRequest("/Sessions/Playing/Progress");
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -398,23 +431,23 @@ void PlaybackService::reportPlaybackProgress(const QString &itemId, qint64 posit
 void PlaybackService::reportPlaybackPaused(const QString &itemId, qint64 positionTicks,
                                             const QString &mediaSourceId,
                                             int audioStreamIndex, int subtitleStreamIndex,
-                                            const QString &playSessionId)
+                                            const QString &playSessionId,
+                                            bool canSeek, bool isMuted,
+                                            const QString &playMethod,
+                                            const QString &repeatMode,
+                                            const QString &playbackOrder)
 {
     if (!m_authService->isAuthenticated()) return;
 
     qCDebug(playbackService) << "Reporting playback paused for item:" << itemId 
                              << "position:" << positionTicks;
 
-    QJsonObject json;
-    json["ItemId"] = itemId;
-    json["PositionTicks"] = positionTicks;
+    QJsonObject json = buildPlaybackPayload(itemId, positionTicks, mediaSourceId,
+                                            audioStreamIndex, subtitleStreamIndex,
+                                            playSessionId,
+                                            canSeek, true, isMuted,
+                                            playMethod, repeatMode, playbackOrder);
     json["EventName"] = "Pause";
-    json["IsPaused"] = true;
-    
-    if (!mediaSourceId.isEmpty()) json["MediaSourceId"] = mediaSourceId;
-    if (audioStreamIndex >= 0) json["AudioStreamIndex"] = audioStreamIndex;
-    if (subtitleStreamIndex >= 0) json["SubtitleStreamIndex"] = subtitleStreamIndex;
-    if (!playSessionId.isEmpty()) json["PlaySessionId"] = playSessionId;
     
     QNetworkRequest request = m_authService->createRequest("/Sessions/Playing/Progress");
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -433,23 +466,23 @@ void PlaybackService::reportPlaybackPaused(const QString &itemId, qint64 positio
 void PlaybackService::reportPlaybackResumed(const QString &itemId, qint64 positionTicks,
                                              const QString &mediaSourceId,
                                              int audioStreamIndex, int subtitleStreamIndex,
-                                             const QString &playSessionId)
+                                             const QString &playSessionId,
+                                             bool canSeek, bool isMuted,
+                                             const QString &playMethod,
+                                             const QString &repeatMode,
+                                             const QString &playbackOrder)
 {
     if (!m_authService->isAuthenticated()) return;
 
     qCDebug(playbackService) << "Reporting playback resumed for item:" << itemId 
                              << "position:" << positionTicks;
 
-    QJsonObject json;
-    json["ItemId"] = itemId;
-    json["PositionTicks"] = positionTicks;
+    QJsonObject json = buildPlaybackPayload(itemId, positionTicks, mediaSourceId,
+                                            audioStreamIndex, subtitleStreamIndex,
+                                            playSessionId,
+                                            canSeek, false, isMuted,
+                                            playMethod, repeatMode, playbackOrder);
     json["EventName"] = "Unpause";
-    json["IsPaused"] = false;
-    
-    if (!mediaSourceId.isEmpty()) json["MediaSourceId"] = mediaSourceId;
-    if (audioStreamIndex >= 0) json["AudioStreamIndex"] = audioStreamIndex;
-    if (subtitleStreamIndex >= 0) json["SubtitleStreamIndex"] = subtitleStreamIndex;
-    if (!playSessionId.isEmpty()) json["PlaySessionId"] = playSessionId;
     
     QNetworkRequest request = m_authService->createRequest("/Sessions/Playing/Progress");
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
@@ -468,22 +501,23 @@ void PlaybackService::reportPlaybackResumed(const QString &itemId, qint64 positi
 void PlaybackService::reportPlaybackStopped(const QString &itemId, qint64 positionTicks,
                                              const QString &mediaSourceId,
                                              int audioStreamIndex, int subtitleStreamIndex,
-                                             const QString &playSessionId)
+                                             const QString &playSessionId,
+                                             bool canSeek, bool isPaused, bool isMuted,
+                                             const QString &playMethod,
+                                             const QString &repeatMode,
+                                             const QString &playbackOrder)
 {
     if (!m_authService->isAuthenticated()) return;
 
     qCDebug(playbackService) << "Reporting playback stopped for item:" << itemId 
                              << "position:" << positionTicks;
 
-    QJsonObject json;
-    json["ItemId"] = itemId;
-    json["PositionTicks"] = positionTicks;
+    QJsonObject json = buildPlaybackPayload(itemId, positionTicks, mediaSourceId,
+                                            audioStreamIndex, subtitleStreamIndex,
+                                            playSessionId,
+                                            canSeek, isPaused, isMuted,
+                                            playMethod, repeatMode, playbackOrder);
     json["EventName"] = "Stop";
-    
-    if (!mediaSourceId.isEmpty()) json["MediaSourceId"] = mediaSourceId;
-    if (audioStreamIndex >= 0) json["AudioStreamIndex"] = audioStreamIndex;
-    if (subtitleStreamIndex >= 0) json["SubtitleStreamIndex"] = subtitleStreamIndex;
-    if (!playSessionId.isEmpty()) json["PlaySessionId"] = playSessionId;
     
     QNetworkRequest request = m_authService->createRequest("/Sessions/Playing/Stopped");
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
