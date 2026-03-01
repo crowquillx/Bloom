@@ -117,6 +117,7 @@ class PlayerControllerAutoplayContextTest : public QObject
 
 private slots:
     void thresholdMetRequestsNextEpisodeDirectly();
+    void userStopPastThresholdRequestsNextEpisode();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
     void embeddedVideoShrinkToggleEmitsAndPersists();
@@ -163,6 +164,42 @@ void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectl
     controller.m_hasEvaluatedCompletionForAttempt = true;
     controller.handlePlaybackStopAndAutoplay(PlayerController::Event::PlaybackEnd);
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
+}
+
+void PlayerControllerAutoplayContextTest::userStopPastThresholdRequestsNextEpisode()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(false);
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 95.0;
+    controller.m_playbackState = PlayerController::Playing;
+
+    controller.stop();
+
+    QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
+    QCOMPARE(libraryService.requestedSeriesIds.first(), QStringLiteral("series-1"));
+    QVERIFY(controller.m_shouldAutoplay);
+    QVERIFY(controller.m_waitingForNextEpisodeAtPlaybackEnd);
+    QCOMPARE(controller.m_pendingAutoplayItemId, QStringLiteral("item-1"));
+    QCOMPARE(controller.m_pendingAutoplaySeriesId, QStringLiteral("series-1"));
 }
 
 void PlayerControllerAutoplayContextTest::nextEpisodeNavigationUsesPendingTrackContext()
