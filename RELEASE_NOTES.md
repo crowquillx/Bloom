@@ -1,14 +1,22 @@
-## What's Changed in v0.4.1
+## What's Changed in v0.4.2
 
 ### New Features
 
-- **ui**: add wheel step scrolling to remaining scrollable views
-- **ui**: add shared wheel step scroller for pointer input
-- update app configuration with new playback and UI settings
+- **playback**: rely on server watched-state and enrich playstate reports
 
 ### Bug Fixes
 
-- **library**: stabilize grid scroll and focused-card edge clipping
-- simplify git tag command in bump-version scripts
+- **player**: trigger Up Next on thresholded manual stop
+- **player**: guard next-episode loopback and parse play method URL
+- **player**: reset seek-progress latch and classify direct stream
+- **player**: report progress after seek position update
 
-**Full changelog:** [v0.4.0...v0.4.1](https://github.com/crowquillx/Bloom/compare/v0.4.0...v0.4.1)
+### Refactoring
+
+- **player**: share completion threshold predicate
+
+### Documentation
+
+- **playback**: clarify threshold and reporting behavior
+
+**Full changelog:** [v0.4.1...v0.4.2](https://github.com/crowquillx/Bloom/compare/v0.4.1...v0.4.2)
