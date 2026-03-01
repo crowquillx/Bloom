@@ -1290,12 +1290,7 @@ void PlayerController::stop()
 {
     qDebug() << "PlayerController: stop requested";
 
-    bool wouldMeetThreshold = !m_hasEvaluatedCompletionForAttempt
-                              && !m_currentItemId.isEmpty()
-                              && m_duration > 0
-                              && !m_currentSeriesId.isEmpty()
-                              && ((m_currentPosition / m_duration) * 100.0)
-                                 >= m_config->getPlaybackCompletionThreshold();
+    const bool wouldMeetThreshold = wouldMeetCompletionThreshold();
 
     if (wouldMeetThreshold) {
         handlePlaybackStopAndAutoplay(Event::Stop);
@@ -1933,6 +1928,16 @@ void PlayerController::checkCompletionThreshold()
     checkCompletionThresholdAndAutoplay();
 }
 
+bool PlayerController::wouldMeetCompletionThreshold() const
+{
+    return !m_hasEvaluatedCompletionForAttempt
+           && !m_currentItemId.isEmpty()
+           && m_duration > 0
+           && !m_currentSeriesId.isEmpty()
+           && ((m_currentPosition / m_duration) * 100.0)
+                  >= m_config->getPlaybackCompletionThreshold();
+}
+
 /**
  * @brief Evaluate whether the current playback has met the configured completion threshold.
  *
@@ -1949,12 +1954,12 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
         return false;
     }
     if (m_currentItemId.isEmpty() || m_duration <= 0) return false;
+    const bool thresholdMet = wouldMeetCompletionThreshold();
     m_hasEvaluatedCompletionForAttempt = true;
-    
-    double percentage = (m_currentPosition / m_duration) * 100.0;
-    int threshold = m_config->getPlaybackCompletionThreshold();
-    
-    if (percentage >= threshold) {
+
+    if (thresholdMet) {
+        const double percentage = (m_currentPosition / m_duration) * 100.0;
+        const int threshold = m_config->getPlaybackCompletionThreshold();
         qDebug() << "PlayerController: Completion threshold met for item" << m_currentItemId
                  << "(" << percentage << "% >= " << threshold << "% threshold)";
         return true;  // Threshold met - eligible for autoplay
