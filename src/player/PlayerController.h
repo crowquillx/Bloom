@@ -322,9 +322,6 @@ private slots:
     void onPlaybackEnded();
     void onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
     
-    // Item marked as played handler
-    void onItemMarkedPlayed(const QString &itemId);
-    
     // Timeout handlers
     void onLoadingTimeout();
     void onBufferingTimeout();
@@ -371,6 +368,7 @@ private:
     void setBufferingProgress(int progress);
     void reportPlaybackStart();
     void reportPlaybackProgress();
+    void reportPlaybackProgressNow();
     void reportPlaybackStop();
     void checkCompletionThreshold();
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
@@ -494,6 +492,7 @@ private:
      * @returns A QString representation of `event`.
      */
     static QString eventToString(Event event);
+    static QString inferPlayMethod(const QString &url);
 
     IPlayerBackend *m_playerBackend;
     std::unique_ptr<IPlayerBackend> m_ownedBackend;
@@ -539,6 +538,7 @@ private:
     double m_duration = 0;
     bool m_hasReportedStart = false;
     double m_seekTargetWhileBuffering = -1;
+    bool m_reportProgressOnNextPositionUpdate = false;
     qint64 m_startPositionTicks = 0;  // Resume position in Jellyfin ticks
     bool m_shouldAutoplay = false;  // Flag to trigger autoplay on next episode loaded
     // QML-visible/property-facing flag for waiting on next-episode resolution callbacks.
@@ -603,6 +603,7 @@ private:
     bool m_embeddedVideoShrinkEnabled = false;
     int m_volume = 100;
     bool m_muted = false;
+    QString m_playMethod = QStringLiteral("DirectPlay");
     bool m_attemptedLinuxEmbeddedFallback = false;
     QString m_overlayTitle;
     QString m_overlaySubtitle;

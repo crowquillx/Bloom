@@ -69,7 +69,7 @@ Linux embedded backend details (experimental)
   - automatic software-render fallback (`MPV_RENDER_API_TYPE_SW`) when OpenGL embedded rendering repeatedly reports an invalid framebuffer target on Linux runtime stacks.
 - Remaining work: Linux target runtime validation matrix and any follow-up fixes from on-device testing.
 - Current Linux support status: embedded path is not yet considered fully supported across compositor/driver combinations; treat `external-mpv-ipc` as the stable production path while Linux embedded validation continues.
-- Controller parity hardening now preserves next-up/autoplay context across playback teardown, so async `itemMarkedPlayed`/`nextUnplayedEpisode` flows keep the expected series/item/track state.
+- Controller parity hardening now preserves next-up/autoplay context across playback teardown, so next-episode prefetch/lookup flows keep the expected series/item/track state.
 - Unit regression coverage now includes the mismatched-series guard for async next-episode callbacks to prevent stale-series autoplay context from being consumed.
 
 Key components
@@ -164,7 +164,7 @@ Playback Reporting
 - Use `POST /Sessions/Playing` when playback begins (includes track selection).
 - Periodic progress: `POST /Sessions/Playing/Progress` (throttled, e.g., every 10s) to update resume position and track state.
 - Stop: `POST /Sessions/Playing/Stopped` when playback ends.
-- Mark Watched: when the playback position reaches a configurable threshold (default 90%), call the watch/mark endpoint.
+- Completion threshold (default 90%) is used for client-side autoplay/next-up decisions only; Bloom no longer auto-calls the watch/mark endpoint at threshold.
 
 Important design notes
 - Avoid heavy UI work during playback or IPC handling on main thread.
