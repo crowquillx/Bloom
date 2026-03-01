@@ -1275,13 +1275,13 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
 }
 
 /**
- * @brief Stops current playback and clears autoplay/prefetch state.
+ * @brief Stops current playback.
  *
- * Clears any pending autoplay context and next-episode prefetch data, disables
- * automatic autoplay for the current session, reports playback stop and checks
- * the completion threshold for the current item, and instructs the player
- * backend to stop playback. If the controller is not already in Idle or Error
- * state, processes a Stop event to transition the playback state machine.
+ * If the current playback position has reached the configured completion
+ * threshold for a series episode, routes through handlePlaybackStopAndAutoplay()
+ * so the Up Next flow is shown (same behavior as natural playback end).
+ * Otherwise clears autoplay/prefetch state and transitions to Idle without
+ * requesting next-episode navigation.
  *
  * Note: some backends may emit a synchronous state change when stopped; that
  * may already transition the controller to Idle via onProcessStateChanged.
@@ -1290,18 +1290,25 @@ void PlayerController::stop()
 {
     qDebug() << "PlayerController: stop requested";
 
-    clearPendingAutoplayContext();
-    clearNextEpisodePrefetchState();
-    m_shouldAutoplay = false;
-    
-    reportPlaybackStop();
-    checkCompletionThreshold();
-    
-    m_playerBackend->stopMpv();
-    // Some backends emit stateChanged(false) synchronously from stopMpv(), which
-    // can already transition us to Idle via onProcessStateChanged().
-    if (m_playbackState != Idle && m_playbackState != Error) {
-        processEvent(Event::Stop);
+    const bool wouldMeetThreshold = wouldMeetCompletionThreshold();
+
+    if (wouldMeetThreshold) {
+        handlePlaybackStopAndAutoplay(Event::Stop);
+        m_playerBackend->stopMpv();
+    } else {
+        clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
+        m_shouldAutoplay = false;
+
+        reportPlaybackStop();
+        checkCompletionThreshold();
+
+        m_playerBackend->stopMpv();
+        // Some backends emit stateChanged(false) synchronously from stopMpv(), which
+        // can already transition us to Idle via onProcessStateChanged().
+        if (m_playbackState != Idle && m_playbackState != Error) {
+            processEvent(Event::Stop);
+        }
     }
 }
 
@@ -1921,6 +1928,16 @@ void PlayerController::checkCompletionThreshold()
     checkCompletionThresholdAndAutoplay();
 }
 
+bool PlayerController::wouldMeetCompletionThreshold() const
+{
+    return !m_hasEvaluatedCompletionForAttempt
+           && !m_currentItemId.isEmpty()
+           && m_duration > 0
+           && !m_currentSeriesId.isEmpty()
+           && ((m_currentPosition / m_duration) * 100.0)
+                  >= m_config->getPlaybackCompletionThreshold();
+}
+
 /**
  * @brief Evaluate whether the current playback has met the configured completion threshold.
  *
@@ -1937,12 +1954,12 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
         return false;
     }
     if (m_currentItemId.isEmpty() || m_duration <= 0) return false;
+    const bool thresholdMet = wouldMeetCompletionThreshold();
     m_hasEvaluatedCompletionForAttempt = true;
-    
-    double percentage = (m_currentPosition / m_duration) * 100.0;
-    int threshold = m_config->getPlaybackCompletionThreshold();
-    
-    if (percentage >= threshold) {
+
+    if (thresholdMet) {
+        const double percentage = (m_currentPosition / m_duration) * 100.0;
+        const int threshold = m_config->getPlaybackCompletionThreshold();
         qDebug() << "PlayerController: Completion threshold met for item" << m_currentItemId
                  << "(" << percentage << "% >= " << threshold << "% threshold)";
         return true;  // Threshold met - eligible for autoplay

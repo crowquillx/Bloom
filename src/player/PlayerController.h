@@ -370,6 +370,7 @@ private:
     void reportPlaybackProgress();
     void reportPlaybackProgressNow();
     void reportPlaybackStop();
+    bool wouldMeetCompletionThreshold() const;
     void checkCompletionThreshold();
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
     void handlePlaybackStopAndAutoplay(Event stopEvent);
