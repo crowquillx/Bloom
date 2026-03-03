@@ -81,6 +81,16 @@ FocusScope {
     
     property bool overviewExpanded: false
     onSelectedEpisodeIdChanged: overviewExpanded = false
+
+    // Guard initial episode focusing/selection so async reloads do not override user input.
+    property bool initialEpisodeSelectionPending: true
+    property bool userHasInteracted: false
+    property bool suppressInteractionTracking: false
+
+    function resetInitialSelectionState() {
+        initialEpisodeSelectionPending = true
+        userHasInteracted = false
+    }
     
     // Playback info storage - keeps the last loaded playback info
     property var lastLoadedPlaybackInfo: null
@@ -174,6 +184,7 @@ FocusScope {
     
     // Load series details and initial season
     Component.onCompleted: {
+        resetInitialSelectionState()
         if (seriesId !== "" && SeriesDetailsViewModel.seriesId !== seriesId) {
             console.log("[SeriesSeasonEpisodeView] Loading series details needed:", seriesId)
             SeriesDetailsViewModel.loadSeriesDetails(seriesId)
@@ -185,16 +196,25 @@ FocusScope {
     
     onInitialSeasonIdChanged: {
         if (initialSeasonId !== "") {
+            resetInitialSelectionState()
             console.log("[SeriesSeasonEpisodeView] Loading initial season:", initialSeasonId)
             SeriesDetailsViewModel.loadSeasonEpisodes(initialSeasonId)
         }
+    }
+
+    onInitialEpisodeIdChanged: {
+        resetInitialSelectionState()
     }
     
     // When episodes are loaded, find next-up/partially-watched episode
     Connections {
         target: SeriesDetailsViewModel
         function onEpisodesLoaded() {
-            Qt.callLater(selectInitialEpisode)
+            Qt.callLater(function() {
+                if (initialEpisodeSelectionPending && !userHasInteracted) {
+                    selectInitialEpisode()
+                }
+            })
         }
     }
     
@@ -239,9 +259,12 @@ FocusScope {
         }
         
         console.log("[SeriesSeasonEpisodeView] Setting currentIndex to:", targetIndex)
+        suppressInteractionTracking = true
         episodesList.currentIndex = targetIndex
+        suppressInteractionTracking = false
         episodesList.positionViewAtIndex(targetIndex, ListView.Center)
         updateSelectedEpisode(targetIndex)
+        initialEpisodeSelectionPending = false
         
         // Don't request playback info on initial load - only request when user presses play
         
@@ -1011,6 +1034,9 @@ FocusScope {
             
             onCurrentIndexChanged: {
                 if (currentIndex >= 0 && currentIndex < count) {
+                    if (!suppressInteractionTracking && activeFocus) {
+                        userHasInteracted = true
+                    }
                     updateSelectedEpisode(currentIndex)
                     // Preload playback info for track selector and immediate playback
                     // Using debounce timer to avoid excessive API calls when rapidly navigating
@@ -1157,6 +1183,7 @@ FocusScope {
                 }
                 
                 onClicked: {
+                    userHasInteracted = true
                     episodesList.currentIndex = index
                     episodesList.forceActiveFocus()
                 }
@@ -1166,6 +1193,7 @@ FocusScope {
                         event.accepted = true
                         return
                     }
+                    userHasInteracted = true
                     episodesList.currentIndex = index
                     startPlayback(false)
                     event.accepted = true
@@ -1175,6 +1203,7 @@ FocusScope {
                         event.accepted = true
                         return
                     }
+                    userHasInteracted = true
                     episodesList.currentIndex = index
                     startPlayback(false)
                     event.accepted = true

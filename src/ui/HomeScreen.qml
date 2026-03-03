@@ -1370,6 +1370,11 @@ FocusScope {
     }
     
     function handleNextUpSelection(item) {
+        if (root.StackView.status !== StackView.Active) {
+            console.log("[Home] Ignoring Next Up selection while screen is not active")
+            return
+        }
+
         console.log("[Home] Next Up selected: " + item.Name + " - navigating to episode details")
         
         // Save focus state before navigating
