@@ -413,6 +413,7 @@ void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoUsesStoredSubtitle
 
     controller.m_pendingAutoplaySeriesId = QStringLiteral("series-11");
     controller.m_pendingAutoplaySeasonId = QStringLiteral("season-target");
+    controller.m_pendingAutoplayLibraryId = QStringLiteral("library-11");
     controller.m_pendingAutoplayAudioTrack = 4;
     controller.m_pendingAutoplaySubtitleTrack = -1;
     controller.m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
@@ -439,6 +440,8 @@ void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoUsesStoredSubtitle
                                       Q_ARG(PlaybackInfoResponse, playbackInfo)));
 
     QVERIFY(!controller.m_waitingForAutoplayPlaybackInfo);
+    QCOMPARE(controller.m_currentSeriesId, QStringLiteral("series-11"));
+    QCOMPARE(controller.m_currentLibraryId, QStringLiteral("library-11"));
     QCOMPARE(controller.selectedSubtitleTrack(), 12);
     QCOMPARE(controller.m_mediaSourceId, QStringLiteral("media-source-11"));
     QCOMPARE(controller.m_playSessionId, QStringLiteral("play-session-11"));

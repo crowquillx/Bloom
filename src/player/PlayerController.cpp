@@ -1117,13 +1117,15 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
                                                                        mediaSourceId,
                                                                        resolved.audioIndex,
                                                                        resolved.subtitleIndex);
+    const QString seriesId = m_pendingAutoplaySeriesId;
+    const QString libraryId = m_pendingAutoplayLibraryId;
 
     playUrlWithTracks(streamUrl,
                       itemId,
                       startPositionTicks,
-                      m_pendingAutoplaySeriesId,
+                      seriesId,
                       targetSeasonId,
-                      m_pendingAutoplayLibraryId,
+                      libraryId,
                       mediaSourceId,
                       playbackInfo.playSessionId,
                       mediaSource,
