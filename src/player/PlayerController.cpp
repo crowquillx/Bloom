@@ -580,7 +580,7 @@ void PlayerController::onEnterIdleState()
     m_applyingInitialTracks = false;
     m_pendingAudioTrackPersistenceFromBackend = false;
     m_pendingSubtitleTrackPersistenceFromBackend = false;
-    m_waitingForAutoplayPlaybackInfo = false;
+    stopAutoplayPlaybackInfoWait();
     m_pendingAutoplayEpisodeData = QJsonObject();
     emit selectedAudioTrackChanged();
     emit selectedSubtitleTrackChanged();
@@ -1820,9 +1820,6 @@ int PlayerController::getLastSubtitleTrackForSeason(const QString &seasonId) con
     if (preferences.subtitle.mode == TrackPreferenceMode::ExplicitStream) {
         return preferences.subtitle.streamIndex;
     }
-    if (preferences.subtitle.mode == TrackPreferenceMode::Off) {
-        return -1;
-    }
     return -1;
 }
 
@@ -1849,9 +1846,6 @@ int PlayerController::getLastSubtitleTrackForMovie(const QString &movieId) const
     const ScopedTrackPreferences preferences = m_trackPrefs->getMoviePreferences(movieId);
     if (preferences.subtitle.mode == TrackPreferenceMode::ExplicitStream) {
         return preferences.subtitle.streamIndex;
-    }
-    if (preferences.subtitle.mode == TrackPreferenceMode::Off) {
-        return -1;
     }
     return -1;
 }
