@@ -98,6 +98,8 @@ public:
 
 private:
     static constexpr int kCurrentSchemaVersion = 2;
+    static constexpr int kInitialSaveDelayMs = 1000;
+    static constexpr int kMaxSaveRetryAttempts = 3;
 
     QHash<QString, ScopedTrackPreferences> m_episodePreferences;
     QHash<QString, ScopedTrackPreferences> m_moviePreferences;
@@ -105,7 +107,10 @@ private:
     // Track if we have unsaved changes
     bool m_dirty = false;
     bool m_saveScheduled = false;
+    int m_saveRetryAttempts = 0;
     
     // Delayed save timer to batch multiple changes
     void scheduleSave();
+    void scheduleRetrySave();
+    void scheduleSaveAfter(int delayMs);
 };

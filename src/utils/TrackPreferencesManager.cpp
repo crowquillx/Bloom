@@ -230,16 +230,19 @@ void TrackPreferencesManager::save()
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         qWarning() << "TrackPreferencesManager: Failed to save preferences to" << path;
+        scheduleRetrySave();
         return;
     }
 
     file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     if (!file.commit()) {
         qWarning() << "TrackPreferencesManager: Failed to commit preferences to" << path;
+        scheduleRetrySave();
         return;
     }
 
     m_dirty = false;
+    m_saveRetryAttempts = 0;
     qDebug() << "TrackPreferencesManager: Saved preferences for"
              << m_episodePreferences.size() << "episode scopes and"
              << m_moviePreferences.size() << "movie scopes";
@@ -247,13 +250,35 @@ void TrackPreferencesManager::save()
 
 void TrackPreferencesManager::scheduleSave()
 {
+    m_dirty = true;
+    m_saveRetryAttempts = 0;
     if (m_saveScheduled) {
         return;
     }
 
-    m_dirty = true;
+    scheduleSaveAfter(kInitialSaveDelayMs);
+}
+
+void TrackPreferencesManager::scheduleRetrySave()
+{
+    if (!m_dirty || m_saveScheduled) {
+        return;
+    }
+
+    if (m_saveRetryAttempts >= kMaxSaveRetryAttempts) {
+        qWarning() << "TrackPreferencesManager: Giving up on autosave retries until preferences change again";
+        return;
+    }
+
+    const int delayMs = kInitialSaveDelayMs << m_saveRetryAttempts;
+    ++m_saveRetryAttempts;
+    scheduleSaveAfter(delayMs);
+}
+
+void TrackPreferencesManager::scheduleSaveAfter(int delayMs)
+{
     m_saveScheduled = true;
-    QTimer::singleShot(1000, this, [this]() {
+    QTimer::singleShot(delayMs, this, [this]() {
         m_saveScheduled = false;
         if (m_dirty) {
             save();
