@@ -322,7 +322,7 @@ signals:
     /// @param episodeData The JSON object containing the next episode data
     /// @param seriesId The series ID
     /// @param lastAudioIndex The audio track index used in the completed episode
-    /// @param lastSubtitleIndex The subtitle track index used in the completed episode
+    /// @param lastSubtitleIndex The subtitle override to carry forward (`-2` unset, `-1` off, `>=0` explicit stream)
     void navigateToNextEpisode(const QJsonObject &episodeData, const QString &seriesId,
                                 int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
 
@@ -533,6 +533,7 @@ private:
     static QString eventToString(Event event);
     static QString inferPlayMethod(const QString &url);
     void fallbackToPendingAutoplayPlayback();
+    [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex() const;
     void stopAutoplayPlaybackInfoWait();
 
     IPlayerBackend *m_playerBackend;
@@ -601,6 +602,7 @@ private:
     QString m_pendingAutoplayLibraryId;
     int m_pendingAutoplayAudioTrack = -1;
     int m_pendingAutoplaySubtitleTrack = -1;
+    TrackPreferenceMode m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
     double m_pendingAutoplayFramerate = 0.0;
     bool m_pendingAutoplayIsHDR = false;
     

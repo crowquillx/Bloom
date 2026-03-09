@@ -70,6 +70,7 @@ class TrackPreferencesManagerTest : public QObject
 private slots:
     void missingFileLoadsEmptyState();
     void legacySchemaIsDiscarded();
+    void invalidJsonIsDeleted();
     void v2SchemaRoundTripsExplicitAndOffPreferences();
     void saveWritesVersionedPreferencesFile();
 };
@@ -94,7 +95,8 @@ void TrackPreferencesManagerTest::legacySchemaIsDiscarded()
     QVERIFY(tempDir.isValid());
     ScopedConfigHome configHome(tempDir.path());
 
-    writeJsonFile(TrackPreferencesManager::getPreferencesPath(),
+    const QString preferencesPath = TrackPreferencesManager::getPreferencesPath();
+    writeJsonFile(preferencesPath,
                   QJsonObject{
                       {QStringLiteral("season-1"),
                        QJsonObject{
@@ -105,6 +107,26 @@ void TrackPreferencesManagerTest::legacySchemaIsDiscarded()
 
     TrackPreferencesManager manager;
     QVERIFY(manager.getSeasonPreferences(QStringLiteral("season-1")).isEmpty());
+    QVERIFY(!QFileInfo::exists(preferencesPath));
+}
+
+void TrackPreferencesManagerTest::invalidJsonIsDeleted()
+{
+    requireLinuxConfigIsolation();
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigHome configHome(tempDir.path());
+
+    const QString preferencesPath = TrackPreferencesManager::getPreferencesPath();
+    QDir().mkpath(QFileInfo(preferencesPath).dir().absolutePath());
+    QFile file(preferencesPath);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write("{ invalid json");
+    file.close();
+
+    TrackPreferencesManager manager;
+    QVERIFY(manager.getSeasonPreferences(QStringLiteral("season-1")).isEmpty());
+    QVERIFY(!QFileInfo::exists(preferencesPath));
 }
 
 void TrackPreferencesManagerTest::v2SchemaRoundTripsExplicitAndOffPreferences()

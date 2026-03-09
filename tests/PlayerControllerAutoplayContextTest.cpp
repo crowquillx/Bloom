@@ -149,7 +149,9 @@ private slots:
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
     void autoplayPlaybackInfoErrorFallsBackToBasicPlayback();
+    void autoplayPlaybackInfoUsesStoredSubtitlePreferenceWhenOverrideUnset();
     void staleAutoplayPlaybackInfoResponseFallsBackAfterTimeout();
+    void playUrlWithTracksKeepsNewSessionMetadataWhenReplacingPlayback();
     void embeddedVideoShrinkToggleEmitsAndPersists();
     void startupTrackSelectionUsesCanonicalMapWhenUrlNotPinned();
     void startupTrackSelectionRespectsPinnedUrlUnlessUserOverride();
@@ -258,6 +260,7 @@ void PlayerControllerAutoplayContextTest::nextEpisodeNavigationUsesPendingTrackC
     controller.m_pendingAutoplaySeriesId = QStringLiteral("series-1");
     controller.m_pendingAutoplayAudioTrack = 3;
     controller.m_pendingAutoplaySubtitleTrack = 6;
+    controller.m_pendingAutoplaySubtitleMode = TrackPreferenceMode::ExplicitStream;
 
     QSignalSpy navigationSpy(&controller, &PlayerController::navigateToNextEpisode);
 
@@ -385,6 +388,62 @@ void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoErrorFallsBackToBa
     QCOMPARE(controller.m_startPositionTicks, 4200000000LL);
 }
 
+void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoUsesStoredSubtitlePreferenceWhenOverrideUnset()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    ScopedTrackPreferences targetSeasonPreferences;
+    targetSeasonPreferences.subtitle.mode = TrackPreferenceMode::ExplicitStream;
+    targetSeasonPreferences.subtitle.streamIndex = 12;
+    trackPrefs.setSeasonPreferences(QStringLiteral("season-target"), targetSeasonPreferences);
+
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-11");
+    controller.m_pendingAutoplaySeasonId = QStringLiteral("season-target");
+    controller.m_pendingAutoplayAudioTrack = 4;
+    controller.m_pendingAutoplaySubtitleTrack = -1;
+    controller.m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
+    controller.m_pendingAutoplayEpisodeData = QJsonObject{
+        {QStringLiteral("Id"), QStringLiteral("episode-11")},
+        {QStringLiteral("SeasonId"), QStringLiteral("season-target")}
+    };
+    controller.m_waitingForAutoplayPlaybackInfo = true;
+
+    PlaybackInfoResponse playbackInfo;
+    playbackInfo.playSessionId = QStringLiteral("play-session-11");
+    MediaSourceInfo mediaSource;
+    mediaSource.id = QStringLiteral("media-source-11");
+    mediaSource.mediaStreams = {
+        MediaStreamInfo{.index = 4, .type = QStringLiteral("Audio")},
+        MediaStreamInfo{.index = 12, .type = QStringLiteral("Subtitle")}
+    };
+    playbackInfo.mediaSources.append(mediaSource);
+
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onPlaybackInfoLoaded",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("episode-11")),
+                                      Q_ARG(PlaybackInfoResponse, playbackInfo)));
+
+    QVERIFY(!controller.m_waitingForAutoplayPlaybackInfo);
+    QCOMPARE(controller.selectedSubtitleTrack(), 12);
+    QCOMPARE(controller.m_mediaSourceId, QStringLiteral("media-source-11"));
+    QCOMPARE(controller.m_playSessionId, QStringLiteral("play-session-11"));
+}
+
 void PlayerControllerAutoplayContextTest::staleAutoplayPlaybackInfoResponseFallsBackAfterTimeout()
 {
     ConfigManager config;
@@ -427,6 +486,63 @@ void PlayerControllerAutoplayContextTest::staleAutoplayPlaybackInfoResponseFalls
     QCOMPARE(controller.m_currentSeriesId, QStringLiteral("series-10"));
     QCOMPARE(controller.m_currentSeasonId, QStringLiteral("season-10"));
     QCOMPARE(controller.m_pendingUrl, QStringLiteral("https://example.invalid/episode-10"));
+}
+
+void PlayerControllerAutoplayContextTest::playUrlWithTracksKeepsNewSessionMetadataWhenReplacingPlayback()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    backend.startMpv(QString(), QStringList{}, QString());
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("old-item");
+    controller.m_currentSeriesId = QStringLiteral("old-series");
+    controller.m_currentSeasonId = QStringLiteral("old-season");
+    controller.m_currentLibraryId = QStringLiteral("old-library");
+    controller.m_mediaSourceId = QStringLiteral("old-media-source");
+    controller.m_playSessionId = QStringLiteral("old-play-session");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 10.0;
+
+    const QVariantMap mediaSource = buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 3}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 6}}
+    });
+
+    controller.playUrlWithTracks(QStringLiteral("https://example.invalid/new-item"),
+                                 QStringLiteral("new-item"),
+                                 0,
+                                 QStringLiteral("new-series"),
+                                 QStringLiteral("new-season"),
+                                 QStringLiteral("new-library"),
+                                 QStringLiteral("new-media-source"),
+                                 QStringLiteral("new-play-session"),
+                                 mediaSource,
+                                 3,
+                                 6);
+
+    QCOMPARE(controller.m_currentItemId, QStringLiteral("new-item"));
+    QCOMPARE(controller.m_currentSeriesId, QStringLiteral("new-series"));
+    QCOMPARE(controller.m_currentSeasonId, QStringLiteral("new-season"));
+    QCOMPARE(controller.m_currentLibraryId, QStringLiteral("new-library"));
+    QCOMPARE(controller.m_mediaSourceId, QStringLiteral("new-media-source"));
+    QCOMPARE(controller.m_playSessionId, QStringLiteral("new-play-session"));
+    QCOMPARE(controller.selectedAudioTrack(), 3);
+    QCOMPARE(controller.selectedSubtitleTrack(), 6);
+    QCOMPARE(controller.m_activeMediaSource.value(QStringLiteral("id")).toString(), QStringLiteral("media-source-1"));
 }
 
 void PlayerControllerAutoplayContextTest::embeddedVideoShrinkToggleEmitsAndPersists()

@@ -1054,7 +1054,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     // The QML screen will handle autoplay countdown vs manual play
     bool autoplay = m_config->getAutoplayNextEpisode();
     int lastAudioIndex = m_pendingAutoplayAudioTrack;
-    int lastSubtitleIndex = m_pendingAutoplaySubtitleTrack;
+    int lastSubtitleIndex = pendingAutoplaySubtitleOverrideIndex();
     
     qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with autoplay:" 
              << autoplay << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
@@ -1104,10 +1104,11 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
     const QVariantList mediaSources = playbackInfo.getMediaSourcesVariant();
     const QVariantMap mediaSource = mediaSources.isEmpty() ? QVariantMap{} : mediaSources.first().toMap();
     const ScopedTrackPreferences preferences = m_trackPrefs->getSeasonPreferences(targetSeasonId);
+    const int preferredSubtitleIndex = pendingAutoplaySubtitleOverrideIndex();
     const ResolvedTrackSelection resolved = resolveTrackSelection(mediaSource,
                                                                   preferences,
                                                                   m_pendingAutoplayAudioTrack,
-                                                                  m_pendingAutoplaySubtitleTrack);
+                                                                  preferredSubtitleIndex);
 
     const QString mediaSourceId = mediaSource.value(QStringLiteral("id")).toString();
     const QVariantList availableAudioTracks = buildAvailableTrackOptions(mediaSource, QStringLiteral("Audio"));
@@ -1979,6 +1980,15 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
              << "framerate:" << framerate
              << "isHDR:" << isHDR;
 
+    const QVariantList resolvedAvailableAudioTracks = availableAudioTracks.isEmpty()
+        ? buildAvailableTrackOptions(mediaSource, QStringLiteral("Audio"))
+        : availableAudioTracks;
+    const QVariantList resolvedAvailableSubtitleTracks = availableSubtitleTracks.isEmpty()
+        ? buildAvailableTrackOptions(mediaSource, QStringLiteral("Subtitle"))
+        : availableSubtitleTracks;
+
+    playUrl(url, itemId, startPositionTicks, seriesId, seasonId, libraryId, framerate, isHDR);
+
     m_mediaSourceId = mediaSourceId;
     m_playSessionId = playSessionId;
     m_activeMediaSource = mediaSource;
@@ -1988,12 +1998,8 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
     m_selectedSubtitleTrack = subtitleStreamIndex;
     m_mpvAudioTrack = mpvAudioTrackForJellyfinIndex(audioStreamIndex);
     m_mpvSubtitleTrack = subtitleStreamIndex >= 0 ? mpvSubtitleTrackForJellyfinIndex(subtitleStreamIndex) : -1;
-    m_availableAudioTracks = availableAudioTracks.isEmpty()
-        ? buildAvailableTrackOptions(mediaSource, QStringLiteral("Audio"))
-        : availableAudioTracks;
-    m_availableSubtitleTracks = availableSubtitleTracks.isEmpty()
-        ? buildAvailableTrackOptions(mediaSource, QStringLiteral("Subtitle"))
-        : availableSubtitleTracks;
+    m_availableAudioTracks = resolvedAvailableAudioTracks;
+    m_availableSubtitleTracks = resolvedAvailableSubtitleTracks;
 
     qCDebug(lcPlayback) << "Track mapping contract initialized:"
                         << "audioMapEntries=" << m_audioTrackMap.size()
@@ -2008,8 +2014,6 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
     emit selectedAudioTrackChanged();
     emit selectedSubtitleTrackChanged();
     emit availableTracksChanged();
-
-    playUrl(url, itemId, startPositionTicks, seriesId, seasonId, libraryId, framerate, isHDR);
 }
 
 void PlayerController::updateTrackMappings(const QVariantMap &mediaSource)
@@ -2515,7 +2519,7 @@ void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
 
     const bool autoplay = m_config->getAutoplayNextEpisode();
     const int lastAudioIndex = m_pendingAutoplayAudioTrack;
-    const int lastSubtitleIndex = m_pendingAutoplaySubtitleTrack;
+    const int lastSubtitleIndex = pendingAutoplaySubtitleOverrideIndex();
     const QString prefetchedSeriesId = m_prefetchedNextEpisodeSeriesId;
 
     m_shouldAutoplay = false;
@@ -2583,6 +2587,13 @@ void PlayerController::stashPendingAutoplayContext()
     m_pendingAutoplayLibraryId = m_currentLibraryId;
     m_pendingAutoplayAudioTrack = m_selectedAudioTrack;
     m_pendingAutoplaySubtitleTrack = m_selectedSubtitleTrack;
+    if (!m_currentSeasonId.isEmpty()) {
+        m_pendingAutoplaySubtitleMode = m_trackPrefs->getSeasonPreferences(m_currentSeasonId).subtitle.mode;
+    } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
+        m_pendingAutoplaySubtitleMode = m_trackPrefs->getMoviePreferences(m_currentItemId).subtitle.mode;
+    } else {
+        m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
+    }
     m_pendingAutoplayFramerate = m_contentFramerate;
     m_pendingAutoplayIsHDR = m_contentIsHDR;
     setAwaitingNextEpisodeResolution(true);
@@ -2603,10 +2614,24 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplayLibraryId.clear();
     m_pendingAutoplayAudioTrack = -1;
     m_pendingAutoplaySubtitleTrack = -1;
+    m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
     m_pendingAutoplayFramerate = 0.0;
     m_pendingAutoplayIsHDR = false;
     m_pendingAutoplayEpisodeData = QJsonObject();
     setAwaitingNextEpisodeResolution(false);
+}
+
+int PlayerController::pendingAutoplaySubtitleOverrideIndex() const
+{
+    switch (m_pendingAutoplaySubtitleMode) {
+    case TrackPreferenceMode::Off:
+        return -1;
+    case TrackPreferenceMode::ExplicitStream:
+        return m_pendingAutoplaySubtitleTrack;
+    case TrackPreferenceMode::Unset:
+    default:
+        return -2;
+    }
 }
 
 void PlayerController::fallbackToPendingAutoplayPlayback()

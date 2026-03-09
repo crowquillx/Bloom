@@ -161,6 +161,11 @@ void TrackPreferencesManager::load()
 {
     const QString path = getPreferencesPath();
     QFile file(path);
+    const auto discardPersistedPreferences = [&path]() {
+        if (!QFile::remove(path)) {
+            qWarning() << "TrackPreferencesManager: Failed to remove invalid preferences file:" << path;
+        }
+    };
 
     m_episodePreferences.clear();
     m_moviePreferences.clear();
@@ -182,11 +187,13 @@ void TrackPreferencesManager::load()
     if (parseError.error != QJsonParseError::NoError) {
         qWarning() << "TrackPreferencesManager: JSON parse error:" << parseError.errorString()
                    << "- clearing saved track preferences";
+        discardPersistedPreferences();
         return;
     }
 
     if (!document.isObject()) {
         qWarning() << "TrackPreferencesManager: Invalid preferences format - clearing saved track preferences";
+        discardPersistedPreferences();
         return;
     }
 
@@ -195,6 +202,7 @@ void TrackPreferencesManager::load()
     if (version != kCurrentSchemaVersion) {
         qWarning() << "TrackPreferencesManager: Resetting legacy track preferences schema version"
                    << version << "expected" << kCurrentSchemaVersion;
+        discardPersistedPreferences();
         return;
     }
 
