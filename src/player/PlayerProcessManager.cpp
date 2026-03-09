@@ -268,19 +268,18 @@ void PlayerProcessManager::onSocketReadyRead()
                     emit pauseChanged(obj["data"].toBool());
                 }
             } else if (name == "aid") {
-                // mpv track IDs are 1-indexed, convert to 0-indexed for Jellyfin
                 if (!obj["data"].isNull()) {
                     int mpvTrackId = obj["data"].toInt();
-                    emit audioTrackChanged(mpvTrackId > 0 ? mpvTrackId - 1 : -1);
+                    emit audioTrackChanged(mpvTrackId > 0 ? mpvTrackId : -1);
                 }
             } else if (name == "sid") {
-                // mpv track IDs are 1-indexed, convert to 0-indexed for Jellyfin
-                // "no" or false means no subtitles (-1)
                 if (obj["data"].isBool() && !obj["data"].toBool()) {
+                    emit subtitleTrackChanged(-1);
+                } else if (obj["data"].isString() && obj["data"].toString() == QStringLiteral("no")) {
                     emit subtitleTrackChanged(-1);
                 } else if (!obj["data"].isNull() && obj["data"].isDouble()) {
                     int mpvTrackId = obj["data"].toInt();
-                    emit subtitleTrackChanged(mpvTrackId > 0 ? mpvTrackId - 1 : -1);
+                    emit subtitleTrackChanged(mpvTrackId > 0 ? mpvTrackId : -1);
                 }
             } else if (name == "paused-for-cache") {
                 if (!obj["data"].isNull()) {

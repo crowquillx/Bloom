@@ -840,7 +840,7 @@ void WindowsMpvBackend::handlePropertyChange(const QString &name, const QVariant
 
     if (name == QStringLiteral("aid")) {
         const int mpvTrackId = value.toInt();
-        emit audioTrackChanged(mpvTrackId > 0 ? mpvTrackId - 1 : -1);
+        emit audioTrackChanged(mpvTrackId > 0 ? mpvTrackId : -1);
         return;
     }
 
@@ -854,7 +854,7 @@ void WindowsMpvBackend::handlePropertyChange(const QString &name, const QVariant
         }
 
         const int mpvTrackId = value.toInt();
-        emit subtitleTrackChanged(mpvTrackId > 0 ? mpvTrackId - 1 : -1);
+        emit subtitleTrackChanged(mpvTrackId > 0 ? mpvTrackId : -1);
         return;
     }
 

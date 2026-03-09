@@ -13,6 +13,7 @@ C++ conventions
 - PascalCase class names, camelCase method names, `m_` prefix for member variables.
 - Prefer smart pointers and use `QObject` parent ownership where appropriate.
 - Use `Q_PROPERTY` for values that will be bound in QML; emit change signals on setter change.
+- Keep playback/track-selection policy in C++ where possible. QML should render available options and forward explicit user intent, not duplicate track mapping or default-resolution logic.
 
 ViewModels & Models
 - Use `QAbstractListModel` for heavy lists and expose roles via `roleNames()`.

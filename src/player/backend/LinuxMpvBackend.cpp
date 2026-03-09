@@ -741,13 +741,20 @@ void LinuxMpvBackend::handlePropertyChange(const QString &name, const QVariant &
 
     if (name == QStringLiteral("aid")) {
         const int mpvTrackId = value.toInt();
-        emit audioTrackChanged(mpvTrackId > 0 ? mpvTrackId - 1 : -1);
+        emit audioTrackChanged(mpvTrackId > 0 ? mpvTrackId : -1);
         return;
     }
 
     if (name == QStringLiteral("sid")) {
+        if (value.typeId() == QMetaType::QString) {
+            const QString sidValue = value.toString().trimmed().toLower();
+            if (sidValue == QStringLiteral("no") || sidValue == QStringLiteral("none")) {
+                emit subtitleTrackChanged(-1);
+                return;
+            }
+        }
         const int mpvTrackId = value.toInt();
-        emit subtitleTrackChanged(mpvTrackId > 0 ? mpvTrackId - 1 : -1);
+        emit subtitleTrackChanged(mpvTrackId > 0 ? mpvTrackId : -1);
         return;
     }
 

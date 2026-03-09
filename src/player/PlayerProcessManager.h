@@ -31,7 +31,7 @@ signals:
     void volumeChanged(int volume);
     void muteChanged(bool muted);
     
-    // Track change notifications (mpv track IDs are 1-indexed, we convert to 0-indexed for Jellyfin)
+    // Track change notifications use raw mpv track IDs (1-based per track type, -1 for none/off).
     void audioTrackChanged(int trackIndex);
     void subtitleTrackChanged(int trackIndex);
     

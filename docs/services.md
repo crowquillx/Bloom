@@ -6,6 +6,7 @@ Overview
 
 Key services
 - `ConfigManager` — Configuration, QML bindings, session persistence.
+- `TrackPreferencesManager` — Versioned persistence for explicit season/movie audio and subtitle preferences.
 - `IPlayerBackend` — Playback backend abstraction registered in `ServiceLocator`.
 - `ExternalMpvBackend` — External mpv process/IPC backend adapter (primary rollback path on Linux/non-Windows).
 - `PlayerProcessManager` — Manages external mpv process & IPC (used by `ExternalMpvBackend`).
@@ -25,11 +26,12 @@ Initialization order (recommended)
 4. LibraryService — depends on AuthenticationService.
 5. PlaybackService — depends on AuthenticationService.
 6. SeerrService — depends on AuthenticationService + ConfigManager.
-7. PlayerController — depends on IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, PlaybackService, LibraryService, AuthenticationService.
-8. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService.
-9. ThemeSongManager — depends on LibraryService, ConfigManager, PlayerController.
-10. InputModeManager — depends on QGuiApplication.
-11. ViewModels — e.g., LibraryViewModel, SeriesDetailsViewModel (depend on LibraryService).
+7. TrackPreferencesManager — no service dependencies; loads versioned track preference state.
+8. PlayerController — depends on IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, PlaybackService, LibraryService, AuthenticationService.
+9. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService.
+10. ThemeSongManager — depends on LibraryService, ConfigManager, PlayerController.
+11. InputModeManager — depends on QGuiApplication.
+12. ViewModels — e.g., LibraryViewModel, SeriesDetailsViewModel (depend on LibraryService).
 
 Usage
 - Register services at main startup using `ServiceLocator::registerService<T>(&instance);`.

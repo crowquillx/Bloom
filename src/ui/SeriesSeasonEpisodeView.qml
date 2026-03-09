@@ -16,16 +16,22 @@ FocusScope {
     property string initialSeasonId: ""  // Season to load on entry
     property int initialSeasonIndex: -1  // Optional: season index to highlight
     property string initialEpisodeId: ""  // Optional: specific episode ID to highlight on load
+    property int pendingAudioTrackIndex: -2
+    property int pendingSubtitleTrackIndex: -2
+    property bool pendingTrackOverrideConsumed: false
+    property bool appliedPendingTrackOverride: false
+    property bool userMadeAudioSelection: false
+    property bool userMadeSubtitleSelection: false
     
     // Signals for navigation and actions
     signal backRequested()
     signal playRequested(string itemId, var startPositionTicks, double framerate, bool isHDR)
     signal playRequestedWithTracks(string itemId, var startPositionTicks, string mediaSourceId, 
-                                    string playSessionId, int audioIndex, int subtitleIndex,
-                                    int mpvAudioTrack, int mpvSubtitleTrack,
-                                    var audioTrackMap, var subtitleTrackMap,
+                                    string playSessionId, var mediaSource,
+                                    int audioIndex, int subtitleIndex,
                                     var availableAudioTracks, var availableSubtitleTracks,
                                     double framerate, bool isHDR)
+    signal autoplayOverridesConsumed()
     
     Connections {
         target: SeriesDetailsViewModel
@@ -90,6 +96,10 @@ FocusScope {
     function resetInitialSelectionState() {
         initialEpisodeSelectionPending = true
         userHasInteracted = false
+        pendingTrackOverrideConsumed = false
+        appliedPendingTrackOverride = false
+        userMadeAudioSelection = false
+        userMadeSubtitleSelection = false
     }
     
     // Playback info storage - keeps the last loaded playback info
@@ -454,61 +464,29 @@ FocusScope {
     
     function applyTrackPreferences() {
         if (!currentMediaSource || !currentMediaSource.mediaStreams) return
-        
-        // Get saved preferences for this season
-        var seasonId = SeriesDetailsViewModel.selectedSeasonId
-        var lastAudio = PlayerController.getLastAudioTrackForSeason(seasonId)
-        var lastSubtitle = PlayerController.getLastSubtitleTrackForSeason(seasonId)
-        
-        console.log("[SeriesSeasonEpisodeView] applyTrackPreferences - seasonId:", seasonId, "lastAudio:", lastAudio, "lastSubtitle:", lastSubtitle)
-        
-        // Find matching streams
-        selectedAudioIndex = -1
-        selectedSubtitleIndex = -1
-        
-        for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
-            var stream = currentMediaSource.mediaStreams[i]
-            if (stream.type === "Audio") {
-                if (selectedAudioIndex < 0 || stream.index === lastAudio) {
-                    selectedAudioIndex = stream.index
-                }
-            }
-            if (stream.type === "Subtitle") {
-                if (stream.index === lastSubtitle) {
-                    selectedSubtitleIndex = stream.index
-                }
-            }
+
+        var preferredAudio = pendingTrackOverrideConsumed ? -2 : pendingAudioTrackIndex
+        var preferredSubtitle = pendingTrackOverrideConsumed ? -2 : pendingSubtitleTrackIndex
+        var hasPendingOverride = preferredAudio >= 0 || preferredSubtitle >= -1
+        var resolved = PlayerController.resolveTrackSelectionForMediaSource(
+                    currentMediaSource,
+                    SeriesDetailsViewModel.selectedSeasonId,
+                    false,
+                    preferredAudio,
+                    preferredSubtitle)
+
+        selectedAudioIndex = resolved.audioIndex
+        selectedSubtitleIndex = resolved.subtitleIndex
+        pendingTrackOverrideConsumed = true
+        appliedPendingTrackOverride = hasPendingOverride
+        if (hasPendingOverride) {
+            root.autoplayOverridesConsumed()
         }
-        
-        console.log("[SeriesSeasonEpisodeView] applyTrackPreferences - selectedAudioIndex:", selectedAudioIndex, "selectedSubtitleIndex:", selectedSubtitleIndex)
-    }
-    
-    // Canonical contract for Milestone D:
-    // - UI + PlayerController selected* use Jellyfin stream index.
-    // - mpv aid/sid use runtime track IDs, mapped by media-type order.
-    // - subtitle none stays Jellyfin -1 and maps to sid "no".
-    function buildTrackMap(streamType, mediaSource) {
-        var map = []
-        if (!mediaSource || !mediaSource.mediaStreams) return map
-        var mpvTrackId = 1
-        for (var i = 0; i < mediaSource.mediaStreams.length; i++) {
-            var stream = mediaSource.mediaStreams[i]
-            if (stream.type === streamType) {
-                map.push({ jellyfinIndex: stream.index, mpvTrackId: mpvTrackId })
-                mpvTrackId++
-            }
-        }
-        return map
-    }
-    
-    function resolveMpvTrackId(jellyfinStreamIndex, trackMap) {
-        if (jellyfinStreamIndex < 0) return -1
-        for (var i = 0; i < trackMap.length; i++) {
-            if (trackMap[i].jellyfinIndex === jellyfinStreamIndex) {
-                return trackMap[i].mpvTrackId
-            }
-        }
-        return -1
+
+        console.log("[SeriesSeasonEpisodeView] applyTrackPreferences - seasonId:",
+                    SeriesDetailsViewModel.selectedSeasonId,
+                    "audio:", resolved.audioIndex, resolved.audioSource,
+                    "subtitle:", resolved.subtitleIndex, resolved.subtitleSource)
     }
 
     function buildTrackOptions(streams) {
@@ -593,15 +571,6 @@ FocusScope {
         }
         
         // Playback info is ready, proceed with playback
-        // Save track preferences before calling performPlayback to ensure they're set
-        var seasonId = SeriesDetailsViewModel.selectedSeasonId;
-        if (selectedAudioIndex >= 0) {
-            PlayerController.saveAudioTrackPreference(seasonId, selectedAudioIndex);
-        }
-        // Allow saving "None" (-1) if a season is selected, or any valid index
-        if (selectedSubtitleIndex >= -1 && seasonId) {
-            PlayerController.saveSubtitleTrackPreference(seasonId, selectedSubtitleIndex);
-        }
         performPlayback(fromBeginning)
     }
     
@@ -634,29 +603,18 @@ FocusScope {
         if (info && mediaSource) {
             var mediaSourceId = mediaSource.id
             var playSessionId = info.playSessionId || ""
-            var audioTrackMap = buildTrackMap("Audio", mediaSource)
-            var subtitleTrackMap = buildTrackMap("Subtitle", mediaSource)
-            var mpvAudio = resolveMpvTrackId(selectedAudioIndex, audioTrackMap)
-            var mpvSubtitle = resolveMpvTrackId(selectedSubtitleIndex, subtitleTrackMap)
             var availableAudioTracks = buildTrackOptions(getAudioStreams())
             var availableSubtitleTracks = buildTrackOptions(getSubtitleStreams())
             
             console.log("[SeriesSeasonEpisodeView] Playback with tracks - mediaSourceId:", mediaSourceId,
                         "playSessionId:", playSessionId, "startPos:", startPos,
-                        "audioIndex:", selectedAudioIndex, "subtitleIndex:", selectedSubtitleIndex,
-                        "mpvAudio:", mpvAudio, "mpvSubtitle:", mpvSubtitle)
+                        "audioIndex:", selectedAudioIndex, "subtitleIndex:", selectedSubtitleIndex)
             
             root.playRequestedWithTracks(selectedEpisodeId, startPos, mediaSourceId, playSessionId,
+                                         mediaSource,
                                          selectedAudioIndex, selectedSubtitleIndex,
-                                         mpvAudio, mpvSubtitle,
-                                         audioTrackMap, subtitleTrackMap,
                                          availableAudioTracks, availableSubtitleTracks,
                                          framerate, isHDR)
-            
-            // Save track preferences
-            var seasonId = SeriesDetailsViewModel.selectedSeasonId
-            PlayerController.saveAudioTrackPreference(seasonId, selectedAudioIndex)
-            PlayerController.saveSubtitleTrackPreference(seasonId, selectedSubtitleIndex)
             
             // Clear the pending info after use
             pendingPlaybackInfo = null
@@ -1583,14 +1541,13 @@ FocusScope {
             currentIndex = 0
             forceActiveFocus()
             
-             // Apply saved track preferences for this season
-            var seasonId = SeriesDetailsViewModel.selectedSeasonId
-            if (seasonId && seasonId !== "") {
-                var lastAudio = PlayerController.getLastAudioTrackForSeason(seasonId)
-                var lastSubtitle = PlayerController.getLastSubtitleTrackForSeason(seasonId)
-                
-                if (lastAudio >= 0) selectedAudioIndex = lastAudio
-                if (lastSubtitle >= 0) selectedSubtitleIndex = lastSubtitle
+            if (currentMediaSource && !appliedPendingTrackOverride) {
+                var resolved = PlayerController.resolveTrackSelectionForMediaSource(
+                            currentMediaSource,
+                            SeriesDetailsViewModel.selectedSeasonId,
+                            false)
+                selectedAudioIndex = resolved.audioIndex
+                selectedSubtitleIndex = resolved.subtitleIndex
             }
         }
         
@@ -1684,10 +1641,12 @@ FocusScope {
                     
                     onTriggered: {
                         selectedAudioIndex = modelData.index
+                        userMadeAudioSelection = true
+                        appliedPendingTrackOverride = false
                         console.log("[ContextMenu] Selected audio:", selectedAudioIndex)
                         var seasonId = SeriesDetailsViewModel.selectedSeasonId
                         if (seasonId) {
-                             PlayerController.saveAudioTrackPreference(seasonId, selectedAudioIndex)
+                             PlayerController.setExplicitSeasonAudioPreference(seasonId, selectedAudioIndex)
                         }
                         contextMenu.close()
                     }
@@ -1739,10 +1698,12 @@ FocusScope {
                 
                 onTriggered: {
                     selectedSubtitleIndex = -1
+                    userMadeSubtitleSelection = true
+                    appliedPendingTrackOverride = false
                     console.log("[ContextMenu] Selected subtitle: None")
                     var seasonId = SeriesDetailsViewModel.selectedSeasonId
                     if (seasonId) {
-                         PlayerController.saveSubtitleTrackPreference(seasonId, selectedSubtitleIndex)
+                         PlayerController.setExplicitSeasonSubtitlePreference(seasonId, selectedSubtitleIndex)
                     }
                 }
             }
@@ -1817,10 +1778,12 @@ FocusScope {
                     
                     onTriggered: {
                         selectedSubtitleIndex = modelData.index
+                        userMadeSubtitleSelection = true
+                        appliedPendingTrackOverride = false
                         console.log("[ContextMenu] Selected subtitle:", selectedSubtitleIndex)
                         var seasonId = SeriesDetailsViewModel.selectedSeasonId
                         if (seasonId) {
-                             PlayerController.saveSubtitleTrackPreference(seasonId, selectedSubtitleIndex)
+                             PlayerController.setExplicitSeasonSubtitlePreference(seasonId, selectedSubtitleIndex)
                         }
                         contextMenu.close()
                     }
