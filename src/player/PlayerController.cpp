@@ -23,6 +23,7 @@
 #include <QUrl>
 #include <QUrlQuery>
 #include <QSet>
+#include <QStringList>
 #include <QThread>
 #include <atomic>
 
@@ -72,6 +73,79 @@ public:
     void detachVideoTarget(QObject *) override {}
     void setVideoViewport(const QRectF &) override {}
 };
+
+QVariantList mediaStreams(const QVariantMap &mediaSource)
+{
+    return mediaSource.value(QStringLiteral("mediaStreams")).toList();
+}
+
+QVariantList mediaStreamsForType(const QVariantMap &mediaSource, const QString &streamType)
+{
+    QVariantList result;
+    const QVariantList streams = mediaStreams(mediaSource);
+    for (const QVariant &streamVariant : streams) {
+        const QVariantMap stream = streamVariant.toMap();
+        if (stream.value(QStringLiteral("type")).toString() == streamType) {
+            result.append(stream);
+        }
+    }
+    return result;
+}
+
+bool hasStreamIndex(const QVariantList &streams, int streamIndex)
+{
+    for (const QVariant &streamVariant : streams) {
+        if (streamVariant.toMap().value(QStringLiteral("index"), -1).toInt() == streamIndex) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int firstMatchingStreamIndex(const QVariantList &streams, const std::function<bool(const QVariantMap &)> &predicate)
+{
+    for (const QVariant &streamVariant : streams) {
+        const QVariantMap stream = streamVariant.toMap();
+        if (predicate(stream)) {
+            return stream.value(QStringLiteral("index"), -1).toInt();
+        }
+    }
+    return -1;
+}
+
+QString trackTitleForStream(const QVariantMap &stream)
+{
+    const QString displayTitle = stream.value(QStringLiteral("displayTitle")).toString().trimmed();
+    if (!displayTitle.isEmpty()) {
+        return displayTitle;
+    }
+
+    const QString title = stream.value(QStringLiteral("title")).toString().trimmed();
+    if (!title.isEmpty()) {
+        return title;
+    }
+
+    QStringList parts;
+    const QString language = stream.value(QStringLiteral("language")).toString().trimmed();
+    if (!language.isEmpty()) {
+        parts.append(language);
+    }
+
+    const QString codec = stream.value(QStringLiteral("codec")).toString().trimmed();
+    if (!codec.isEmpty()) {
+        parts.append(codec.toUpper());
+    }
+
+    const int channels = stream.value(QStringLiteral("channels")).toInt(0);
+    if (channels > 0) {
+        parts.append(QString::number(channels) + QStringLiteral("ch"));
+    }
+
+    if (parts.isEmpty()) {
+        return QStringLiteral("Track %1").arg(stream.value(QStringLiteral("index"), -1).toInt());
+    }
+    return parts.join(QStringLiteral(" • "));
+}
 }
 
 PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent)
@@ -106,6 +180,8 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             this, &PlayerController::onNextEpisodeLoaded);
     
     // Connect to PlaybackService for media segments and trickplay info signals
+    connect(m_playbackService, &PlaybackService::playbackInfoLoaded,
+            this, &PlayerController::onPlaybackInfoLoaded);
     connect(m_playbackService, &PlaybackService::mediaSegmentsLoaded,
             this, &PlayerController::onMediaSegmentsLoaded);
     connect(m_playbackService, &PlaybackService::trickplayInfoLoaded,
@@ -213,11 +289,10 @@ void PlayerController::connectBackendSignals(IPlayerBackend *backend)
                 schedulePersistPlaybackVolumeState();
             });
 
-    // NOTE: We intentionally ignore mpv auto-selected track signals during startup.
     connect(backend, &IPlayerBackend::audioTrackChanged,
-            this, [](int index) { Q_UNUSED(index); });
+            this, &PlayerController::syncBackendAudioTrack);
     connect(backend, &IPlayerBackend::subtitleTrackChanged,
-            this, [](int index) { Q_UNUSED(index); });
+            this, &PlayerController::syncBackendSubtitleTrack);
 
     connect(backend, &IPlayerBackend::scriptMessage,
             this, &PlayerController::onScriptMessage);
@@ -484,11 +559,18 @@ void PlayerController::onEnterIdleState()
     m_mpvSubtitleTrack = -1;
     m_audioTrackMap.clear();
     m_subtitleTrackMap.clear();
+    m_audioTrackReverseMap.clear();
+    m_subtitleTrackReverseMap.clear();
     m_mediaSourceId.clear();
     m_playSessionId.clear();
     m_availableAudioTracks.clear();
     m_availableSubtitleTracks.clear();
+    m_activeMediaSource.clear();
     m_applyingInitialTracks = false;
+    m_pendingAudioTrackPersistenceFromBackend = false;
+    m_pendingSubtitleTrackPersistenceFromBackend = false;
+    m_waitingForAutoplayPlaybackInfo = false;
+    m_pendingAutoplayEpisodeData = QJsonObject();
     emit selectedAudioTrackChanged();
     emit selectedSubtitleTrackChanged();
     emit mediaSourceIdChanged();
@@ -972,6 +1054,80 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
     // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
 }
 
+void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo)
+{
+    if (!m_waitingForAutoplayPlaybackInfo) {
+        return;
+    }
+
+    const QString pendingEpisodeId = m_pendingAutoplayEpisodeData.value(QStringLiteral("Id")).toString();
+    if (itemId != pendingEpisodeId) {
+        return;
+    }
+
+    m_waitingForAutoplayPlaybackInfo = false;
+
+    qint64 startPositionTicks = 0;
+    if (m_pendingAutoplayEpisodeData.contains(QStringLiteral("UserData"))
+        && m_pendingAutoplayEpisodeData.value(QStringLiteral("UserData")).isObject()) {
+        const QJsonObject userData = m_pendingAutoplayEpisodeData.value(QStringLiteral("UserData")).toObject();
+        startPositionTicks = static_cast<qint64>(userData.value(QStringLiteral("PlaybackPositionTicks")).toDouble());
+    }
+
+    QString targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("SeasonId")).toString();
+    if (targetSeasonId.isEmpty()) {
+        targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("ParentId")).toString();
+    }
+    if (targetSeasonId.isEmpty()) {
+        targetSeasonId = m_pendingAutoplaySeasonId;
+    }
+
+    if (playbackInfo.mediaSources.isEmpty()) {
+        const QString fallbackUrl = m_libraryService->getStreamUrl(itemId);
+        playUrl(fallbackUrl,
+                itemId,
+                startPositionTicks,
+                m_pendingAutoplaySeriesId,
+                targetSeasonId,
+                m_pendingAutoplayLibraryId,
+                m_pendingAutoplayFramerate,
+                m_pendingAutoplayIsHDR);
+        return;
+    }
+
+    const QVariantList mediaSources = playbackInfo.getMediaSourcesVariant();
+    const QVariantMap mediaSource = mediaSources.isEmpty() ? QVariantMap{} : mediaSources.first().toMap();
+    const ScopedTrackPreferences preferences = m_trackPrefs->getSeasonPreferences(targetSeasonId);
+    const ResolvedTrackSelection resolved = resolveTrackSelection(mediaSource,
+                                                                  preferences,
+                                                                  m_pendingAutoplayAudioTrack,
+                                                                  m_pendingAutoplaySubtitleTrack);
+
+    const QString mediaSourceId = mediaSource.value(QStringLiteral("id")).toString();
+    const QVariantList availableAudioTracks = buildAvailableTrackOptions(mediaSource, QStringLiteral("Audio"));
+    const QVariantList availableSubtitleTracks = buildAvailableTrackOptions(mediaSource, QStringLiteral("Subtitle"));
+    const QString streamUrl = m_libraryService->getStreamUrlWithTracks(itemId,
+                                                                       mediaSourceId,
+                                                                       resolved.audioIndex,
+                                                                       resolved.subtitleIndex);
+
+    playUrlWithTracks(streamUrl,
+                      itemId,
+                      startPositionTicks,
+                      m_pendingAutoplaySeriesId,
+                      targetSeasonId,
+                      m_pendingAutoplayLibraryId,
+                      mediaSourceId,
+                      playbackInfo.playSessionId,
+                      mediaSource,
+                      resolved.audioIndex,
+                      resolved.subtitleIndex,
+                      availableAudioTracks,
+                      availableSubtitleTracks,
+                      videoFramerateForMediaSource(mediaSource),
+                      mediaSourceIsHdr(mediaSource));
+}
+
 /**
  * @brief Starts playback of the provided next-episode item and applies Up Next autoplay context.
  *
@@ -988,23 +1144,16 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
  */
 void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QString &seriesId)
 {
-    QString episodeId = episodeData["Id"].toString();
-    QString episodeName = episodeData["Name"].toString();
-    QString seriesName = episodeData["SeriesName"].toString();
-    int seasonNumber = episodeData["ParentIndexNumber"].toInt();
-    int episodeNumber = episodeData["IndexNumber"].toInt();
+    const QString episodeId = episodeData["Id"].toString();
+    const QString episodeName = episodeData["Name"].toString();
+    const QString seriesName = episodeData["SeriesName"].toString();
+    const int seasonNumber = episodeData["ParentIndexNumber"].toInt();
+    const int episodeNumber = episodeData["IndexNumber"].toInt();
     
     if (episodeId.isEmpty()) {
         qWarning() << "PlayerController::playNextEpisode: Empty episode ID";
         clearPendingAutoplayContext();
         return;
-    }
-    
-    // Get resume position if any
-    qint64 startPositionTicks = 0;
-    if (episodeData.contains("UserData") && episodeData["UserData"].isObject()) {
-        QJsonObject userData = episodeData["UserData"].toObject();
-        startPositionTicks = static_cast<qint64>(userData["PlaybackPositionTicks"].toDouble());
     }
     
     qDebug() << "PlayerController: Playing next episode from Up Next screen:" << seriesName
@@ -1018,36 +1167,9 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     
     emit autoplayingNextEpisode(episodeName, seriesName);
 
-    // Preserve stashed Jellyfin track indices across playUrl() clearing autoplay context.
-    const int stashedAudioTrack = m_pendingAutoplayAudioTrack;
-    const int stashedSubtitleTrack = m_pendingAutoplaySubtitleTrack;
-    const bool audioTrackChanged = m_selectedAudioTrack != stashedAudioTrack;
-    const bool subtitleTrackChanged = m_selectedSubtitleTrack != stashedSubtitleTrack;
-    m_selectedAudioTrack = stashedAudioTrack;
-    m_selectedSubtitleTrack = stashedSubtitleTrack;
-    if (audioTrackChanged) {
-        emit selectedAudioTrackChanged();
-    }
-    if (subtitleTrackChanged) {
-        emit selectedSubtitleTrackChanged();
-    }
-
-    qCDebug(lcPlayback) << "playNextEpisode startup track selections"
-                        << "audio=" << m_selectedAudioTrack
-                        << "subtitle=" << m_selectedSubtitleTrack;
-
-    // Build stream URL and start playback using stashed autoplay context
-    QString targetSeasonId = episodeData.value(QStringLiteral("SeasonId")).toString();
-    if (targetSeasonId.isEmpty()) {
-        targetSeasonId = episodeData.value(QStringLiteral("ParentId")).toString();
-    }
-    if (targetSeasonId.isEmpty()) {
-        targetSeasonId = m_pendingAutoplaySeasonId;
-    }
-    QString streamUrl = m_libraryService->getStreamUrl(episodeId);
-    playUrl(streamUrl, episodeId, startPositionTicks, seriesId,
-        targetSeasonId, m_pendingAutoplayLibraryId,
-        m_pendingAutoplayFramerate, m_pendingAutoplayIsHDR);
+    m_pendingAutoplayEpisodeData = episodeData;
+    m_waitingForAutoplayPlaybackInfo = true;
+    m_playbackService->getPlaybackInfo(episodeId);
 }
 
 // === PUBLIC API ===
@@ -1409,38 +1531,35 @@ void PlayerController::clearError()
 
 void PlayerController::setSelectedAudioTrack(int index)
 {
-    if (m_selectedAudioTrack != index) {
-        const int previousAudioTrack = m_selectedAudioTrack;
-        m_selectedAudioTrack = index;
-        qCDebug(lcPlayback) << "User audio track selection:"
-                            << "jellyfinIndex=" << index
-                            << "previousJellyfinIndex=" << previousAudioTrack;
-        
-        if (m_playbackState == Playing || m_playbackState == Paused) {
-            if (index >= 0) {
-                const int mpvTrackId = mpvAudioTrackForJellyfinIndex(index);
-                if (mpvTrackId > 0) {
-                    qCDebug(lcPlayback) << "Applying audio track switch via aid:" << mpvTrackId;
-                    m_playerBackend->sendVariantCommand({"set_property", "aid", mpvTrackId});
-                } else {
-                    qCWarning(lcPlayback) << "No mapped mpv audio track for jellyfin index" << index
-                                          << "- skipping runtime aid command";
-                }
-            } else {
-                m_playerBackend->sendVariantCommand({"set_property", "aid", "auto"});
-            }
-        }
-        
-        // Save preference for season continuity (both in-memory and persistent)
-        if (!m_currentSeasonId.isEmpty()) {
-            m_seasonTrackPreferences[m_currentSeasonId].first = index;
-            m_trackPrefs->setAudioTrack(m_currentSeasonId, index);
-        } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
-            m_trackPrefs->setMovieAudioTrack(m_currentItemId, index);
-        }
-        
-        emit selectedAudioTrackChanged();
+    if (m_selectedAudioTrack == index) {
+        return;
     }
+
+    const int previousAudioTrack = m_selectedAudioTrack;
+    m_selectedAudioTrack = index;
+    qCDebug(lcPlayback) << "User audio track selection:"
+                        << "jellyfinIndex=" << index
+                        << "previousJellyfinIndex=" << previousAudioTrack;
+
+    if (m_playbackState == Playing || m_playbackState == Paused) {
+        if (index >= 0) {
+            const int mpvTrackId = mpvAudioTrackForJellyfinIndex(index);
+            if (mpvTrackId > 0) {
+                m_mpvAudioTrack = mpvTrackId;
+                qCDebug(lcPlayback) << "Applying audio track switch via aid:" << mpvTrackId;
+                m_playerBackend->sendVariantCommand({"set_property", "aid", mpvTrackId});
+            } else {
+                qCWarning(lcPlayback) << "No mapped mpv audio track for jellyfin index" << index
+                                      << "- skipping runtime aid command";
+            }
+        } else {
+            m_mpvAudioTrack = -1;
+            m_playerBackend->sendVariantCommand({"set_property", "aid", "auto"});
+        }
+    }
+
+    persistAudioPreferenceForCurrentScope(index);
+    emit selectedAudioTrackChanged();
 }
 
 void PlayerController::setAudioDelay(int ms)
@@ -1450,44 +1569,42 @@ void PlayerController::setAudioDelay(int ms)
 
 void PlayerController::setSelectedSubtitleTrack(int index)
 {
-    if (m_selectedSubtitleTrack != index) {
-        const int previousSubtitleTrack = m_selectedSubtitleTrack;
-        m_selectedSubtitleTrack = index;
-        qCDebug(lcPlayback) << "User subtitle track selection:"
-                            << "jellyfinIndex=" << index
-                            << "previousJellyfinIndex=" << previousSubtitleTrack;
-        
-        if (m_playbackState == Playing || m_playbackState == Paused) {
-            if (index >= 0) {
-                const int mpvTrackId = mpvSubtitleTrackForJellyfinIndex(index);
-                if (mpvTrackId > 0) {
-                    qCDebug(lcPlayback) << "Applying subtitle track switch via sid:" << mpvTrackId;
-                    m_playerBackend->sendVariantCommand({"set_property", "sid", mpvTrackId});
-                } else {
-                    qCWarning(lcPlayback) << "No mapped mpv subtitle track for jellyfin index" << index
-                                          << "- skipping runtime sid command";
-                }
-            } else {
-                m_playerBackend->sendVariantCommand({"set_property", "sid", "no"});
-            }
-        }
-        
-        // Save preference for season continuity (both in-memory and persistent)
-        if (!m_currentSeasonId.isEmpty()) {
-            m_seasonTrackPreferences[m_currentSeasonId].second = index;
-            m_trackPrefs->setSubtitleTrack(m_currentSeasonId, index);
-        } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
-            m_trackPrefs->setMovieSubtitleTrack(m_currentItemId, index);
-        }
-        
-        emit selectedSubtitleTrackChanged();
+    if (m_selectedSubtitleTrack == index) {
+        return;
     }
+
+    const int previousSubtitleTrack = m_selectedSubtitleTrack;
+    m_selectedSubtitleTrack = index;
+    qCDebug(lcPlayback) << "User subtitle track selection:"
+                        << "jellyfinIndex=" << index
+                        << "previousJellyfinIndex=" << previousSubtitleTrack;
+
+    if (m_playbackState == Playing || m_playbackState == Paused) {
+        if (index >= 0) {
+            const int mpvTrackId = mpvSubtitleTrackForJellyfinIndex(index);
+            if (mpvTrackId > 0) {
+                m_mpvSubtitleTrack = mpvTrackId;
+                qCDebug(lcPlayback) << "Applying subtitle track switch via sid:" << mpvTrackId;
+                m_playerBackend->sendVariantCommand({"set_property", "sid", mpvTrackId});
+            } else {
+                qCWarning(lcPlayback) << "No mapped mpv subtitle track for jellyfin index" << index
+                                      << "- skipping runtime sid command";
+            }
+        } else {
+            m_mpvSubtitleTrack = -1;
+            m_playerBackend->sendVariantCommand({"set_property", "sid", "no"});
+        }
+    }
+
+    persistSubtitlePreferenceForCurrentScope(index);
+    emit selectedSubtitleTrackChanged();
 }
 
 void PlayerController::cycleAudioTrack()
 {
     qDebug() << "PlayerController: Cycling audio track";
     if (m_playbackState == Playing || m_playbackState == Paused) {
+        m_pendingAudioTrackPersistenceFromBackend = true;
         m_playerBackend->sendCommand({"cycle", "audio"});
     }
 }
@@ -1496,6 +1613,7 @@ void PlayerController::cycleSubtitleTrack()
 {
     qDebug() << "PlayerController: Cycling subtitle track";
     if (m_playbackState == Playing || m_playbackState == Paused) {
+        m_pendingSubtitleTrackPersistenceFromBackend = true;
         m_playerBackend->sendCommand({"cycle", "sub"});
     }
 }
@@ -1649,178 +1767,486 @@ void PlayerController::sendMpvKeypress(const QString &key)
 
 int PlayerController::getLastAudioTrackForSeason(const QString &seasonId) const
 {
-    // First check in-memory cache (for current session continuity)
-    if (m_seasonTrackPreferences.contains(seasonId)) {
-        return m_seasonTrackPreferences[seasonId].first;
-    }
-    // Fall back to persistent storage
-    return m_trackPrefs->getAudioTrack(seasonId);
+    const ScopedTrackPreferences preferences = m_trackPrefs->getSeasonPreferences(seasonId);
+    return preferences.audio.mode == TrackPreferenceMode::ExplicitStream ? preferences.audio.streamIndex : -1;
 }
 
 int PlayerController::getLastSubtitleTrackForSeason(const QString &seasonId) const
 {
-    // First check in-memory cache (for current session continuity)
-    if (m_seasonTrackPreferences.contains(seasonId)) {
-        return m_seasonTrackPreferences[seasonId].second;
+    const ScopedTrackPreferences preferences = m_trackPrefs->getSeasonPreferences(seasonId);
+    if (preferences.subtitle.mode == TrackPreferenceMode::ExplicitStream) {
+        return preferences.subtitle.streamIndex;
     }
-    // Fall back to persistent storage
-    return m_trackPrefs->getSubtitleTrack(seasonId);
+    if (preferences.subtitle.mode == TrackPreferenceMode::Off) {
+        return -1;
+    }
+    return -1;
 }
 
 void PlayerController::saveAudioTrackPreference(const QString &seasonId, int index)
 {
-    if (seasonId.isEmpty()) return;
-    // Update in-memory cache
-    m_seasonTrackPreferences[seasonId].first = index;
-    // Persist to disk
-    m_trackPrefs->setAudioTrack(seasonId, index);
-    qDebug() << "PlayerController: Saved audio track preference for season" << seasonId << ":" << index;
+    setExplicitSeasonAudioPreference(seasonId, index);
 }
 
 void PlayerController::saveSubtitleTrackPreference(const QString &seasonId, int index)
 {
-    if (seasonId.isEmpty()) return;
-    // Update in-memory cache
-    m_seasonTrackPreferences[seasonId].second = index;
-    // Persist to disk
-    m_trackPrefs->setSubtitleTrack(seasonId, index);
-    qDebug() << "PlayerController: Saved subtitle track preference for season" << seasonId << ":" << index;
+    setExplicitSeasonSubtitlePreference(seasonId, index);
 }
 
 // ---- Movie track preferences ----
 
 int PlayerController::getLastAudioTrackForMovie(const QString &movieId) const
 {
-    return m_trackPrefs->getMovieAudioTrack(movieId);
+    const ScopedTrackPreferences preferences = m_trackPrefs->getMoviePreferences(movieId);
+    return preferences.audio.mode == TrackPreferenceMode::ExplicitStream ? preferences.audio.streamIndex : -1;
 }
 
 int PlayerController::getLastSubtitleTrackForMovie(const QString &movieId) const
 {
-    return m_trackPrefs->getMovieSubtitleTrack(movieId);
+    const ScopedTrackPreferences preferences = m_trackPrefs->getMoviePreferences(movieId);
+    if (preferences.subtitle.mode == TrackPreferenceMode::ExplicitStream) {
+        return preferences.subtitle.streamIndex;
+    }
+    if (preferences.subtitle.mode == TrackPreferenceMode::Off) {
+        return -1;
+    }
+    return -1;
 }
 
 void PlayerController::saveMovieAudioTrackPreference(const QString &movieId, int index)
 {
-    if (movieId.isEmpty()) return;
-    m_trackPrefs->setMovieAudioTrack(movieId, index);
-    qDebug() << "PlayerController: Saved audio track preference for movie" << movieId << ":" << index;
+    setExplicitMovieAudioPreference(movieId, index);
 }
 
 void PlayerController::saveMovieSubtitleTrackPreference(const QString &movieId, int index)
 {
-    if (movieId.isEmpty()) return;
-    m_trackPrefs->setMovieSubtitleTrack(movieId, index);
-    qDebug() << "PlayerController: Saved subtitle track preference for movie" << movieId << ":" << index;
+    setExplicitMovieSubtitlePreference(movieId, index);
+}
+
+void PlayerController::setExplicitSeasonAudioPreference(const QString &seasonId, int index)
+{
+    updateSeasonPreference(seasonId, [index](ScopedTrackPreferences &preferences) {
+        preferences.audio = {};
+        if (index >= 0) {
+            preferences.audio.mode = TrackPreferenceMode::ExplicitStream;
+            preferences.audio.streamIndex = index;
+        }
+    });
+}
+
+void PlayerController::setExplicitSeasonSubtitlePreference(const QString &seasonId, int index)
+{
+    updateSeasonPreference(seasonId, [index](ScopedTrackPreferences &preferences) {
+        preferences.subtitle = {};
+        if (index >= 0) {
+            preferences.subtitle.mode = TrackPreferenceMode::ExplicitStream;
+            preferences.subtitle.streamIndex = index;
+        } else if (index == -1) {
+            preferences.subtitle.mode = TrackPreferenceMode::Off;
+        }
+    });
+}
+
+void PlayerController::clearSeasonAudioPreference(const QString &seasonId)
+{
+    updateSeasonPreference(seasonId, [](ScopedTrackPreferences &preferences) {
+        preferences.audio = {};
+    });
+}
+
+void PlayerController::clearSeasonSubtitlePreference(const QString &seasonId)
+{
+    updateSeasonPreference(seasonId, [](ScopedTrackPreferences &preferences) {
+        preferences.subtitle = {};
+    });
+}
+
+void PlayerController::setExplicitMovieAudioPreference(const QString &movieId, int index)
+{
+    updateMoviePreference(movieId, [index](ScopedTrackPreferences &preferences) {
+        preferences.audio = {};
+        if (index >= 0) {
+            preferences.audio.mode = TrackPreferenceMode::ExplicitStream;
+            preferences.audio.streamIndex = index;
+        }
+    });
+}
+
+void PlayerController::setExplicitMovieSubtitlePreference(const QString &movieId, int index)
+{
+    updateMoviePreference(movieId, [index](ScopedTrackPreferences &preferences) {
+        preferences.subtitle = {};
+        if (index >= 0) {
+            preferences.subtitle.mode = TrackPreferenceMode::ExplicitStream;
+            preferences.subtitle.streamIndex = index;
+        } else if (index == -1) {
+            preferences.subtitle.mode = TrackPreferenceMode::Off;
+        }
+    });
+}
+
+void PlayerController::clearMovieAudioPreference(const QString &movieId)
+{
+    updateMoviePreference(movieId, [](ScopedTrackPreferences &preferences) {
+        preferences.audio = {};
+    });
+}
+
+void PlayerController::clearMovieSubtitlePreference(const QString &movieId)
+{
+    updateMoviePreference(movieId, [](ScopedTrackPreferences &preferences) {
+        preferences.subtitle = {};
+    });
+}
+
+QVariantMap PlayerController::resolveTrackSelectionForMediaSource(const QVariantMap &mediaSource,
+                                                                 const QString &scopeId,
+                                                                 bool isMovie,
+                                                                 int preferredAudioIndex,
+                                                                 int preferredSubtitleIndex) const
+{
+    const ScopedTrackPreferences preferences = isMovie
+        ? m_trackPrefs->getMoviePreferences(scopeId)
+        : m_trackPrefs->getSeasonPreferences(scopeId);
+    const ResolvedTrackSelection resolved = resolveTrackSelection(mediaSource,
+                                                                  preferences,
+                                                                  preferredAudioIndex,
+                                                                  preferredSubtitleIndex);
+
+    QVariantMap result;
+    result[QStringLiteral("audioIndex")] = resolved.audioIndex;
+    result[QStringLiteral("subtitleIndex")] = resolved.subtitleIndex;
+    result[QStringLiteral("audioSource")] = resolved.audioSource;
+    result[QStringLiteral("subtitleSource")] = resolved.subtitleSource;
+    result[QStringLiteral("hasExplicitAudioPreference")] =
+        preferences.audio.mode == TrackPreferenceMode::ExplicitStream;
+    result[QStringLiteral("hasExplicitSubtitlePreference")] =
+        preferences.subtitle.mode != TrackPreferenceMode::Unset;
+    return result;
 }
 
 void PlayerController::playUrlWithTracks(const QString &url, const QString &itemId, qint64 startPositionTicks,
-                                          const QString &seriesId, const QString &seasonId, const QString &libraryId,
-                                          const QString &mediaSourceId, const QString &playSessionId,
-                                          int audioStreamIndex, int subtitleStreamIndex,
-                                          int mpvAudioTrack, int mpvSubtitleTrack,
-                                          const QVariantList &audioTrackMap,
-                                          const QVariantList &subtitleTrackMap,
-                                          const QVariantList &availableAudioTracks,
-                                          const QVariantList &availableSubtitleTracks,
-                                          double framerate, bool isHDR)
+                                         const QString &seriesId, const QString &seasonId, const QString &libraryId,
+                                         const QString &mediaSourceId, const QString &playSessionId,
+                                         const QVariantMap &mediaSource,
+                                         int audioStreamIndex, int subtitleStreamIndex,
+                                         const QVariantList &availableAudioTracks,
+                                         const QVariantList &availableSubtitleTracks,
+                                         double framerate, bool isHDR)
 {
-    qDebug() << "PlayerController: playUrlWithTracks called with itemId:" << itemId 
-             << "audioIndex:" << audioStreamIndex << "subtitleIndex:" << subtitleStreamIndex
-             << "mpvAudio:" << mpvAudioTrack << "mpvSub:" << mpvSubtitleTrack
+    qDebug() << "PlayerController: playUrlWithTracks called with itemId:" << itemId
+             << "audioIndex:" << audioStreamIndex
+             << "subtitleIndex:" << subtitleStreamIndex
              << "framerate:" << framerate
              << "isHDR:" << isHDR;
-    
-    // Store track selection before calling playUrl
-    // Jellyfin indices for API reporting
+
     m_mediaSourceId = mediaSourceId;
     m_playSessionId = playSessionId;
+    m_activeMediaSource = mediaSource;
+    updateTrackMappings(mediaSource);
+
     m_selectedAudioTrack = audioStreamIndex;
     m_selectedSubtitleTrack = subtitleStreamIndex;
-    
-    // mpv track numbers for mpv commands
-    m_mpvAudioTrack = mpvAudioTrack;
-    m_mpvSubtitleTrack = mpvSubtitleTrack;
-    m_availableAudioTracks = availableAudioTracks;
-    m_availableSubtitleTracks = availableSubtitleTracks;
-    updateTrackMappings(audioTrackMap, subtitleTrackMap);
-    
+    m_mpvAudioTrack = mpvAudioTrackForJellyfinIndex(audioStreamIndex);
+    m_mpvSubtitleTrack = subtitleStreamIndex >= 0 ? mpvSubtitleTrackForJellyfinIndex(subtitleStreamIndex) : -1;
+    m_availableAudioTracks = availableAudioTracks.isEmpty()
+        ? buildAvailableTrackOptions(mediaSource, QStringLiteral("Audio"))
+        : availableAudioTracks;
+    m_availableSubtitleTracks = availableSubtitleTracks.isEmpty()
+        ? buildAvailableTrackOptions(mediaSource, QStringLiteral("Subtitle"))
+        : availableSubtitleTracks;
+
     qCDebug(lcPlayback) << "Track mapping contract initialized:"
                         << "audioMapEntries=" << m_audioTrackMap.size()
                         << "subtitleMapEntries=" << m_subtitleTrackMap.size()
                         << "selectedAudio=" << m_selectedAudioTrack
                         << "selectedSubtitle=" << m_selectedSubtitleTrack
-                        << "selectedMpvAudio=" << mpvAudioTrackForJellyfinIndex(m_selectedAudioTrack)
-                        << "selectedMpvSubtitle=" << mpvSubtitleTrackForJellyfinIndex(m_selectedSubtitleTrack);
-    
+                        << "selectedMpvAudio=" << m_mpvAudioTrack
+                        << "selectedMpvSubtitle=" << m_mpvSubtitleTrack;
+
     emit mediaSourceIdChanged();
     emit playSessionIdChanged();
     emit selectedAudioTrackChanged();
     emit selectedSubtitleTrackChanged();
     emit availableTracksChanged();
-    
-    // Call base playUrl which handles the rest
+
     playUrl(url, itemId, startPositionTicks, seriesId, seasonId, libraryId, framerate, isHDR);
 }
 
-void PlayerController::updateTrackMappings(const QVariantList &audioTrackMap, const QVariantList &subtitleTrackMap)
+void PlayerController::updateTrackMappings(const QVariantMap &mediaSource)
 {
-    auto parseMap = [](const QVariantList &input, QHash<int, int> &output, const char *typeName) {
-        output.clear();
-        QSet<int> seenMpvTrackIds;
+    m_audioTrackMap.clear();
+    m_subtitleTrackMap.clear();
+    m_audioTrackReverseMap.clear();
+    m_subtitleTrackReverseMap.clear();
 
-        for (const QVariant &entryVariant : input) {
-            const QVariantMap entry = entryVariant.toMap();
-            const int jellyfinIndex = entry.value(QStringLiteral("jellyfinIndex"), -1).toInt();
-            const int mpvTrackId = entry.value(QStringLiteral("mpvTrackId"), -1).toInt();
-
-            if (jellyfinIndex < 0 || mpvTrackId <= 0) {
-                continue;
-            }
-            if (seenMpvTrackIds.contains(mpvTrackId)) {
-                qCWarning(lcPlayback) << "Duplicate mpv track id in" << typeName
-                                      << "mapping ignored:" << mpvTrackId;
-                continue;
-            }
-
-            seenMpvTrackIds.insert(mpvTrackId);
-            output.insert(jellyfinIndex, mpvTrackId);
+    int audioTrackId = 1;
+    int subtitleTrackId = 1;
+    for (const QVariant &streamVariant : mediaStreams(mediaSource)) {
+        const QVariantMap stream = streamVariant.toMap();
+        const QString type = stream.value(QStringLiteral("type")).toString();
+        const int jellyfinIndex = stream.value(QStringLiteral("index"), -1).toInt();
+        if (jellyfinIndex < 0) {
+            continue;
         }
-    };
 
-    parseMap(audioTrackMap, m_audioTrackMap, "audio");
-    parseMap(subtitleTrackMap, m_subtitleTrackMap, "subtitle");
+        if (type == QStringLiteral("Audio")) {
+            m_audioTrackMap.insert(jellyfinIndex, audioTrackId);
+            m_audioTrackReverseMap.insert(audioTrackId, jellyfinIndex);
+            ++audioTrackId;
+        } else if (type == QStringLiteral("Subtitle")) {
+            m_subtitleTrackMap.insert(jellyfinIndex, subtitleTrackId);
+            m_subtitleTrackReverseMap.insert(subtitleTrackId, jellyfinIndex);
+            ++subtitleTrackId;
+        }
+    }
 }
 
 int PlayerController::mpvAudioTrackForJellyfinIndex(int jellyfinStreamIndex) const
 {
-    if (jellyfinStreamIndex < 0) {
-        return -1;
-    }
-    if (m_audioTrackMap.contains(jellyfinStreamIndex)) {
-        return m_audioTrackMap.value(jellyfinStreamIndex);
-    }
+    return jellyfinStreamIndex < 0 ? -1 : m_audioTrackMap.value(jellyfinStreamIndex, -1);
+}
 
-    // Compatibility fallback only for the startup-selected track carried by playUrlWithTracks.
-    if (m_selectedAudioTrack == jellyfinStreamIndex && m_mpvAudioTrack > 0) {
-        return m_mpvAudioTrack;
-    }
-    return -1;
+int PlayerController::jellyfinAudioTrackForMpvTrack(int mpvTrackId) const
+{
+    return mpvTrackId < 0 ? -1 : m_audioTrackReverseMap.value(mpvTrackId, -1);
 }
 
 int PlayerController::mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) const
 {
-    if (jellyfinStreamIndex < 0) {
-        return -1;
-    }
-    if (m_subtitleTrackMap.contains(jellyfinStreamIndex)) {
-        return m_subtitleTrackMap.value(jellyfinStreamIndex);
+    return jellyfinStreamIndex < 0 ? -1 : m_subtitleTrackMap.value(jellyfinStreamIndex, -1);
+}
+
+int PlayerController::jellyfinSubtitleTrackForMpvTrack(int mpvTrackId) const
+{
+    return mpvTrackId < 0 ? -1 : m_subtitleTrackReverseMap.value(mpvTrackId, -1);
+}
+
+PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection(const QVariantMap &mediaSource,
+                                                                                 const ScopedTrackPreferences &preferences,
+                                                                                 int preferredAudioIndex,
+                                                                                 int preferredSubtitleIndex) const
+{
+    ResolvedTrackSelection resolved;
+    const QVariantList audioStreams = mediaStreamsForType(mediaSource, QStringLiteral("Audio"));
+    const QVariantList subtitleStreams = mediaStreamsForType(mediaSource, QStringLiteral("Subtitle"));
+
+    const auto resolveAudio = [&]() -> std::pair<int, QString> {
+        if (preferredAudioIndex >= 0 && hasStreamIndex(audioStreams, preferredAudioIndex)) {
+            return {preferredAudioIndex, QStringLiteral("override")};
+        }
+        if (preferences.audio.mode == TrackPreferenceMode::ExplicitStream
+            && hasStreamIndex(audioStreams, preferences.audio.streamIndex)) {
+            return {preferences.audio.streamIndex, QStringLiteral("explicit")};
+        }
+
+        const int jellyfinDefault = mediaSource.value(QStringLiteral("defaultAudioStreamIndex"), -1).toInt();
+        if (jellyfinDefault >= 0 && hasStreamIndex(audioStreams, jellyfinDefault)) {
+            return {jellyfinDefault, QStringLiteral("jellyfin-default")};
+        }
+
+        const int fileDefault = firstMatchingStreamIndex(audioStreams, [](const QVariantMap &stream) {
+            return stream.value(QStringLiteral("isDefault"), false).toBool();
+        });
+        if (fileDefault >= 0) {
+            return {fileDefault, QStringLiteral("file-default")};
+        }
+
+        const int fallback = firstMatchingStreamIndex(audioStreams, [](const QVariantMap &) {
+            return true;
+        });
+        return {fallback, fallback >= 0 ? QStringLiteral("fallback") : QStringLiteral("none")};
+    };
+
+    const auto resolveSubtitle = [&]() -> std::pair<int, QString> {
+        if (preferredSubtitleIndex == -1) {
+            return {-1, QStringLiteral("override-off")};
+        }
+        if (preferredSubtitleIndex >= 0 && hasStreamIndex(subtitleStreams, preferredSubtitleIndex)) {
+            return {preferredSubtitleIndex, QStringLiteral("override")};
+        }
+        if (preferences.subtitle.mode == TrackPreferenceMode::Off) {
+            return {-1, QStringLiteral("explicit-off")};
+        }
+        if (preferences.subtitle.mode == TrackPreferenceMode::ExplicitStream
+            && hasStreamIndex(subtitleStreams, preferences.subtitle.streamIndex)) {
+            return {preferences.subtitle.streamIndex, QStringLiteral("explicit")};
+        }
+
+        const int jellyfinDefault = mediaSource.value(QStringLiteral("defaultSubtitleStreamIndex"), -1).toInt();
+        if (jellyfinDefault >= 0 && hasStreamIndex(subtitleStreams, jellyfinDefault)) {
+            return {jellyfinDefault, QStringLiteral("jellyfin-default")};
+        }
+
+        const int fileDefault = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
+            return stream.value(QStringLiteral("isDefault"), false).toBool();
+        });
+        if (fileDefault >= 0) {
+            return {fileDefault, QStringLiteral("file-default")};
+        }
+
+        const int forcedDefault = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
+            return stream.value(QStringLiteral("isForced"), false).toBool();
+        });
+        if (forcedDefault >= 0) {
+            return {forcedDefault, QStringLiteral("forced-default")};
+        }
+
+        return {-1, QStringLiteral("fallback-off")};
+    };
+
+    const auto [audioIndex, audioSource] = resolveAudio();
+    const auto [subtitleIndex, subtitleSource] = resolveSubtitle();
+    resolved.audioIndex = audioIndex;
+    resolved.subtitleIndex = subtitleIndex;
+    resolved.audioSource = audioSource;
+    resolved.subtitleSource = subtitleSource;
+    return resolved;
+}
+
+void PlayerController::syncBackendAudioTrack(int mpvTrackId)
+{
+    m_mpvAudioTrack = mpvTrackId;
+    if (m_applyingInitialTracks) {
+        return;
     }
 
-    // Compatibility fallback only for the startup-selected track carried by playUrlWithTracks.
-    if (m_selectedSubtitleTrack == jellyfinStreamIndex && m_mpvSubtitleTrack > 0) {
-        return m_mpvSubtitleTrack;
+    const int jellyfinIndex = jellyfinAudioTrackForMpvTrack(mpvTrackId);
+    if (jellyfinIndex < 0) {
+        m_pendingAudioTrackPersistenceFromBackend = false;
+        return;
     }
-    return -1;
+
+    if (m_selectedAudioTrack != jellyfinIndex) {
+        m_selectedAudioTrack = jellyfinIndex;
+        emit selectedAudioTrackChanged();
+    }
+    if (m_pendingAudioTrackPersistenceFromBackend) {
+        persistAudioPreferenceForCurrentScope(jellyfinIndex);
+    }
+    m_pendingAudioTrackPersistenceFromBackend = false;
+}
+
+void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
+{
+    m_mpvSubtitleTrack = mpvTrackId;
+    if (m_applyingInitialTracks) {
+        return;
+    }
+
+    const int jellyfinIndex = mpvTrackId < 0 ? -1 : jellyfinSubtitleTrackForMpvTrack(mpvTrackId);
+    if (mpvTrackId >= 0 && jellyfinIndex < 0) {
+        m_pendingSubtitleTrackPersistenceFromBackend = false;
+        return;
+    }
+
+    if (m_selectedSubtitleTrack != jellyfinIndex) {
+        m_selectedSubtitleTrack = jellyfinIndex;
+        emit selectedSubtitleTrackChanged();
+    }
+    if (m_pendingSubtitleTrackPersistenceFromBackend) {
+        persistSubtitlePreferenceForCurrentScope(jellyfinIndex);
+    }
+    m_pendingSubtitleTrackPersistenceFromBackend = false;
+}
+
+void PlayerController::persistAudioPreferenceForCurrentScope(int index)
+{
+    if (!m_currentSeasonId.isEmpty()) {
+        setExplicitSeasonAudioPreference(m_currentSeasonId, index);
+    } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
+        setExplicitMovieAudioPreference(m_currentItemId, index);
+    }
+}
+
+void PlayerController::persistSubtitlePreferenceForCurrentScope(int index)
+{
+    if (!m_currentSeasonId.isEmpty()) {
+        setExplicitSeasonSubtitlePreference(m_currentSeasonId, index);
+    } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
+        setExplicitMovieSubtitlePreference(m_currentItemId, index);
+    }
+}
+
+void PlayerController::updateSeasonPreference(const QString &seasonId,
+                                              std::function<void(ScopedTrackPreferences &preferences)> updater)
+{
+    if (seasonId.isEmpty()) {
+        return;
+    }
+
+    ScopedTrackPreferences preferences = m_trackPrefs->getSeasonPreferences(seasonId);
+    updater(preferences);
+    if (preferences.isEmpty()) {
+        m_trackPrefs->clearSeasonPreferences(seasonId);
+    } else {
+        m_trackPrefs->setSeasonPreferences(seasonId, preferences);
+    }
+}
+
+void PlayerController::updateMoviePreference(const QString &movieId,
+                                             std::function<void(ScopedTrackPreferences &preferences)> updater)
+{
+    if (movieId.isEmpty()) {
+        return;
+    }
+
+    ScopedTrackPreferences preferences = m_trackPrefs->getMoviePreferences(movieId);
+    updater(preferences);
+    if (preferences.isEmpty()) {
+        m_trackPrefs->clearMoviePreferences(movieId);
+    } else {
+        m_trackPrefs->setMoviePreferences(movieId, preferences);
+    }
+}
+
+QVariantList PlayerController::buildAvailableTrackOptions(const QVariantMap &mediaSource, const QString &streamType) const
+{
+    QVariantList options;
+    for (const QVariant &streamVariant : mediaStreamsForType(mediaSource, streamType)) {
+        const QVariantMap stream = streamVariant.toMap();
+        QVariantMap option;
+        option[QStringLiteral("index")] = stream.value(QStringLiteral("index"), -1).toInt();
+        option[QStringLiteral("displayTitle")] = trackTitleForStream(stream);
+        option[QStringLiteral("language")] = stream.value(QStringLiteral("language")).toString();
+        option[QStringLiteral("codec")] = stream.value(QStringLiteral("codec")).toString();
+        option[QStringLiteral("channels")] = stream.value(QStringLiteral("channels")).toInt(0);
+        option[QStringLiteral("channelLayout")] = stream.value(QStringLiteral("channelLayout")).toString();
+        option[QStringLiteral("isDefault")] = stream.value(QStringLiteral("isDefault"), false).toBool();
+        option[QStringLiteral("isForced")] = stream.value(QStringLiteral("isForced"), false).toBool();
+        option[QStringLiteral("isHearingImpaired")] =
+            stream.value(QStringLiteral("isHearingImpaired"), false).toBool();
+        options.append(option);
+    }
+    return options;
+}
+
+double PlayerController::videoFramerateForMediaSource(const QVariantMap &mediaSource) const
+{
+    for (const QVariant &streamVariant : mediaStreamsForType(mediaSource, QStringLiteral("Video"))) {
+        const QVariantMap stream = streamVariant.toMap();
+        const double realFrameRate = stream.value(QStringLiteral("realFrameRate")).toDouble();
+        if (realFrameRate > 0.0) {
+            return realFrameRate;
+        }
+        const double averageFrameRate = stream.value(QStringLiteral("averageFrameRate")).toDouble();
+        if (averageFrameRate > 0.0) {
+            return averageFrameRate;
+        }
+    }
+    return 0.0;
+}
+
+bool PlayerController::mediaSourceIsHdr(const QVariantMap &mediaSource) const
+{
+    for (const QVariant &streamVariant : mediaStreamsForType(mediaSource, QStringLiteral("Video"))) {
+        const QVariantMap stream = streamVariant.toMap();
+        const QString range = stream.value(QStringLiteral("videoRange")).toString().trimmed().toUpper();
+        if (!range.isEmpty() && range != QStringLiteral("SDR")) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // === PRIVATE HELPERS ===
@@ -2139,6 +2565,8 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplaySubtitleTrack = -1;
     m_pendingAutoplayFramerate = 0.0;
     m_pendingAutoplayIsHDR = false;
+    m_pendingAutoplayEpisodeData = QJsonObject();
+    m_waitingForAutoplayPlaybackInfo = false;
     setAwaitingNextEpisodeResolution(false);
 }
 

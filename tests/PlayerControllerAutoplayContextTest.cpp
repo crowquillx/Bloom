@@ -51,7 +51,7 @@ public:
 
     void sendCommand(const QStringList &command) override
     {
-        Q_UNUSED(command);
+        commands.append(command);
     }
 
     void sendVariantCommand(const QVariantList &command) override
@@ -85,6 +85,17 @@ private:
 
 public:
     QList<QVariantList> variantCommands;
+    QList<QStringList> commands;
+
+    void emitAudioTrackId(int mpvTrackId)
+    {
+        emit audioTrackChanged(mpvTrackId);
+    }
+
+    void emitSubtitleTrackId(int mpvTrackId)
+    {
+        emit subtitleTrackChanged(mpvTrackId);
+    }
 };
 
 class FakeLibraryService final : public LibraryService
@@ -111,6 +122,23 @@ public:
     QStringList requestedSeriesIds;
 };
 
+static QVariantMap buildMediaSource(const QList<QVariantMap> &streams,
+                                    int defaultAudio = -1,
+                                    int defaultSubtitle = -1)
+{
+    QVariantList mediaStreams;
+    for (const QVariantMap &stream : streams) {
+        mediaStreams.append(stream);
+    }
+
+    return QVariantMap{
+        {QStringLiteral("id"), QStringLiteral("media-source-1")},
+        {QStringLiteral("defaultAudioStreamIndex"), defaultAudio},
+        {QStringLiteral("defaultSubtitleStreamIndex"), defaultSubtitle},
+        {QStringLiteral("mediaStreams"), mediaStreams}
+    };
+}
+
 class PlayerControllerAutoplayContextTest : public QObject
 {
     Q_OBJECT
@@ -124,6 +152,7 @@ private slots:
     void startupTrackSelectionUsesCanonicalMapWhenUrlNotPinned();
     void startupTrackSelectionRespectsPinnedUrlUnlessUserOverride();
     void runtimeTrackSelectionUsesCanonicalMapAndSubtitleNone();
+    void backendTrackSyncUsesReverseMap();
 };
 
 void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectly()
@@ -364,13 +393,14 @@ void PlayerControllerAutoplayContextTest::startupTrackSelectionUsesCanonicalMapW
     controller.m_pendingUrl = QStringLiteral("https://example.invalid/stream");
     controller.m_selectedAudioTrack = 7;
     controller.m_selectedSubtitleTrack = 11;
-    controller.updateTrackMappings(
-        QVariantList{
-            QVariantMap{{QStringLiteral("jellyfinIndex"), 7}, {QStringLiteral("mpvTrackId"), 2}}
-        },
-        QVariantList{
-            QVariantMap{{QStringLiteral("jellyfinIndex"), 11}, {QStringLiteral("mpvTrackId"), 3}}
-        });
+    controller.updateTrackMappings(buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 5}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 7}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 8}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 10}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 11}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 14}}
+    }));
 
     controller.onEnterBufferingState();
 
@@ -399,15 +429,12 @@ void PlayerControllerAutoplayContextTest::startupTrackSelectionRespectsPinnedUrl
     controller.m_pendingUrl = QStringLiteral("https://example.invalid/stream?AudioStreamIndex=4&SubtitleStreamIndex=8");
     controller.m_selectedAudioTrack = 4;
     controller.m_selectedSubtitleTrack = 8;
-    controller.updateTrackMappings(
-        QVariantList{
-            QVariantMap{{QStringLiteral("jellyfinIndex"), 4}, {QStringLiteral("mpvTrackId"), 1}},
-            QVariantMap{{QStringLiteral("jellyfinIndex"), 9}, {QStringLiteral("mpvTrackId"), 2}}
-        },
-        QVariantList{
-            QVariantMap{{QStringLiteral("jellyfinIndex"), 8}, {QStringLiteral("mpvTrackId"), 1}},
-            QVariantMap{{QStringLiteral("jellyfinIndex"), 10}, {QStringLiteral("mpvTrackId"), 2}}
-        });
+    controller.updateTrackMappings(buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 4}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 9}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 8}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 10}}
+    }));
 
     controller.onEnterBufferingState();
 
@@ -444,13 +471,14 @@ void PlayerControllerAutoplayContextTest::runtimeTrackSelectionUsesCanonicalMapA
 
     controller.m_playbackState = PlayerController::Playing;
     controller.m_currentSeasonId = QStringLiteral("season-42");
-    controller.updateTrackMappings(
-        QVariantList{
-            QVariantMap{{QStringLiteral("jellyfinIndex"), 5}, {QStringLiteral("mpvTrackId"), 2}}
-        },
-        QVariantList{
-            QVariantMap{{QStringLiteral("jellyfinIndex"), 13}, {QStringLiteral("mpvTrackId"), 4}}
-        });
+    controller.updateTrackMappings(buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 1}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 5}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 8}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 9}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 10}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 13}}
+    }));
 
     controller.setSelectedAudioTrack(5);
     controller.setSelectedSubtitleTrack(13);
@@ -459,8 +487,52 @@ void PlayerControllerAutoplayContextTest::runtimeTrackSelectionUsesCanonicalMapA
     QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "aid", 2}));
     QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sid", 4}));
     QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sid", "no"}));
-    QCOMPARE(trackPrefs.getAudioTrack(QStringLiteral("season-42")), 5);
-    QCOMPARE(trackPrefs.getSubtitleTrack(QStringLiteral("season-42")), -1);
+    const ScopedTrackPreferences preferences = trackPrefs.getSeasonPreferences(QStringLiteral("season-42"));
+    QCOMPARE(preferences.audio.mode, TrackPreferenceMode::ExplicitStream);
+    QCOMPARE(preferences.audio.streamIndex, 5);
+    QCOMPARE(preferences.subtitle.mode, TrackPreferenceMode::Off);
+}
+
+void PlayerControllerAutoplayContextTest::backendTrackSyncUsesReverseMap()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentSeasonId = QStringLiteral("season-84");
+    controller.m_applyingInitialTracks = false;
+    controller.updateTrackMappings(buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 2}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 7}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 5}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 12}}
+    }));
+
+    controller.cycleAudioTrack();
+    controller.cycleSubtitleTrack();
+    backend.emitAudioTrackId(2);
+    backend.emitSubtitleTrackId(-1);
+
+    QCOMPARE(controller.selectedAudioTrack(), 7);
+    QCOMPARE(controller.selectedSubtitleTrack(), -1);
+
+    const ScopedTrackPreferences preferences = trackPrefs.getSeasonPreferences(QStringLiteral("season-84"));
+    QCOMPARE(preferences.audio.mode, TrackPreferenceMode::ExplicitStream);
+    QCOMPARE(preferences.audio.streamIndex, 7);
+    QCOMPARE(preferences.subtitle.mode, TrackPreferenceMode::Off);
 }
 
 QTEST_MAIN(PlayerControllerAutoplayContextTest)

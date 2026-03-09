@@ -5,11 +5,14 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QMap>
+#include <QVariantMap>
 #include <QVariantList>
 #include <QtGlobal>
+#include <functional>
 #include <memory>
 #include "backend/IPlayerBackend.h"
 #include "TrickplayProcessor.h"
+#include "../network/Types.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/TrackPreferencesManager.h"
 #include "../utils/DisplayManager.h"
@@ -203,16 +206,18 @@ public:
      */
     Q_INVOKABLE void clearPendingAutoplayContext();
     
-    // Extended playUrl with track selection
-    // audioStreamIndex/subtitleStreamIndex: Jellyfin unified stream indices (for API reporting)
-    // mpvAudioTrack/mpvSubtitleTrack: mpv 1-based track IDs (for mpv commands)
+    Q_INVOKABLE QVariantMap resolveTrackSelectionForMediaSource(const QVariantMap &mediaSource,
+                                                               const QString &scopeId,
+                                                               bool isMovie,
+                                                               int preferredAudioIndex = -2,
+                                                               int preferredSubtitleIndex = -2) const;
+
+    // Extended playUrl with track selection.
     Q_INVOKABLE void playUrlWithTracks(const QString &url, const QString &itemId, qint64 startPositionTicks,
                                        const QString &seriesId, const QString &seasonId, const QString &libraryId,
                                        const QString &mediaSourceId, const QString &playSessionId,
+                                       const QVariantMap &mediaSource,
                                        int audioStreamIndex, int subtitleStreamIndex,
-                                       int mpvAudioTrack, int mpvSubtitleTrack,
-                                       const QVariantList &audioTrackMap = {},
-                                       const QVariantList &subtitleTrackMap = {},
                                        const QVariantList &availableAudioTracks = {},
                                        const QVariantList &availableSubtitleTracks = {},
                                        double framerate = 0.0, bool isHDR = false);
@@ -249,22 +254,24 @@ public:
     Q_INVOKABLE void setTrickplayPreviewPositionSeconds(double seconds);
     Q_INVOKABLE void clearTrickplayPreviewPositionOverride();
     
-    // Get last used track preferences for a season (for episode continuity)
+    // Legacy convenience getters retained for existing QML/tests.
     Q_INVOKABLE int getLastAudioTrackForSeason(const QString &seasonId) const;
     Q_INVOKABLE int getLastSubtitleTrackForSeason(const QString &seasonId) const;
-    
-    // Save track preferences from UI (before playback starts)
-    // This allows preserving user's track selection when navigating away and back
-    Q_INVOKABLE void saveAudioTrackPreference(const QString &seasonId, int index);
-    Q_INVOKABLE void saveSubtitleTrackPreference(const QString &seasonId, int index);
-    
-    // Get last used track preferences for a movie
     Q_INVOKABLE int getLastAudioTrackForMovie(const QString &movieId) const;
     Q_INVOKABLE int getLastSubtitleTrackForMovie(const QString &movieId) const;
-    
-    // Save track preferences for a movie
+
+    Q_INVOKABLE void saveAudioTrackPreference(const QString &seasonId, int index);
+    Q_INVOKABLE void saveSubtitleTrackPreference(const QString &seasonId, int index);
     Q_INVOKABLE void saveMovieAudioTrackPreference(const QString &movieId, int index);
     Q_INVOKABLE void saveMovieSubtitleTrackPreference(const QString &movieId, int index);
+    Q_INVOKABLE void setExplicitSeasonAudioPreference(const QString &seasonId, int index);
+    Q_INVOKABLE void setExplicitSeasonSubtitlePreference(const QString &seasonId, int index);
+    Q_INVOKABLE void clearSeasonAudioPreference(const QString &seasonId);
+    Q_INVOKABLE void clearSeasonSubtitlePreference(const QString &seasonId);
+    Q_INVOKABLE void setExplicitMovieAudioPreference(const QString &movieId, int index);
+    Q_INVOKABLE void setExplicitMovieSubtitlePreference(const QString &movieId, int index);
+    Q_INVOKABLE void clearMovieAudioPreference(const QString &movieId);
+    Q_INVOKABLE void clearMovieSubtitlePreference(const QString &movieId);
 
 signals:
     void playbackStateChanged();
@@ -321,6 +328,7 @@ private slots:
     void onPausedForCacheChanged(bool pausedForCache);
     void onPlaybackEnded();
     void onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
+    void onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
     
     // Timeout handlers
     void onLoadingTimeout();
@@ -463,24 +471,44 @@ private:
      * @returns `true` if a fallback was initiated, `false` otherwise.
      */
     bool tryFallbackToExternalBackend(const QString &reason);
-    /**
-     * Update internal mappings from Jellyfin stream indices to mpv track identifiers.
-     * @param audioTrackMap Mapping list for audio tracks (Jellyfin -> mpv).
-     * @param subtitleTrackMap Mapping list for subtitle tracks (Jellyfin -> mpv).
-     */
-    void updateTrackMappings(const QVariantList &audioTrackMap, const QVariantList &subtitleTrackMap);
+    struct ResolvedTrackSelection
+    {
+        int audioIndex = -1;
+        int subtitleIndex = -1;
+        QString audioSource;
+        QString subtitleSource;
+    };
+
+    void updateTrackMappings(const QVariantMap &mediaSource);
     /**
      * Map a Jellyfin audio stream index to the corresponding mpv audio track number.
      * @param jellyfinStreamIndex Jellyfin audio stream index.
      * @returns 1-based mpv audio track number, or -1 when auto/none is intended.
      */
     int mpvAudioTrackForJellyfinIndex(int jellyfinStreamIndex) const;
+    int jellyfinAudioTrackForMpvTrack(int mpvTrackId) const;
     /**
      * Map a Jellyfin subtitle stream index to the corresponding mpv subtitle track number.
      * @param jellyfinStreamIndex Jellyfin subtitle stream index.
      * @returns 1-based mpv subtitle track number, or -1 when subtitles are disabled.
      */
     int mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) const;
+    int jellyfinSubtitleTrackForMpvTrack(int mpvTrackId) const;
+    ResolvedTrackSelection resolveTrackSelection(const QVariantMap &mediaSource,
+                                                 const ScopedTrackPreferences &preferences,
+                                                 int preferredAudioIndex = -2,
+                                                 int preferredSubtitleIndex = -2) const;
+    void syncBackendAudioTrack(int mpvTrackId);
+    void syncBackendSubtitleTrack(int mpvTrackId);
+    void persistAudioPreferenceForCurrentScope(int index);
+    void persistSubtitlePreferenceForCurrentScope(int index);
+    void updateSeasonPreference(const QString &seasonId,
+                                std::function<void(ScopedTrackPreferences &preferences)> updater);
+    void updateMoviePreference(const QString &movieId,
+                               std::function<void(ScopedTrackPreferences &preferences)> updater);
+    QVariantList buildAvailableTrackOptions(const QVariantMap &mediaSource, const QString &streamType) const;
+    double videoFramerateForMediaSource(const QVariantMap &mediaSource) const;
+    bool mediaSourceIsHdr(const QVariantMap &mediaSource) const;
     /**
      * Convert a playback state enum value to a human-readable string.
      * @param state PlaybackState value to convert.
@@ -569,19 +597,18 @@ private:
     int m_mpvSubtitleTrack = -1;        // mpv subtitle track number (1-based, -1 = disabled)
     QHash<int, int> m_audioTrackMap;    // Jellyfin stream index -> mpv aid track ID (1-based)
     QHash<int, int> m_subtitleTrackMap; // Jellyfin stream index -> mpv sid track ID (1-based)
+    QHash<int, int> m_audioTrackReverseMap;    // mpv aid track ID (1-based) -> Jellyfin stream index
+    QHash<int, int> m_subtitleTrackReverseMap; // mpv sid track ID (1-based) -> Jellyfin stream index
     QString m_mediaSourceId;            // Current media source ID
     QString m_playSessionId;            // Playback session ID for reporting
     QVariantList m_availableAudioTracks;
     QVariantList m_availableSubtitleTracks;
-    
-    // Track preference persistence for season continuity
-    // Maps season ID -> (audio track index, subtitle track index)
-    // We use language code matching for best results
-    QHash<QString, QPair<int, int>> m_seasonTrackPreferences;
-    
-    // Flag to prevent saving track preferences during initial track application
-    // When true, ignore track changes from mpv (they're from auto-selection, not user choice)
+    QVariantMap m_activeMediaSource;
     bool m_applyingInitialTracks = false;
+    bool m_pendingAudioTrackPersistenceFromBackend = false;
+    bool m_pendingSubtitleTrackPersistenceFromBackend = false;
+    bool m_waitingForAutoplayPlaybackInfo = false;
+    QJsonObject m_pendingAutoplayEpisodeData;
     
     // Content framerate for display refresh rate matching
     double m_contentFramerate = 0.0;

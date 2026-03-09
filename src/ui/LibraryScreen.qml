@@ -349,8 +349,10 @@ FocusScope {
             initialSeasonId: root.currentSeasonId
             initialSeasonIndex: root._lastSelectedSeasonIndex
             initialEpisodeId: root.initialEpisodeId
+            pendingAudioTrackIndex: root.pendingAudioTrackIndex
+            pendingSubtitleTrackIndex: root.pendingSubtitleTrackIndex
             
-            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
+            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, mediaSource, audioIndex, subtitleIndex, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
                 // Use Jellyfin indices for the URL (server needs these for stream selection)
                 var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
                 startPlaybackWithResolvedLibrary({
@@ -362,12 +364,9 @@ FocusScope {
                     seasonId: SeriesDetailsViewModel.selectedSeasonId,
                     mediaSourceId: mediaSourceId,
                     playSessionId: playSessionId,
+                    mediaSource: mediaSource,
                     audioIndex: audioIndex,
                     subtitleIndex: subtitleIndex,
-                    mpvAudioTrack: mpvAudioTrack,
-                    mpvSubtitleTrack: mpvSubtitleTrack,
-                    audioTrackMap: audioTrackMap,
-                    subtitleTrackMap: subtitleTrackMap,
                     availableAudioTracks: availableAudioTracks,
                     availableSubtitleTracks: availableSubtitleTracks,
                     framerate: framerate || 0.0,
@@ -407,11 +406,9 @@ FocusScope {
                 })
             }
             
-            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, audioIndex, subtitleIndex, mpvAudioTrack, mpvSubtitleTrack, audioTrackMap, subtitleTrackMap, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
+            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, mediaSource, audioIndex, subtitleIndex, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
                 // Use Jellyfin indices for the URL (server needs these for stream selection)
                 var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
-                // Pass mpv track numbers to PlayerController for mpv commands
-                // Movies don't have seriesId or seasonId, so pass empty strings
                 var title = root.currentMovieData && root.currentMovieData.Name ? root.currentMovieData.Name : qsTr("Now Playing")
                 var subtitle = root.currentMovieData && root.currentMovieData.ProductionYear
                                ? String(root.currentMovieData.ProductionYear)
@@ -426,12 +423,9 @@ FocusScope {
                     seasonId: "",
                     mediaSourceId: mediaSourceId,
                     playSessionId: playSessionId,
+                    mediaSource: mediaSource,
                     audioIndex: audioIndex,
                     subtitleIndex: subtitleIndex,
-                    mpvAudioTrack: mpvAudioTrack,
-                    mpvSubtitleTrack: mpvSubtitleTrack,
-                    audioTrackMap: audioTrackMap,
-                    subtitleTrackMap: subtitleTrackMap,
                     availableAudioTracks: availableAudioTracks,
                     availableSubtitleTracks: availableSubtitleTracks,
                     framerate: framerate || 0.0,
@@ -1811,13 +1805,13 @@ FocusScope {
     function dispatchPlaybackRequest(request, libraryId) {
         var resolvedLibraryId = libraryId || ""
         if (request.type === "playWithTracks") {
+            var requestMediaSource = request.mediaSource || {}
             PlayerController.playUrlWithTracks(
                 request.url, request.itemId, request.startPositionTicks || 0,
                 request.seriesId || "", request.seasonId || "", resolvedLibraryId,
                 request.mediaSourceId || "", request.playSessionId || "",
+                requestMediaSource,
                 request.audioIndex, request.subtitleIndex,
-                request.mpvAudioTrack, request.mpvSubtitleTrack,
-                request.audioTrackMap || [], request.subtitleTrackMap || [],
                 request.availableAudioTracks || [], request.availableSubtitleTracks || [],
                 request.framerate || 0.0, request.isHDR || false
             )

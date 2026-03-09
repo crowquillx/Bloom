@@ -1,12 +1,143 @@
 #include "TrackPreferencesManager.h"
 #include "ConfigManager.h"
 
-#include <QFile>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QDir>
-#include <QTimer>
 #include <QDebug>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QJsonDocument>
+#include <QSaveFile>
+#include <QTimer>
+
+namespace {
+constexpr auto kVersionKey = "version";
+constexpr auto kEpisodesKey = "episodes";
+constexpr auto kMoviesKey = "movies";
+constexpr auto kAudioKey = "audio";
+constexpr auto kSubtitleKey = "subtitle";
+constexpr auto kModeKey = "mode";
+constexpr auto kStreamIndexKey = "streamIndex";
+constexpr auto kPreferredLanguageKey = "preferredLanguage";
+constexpr auto kForcedOnlyKey = "forcedOnly";
+constexpr auto kHearingImpairedKey = "hearingImpaired";
+constexpr auto kStrategyKey = "strategy";
+
+QString modeToString(TrackPreferenceMode mode)
+{
+    switch (mode) {
+    case TrackPreferenceMode::Off:
+        return QStringLiteral("off");
+    case TrackPreferenceMode::ExplicitStream:
+        return QStringLiteral("explicit");
+    case TrackPreferenceMode::Unset:
+    default:
+        return QStringLiteral("unset");
+    }
+}
+
+TrackPreferenceMode modeFromString(const QString &mode)
+{
+    const QString normalized = mode.trimmed().toLower();
+    if (normalized == QStringLiteral("off")) {
+        return TrackPreferenceMode::Off;
+    }
+    if (normalized == QStringLiteral("explicit")) {
+        return TrackPreferenceMode::ExplicitStream;
+    }
+    return TrackPreferenceMode::Unset;
+}
+
+QJsonObject preferenceToJson(const TrackSelectionPreference &preference)
+{
+    QJsonObject json;
+    json[kModeKey] = modeToString(preference.mode);
+    if (preference.mode == TrackPreferenceMode::ExplicitStream && preference.streamIndex >= 0) {
+        json[kStreamIndexKey] = preference.streamIndex;
+    }
+    if (!preference.preferredLanguage.isEmpty()) {
+        json[kPreferredLanguageKey] = preference.preferredLanguage;
+    }
+    if (preference.forcedOnly) {
+        json[kForcedOnlyKey] = true;
+    }
+    if (preference.hearingImpaired) {
+        json[kHearingImpairedKey] = true;
+    }
+    if (!preference.strategy.isEmpty()) {
+        json[kStrategyKey] = preference.strategy;
+    }
+    return json;
+}
+
+TrackSelectionPreference preferenceFromJson(const QJsonValue &value)
+{
+    TrackSelectionPreference preference;
+    if (!value.isObject()) {
+        return preference;
+    }
+
+    const QJsonObject object = value.toObject();
+    preference.mode = modeFromString(object.value(kModeKey).toString());
+    preference.streamIndex = object.value(kStreamIndexKey).toInt(-1);
+    preference.preferredLanguage = object.value(kPreferredLanguageKey).toString();
+    preference.forcedOnly = object.value(kForcedOnlyKey).toBool(false);
+    preference.hearingImpaired = object.value(kHearingImpairedKey).toBool(false);
+    preference.strategy = object.value(kStrategyKey).toString();
+
+    if (preference.mode != TrackPreferenceMode::ExplicitStream) {
+        preference.streamIndex = -1;
+    } else if (preference.streamIndex < 0) {
+        preference.mode = TrackPreferenceMode::Unset;
+    }
+
+    return preference;
+}
+
+QJsonObject scopedPreferencesToJson(const ScopedTrackPreferences &preferences)
+{
+    QJsonObject json;
+    json[kAudioKey] = preferenceToJson(preferences.audio);
+    json[kSubtitleKey] = preferenceToJson(preferences.subtitle);
+    return json;
+}
+
+ScopedTrackPreferences scopedPreferencesFromJson(const QJsonValue &value)
+{
+    ScopedTrackPreferences preferences;
+    if (!value.isObject()) {
+        return preferences;
+    }
+
+    const QJsonObject object = value.toObject();
+    preferences.audio = preferenceFromJson(object.value(kAudioKey));
+    preferences.subtitle = preferenceFromJson(object.value(kSubtitleKey));
+    return preferences;
+}
+
+template<typename MapType>
+void loadPreferenceSection(const QJsonObject &section, MapType &target)
+{
+    target.clear();
+    for (auto it = section.begin(); it != section.end(); ++it) {
+        const ScopedTrackPreferences preferences = scopedPreferencesFromJson(it.value());
+        if (!preferences.isEmpty()) {
+            target.insert(it.key(), preferences);
+        }
+    }
+}
+
+template<typename MapType>
+QJsonObject savePreferenceSection(const MapType &source)
+{
+    QJsonObject section;
+    for (auto it = source.begin(); it != source.end(); ++it) {
+        if (!it.value().isEmpty()) {
+            section[it.key()] = scopedPreferencesToJson(it.value());
+        }
+    }
+    return section;
+}
+}
 
 TrackPreferencesManager::TrackPreferencesManager(QObject *parent)
     : QObject(parent)
@@ -28,123 +159,91 @@ QString TrackPreferencesManager::getPreferencesPath()
 
 void TrackPreferencesManager::load()
 {
-    QString path = getPreferencesPath();
+    const QString path = getPreferencesPath();
     QFile file(path);
-    
+
+    m_episodePreferences.clear();
+    m_moviePreferences.clear();
+
     if (!file.exists()) {
         qDebug() << "TrackPreferencesManager: No preferences file found at" << path;
         return;
     }
-    
+
     if (!file.open(QIODevice::ReadOnly)) {
         qWarning() << "TrackPreferencesManager: Failed to open preferences file:" << path;
         return;
     }
-    
-    QByteArray data = file.readAll();
-    file.close();
-    
+
     QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
-    
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    file.close();
+
     if (parseError.error != QJsonParseError::NoError) {
-        qWarning() << "TrackPreferencesManager: JSON parse error:" << parseError.errorString();
+        qWarning() << "TrackPreferencesManager: JSON parse error:" << parseError.errorString()
+                   << "- clearing saved track preferences";
         return;
     }
-    
-    if (!doc.isObject()) {
-        qWarning() << "TrackPreferencesManager: Invalid preferences format";
+
+    if (!document.isObject()) {
+        qWarning() << "TrackPreferencesManager: Invalid preferences format - clearing saved track preferences";
         return;
     }
-    
-    QJsonObject root = doc.object();
-    m_preferences.clear();
-    m_moviePreferences.clear();
-    
-    // Load season preferences (for backwards compatibility, top-level keys that aren't "movies")
-    for (auto it = root.begin(); it != root.end(); ++it) {
-        if (it.key() == "movies") continue;  // Skip movies section
-        
-        QString seasonId = it.key();
-        QJsonObject prefs = it.value().toObject();
-        
-        int audioTrack = prefs.value("audio").toInt(-1);
-        int subtitleTrack = prefs.value("subtitle").toInt(-1);
-        
-        m_preferences[seasonId] = qMakePair(audioTrack, subtitleTrack);
+
+    const QJsonObject root = document.object();
+    const int version = root.value(kVersionKey).toInt(-1);
+    if (version != kCurrentSchemaVersion) {
+        qWarning() << "TrackPreferencesManager: Resetting legacy track preferences schema version"
+                   << version << "expected" << kCurrentSchemaVersion;
+        return;
     }
-    
-    // Load movie preferences from "movies" section
-    if (root.contains("movies")) {
-        QJsonObject moviesObj = root.value("movies").toObject();
-        for (auto it = moviesObj.begin(); it != moviesObj.end(); ++it) {
-            QString movieId = it.key();
-            QJsonObject prefs = it.value().toObject();
-            
-            int audioTrack = prefs.value("audio").toInt(-1);
-            int subtitleTrack = prefs.value("subtitle").toInt(-1);
-            
-            m_moviePreferences[movieId] = qMakePair(audioTrack, subtitleTrack);
-        }
-    }
-    
-    qDebug() << "TrackPreferencesManager: Loaded preferences for" << m_preferences.size() << "seasons and" << m_moviePreferences.size() << "movies";
+
+    loadPreferenceSection(root.value(kEpisodesKey).toObject(), m_episodePreferences);
+    loadPreferenceSection(root.value(kMoviesKey).toObject(), m_moviePreferences);
+
+    qDebug() << "TrackPreferencesManager: Loaded preferences for"
+             << m_episodePreferences.size() << "episode scopes and"
+             << m_moviePreferences.size() << "movie scopes";
 }
 
 void TrackPreferencesManager::save()
 {
-    QString path = getPreferencesPath();
-    
-    // Ensure config directory exists
+    const QString path = getPreferencesPath();
     QDir dir = QFileInfo(path).dir();
     if (!dir.exists()) {
         dir.mkpath(".");
     }
-    
+
     QJsonObject root;
-    
-    // Save season preferences (top-level keys)
-    for (auto it = m_preferences.begin(); it != m_preferences.end(); ++it) {
-        QJsonObject prefs;
-        prefs["audio"] = it.value().first;
-        prefs["subtitle"] = it.value().second;
-        root[it.key()] = prefs;
-    }
-    
-    // Save movie preferences under "movies" key
-    if (!m_moviePreferences.isEmpty()) {
-        QJsonObject moviesObj;
-        for (auto it = m_moviePreferences.begin(); it != m_moviePreferences.end(); ++it) {
-            QJsonObject prefs;
-            prefs["audio"] = it.value().first;
-            prefs["subtitle"] = it.value().second;
-            moviesObj[it.key()] = prefs;
-        }
-        root["movies"] = moviesObj;
-    }
-    
-    QJsonDocument doc(root);
-    
-    QFile file(path);
+    root[kVersionKey] = kCurrentSchemaVersion;
+    root[kEpisodesKey] = savePreferenceSection(m_episodePreferences);
+    root[kMoviesKey] = savePreferenceSection(m_moviePreferences);
+
+    QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         qWarning() << "TrackPreferencesManager: Failed to save preferences to" << path;
         return;
     }
-    
-    file.write(doc.toJson(QJsonDocument::Indented));
-    file.close();
-    
+
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
+    if (!file.commit()) {
+        qWarning() << "TrackPreferencesManager: Failed to commit preferences to" << path;
+        return;
+    }
+
     m_dirty = false;
-    qDebug() << "TrackPreferencesManager: Saved preferences for" << m_preferences.size() << "seasons";
+    qDebug() << "TrackPreferencesManager: Saved preferences for"
+             << m_episodePreferences.size() << "episode scopes and"
+             << m_moviePreferences.size() << "movie scopes";
 }
 
 void TrackPreferencesManager::scheduleSave()
 {
-    if (m_dirty) return;  // Already scheduled
-    
+    if (m_dirty) {
+        return;
+    }
+
     m_dirty = true;
-    
-    // Delay save by 1 second to batch multiple changes
     QTimer::singleShot(1000, this, [this]() {
         if (m_dirty) {
             save();
@@ -152,82 +251,96 @@ void TrackPreferencesManager::scheduleSave()
     });
 }
 
-int TrackPreferencesManager::getAudioTrack(const QString &seasonId) const
+ScopedTrackPreferences TrackPreferencesManager::getSeasonPreferences(const QString &seasonId) const
 {
-    if (m_preferences.contains(seasonId)) {
-        return m_preferences[seasonId].first;
-    }
-    return -1;
+    return m_episodePreferences.value(seasonId);
 }
 
-void TrackPreferencesManager::setAudioTrack(const QString &seasonId, int trackIndex)
+void TrackPreferencesManager::setSeasonPreferences(const QString &seasonId, const ScopedTrackPreferences &preferences)
 {
-    if (seasonId.isEmpty()) return;
-    
-    m_preferences[seasonId].first = trackIndex;
+    if (seasonId.isEmpty()) {
+        return;
+    }
+
+    if (preferences.isEmpty()) {
+        clearSeasonPreferences(seasonId);
+        return;
+    }
+
+    if (m_episodePreferences.value(seasonId).audio.mode == preferences.audio.mode
+        && m_episodePreferences.value(seasonId).audio.streamIndex == preferences.audio.streamIndex
+        && m_episodePreferences.value(seasonId).audio.preferredLanguage == preferences.audio.preferredLanguage
+        && m_episodePreferences.value(seasonId).audio.forcedOnly == preferences.audio.forcedOnly
+        && m_episodePreferences.value(seasonId).audio.hearingImpaired == preferences.audio.hearingImpaired
+        && m_episodePreferences.value(seasonId).audio.strategy == preferences.audio.strategy
+        && m_episodePreferences.value(seasonId).subtitle.mode == preferences.subtitle.mode
+        && m_episodePreferences.value(seasonId).subtitle.streamIndex == preferences.subtitle.streamIndex
+        && m_episodePreferences.value(seasonId).subtitle.preferredLanguage == preferences.subtitle.preferredLanguage
+        && m_episodePreferences.value(seasonId).subtitle.forcedOnly == preferences.subtitle.forcedOnly
+        && m_episodePreferences.value(seasonId).subtitle.hearingImpaired == preferences.subtitle.hearingImpaired
+        && m_episodePreferences.value(seasonId).subtitle.strategy == preferences.subtitle.strategy) {
+        return;
+    }
+
+    m_episodePreferences.insert(seasonId, preferences);
     scheduleSave();
 }
 
-int TrackPreferencesManager::getSubtitleTrack(const QString &seasonId) const
+void TrackPreferencesManager::clearSeasonPreferences(const QString &seasonId)
 {
-    if (m_preferences.contains(seasonId)) {
-        return m_preferences[seasonId].second;
-    }
-    return -1;
-}
-
-void TrackPreferencesManager::setSubtitleTrack(const QString &seasonId, int trackIndex)
-{
-    if (seasonId.isEmpty()) return;
-    
-    m_preferences[seasonId].second = trackIndex;
-    scheduleSave();
-}
-
-void TrackPreferencesManager::clearPreferences(const QString &seasonId)
-{
-    if (m_preferences.remove(seasonId) > 0) {
+    if (m_episodePreferences.remove(seasonId) > 0) {
         scheduleSave();
     }
 }
 
-// ---- Movie-based preferences ----
-
-int TrackPreferencesManager::getMovieAudioTrack(const QString &movieId) const
+ScopedTrackPreferences TrackPreferencesManager::getMoviePreferences(const QString &movieId) const
 {
-    if (m_moviePreferences.contains(movieId)) {
-        return m_moviePreferences[movieId].first;
+    return m_moviePreferences.value(movieId);
+}
+
+void TrackPreferencesManager::setMoviePreferences(const QString &movieId, const ScopedTrackPreferences &preferences)
+{
+    if (movieId.isEmpty()) {
+        return;
     }
-    return -1;
-}
 
-void TrackPreferencesManager::setMovieAudioTrack(const QString &movieId, int trackIndex)
-{
-    if (movieId.isEmpty()) return;
-    
-    m_moviePreferences[movieId].first = trackIndex;
-    scheduleSave();
-}
-
-int TrackPreferencesManager::getMovieSubtitleTrack(const QString &movieId) const
-{
-    if (m_moviePreferences.contains(movieId)) {
-        return m_moviePreferences[movieId].second;
+    if (preferences.isEmpty()) {
+        clearMoviePreferences(movieId);
+        return;
     }
-    return -1;
-}
 
-void TrackPreferencesManager::setMovieSubtitleTrack(const QString &movieId, int trackIndex)
-{
-    if (movieId.isEmpty()) return;
-    
-    m_moviePreferences[movieId].second = trackIndex;
+    if (m_moviePreferences.value(movieId).audio.mode == preferences.audio.mode
+        && m_moviePreferences.value(movieId).audio.streamIndex == preferences.audio.streamIndex
+        && m_moviePreferences.value(movieId).audio.preferredLanguage == preferences.audio.preferredLanguage
+        && m_moviePreferences.value(movieId).audio.forcedOnly == preferences.audio.forcedOnly
+        && m_moviePreferences.value(movieId).audio.hearingImpaired == preferences.audio.hearingImpaired
+        && m_moviePreferences.value(movieId).audio.strategy == preferences.audio.strategy
+        && m_moviePreferences.value(movieId).subtitle.mode == preferences.subtitle.mode
+        && m_moviePreferences.value(movieId).subtitle.streamIndex == preferences.subtitle.streamIndex
+        && m_moviePreferences.value(movieId).subtitle.preferredLanguage == preferences.subtitle.preferredLanguage
+        && m_moviePreferences.value(movieId).subtitle.forcedOnly == preferences.subtitle.forcedOnly
+        && m_moviePreferences.value(movieId).subtitle.hearingImpaired == preferences.subtitle.hearingImpaired
+        && m_moviePreferences.value(movieId).subtitle.strategy == preferences.subtitle.strategy) {
+        return;
+    }
+
+    m_moviePreferences.insert(movieId, preferences);
     scheduleSave();
 }
 
 void TrackPreferencesManager::clearMoviePreferences(const QString &movieId)
 {
     if (m_moviePreferences.remove(movieId) > 0) {
+        scheduleSave();
+    }
+}
+
+void TrackPreferencesManager::clearAllPreferences()
+{
+    const bool hadData = !m_episodePreferences.isEmpty() || !m_moviePreferences.isEmpty();
+    m_episodePreferences.clear();
+    m_moviePreferences.clear();
+    if (hadData) {
         scheduleSave();
     }
 }

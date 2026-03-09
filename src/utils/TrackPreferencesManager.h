@@ -4,7 +4,42 @@
 #include <QJsonObject>
 #include <QString>
 #include <QHash>
-#include <QPair>
+
+enum class TrackPreferenceMode {
+    Unset,
+    Off,
+    ExplicitStream
+};
+
+struct TrackSelectionPreference
+{
+    TrackPreferenceMode mode = TrackPreferenceMode::Unset;
+    int streamIndex = -1;
+    QString preferredLanguage;
+    bool forcedOnly = false;
+    bool hearingImpaired = false;
+    QString strategy;
+
+    [[nodiscard]] bool isMeaningful() const
+    {
+        return mode != TrackPreferenceMode::Unset
+            || !preferredLanguage.isEmpty()
+            || forcedOnly
+            || hearingImpaired
+            || !strategy.isEmpty();
+    }
+};
+
+struct ScopedTrackPreferences
+{
+    TrackSelectionPreference audio;
+    TrackSelectionPreference subtitle;
+
+    [[nodiscard]] bool isEmpty() const
+    {
+        return !audio.isMeaningful() && !subtitle.isMeaningful();
+    }
+};
 
 /**
  * @brief Manages audio and subtitle track preferences per season and per movie
@@ -33,49 +68,24 @@ public:
     /// Save preferences to disk
     void save();
 
-    // ---- Season-based preferences (for TV episodes) ----
-    
-    /// Get saved audio track index for a season (-1 if no preference)
-    Q_INVOKABLE int getAudioTrack(const QString &seasonId) const;
-    
-    /// Set audio track preference for a season
-    Q_INVOKABLE void setAudioTrack(const QString &seasonId, int trackIndex);
-    
-    /// Get saved subtitle track index for a season (-1 if no preference)
-    Q_INVOKABLE int getSubtitleTrack(const QString &seasonId) const;
-    
-    /// Set subtitle track preference for a season (-1 means "off")
-    Q_INVOKABLE void setSubtitleTrack(const QString &seasonId, int trackIndex);
-    
-    /// Clear all preferences for a season
-    Q_INVOKABLE void clearPreferences(const QString &seasonId);
-    
-    // ---- Movie-based preferences ----
-    
-    /// Get saved audio track index for a movie (-1 if no preference)
-    Q_INVOKABLE int getMovieAudioTrack(const QString &movieId) const;
-    
-    /// Set audio track preference for a movie
-    Q_INVOKABLE void setMovieAudioTrack(const QString &movieId, int trackIndex);
-    
-    /// Get saved subtitle track index for a movie (-1 if no preference)
-    Q_INVOKABLE int getMovieSubtitleTrack(const QString &movieId) const;
-    
-    /// Set subtitle track preference for a movie (-1 means "off")
-    Q_INVOKABLE void setMovieSubtitleTrack(const QString &movieId, int trackIndex);
-    
-    /// Clear all preferences for a movie
-    Q_INVOKABLE void clearMoviePreferences(const QString &movieId);
+    ScopedTrackPreferences getSeasonPreferences(const QString &seasonId) const;
+    void setSeasonPreferences(const QString &seasonId, const ScopedTrackPreferences &preferences);
+    void clearSeasonPreferences(const QString &seasonId);
+
+    ScopedTrackPreferences getMoviePreferences(const QString &movieId) const;
+    void setMoviePreferences(const QString &movieId, const ScopedTrackPreferences &preferences);
+    void clearMoviePreferences(const QString &movieId);
+
+    void clearAllPreferences();
     
     /// Get the path to the preferences file
     static QString getPreferencesPath();
 
 private:
-    // In-memory cache: seasonId -> (audioTrack, subtitleTrack)
-    QHash<QString, QPair<int, int>> m_preferences;
-    
-    // In-memory cache for movies: movieId -> (audioTrack, subtitleTrack)
-    QHash<QString, QPair<int, int>> m_moviePreferences;
+    static constexpr int kCurrentSchemaVersion = 2;
+
+    QHash<QString, ScopedTrackPreferences> m_episodePreferences;
+    QHash<QString, ScopedTrackPreferences> m_moviePreferences;
     
     // Track if we have unsaved changes
     bool m_dirty = false;

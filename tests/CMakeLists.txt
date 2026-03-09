@@ -121,6 +121,22 @@ target_link_libraries(PlayerControllerAutoplayContextTest
 
 add_test(NAME PlayerControllerAutoplayContextTest COMMAND PlayerControllerAutoplayContextTest)
 
+add_executable(TrackPreferencesManagerTest
+    TrackPreferencesManagerTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+)
+
+target_include_directories(TrackPreferencesManagerTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(TrackPreferencesManagerTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Test
+)
+
+add_test(NAME TrackPreferencesManagerTest COMMAND TrackPreferencesManagerTest)
+
 # ============================================================================
 # Visual Regression Test Fixtures
 # ============================================================================

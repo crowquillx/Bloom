@@ -182,33 +182,4 @@ FocusScope {
             }
         }
     }
-    
-    // When media source changes, find default selections if not already set
-    onMediaSourceChanged: {
-        if (!mediaSource) return
-        
-        // Set default audio track if not specified
-        if (selectedAudioIndex < 0 && audioTracks.length > 0) {
-            for (var i = 0; i < audioTracks.length; i++) {
-                if (audioTracks[i].isDefault) {
-                    selectedAudioIndex = audioTracks[i].index
-                    break
-                }
-            }
-            // If no default, use first track
-            if (selectedAudioIndex < 0) {
-                selectedAudioIndex = audioTracks[0].index
-            }
-        }
-        
-        // Set default subtitle track if available
-        if (selectedSubtitleIndex < 0 && subtitleTracks.length > 0) {
-            for (var j = 0; j < subtitleTracks.length; j++) {
-                if (subtitleTracks[j].isDefault) {
-                    selectedSubtitleIndex = subtitleTracks[j].index
-                    break
-                }
-            }
-        }
-    }
 }

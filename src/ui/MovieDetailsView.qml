@@ -61,9 +61,8 @@ FocusScope {
     // Signals
     signal playRequested(string itemId, var startPositionTicks, double framerate, bool isHDR)
     signal playRequestedWithTracks(string itemId, var startPositionTicks, string mediaSourceId, 
-                                    string playSessionId, int audioIndex, int subtitleIndex,
-                                    int mpvAudioTrack, int mpvSubtitleTrack,
-                                    var audioTrackMap, var subtitleTrackMap,
+                                    string playSessionId, var mediaSource,
+                                    int audioIndex, int subtitleIndex,
                                     var availableAudioTracks, var availableSubtitleTracks,
                                     double framerate, bool isHDR)
     signal backRequested()
@@ -94,34 +93,6 @@ FocusScope {
         return false
     }
     
-    // Canonical contract for Milestone D:
-    // - UI and reporting use Jellyfin stream indices (MediaStream.index)
-    // - mpv commands use mpv runtime track IDs (aid/sid, 1-based, per media type order)
-    // - subtitle none is represented as Jellyfin -1 and mpv sid "no"
-    function buildTrackMap(streamType) {
-        var map = []
-        if (!currentMediaSource || !currentMediaSource.mediaStreams) return map
-        var mpvTrackId = 1
-        for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
-            var stream = currentMediaSource.mediaStreams[i]
-            if (stream.type === streamType) {
-                map.push({ jellyfinIndex: stream.index, mpvTrackId: mpvTrackId })
-                mpvTrackId++
-            }
-        }
-        return map
-    }
-    
-    function resolveMpvTrackId(jellyfinStreamIndex, trackMap) {
-        if (jellyfinStreamIndex < 0) return -1
-        for (var i = 0; i < trackMap.length; i++) {
-            if (trackMap[i].jellyfinIndex === jellyfinStreamIndex) {
-                return trackMap[i].mpvTrackId
-            }
-        }
-        return -1
-    }
-
     function buildTrackOptions(streamType) {
         var tracks = []
         if (!currentMediaSource || !currentMediaSource.mediaStreams) return tracks
@@ -153,27 +124,17 @@ FocusScope {
         console.log("[MovieDetailsView] Starting playback with framerate:", framerate, "isHDR:", hdr)
         
         if (playbackInfo && currentMediaSource) {
-            var audioTrackMap = buildTrackMap("Audio")
-            var subtitleTrackMap = buildTrackMap("Subtitle")
-            var mpvAudioTrack = resolveMpvTrackId(selectedAudioIndex, audioTrackMap)
-            var mpvSubTrack = resolveMpvTrackId(selectedSubtitleIndex, subtitleTrackMap)
             var availableAudioTracks = buildTrackOptions("Audio")
             var availableSubtitleTracks = buildTrackOptions("Subtitle")
-            
-            console.log("[MovieDetailsView] Track mapping - Audio: Jellyfin", selectedAudioIndex, "-> mpv", mpvAudioTrack,
-                        "Subtitle: Jellyfin", selectedSubtitleIndex, "-> mpv", mpvSubTrack)
             
             root.playRequestedWithTracks(
                 movieId,
                 playbackPositionTicks,
                 currentMediaSource.id,
                 playbackInfo.playSessionId,
-                selectedAudioIndex,     // Jellyfin index for URL/API
-                selectedSubtitleIndex,  // Jellyfin index for URL/API
-                mpvAudioTrack,          // mpv track number for mpv commands
-                mpvSubTrack,            // mpv track number for mpv commands
-                audioTrackMap,
-                subtitleTrackMap,
+                currentMediaSource,
+                selectedAudioIndex,
+                selectedSubtitleIndex,
                 availableAudioTracks,
                 availableSubtitleTracks,
                 framerate,
@@ -716,7 +677,7 @@ FocusScope {
                     root.selectedAudioIndex = index
                     console.log("[MovieDetailsView] Audio track changed to", index, "movieId:", root.movieId)
                     if (root.movieId) {
-                        PlayerController.saveMovieAudioTrackPreference(root.movieId, index)
+                        PlayerController.setExplicitMovieAudioPreference(root.movieId, index)
                     }
                 }
                 
@@ -724,7 +685,7 @@ FocusScope {
                     root.selectedSubtitleIndex = index
                     console.log("[MovieDetailsView] Subtitle track changed to", index, "movieId:", root.movieId)
                     if (root.movieId) {
-                        PlayerController.saveMovieSubtitleTrackPreference(root.movieId, index)
+                        PlayerController.setExplicitMovieSubtitlePreference(root.movieId, index)
                     }
                 }
             }
@@ -933,33 +894,14 @@ FocusScope {
                 root.playbackInfo = info
                 root.playbackInfoLoading = false
                 
-                // Initialize track selections - prefer saved preferences, fall back to server defaults
                 if (info.mediaSources && info.mediaSources.length > 0) {
                     var source = info.mediaSources[0]
-                    
-                    // Check for saved track preferences for this movie
-                    var savedAudio = PlayerController.getLastAudioTrackForMovie(root.movieId)
-                    var savedSubtitle = PlayerController.getLastSubtitleTrackForMovie(root.movieId)
-                    
-                    // Apply saved audio preference if available, otherwise use server default
-                    if (savedAudio >= 0) {
-                        console.log("[MovieDetailsView] Using saved audio track preference:", savedAudio)
-                        root.selectedAudioIndex = savedAudio
-                    } else if (source.defaultAudioStreamIndex >= 0) {
-                        root.selectedAudioIndex = source.defaultAudioStreamIndex
-                    }
-                    
-                    // Apply saved subtitle preference if available, otherwise use server default
-                    // Note: -1 means "no subtitles" which is a valid saved preference
-                    if (source.defaultSubtitleStreamIndex >= 0) {
-                        root.selectedSubtitleIndex = source.defaultSubtitleStreamIndex
-                    }
-                    // Override with saved preference (savedSubtitle >= -1 means any saved value including "off")
-                    if (savedSubtitle >= 0 || (savedSubtitle === -1 && savedAudio >= 0)) {
-                        // If we have a valid audio preference, we likely have subtitle preference too
-                        console.log("[MovieDetailsView] Using saved subtitle track preference:", savedSubtitle)
-                        root.selectedSubtitleIndex = savedSubtitle
-                    }
+                    var resolved = PlayerController.resolveTrackSelectionForMediaSource(source, root.movieId, true)
+                    root.selectedAudioIndex = resolved.audioIndex
+                    root.selectedSubtitleIndex = resolved.subtitleIndex
+                    console.log("[MovieDetailsView] Resolved startup tracks:",
+                                resolved.audioIndex, resolved.audioSource,
+                                resolved.subtitleIndex, resolved.subtitleSource)
                 }
             }
         }

@@ -81,16 +81,22 @@ Key components
 - PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
 - PlayerController: state machine that handles play/pause/resume, listens for backend updates, manages track selection, and reports playback state to the Jellyfin server.
 - JellyfinClient: handles API communication for reporting playback events, track selections, and sessions.
-- TrackPreferencesManager: persists audio/subtitle track preferences to a separate JSON file for fast lookup and persistence across sessions.
+- TrackPreferencesManager: persists explicit audio/subtitle user choices to a separate JSON file using a versioned schema.
 
 Audio/Subtitle Track Selection
 - Call `JellyfinClient::getPlaybackInfo(itemId)` to fetch `PlaybackInfoResponse` containing `MediaSources` with all available streams.
 - Each `MediaSourceInfo` contains `mediaStreams` array with `MediaStreamInfo` objects describing video, audio, and subtitle tracks.
 - The server provides `defaultAudioStreamIndex` and `defaultSubtitleStreamIndex` which reflect the user's preferences set on the Jellyfin server.
 - Use `PlayerController::setSelectedAudioTrack(index)` and `setSelectedSubtitleTrack(index)` to change tracks during playback via mpv IPC (`aid`, `sid` properties).
+- Initial selection resolution order:
+  - explicit saved preference for the current season/movie scope, if still valid
+  - Jellyfin `defaultAudioStreamIndex` / `defaultSubtitleStreamIndex`
+  - file-level defaults from stream metadata (`isDefault`, then forced subtitles when applicable)
+  - fallback to first audio track / subtitles off
 - Canonical track mapping contract:
   - UI and reporting state use Jellyfin `MediaStream.index`.
   - Runtime mpv switching uses mapped mpv track IDs (1-based per media type order).
+  - Backends emit raw mpv track IDs; `PlayerController` reverse-maps them back to Jellyfin indices.
   - Subtitle `None` is Jellyfin `-1` and is applied as `sid=no`.
   - Startup applies resolved mapped selection deterministically; URL stream indices are treated as request hints/fallback.
 - Track selections are persisted per-season for TV shows and per-movie for films (see Track Preference Persistence below).
@@ -98,39 +104,51 @@ Audio/Subtitle Track Selection
 
 Track Preference Persistence
 - Track preferences are stored separately from the main config in `~/.config/Bloom/track_preferences.json`.
-- This allows fast lookup without loading the main config, and keeps preferences organized separately.
+- The file stores only explicit user intent. Unset preferences fall back to Jellyfin/file defaults and are not written.
 - Preferences are loaded at startup and saved with a 1-second delay to batch multiple changes.
+- Schema is versioned. Legacy/unversioned files are intentionally discarded and replaced on the next save.
 
 ### TV Episodes (Per-Season)
 - Preferences are stored by season ID, not series ID, because:
   - Different seasons may have different audio tracks available (e.g., added dubs in later seasons)
   - Subtitle indexing can vary between seasons
 - When the user changes audio/subtitle track in `SeriesSeasonEpisodeView`, the preference is immediately saved.
-- When navigating to a new episode in the same season, saved preferences are restored.
+- When navigating to a new episode in the same season, explicit preferences are restored. If they are missing or invalid for the new source, Bloom falls back through the standard resolution order.
 - Use `PlayerController.getLastAudioTrackForSeason(seasonId)` and `getLastSubtitleTrackForSeason(seasonId)` to retrieve.
-- Use `PlayerController.saveAudioTrackPreference(seasonId, index)` and `saveSubtitleTrackPreference(seasonId, index)` to save.
+- Use `PlayerController.setExplicitSeasonAudioPreference(seasonId, index)` and `setExplicitSeasonSubtitlePreference(seasonId, index)` to save.
 
 ### Movies (Per-Movie)
 - Preferences are stored by movie ID for rewatches.
 - When the user changes audio/subtitle track in `MovieDetailsView`, the preference is immediately saved.
-- When returning to the same movie, saved preferences are restored instead of server defaults.
+- When returning to the same movie, explicit preferences are restored instead of server defaults. If none were saved, Bloom uses Jellyfin/file defaults.
 - Use `PlayerController.getLastAudioTrackForMovie(movieId)` and `getLastSubtitleTrackForMovie(movieId)` to retrieve.
-- Use `PlayerController.saveMovieAudioTrackPreference(movieId, index)` and `saveMovieSubtitleTrackPreference(movieId, index)` to save.
+- Use `PlayerController.setExplicitMovieAudioPreference(movieId, index)` and `setExplicitMovieSubtitlePreference(movieId, index)` to save.
 
 ### JSON Format
 ```json
 {
-  "seasonId1": { "audio": 1, "subtitle": 2 },
-  "seasonId2": { "audio": 0, "subtitle": -1 },
+  "version": 2,
+  "episodes": {
+    "seasonId1": {
+      "audio": { "mode": "explicit", "streamIndex": 1 },
+      "subtitle": { "mode": "explicit", "streamIndex": 2 }
+    },
+    "seasonId2": {
+      "audio": { "mode": "unset" },
+      "subtitle": { "mode": "off" }
+    }
+  },
   "movies": {
-    "movieId1": { "audio": 1, "subtitle": 0 },
-    "movieId2": { "audio": 0, "subtitle": -1 }
+    "movieId1": {
+      "audio": { "mode": "explicit", "streamIndex": 1 },
+      "subtitle": { "mode": "explicit", "streamIndex": 0 }
+    }
   }
 }
 ```
-- Season preferences are stored at the top level (for backwards compatibility)
-- Movie preferences are stored under the "movies" key
-- A subtitle index of -1 means "off" (no subtitles)
+- `mode: "unset"` means "use Jellyfin/file defaults".
+- `mode: "off"` is distinct from unset and is primarily used for subtitles.
+- The schema leaves room for future rule fields such as preferred language, forced-only, or hearing-impaired preferences.
 
 ### Navigation Path Considerations
 - **HomeScreen "Next Up"**: Episode data includes `ParentId` (seasonId). `SeriesSeasonEpisodeView.qml` uses `initialSeasonId` to load the correct season.
@@ -200,4 +218,4 @@ Troubleshooting
   - MPV stats hotkeys (`I`, `Shift+I`, `0-9`) are disabled by default on embedded Linux; set `BLOOM_LINUX_LIBMPV_ENABLE_STATS_HOTKEYS=1` to opt in.
 - Test playback flows with typical server and client device combinations to ensure direct play vs transcode logic works.
 - If track selection doesn't sync, verify that `playSessionId` is being passed correctly in all reporting calls.
-- If track preferences aren't being restored, check that `track_preferences.json` exists and contains the expected season/movie IDs.
+- If track preferences aren't being restored, check that `track_preferences.json` is schema version 2 and that the relevant `episodes` or `movies` scope contains an explicit preference entry. Unset scopes intentionally fall back to Jellyfin/file defaults and do not get written.
