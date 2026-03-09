@@ -275,6 +275,8 @@ void PlayerProcessManager::onSocketReadyRead()
             } else if (name == "sid") {
                 if (obj["data"].isBool() && !obj["data"].toBool()) {
                     emit subtitleTrackChanged(-1);
+                } else if (obj["data"].isString() && obj["data"].toString() == QStringLiteral("no")) {
+                    emit subtitleTrackChanged(-1);
                 } else if (!obj["data"].isNull() && obj["data"].isDouble()) {
                     int mpvTrackId = obj["data"].toInt();
                     emit subtitleTrackChanged(mpvTrackId > 0 ? mpvTrackId : -1);

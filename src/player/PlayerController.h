@@ -205,7 +205,14 @@ public:
      * or playback context is intentionally replaced.
      */
     Q_INVOKABLE void clearPendingAutoplayContext();
-    
+
+    /**
+     * @brief Resolves the effective startup audio/subtitle selection for a media source.
+     *
+     * `preferredAudioIndex` and `preferredSubtitleIndex` use Jellyfin stream indices with
+     * sentinel values: `-2` means "unset/no override", `-1` means "off" (subtitle only),
+     * and `>= 0` means an explicit stream index.
+     */
     Q_INVOKABLE QVariantMap resolveTrackSelectionForMediaSource(const QVariantMap &mediaSource,
                                                                const QString &scopeId,
                                                                bool isMovie,
@@ -329,6 +336,9 @@ private slots:
     void onPlaybackEnded();
     void onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
     void onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
+    void onPlaybackServiceErrorOccurred(const QString &endpoint, const QString &error);
+    void onPlaybackServiceNetworkError(const NetworkError &error);
+    void onAutoplayPlaybackInfoTimeout();
     
     // Timeout handlers
     void onLoadingTimeout();
@@ -522,6 +532,8 @@ private:
      */
     static QString eventToString(Event event);
     static QString inferPlayMethod(const QString &url);
+    void fallbackToPendingAutoplayPlayback();
+    void stopAutoplayPlaybackInfoWait();
 
     IPlayerBackend *m_playerBackend;
     std::unique_ptr<IPlayerBackend> m_ownedBackend;
@@ -548,8 +560,10 @@ private:
     // Progress reporting timer
     QTimer *m_progressReportTimer;
     QTimer *m_volumePersistTimer;
+    QTimer *m_autoplayPlaybackInfoTimeoutTimer;
     static constexpr int kProgressReportIntervalMs = 10000; // 10 seconds
     static constexpr int kVolumePersistDebounceMs = 250;
+    static constexpr int kAutoplayPlaybackInfoTimeoutMs = 8000;
     static constexpr double kNextEpisodePrefetchTriggerPercent = 70.0;
     
     // State

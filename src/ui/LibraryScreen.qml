@@ -53,7 +53,7 @@ FocusScope {
     
     // Pending track indices from post-playback navigation
     // When navigating to next episode after playback, these are set to preserve track selection
-    property int pendingAudioTrackIndex: -1
+    property int pendingAudioTrackIndex: -2
     property int pendingSubtitleTrackIndex: -2  // -2 means "not set", -1 means "none/disabled"
     
     // Movie Details View properties
@@ -351,6 +351,10 @@ FocusScope {
             initialEpisodeId: root.initialEpisodeId
             pendingAudioTrackIndex: root.pendingAudioTrackIndex
             pendingSubtitleTrackIndex: root.pendingSubtitleTrackIndex
+            onAutoplayOverridesConsumed: {
+                root.pendingAudioTrackIndex = -2
+                root.pendingSubtitleTrackIndex = -2
+            }
             
             onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, mediaSource, audioIndex, subtitleIndex, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
                 // Use Jellyfin indices for the URL (server needs these for stream selection)

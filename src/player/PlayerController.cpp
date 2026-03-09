@@ -163,6 +163,7 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     , m_progressReportTimer(new QTimer(this))
     , m_volumePersistTimer(new QTimer(this))
     , m_startDelayTimer(new QTimer(this))
+    , m_autoplayPlaybackInfoTimeoutTimer(new QTimer(this))
 {
     if (!m_playerBackend) {
         qCWarning(lcPlayback) << "PlayerController initialized without backend; falling back to null backend";
@@ -182,6 +183,10 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     // Connect to PlaybackService for media segments and trickplay info signals
     connect(m_playbackService, &PlaybackService::playbackInfoLoaded,
             this, &PlayerController::onPlaybackInfoLoaded);
+    connect(m_playbackService, &PlaybackService::errorOccurred,
+            this, &PlayerController::onPlaybackServiceErrorOccurred);
+    connect(m_playbackService, &PlaybackService::networkError,
+            this, &PlayerController::onPlaybackServiceNetworkError);
     connect(m_playbackService, &PlaybackService::mediaSegmentsLoaded,
             this, &PlayerController::onMediaSegmentsLoaded);
     connect(m_playbackService, &PlaybackService::trickplayInfoLoaded,
@@ -213,6 +218,11 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     m_volumePersistTimer->setInterval(kVolumePersistDebounceMs);
     connect(m_volumePersistTimer, &QTimer::timeout,
             this, &PlayerController::persistPlaybackVolumeState);
+
+    m_autoplayPlaybackInfoTimeoutTimer->setSingleShot(true);
+    m_autoplayPlaybackInfoTimeoutTimer->setInterval(kAutoplayPlaybackInfoTimeoutMs);
+    connect(m_autoplayPlaybackInfoTimeoutTimer, &QTimer::timeout,
+            this, &PlayerController::onAutoplayPlaybackInfoTimeout);
             
     // Connect to ConfigManager audio delay signal
     connect(m_config, &ConfigManager::audioDelayChanged,
@@ -241,6 +251,7 @@ PlayerController::~PlayerController()
     m_progressReportTimer->stop();
     m_volumePersistTimer->stop();
     m_startDelayTimer->stop();
+    m_autoplayPlaybackInfoTimeoutTimer->stop();
 }
 
 void PlayerController::connectBackendSignals(IPlayerBackend *backend)
@@ -1062,10 +1073,13 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
 
     const QString pendingEpisodeId = m_pendingAutoplayEpisodeData.value(QStringLiteral("Id")).toString();
     if (itemId != pendingEpisodeId) {
+        qCDebug(lcPlayback) << "Ignoring stale autoplay PlaybackInfo response"
+                            << "itemId=" << itemId
+                            << "pendingEpisodeId=" << pendingEpisodeId;
         return;
     }
 
-    m_waitingForAutoplayPlaybackInfo = false;
+    stopAutoplayPlaybackInfoWait();
 
     qint64 startPositionTicks = 0;
     if (m_pendingAutoplayEpisodeData.contains(QStringLiteral("UserData"))
@@ -1083,15 +1097,7 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
     }
 
     if (playbackInfo.mediaSources.isEmpty()) {
-        const QString fallbackUrl = m_libraryService->getStreamUrl(itemId);
-        playUrl(fallbackUrl,
-                itemId,
-                startPositionTicks,
-                m_pendingAutoplaySeriesId,
-                targetSeasonId,
-                m_pendingAutoplayLibraryId,
-                m_pendingAutoplayFramerate,
-                m_pendingAutoplayIsHDR);
+        fallbackToPendingAutoplayPlayback();
         return;
     }
 
@@ -1126,6 +1132,38 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
                       availableSubtitleTracks,
                       videoFramerateForMediaSource(mediaSource),
                       mediaSourceIsHdr(mediaSource));
+}
+
+void PlayerController::onPlaybackServiceErrorOccurred(const QString &endpoint, const QString &error)
+{
+    if (!m_waitingForAutoplayPlaybackInfo) {
+        return;
+    }
+
+    if (!endpoint.contains(QStringLiteral("PlaybackInfo"), Qt::CaseInsensitive)
+        && endpoint != QStringLiteral("getPlaybackInfo")) {
+        return;
+    }
+
+    qCWarning(lcPlayback) << "Autoplay PlaybackInfo request failed, falling back to basic playback"
+                          << "endpoint=" << endpoint
+                          << "error=" << error;
+    fallbackToPendingAutoplayPlayback();
+}
+
+void PlayerController::onPlaybackServiceNetworkError(const NetworkError &error)
+{
+    onPlaybackServiceErrorOccurred(error.endpoint, error.userMessage);
+}
+
+void PlayerController::onAutoplayPlaybackInfoTimeout()
+{
+    if (!m_waitingForAutoplayPlaybackInfo) {
+        return;
+    }
+
+    qCWarning(lcPlayback) << "Autoplay PlaybackInfo request timed out, falling back to basic playback";
+    fallbackToPendingAutoplayPlayback();
 }
 
 /**
@@ -1169,6 +1207,7 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
 
     m_pendingAutoplayEpisodeData = episodeData;
     m_waitingForAutoplayPlaybackInfo = true;
+    m_autoplayPlaybackInfoTimeoutTimer->start();
     m_playbackService->getPlaybackInfo(episodeId);
 }
 
@@ -2557,6 +2596,7 @@ void PlayerController::stashPendingAutoplayContext()
  */
 void PlayerController::clearPendingAutoplayContext()
 {
+    stopAutoplayPlaybackInfoWait();
     m_pendingAutoplayItemId.clear();
     m_pendingAutoplaySeriesId.clear();
     m_pendingAutoplaySeasonId.clear();
@@ -2566,8 +2606,57 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplayFramerate = 0.0;
     m_pendingAutoplayIsHDR = false;
     m_pendingAutoplayEpisodeData = QJsonObject();
-    m_waitingForAutoplayPlaybackInfo = false;
     setAwaitingNextEpisodeResolution(false);
+}
+
+void PlayerController::fallbackToPendingAutoplayPlayback()
+{
+    const QString itemId = m_pendingAutoplayEpisodeData.value(QStringLiteral("Id")).toString();
+    if (itemId.isEmpty()) {
+        qCWarning(lcPlayback) << "Cannot fall back to pending autoplay playback without an episode id";
+        clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
+        return;
+    }
+
+    qint64 startPositionTicks = 0;
+    if (m_pendingAutoplayEpisodeData.contains(QStringLiteral("UserData"))
+        && m_pendingAutoplayEpisodeData.value(QStringLiteral("UserData")).isObject()) {
+        const QJsonObject userData = m_pendingAutoplayEpisodeData.value(QStringLiteral("UserData")).toObject();
+        startPositionTicks = static_cast<qint64>(userData.value(QStringLiteral("PlaybackPositionTicks")).toDouble());
+    }
+
+    QString targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("SeasonId")).toString();
+    if (targetSeasonId.isEmpty()) {
+        targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("ParentId")).toString();
+    }
+    if (targetSeasonId.isEmpty()) {
+        targetSeasonId = m_pendingAutoplaySeasonId;
+    }
+
+    const QString seriesId = m_pendingAutoplaySeriesId;
+    const QString libraryId = m_pendingAutoplayLibraryId;
+    const double framerate = m_pendingAutoplayFramerate;
+    const bool isHdr = m_pendingAutoplayIsHDR;
+    stopAutoplayPlaybackInfoWait();
+
+    const QString fallbackUrl = m_libraryService->getStreamUrl(itemId);
+    playUrl(fallbackUrl,
+            itemId,
+            startPositionTicks,
+            seriesId,
+            targetSeasonId,
+            libraryId,
+            framerate,
+            isHdr);
+}
+
+void PlayerController::stopAutoplayPlaybackInfoWait()
+{
+    m_waitingForAutoplayPlaybackInfo = false;
+    if (m_autoplayPlaybackInfoTimeoutTimer) {
+        m_autoplayPlaybackInfoTimeoutTimer->stop();
+    }
 }
 
 /**

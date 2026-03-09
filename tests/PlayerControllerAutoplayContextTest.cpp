@@ -148,6 +148,8 @@ private slots:
     void userStopPastThresholdRequestsNextEpisode();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
+    void autoplayPlaybackInfoErrorFallsBackToBasicPlayback();
+    void staleAutoplayPlaybackInfoResponseFallsBackAfterTimeout();
     void embeddedVideoShrinkToggleEmitsAndPersists();
     void startupTrackSelectionUsesCanonicalMapWhenUrlNotPinned();
     void startupTrackSelectionRespectsPinnedUrlUnlessUserOverride();
@@ -338,6 +340,95 @@ void PlayerControllerAutoplayContextTest::nextEpisodeIgnoresMismatchedSeries()
     QCOMPARE(controller.m_pendingAutoplaySubtitleTrack, 7);
 }
 
+void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoErrorFallsBackToBasicPlayback()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-9");
+    controller.m_pendingAutoplaySeasonId = QStringLiteral("season-9");
+    controller.m_pendingAutoplayLibraryId = QStringLiteral("library-9");
+    controller.m_pendingAutoplayFramerate = 23.976;
+    controller.m_pendingAutoplayIsHDR = true;
+    controller.m_pendingAutoplayEpisodeData = QJsonObject{
+        {QStringLiteral("Id"), QStringLiteral("episode-9")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-9")},
+        {QStringLiteral("UserData"), QJsonObject{{QStringLiteral("PlaybackPositionTicks"), 4200000000.0}}}
+    };
+    controller.m_waitingForAutoplayPlaybackInfo = true;
+
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onPlaybackServiceErrorOccurred",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("getPlaybackInfo")),
+                                      Q_ARG(QString, QStringLiteral("request failed"))));
+
+    QVERIFY(!controller.m_waitingForAutoplayPlaybackInfo);
+    QCOMPARE(controller.m_currentItemId, QStringLiteral("episode-9"));
+    QCOMPARE(controller.m_currentSeriesId, QStringLiteral("series-9"));
+    QCOMPARE(controller.m_currentSeasonId, QStringLiteral("season-9"));
+    QCOMPARE(controller.m_currentLibraryId, QStringLiteral("library-9"));
+    QCOMPARE(controller.m_pendingUrl, QStringLiteral("https://example.invalid/episode-9"));
+    QCOMPARE(controller.m_startPositionTicks, 4200000000LL);
+}
+
+void PlayerControllerAutoplayContextTest::staleAutoplayPlaybackInfoResponseFallsBackAfterTimeout()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-10");
+    controller.m_pendingAutoplaySeasonId = QStringLiteral("season-10");
+    controller.m_pendingAutoplayEpisodeData = QJsonObject{
+        {QStringLiteral("Id"), QStringLiteral("episode-10")},
+        {QStringLiteral("SeasonId"), QStringLiteral("season-10")}
+    };
+    controller.m_waitingForAutoplayPlaybackInfo = true;
+
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onPlaybackInfoLoaded",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("stale-episode")),
+                                      Q_ARG(PlaybackInfoResponse, PlaybackInfoResponse{})));
+    QVERIFY(controller.m_waitingForAutoplayPlaybackInfo);
+
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onAutoplayPlaybackInfoTimeout",
+                                      Qt::DirectConnection));
+
+    QVERIFY(!controller.m_waitingForAutoplayPlaybackInfo);
+    QCOMPARE(controller.m_currentItemId, QStringLiteral("episode-10"));
+    QCOMPARE(controller.m_currentSeriesId, QStringLiteral("series-10"));
+    QCOMPARE(controller.m_currentSeasonId, QStringLiteral("season-10"));
+    QCOMPARE(controller.m_pendingUrl, QStringLiteral("https://example.invalid/episode-10"));
+}
+
 void PlayerControllerAutoplayContextTest::embeddedVideoShrinkToggleEmitsAndPersists()
 {
     ConfigManager config;
@@ -524,15 +615,16 @@ void PlayerControllerAutoplayContextTest::backendTrackSyncUsesReverseMap()
     controller.cycleAudioTrack();
     controller.cycleSubtitleTrack();
     backend.emitAudioTrackId(2);
-    backend.emitSubtitleTrackId(-1);
+    backend.emitSubtitleTrackId(2);
 
     QCOMPARE(controller.selectedAudioTrack(), 7);
-    QCOMPARE(controller.selectedSubtitleTrack(), -1);
+    QCOMPARE(controller.selectedSubtitleTrack(), 12);
 
     const ScopedTrackPreferences preferences = trackPrefs.getSeasonPreferences(QStringLiteral("season-84"));
     QCOMPARE(preferences.audio.mode, TrackPreferenceMode::ExplicitStream);
     QCOMPARE(preferences.audio.streamIndex, 7);
-    QCOMPARE(preferences.subtitle.mode, TrackPreferenceMode::Off);
+    QCOMPARE(preferences.subtitle.mode, TrackPreferenceMode::ExplicitStream);
+    QCOMPARE(preferences.subtitle.streamIndex, 12);
 }
 
 QTEST_MAIN(PlayerControllerAutoplayContextTest)
