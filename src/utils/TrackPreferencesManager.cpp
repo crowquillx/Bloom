@@ -222,12 +222,16 @@ void TrackPreferencesManager::save()
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         qWarning() << "TrackPreferencesManager: Failed to save preferences to" << path;
+        m_dirty = false;
+        scheduleSave();
         return;
     }
 
     file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     if (!file.commit()) {
         qWarning() << "TrackPreferencesManager: Failed to commit preferences to" << path;
+        m_dirty = false;
+        scheduleSave();
         return;
     }
 
@@ -267,18 +271,7 @@ void TrackPreferencesManager::setSeasonPreferences(const QString &seasonId, cons
         return;
     }
 
-    if (m_episodePreferences.value(seasonId).audio.mode == preferences.audio.mode
-        && m_episodePreferences.value(seasonId).audio.streamIndex == preferences.audio.streamIndex
-        && m_episodePreferences.value(seasonId).audio.preferredLanguage == preferences.audio.preferredLanguage
-        && m_episodePreferences.value(seasonId).audio.forcedOnly == preferences.audio.forcedOnly
-        && m_episodePreferences.value(seasonId).audio.hearingImpaired == preferences.audio.hearingImpaired
-        && m_episodePreferences.value(seasonId).audio.strategy == preferences.audio.strategy
-        && m_episodePreferences.value(seasonId).subtitle.mode == preferences.subtitle.mode
-        && m_episodePreferences.value(seasonId).subtitle.streamIndex == preferences.subtitle.streamIndex
-        && m_episodePreferences.value(seasonId).subtitle.preferredLanguage == preferences.subtitle.preferredLanguage
-        && m_episodePreferences.value(seasonId).subtitle.forcedOnly == preferences.subtitle.forcedOnly
-        && m_episodePreferences.value(seasonId).subtitle.hearingImpaired == preferences.subtitle.hearingImpaired
-        && m_episodePreferences.value(seasonId).subtitle.strategy == preferences.subtitle.strategy) {
+    if (m_episodePreferences.value(seasonId) == preferences) {
         return;
     }
 
@@ -309,18 +302,7 @@ void TrackPreferencesManager::setMoviePreferences(const QString &movieId, const 
         return;
     }
 
-    if (m_moviePreferences.value(movieId).audio.mode == preferences.audio.mode
-        && m_moviePreferences.value(movieId).audio.streamIndex == preferences.audio.streamIndex
-        && m_moviePreferences.value(movieId).audio.preferredLanguage == preferences.audio.preferredLanguage
-        && m_moviePreferences.value(movieId).audio.forcedOnly == preferences.audio.forcedOnly
-        && m_moviePreferences.value(movieId).audio.hearingImpaired == preferences.audio.hearingImpaired
-        && m_moviePreferences.value(movieId).audio.strategy == preferences.audio.strategy
-        && m_moviePreferences.value(movieId).subtitle.mode == preferences.subtitle.mode
-        && m_moviePreferences.value(movieId).subtitle.streamIndex == preferences.subtitle.streamIndex
-        && m_moviePreferences.value(movieId).subtitle.preferredLanguage == preferences.subtitle.preferredLanguage
-        && m_moviePreferences.value(movieId).subtitle.forcedOnly == preferences.subtitle.forcedOnly
-        && m_moviePreferences.value(movieId).subtitle.hearingImpaired == preferences.subtitle.hearingImpaired
-        && m_moviePreferences.value(movieId).subtitle.strategy == preferences.subtitle.strategy) {
+    if (m_moviePreferences.value(movieId) == preferences) {
         return;
     }
 

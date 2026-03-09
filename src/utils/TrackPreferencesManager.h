@@ -30,6 +30,16 @@ struct TrackSelectionPreference
     }
 };
 
+inline bool operator==(const TrackSelectionPreference &lhs, const TrackSelectionPreference &rhs)
+{
+    return lhs.mode == rhs.mode
+        && lhs.streamIndex == rhs.streamIndex
+        && lhs.preferredLanguage == rhs.preferredLanguage
+        && lhs.forcedOnly == rhs.forcedOnly
+        && lhs.hearingImpaired == rhs.hearingImpaired
+        && lhs.strategy == rhs.strategy;
+}
+
 struct ScopedTrackPreferences
 {
     TrackSelectionPreference audio;
@@ -40,6 +50,11 @@ struct ScopedTrackPreferences
         return !audio.isMeaningful() && !subtitle.isMeaningful();
     }
 };
+
+inline bool operator==(const ScopedTrackPreferences &lhs, const ScopedTrackPreferences &rhs)
+{
+    return lhs.audio == rhs.audio && lhs.subtitle == rhs.subtitle;
+}
 
 /**
  * @brief Manages audio and subtitle track preferences per season and per movie

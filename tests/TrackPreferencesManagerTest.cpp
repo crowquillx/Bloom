@@ -10,6 +10,24 @@
 #include "utils/TrackPreferencesManager.h"
 
 namespace {
+#ifndef Q_OS_LINUX
+void requireLinuxConfigIsolation()
+{
+    QSKIP("TrackPreferencesManager config-path isolation currently relies on XDG_CONFIG_HOME and is only stable on Linux.");
+}
+
+class ScopedConfigHome
+{
+public:
+    explicit ScopedConfigHome(const QString &)
+    {
+    }
+};
+#else
+void requireLinuxConfigIsolation()
+{
+}
+
 class ScopedConfigHome
 {
 public:
@@ -33,6 +51,7 @@ private:
     QByteArray m_previous;
     bool m_hadPrevious = false;
 };
+#endif
 
 void writeJsonFile(const QString &path, const QJsonObject &root)
 {
@@ -57,6 +76,7 @@ private slots:
 
 void TrackPreferencesManagerTest::missingFileLoadsEmptyState()
 {
+    requireLinuxConfigIsolation();
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
     ScopedConfigHome configHome(tempDir.path());
@@ -69,6 +89,7 @@ void TrackPreferencesManagerTest::missingFileLoadsEmptyState()
 
 void TrackPreferencesManagerTest::legacySchemaIsDiscarded()
 {
+    requireLinuxConfigIsolation();
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
     ScopedConfigHome configHome(tempDir.path());
@@ -88,6 +109,7 @@ void TrackPreferencesManagerTest::legacySchemaIsDiscarded()
 
 void TrackPreferencesManagerTest::v2SchemaRoundTripsExplicitAndOffPreferences()
 {
+    requireLinuxConfigIsolation();
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
     ScopedConfigHome configHome(tempDir.path());
@@ -122,6 +144,7 @@ void TrackPreferencesManagerTest::v2SchemaRoundTripsExplicitAndOffPreferences()
 
 void TrackPreferencesManagerTest::saveWritesVersionedPreferencesFile()
 {
+    requireLinuxConfigIsolation();
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
     ScopedConfigHome configHome(tempDir.path());
