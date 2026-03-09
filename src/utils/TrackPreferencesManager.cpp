@@ -230,16 +230,12 @@ void TrackPreferencesManager::save()
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         qWarning() << "TrackPreferencesManager: Failed to save preferences to" << path;
-        m_dirty = false;
-        scheduleSave();
         return;
     }
 
     file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     if (!file.commit()) {
         qWarning() << "TrackPreferencesManager: Failed to commit preferences to" << path;
-        m_dirty = false;
-        scheduleSave();
         return;
     }
 
@@ -251,12 +247,14 @@ void TrackPreferencesManager::save()
 
 void TrackPreferencesManager::scheduleSave()
 {
-    if (m_dirty) {
+    if (m_saveScheduled) {
         return;
     }
 
     m_dirty = true;
+    m_saveScheduled = true;
     QTimer::singleShot(1000, this, [this]() {
+        m_saveScheduled = false;
         if (m_dirty) {
             save();
         }

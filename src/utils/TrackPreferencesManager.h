@@ -104,6 +104,7 @@ private:
     
     // Track if we have unsaved changes
     bool m_dirty = false;
+    bool m_saveScheduled = false;
     
     // Delayed save timer to batch multiple changes
     void scheduleSave();

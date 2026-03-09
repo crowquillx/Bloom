@@ -1141,8 +1141,9 @@ void PlayerController::onPlaybackServiceErrorOccurred(const QString &endpoint, c
         return;
     }
 
-    if (!endpoint.contains(QStringLiteral("PlaybackInfo"), Qt::CaseInsensitive)
-        && endpoint != QStringLiteral("getPlaybackInfo")) {
+    const bool isPlaybackInfoEndpoint = endpoint == QStringLiteral("getPlaybackInfo")
+        || endpoint.contains(QStringLiteral("/PlaybackInfo"), Qt::CaseInsensitive);
+    if (!isPlaybackInfoEndpoint) {
         return;
     }
 
@@ -2149,11 +2150,15 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
 
 void PlayerController::syncBackendAudioTrack(int mpvTrackId)
 {
-    m_mpvAudioTrack = mpvTrackId;
     if (m_applyingInitialTracks) {
+        if (mpvTrackId != m_mpvAudioTrack) {
+            qCWarning(lcPlayback) << "mpv reported audio track" << mpvTrackId
+                                  << "during startup; expected" << m_mpvAudioTrack;
+        }
         return;
     }
 
+    m_mpvAudioTrack = mpvTrackId;
     const int jellyfinIndex = jellyfinAudioTrackForMpvTrack(mpvTrackId);
     if (jellyfinIndex < 0) {
         m_pendingAudioTrackPersistenceFromBackend = false;
@@ -2172,11 +2177,15 @@ void PlayerController::syncBackendAudioTrack(int mpvTrackId)
 
 void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
 {
-    m_mpvSubtitleTrack = mpvTrackId;
     if (m_applyingInitialTracks) {
+        if (mpvTrackId != m_mpvSubtitleTrack) {
+            qCWarning(lcPlayback) << "mpv reported subtitle track" << mpvTrackId
+                                  << "during startup; expected" << m_mpvSubtitleTrack;
+        }
         return;
     }
 
+    m_mpvSubtitleTrack = mpvTrackId;
     const int jellyfinIndex = mpvTrackId < 0 ? -1 : jellyfinSubtitleTrackForMpvTrack(mpvTrackId);
     if (mpvTrackId >= 0 && jellyfinIndex < 0) {
         m_pendingSubtitleTrackPersistenceFromBackend = false;
