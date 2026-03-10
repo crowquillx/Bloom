@@ -127,6 +127,7 @@ qt_add_qml_module(Bloom
         ui/SettingsScreen.qml
         ui/SearchScreen.qml
         ui/SeerrRequestDialog.qml
+        ui/SeerrComboBox.qml
         ui/SearchResultCard.qml
         ui/UnwatchedBadge.qml
         ui/RetryButton.qml
