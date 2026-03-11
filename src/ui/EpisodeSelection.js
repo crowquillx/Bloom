@@ -7,6 +7,29 @@ function episodeSeasonId(episode) {
     return episode.SeasonId || episode.ParentId || ""
 }
 
+function episodeIsPlayed(episode) {
+    if (!episode) {
+        return false
+    }
+    if (episode.isPlayed !== undefined) {
+        return episode.isPlayed
+    }
+    return !!(episode.UserData && episode.UserData.Played)
+}
+
+function episodePlaybackPositionTicks(episode) {
+    if (!episode) {
+        return 0
+    }
+    if (episode.playbackPositionTicks !== undefined) {
+        return episode.playbackPositionTicks || 0
+    }
+    if (episode.UserData && episode.UserData.PlaybackPositionTicks !== undefined) {
+        return episode.UserData.PlaybackPositionTicks || 0
+    }
+    return 0
+}
+
 function resolveInitialEpisodeSelection(episodes, initialEpisodeId, targetSeasonId) {
     var result = {
         shouldApply: false,
@@ -45,11 +68,11 @@ function resolveInitialEpisodeSelection(episodes, initialEpisodeId, targetSeason
         if (!fallbackEpisode) {
             continue
         }
-        if (!fallbackEpisode.isPlayed) {
+        if (!episodeIsPlayed(fallbackEpisode)) {
             targetIndex = j
             break
         }
-        if (fallbackEpisode.playbackPositionTicks > 0) {
+        if (episodePlaybackPositionTicks(fallbackEpisode) > 0) {
             targetIndex = j
         }
     }

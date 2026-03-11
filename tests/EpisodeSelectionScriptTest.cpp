@@ -1,42 +1,43 @@
 #include <QtTest/QtTest>
 
 #include <QCoreApplication>
-#include <QDir>
 #include <QFile>
 #include <QJSEngine>
 #include <QJSValue>
-
-namespace {
-
-QString scriptPath()
-{
-    QDir dir(QCoreApplication::applicationDirPath());
-    dir.cdUp();  // build-docker
-    dir.cdUp();  // repo root
-    return dir.filePath(QStringLiteral("src/ui/EpisodeSelection.js"));
-}
-
-}  // namespace
 
 class EpisodeSelectionScriptTest : public QObject
 {
     Q_OBJECT
 
 private slots:
+    void initTestCase();
     void explicitSelectionMustExist();
     void explicitSelectionWaitsForTargetSeason();
     void fallbackSelectionChoosesFirstUnplayed();
+
+private:
+    QJSEngine m_engine;
+    QJSValue m_resolveInitialEpisodeSelection;
 };
+
+void EpisodeSelectionScriptTest::initTestCase()
+{
+    QFile scriptFile(QCoreApplication::applicationDirPath()
+                     + QLatin1Char('/')
+                     + QString::fromLatin1(EPISODE_SELECTION_SCRIPT_PATH));
+    QVERIFY2(scriptFile.open(QIODevice::ReadOnly | QIODevice::Text), "Failed to open EpisodeSelection.js");
+
+    const QJSValue evalResult = m_engine.evaluate(QString::fromUtf8(scriptFile.readAll()),
+                                                QStringLiteral("EpisodeSelection.js"));
+    QVERIFY2(!evalResult.isError(), qPrintable(evalResult.toString()));
+
+    m_resolveInitialEpisodeSelection =
+        m_engine.globalObject().property(QStringLiteral("resolveInitialEpisodeSelection"));
+    QVERIFY(m_resolveInitialEpisodeSelection.isCallable());
+}
 
 void EpisodeSelectionScriptTest::explicitSelectionMustExist()
 {
-    QFile scriptFile(scriptPath());
-    QVERIFY2(scriptFile.open(QIODevice::ReadOnly | QIODevice::Text), "Failed to open EpisodeSelection.js");
-
-    QJSEngine engine;
-    const QJSValue evalResult = engine.evaluate(QString::fromUtf8(scriptFile.readAll()),
-                                                QStringLiteral("EpisodeSelection.js"));
-    QVERIFY2(!evalResult.isError(), qPrintable(evalResult.toString()));
 
     QVariantList episodes;
     episodes.append(QVariantMap{
@@ -50,14 +51,11 @@ void EpisodeSelectionScriptTest::explicitSelectionMustExist()
         {QStringLiteral("playbackPositionTicks"), 0}
     });
 
-    const QJSValue function = engine.globalObject().property(QStringLiteral("resolveInitialEpisodeSelection"));
-    QVERIFY(function.isCallable());
-
     const QJSValueList args{
-        engine.toScriptValue(episodes),
+        m_engine.toScriptValue(episodes),
         QJSValue(QStringLiteral("missing-episode"))
     };
-    const QJSValue result = function.call(args);
+    const QJSValue result = m_resolveInitialEpisodeSelection.call(args);
     QVERIFY2(!result.isError(), qPrintable(result.toString()));
 
     QCOMPARE(result.property(QStringLiteral("shouldApply")).toBool(), false);
@@ -66,14 +64,6 @@ void EpisodeSelectionScriptTest::explicitSelectionMustExist()
 
 void EpisodeSelectionScriptTest::explicitSelectionWaitsForTargetSeason()
 {
-    QFile scriptFile(scriptPath());
-    QVERIFY2(scriptFile.open(QIODevice::ReadOnly | QIODevice::Text), "Failed to open EpisodeSelection.js");
-
-    QJSEngine engine;
-    const QJSValue evalResult = engine.evaluate(QString::fromUtf8(scriptFile.readAll()),
-                                                QStringLiteral("EpisodeSelection.js"));
-    QVERIFY2(!evalResult.isError(), qPrintable(evalResult.toString()));
-
     QVariantList episodes;
     episodes.append(QVariantMap{
         {QStringLiteral("Id"), QStringLiteral("episode-1")},
@@ -82,11 +72,8 @@ void EpisodeSelectionScriptTest::explicitSelectionWaitsForTargetSeason()
         {QStringLiteral("playbackPositionTicks"), 0}
     });
 
-    const QJSValue function = engine.globalObject().property(QStringLiteral("resolveInitialEpisodeSelection"));
-    QVERIFY(function.isCallable());
-
-    const QJSValue result = function.call(QJSValueList{
-        engine.toScriptValue(episodes),
+    const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
+        m_engine.toScriptValue(episodes),
         QJSValue(QStringLiteral("missing-episode")),
         QJSValue(QStringLiteral("season-b"))
     });
@@ -99,31 +86,24 @@ void EpisodeSelectionScriptTest::explicitSelectionWaitsForTargetSeason()
 
 void EpisodeSelectionScriptTest::fallbackSelectionChoosesFirstUnplayed()
 {
-    QFile scriptFile(scriptPath());
-    QVERIFY2(scriptFile.open(QIODevice::ReadOnly | QIODevice::Text), "Failed to open EpisodeSelection.js");
-
-    QJSEngine engine;
-    const QJSValue evalResult = engine.evaluate(QString::fromUtf8(scriptFile.readAll()),
-                                                QStringLiteral("EpisodeSelection.js"));
-    QVERIFY2(!evalResult.isError(), qPrintable(evalResult.toString()));
-
     QVariantList episodes;
     episodes.append(QVariantMap{
         {QStringLiteral("Id"), QStringLiteral("episode-1")},
-        {QStringLiteral("isPlayed"), true},
-        {QStringLiteral("playbackPositionTicks"), 0}
+        {QStringLiteral("UserData"), QVariantMap{
+            {QStringLiteral("Played"), true},
+            {QStringLiteral("PlaybackPositionTicks"), 0}
+        }}
     });
     episodes.append(QVariantMap{
         {QStringLiteral("Id"), QStringLiteral("episode-2")},
-        {QStringLiteral("isPlayed"), false},
-        {QStringLiteral("playbackPositionTicks"), 0}
+        {QStringLiteral("UserData"), QVariantMap{
+            {QStringLiteral("Played"), false},
+            {QStringLiteral("PlaybackPositionTicks"), 0}
+        }}
     });
 
-    const QJSValue function = engine.globalObject().property(QStringLiteral("resolveInitialEpisodeSelection"));
-    QVERIFY(function.isCallable());
-
-    const QJSValue result = function.call(QJSValueList{
-        engine.toScriptValue(episodes),
+    const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
+        m_engine.toScriptValue(episodes),
         QJSValue(QStringLiteral("")),
         QJSValue(QStringLiteral(""))
     });

@@ -180,7 +180,7 @@ void NextEpisodeResolverTest::preservesCanonicalUserDataWhenMergingPreferredPayl
         buildEpisode(QStringLiteral("s1e2"),
                      1,
                      2,
-                     true,
+                     false,
                      5000,
                      QStringLiteral("2026-03-05T18:00:00Z"))
     };
@@ -189,7 +189,7 @@ void NextEpisodeResolverTest::preservesCanonicalUserDataWhenMergingPreferredPayl
         {QStringLiteral("Id"), QStringLiteral("s1e2")},
         {QStringLiteral("Path"), QStringLiteral("/preferred/path.mkv")},
         {QStringLiteral("UserData"), QJsonObject{
-            {QStringLiteral("Played"), false},
+            {QStringLiteral("Played"), true},
             {QStringLiteral("PlaybackPositionTicks"), 0.0},
             {QStringLiteral("LastPlayedDate"), QStringLiteral("2026-03-01T18:00:00Z")}
         }}
@@ -200,7 +200,7 @@ void NextEpisodeResolverTest::preservesCanonicalUserDataWhenMergingPreferredPayl
     QCOMPARE(resolved.value(QStringLiteral("Path")).toString(), QStringLiteral("/preferred/path.mkv"));
 
     const QJsonObject userData = resolved.value(QStringLiteral("UserData")).toObject();
-    QCOMPARE(userData.value(QStringLiteral("Played")).toBool(), true);
+    QCOMPARE(userData.value(QStringLiteral("Played")).toBool(), false);
     QCOMPARE(userData.value(QStringLiteral("PlaybackPositionTicks")).toInteger(), 5000LL);
     QCOMPARE(userData.value(QStringLiteral("LastPlayedDate")).toString(),
              QStringLiteral("2026-03-05T18:00:00Z"));

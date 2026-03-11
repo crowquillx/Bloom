@@ -144,6 +144,21 @@ add_executable(EpisodeSelectionScriptTest
 
 target_include_directories(EpisodeSelectionScriptTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
+set(EPISODE_SELECTION_SCRIPT_TEST_PATH
+    "${CMAKE_CURRENT_BINARY_DIR}/EpisodeSelection.js"
+)
+
+configure_file(
+    "${CMAKE_SOURCE_DIR}/src/ui/EpisodeSelection.js"
+    "${EPISODE_SELECTION_SCRIPT_TEST_PATH}"
+    COPYONLY
+)
+
+target_compile_definitions(EpisodeSelectionScriptTest
+    PRIVATE
+        EPISODE_SELECTION_SCRIPT_PATH="EpisodeSelection.js"
+)
+
 target_link_libraries(EpisodeSelectionScriptTest
     PRIVATE
         Qt6::Core
