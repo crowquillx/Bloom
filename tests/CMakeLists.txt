@@ -22,6 +22,7 @@ add_executable(SeriesDetailsCacheTest
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
@@ -99,6 +100,7 @@ add_executable(PlayerControllerAutoplayContextTest
     ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
@@ -120,6 +122,36 @@ target_link_libraries(PlayerControllerAutoplayContextTest
 )
 
 add_test(NAME PlayerControllerAutoplayContextTest COMMAND PlayerControllerAutoplayContextTest)
+
+add_executable(NextEpisodeResolverTest
+    NextEpisodeResolverTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+)
+
+target_include_directories(NextEpisodeResolverTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(NextEpisodeResolverTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Test
+)
+
+add_test(NAME NextEpisodeResolverTest COMMAND NextEpisodeResolverTest)
+
+add_executable(EpisodeSelectionScriptTest
+    EpisodeSelectionScriptTest.cpp
+)
+
+target_include_directories(EpisodeSelectionScriptTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(EpisodeSelectionScriptTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Qml
+        Qt6::Test
+)
+
+add_test(NAME EpisodeSelectionScriptTest COMMAND EpisodeSelectionScriptTest)
 
 add_executable(TrackPreferencesManagerTest
     TrackPreferencesManagerTest.cpp
@@ -194,6 +226,7 @@ qt_add_executable(VisualRegressionTest
     # Network sources
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
@@ -241,6 +274,9 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/Theme.qml PROPERTIES
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/Icons.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
+set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/EpisodeSelection.js PROPERTIES
+    QT_QML_SKIP_QMLDIR_ENTRY TRUE
+)
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/TrackUtils.js PROPERTIES
     QT_QML_SKIP_QMLDIR_ENTRY TRUE
 )
@@ -277,6 +313,7 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/VideoSurface.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RoundedImage.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ActiveSessionsScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/EpisodeSelection.js
     ${CMAKE_SOURCE_DIR}/src/ui/TrackUtils.js
 )
 

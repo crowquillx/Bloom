@@ -29,6 +29,8 @@ qt_add_executable(Bloom
     network/AuthenticationService.cpp
     network/LibraryService.h
     network/LibraryService.cpp
+    network/NextEpisodeResolver.h
+    network/NextEpisodeResolver.cpp
     network/PlaybackService.h
     network/PlaybackService.cpp
     network/SeerrService.h
@@ -98,6 +100,10 @@ if(COMMAND qt_policy)
     qt_policy(SET QTP0004 NEW)
 endif()
 
+set_source_files_properties(ui/EpisodeSelection.js PROPERTIES
+    QT_QML_SKIP_QMLDIR_ENTRY TRUE
+)
+
 set_source_files_properties(ui/TrackUtils.js PROPERTIES
     QT_QML_SKIP_QMLDIR_ENTRY TRUE
 )
@@ -145,6 +151,7 @@ qt_add_qml_module(Bloom
         ui/UpNextScreen.qml
         ui/RoundedImage.qml
         ui/ActiveSessionsScreen.qml
+        ui/EpisodeSelection.js
         ui/TrackUtils.js
 )
 
