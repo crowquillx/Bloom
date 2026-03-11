@@ -10,20 +10,20 @@
 namespace {
 
 struct EpisodeEntry {
-    QJsonObject episode;
-    QString id;
-    QString sortName;
-    QDateTime premiereDate;
-    QDateTime lastPlayedDate;
-    qint64 playbackPositionTicks = 0;
-    int seasonNumber = 0;
-    int episodeNumber = 0;
-    int airsBeforeSeason = -1;
-    int airsAfterSeason = -1;
-    int airsBeforeEpisode = -1;
-    bool isPlayed = false;
-    bool isSpecial = false;
-    int canonicalIndex = -1;
+    QJsonObject m_episode;
+    QString m_id;
+    QString m_sortName;
+    QDateTime m_premiereDate;
+    QDateTime m_lastPlayedDate;
+    qint64 m_playbackPositionTicks = 0;
+    int m_seasonNumber = 0;
+    int m_episodeNumber = 0;
+    int m_airsBeforeSeason = -1;
+    int m_airsAfterSeason = -1;
+    int m_airsBeforeEpisode = -1;
+    bool m_isPlayed = false;
+    bool m_isSpecial = false;
+    int m_canonicalIndex = -1;
 };
 
 QDateTime parseIsoDate(const QString &value)
@@ -53,58 +53,58 @@ EpisodeEntry toEntry(const QJsonObject &episode)
     const QJsonObject userData = episode.value(QStringLiteral("UserData")).toObject();
 
     EpisodeEntry entry;
-    entry.episode = episode;
-    entry.id = episode.value(QStringLiteral("Id")).toString();
-    entry.sortName = episodeSortName(episode);
-    entry.premiereDate = parseIsoDate(episode.value(QStringLiteral("PremiereDate")).toString());
-    entry.lastPlayedDate = parseIsoDate(userData.value(QStringLiteral("LastPlayedDate")).toString());
-    entry.playbackPositionTicks = userData.value(QStringLiteral("PlaybackPositionTicks")).toVariant().toLongLong();
-    entry.seasonNumber = episode.value(QStringLiteral("ParentIndexNumber")).toInt();
-    entry.episodeNumber = episode.value(QStringLiteral("IndexNumber")).toInt();
-    entry.airsBeforeSeason = episode.value(QStringLiteral("AirsBeforeSeasonNumber")).toInt(-1);
-    entry.airsAfterSeason = episode.value(QStringLiteral("AirsAfterSeasonNumber")).toInt(-1);
-    entry.airsBeforeEpisode = episode.value(QStringLiteral("AirsBeforeEpisodeNumber")).toInt(-1);
-    entry.isPlayed = userData.value(QStringLiteral("Played")).toBool();
-    entry.isSpecial = entry.seasonNumber == 0;
+    entry.m_episode = episode;
+    entry.m_id = episode.value(QStringLiteral("Id")).toString();
+    entry.m_sortName = episodeSortName(episode);
+    entry.m_premiereDate = parseIsoDate(episode.value(QStringLiteral("PremiereDate")).toString());
+    entry.m_lastPlayedDate = parseIsoDate(userData.value(QStringLiteral("LastPlayedDate")).toString());
+    entry.m_playbackPositionTicks = userData.value(QStringLiteral("PlaybackPositionTicks")).toVariant().toLongLong();
+    entry.m_seasonNumber = episode.value(QStringLiteral("ParentIndexNumber")).toInt();
+    entry.m_episodeNumber = episode.value(QStringLiteral("IndexNumber")).toInt();
+    entry.m_airsBeforeSeason = episode.value(QStringLiteral("AirsBeforeSeasonNumber")).toInt(-1);
+    entry.m_airsAfterSeason = episode.value(QStringLiteral("AirsAfterSeasonNumber")).toInt(-1);
+    entry.m_airsBeforeEpisode = episode.value(QStringLiteral("AirsBeforeEpisodeNumber")).toInt(-1);
+    entry.m_isPlayed = userData.value(QStringLiteral("Played")).toBool();
+    entry.m_isSpecial = entry.m_seasonNumber == 0;
     return entry;
 }
 
 bool regularEpisodeLessThan(const EpisodeEntry &lhs, const EpisodeEntry &rhs)
 {
-    if (lhs.seasonNumber != rhs.seasonNumber) {
-        return lhs.seasonNumber < rhs.seasonNumber;
+    if (lhs.m_seasonNumber != rhs.m_seasonNumber) {
+        return lhs.m_seasonNumber < rhs.m_seasonNumber;
     }
-    if (lhs.episodeNumber != rhs.episodeNumber) {
-        return lhs.episodeNumber < rhs.episodeNumber;
+    if (lhs.m_episodeNumber != rhs.m_episodeNumber) {
+        return lhs.m_episodeNumber < rhs.m_episodeNumber;
     }
-    const int sortNameCompare = QString::compare(lhs.sortName, rhs.sortName, Qt::CaseInsensitive);
+    const int sortNameCompare = QString::compare(lhs.m_sortName, rhs.m_sortName, Qt::CaseInsensitive);
     if (sortNameCompare != 0) {
         return sortNameCompare < 0;
     }
-    return lhs.id < rhs.id;
+    return lhs.m_id < rhs.m_id;
 }
 
 bool specialBucketLessThan(const EpisodeEntry &lhs, const EpisodeEntry &rhs)
 {
-    if (lhs.premiereDate.isValid() != rhs.premiereDate.isValid()) {
-        return lhs.premiereDate.isValid();
+    if (lhs.m_premiereDate.isValid() != rhs.m_premiereDate.isValid()) {
+        return lhs.m_premiereDate.isValid();
     }
-    if (lhs.premiereDate != rhs.premiereDate) {
-        return lhs.premiereDate < rhs.premiereDate;
+    if (lhs.m_premiereDate != rhs.m_premiereDate) {
+        return lhs.m_premiereDate < rhs.m_premiereDate;
     }
-    const int sortNameCompare = QString::compare(lhs.sortName, rhs.sortName, Qt::CaseInsensitive);
+    const int sortNameCompare = QString::compare(lhs.m_sortName, rhs.m_sortName, Qt::CaseInsensitive);
     if (sortNameCompare != 0) {
         return sortNameCompare < 0;
     }
-    if (lhs.episodeNumber != rhs.episodeNumber) {
-        return lhs.episodeNumber < rhs.episodeNumber;
+    if (lhs.m_episodeNumber != rhs.m_episodeNumber) {
+        return lhs.m_episodeNumber < rhs.m_episodeNumber;
     }
-    return lhs.id < rhs.id;
+    return lhs.m_id < rhs.m_id;
 }
 
 bool isEligibleNextCandidate(const EpisodeEntry &entry, const QString &excludeItemId)
 {
-    return !entry.id.isEmpty() && entry.id != excludeItemId && !entry.isPlayed;
+    return !entry.m_id.isEmpty() && entry.m_id != excludeItemId && !entry.m_isPlayed;
 }
 
 void appendSorted(QVector<EpisodeEntry> &ordered, QVector<EpisodeEntry> bucket)
@@ -137,29 +137,29 @@ QVector<EpisodeEntry> buildCanonicalTimeline(const QJsonArray &episodes)
         }
 
         EpisodeEntry entry = toEntry(episode);
-        if (entry.id.isEmpty()) {
+        if (entry.m_id.isEmpty()) {
             continue;
         }
 
-        if (!entry.isSpecial) {
+        if (!entry.m_isSpecial) {
             regularEpisodes.append(entry);
-            referencedSeasons.insert(entry.seasonNumber);
+            referencedSeasons.insert(entry.m_seasonNumber);
             continue;
         }
 
-        if (entry.airsBeforeSeason > 0) {
-            referencedSeasons.insert(entry.airsBeforeSeason);
-            if (entry.airsBeforeEpisode > 0) {
-                specialsBeforeEpisode[entry.airsBeforeSeason][entry.airsBeforeEpisode].append(entry);
+        if (entry.m_airsBeforeSeason > 0) {
+            referencedSeasons.insert(entry.m_airsBeforeSeason);
+            if (entry.m_airsBeforeEpisode > 0) {
+                specialsBeforeEpisode[entry.m_airsBeforeSeason][entry.m_airsBeforeEpisode].append(entry);
             } else {
-                specialsBeforeSeason[entry.airsBeforeSeason].append(entry);
+                specialsBeforeSeason[entry.m_airsBeforeSeason].append(entry);
             }
             continue;
         }
 
-        if (entry.airsAfterSeason > 0) {
-            referencedSeasons.insert(entry.airsAfterSeason);
-            specialsAfterSeason[entry.airsAfterSeason].append(entry);
+        if (entry.m_airsAfterSeason > 0) {
+            referencedSeasons.insert(entry.m_airsAfterSeason);
+            specialsAfterSeason[entry.m_airsAfterSeason].append(entry);
             continue;
         }
 
@@ -170,7 +170,7 @@ QVector<EpisodeEntry> buildCanonicalTimeline(const QJsonArray &episodes)
 
     QMap<int, QVector<EpisodeEntry>> regularEpisodesBySeason;
     for (const EpisodeEntry &entry : regularEpisodes) {
-        regularEpisodesBySeason[entry.seasonNumber].append(entry);
+        regularEpisodesBySeason[entry.m_seasonNumber].append(entry);
     }
 
     QList<int> seasonNumbers = referencedSeasons.values();
@@ -182,7 +182,7 @@ QVector<EpisodeEntry> buildCanonicalTimeline(const QJsonArray &episodes)
 
         QVector<EpisodeEntry> seasonEpisodes = regularEpisodesBySeason.value(seasonNumber);
         for (const EpisodeEntry &entry : seasonEpisodes) {
-            appendSorted(ordered, specialsBeforeEpisode[seasonNumber].take(entry.episodeNumber));
+            appendSorted(ordered, specialsBeforeEpisode[seasonNumber].take(entry.m_episodeNumber));
             ordered.append(entry);
         }
 
@@ -199,7 +199,7 @@ QVector<EpisodeEntry> buildCanonicalTimeline(const QJsonArray &episodes)
     ordered += unresolvedSpecials;
 
     for (int index = 0; index < ordered.size(); ++index) {
-        ordered[index].canonicalIndex = index;
+        ordered[index].m_canonicalIndex = index;
     }
 
     return ordered;
@@ -207,19 +207,19 @@ QVector<EpisodeEntry> buildCanonicalTimeline(const QJsonArray &episodes)
 
 bool anchorIsMoreRecent(const EpisodeEntry &candidate, const EpisodeEntry &best)
 {
-    if (candidate.lastPlayedDate.isValid() != best.lastPlayedDate.isValid()) {
-        return candidate.lastPlayedDate.isValid();
+    if (candidate.m_lastPlayedDate.isValid() != best.m_lastPlayedDate.isValid()) {
+        return candidate.m_lastPlayedDate.isValid();
     }
-    if (candidate.lastPlayedDate != best.lastPlayedDate) {
-        return candidate.lastPlayedDate > best.lastPlayedDate;
+    if (candidate.m_lastPlayedDate != best.m_lastPlayedDate) {
+        return candidate.m_lastPlayedDate > best.m_lastPlayedDate;
     }
-    if (candidate.canonicalIndex != best.canonicalIndex) {
-        return candidate.canonicalIndex > best.canonicalIndex;
+    if (candidate.m_canonicalIndex != best.m_canonicalIndex) {
+        return candidate.m_canonicalIndex > best.m_canonicalIndex;
     }
-    if (candidate.playbackPositionTicks != best.playbackPositionTicks) {
-        return candidate.playbackPositionTicks > best.playbackPositionTicks;
+    if (candidate.m_playbackPositionTicks != best.m_playbackPositionTicks) {
+        return candidate.m_playbackPositionTicks > best.m_playbackPositionTicks;
     }
-    return candidate.id > best.id;
+    return candidate.m_id > best.m_id;
 }
 
 QJsonObject mergePreferredEpisode(const QJsonObject &selectedEpisode, const QJsonObject &preferredEpisode)
@@ -257,7 +257,7 @@ QJsonObject resolveFromAnchor(const QVector<EpisodeEntry> &ordered,
         if (!isEligibleNextCandidate(ordered[index], excludeItemId)) {
             continue;
         }
-        return mergePreferredEpisode(ordered[index].episode, preferredEpisode);
+        return mergePreferredEpisode(ordered[index].m_episode, preferredEpisode);
     }
 
     return {};
@@ -278,8 +278,8 @@ QJsonObject resolveBestNextEpisode(const QJsonArray &episodes,
 
     if (!excludeItemId.isEmpty()) {
         for (const EpisodeEntry &entry : ordered) {
-            if (entry.id == excludeItemId) {
-                return resolveFromAnchor(ordered, entry.canonicalIndex, excludeItemId, preferredEpisode);
+            if (entry.m_id == excludeItemId) {
+                return resolveFromAnchor(ordered, entry.m_canonicalIndex, excludeItemId, preferredEpisode);
             }
         }
     }
@@ -287,7 +287,7 @@ QJsonObject resolveBestNextEpisode(const QJsonArray &episodes,
     bool haveInProgress = false;
     EpisodeEntry bestInProgress;
     for (const EpisodeEntry &entry : ordered) {
-        if (entry.isPlayed || entry.playbackPositionTicks <= 0) {
+        if (entry.m_isPlayed || entry.m_playbackPositionTicks <= 0) {
             continue;
         }
         if (!haveInProgress || anchorIsMoreRecent(entry, bestInProgress)) {
@@ -296,13 +296,13 @@ QJsonObject resolveBestNextEpisode(const QJsonArray &episodes,
         }
     }
     if (haveInProgress) {
-        return mergePreferredEpisode(bestInProgress.episode, preferredEpisode);
+        return mergePreferredEpisode(bestInProgress.m_episode, preferredEpisode);
     }
 
     bool haveAnchor = false;
     EpisodeEntry bestAnchor;
     for (const EpisodeEntry &entry : ordered) {
-        if (!entry.isPlayed) {
+        if (!entry.m_isPlayed) {
             continue;
         }
         if (!haveAnchor || anchorIsMoreRecent(entry, bestAnchor)) {
@@ -311,18 +311,18 @@ QJsonObject resolveBestNextEpisode(const QJsonArray &episodes,
         }
     }
     if (haveAnchor) {
-        return resolveFromAnchor(ordered, bestAnchor.canonicalIndex, excludeItemId, preferredEpisode);
+        return resolveFromAnchor(ordered, bestAnchor.m_canonicalIndex, excludeItemId, preferredEpisode);
     }
 
     for (const EpisodeEntry &entry : ordered) {
-        if (!entry.isSpecial && isEligibleNextCandidate(entry, excludeItemId)) {
-            return mergePreferredEpisode(entry.episode, preferredEpisode);
+        if (!entry.m_isSpecial && isEligibleNextCandidate(entry, excludeItemId)) {
+            return mergePreferredEpisode(entry.m_episode, preferredEpisode);
         }
     }
 
     for (const EpisodeEntry &entry : ordered) {
-        if (entry.isSpecial && isEligibleNextCandidate(entry, excludeItemId)) {
-            return mergePreferredEpisode(entry.episode, preferredEpisode);
+        if (entry.m_isSpecial && isEligibleNextCandidate(entry, excludeItemId)) {
+            return mergePreferredEpisode(entry.m_episode, preferredEpisode);
         }
     }
 
