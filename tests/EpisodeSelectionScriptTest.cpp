@@ -14,6 +14,8 @@ private slots:
     void explicitSelectionMustExist();
     void explicitSelectionWaitsForTargetSeason();
     void fallbackSelectionChoosesFirstUnplayed();
+    void fallbackSelectionSkipsLeadingNullEntries();
+    void allNullEpisodesDoNotApplyFallback();
 
 private:
     QJSEngine m_engine;
@@ -65,6 +67,7 @@ void EpisodeSelectionScriptTest::explicitSelectionMustExist()
 void EpisodeSelectionScriptTest::explicitSelectionWaitsForTargetSeason()
 {
     QVariantList episodes;
+    episodes.append(QVariant());
     episodes.append(QVariantMap{
         {QStringLiteral("Id"), QStringLiteral("episode-1")},
         {QStringLiteral("ParentId"), QStringLiteral("season-a")},
@@ -112,6 +115,58 @@ void EpisodeSelectionScriptTest::fallbackSelectionChoosesFirstUnplayed()
     QCOMPARE(result.property(QStringLiteral("shouldApply")).toBool(), true);
     QCOMPARE(result.property(QStringLiteral("usedFallback")).toBool(), true);
     QCOMPARE(result.property(QStringLiteral("targetIndex")).toInt(), 1);
+}
+
+void EpisodeSelectionScriptTest::fallbackSelectionSkipsLeadingNullEntries()
+{
+    QVariantList episodes;
+    episodes.append(QVariant());
+    episodes.append(QVariantMap{
+        {QStringLiteral("Id"), QStringLiteral("episode-1")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
+        {QStringLiteral("UserData"), QVariantMap{
+            {QStringLiteral("Played"), true},
+            {QStringLiteral("PlaybackPositionTicks"), 0}
+        }}
+    });
+    episodes.append(QVariantMap{
+        {QStringLiteral("Id"), QStringLiteral("episode-2")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
+        {QStringLiteral("UserData"), QVariantMap{
+            {QStringLiteral("Played"), false},
+            {QStringLiteral("PlaybackPositionTicks"), 0}
+        }}
+    });
+
+    const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
+        m_engine.toScriptValue(episodes),
+        QJSValue(QStringLiteral("")),
+        QJSValue(QStringLiteral("season-b"))
+    });
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+
+    QCOMPARE(result.property(QStringLiteral("waitingForTargetSeason")).toBool(), true);
+    QCOMPARE(result.property(QStringLiteral("currentSeasonId")).toString(), QStringLiteral("season-a"));
+    QCOMPARE(result.property(QStringLiteral("shouldApply")).toBool(), true);
+    QCOMPARE(result.property(QStringLiteral("targetIndex")).toInt(), 2);
+}
+
+void EpisodeSelectionScriptTest::allNullEpisodesDoNotApplyFallback()
+{
+    QVariantList episodes;
+    episodes.append(QVariant());
+    episodes.append(QVariant());
+
+    const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
+        m_engine.toScriptValue(episodes),
+        QJSValue(QStringLiteral("")),
+        QJSValue(QStringLiteral("season-a"))
+    });
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+
+    QCOMPARE(result.property(QStringLiteral("shouldApply")).toBool(), false);
+    QCOMPARE(result.property(QStringLiteral("waitingForTargetSeason")).toBool(), false);
+    QVERIFY(result.property(QStringLiteral("currentSeasonId")).isNull());
 }
 
 QTEST_MAIN(EpisodeSelectionScriptTest)

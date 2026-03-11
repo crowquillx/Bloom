@@ -30,13 +30,22 @@ function episodePlaybackPositionTicks(episode) {
     return 0
 }
 
+function firstValidEpisodeIndex(episodes) {
+    for (var i = 0; i < episodes.length; i++) {
+        if (episodes[i]) {
+            return i
+        }
+    }
+    return -1
+}
+
 function resolveInitialEpisodeSelection(episodes, initialEpisodeId, targetSeasonId) {
     var result = {
         shouldApply: false,
         targetIndex: -1,
         foundInitialEpisode: false,
         usedFallback: false,
-        currentSeasonId: "",
+        currentSeasonId: null,
         waitingForTargetSeason: false
     }
 
@@ -44,7 +53,12 @@ function resolveInitialEpisodeSelection(episodes, initialEpisodeId, targetSeason
         return result
     }
 
-    result.currentSeasonId = episodeSeasonId(episodes[0])
+    var firstEpisodeIndex = firstValidEpisodeIndex(episodes)
+    if (firstEpisodeIndex < 0) {
+        return result
+    }
+
+    result.currentSeasonId = episodeSeasonId(episodes[firstEpisodeIndex])
     if (targetSeasonId && result.currentSeasonId && result.currentSeasonId !== targetSeasonId) {
         result.waitingForTargetSeason = true
     }
@@ -62,8 +76,8 @@ function resolveInitialEpisodeSelection(episodes, initialEpisodeId, targetSeason
         return result
     }
 
-    var targetIndex = 0
-    for (var j = 0; j < episodes.length; j++) {
+    var targetIndex = firstEpisodeIndex
+    for (var j = firstEpisodeIndex; j < episodes.length; j++) {
         var fallbackEpisode = episodes[j]
         if (!fallbackEpisode) {
             continue
