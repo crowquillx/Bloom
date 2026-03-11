@@ -155,6 +155,22 @@ Track Preference Persistence
 - **Library browsing**: `currentSeasonId` is set when the user selects a season.
 - **Search → Series → Season → Episode**: Season ID is captured when entering the season view.
 - **Post-playback next episode**: `showEpisodeDetails` extracts seasonId from episode data if not already set.
+- **Explicit episode navigation**: when `initialEpisodeId` is supplied (for example from Home -> Next Up), the season view must preserve that exact episode selection and must not silently fall back to the first unwatched item if the wrong season/model loads first.
+
+### Next Episode Resolution
+- `LibraryService::getNextUnplayedEpisode()` now resolves the best next episode locally from the full recursive episode list for the series instead of taking the first item from Jellyfin `/Shows/NextUp`.
+- Canonical episode order is built from regular season/episode numbering plus special-placement fields:
+  - `AirsBeforeSeasonNumber`
+  - `AirsAfterSeasonNumber`
+  - `AirsBeforeEpisodeNumber`
+- Missing episodes (`LocationType == "Virtual"`) are excluded from the canonical timeline.
+- Resolution order:
+  - If `excludeItemId` is set, treat it as the explicit anchor and return the first later not-fully-played episode.
+  - Otherwise, prefer the most recently active in-progress episode (`PlaybackPositionTicks > 0`).
+  - Otherwise, anchor on the most recently played episode using `UserData.LastPlayedDate` when available.
+  - If no anchor exists, fall back to the first unplayed regular episode, then to the first unplayed special.
+- Tie-breakers when play dates are missing or equal prefer later canonical position, then larger `PlaybackPositionTicks`.
+- `excludeItemId` is used by autoplay/prefetch so the player can advance from the current item even before Jellyfin has updated watch state on the server.
 
 UI Components for Track Selection
 - `TrackSelector.qml`: Reusable dropdown component for selecting audio/subtitle tracks with keyboard navigation.

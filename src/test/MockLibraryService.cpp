@@ -1,5 +1,6 @@
 #include "MockLibraryService.h"
 #include "TestModeController.h"
+#include "../network/NextEpisodeResolver.h"
 #include <QUrl>
 #include <QDebug>
 
@@ -158,39 +159,27 @@ void MockLibraryService::getSeriesDetails(const QString &seriesId)
 }
 
 /**
- * @brief Finds the next unplayed episode for a series, optionally skipping a specified episode.
+ * @brief Resolves the best next episode for a series, optionally skipping a specified episode.
  *
- * Searches the fixture's episodes for the given series and emits the first episode whose
- * UserData.Played flag is false. If an episode ID is provided via excludeItemId, that episode
- * is ignored during the search.
+ * Searches the fixture's episodes for the given series, applies the canonical next-episode
+ * resolution rules, and emits the resulting episode immediately.
  *
  * @param seriesId The series identifier to search episodes for.
  * @param excludeItemId An optional episode Id to skip; pass an empty string to skip none.
  *
  * @remarks Emits nextUnplayedEpisodeLoaded(seriesId, episode) with the found episode as a QJsonObject,
- * or with an empty QJsonObject if no unplayed episode is found.
+ * or with an empty QJsonObject if no eligible episode is found.
  */
 void MockLibraryService::getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId)
 {
-    // Find the next unplayed episode for this series
-    QJsonArray episodes = findEpisodesBySeriesId(seriesId);
-    for (const QJsonValue &val : episodes) {
-        QJsonObject episode = val.toObject();
-        const QString episodeId = episode.value(QStringLiteral("Id")).toString();
-        if (!excludeItemId.isEmpty() && episodeId == excludeItemId) {
-            continue;
-        }
-        QJsonObject userData = episode["UserData"].toObject();
-        if (!userData["Played"].toBool()) {
-            qDebug() << "MockLibraryService::getNextUnplayedEpisode(" << seriesId << ", exclude:" << excludeItemId << ") -> found";
-            emit nextUnplayedEpisodeLoaded(seriesId, episode);
-            return;
-        }
-    }
-    
-    // No unplayed episodes
-    qDebug() << "MockLibraryService::getNextUnplayedEpisode(" << seriesId << ", exclude:" << excludeItemId << ") -> no unplayed episodes";
-    emit nextUnplayedEpisodeLoaded(seriesId, QJsonObject());
+    const QJsonArray episodes = findEpisodesBySeriesId(seriesId);
+    const QJsonObject resolvedEpisode =
+        NextEpisodeResolver::resolveBestNextEpisode(episodes, excludeItemId);
+
+    qDebug() << "MockLibraryService::getNextUnplayedEpisode(" << seriesId
+             << ", exclude:" << excludeItemId << ") ->"
+             << (resolvedEpisode.isEmpty() ? "no eligible episodes" : "resolved");
+    emit nextUnplayedEpisodeLoaded(seriesId, resolvedEpisode);
 }
 
 void MockLibraryService::markSeriesWatched(const QString &seriesId)

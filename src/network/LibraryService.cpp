@@ -1,5 +1,6 @@
 #include "LibraryService.h"
 #include "AuthenticationService.h"
+#include "NextEpisodeResolver.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTimer>
@@ -631,10 +632,11 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
 }
 
 /**
- * @brief Requests the next unplayed episode for a series, optionally skipping a specific episode.
+ * @brief Resolves the best next episode for a series, optionally skipping a specific episode.
  *
- * Queries the server for the next unplayed episode of the given series and emits the result.
- * On success emits nextUnplayedEpisodeLoaded(seriesId, episode) where `episode` is the selected episode object
+ * Fetches the recursive episode list for the series, resolves a canonical series order locally,
+ * and emits the best next episode based on watch state. On success emits
+ * nextUnplayedEpisodeLoaded(seriesId, episode) where `episode` is the selected episode object
  * or an empty object if no eligible episode was found. On error emits an error via emitError.
  *
  * @param seriesId The series identifier to query.
@@ -651,10 +653,27 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
         return;
     }
     
-    const int limit = excludeItemId.isEmpty() ? 1 : 5;
-    QString endpoint = QString("/Shows/NextUp?UserId=%1&SeriesId=%2&Limit=%3&Fields=Overview,UserData,RunTimeTicks,ImageTags,ParentId,SeasonId,SeriesId,IndexNumber,ParentIndexNumber&EnableImageTypes=Primary,Thumb")
-        .arg(m_authService->getUserId(), seriesId)
-        .arg(limit);
+    const QStringList fields = {
+        QStringLiteral("Name"),
+        QStringLiteral("SortName"),
+        QStringLiteral("Overview"),
+        QStringLiteral("UserData"),
+        QStringLiteral("RunTimeTicks"),
+        QStringLiteral("ImageTags"),
+        QStringLiteral("ParentId"),
+        QStringLiteral("SeasonId"),
+        QStringLiteral("SeriesId"),
+        QStringLiteral("SeriesName"),
+        QStringLiteral("IndexNumber"),
+        QStringLiteral("ParentIndexNumber"),
+        QStringLiteral("PremiereDate"),
+        QStringLiteral("LocationType"),
+        QStringLiteral("AirsBeforeSeasonNumber"),
+        QStringLiteral("AirsAfterSeasonNumber"),
+        QStringLiteral("AirsBeforeEpisodeNumber")
+    };
+    QString endpoint = QString("/Users/%1/Items?ParentId=%2&Recursive=true&IncludeItemTypes=Episode&Fields=%3&SortBy=ParentIndexNumber,IndexNumber,SortName&EnableImageTypes=Primary,Thumb")
+        .arg(m_authService->getUserId(), seriesId, fields.join(','));
     
     sendRequestWithRetry(endpoint,
         [this, endpoint]() {
@@ -672,22 +691,9 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
                 emitError(error);
                 return;
             }
-            QJsonArray items = doc.object()["Items"].toArray();
-            
-            QJsonObject selectedEpisode;
-            for (const QJsonValue &value : items) {
-                if (!value.isObject()) {
-                    continue;
-                }
-                const QJsonObject episode = value.toObject();
-                const QString episodeId = episode.value(QStringLiteral("Id")).toString();
-                if (!excludeItemId.isEmpty() && episodeId == excludeItemId) {
-                    continue;
-                }
-                selectedEpisode = episode;
-                break;
-            }
-
+            const QJsonArray items = doc.object()["Items"].toArray();
+            const QJsonObject selectedEpisode =
+                NextEpisodeResolver::resolveBestNextEpisode(items, excludeItemId);
             emit nextUnplayedEpisodeLoaded(seriesId, selectedEpisode);
         });
 }

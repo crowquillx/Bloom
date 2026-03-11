@@ -5,6 +5,7 @@ import QtQuick.Effects
 import QtQml
 
 import BloomUI
+import "EpisodeSelection.js" as EpisodeSelection
 import "TrackUtils.js" as TrackUtils
 
 FocusScope {
@@ -233,41 +234,35 @@ FocusScope {
             console.log("[SeriesSeasonEpisodeView] selectInitialEpisode: No episodes, skipping")
             return
         }
-        
-        var targetIndex = 0
-        var foundInitialEpisode = false
-        
-        // First priority: if a specific episode ID was requested, find and select it
+
+        var episodes = []
+        for (var i = 0; i < episodesList.count; i++) {
+            episodes.push(SeriesDetailsViewModel.episodesModel.getItem(i))
+        }
+
         if (initialEpisodeId !== "") {
             console.log("[SeriesSeasonEpisodeView] Looking for initial episode ID:", initialEpisodeId, "in count:", episodesList.count, "for season:", SeriesDetailsViewModel.selectedSeasonId)
-            for (var i = 0; i < episodesList.count; i++) {
-                var ep = SeriesDetailsViewModel.episodesModel.getItem(i)
-                if (ep && (ep.itemId === initialEpisodeId || ep.Id === initialEpisodeId)) {
-                    console.log("[SeriesSeasonEpisodeView] Found initial episode at index:", i)
-                    targetIndex = i
-                    foundInitialEpisode = true
-                    break
-                }
-            }
-            if (!foundInitialEpisode) {
-                console.log("[SeriesSeasonEpisodeView] Initial episode ID not found in current season, using first unplayed")
-            }
         }
-        
-        // Fallback: find first unplayed or partially-watched episode
-        if (!foundInitialEpisode) {
-            for (var j = 0; j < episodesList.count; j++) {
-                var ep2 = SeriesDetailsViewModel.episodesModel.getItem(j)
-                if (!ep2.isPlayed) {
-                    targetIndex = j
-                    break
-                }
-                if (ep2.playbackPositionTicks > 0) {
-                    targetIndex = j
-                }
+
+        var selection = EpisodeSelection.resolveInitialEpisodeSelection(episodes, initialEpisodeId, initialSeasonId)
+        if (!selection.shouldApply && initialEpisodeId !== "") {
+            if (selection.waitingForTargetSeason) {
+                console.log("[SeriesSeasonEpisodeView] Episode model still belongs to season:", selection.currentSeasonId,
+                            "waiting for target season:", initialSeasonId)
+                return
             }
+
+            if (initialSeasonId !== "" && SeriesDetailsViewModel.selectedSeasonId !== initialSeasonId) {
+                console.log("[SeriesSeasonEpisodeView] Initial episode not in current season yet, waiting for season:", initialSeasonId)
+                return
+            }
+
+            console.warn("[SeriesSeasonEpisodeView] Initial episode ID not found after loading target season:", initialEpisodeId)
+            initialEpisodeSelectionPending = false
+            return
         }
-        
+
+        var targetIndex = selection.targetIndex
         console.log("[SeriesSeasonEpisodeView] Setting currentIndex to:", targetIndex)
         suppressInteractionTracking = true
         episodesList.currentIndex = targetIndex

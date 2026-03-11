@@ -110,8 +110,8 @@ public:
 
     void getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId = QString()) override
     {
-        Q_UNUSED(excludeItemId);
         requestedSeriesIds.append(seriesId);
+        requestedExcludeIds.append(excludeItemId);
     }
 
     QString getStreamUrl(const QString &itemId) override
@@ -120,6 +120,7 @@ public:
     }
 
     QStringList requestedSeriesIds;
+    QStringList requestedExcludeIds;
 };
 
 static QVariantMap buildMediaSource(const QList<QVariantMap> &streams,
@@ -189,6 +190,7 @@ void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectl
 
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
     QCOMPARE(libraryService.requestedSeriesIds.first(), QStringLiteral("series-1"));
+    QCOMPARE(libraryService.requestedExcludeIds.first(), QStringLiteral("item-1"));
     QVERIFY(controller.m_shouldAutoplay);
     QVERIFY(controller.m_waitingForNextEpisodeAtPlaybackEnd);
     QCOMPARE(controller.m_pendingAutoplayItemId, QStringLiteral("item-1"));
@@ -197,6 +199,7 @@ void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectl
     controller.m_hasEvaluatedCompletionForAttempt = true;
     controller.handlePlaybackStopAndAutoplay(PlayerController::Event::PlaybackEnd);
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
+    QCOMPARE(libraryService.requestedExcludeIds.first(), QStringLiteral("item-1"));
 }
 
 void PlayerControllerAutoplayContextTest::userStopPastThresholdRequestsNextEpisode()
@@ -229,6 +232,7 @@ void PlayerControllerAutoplayContextTest::userStopPastThresholdRequestsNextEpiso
 
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
     QCOMPARE(libraryService.requestedSeriesIds.first(), QStringLiteral("series-1"));
+    QCOMPARE(libraryService.requestedExcludeIds.first(), QStringLiteral("item-1"));
     QVERIFY(controller.m_shouldAutoplay);
     QVERIFY(controller.m_waitingForNextEpisodeAtPlaybackEnd);
     QCOMPARE(controller.m_pendingAutoplayItemId, QStringLiteral("item-1"));

@@ -1410,6 +1410,11 @@ FocusScope {
                 if (StackView.view) {
                     StackView.view.pop()
                 }
+            } else if (preferStackPopOnDirectBack) {
+                console.log("[Library] Direct navigation mode with empty stack, returning to underlying screen")
+                if (StackView.view) {
+                    StackView.view.pop()
+                }
             } else if (currentLibraryId !== "") {
                 console.log("[Library] Direct navigation mode with empty stack, returning to library:", currentLibraryId)
                 directNavigationMode = false
@@ -1611,10 +1616,11 @@ FocusScope {
         updateBackdropForItem(movieData)
     }
     
-    function showEpisodeDetails(episodeData) {
+    function showEpisodeDetails(episodeData, forcePushContext) {
         // Show episode using the SeriesSeasonEpisodeView to allow full season/episode navigation
         // Capture episode index for restoration when coming back to season view
-        var shouldPushContext = !(directNavigationMode && navigationStack.length === 0)
+        var shouldPushContext = forcePushContext === true
+                                || !(directNavigationMode && navigationStack.length === 0)
         var episodeIndex = -1
         if (SeriesDetailsViewModel.episodesModel) {
             for (var i = 0; i < SeriesDetailsViewModel.episodesModel.rowCount(); i++) {
@@ -2136,6 +2142,8 @@ FocusScope {
     property bool directNavigationMode: false
     // When true, back from direct-navigation details should always pop to Home.
     property bool returnToHomeOnDirectBack: false
+    // When true, direct-navigation back with an empty internal stack should pop to the previous StackView item.
+    property bool preferStackPopOnDirectBack: false
     // Signal to parent StackView that this screen manages back navigation internally
     property bool handlesOwnBackNavigation: true
 
