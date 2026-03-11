@@ -1,15 +1,29 @@
 .pragma library
 
-function resolveInitialEpisodeSelection(episodes, initialEpisodeId) {
+function episodeSeasonId(episode) {
+    if (!episode) {
+        return ""
+    }
+    return episode.SeasonId || episode.ParentId || ""
+}
+
+function resolveInitialEpisodeSelection(episodes, initialEpisodeId, targetSeasonId) {
     var result = {
         shouldApply: false,
         targetIndex: -1,
         foundInitialEpisode: false,
-        usedFallback: false
+        usedFallback: false,
+        currentSeasonId: "",
+        waitingForTargetSeason: false
     }
 
     if (!episodes || episodes.length === 0) {
         return result
+    }
+
+    result.currentSeasonId = episodeSeasonId(episodes[0])
+    if (targetSeasonId && result.currentSeasonId && result.currentSeasonId !== targetSeasonId) {
+        result.waitingForTargetSeason = true
     }
 
     if (initialEpisodeId) {

@@ -244,8 +244,14 @@ FocusScope {
             console.log("[SeriesSeasonEpisodeView] Looking for initial episode ID:", initialEpisodeId, "in count:", episodesList.count, "for season:", SeriesDetailsViewModel.selectedSeasonId)
         }
 
-        var selection = EpisodeSelection.resolveInitialEpisodeSelection(episodes, initialEpisodeId)
+        var selection = EpisodeSelection.resolveInitialEpisodeSelection(episodes, initialEpisodeId, initialSeasonId)
         if (!selection.shouldApply && initialEpisodeId !== "") {
+            if (selection.waitingForTargetSeason) {
+                console.log("[SeriesSeasonEpisodeView] Episode model still belongs to season:", selection.currentSeasonId,
+                            "waiting for target season:", initialSeasonId)
+                return
+            }
+
             if (initialSeasonId !== "" && SeriesDetailsViewModel.selectedSeasonId !== initialSeasonId) {
                 console.log("[SeriesSeasonEpisodeView] Initial episode not in current season yet, waiting for season:", initialSeasonId)
                 return

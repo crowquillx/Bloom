@@ -24,6 +24,7 @@ class EpisodeSelectionScriptTest : public QObject
 
 private slots:
     void explicitSelectionMustExist();
+    void explicitSelectionWaitsForTargetSeason();
     void fallbackSelectionChoosesFirstUnplayed();
 };
 
@@ -63,6 +64,39 @@ void EpisodeSelectionScriptTest::explicitSelectionMustExist()
     QCOMPARE(result.property(QStringLiteral("foundInitialEpisode")).toBool(), false);
 }
 
+void EpisodeSelectionScriptTest::explicitSelectionWaitsForTargetSeason()
+{
+    QFile scriptFile(scriptPath());
+    QVERIFY2(scriptFile.open(QIODevice::ReadOnly | QIODevice::Text), "Failed to open EpisodeSelection.js");
+
+    QJSEngine engine;
+    const QJSValue evalResult = engine.evaluate(QString::fromUtf8(scriptFile.readAll()),
+                                                QStringLiteral("EpisodeSelection.js"));
+    QVERIFY2(!evalResult.isError(), qPrintable(evalResult.toString()));
+
+    QVariantList episodes;
+    episodes.append(QVariantMap{
+        {QStringLiteral("Id"), QStringLiteral("episode-1")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
+        {QStringLiteral("isPlayed"), false},
+        {QStringLiteral("playbackPositionTicks"), 0}
+    });
+
+    const QJSValue function = engine.globalObject().property(QStringLiteral("resolveInitialEpisodeSelection"));
+    QVERIFY(function.isCallable());
+
+    const QJSValue result = function.call(QJSValueList{
+        engine.toScriptValue(episodes),
+        QJSValue(QStringLiteral("missing-episode")),
+        QJSValue(QStringLiteral("season-b"))
+    });
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+
+    QCOMPARE(result.property(QStringLiteral("shouldApply")).toBool(), false);
+    QCOMPARE(result.property(QStringLiteral("waitingForTargetSeason")).toBool(), true);
+    QCOMPARE(result.property(QStringLiteral("currentSeasonId")).toString(), QStringLiteral("season-a"));
+}
+
 void EpisodeSelectionScriptTest::fallbackSelectionChoosesFirstUnplayed()
 {
     QFile scriptFile(scriptPath());
@@ -90,6 +124,7 @@ void EpisodeSelectionScriptTest::fallbackSelectionChoosesFirstUnplayed()
 
     const QJSValue result = function.call(QJSValueList{
         engine.toScriptValue(episodes),
+        QJSValue(QStringLiteral("")),
         QJSValue(QStringLiteral(""))
     });
     QVERIFY2(!result.isError(), qPrintable(result.toString()));
