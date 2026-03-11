@@ -173,7 +173,7 @@ QVector<EpisodeEntry> buildCanonicalTimeline(const QJsonArray &episodes)
         regularEpisodesBySeason[entry.seasonNumber].append(entry);
     }
 
-    QVector<int> seasonNumbers = referencedSeasons.values().toVector();
+    QList<int> seasonNumbers = referencedSeasons.values();
     std::sort(seasonNumbers.begin(), seasonNumbers.end());
 
     QVector<EpisodeEntry> ordered;
@@ -195,14 +195,6 @@ QVector<EpisodeEntry> buildCanonicalTimeline(const QJsonArray &episodes)
 
         appendSorted(ordered, specialsAfterSeason.take(seasonNumber));
     }
-
-    for (auto it = specialsBeforeSeason.constBegin(); it != specialsBeforeSeason.constEnd(); ++it) {
-        appendSorted(ordered, it.value());
-    }
-    for (auto it = specialsAfterSeason.constBegin(); it != specialsAfterSeason.constEnd(); ++it) {
-        appendSorted(ordered, it.value());
-    }
-
     std::sort(unresolvedSpecials.begin(), unresolvedSpecials.end(), specialBucketLessThan);
     ordered += unresolvedSpecials;
 
