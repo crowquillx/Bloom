@@ -608,17 +608,42 @@ Window {
                         targetEpisodeData.SeasonId = targetEpisodeData.ParentId
                     }
                     
+                    var destinationScreen = stackView.currentItem
+                    var targetSeasonId = targetEpisodeData.SeasonId || ""
+
+                    if (destinationScreen
+                            && destinationScreen.handlesOwnBackNavigation === true
+                            && typeof destinationScreen.showEpisodeDetails === "function") {
+                        console.log("[Main] Up Next: Reusing existing LibraryScreen for episode navigation")
+                        destinationScreen.pendingAudioTrackIndex = lastAudioIndex
+                        destinationScreen.pendingSubtitleTrackIndex = lastSubtitleIndex
+                        if (seriesId) {
+                            destinationScreen.currentSeriesId = seriesId
+                        }
+                        if (targetSeasonId) {
+                            destinationScreen.currentSeasonId = targetSeasonId
+                        }
+                        Qt.callLater(function() {
+                            if (destinationScreen && typeof destinationScreen.showEpisodeDetails === "function") {
+                                destinationScreen.showEpisodeDetails(targetEpisodeData, true)
+                            }
+                        })
+                        return
+                    }
+
                     var libraryScreen = stackView.push("LibraryScreen.qml", {
                         currentParentId: "",
                         currentLibraryId: "",
                         currentLibraryName: "",
                         currentSeriesId: seriesId,
+                        currentSeasonId: targetSeasonId,
+                        showSeasonView: true,
                         directNavigationMode: true,
+                        preferStackPopOnDirectBack: true,
                         pendingAudioTrackIndex: lastAudioIndex,
-                        pendingSubtitleTrackIndex: lastSubtitleIndex,
-                        currentSeasonId: targetEpisodeData.SeasonId || ""
+                        pendingSubtitleTrackIndex: lastSubtitleIndex
                     })
-                    
+
                     LibraryService.getSeriesDetails(seriesId)
                     if (libraryScreen) {
                         libraryScreen.pendingEpisodeData = targetEpisodeData
