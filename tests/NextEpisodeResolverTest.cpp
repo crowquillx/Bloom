@@ -63,6 +63,7 @@ private slots:
     void fallsBackToFirstRegularEpisodeWithoutHistory();
     void fallsBackToSpecialOnlyWhenNoRegularEpisodesRemain();
     void prefersPreferredPayloadWhenIdsMatch();
+    void preservesCanonicalUserDataWhenMergingPreferredPayload();
 };
 
 void NextEpisodeResolverTest::resolvesEpisodeAfterMostRecentPlayedAnchor()
@@ -170,6 +171,39 @@ void NextEpisodeResolverTest::prefersPreferredPayloadWhenIdsMatch()
         NextEpisodeResolver::resolveBestNextEpisode(episodes, QString(), preferred);
     QCOMPARE(resolved.value(QStringLiteral("Id")).toString(), QStringLiteral("s1e2"));
     QCOMPARE(resolved.value(QStringLiteral("Path")).toString(), QStringLiteral("/preferred/path.mkv"));
+}
+
+void NextEpisodeResolverTest::preservesCanonicalUserDataWhenMergingPreferredPayload()
+{
+    const QJsonArray episodes{
+        buildEpisode(QStringLiteral("s1e1"), 1, 1, true),
+        buildEpisode(QStringLiteral("s1e2"),
+                     1,
+                     2,
+                     true,
+                     5000,
+                     QStringLiteral("2026-03-05T18:00:00Z"))
+    };
+
+    const QJsonObject preferred{
+        {QStringLiteral("Id"), QStringLiteral("s1e2")},
+        {QStringLiteral("Path"), QStringLiteral("/preferred/path.mkv")},
+        {QStringLiteral("UserData"), QJsonObject{
+            {QStringLiteral("Played"), false},
+            {QStringLiteral("PlaybackPositionTicks"), 0.0},
+            {QStringLiteral("LastPlayedDate"), QStringLiteral("2026-03-01T18:00:00Z")}
+        }}
+    };
+
+    const QJsonObject resolved =
+        NextEpisodeResolver::resolveBestNextEpisode(episodes, QString(), preferred);
+    QCOMPARE(resolved.value(QStringLiteral("Path")).toString(), QStringLiteral("/preferred/path.mkv"));
+
+    const QJsonObject userData = resolved.value(QStringLiteral("UserData")).toObject();
+    QCOMPARE(userData.value(QStringLiteral("Played")).toBool(), true);
+    QCOMPARE(userData.value(QStringLiteral("PlaybackPositionTicks")).toInteger(), 5000LL);
+    QCOMPARE(userData.value(QStringLiteral("LastPlayedDate")).toString(),
+             QStringLiteral("2026-03-05T18:00:00Z"));
 }
 
 QTEST_MAIN(NextEpisodeResolverTest)

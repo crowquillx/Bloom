@@ -236,15 +236,7 @@ QJsonObject mergePreferredEpisode(const QJsonObject &selectedEpisode, const QJso
 
     QJsonObject merged = selectedEpisode;
     for (auto it = preferredEpisode.constBegin(); it != preferredEpisode.constEnd(); ++it) {
-        if (it.key() == QStringLiteral("UserData")
-            && merged.value(it.key()).isObject()
-            && it.value().isObject()) {
-            QJsonObject mergedUserData = merged.value(it.key()).toObject();
-            const QJsonObject preferredUserData = it.value().toObject();
-            for (auto userIt = preferredUserData.constBegin(); userIt != preferredUserData.constEnd(); ++userIt) {
-                mergedUserData.insert(userIt.key(), userIt.value());
-            }
-            merged.insert(it.key(), mergedUserData);
+        if (it.key() == QStringLiteral("UserData")) {
             continue;
         }
         merged.insert(it.key(), it.value());
