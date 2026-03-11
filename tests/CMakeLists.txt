@@ -144,19 +144,17 @@ add_executable(EpisodeSelectionScriptTest
 
 target_include_directories(EpisodeSelectionScriptTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-set(EPISODE_SELECTION_SCRIPT_TEST_PATH
-    "${CMAKE_CURRENT_BINARY_DIR}/EpisodeSelection.js"
-)
-
-configure_file(
-    "${CMAKE_SOURCE_DIR}/src/ui/EpisodeSelection.js"
-    "${EPISODE_SELECTION_SCRIPT_TEST_PATH}"
-    COPYONLY
-)
-
 target_compile_definitions(EpisodeSelectionScriptTest
     PRIVATE
         EPISODE_SELECTION_SCRIPT_PATH="EpisodeSelection.js"
+)
+
+add_custom_command(
+    TARGET EpisodeSelectionScriptTest
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy
+        "${CMAKE_SOURCE_DIR}/src/ui/EpisodeSelection.js"
+        "$<TARGET_FILE_DIR:EpisodeSelectionScriptTest>/EpisodeSelection.js"
 )
 
 target_link_libraries(EpisodeSelectionScriptTest
