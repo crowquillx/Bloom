@@ -87,6 +87,9 @@ qt_add_executable(Bloom
     resources/windows-icon.rc
 )
 
+if(WIN32)
+    set_target_properties(Bloom PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
 
 set_source_files_properties(ui/Theme.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE

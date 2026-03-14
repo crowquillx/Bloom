@@ -88,9 +88,12 @@ static void qtMessageHandler(QtMsgType type, const QMessageLogContext &context, 
     inQtMessageHandler = false;
 }
 
-ApplicationInitializer::ApplicationInitializer(QGuiApplication *app, QObject *parent)
+ApplicationInitializer::ApplicationInitializer(QGuiApplication *app,
+                                               bool consoleOutputEnabled,
+                                               QObject *parent)
     : QObject(parent)
     , m_app(app)
+    , m_consoleOutputEnabled(consoleOutputEnabled)
 {
 }
 
@@ -108,7 +111,7 @@ void ApplicationInitializer::registerServices()
     }
     // Enable debug-level logging and console output
     Logger::instance().setMinLogLevel(Logger::LogLevel::Debug);
-    Logger::instance().setConsoleOutputEnabled(true);
+    Logger::instance().setConsoleOutputEnabled(m_consoleOutputEnabled);
     // Install Qt message handler to route all qDebug/qWarning/etc through our Logger
     qInstallMessageHandler(qtMessageHandler);
     

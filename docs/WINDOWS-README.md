@@ -32,6 +32,8 @@ The easiest way to build is using the helper script `build.ps1` in the root of t
     *   Build the project in `build-windows/`.
     *   Install the output to `install-windows/`.
 
+Bloom is built as a GUI application on Windows, so launching `Bloom.exe` from Explorer does not open an extra console window. If you start it from `cmd`, PowerShell, or Windows Terminal, it reattaches to that parent console so log output still appears there.
+
 ### Customizing the Build
 
 **Specify Qt Location explicitly:**
