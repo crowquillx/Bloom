@@ -53,14 +53,17 @@ bool attachToParentConsoleIfAvailable()
         hasUsableStandardHandle(STD_INPUT_HANDLE) ||
         hasUsableStandardHandle(STD_OUTPUT_HANDLE) ||
         hasUsableStandardHandle(STD_ERROR_HANDLE);
+    const bool hasInheritedOutputHandles =
+        hasUsableStandardHandle(STD_OUTPUT_HANDLE) ||
+        hasUsableStandardHandle(STD_ERROR_HANDLE);
 
     if (AttachConsole(ATTACH_PARENT_PROCESS) == 0) {
         if (GetLastError() != ERROR_ACCESS_DENIED) {
-            return hasInheritedStdHandles;
+            return hasInheritedOutputHandles;
         }
     }
 
-    if (hasInheritedStdHandles) {
+    if (hasInheritedOutputHandles) {
         return true;
     }
 
