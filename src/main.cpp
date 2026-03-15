@@ -7,6 +7,7 @@
 #include <QSize>
 #include <QDebug>
 #include <clocale>
+#include <cstdio>
 #include <exception>
 
 #include "config/version.h"
@@ -24,6 +25,55 @@
 
 #ifdef Q_OS_WIN
 namespace {
+bool hasUsableStandardHandle(DWORD handleId)
+{
+    SetLastError(NO_ERROR);
+    const HANDLE handle = GetStdHandle(handleId);
+    if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+
+    const DWORD fileType = GetFileType(handle);
+    return fileType != FILE_TYPE_UNKNOWN || GetLastError() == NO_ERROR;
+}
+
+bool redirectStandardStream(FILE *target, const char *device, const char *mode)
+{
+#ifdef _MSC_VER
+    FILE *stream = nullptr;
+    return freopen_s(&stream, device, mode, target) == 0;
+#else
+    return freopen(device, mode, target) != nullptr;
+#endif
+}
+
+bool attachToParentConsoleIfAvailable()
+{
+    const bool hasInheritedStdHandles =
+        hasUsableStandardHandle(STD_INPUT_HANDLE) ||
+        hasUsableStandardHandle(STD_OUTPUT_HANDLE) ||
+        hasUsableStandardHandle(STD_ERROR_HANDLE);
+    const bool hasInheritedOutputHandles =
+        hasUsableStandardHandle(STD_OUTPUT_HANDLE) ||
+        hasUsableStandardHandle(STD_ERROR_HANDLE);
+
+    if (AttachConsole(ATTACH_PARENT_PROCESS) == 0) {
+        if (GetLastError() != ERROR_ACCESS_DENIED) {
+            return hasInheritedOutputHandles;
+        }
+    }
+
+    if (hasInheritedOutputHandles) {
+        return true;
+    }
+
+    const bool stdinAttached = redirectStandardStream(stdin, "CONIN$", "r");
+    const bool stdoutAttached = redirectStandardStream(stdout, "CONOUT$", "w");
+    const bool stderrAttached = redirectStandardStream(stderr, "CONOUT$", "w");
+
+    return stdinAttached || stdoutAttached || stderrAttached;
+}
+
 LONG WINAPI bloomUnhandledExceptionFilter(EXCEPTION_POINTERS *exceptionInfo)
 {
     if (!exceptionInfo || !exceptionInfo->ExceptionRecord) {
@@ -46,6 +96,9 @@ int main(int argc, char *argv[])
 {
 #ifdef Q_OS_WIN
     SetUnhandledExceptionFilter(bloomUnhandledExceptionFilter);
+    const bool consoleOutputEnabled = attachToParentConsoleIfAvailable();
+#else
+    const bool consoleOutputEnabled = true;
 #endif
     std::set_terminate([]() {
         qCritical() << "std::terminate called";
@@ -134,7 +187,7 @@ int main(int argc, char *argv[])
     fontLoader.load();
     
     // Initialize Application Services
-    ApplicationInitializer appInitializer(&app);
+    ApplicationInitializer appInitializer(&app, consoleOutputEnabled);
     appInitializer.registerServices();
     appInitializer.initializeServices();
     
