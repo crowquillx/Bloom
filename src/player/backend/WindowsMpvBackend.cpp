@@ -652,6 +652,7 @@ void WindowsMpvBackend::processMpvEvents()
         case MPV_EVENT_END_FILE: {
             mpv_event_end_file *endFile = static_cast<mpv_event_end_file *>(event->data);
             bool shouldEmitPlaybackEnded = true;
+            bool isRedirectTransition = false;
 
             if (endFile != nullptr) {
                 if (endFile->reason == MPV_END_FILE_REASON_ERROR && endFile->error < 0) {
@@ -662,6 +663,7 @@ void WindowsMpvBackend::processMpvEvents()
                 }
 
                 if (endFile->reason == MPV_END_FILE_REASON_REDIRECT) {
+                    isRedirectTransition = true;
                     shouldEmitPlaybackEnded = false;
                 }
             }
@@ -669,9 +671,13 @@ void WindowsMpvBackend::processMpvEvents()
             const bool hasRemainingPlaylistItems = m_playlistCount > 0
                 && m_playlistPosition >= 0
                 && (m_playlistPosition + 1) < m_playlistCount;
+            const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
 
-            if (shouldEmitPlaybackEnded && !hasRemainingPlaylistItems) {
+            if (reachedTerminalPlaybackState) {
                 setDirectRunning(false);
+            }
+
+            if (shouldEmitPlaybackEnded && reachedTerminalPlaybackState) {
                 emit playbackEnded();
             }
             break;

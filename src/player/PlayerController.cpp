@@ -1498,11 +1498,9 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
                       firstSegment.value(QStringLiteral("isHDR")).toBool());
 
     clearPlaybackSegments();
-    m_playbackSegments.clear();
     for (const QVariant &segment : segments) {
         m_playbackSegments.append(segment.toMap());
     }
-    m_aggregatePlaybackDuration = 0.0;
     for (const QVariant &segmentVariant : segments) {
         const QVariantMap segment = segmentVariant.toMap();
         m_aggregatePlaybackDuration += static_cast<double>(segment.value(QStringLiteral("runTimeTicks")).toLongLong()) / 10000000.0;
