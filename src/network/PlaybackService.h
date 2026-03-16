@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QJsonArray>
 #include <QObject>
 #include <QNetworkReply>
 #include <functional>

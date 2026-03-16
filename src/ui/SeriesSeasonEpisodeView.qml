@@ -82,7 +82,10 @@ FocusScope {
     property bool selectedEpisodeIsFavorite: episodesList.currentItem ? episodesList.currentItem.isFavorite : false
     
     property bool overviewExpanded: false
-    onSelectedEpisodeIdChanged: overviewExpanded = false
+    onSelectedEpisodeIdChanged: {
+        overviewExpanded = false
+        clearEpisodePlaybackState()
+    }
 
     // Guard initial episode focusing/selection so async reloads do not override user input.
     property bool initialEpisodeSelectionPending: true
@@ -96,6 +99,22 @@ FocusScope {
         appliedPendingTrackOverride = false
         userMadeAudioSelection = false
         userMadeSubtitleSelection = false
+    }
+
+    function clearEpisodePlaybackState() {
+        playbackInfoPreloadTimer.stop()
+        playbackInfo = null
+        playbackInfoOwnerId = ""
+        playbackInfoLoading = false
+        playbackInfoLoadingItemId = ""
+        pendingPlaybackInfo = null
+        pendingPlaybackInfoOwnerId = ""
+        pendingPlaybackRequestEpisodeId = ""
+        hasPendingPlayback = false
+        pendingPlaybackFromBeginning = false
+        pendingPlaybackRestoreFocusTarget = null
+        waitingForContextInfo = false
+        lastLoadedPlaybackInfo = null
     }
     
     // Playback info storage - keeps the last loaded playback info
@@ -134,8 +153,13 @@ FocusScope {
     
     // Playback info for track selection
     property var playbackInfo: null
+    property string playbackInfoOwnerId: ""
+    property string playbackInfoLoadingItemId: ""
     property var currentMediaSource: {
-        var info = playbackInfo || pendingPlaybackInfo
+        var info = playbackInfoOwnerId === selectedEpisodeId ? playbackInfo : null
+        if (!info && pendingPlaybackInfoOwnerId === selectedEpisodeId) {
+            info = pendingPlaybackInfo
+        }
         return info && info.mediaSources && info.mediaSources.length > 0 ? info.mediaSources[0] : null
     }
     property int selectedAudioIndex: -1
@@ -370,8 +394,11 @@ FocusScope {
         interval: 300
         repeat: false
         onTriggered: {
-            if (selectedEpisodeId && !playbackInfoLoading) {
+            if (selectedEpisodeId
+                    && playbackInfoOwnerId !== selectedEpisodeId
+                    && playbackInfoLoadingItemId !== selectedEpisodeId) {
                 playbackInfoLoading = true
+                playbackInfoLoadingItemId = selectedEpisodeId
                 console.log("[SeriesSeasonEpisodeView] Preloading playback info for episode:", selectedEpisodeId)
                 PlaybackService.getPlaybackInfo(selectedEpisodeId)
             }
@@ -380,9 +407,10 @@ FocusScope {
     
     // Playback info request
     function requestPlaybackInfo() {
-        if (!selectedEpisodeId || playbackInfoLoading) return
+        if (!selectedEpisodeId || playbackInfoLoadingItemId === selectedEpisodeId) return
         
         playbackInfoLoading = true
+        playbackInfoLoadingItemId = selectedEpisodeId
         console.log("[SeriesSeasonEpisodeView] Requesting playback info for episode:", selectedEpisodeId)
         PlaybackService.getPlaybackInfo(selectedEpisodeId)
     }
@@ -404,7 +432,10 @@ FocusScope {
         console.log("[SeriesSeasonEpisodeView] Opening track selector for episode:", selectedEpisodeId, selectedEpisodeName)
         
         // If we already have playback info for this episode, open immediately
-        if (playbackInfo && playbackInfo.mediaSources && playbackInfo.mediaSources.length > 0) {
+        if (playbackInfoOwnerId === selectedEpisodeId
+                && playbackInfo
+                && playbackInfo.mediaSources
+                && playbackInfo.mediaSources.length > 0) {
             console.log("[SeriesSeasonEpisodeView] Opening track selector with cached playback info")
             contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
             return
@@ -413,6 +444,7 @@ FocusScope {
         // Otherwise, request playback info and open when ready
         waitingForContextInfo = true
         playbackInfoLoading = true
+        playbackInfoLoadingItemId = selectedEpisodeId
         PlaybackService.getPlaybackInfo(selectedEpisodeId)
         // The response will come through the Connections handler below
     }
@@ -424,14 +456,17 @@ FocusScope {
         function onPlaybackInfoLoaded(itemId, info) {
             if (itemId === selectedEpisodeId) {
                 playbackInfo = info
+                playbackInfoOwnerId = itemId
+                playbackInfoLoadingItemId = ""
                 lastLoadedPlaybackInfo = info  // Persist for track selector access
                 pendingPlaybackInfo = info  // Store for deferred playback
+                pendingPlaybackInfoOwnerId = itemId
                 
                 // Apply track preferences
                 applyTrackPreferences()
                 
                 // If there's a pending playback request, execute it now
-                if (hasPendingPlayback) {
+                if (hasPendingPlayback && pendingPlaybackRequestEpisodeId === itemId) {
                     hasPendingPlayback = false
                     var fromBeginning = pendingPlaybackFromBeginning
                     playbackInfoLoading = false
@@ -515,6 +550,8 @@ FocusScope {
     property bool pendingPlaybackFromBeginning: false
     property bool hasPendingPlayback: false
     property var pendingPlaybackInfo: null  // Store playback info for deferred playback
+    property string pendingPlaybackInfoOwnerId: ""
+    property string pendingPlaybackRequestEpisodeId: ""
     property Item pendingPlaybackRestoreFocusTarget: null
     
     // Playback actions
@@ -528,20 +565,23 @@ FocusScope {
                     "playbackInfoLoading:", playbackInfoLoading)
         
         // If playback info isn't loaded, request it and defer playback
-        if (!playbackInfo && !playbackInfoLoading) {
+        if (playbackInfoOwnerId !== selectedEpisodeId && playbackInfoLoadingItemId !== selectedEpisodeId) {
             console.log("[SeriesSeasonEpisodeView] Playback info not loaded, requesting it...")
             hasPendingPlayback = true
             pendingPlaybackFromBeginning = fromBeginning
+            pendingPlaybackRequestEpisodeId = selectedEpisodeId
             pendingPlaybackRestoreFocusTarget = restoreFocusTarget || null
             playbackInfoLoading = true
+            playbackInfoLoadingItemId = selectedEpisodeId
             PlaybackService.getPlaybackInfo(selectedEpisodeId)
             return
         }
         
         // If currently loading, just update pending state
-        if (playbackInfoLoading) {
+        if (playbackInfoLoadingItemId === selectedEpisodeId) {
             hasPendingPlayback = true
             pendingPlaybackFromBeginning = fromBeginning
+            pendingPlaybackRequestEpisodeId = selectedEpisodeId
             pendingPlaybackRestoreFocusTarget = restoreFocusTarget || null
             return
         }
@@ -558,7 +598,10 @@ FocusScope {
         var isHDR = isVideoHDR()
         
         // Use pendingPlaybackInfo if playbackInfo is not set
-        var info = playbackInfo || pendingPlaybackInfo
+        var info = playbackInfoOwnerId === selectedEpisodeId ? playbackInfo : null
+        if (!info && pendingPlaybackInfoOwnerId === selectedEpisodeId) {
+            info = pendingPlaybackInfo
+        }
         var mediaSource = currentMediaSource  // Use the same source as applyTrackPreferences
         
         console.log("[SeriesSeasonEpisodeView] performPlayback - Episode:", selectedEpisodeName,
@@ -592,6 +635,8 @@ FocusScope {
         })
 
         pendingPlaybackInfo = null
+        pendingPlaybackInfoOwnerId = ""
+        pendingPlaybackRequestEpisodeId = ""
         pendingPlaybackRestoreFocusTarget = null
     }
     

@@ -899,14 +899,15 @@ void PlayerController::onPositionChanged(double seconds)
     double previousPosition = m_currentPosition;
     m_segmentRelativePosition = seconds;
     const double offsetSeconds = static_cast<double>(m_activePlaybackSegmentOffsetTicks) / 10000000.0;
-    m_currentPosition = offsetSeconds + seconds;
+    const double aggregatePosition = offsetSeconds + seconds;
+    m_currentPosition = aggregatePosition;
     if (m_reportProgressOnNextPositionUpdate
         && (m_playbackState == Playing || m_playbackState == Paused)) {
         reportPlaybackProgressNow();
         m_reportProgressOnNextPositionUpdate = false;
     }
     updateSkipSegmentState();
-    if (!qFuzzyCompare(previousPosition + 1.0, seconds + 1.0)) {
+    if (!qFuzzyCompare(previousPosition + 1.0, aggregatePosition + 1.0)) {
         emit timelineChanged();
     }
 
@@ -930,7 +931,7 @@ void PlayerController::onPositionChanged(double seconds)
     // Update buffering progress during Buffering state
     if (m_playbackState == Buffering) {
         // If position is advancing significantly, buffering is complete
-        if (seconds > previousPosition + 0.5) {
+        if (aggregatePosition > previousPosition + 0.5) {
             processEvent(Event::BufferComplete);
         } else {
             // Update progress based on time waiting (crude estimate)
@@ -942,7 +943,7 @@ void PlayerController::onPositionChanged(double seconds)
 
     maybeTriggerNextEpisodePrefetch();
     
-    m_lastPosition = seconds;
+    m_lastPosition = aggregatePosition;
     m_lastPositionUpdateTime.restart();
 }
 
@@ -1278,6 +1279,7 @@ void PlayerController::onPlaybackServiceErrorOccurred(const QString &endpoint, c
     }
 
     if (endpoint.contains(QStringLiteral("/AdditionalParts"), Qt::CaseInsensitive)) {
+        QStringList requestsToMaybeFinalize;
         for (auto it = m_pendingPlaybackRequests.begin(); it != m_pendingPlaybackRequests.end(); ++it) {
             const QString itemId = it->itemId;
             if (!endpoint.contains(itemId, Qt::CaseInsensitive)) {
@@ -1285,7 +1287,11 @@ void PlayerController::onPlaybackServiceErrorOccurred(const QString &endpoint, c
             }
             it->additionalPartsLoaded = true;
             it->additionalParts = QJsonArray();
-            maybeFinalizePendingPlaybackRequest(it.key());
+            requestsToMaybeFinalize.append(it.key());
+        }
+
+        for (const QString &requestId : std::as_const(requestsToMaybeFinalize)) {
+            maybeFinalizePendingPlaybackRequest(requestId);
         }
     }
 
@@ -1517,6 +1523,10 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
         if (!url.isEmpty()) {
             m_pendingPlaylistAppendUrls.append(url);
         }
+    }
+    if (!m_pendingPlaylistAppendUrls.isEmpty() && m_playerBackend->isRunning()) {
+        m_playerBackend->appendUrlsToPlaylist(m_pendingPlaylistAppendUrls);
+        m_pendingPlaylistAppendUrls.clear();
     }
 
     m_pendingPlaybackRequests.remove(requestId);

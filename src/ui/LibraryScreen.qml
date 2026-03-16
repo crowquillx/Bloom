@@ -1769,11 +1769,13 @@ FocusScope {
     function dispatchPlaybackRequest(request, libraryId) {
         var resolvedLibraryId = libraryId || ""
         var normalizedRequest = Object.assign({}, request || {})
-        normalizedRequest.libraryId = resolvedLibraryId
-        if (!normalizedRequest.seriesId) {
+        if (resolvedLibraryId !== "" || !normalizedRequest.hasOwnProperty("libraryId")) {
+            normalizedRequest.libraryId = resolvedLibraryId
+        }
+        if (!normalizedRequest.hasOwnProperty("seriesId")) {
             normalizedRequest.seriesId = root.currentSeriesId || ""
         }
-        if (normalizedRequest.seriesId && !normalizedRequest.seasonId) {
+        if (normalizedRequest.seriesId && !normalizedRequest.hasOwnProperty("seasonId")) {
             normalizedRequest.seasonId = root.currentSeasonId || ""
         }
 
@@ -1814,6 +1816,7 @@ FocusScope {
         if (!playbackLibraryId && directNavigationMode && request.seriesId) {
             pendingPlaybackRequest = request
             console.log("[Library] Deferring playback until library ID resolves for series:", request.seriesId)
+            currentSeriesId = request.seriesId
             LibraryService.getSeriesDetails(request.seriesId)
             return
         }

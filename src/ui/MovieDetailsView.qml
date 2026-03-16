@@ -91,6 +91,8 @@ FocusScope {
         var framerate = getVideoFramerate()
         var hdr = isVideoHDR()
         var overlaySubtitle = productionYear > 0 ? String(productionYear) : ""
+        var preferredAudioIndex = playbackInfo ? selectedAudioIndex : -2
+        var preferredSubtitleIndex = playbackInfo ? selectedSubtitleIndex : -2
 
         return {
             itemId: movieId,
@@ -100,8 +102,8 @@ FocusScope {
             overlayTitle: movieName || qsTr("Now Playing"),
             overlaySubtitle: overlaySubtitle,
             overlayBackdropUrl: backdropUrl,
-            preferredAudioIndex: selectedAudioIndex,
-            preferredSubtitleIndex: selectedSubtitleIndex,
+            preferredAudioIndex: preferredAudioIndex,
+            preferredSubtitleIndex: preferredSubtitleIndex,
             isMovie: true,
             allowVersionPrompt: true,
             framerateHint: framerate,
