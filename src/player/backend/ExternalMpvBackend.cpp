@@ -20,6 +20,8 @@ ExternalMpvBackend::ExternalMpvBackend(QObject *parent)
             this, &ExternalMpvBackend::volumeChanged);
     connect(m_processManager, &PlayerProcessManager::muteChanged,
             this, &ExternalMpvBackend::muteChanged);
+    connect(m_processManager, &PlayerProcessManager::playlistPositionChanged,
+            this, &ExternalMpvBackend::playlistPositionChanged);
     connect(m_processManager, &PlayerProcessManager::playbackEnded,
             this, &ExternalMpvBackend::playbackEnded);
     connect(m_processManager, &PlayerProcessManager::audioTrackChanged,
@@ -38,6 +40,11 @@ QString ExternalMpvBackend::backendName() const
 void ExternalMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl)
 {
     m_processManager->startMpv(mpvBin, args, mediaUrl);
+}
+
+void ExternalMpvBackend::appendUrlsToPlaylist(const QStringList &mediaUrls)
+{
+    m_processManager->appendUrlsToPlaylist(mediaUrls);
 }
 
 void ExternalMpvBackend::stopMpv()

@@ -24,6 +24,7 @@ public:
     QString backendName() const override;
 
     void startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl) override;
+    void appendUrlsToPlaylist(const QStringList &mediaUrls) override;
     void stopMpv() override;
     bool isRunning() const override;
 
@@ -79,4 +80,6 @@ private:
     void *m_mpvHandle = nullptr;
     std::atomic_bool m_eventDispatchQueued{false};
     QList<QByteArray> m_commandScratch;
+    int m_playlistPosition = -1;
+    int m_playlistCount = 0;
 };

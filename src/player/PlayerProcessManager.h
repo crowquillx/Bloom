@@ -1,10 +1,12 @@
 #pragma once
 
 #include <QObject>
-#include <QProcess>
-#include <QLocalSocket>
-#include <QString>
 #include <QJsonObject>
+#include <QLocalSocket>
+#include <QProcess>
+#include <QString>
+#include <QStringList>
+#include <QVariantList>
 
 class PlayerProcessManager : public QObject
 {
@@ -14,6 +16,7 @@ public:
     ~PlayerProcessManager();
 
     void startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl);
+    void appendUrlsToPlaylist(const QStringList &mediaUrls);
     void stopMpv();
     bool isRunning() const;
 
@@ -30,6 +33,7 @@ signals:
     void playbackEnded();
     void volumeChanged(int volume);
     void muteChanged(bool muted);
+    void playlistPositionChanged(int index);
     
     // Track change notifications use raw mpv track IDs (1-based per track type, -1 for none/off).
     void audioTrackChanged(int trackIndex);
@@ -54,4 +58,6 @@ private:
     QString m_ipcPath;
     bool m_isConnected = false;
     QList<QVariantList> m_pendingCommands;
+    int m_playlistPosition = -1;
+    int m_playlistCount = 0;
 };

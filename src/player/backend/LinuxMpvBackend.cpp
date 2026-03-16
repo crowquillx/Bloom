@@ -154,6 +154,8 @@ void LinuxMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, c
     m_renderFailureQueued = false;
     m_switchedToSoftwareFallback = false;
     m_renderMode = m_forceSoftwareRender ? RenderMode::Software : RenderMode::OpenGL;
+    m_playlistPosition = -1;
+    m_playlistCount = 0;
     m_swRenderImage = QImage();
     m_swFrameDispatchQueued.store(false, std::memory_order_release);
     {
@@ -184,6 +186,25 @@ void LinuxMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, c
 
     m_running = true;
     emit stateChanged(true);
+}
+
+void LinuxMpvBackend::appendUrlsToPlaylist(const QStringList &mediaUrls)
+{
+#if !defined(BLOOM_HAS_LIBMPV)
+    Q_UNUSED(mediaUrls);
+#else
+    if (!m_mpvHandle) {
+        qCWarning(lcLinuxLibmpvBackend) << "appendUrlsToPlaylist called without active mpv handle";
+        return;
+    }
+
+    for (const QString &mediaUrl : mediaUrls) {
+        if (mediaUrl.isEmpty()) {
+            continue;
+        }
+        sendVariantCommand(QVariantList{"loadfile", mediaUrl, "append-play"});
+    }
+#endif
 }
 
 void LinuxMpvBackend::stopMpv()
@@ -498,6 +519,8 @@ void LinuxMpvBackend::teardownMpv()
 
     m_mpvHandle = nullptr;
     m_eventDispatchQueued.store(false, std::memory_order_release);
+    m_playlistPosition = -1;
+    m_playlistCount = 0;
 
     if (m_running) {
         m_running = false;
@@ -535,7 +558,11 @@ void LinuxMpvBackend::processMpvEvents()
             } else {
                 qCInfo(lcLinuxLibmpvBackend) << "MPV_EVENT_END_FILE (no data)";
             }
-            emit playbackEnded();
+            if (m_playlistCount <= 0
+                || m_playlistPosition < 0
+                || (m_playlistPosition + 1) >= m_playlistCount) {
+                emit playbackEnded();
+            }
             break;
         case MPV_EVENT_CLIENT_MESSAGE: {
             mpv_event_client_message *message = static_cast<mpv_event_client_message *>(event->data);
@@ -650,6 +677,8 @@ void LinuxMpvBackend::observeMpvProperties(void *handlePtr)
     mpv_observe_property(handle, 0, "sid", MPV_FORMAT_NODE);
     mpv_observe_property(handle, 0, "volume", MPV_FORMAT_DOUBLE);
     mpv_observe_property(handle, 0, "mute", MPV_FORMAT_FLAG);
+    mpv_observe_property(handle, 0, "playlist-pos", MPV_FORMAT_INT64);
+    mpv_observe_property(handle, 0, "playlist-count", MPV_FORMAT_INT64);
 #endif
 }
 
@@ -765,6 +794,17 @@ void LinuxMpvBackend::handlePropertyChange(const QString &name, const QVariant &
 
     if (name == QStringLiteral("mute")) {
         emit muteChanged(value.toBool());
+        return;
+    }
+
+    if (name == QStringLiteral("playlist-pos")) {
+        m_playlistPosition = value.isValid() ? value.toInt() : -1;
+        emit playlistPositionChanged(m_playlistPosition);
+        return;
+    }
+
+    if (name == QStringLiteral("playlist-count")) {
+        m_playlistCount = value.isValid() ? value.toInt() : 0;
     }
 }
 
