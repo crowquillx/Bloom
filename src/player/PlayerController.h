@@ -5,6 +5,8 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QMap>
+#include <QSet>
+#include <QStringList>
 #include <QVariantMap>
 #include <QVariantList>
 #include <QtGlobal>
@@ -192,6 +194,9 @@ public:
 
     Q_INVOKABLE void playTestVideo();
     Q_INVOKABLE void playUrl(const QString &url, const QString &itemId = "", qint64 startPositionTicks = 0, const QString &seriesId = "", const QString &seasonId = "", const QString &libraryId = "", double framerate = 0.0, bool isHDR = false);
+    Q_INVOKABLE void requestPlayback(const QVariantMap &request);
+    Q_INVOKABLE void confirmPlaybackVersion(const QString &requestId, const QString &mediaSourceId);
+    Q_INVOKABLE void cancelPendingPlaybackRequest(const QString &requestId);
     
     /// Play the next episode from the Up Next screen
     /// @param episodeData JSON object with episode details (Id, Name, SeriesName, etc.)
@@ -325,6 +330,8 @@ signals:
     /// @param lastSubtitleIndex The subtitle override to carry forward (`-2` unset, `-1` off, `>=0` explicit stream)
     void navigateToNextEpisode(const QJsonObject &episodeData, const QString &seriesId,
                                 int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
+    void playbackVersionSelectionRequested(const QString &requestId, const QVariantMap &dialogModel,
+                                           QObject *restoreFocusTarget);
 
 private slots:
     void onProcessStateChanged(bool running);
@@ -334,8 +341,10 @@ private slots:
     void onPauseChanged(bool paused);
     void onPausedForCacheChanged(bool pausedForCache);
     void onPlaybackEnded();
+    void onPlaylistPositionChanged(int index);
     void onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
     void onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
+    void onAdditionalPartsLoaded(const QString &itemId, const QJsonArray &parts);
     void onPlaybackServiceErrorOccurred(const QString &endpoint, const QString &error);
     void onPlaybackServiceNetworkError(const NetworkError &error);
     void onAutoplayPlaybackInfoTimeout();
@@ -535,6 +544,58 @@ private:
     void fallbackToPendingAutoplayPlayback();
     [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex() const;
     void stopAutoplayPlaybackInfoWait();
+    void maybeFinalizePendingPlaybackRequest(const QString &requestId);
+    void launchResolvedPlaybackRequest(const QString &requestId);
+    QVariantMap buildPlaybackVersionDialogModel(const QString &requestId) const;
+    QString buildVersionSubtitle(const QVariantMap &mediaSource) const;
+    QVariantMap selectMediaSourceForRequest(const QVariantList &mediaSources,
+                                            const QString &forcedMediaSourceId,
+                                            bool useAffinityFallback) const;
+    QVariantMap resolveSegmentPlaybackContext(const QString &scopeId, bool isMovie,
+                                              const PlaybackInfoResponse &playbackInfo,
+                                              const QVariantList &mediaSources,
+                                              const QVariantMap &preferredMediaSource,
+                                              int preferredAudioIndex,
+                                              int preferredSubtitleIndex,
+                                              bool useAffinityFallback) const;
+    QVariantList buildMultipartSegments(const QVariantMap &request,
+                                        const QVariantMap &primarySource,
+                                        const PlaybackInfoResponse &primaryPlaybackInfo) const;
+    QVariantMap activePlaybackSegment() const;
+    QString activePlaybackSegmentItemId() const;
+    void applyPlaybackSegment(int index, bool reportSegmentStart);
+    void clearPlaybackSegments();
+    qint64 currentReportingPositionTicks() const;
+    qint64 currentAggregatePositionTicks() const;
+    void reportPlaybackStartForSegment(const QVariantMap &segment);
+    void reportPlaybackStopForSegment(const QVariantMap &segment, qint64 positionTicks);
+    void updateVersionAffinityFromMediaSource(const QVariantMap &mediaSource);
+    [[nodiscard]] QString mediaSourceParentPath(const QVariantMap &mediaSource) const;
+    [[nodiscard]] QString mediaSourceSignature(const QVariantMap &mediaSource) const;
+    struct PendingPlaybackRequest
+    {
+        QString requestId;
+        QString itemId;
+        QString seriesId;
+        QString seasonId;
+        QString libraryId;
+        QString overlayTitle;
+        QString overlaySubtitle;
+        QString overlayBackdropUrl;
+        qint64 startPositionTicks = 0;
+        int preferredAudioIndex = -2;
+        int preferredSubtitleIndex = -2;
+        bool isMovie = false;
+        bool allowVersionPrompt = true;
+        bool useAffinityFallback = false;
+        QObject *restoreFocusTarget = nullptr;
+        bool additionalPartsLoaded = false;
+        bool versionSelectionRequested = false;
+        QString chosenMediaSourceId;
+        QJsonArray additionalParts;
+        QSet<QString> awaitedPlaybackInfoIds;
+        QHash<QString, PlaybackInfoResponse> playbackInfos;
+    };
 
     IPlayerBackend *m_playerBackend;
     std::unique_ptr<IPlayerBackend> m_ownedBackend;
@@ -625,6 +686,16 @@ private:
     bool m_pendingSubtitleTrackPersistenceFromBackend = false;
     bool m_waitingForAutoplayPlaybackInfo = false;
     QJsonObject m_pendingAutoplayEpisodeData;
+    QHash<QString, PendingPlaybackRequest> m_pendingPlaybackRequests;
+    QList<QVariantMap> m_playbackSegments;
+    int m_activePlaybackSegmentIndex = -1;
+    qint64 m_activePlaybackSegmentOffsetTicks = 0;
+    double m_segmentRelativePosition = 0.0;
+    double m_aggregatePlaybackDuration = 0.0;
+    QStringList m_pendingPlaylistAppendUrls;
+    QString m_lastVersionName;
+    QString m_lastVersionParentPath;
+    QString m_lastVersionSignature;
     
     // Content framerate for display refresh rate matching
     double m_contentFramerate = 0.0;
