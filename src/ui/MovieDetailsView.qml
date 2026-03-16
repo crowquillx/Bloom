@@ -4,8 +4,6 @@ import QtQuick.Layouts
 import QtQuick.Effects
 
 import BloomUI
-import "TrackUtils.js" as TrackUtils
-
 FocusScope {
     id: root
     
@@ -59,12 +57,7 @@ FocusScope {
     }
 
     // Signals
-    signal playRequested(string itemId, var startPositionTicks, double framerate, bool isHDR)
-    signal playRequestedWithTracks(string itemId, var startPositionTicks, string mediaSourceId, 
-                                    string playSessionId, var mediaSource,
-                                    int audioIndex, int subtitleIndex,
-                                    var availableAudioTracks, var availableSubtitleTracks,
-                                    double framerate, bool isHDR)
+    signal playRequested(var request)
     signal backRequested()
     
     // Helper function to get framerate from media source
@@ -93,57 +86,34 @@ FocusScope {
         return false
     }
     
-    function buildTrackOptions(streamType) {
-        var tracks = []
-        if (!currentMediaSource || !currentMediaSource.mediaStreams) return tracks
-
-        for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
-            var stream = currentMediaSource.mediaStreams[i]
-            if (stream.type !== streamType) continue
-            tracks.push({
-                index: stream.index,
-                displayTitle: TrackUtils.formatTrackName(stream),
-                language: stream.language,
-                codec: stream.codec,
-                channels: stream.channels,
-                channelLayout: stream.channelLayout,
-                isDefault: stream.isDefault,
-                isForced: stream.isForced,
-                isHearingImpaired: stream.isHearingImpaired
-            })
-        }
-        return tracks
-    }
-    
-    // Function to start playback with current track selections
-    function startPlaybackWithTracks() {
+    // Function to build a playback request with the current page metadata and track hints.
+    function buildPlaybackRequest() {
         var framerate = getVideoFramerate()
         var hdr = isVideoHDR()
         var overlaySubtitle = productionYear > 0 ? String(productionYear) : ""
-        PlayerController.setOverlayMetadata(movieName || qsTr("Now Playing"), overlaySubtitle, backdropUrl)
-        console.log("[MovieDetailsView] Starting playback with framerate:", framerate, "isHDR:", hdr)
-        
-        if (playbackInfo && currentMediaSource) {
-            var availableAudioTracks = buildTrackOptions("Audio")
-            var availableSubtitleTracks = buildTrackOptions("Subtitle")
-            
-            root.playRequestedWithTracks(
-                movieId,
-                playbackPositionTicks,
-                currentMediaSource.id,
-                playbackInfo.playSessionId,
-                currentMediaSource,
-                selectedAudioIndex,
-                selectedSubtitleIndex,
-                availableAudioTracks,
-                availableSubtitleTracks,
-                framerate,
-                hdr
-            )
-        } else {
-            // Fallback to simple play if no playback info
-            root.playRequested(movieId, playbackPositionTicks, framerate, hdr)
+
+        return {
+            itemId: movieId,
+            startPositionTicks: playbackPositionTicks || 0,
+            seriesId: "",
+            seasonId: "",
+            overlayTitle: movieName || qsTr("Now Playing"),
+            overlaySubtitle: overlaySubtitle,
+            overlayBackdropUrl: backdropUrl,
+            preferredAudioIndex: selectedAudioIndex,
+            preferredSubtitleIndex: selectedSubtitleIndex,
+            isMovie: true,
+            allowVersionPrompt: true,
+            framerateHint: framerate,
+            isHDRHint: hdr,
+            restoreFocusTarget: playButton
         }
+    }
+
+    // Function to start playback with current track selections
+    function startPlaybackWithTracks() {
+        console.log("[MovieDetailsView] Starting playback with request for:", movieId)
+        root.playRequested(buildPlaybackRequest())
     }
     
     // Key handling for back navigation

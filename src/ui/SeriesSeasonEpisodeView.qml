@@ -26,12 +26,7 @@ FocusScope {
     
     // Signals for navigation and actions
     signal backRequested()
-    signal playRequested(string itemId, var startPositionTicks, double framerate, bool isHDR)
-    signal playRequestedWithTracks(string itemId, var startPositionTicks, string mediaSourceId, 
-                                    string playSessionId, var mediaSource,
-                                    int audioIndex, int subtitleIndex,
-                                    var availableAudioTracks, var availableSubtitleTracks,
-                                    double framerate, bool isHDR)
+    signal playRequested(var request)
     signal autoplayOverridesConsumed()
     
     Connections {
@@ -442,7 +437,9 @@ FocusScope {
                     playbackInfoLoading = false
                     console.log("[SeriesSeasonEpisodeView] Executing pending playback, fromBeginning:", fromBeginning, "playbackInfo available:", playbackInfo !== null)
                     // Use callLater to ensure property bindings have updated
-                    Qt.callLater(function() { performPlayback(fromBeginning) })
+                    Qt.callLater(function() {
+                        performPlayback(fromBeginning, pendingPlaybackRestoreFocusTarget)
+                    })
                 } else {
                     // Only clear loading flag if this wasn't a pending playback request
                     playbackInfoLoading = false
@@ -484,25 +481,6 @@ FocusScope {
                     "subtitle:", resolved.subtitleIndex, resolved.subtitleSource)
     }
 
-    function buildTrackOptions(streams) {
-        var tracks = []
-        for (var i = 0; i < streams.length; i++) {
-            var stream = streams[i]
-            tracks.push({
-                index: stream.index,
-                displayTitle: TrackUtils.formatTrackName(stream),
-                language: stream.language,
-                codec: stream.codec,
-                channels: stream.channels,
-                channelLayout: stream.channelLayout,
-                isDefault: stream.isDefault,
-                isForced: stream.isForced,
-                isHearingImpaired: stream.isHearingImpaired
-            })
-        }
-        return tracks
-    }
-    
     function getVideoFramerate() {
         if (!currentMediaSource || !currentMediaSource.mediaStreams) return 0.0
         for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
@@ -537,9 +515,10 @@ FocusScope {
     property bool pendingPlaybackFromBeginning: false
     property bool hasPendingPlayback: false
     property var pendingPlaybackInfo: null  // Store playback info for deferred playback
+    property Item pendingPlaybackRestoreFocusTarget: null
     
     // Playback actions
-    function startPlayback(fromBeginning) {
+    function startPlayback(fromBeginning, restoreFocusTarget) {
         if (!selectedEpisodeId) return
         
         console.log("[SeriesSeasonEpisodeView] startPlayback - Episode:", selectedEpisodeName,
@@ -553,6 +532,7 @@ FocusScope {
             console.log("[SeriesSeasonEpisodeView] Playback info not loaded, requesting it...")
             hasPendingPlayback = true
             pendingPlaybackFromBeginning = fromBeginning
+            pendingPlaybackRestoreFocusTarget = restoreFocusTarget || null
             playbackInfoLoading = true
             PlaybackService.getPlaybackInfo(selectedEpisodeId)
             return
@@ -562,14 +542,15 @@ FocusScope {
         if (playbackInfoLoading) {
             hasPendingPlayback = true
             pendingPlaybackFromBeginning = fromBeginning
+            pendingPlaybackRestoreFocusTarget = restoreFocusTarget || null
             return
         }
         
         // Playback info is ready, proceed with playback
-        performPlayback(fromBeginning)
+        performPlayback(fromBeginning, restoreFocusTarget)
     }
     
-    function performPlayback(fromBeginning) {
+    function performPlayback(fromBeginning, restoreFocusTarget) {
         if (!selectedEpisodeId) return
         
         var startPos = fromBeginning ? 0 : selectedEpisodePlaybackPosition
@@ -593,33 +574,25 @@ FocusScope {
         var overlayTitle = seriesName || qsTr("Now Playing")
         var episodePrefix = qsTr("S%1 E%2").arg(selectedSeasonNumber).arg(selectedEpisodeNumber)
         var overlaySubtitle = selectedEpisodeName ? (episodePrefix + " - " + selectedEpisodeName) : episodePrefix
-        PlayerController.setOverlayMetadata(overlayTitle, overlaySubtitle, SeriesDetailsViewModel.backdropUrl || SeriesDetailsViewModel.posterUrl)
-        
-        if (info && mediaSource) {
-            var mediaSourceId = mediaSource.id
-            var playSessionId = info.playSessionId || ""
-            var availableAudioTracks = buildTrackOptions(getAudioStreams())
-            var availableSubtitleTracks = buildTrackOptions(getSubtitleStreams())
-            
-            console.log("[SeriesSeasonEpisodeView] Playback with tracks - mediaSourceId:", mediaSourceId,
-                        "playSessionId:", playSessionId, "startPos:", startPos,
-                        "audioIndex:", selectedAudioIndex, "subtitleIndex:", selectedSubtitleIndex)
-            
-            root.playRequestedWithTracks(selectedEpisodeId, startPos, mediaSourceId, playSessionId,
-                                         mediaSource,
-                                         selectedAudioIndex, selectedSubtitleIndex,
-                                         availableAudioTracks, availableSubtitleTracks,
-                                         framerate, isHDR)
-            
-            // Clear the pending info after use
-            pendingPlaybackInfo = null
-        } else {
-            console.log("[SeriesSeasonEpisodeView] Playback with basic info - no playbackInfo or mediaSource, startPos:", startPos)
-            root.playRequested(selectedEpisodeId, startPos, framerate, isHDR)
-            
-            // Clear the pending info after use
-            pendingPlaybackInfo = null
-        }
+        root.playRequested({
+            itemId: selectedEpisodeId,
+            startPositionTicks: startPos,
+            seriesId: seriesId,
+            seasonId: SeriesDetailsViewModel.selectedSeasonId,
+            overlayTitle: overlayTitle,
+            overlaySubtitle: overlaySubtitle,
+            overlayBackdropUrl: SeriesDetailsViewModel.backdropUrl || SeriesDetailsViewModel.posterUrl,
+            preferredAudioIndex: selectedAudioIndex,
+            preferredSubtitleIndex: selectedSubtitleIndex,
+            isMovie: false,
+            allowVersionPrompt: true,
+            framerateHint: framerate,
+            isHDRHint: isHDR,
+            restoreFocusTarget: restoreFocusTarget || pendingPlaybackRestoreFocusTarget || playResumeButton
+        })
+
+        pendingPlaybackInfo = null
+        pendingPlaybackRestoreFocusTarget = null
     }
     
     function toggleWatchedStatus() {
@@ -1148,7 +1121,7 @@ FocusScope {
                     }
                     userHasInteracted = true
                     episodesList.currentIndex = index
-                    startPlayback(false)
+                    startPlayback(false, episodesList)
                     event.accepted = true
                 }
                 Keys.onEnterPressed: (event) => {
@@ -1158,7 +1131,7 @@ FocusScope {
                     }
                     userHasInteracted = true
                     episodesList.currentIndex = index
-                    startPlayback(false)
+                    startPlayback(false, episodesList)
                     event.accepted = true
                 }
             }
@@ -1197,7 +1170,7 @@ FocusScope {
                         return
                     }
                     if (enabled) {
-                        startPlayback(false)
+                        startPlayback(false, playResumeButton)
                         event.accepted = true
                     }
                 }
@@ -1207,11 +1180,11 @@ FocusScope {
                         return
                     }
                     if (enabled) {
-                        startPlayback(false)
+                        startPlayback(false, playResumeButton)
                         event.accepted = true
                     }
                 }
-                onClicked: startPlayback(false)
+                onClicked: startPlayback(false, playResumeButton)
                 
                 background: Rectangle {
                     radius: Theme.radiusLarge
@@ -1270,7 +1243,7 @@ FocusScope {
                         return
                     }
                     if (enabled) {
-                        startPlayback(true)
+                        startPlayback(true, playFromBeginningButton)
                         event.accepted = true
                     }
                 }
@@ -1280,11 +1253,11 @@ FocusScope {
                         return
                     }
                     if (enabled) {
-                        startPlayback(true)
+                        startPlayback(true, playFromBeginningButton)
                         event.accepted = true
                     }
                 }
-                onClicked: startPlayback(true)
+                onClicked: startPlayback(true, playFromBeginningButton)
                 
                 background: Rectangle {
                     radius: Theme.radiusLarge
