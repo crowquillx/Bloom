@@ -135,6 +135,7 @@ qt_add_qml_module(Bloom
         ui/HomeScreen.qml
         ui/SettingsScreen.qml
         ui/SearchScreen.qml
+        ui/MediaSourceSelectionDialog.qml
         ui/SeerrRequestDialog.qml
         ui/SeerrComboBox.qml
         ui/SearchResultCard.qml

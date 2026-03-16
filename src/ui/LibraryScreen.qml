@@ -60,12 +60,6 @@ FocusScope {
     property bool showMovieDetails: false
     property var currentMovieData: null
     
-    // Pending quick-play state (for async playback info loading)
-    property var pendingQuickPlayItem: null
-    property string pendingQuickPlaySeriesId: ""
-    property string pendingQuickPlaySeasonId: ""
-    property var pendingQuickPlayStartPosition: 0
-    property bool pendingQuickPlayLoading: false
     property var pendingPlaybackRequest: null
     property var pendingEpisodeData: null
     
@@ -325,8 +319,22 @@ FocusScope {
             }
             
             onPlayNextEpisode: function(episodeId, startPositionTicks) {
-                // Fetch playback info first to get framerate
-                root.requestQuickPlay(episodeId, startPositionTicks, root.currentSeriesId, "")
+                root.requestPlaybackWithResolvedLibrary({
+                    itemId: episodeId,
+                    startPositionTicks: startPositionTicks || 0,
+                    seriesId: root.currentSeriesId,
+                    seasonId: "",
+                    overlayTitle: root.currentSeriesData && root.currentSeriesData.Name
+                                  ? root.currentSeriesData.Name
+                                  : qsTr("Now Playing"),
+                    overlaySubtitle: qsTr("Episode"),
+                    overlayBackdropUrl: root.currentBackdropUrl,
+                    preferredAudioIndex: -2,
+                    preferredSubtitleIndex: -2,
+                    isMovie: false,
+                    allowVersionPrompt: true,
+                    restoreFocusTarget: null
+                })
             }
 
             onNavigateToEpisode: function(episodeData) {
@@ -356,26 +364,11 @@ FocusScope {
                 root.pendingSubtitleTrackIndex = -2
             }
             
-            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, mediaSource, audioIndex, subtitleIndex, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
-                // Use Jellyfin indices for the URL (server needs these for stream selection)
-                var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
-                startPlaybackWithResolvedLibrary({
-                    type: "playWithTracks",
-                    url: streamUrl,
-                    itemId: itemId,
-                    startPositionTicks: startPositionTicks || 0,
-                    seriesId: root.currentSeriesId,
-                    seasonId: SeriesDetailsViewModel.selectedSeasonId,
-                    mediaSourceId: mediaSourceId,
-                    playSessionId: playSessionId,
-                    mediaSource: mediaSource,
-                    audioIndex: audioIndex,
-                    subtitleIndex: subtitleIndex,
-                    availableAudioTracks: availableAudioTracks,
-                    availableSubtitleTracks: availableSubtitleTracks,
-                    framerate: framerate || 0.0,
-                    isHDR: isHDR || false
-                })
+            onPlayRequested: function(request) {
+                requestPlaybackWithResolvedLibrary(Object.assign({}, request || {}, {
+                    seriesId: request && request.seriesId ? request.seriesId : root.currentSeriesId,
+                    seasonId: request && request.seasonId ? request.seasonId : SeriesDetailsViewModel.selectedSeasonId
+                }))
             }
             
             onBackRequested: {
@@ -391,50 +384,11 @@ FocusScope {
         MovieDetailsView {
             movieId: root.currentMovieData ? root.currentMovieData.Id : ""
             
-            onPlayRequested: function(itemId, startPositionTicks, framerate, isHDR) {
-                var streamUrl = LibraryService.getStreamUrl(itemId)
-                var title = root.currentMovieData && root.currentMovieData.Name ? root.currentMovieData.Name : qsTr("Now Playing")
-                var subtitle = root.currentMovieData && root.currentMovieData.ProductionYear
-                               ? String(root.currentMovieData.ProductionYear)
-                               : ""
-                PlayerController.setOverlayMetadata(title, subtitle, root.currentBackdropUrl)
-                startPlaybackWithResolvedLibrary({
-                    type: "play",
-                    url: streamUrl,
-                    itemId: itemId,
-                    startPositionTicks: startPositionTicks || 0,
+            onPlayRequested: function(request) {
+                requestPlaybackWithResolvedLibrary(Object.assign({}, request || {}, {
                     seriesId: "",
-                    seasonId: "",
-                    framerate: framerate || 0.0,
-                    isHDR: isHDR || false
-                })
-            }
-            
-            onPlayRequestedWithTracks: function(itemId, startPositionTicks, mediaSourceId, playSessionId, mediaSource, audioIndex, subtitleIndex, availableAudioTracks, availableSubtitleTracks, framerate, isHDR) {
-                // Use Jellyfin indices for the URL (server needs these for stream selection)
-                var streamUrl = LibraryService.getStreamUrlWithTracks(itemId, mediaSourceId, audioIndex, subtitleIndex)
-                var title = root.currentMovieData && root.currentMovieData.Name ? root.currentMovieData.Name : qsTr("Now Playing")
-                var subtitle = root.currentMovieData && root.currentMovieData.ProductionYear
-                               ? String(root.currentMovieData.ProductionYear)
-                               : ""
-                PlayerController.setOverlayMetadata(title, subtitle, root.currentBackdropUrl)
-                startPlaybackWithResolvedLibrary({
-                    type: "playWithTracks",
-                    url: streamUrl,
-                    itemId: itemId,
-                    startPositionTicks: startPositionTicks || 0,
-                    seriesId: "",
-                    seasonId: "",
-                    mediaSourceId: mediaSourceId,
-                    playSessionId: playSessionId,
-                    mediaSource: mediaSource,
-                    audioIndex: audioIndex,
-                    subtitleIndex: subtitleIndex,
-                    availableAudioTracks: availableAudioTracks,
-                    availableSubtitleTracks: availableSubtitleTracks,
-                    framerate: framerate || 0.0,
-                    isHDR: isHDR || false
-                })
+                    seasonId: ""
+                }))
             }
             
             onBackRequested: {
@@ -1814,25 +1768,18 @@ FocusScope {
 
     function dispatchPlaybackRequest(request, libraryId) {
         var resolvedLibraryId = libraryId || ""
-        if (request.type === "playWithTracks") {
-            var requestMediaSource = request.mediaSource || {}
-            PlayerController.playUrlWithTracks(
-                request.url, request.itemId, request.startPositionTicks || 0,
-                request.seriesId || "", request.seasonId || "", resolvedLibraryId,
-                request.mediaSourceId || "", request.playSessionId || "",
-                requestMediaSource,
-                request.audioIndex, request.subtitleIndex,
-                request.availableAudioTracks || [], request.availableSubtitleTracks || [],
-                request.framerate || 0.0, request.isHDR || false
-            )
-            return
+        var normalizedRequest = Object.assign({}, request || {})
+        if (resolvedLibraryId !== "" || !normalizedRequest.hasOwnProperty("libraryId")) {
+            normalizedRequest.libraryId = resolvedLibraryId
+        }
+        if (!normalizedRequest.hasOwnProperty("seriesId")) {
+            normalizedRequest.seriesId = root.currentSeriesId || ""
+        }
+        if (normalizedRequest.seriesId && !normalizedRequest.hasOwnProperty("seasonId")) {
+            normalizedRequest.seasonId = root.currentSeasonId || ""
         }
 
-        PlayerController.playUrl(
-            request.url, request.itemId, request.startPositionTicks || 0,
-            request.seriesId || "", request.seasonId || "", resolvedLibraryId,
-            request.framerate || 0.0, request.isHDR || false
-        )
+        PlayerController.requestPlayback(normalizedRequest)
     }
 
     function flushPendingPlaybackRequestIfReady() {
@@ -1861,7 +1808,7 @@ FocusScope {
         dispatchPlaybackRequest(request, playbackLibraryId)
     }
 
-    function startPlaybackWithResolvedLibrary(request) {
+    function requestPlaybackWithResolvedLibrary(request) {
         var playbackLibraryId = resolveLibraryIdForPlayback()
 
         // Direct navigation can start with no library context (e.g., Home -> Next Up).
@@ -1869,108 +1816,12 @@ FocusScope {
         if (!playbackLibraryId && directNavigationMode && request.seriesId) {
             pendingPlaybackRequest = request
             console.log("[Library] Deferring playback until library ID resolves for series:", request.seriesId)
+            currentSeriesId = request.seriesId
             LibraryService.getSeriesDetails(request.seriesId)
             return
         }
 
         dispatchPlaybackRequest(request, playbackLibraryId)
-    }
-    
-    // Helper function to extract framerate from playback info media source
-    function getFramerateFromPlaybackInfo(playbackInfo) {
-        if (!playbackInfo || !playbackInfo.mediaSources || playbackInfo.mediaSources.length === 0) {
-            return 0.0
-        }
-        var mediaSource = playbackInfo.mediaSources[0]
-        if (!mediaSource.mediaStreams) {
-            return 0.0
-        }
-        for (var i = 0; i < mediaSource.mediaStreams.length; i++) {
-            var stream = mediaSource.mediaStreams[i]
-            if (stream.type === "Video") {
-                if (stream.realFrameRate && stream.realFrameRate > 0) {
-                    return stream.realFrameRate
-                }
-                if (stream.averageFrameRate && stream.averageFrameRate > 0) {
-                    return stream.averageFrameRate
-                }
-            }
-        }
-        return 0.0
-    }
-    
-    // Helper function to check if content is HDR from playback info
-    function isHDRFromPlaybackInfo(playbackInfo) {
-        if (!playbackInfo || !playbackInfo.mediaSources || playbackInfo.mediaSources.length === 0) {
-            return false
-        }
-        var mediaSource = playbackInfo.mediaSources[0]
-        if (!mediaSource.mediaStreams) {
-            return false
-        }
-        for (var i = 0; i < mediaSource.mediaStreams.length; i++) {
-            var stream = mediaSource.mediaStreams[i]
-            if (stream.type === "Video" && stream.videoRange) {
-                var range = stream.videoRange.toUpperCase()
-                if (range !== "SDR" && range !== "") {
-                    console.log("[Library] Detected HDR content, videoRange:", stream.videoRange)
-                    return true
-                }
-            }
-        }
-        return false
-    }
-    
-    // Handle quick-play request by fetching playback info first
-    function requestQuickPlay(episodeId, startPositionTicks, seriesId, seasonId) {
-        console.log("[Library] Quick-play requested for episode:", episodeId, "- fetching playback info")
-        
-        root.pendingQuickPlayItem = { episodeId: episodeId }
-        root.pendingQuickPlaySeriesId = seriesId
-        root.pendingQuickPlaySeasonId = seasonId || ""
-        root.pendingQuickPlayStartPosition = startPositionTicks || 0
-        root.pendingQuickPlayLoading = true
-        
-        // Start timeout timer
-        quickPlayInfoTimeout.start()
-        
-        // Request playback info
-        PlaybackService.getPlaybackInfo(episodeId)
-    }
-    
-    // Start playback with the pending quick-play item once we have playback info
-    function startPendingQuickPlayback(playbackInfo) {
-        // Stop timeout timer
-        quickPlayInfoTimeout.stop()
-        
-        if (!root.pendingQuickPlayItem) return
-        
-        var episodeId = root.pendingQuickPlayItem.episodeId
-        var framerate = getFramerateFromPlaybackInfo(playbackInfo)
-        var isHDR = isHDRFromPlaybackInfo(playbackInfo)
-        
-        console.log("[Library] Starting quick-play with framerate:", framerate, "isHDR:", isHDR)
-        
-        var streamUrl = PlaybackService.getStreamUrl(episodeId)
-        var quickPlayTitle = root.currentSeriesData && root.currentSeriesData.Name ? root.currentSeriesData.Name : qsTr("Now Playing")
-        PlayerController.setOverlayMetadata(quickPlayTitle, qsTr("Episode"), root.currentBackdropUrl)
-        startPlaybackWithResolvedLibrary({
-            type: "play",
-            url: streamUrl,
-            itemId: episodeId,
-            startPositionTicks: root.pendingQuickPlayStartPosition,
-            seriesId: root.pendingQuickPlaySeriesId,
-            seasonId: root.pendingQuickPlaySeasonId,
-            framerate: framerate,
-            isHDR: isHDR
-        })
-        
-        // Clear pending state
-        root.pendingQuickPlayItem = null
-        root.pendingQuickPlaySeriesId = ""
-        root.pendingQuickPlaySeasonId = ""
-        root.pendingQuickPlayStartPosition = 0
-        root.pendingQuickPlayLoading = false
     }
 
     function loadItemsForCurrentParent() {
@@ -2107,17 +1958,6 @@ FocusScope {
             }
         }
         
-    }
-
-    Connections {
-        target: PlaybackService
-        // Handle playback info loaded for quick-play scenarios
-        function onPlaybackInfoLoaded(itemId, info) {
-            if (root.pendingQuickPlayItem && root.pendingQuickPlayItem.episodeId === itemId) {
-                console.log("[Library] Playback info loaded for quick-play item:", itemId)
-                root.startPendingQuickPlayback(info)
-            }
-        }
     }
 
     // Connection to SeriesDetailsViewModel for direct navigation backdrop updates
@@ -2318,16 +2158,4 @@ FocusScope {
         }
     }
     
-    // Timeout for quick-play playback info fetch
-    Timer {
-        id: quickPlayInfoTimeout
-        interval: 3000  // 3 seconds timeout
-        repeat: false
-        onTriggered: {
-            if (root.pendingQuickPlayLoading && root.pendingQuickPlayItem) {
-                console.log("[Library] Quick-play info timeout, starting playback without framerate")
-                root.startPendingQuickPlayback(null)
-            }
-        }
-    }
 }

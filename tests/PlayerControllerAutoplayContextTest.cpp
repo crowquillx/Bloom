@@ -35,6 +35,11 @@ public:
         emit stateChanged(true);
     }
 
+    void appendUrlsToPlaylist(const QStringList &mediaUrls) override
+    {
+        appendedUrls.append(mediaUrls);
+    }
+
     void stopMpv() override
     {
         if (!m_running) {
@@ -86,6 +91,7 @@ private:
 public:
     QList<QVariantList> variantCommands;
     QList<QStringList> commands;
+    QStringList appendedUrls;
 
     void emitAudioTrackId(int mpvTrackId)
     {
@@ -95,6 +101,11 @@ public:
     void emitSubtitleTrackId(int mpvTrackId)
     {
         emit subtitleTrackChanged(mpvTrackId);
+    }
+
+    void emitPlaylistPosition(int index)
+    {
+        emit playlistPositionChanged(index);
     }
 };
 
@@ -123,21 +134,71 @@ public:
     QStringList requestedExcludeIds;
 };
 
+static MediaSourceInfo buildMediaSourceInfo(const QString &id,
+                                            const QString &name,
+                                            const QString &path,
+                                            const QList<QVariantMap> &streams,
+                                            int defaultAudio = -1,
+                                            int defaultSubtitle = -1,
+                                            const QString &container = QStringLiteral("mkv"),
+                                            int bitRate = 0,
+                                            qint64 runTimeTicks = 0)
+{
+    MediaSourceInfo info;
+    info.id = id;
+    info.name = name;
+    info.path = path;
+    info.container = container;
+    info.bitRate = bitRate;
+    info.runTimeTicks = runTimeTicks;
+    info.defaultAudioStreamIndex = defaultAudio;
+    info.defaultSubtitleStreamIndex = defaultSubtitle;
+    for (const QVariantMap &stream : streams) {
+        MediaStreamInfo mediaStream;
+        mediaStream.index = stream.value(QStringLiteral("index"), -1).toInt();
+        mediaStream.type = stream.value(QStringLiteral("type")).toString();
+        mediaStream.codec = stream.value(QStringLiteral("codec")).toString();
+        mediaStream.language = stream.value(QStringLiteral("language")).toString();
+        mediaStream.title = stream.value(QStringLiteral("title")).toString();
+        mediaStream.displayTitle = stream.value(QStringLiteral("displayTitle")).toString();
+        mediaStream.isDefault = stream.value(QStringLiteral("isDefault"), false).toBool();
+        mediaStream.isForced = stream.value(QStringLiteral("isForced"), false).toBool();
+        mediaStream.channels = stream.value(QStringLiteral("channels"), 0).toInt();
+        mediaStream.bitRate = stream.value(QStringLiteral("bitRate"), 0).toInt();
+        mediaStream.width = stream.value(QStringLiteral("width"), 0).toInt();
+        mediaStream.height = stream.value(QStringLiteral("height"), 0).toInt();
+        mediaStream.averageFrameRate = stream.value(QStringLiteral("averageFrameRate"), 0.0).toDouble();
+        mediaStream.realFrameRate = stream.value(QStringLiteral("realFrameRate"), 0.0).toDouble();
+        mediaStream.profile = stream.value(QStringLiteral("profile")).toString();
+        mediaStream.videoRange = stream.value(QStringLiteral("videoRange")).toString();
+        info.mediaStreams.append(mediaStream);
+    }
+    return info;
+}
+
 static QVariantMap buildMediaSource(const QList<QVariantMap> &streams,
                                     int defaultAudio = -1,
                                     int defaultSubtitle = -1)
 {
-    QVariantList mediaStreams;
-    for (const QVariantMap &stream : streams) {
-        mediaStreams.append(stream);
-    }
-
-    return QVariantMap{
-        {QStringLiteral("id"), QStringLiteral("media-source-1")},
-        {QStringLiteral("defaultAudioStreamIndex"), defaultAudio},
-        {QStringLiteral("defaultSubtitleStreamIndex"), defaultSubtitle},
-        {QStringLiteral("mediaStreams"), mediaStreams}
+    PlaybackInfoResponse info;
+    info.mediaSources = {
+        buildMediaSourceInfo(QStringLiteral("media-source-1"),
+                             QStringLiteral("Default"),
+                             QStringLiteral("/library/default.mkv"),
+                             streams,
+                             defaultAudio,
+                             defaultSubtitle)
     };
+    return info.getMediaSourcesVariant().first().toMap();
+}
+
+static PlaybackInfoResponse buildPlaybackInfo(const QList<MediaSourceInfo> &mediaSources,
+                                              const QString &playSessionId = QStringLiteral("play-session"))
+{
+    PlaybackInfoResponse info;
+    info.playSessionId = playSessionId;
+    info.mediaSources = mediaSources;
+    return info;
 }
 
 class PlayerControllerAutoplayContextTest : public QObject
@@ -154,6 +215,9 @@ private slots:
     void staleAutoplayPlaybackInfoResponseFallsBackAfterTimeout();
     void playUrlWithTracksKeepsNewSessionMetadataWhenReplacingPlayback();
     void embeddedVideoShrinkToggleEmitsAndPersists();
+    void requestPlaybackPromptsForVersionSelection();
+    void multipartIntermediateEndIsIgnoredUntilFinalSegment();
+    void versionAffinityPrefersMatchingParentPath();
     void startupTrackSelectionUsesCanonicalMapWhenUrlNotPinned();
     void startupTrackSelectionRespectsPinnedUrlUnlessUserOverride();
     void runtimeTrackSelectionUsesCanonicalMapAndSubtitleNone();
@@ -584,6 +648,228 @@ void PlayerControllerAutoplayContextTest::embeddedVideoShrinkToggleEmitsAndPersi
     controller.setEmbeddedVideoShrinkEnabled(false);
     QVERIFY(!controller.embeddedVideoShrinkEnabled());
     QCOMPARE(shrinkSpy.count(), 2);
+}
+
+void PlayerControllerAutoplayContextTest::requestPlaybackPromptsForVersionSelection()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    QSignalSpy selectionSpy(&controller, &PlayerController::playbackVersionSelectionRequested);
+
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("seriesId"), QStringLiteral("series-1")},
+        {QStringLiteral("seasonId"), QStringLiteral("season-1")},
+        {QStringLiteral("allowVersionPrompt"), true}
+    });
+
+    const MediaSourceInfo versionA = buildMediaSourceInfo(
+        QStringLiteral("source-1080p"),
+        QStringLiteral("1080p"),
+        QStringLiteral("/library/show/1080p/episode-1.mkv"),
+        {QVariantMap{
+            {QStringLiteral("type"), QStringLiteral("Video")},
+            {QStringLiteral("width"), 1920},
+            {QStringLiteral("height"), 1080},
+            {QStringLiteral("codec"), QStringLiteral("h264")},
+            {QStringLiteral("profile"), QStringLiteral("High")},
+            {QStringLiteral("videoRange"), QStringLiteral("SDR")}
+        }},
+        -1,
+        -1,
+        QStringLiteral("mkv"),
+        8000000,
+        1200000000);
+    const MediaSourceInfo versionB = buildMediaSourceInfo(
+        QStringLiteral("source-4k"),
+        QStringLiteral("4K"),
+        QStringLiteral("/library/show/4k/episode-1.mkv"),
+        {QVariantMap{
+            {QStringLiteral("type"), QStringLiteral("Video")},
+            {QStringLiteral("width"), 3840},
+            {QStringLiteral("height"), 2160},
+            {QStringLiteral("codec"), QStringLiteral("hevc")},
+            {QStringLiteral("profile"), QStringLiteral("Main 10")},
+            {QStringLiteral("videoRange"), QStringLiteral("HDR10")}
+        }},
+        -1,
+        -1,
+        QStringLiteral("mkv"),
+        22000000,
+        1200000000);
+
+    emit playbackService.playbackInfoLoaded(QStringLiteral("episode-1"),
+                                            buildPlaybackInfo({versionA, versionB}));
+    emit playbackService.additionalPartsLoaded(QStringLiteral("episode-1"), QJsonArray{});
+
+    QCOMPARE(selectionSpy.count(), 1);
+    const QList<QVariant> arguments = selectionSpy.takeFirst();
+    const QVariantMap dialogModel = arguments.at(1).toMap();
+    const QVariantList options = dialogModel.value(QStringLiteral("options")).toList();
+    QCOMPARE(dialogModel.value(QStringLiteral("title")).toString(), QStringLiteral("Select Version"));
+    QCOMPARE(options.size(), 2);
+    QCOMPARE(options.at(0).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("source-1080p"));
+    QCOMPARE(options.at(1).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("source-4k"));
+}
+
+void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntilFinalSegment()
+{
+    ConfigManager config;
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    const PlaybackInfoResponse segmentInfo = buildPlaybackInfo({
+        buildMediaSourceInfo(QStringLiteral("part-1-source"),
+                             QStringLiteral("1080p"),
+                             QStringLiteral("/library/show/1080p/part-1.mkv"),
+                             {
+                                 QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 2}},
+                                 QVariantMap{{QStringLiteral("type"), QStringLiteral("Video")}, {QStringLiteral("index"), 0}}
+                             },
+                             2,
+                             -1,
+                             QStringLiteral("mkv"),
+                             8000000,
+                             600000000),
+        buildMediaSourceInfo(QStringLiteral("part-2-source"),
+                             QStringLiteral("1080p"),
+                             QStringLiteral("/library/show/1080p/part-2.mkv"),
+                             {
+                                 QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 2}},
+                                 QVariantMap{{QStringLiteral("type"), QStringLiteral("Video")}, {QStringLiteral("index"), 0}}
+                             },
+                             2,
+                             -1,
+                             QStringLiteral("mkv"),
+                             8000000,
+                             600000000)
+    });
+
+    const QVariantMap part1Source = segmentInfo.getMediaSourcesVariant().at(0).toMap();
+    const QVariantMap part2Source = segmentInfo.getMediaSourcesVariant().at(1).toMap();
+
+    controller.m_currentItemId = QStringLiteral("logical-item");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_playbackSegments = {
+        QVariantMap{
+            {QStringLiteral("itemId"), QStringLiteral("part-1")},
+            {QStringLiteral("mediaSourceId"), QStringLiteral("part-1-source")},
+            {QStringLiteral("playSessionId"), QStringLiteral("session-1")},
+            {QStringLiteral("mediaSource"), part1Source},
+            {QStringLiteral("audioIndex"), 2},
+            {QStringLiteral("subtitleIndex"), -1},
+            {QStringLiteral("availableAudioTracks"), controller.buildAvailableTrackOptions(part1Source, QStringLiteral("Audio"))},
+            {QStringLiteral("availableSubtitleTracks"), controller.buildAvailableTrackOptions(part1Source, QStringLiteral("Subtitle"))},
+            {QStringLiteral("runTimeTicks"), 600000000LL},
+            {QStringLiteral("url"), QStringLiteral("https://example.invalid/part-1")}
+        },
+        QVariantMap{
+            {QStringLiteral("itemId"), QStringLiteral("part-2")},
+            {QStringLiteral("mediaSourceId"), QStringLiteral("part-2-source")},
+            {QStringLiteral("playSessionId"), QStringLiteral("session-2")},
+            {QStringLiteral("mediaSource"), part2Source},
+            {QStringLiteral("audioIndex"), 2},
+            {QStringLiteral("subtitleIndex"), -1},
+            {QStringLiteral("availableAudioTracks"), controller.buildAvailableTrackOptions(part2Source, QStringLiteral("Audio"))},
+            {QStringLiteral("availableSubtitleTracks"), controller.buildAvailableTrackOptions(part2Source, QStringLiteral("Subtitle"))},
+            {QStringLiteral("runTimeTicks"), 600000000LL},
+            {QStringLiteral("url"), QStringLiteral("https://example.invalid/part-2")}
+        }
+    };
+    controller.m_activePlaybackSegmentIndex = 0;
+    controller.m_mediaSourceId = QStringLiteral("part-1-source");
+    controller.m_playSessionId = QStringLiteral("session-1");
+    controller.m_segmentRelativePosition = 59.5;
+
+    controller.onPlaybackEnded();
+    QCOMPARE(libraryService.requestedSeriesIds.size(), 0);
+
+    controller.onPlaylistPositionChanged(1);
+    QCOMPARE(controller.m_activePlaybackSegmentIndex, 1);
+    QCOMPARE(controller.m_activePlaybackSegmentOffsetTicks, 600000000LL);
+    QCOMPARE(controller.m_mediaSourceId, QStringLiteral("part-2-source"));
+    QCOMPARE(controller.m_playSessionId, QStringLiteral("session-2"));
+    QCOMPARE(controller.activePlaybackSegmentItemId(), QStringLiteral("part-2"));
+}
+
+void PlayerControllerAutoplayContextTest::versionAffinityPrefersMatchingParentPath()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    const PlaybackInfoResponse currentInfo = buildPlaybackInfo({
+        buildMediaSourceInfo(QStringLiteral("current"),
+                             QStringLiteral("4K"),
+                             QStringLiteral("/library/show/4k/current.mkv"),
+                             {QVariantMap{{QStringLiteral("type"), QStringLiteral("Video")},
+                                          {QStringLiteral("width"), 3840},
+                                          {QStringLiteral("height"), 2160},
+                                          {QStringLiteral("codec"), QStringLiteral("hevc")}}})
+    });
+    controller.updateVersionAffinityFromMediaSource(currentInfo.getMediaSourcesVariant().first().toMap());
+
+    const PlaybackInfoResponse nextInfo = buildPlaybackInfo({
+        buildMediaSourceInfo(QStringLiteral("episode-1080p"),
+                             QStringLiteral("1080p"),
+                             QStringLiteral("/library/show/1080p/next.mkv"),
+                             {QVariantMap{{QStringLiteral("type"), QStringLiteral("Video")},
+                                          {QStringLiteral("width"), 1920},
+                                          {QStringLiteral("height"), 1080},
+                                          {QStringLiteral("codec"), QStringLiteral("h264")}}}),
+        buildMediaSourceInfo(QStringLiteral("episode-4k"),
+                             QStringLiteral("4K"),
+                             QStringLiteral("/library/show/4k/next.mkv"),
+                             {QVariantMap{{QStringLiteral("type"), QStringLiteral("Video")},
+                                          {QStringLiteral("width"), 3840},
+                                          {QStringLiteral("height"), 2160},
+                                          {QStringLiteral("codec"), QStringLiteral("hevc")}}})
+    });
+
+    const QVariantMap chosen = controller.selectMediaSourceForRequest(nextInfo.getMediaSourcesVariant(),
+                                                                      QString(),
+                                                                      true);
+    QCOMPARE(chosen.value(QStringLiteral("id")).toString(), QStringLiteral("episode-4k"));
 }
 
 void PlayerControllerAutoplayContextTest::startupTrackSelectionUsesCanonicalMapWhenUrlNotPinned()

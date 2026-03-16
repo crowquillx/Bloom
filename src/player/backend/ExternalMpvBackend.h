@@ -14,6 +14,7 @@ public:
     QString backendName() const override;
 
     void startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl) override;
+    void appendUrlsToPlaylist(const QStringList &mediaUrls) override;
     void stopMpv() override;
     bool isRunning() const override;
 

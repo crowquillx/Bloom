@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QJsonArray>
 #include <QObject>
 #include <QNetworkReply>
 #include <functional>
@@ -28,6 +29,7 @@ public:
     
     // Playback Info - Get media streams and track information
     Q_INVOKABLE void getPlaybackInfo(const QString &itemId);
+    Q_INVOKABLE void getAdditionalParts(const QString &itemId);
     
     // Media Segments - Get intro/outro markers for skip functionality
     Q_INVOKABLE void getMediaSegments(const QString &itemId);
@@ -81,6 +83,7 @@ public:
 signals:
     // Playback info with media streams for track selection
     void playbackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
+    void additionalPartsLoaded(const QString &itemId, const QJsonArray &parts);
     
     // Media segments loaded (intro/outro markers)
     void mediaSegmentsLoaded(const QString &itemId, const QList<MediaSegmentInfo> &segments);

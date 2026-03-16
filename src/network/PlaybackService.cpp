@@ -151,6 +151,36 @@ void PlaybackService::getPlaybackInfo(const QString &itemId)
         });
 }
 
+void PlaybackService::getAdditionalParts(const QString &itemId)
+{
+    if (!m_authService->isAuthenticated()) {
+        NetworkError error;
+        error.endpoint = "getAdditionalParts";
+        error.code = -1;
+        error.userMessage = tr("Not authenticated");
+        emitError(error);
+        return;
+    }
+
+    QString endpoint = QString("/Videos/%1/AdditionalParts?UserId=%2")
+        .arg(itemId, m_authService->getUserId());
+
+    sendRequestWithRetry(endpoint,
+        [this, endpoint]() {
+            QNetworkRequest request = m_authService->createRequest(endpoint);
+            return m_authService->networkManager()->get(request);
+        },
+        [this, itemId](QNetworkReply *reply) {
+            QByteArray data = reply->readAll();
+            QJsonDocument doc = QJsonDocument::fromJson(data);
+            QJsonArray parts;
+            if (doc.isObject()) {
+                parts = doc.object().value(QStringLiteral("Items")).toArray();
+            }
+            emit additionalPartsLoaded(itemId, parts);
+        });
+}
+
 void PlaybackService::getMediaSegments(const QString &itemId)
 {
     if (!m_authService->isAuthenticated()) {

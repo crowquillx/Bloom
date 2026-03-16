@@ -90,6 +90,8 @@ void PlayerProcessManager::startMpv(const QString &mpvBin, const QStringList &ar
 
     // Observe properties for playback reporting
     // Note: --observe-property is not a valid CLI arg, we must send it via IPC once connected.
+    m_playlistPosition = -1;
+    m_playlistCount = 0;
     
     qInfo() << "Starting mpv:" << mpvBin;
     m_process->start(mpvBin, finalArgs);
@@ -99,6 +101,16 @@ void PlayerProcessManager::startMpv(const QString &mpvBin, const QStringList &ar
     QTimer::singleShot(500, this, &PlayerProcessManager::connectIpc);
     
     emit stateChanged(true);
+}
+
+void PlayerProcessManager::appendUrlsToPlaylist(const QStringList &mediaUrls)
+{
+    for (const QString &mediaUrl : mediaUrls) {
+        if (mediaUrl.isEmpty()) {
+            continue;
+        }
+        sendVariantCommand(QVariantList{"loadfile", mediaUrl, "append-play"});
+    }
 }
 
 void PlayerProcessManager::stopMpv()
@@ -114,6 +126,8 @@ void PlayerProcessManager::stopMpv()
     m_ipcSocket->abort();
     m_isConnected = false;
     m_pendingCommands.clear();
+    m_playlistPosition = -1;
+    m_playlistCount = 0;
 }
 
 bool PlayerProcessManager::isRunning() const
@@ -205,6 +219,9 @@ void PlayerProcessManager::onProcessFinished(int exitCode, QProcess::ExitStatus 
     }
     m_ipcSocket->abort();
     m_isConnected = false;
+    m_pendingCommands.clear();
+    m_playlistPosition = -1;
+    m_playlistCount = 0;
     emit stateChanged(false);
 }
 
@@ -238,6 +255,8 @@ void PlayerProcessManager::onSocketConnected()
     sendVariantCommand(QVariantList{"observe_property", 6, "paused-for-cache"});  // Buffering state
     sendVariantCommand(QVariantList{"observe_property", 7, "volume"});
     sendVariantCommand(QVariantList{"observe_property", 8, "mute"});
+    sendVariantCommand(QVariantList{"observe_property", 9, "playlist-pos"});
+    sendVariantCommand(QVariantList{"observe_property", 10, "playlist-count"});
     
     // Flush any commands that were queued while connecting
     flushPendingCommands();
@@ -293,10 +312,23 @@ void PlayerProcessManager::onSocketReadyRead()
                 if (!obj["data"].isNull()) {
                     emit muteChanged(obj["data"].toBool());
                 }
+            } else if (name == "playlist-pos") {
+                if (!obj["data"].isNull()) {
+                    m_playlistPosition = obj["data"].toInt(-1);
+                    emit playlistPositionChanged(m_playlistPosition);
+                }
+            } else if (name == "playlist-count") {
+                if (!obj["data"].isNull()) {
+                    m_playlistCount = obj["data"].toInt(0);
+                }
             }
         } else if (obj["event"].toString() == "end-file") {
-            // Emit playbackEnded so PlayerController can report stop
-            emit playbackEnded();
+            const bool hasRemainingPlaylistItems = m_playlistCount > 0
+                && m_playlistPosition >= 0
+                && (m_playlistPosition + 1) < m_playlistCount;
+            if (!hasRemainingPlaylistItems) {
+                emit playbackEnded();
+            }
         } else if (obj["event"].toString() == "client-message") {
             // Handle client-message events from mpv scripts/extensions (if any user scripts are loaded)
             // The "args" array contains the message name followed by any arguments

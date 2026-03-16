@@ -144,6 +144,8 @@ void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args,
 {
     Q_UNUSED(mpvBin);
     const QStringList finalArgs = sanitizeStartupArgs(args);
+    m_playlistPosition = -1;
+    m_playlistCount = 0;
 
 #if defined(Q_OS_WIN)
     if (m_videoTarget != nullptr) {
@@ -165,6 +167,27 @@ void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args,
     qCWarning(lcWindowsLibmpvBackend) << message;
     emit errorOccurred(message);
     setDirectRunning(false);
+}
+
+void WindowsMpvBackend::appendUrlsToPlaylist(const QStringList &mediaUrls)
+{
+#if !defined(Q_OS_WIN) || !defined(BLOOM_HAS_LIBMPV)
+    Q_UNUSED(mediaUrls);
+#else
+    if (!m_directControlActive || m_mpvHandle == nullptr) {
+        qCWarning(lcWindowsLibmpvBackend) << "appendUrlsToPlaylist called while direct control is inactive";
+        return;
+    }
+
+    for (const QString &mediaUrl : mediaUrls) {
+        if (mediaUrl.isEmpty()) {
+            continue;
+        }
+        if (!sendVariantCommandDirect(QVariantList{"loadfile", mediaUrl, "append-play"})) {
+            qCWarning(lcWindowsLibmpvBackend) << "Failed to append media URL to playlist" << mediaUrl;
+        }
+    }
+#endif
 }
 
 void WindowsMpvBackend::stopMpv()
@@ -582,6 +605,8 @@ void WindowsMpvBackend::teardownMpv()
 
     m_mpvHandle = nullptr;
     m_eventDispatchQueued.store(false, std::memory_order_release);
+    m_playlistPosition = -1;
+    m_playlistCount = 0;
     setDirectRunning(false);
     m_directControlActive = false;
 }
@@ -627,6 +652,7 @@ void WindowsMpvBackend::processMpvEvents()
         case MPV_EVENT_END_FILE: {
             mpv_event_end_file *endFile = static_cast<mpv_event_end_file *>(event->data);
             bool shouldEmitPlaybackEnded = true;
+            bool isRedirectTransition = false;
 
             if (endFile != nullptr) {
                 if (endFile->reason == MPV_END_FILE_REASON_ERROR && endFile->error < 0) {
@@ -637,12 +663,21 @@ void WindowsMpvBackend::processMpvEvents()
                 }
 
                 if (endFile->reason == MPV_END_FILE_REASON_REDIRECT) {
+                    isRedirectTransition = true;
                     shouldEmitPlaybackEnded = false;
                 }
             }
 
-            setDirectRunning(false);
-            if (shouldEmitPlaybackEnded) {
+            const bool hasRemainingPlaylistItems = m_playlistCount > 0
+                && m_playlistPosition >= 0
+                && (m_playlistPosition + 1) < m_playlistCount;
+            const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
+
+            if (reachedTerminalPlaybackState) {
+                setDirectRunning(false);
+            }
+
+            if (shouldEmitPlaybackEnded && reachedTerminalPlaybackState) {
                 emit playbackEnded();
             }
             break;
@@ -772,6 +807,8 @@ void WindowsMpvBackend::observeMpvProperties(void *handlePtr)
     mpv_observe_property(handle, 0, "sid", MPV_FORMAT_NODE);
     mpv_observe_property(handle, 0, "volume", MPV_FORMAT_DOUBLE);
     mpv_observe_property(handle, 0, "mute", MPV_FORMAT_FLAG);
+    mpv_observe_property(handle, 0, "playlist-pos", MPV_FORMAT_INT64);
+    mpv_observe_property(handle, 0, "playlist-count", MPV_FORMAT_INT64);
 #else
     Q_UNUSED(handlePtr);
 #endif
@@ -865,6 +902,17 @@ void WindowsMpvBackend::handlePropertyChange(const QString &name, const QVariant
 
     if (name == QStringLiteral("mute")) {
         emit muteChanged(value.toBool());
+        return;
+    }
+
+    if (name == QStringLiteral("playlist-pos")) {
+        m_playlistPosition = value.isValid() ? value.toInt() : -1;
+        emit playlistPositionChanged(m_playlistPosition);
+        return;
+    }
+
+    if (name == QStringLiteral("playlist-count")) {
+        m_playlistCount = value.isValid() ? value.toInt() : 0;
     }
 }
 

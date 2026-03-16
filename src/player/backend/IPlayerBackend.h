@@ -16,6 +16,7 @@ public:
     virtual QString backendName() const = 0;
 
     virtual void startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl) = 0;
+    virtual void appendUrlsToPlaylist(const QStringList &mediaUrls) = 0;
     virtual void stopMpv() = 0;
     virtual bool isRunning() const = 0;
 
@@ -39,5 +40,6 @@ signals:
     void muteChanged(bool muted);
     void audioTrackChanged(int trackIndex);
     void subtitleTrackChanged(int trackIndex);
+    void playlistPositionChanged(int index);
     void scriptMessage(const QString &messageName, const QStringList &args);
 };
