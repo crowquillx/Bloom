@@ -142,7 +142,11 @@ MediaSourceInfo MediaSourceInfo::fromJson(const QJsonObject &json)
     MediaSourceInfo info;
     info.id = json["Id"].toString();
     info.name = json["Name"].toString();
+    info.path = json["Path"].toString();
     info.container = json["Container"].toString();
+    info.size = static_cast<qint64>(json["Size"].toDouble());
+    info.bitRate = json["Bitrate"].toInt();
+    info.videoType = json["VideoType"].toString();
     info.runTimeTicks = static_cast<qint64>(json["RunTimeTicks"].toDouble());
     info.defaultAudioStreamIndex = json["DefaultAudioStreamIndex"].toInt(-1);
     info.defaultSubtitleStreamIndex = json["DefaultSubtitleStreamIndex"].toInt(-1);
@@ -255,7 +259,11 @@ QVariantList PlaybackInfoResponse::getMediaSourcesVariant() const
         QVariantMap sourceMap;
         sourceMap["id"] = source.id;
         sourceMap["name"] = source.name;
+        sourceMap["path"] = source.path;
         sourceMap["container"] = source.container;
+        sourceMap["size"] = source.size;
+        sourceMap["bitRate"] = source.bitRate;
+        sourceMap["videoType"] = source.videoType;
         sourceMap["runTimeTicks"] = source.runTimeTicks;
         sourceMap["defaultAudioStreamIndex"] = source.defaultAudioStreamIndex;
         sourceMap["defaultSubtitleStreamIndex"] = source.defaultSubtitleStreamIndex;

@@ -68,7 +68,11 @@ struct MediaSourceInfo
     Q_GADGET
     Q_PROPERTY(QString id MEMBER id)
     Q_PROPERTY(QString name MEMBER name)
+    Q_PROPERTY(QString path MEMBER path)
     Q_PROPERTY(QString container MEMBER container)
+    Q_PROPERTY(qint64 size MEMBER size)
+    Q_PROPERTY(int bitRate MEMBER bitRate)
+    Q_PROPERTY(QString videoType MEMBER videoType)
     Q_PROPERTY(qint64 runTimeTicks MEMBER runTimeTicks)
     Q_PROPERTY(int defaultAudioStreamIndex MEMBER defaultAudioStreamIndex)
     Q_PROPERTY(int defaultSubtitleStreamIndex MEMBER defaultSubtitleStreamIndex)
@@ -77,7 +81,11 @@ struct MediaSourceInfo
 public:
     QString id;
     QString name;
+    QString path;
     QString container;
+    qint64 size = 0;
+    int bitRate = 0;
+    QString videoType;
     qint64 runTimeTicks = 0;
     int defaultAudioStreamIndex = -1;
     int defaultSubtitleStreamIndex = -1;
