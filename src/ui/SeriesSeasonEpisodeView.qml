@@ -468,12 +468,16 @@ FocusScope {
                 // If there's a pending playback request, execute it now
                 if (hasPendingPlayback && pendingPlaybackRequestEpisodeId === itemId) {
                     hasPendingPlayback = false
+                    var requestEpisodeId = pendingPlaybackRequestEpisodeId
                     var fromBeginning = pendingPlaybackFromBeginning
+                    var restoreFocusTarget = pendingPlaybackRestoreFocusTarget
                     playbackInfoLoading = false
                     console.log("[SeriesSeasonEpisodeView] Executing pending playback, fromBeginning:", fromBeginning, "playbackInfo available:", playbackInfo !== null)
                     // Use callLater to ensure property bindings have updated
                     Qt.callLater(function() {
-                        performPlayback(fromBeginning, pendingPlaybackRestoreFocusTarget)
+                        if (selectedEpisodeId === requestEpisodeId) {
+                            performPlayback(fromBeginning, restoreFocusTarget)
+                        }
                     })
                 } else {
                     // Only clear loading flag if this wasn't a pending playback request

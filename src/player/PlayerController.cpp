@@ -1505,11 +1505,9 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
 
     clearPlaybackSegments();
     for (const QVariant &segment : segments) {
-        m_playbackSegments.append(segment.toMap());
-    }
-    for (const QVariant &segmentVariant : segments) {
-        const QVariantMap segment = segmentVariant.toMap();
-        m_aggregatePlaybackDuration += static_cast<double>(segment.value(QStringLiteral("runTimeTicks")).toLongLong()) / 10000000.0;
+        const QVariantMap segmentMap = segment.toMap();
+        m_playbackSegments.append(segmentMap);
+        m_aggregatePlaybackDuration += static_cast<double>(segmentMap.value(QStringLiteral("runTimeTicks")).toLongLong()) / 10000000.0;
     }
     if (m_aggregatePlaybackDuration > 0.0) {
         m_duration = m_aggregatePlaybackDuration;

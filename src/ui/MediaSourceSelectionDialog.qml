@@ -231,7 +231,7 @@ FocusScope {
                             activeFocusOnTab: true
                             hoverEnabled: true
 
-                            KeyNavigation.up: index > 0 ? optionRepeater.itemAt(index - 1) : cancelButton
+                            KeyNavigation.up: index > 0 ? optionRepeater.itemAt(index - 1) : null
                             KeyNavigation.down: index + 1 < optionRepeater.count ? optionRepeater.itemAt(index + 1) : cancelButton
 
                             Keys.onReturnPressed: function(event) {
