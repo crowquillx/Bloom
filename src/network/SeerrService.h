@@ -61,7 +61,9 @@ public:
      * Uses the Seerr /movie/{id}/similar or /tv/{id}/similar endpoint.
      * When individual result objects lack a mediaType field the request's
      * @p mediaType is used as a fallback so no results are silently dropped.
-     * Emits similarResultsLoaded() on completion or errorOccurred() on failure.
+     * Emits similarResultsLoaded() on success. On validation, network, or parsing
+     * failure it emits similarResultsFailed() with the requested media type, TMDB
+     * id, and error text, and also emits errorOccurred("similar", ...).
      *
      * @param mediaType  "movie" or "tv" (case-insensitive).
      * @param tmdbId     The TMDB identifier for the reference title.
@@ -113,8 +115,16 @@ signals:
     /** @brief Emitted when a search() call completes with normalised result items. */
     void searchResultsLoaded(const QString &searchTerm, const QJsonArray &results);
 
-    /** @brief Emitted when a getSimilar() call completes with normalised result items. */
+    /** @brief Emitted when a getSimilar() call completes successfully with normalised result items. */
     void similarResultsLoaded(const QString &mediaType, int tmdbId, const QJsonArray &results);
+
+    /**
+     * @brief Emitted when getSimilar() fails before or after the network request.
+     *
+     * @param mediaType The requested media type ("movie" or "tv").
+     * @param tmdbId    The TMDB identifier from the failed request.
+     * @param error     Human-readable failure text for logging or UI feedback.
+     */
     void similarResultsFailed(const QString &mediaType, int tmdbId, const QString &error);
 
     /** @brief Emitted when prepareRequest() completes; @p data contains servers/profiles/rootFolders. */
@@ -123,7 +133,13 @@ signals:
     /** @brief Emitted when createRequest() succeeds; @p requestData is the Seerr response object. */
     void requestCreated(const QString &mediaType, int tmdbId, const QJsonObject &requestData);
 
-    /** @brief Emitted on any network or parsing error; @p endpoint identifies the failing call. */
+    /**
+     * @brief Emitted on any network or parsing error; @p endpoint identifies the failing call.
+     *
+     * For similar-title failures, consumers should generally prefer
+     * similarResultsFailed() when they need request-scoped correlation, and may
+     * treat errorOccurred() as a broader service-level error stream.
+     */
     void errorOccurred(const QString &endpoint, const QString &error);
 
 private:

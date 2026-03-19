@@ -225,24 +225,23 @@ void SeerrService::search(const QString &searchTerm, int page)
 void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
 {
     const QString normalizedMediaType = mediaType.trimmed().toLower();
-    if (tmdbId <= 0 || (normalizedMediaType != "movie" && normalizedMediaType != "tv")) {
-        const QString error = tr("Invalid media target for similar titles");
+    const auto emitSimilarFailure = [this, &normalizedMediaType, tmdbId](const QString &error) {
         emit errorOccurred("similar", error);
         emit similarResultsFailed(normalizedMediaType, tmdbId, error);
+    };
+
+    if (tmdbId <= 0 || (normalizedMediaType != "movie" && normalizedMediaType != "tv")) {
+        emitSimilarFailure(tr("Invalid media target for similar titles"));
         return;
     }
 
     if (!m_authService || !m_authService->networkManager()) {
-        const QString error = tr("Network service unavailable");
-        emit errorOccurred("similar", error);
-        emit similarResultsFailed(normalizedMediaType, tmdbId, error);
+        emitSimilarFailure(tr("Network service unavailable"));
         return;
     }
 
     if (!isConfigured()) {
-        const QString error = tr("Seerr URL or API key is not configured");
-        emit errorOccurred("similar", error);
-        emit similarResultsFailed(normalizedMediaType, tmdbId, error);
+        emitSimilarFailure(tr("Seerr URL or API key is not configured"));
         return;
     }
 
@@ -254,21 +253,17 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
     query.addQueryItem("page", QString::number(qMax(1, page)));
 
     QNetworkReply *reply = m_authService->networkManager()->get(createRequest(endpoint, query));
-    connect(reply, &QNetworkReply::finished, this, [this, reply, normalizedMediaType, tmdbId]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, normalizedMediaType, tmdbId, emitSimilarFailure]() {
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            const QString error = tr("Failed loading similar titles: %1").arg(reply->errorString());
-            emit errorOccurred("similar", error);
-            emit similarResultsFailed(normalizedMediaType, tmdbId, error);
+            emitSimilarFailure(tr("Failed loading similar titles: %1").arg(reply->errorString()));
             return;
         }
 
         const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
         if (!doc.isObject()) {
-            const QString error = tr("Invalid similar titles response");
-            emit errorOccurred("similar", error);
-            emit similarResultsFailed(normalizedMediaType, tmdbId, error);
+            emitSimilarFailure(tr("Invalid similar titles response"));
             return;
         }
 
