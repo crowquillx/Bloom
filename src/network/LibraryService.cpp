@@ -631,6 +631,53 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
         });
 }
 
+void LibraryService::getSimilarItems(const QString &itemId, int limit)
+{
+    if (!m_authService->isAuthenticated()) {
+        NetworkError error;
+        error.endpoint = "getSimilarItems";
+        error.code = -1;
+        error.userMessage = tr("Not authenticated");
+        emitError(error);
+        return;
+    }
+
+    const QStringList fields = {
+        "Type",
+        "ImageTags",
+        "PrimaryImageAspectRatio",
+        "ProductionYear",
+        "PremiereDate",
+        "Overview",
+        "UserData",
+        "ChildCount"
+    };
+
+    QString endpoint = QString("/Items/%1/Similar?UserId=%2&Limit=%3&Fields=%4&EnableImageTypes=Primary")
+                           .arg(itemId, m_authService->getUserId())
+                           .arg(qMax(1, limit))
+                           .arg(fields.join(","));
+
+    sendRequestWithRetry(endpoint,
+        [this, endpoint]() {
+            QNetworkRequest request = m_authService->createRequest(endpoint);
+            return m_authService->networkManager()->get(request);
+        },
+        [this, itemId](QNetworkReply *reply) {
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (!doc.isObject()) {
+                NetworkError error;
+                error.endpoint = "getSimilarItems";
+                error.code = -2;
+                error.userMessage = tr("Invalid similar items response");
+                emitError(error);
+                return;
+            }
+
+            emit similarItemsLoaded(itemId, doc.object().value("Items").toArray());
+        });
+}
+
 /**
  * @brief Resolves the best next episode for a series, optionally skipping a specific episode.
  *

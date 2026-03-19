@@ -553,6 +553,10 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
                 this, &SeriesDetailsViewModel::onNextEpisodeLoaded);
         connect(m_libraryService, &LibraryService::seriesWatchedStatusChanged,
                 this, &SeriesDetailsViewModel::onSeriesWatchedStatusChanged);
+        connect(m_libraryService, &LibraryService::favoriteStatusChanged,
+                this, &SeriesDetailsViewModel::onFavoriteStatusChanged);
+        connect(m_libraryService, &LibraryService::similarItemsLoaded,
+                this, &SeriesDetailsViewModel::onSimilarItemsLoaded);
         connect(m_libraryService, &LibraryService::errorOccurred,
                 this, &SeriesDetailsViewModel::onErrorOccurred);
     } else {
@@ -627,6 +631,9 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
     
     // Load next unplayed episode
     m_libraryService->getNextUnplayedEpisode(seriesId);
+    m_similarItemsLoading = true;
+    emit similarItemsLoadingChanged();
+    m_libraryService->getSimilarItems(seriesId);
 }
 
 void SeriesDetailsViewModel::reload()
@@ -754,6 +761,15 @@ void SeriesDetailsViewModel::markAsUnwatched()
     m_libraryService->markSeriesUnwatched(m_seriesId);
 }
 
+void SeriesDetailsViewModel::toggleFavorite()
+{
+    if (!m_libraryService || m_seriesId.isEmpty()) {
+        return;
+    }
+
+    m_libraryService->toggleFavorite(m_seriesId, !m_isFavorite);
+}
+
 void SeriesDetailsViewModel::clear(bool preserveArtwork)
 {
     m_seriesId.clear();
@@ -766,6 +782,12 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     }
     m_productionYear = 0;
     m_isWatched = false;
+    m_isFavorite = false;
+    m_tmdbId.clear();
+    m_people.clear();
+    m_genres.clear();
+    m_similarItems.clear();
+    m_similarItemsLoading = false;
     m_seasonCount = 0;
     m_seriesData = QJsonObject();
 
@@ -806,6 +828,12 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     emit backdropUrlChanged();
     emit productionYearChanged();
     emit isWatchedChanged();
+    emit isFavoriteChanged();
+    emit tmdbIdChanged();
+    emit peopleChanged();
+    emit genresChanged();
+    emit similarItemsChanged();
+    emit similarItemsLoadingChanged();
     emit seasonCountChanged();
     emit nextEpisodeChanged();
     emit selectedSeasonIndexChanged();
@@ -1293,8 +1321,53 @@ void SeriesDetailsViewModel::onSeriesWatchedStatusChanged(const QString &seriesI
     }
 }
 
+void SeriesDetailsViewModel::onFavoriteStatusChanged(const QString &itemId, bool isFavorite)
+{
+    if (itemId != m_seriesId) {
+        return;
+    }
+
+    if (m_isFavorite == isFavorite) {
+        return;
+    }
+
+    m_isFavorite = isFavorite;
+    emit isFavoriteChanged();
+}
+
+void SeriesDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items)
+{
+    if (itemId != m_seriesId) {
+        return;
+    }
+
+    QVariantList mappedItems;
+    mappedItems.reserve(items.size());
+    for (const auto &value : items) {
+        const QJsonObject item = value.toObject();
+        if (item.isEmpty()) {
+            continue;
+        }
+        mappedItems.append(item.toVariantMap());
+    }
+
+    m_similarItems = mappedItems;
+    m_similarItemsLoading = false;
+    emit similarItemsChanged();
+    emit similarItemsLoadingChanged();
+}
+
 void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
 {
+    if (endpoint == "getSimilarItems") {
+        if (m_similarItemsLoading) {
+            m_similarItemsLoading = false;
+            emit similarItemsLoadingChanged();
+        }
+        qWarning() << "SeriesDetailsViewModel similar items error:" << error;
+        return;
+    }
+
     // Only handle errors for our current requests
     if (endpoint != "getSeriesDetails" && endpoint != "getItems" && 
         endpoint != "getNextUnplayedEpisode" && endpoint != "markSeriesWatched" &&
@@ -1328,6 +1401,8 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
     const QJsonObject userData = data.value("UserData").toObject();
     m_isWatched = userData.value("Played").toBool();
     emit isWatchedChanged();
+    m_isFavorite = userData.value("IsFavorite").toBool();
+    emit isFavoriteChanged();
 
     m_officialRating = data.value("OfficialRating").toString();
     emit officialRatingChanged();
@@ -1374,10 +1449,48 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
     }
     emit backdropUrlChanged();
 
+    QVariantList mappedPeople;
+    const QJsonArray people = data.value("People").toArray();
+    mappedPeople.reserve(people.size());
+    for (const auto &value : people) {
+        const QJsonObject person = value.toObject();
+        const QString name = person.value("Name").toString();
+        if (name.isEmpty()) {
+            continue;
+        }
+
+        QVariantMap mapped = person.toVariantMap();
+        QString subtitle = person.value("Role").toString();
+        if (subtitle.isEmpty()) {
+            subtitle = person.value("Type").toString();
+        }
+        mapped.insert("Subtitle", subtitle);
+        mappedPeople.append(mapped);
+        if (mappedPeople.size() >= 18) {
+            break;
+        }
+    }
+    m_people = mappedPeople;
+    emit peopleChanged();
+
+    QStringList genres;
+    const QJsonArray genresArray = data.value("Genres").toArray();
+    genres.reserve(genresArray.size());
+    for (const auto &value : genresArray) {
+        const QString genre = value.toString();
+        if (!genre.isEmpty()) {
+            genres.append(genre);
+        }
+    }
+    m_genres = genres;
+    emit genresChanged();
+
     // Trigger MDBList fetch
     QJsonObject providerIds = data.value("ProviderIds").toObject();
     QString imdbId = providerIds.value("Imdb").toString();
     QString tmdbId = providerIds.value("Tmdb").toString();
+    m_tmdbId = tmdbId;
+    emit tmdbIdChanged();
     
     if (!imdbId.isEmpty() || !tmdbId.isEmpty()) {
         fetchMdbListRatings(imdbId, tmdbId, "show");

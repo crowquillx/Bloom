@@ -60,6 +60,7 @@ public:
 
     // Series details and episodes
     Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);
+    Q_INVOKABLE virtual void getSimilarItems(const QString &itemId, int limit = 12);
     Q_INVOKABLE virtual void getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId = QString());
     Q_INVOKABLE virtual void markSeriesWatched(const QString &seriesId);
     Q_INVOKABLE virtual void markSeriesUnwatched(const QString &seriesId);
@@ -99,6 +100,7 @@ signals:
     void homeBackdropItemsLoaded(const QJsonArray &items);
     void seriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void seriesDetailsNotModified(const QString &seriesId);
+    void similarItemsLoaded(const QString &itemId, const QJsonArray &items);
     void nextUnplayedEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
     void seriesWatchedStatusChanged(const QString &seriesId);
     void itemPlayedStatusChanged(const QString &itemId, bool isPlayed);
