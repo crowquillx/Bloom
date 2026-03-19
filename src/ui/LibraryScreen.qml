@@ -340,6 +340,10 @@ FocusScope {
             onNavigateToEpisode: function(episodeData) {
                 showEpisodeDetails(episodeData)
             }
+
+            onItemSelected: function(itemData) {
+                handleSelection(itemData)
+            }
             
             onBackRequested: {
                 exitSeriesDetails()
