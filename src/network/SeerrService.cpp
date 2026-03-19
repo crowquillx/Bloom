@@ -229,7 +229,6 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
         const QString error = tr("Invalid media target for similar titles");
         emit errorOccurred("similar", error);
         emit similarResultsFailed(normalizedMediaType, tmdbId, error);
-        emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
         return;
     }
 
@@ -237,7 +236,6 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
         const QString error = tr("Network service unavailable");
         emit errorOccurred("similar", error);
         emit similarResultsFailed(normalizedMediaType, tmdbId, error);
-        emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
         return;
     }
 
@@ -245,7 +243,6 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
         const QString error = tr("Seerr URL or API key is not configured");
         emit errorOccurred("similar", error);
         emit similarResultsFailed(normalizedMediaType, tmdbId, error);
-        emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
         return;
     }
 
@@ -264,7 +261,6 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
             const QString error = tr("Failed loading similar titles: %1").arg(reply->errorString());
             emit errorOccurred("similar", error);
             emit similarResultsFailed(normalizedMediaType, tmdbId, error);
-            emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
             return;
         }
 
@@ -273,7 +269,6 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
             const QString error = tr("Invalid similar titles response");
             emit errorOccurred("similar", error);
             emit similarResultsFailed(normalizedMediaType, tmdbId, error);
-            emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
             return;
         }
 
