@@ -1858,7 +1858,7 @@ FocusScope {
                     }
 
                     Text {
-                        text: qsTr("If Seerr is configured, similar titles can be requested straight from here with the same modal used in Search.")
+                        text: qsTr("Similar titles you can request via Seerr with the same modal used in Search.")
                         Layout.fillWidth: true
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
