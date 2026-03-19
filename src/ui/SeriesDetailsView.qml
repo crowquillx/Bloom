@@ -460,6 +460,10 @@ FocusScope {
         return null
     }
 
+    function nextSectionAfterSeerrRecommendations() {
+        return null
+    }
+
     function formatSeriesYears() {
         const startYear = SeriesDetailsViewModel.productionYear
         const endDate = SeriesDetailsViewModel.endDate
@@ -1688,6 +1692,7 @@ FocusScope {
 
                 function focusCurrentOrFirst() {
                     if (libraryRecommendationsList.count <= 0) {
+                        root.focusTarget(root.nextSectionAfterLibraryRecommendations())
                         return
                     }
                     libraryRecommendationsList.currentIndex = Math.max(0, libraryRecommendationsList.currentIndex)
@@ -1831,6 +1836,7 @@ FocusScope {
 
                 function focusCurrentOrFirst() {
                     if (seerrRecommendationsList.count <= 0) {
+                        root.focusTarget(root.nextSectionAfterSeerrRecommendations())
                         return
                     }
                     seerrRecommendationsList.currentIndex = Math.max(0, seerrRecommendationsList.currentIndex)
