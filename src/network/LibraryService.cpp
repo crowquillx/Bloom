@@ -679,7 +679,6 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
                 error.code = -2;
                 error.userMessage = tr("Invalid similar items response");
                 emit similarItemsFailed(itemId, error.userMessage);
-                emitError(error);
                 return;
             }
 
@@ -749,7 +748,6 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
                 error.code = -2;
                 error.userMessage = tr("Invalid next unplayed episode response");
                 emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
-                emitError(error);
                 return;
             }
             const QJsonArray items = doc.object()["Items"].toArray();
