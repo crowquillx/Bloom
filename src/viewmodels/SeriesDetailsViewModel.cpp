@@ -1139,6 +1139,7 @@ void SeriesDetailsViewModel::onSeasonsLoaded(const QString &parentId, const QJso
     // Check if all loading is complete
     if (!m_loadingSeries && !m_loadingSeasons) {
         setLoading(false);
+        emit seriesLoaded();
     }
 }
 
