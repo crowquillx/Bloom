@@ -2038,7 +2038,7 @@ FocusScope {
             seerrRecommendationsLoading = false
         }
 
-        function onSimilarResultsFailed(mediaType, requestedTmdbId) {
+        function onSimilarResultsFailed(mediaType, requestedTmdbId, error) {
             const requestTmdbId = String(requestedTmdbId)
             if (String(mediaType).toLowerCase() !== "tv"
                     || requestTmdbId !== root.tmdbId
@@ -2046,6 +2046,7 @@ FocusScope {
                 return
             }
 
+            console.warn("[SeriesDetailsView] Seerr similar titles failed:", error)
             seerrPendingTmdbId = ""
             seerrRecommendationsLoading = false
         }
