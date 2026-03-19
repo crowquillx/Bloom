@@ -55,14 +55,16 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
     // Get HTTP status code
     int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     
+    NetworkError netError = ErrorHandler::createError(reply, endpoint);
+
     // Check for 401 Unauthorized - session expired
     if (httpStatus == 401) {
         qCWarning(libraryService) << "Session expired (401) for endpoint:" << endpoint;
+        if (failureHandler) {
+            failureHandler(netError);
+        }
         return;
     }
-    
-    // Create structured error
-    NetworkError netError = ErrorHandler::createError(reply, endpoint);
     
     qCWarning(libraryService) << "Request failed:" << endpoint
                               << "Error:" << reply->error()
