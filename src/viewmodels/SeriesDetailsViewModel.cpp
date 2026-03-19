@@ -1341,12 +1341,20 @@ void SeriesDetailsViewModel::onFavoriteStatusChanged(const QString &itemId, bool
         return;
     }
 
-    if (m_isFavorite == isFavorite) {
-        return;
-    }
+    const bool favoriteChanged = (m_isFavorite != isFavorite);
 
     m_isFavorite = isFavorite;
-    emit isFavoriteChanged();
+
+    if (!m_seriesData.isEmpty()) {
+        QJsonObject userData = m_seriesData.value("UserData").toObject();
+        userData.insert("IsFavorite", isFavorite);
+        m_seriesData.insert("UserData", userData);
+        storeSeriesCache(itemId, m_seriesData);
+    }
+
+    if (favoriteChanged) {
+        emit isFavoriteChanged();
+    }
 }
 
 void SeriesDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items)
