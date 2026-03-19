@@ -551,12 +551,16 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
                 this, &SeriesDetailsViewModel::onItemsNotModified);
         connect(m_libraryService, &LibraryService::nextUnplayedEpisodeLoaded,
                 this, &SeriesDetailsViewModel::onNextEpisodeLoaded);
+        connect(m_libraryService, &LibraryService::nextUnplayedEpisodeFailed,
+                this, &SeriesDetailsViewModel::onNextEpisodeFailed);
         connect(m_libraryService, &LibraryService::seriesWatchedStatusChanged,
                 this, &SeriesDetailsViewModel::onSeriesWatchedStatusChanged);
         connect(m_libraryService, &LibraryService::favoriteStatusChanged,
                 this, &SeriesDetailsViewModel::onFavoriteStatusChanged);
         connect(m_libraryService, &LibraryService::similarItemsLoaded,
                 this, &SeriesDetailsViewModel::onSimilarItemsLoaded);
+        connect(m_libraryService, &LibraryService::similarItemsFailed,
+                this, &SeriesDetailsViewModel::onSimilarItemsFailed);
         connect(m_libraryService, &LibraryService::errorOccurred,
                 this, &SeriesDetailsViewModel::onErrorOccurred);
     } else {
@@ -1304,6 +1308,15 @@ void SeriesDetailsViewModel::onNextEpisodeLoaded(const QString &seriesId, const 
     updateNextEpisode(episodeData);
 }
 
+void SeriesDetailsViewModel::onNextEpisodeFailed(const QString &seriesId, const QString &error)
+{
+    if (seriesId != m_seriesId) {
+        return;
+    }
+
+    qWarning() << "SeriesDetailsViewModel next episode error:" << error;
+}
+
 void SeriesDetailsViewModel::onSeriesWatchedStatusChanged(const QString &seriesId)
 {
     if (seriesId != m_seriesId) {
@@ -1358,20 +1371,25 @@ void SeriesDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const Q
     emit similarItemsLoadingChanged();
 }
 
-void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
+void SeriesDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const QString &error)
 {
-    if (endpoint == "getSimilarItems") {
-        if (m_similarItemsLoading) {
-            m_similarItemsLoading = false;
-            emit similarItemsLoadingChanged();
-        }
-        qWarning() << "SeriesDetailsViewModel similar items error:" << error;
+    if (itemId != m_seriesId) {
         return;
     }
 
+    if (m_similarItemsLoading) {
+        m_similarItemsLoading = false;
+        emit similarItemsLoadingChanged();
+    }
+
+    qWarning() << "SeriesDetailsViewModel similar items error:" << error;
+}
+
+void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
+{
     // Only handle errors for our current requests
-    if (endpoint != "getSeriesDetails" && endpoint != "getItems" && 
-        endpoint != "getNextUnplayedEpisode" && endpoint != "markSeriesWatched" &&
+    if (endpoint != "getSeriesDetails" && endpoint != "getItems" &&
+        endpoint != "markSeriesWatched" &&
         endpoint != "markSeriesUnwatched") {
         return;
     }

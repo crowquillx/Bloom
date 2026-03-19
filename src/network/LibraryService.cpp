@@ -24,6 +24,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
 void LibraryService::sendRequestWithRetry(const QString &endpoint,
                                            RequestFactory requestFactory,
                                            ResponseHandler responseHandler,
+                                           FailureHandler failureHandler,
                                            int attemptNumber)
 {
     qCDebug(libraryService) << "Sending request to:" << endpoint 
@@ -31,8 +32,8 @@ void LibraryService::sendRequestWithRetry(const QString &endpoint,
     
     QNetworkReply *reply = requestFactory();
     
-    connect(reply, &QNetworkReply::finished, this, [this, reply, endpoint, requestFactory, responseHandler, attemptNumber]() {
-        handleReplyWithRetry(reply, endpoint, requestFactory, responseHandler, attemptNumber);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
+        handleReplyWithRetry(reply, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber);
     });
 }
 
@@ -40,6 +41,7 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
                                            const QString &endpoint,
                                            RequestFactory requestFactory,
                                            ResponseHandler responseHandler,
+                                           FailureHandler failureHandler,
                                            int attemptNumber)
 {
     reply->deleteLater();
@@ -77,10 +79,13 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
         int delayMs = ErrorHandler::calculateBackoffDelay(attemptNumber, m_retryPolicy);
         qCInfo(libraryService) << "Retrying request to:" << endpoint << "in" << delayMs << "ms";
         
-        QTimer::singleShot(delayMs, this, [this, endpoint, requestFactory, responseHandler, attemptNumber]() {
-            sendRequestWithRetry(endpoint, requestFactory, responseHandler, attemptNumber + 1);
+        QTimer::singleShot(delayMs, this, [this, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
+            sendRequestWithRetry(endpoint, requestFactory, responseHandler, failureHandler, attemptNumber + 1);
         });
     } else {
+        if (failureHandler) {
+            failureHandler(netError);
+        }
         emitError(netError);
     }
 }
@@ -638,6 +643,7 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
         error.endpoint = "getSimilarItems";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
+        emit similarItemsFailed(itemId, error.userMessage);
         emitError(error);
         return;
     }
@@ -670,11 +676,15 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
                 error.endpoint = "getSimilarItems";
                 error.code = -2;
                 error.userMessage = tr("Invalid similar items response");
+                emit similarItemsFailed(itemId, error.userMessage);
                 emitError(error);
                 return;
             }
 
             emit similarItemsLoaded(itemId, doc.object().value("Items").toArray());
+        },
+        [this, itemId](const NetworkError &error) {
+            emit similarItemsFailed(itemId, error.userMessage);
         });
 }
 
@@ -696,6 +706,7 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
         error.endpoint = "getNextUnplayedEpisode";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
+        emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
         emitError(error);
         return;
     }
@@ -735,6 +746,7 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
                 error.endpoint = "getNextUnplayedEpisode";
                 error.code = -2;
                 error.userMessage = tr("Invalid next unplayed episode response");
+                emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
                 emitError(error);
                 return;
             }
@@ -742,6 +754,9 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
             const QJsonObject selectedEpisode =
                 NextEpisodeResolver::resolveBestNextEpisode(items, excludeItemId);
             emit nextUnplayedEpisodeLoaded(seriesId, selectedEpisode);
+        },
+        [this, seriesId](const NetworkError &error) {
+            emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
         });
 }
 

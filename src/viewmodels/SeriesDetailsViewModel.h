@@ -348,9 +348,11 @@ private slots:
     void onEpisodesLoaded(const QString &parentId, const QJsonArray &items);
     void onItemsNotModified(const QString &parentId);
     void onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
+    void onNextEpisodeFailed(const QString &seriesId, const QString &error);
     void onSeriesWatchedStatusChanged(const QString &seriesId);
     void onFavoriteStatusChanged(const QString &itemId, bool isFavorite);
     void onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items);
+    void onSimilarItemsFailed(const QString &itemId, const QString &error);
     void onErrorOccurred(const QString &endpoint, const QString &error);
 
 private:
