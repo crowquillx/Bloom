@@ -1048,9 +1048,11 @@ void SeriesDetailsViewModel::onSeriesDetailsLoaded(const QString &seriesId, cons
     updateSeriesMetadata(seriesData);
     storeSeriesCache(seriesId, seriesData);
 
-    m_similarItemsLoading = true;
-    emit similarItemsLoadingChanged();
-    m_libraryService->getSimilarItems(seriesId);
+    if (m_similarItems.isEmpty()) {
+        m_similarItemsLoading = true;
+        emit similarItemsLoadingChanged();
+        m_libraryService->getSimilarItems(seriesId);
+    }
     
     // Check if all loading is complete
     if (!m_loadingSeries && !m_loadingSeasons) {
