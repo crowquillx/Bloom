@@ -489,7 +489,7 @@ FocusScope {
         for (let i = 0; i < people.length; ++i) {
             const person = people[i]
             const type = String(person.Type || "").toLowerCase()
-            if (type === "director" || type === "writer" || type === "producer") {
+            if (type === "director" || type === "writer" || type === "producer" || type === "creator") {
                 names.push(person.Name)
             }
             if (names.length === 3) {
