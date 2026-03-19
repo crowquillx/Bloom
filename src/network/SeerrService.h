@@ -115,6 +115,7 @@ signals:
 
     /** @brief Emitted when a getSimilar() call completes with normalised result items. */
     void similarResultsLoaded(const QString &mediaType, int tmdbId, const QJsonArray &results);
+    void similarResultsFailed(const QString &mediaType, int tmdbId, const QString &error);
 
     /** @brief Emitted when prepareRequest() completes; @p data contains servers/profiles/rootFolders. */
     void requestPreparationLoaded(const QString &mediaType, int tmdbId, const QJsonObject &data);

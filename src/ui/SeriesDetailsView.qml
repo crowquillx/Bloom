@@ -13,6 +13,7 @@ FocusScope {
 
     property var seerrRecommendedItems: []
     property bool seerrRecommendationsLoading: false
+    property string seerrPendingTmdbId: ""
 
     readonly property string seriesName: SeriesDetailsViewModel.title
     readonly property string seriesOverview: SeriesDetailsViewModel.overview
@@ -504,15 +505,18 @@ FocusScope {
     }
 
     function requestSeerrRecommendations() {
+        const requestedTmdbId = String(tmdbId || "")
+        seerrPendingTmdbId = ""
         seerrRecommendedItems = []
         seerrRecommendationsLoading = false
 
-        if (!seerrConfigured || tmdbId === "" || Number(tmdbId) <= 0) {
+        if (!seerrConfigured || requestedTmdbId === "" || Number(requestedTmdbId) <= 0) {
             return
         }
 
+        seerrPendingTmdbId = requestedTmdbId
         seerrRecommendationsLoading = true
-        SeerrService.getSimilar("tv", Number(tmdbId), 1)
+        SeerrService.getSimilar("tv", Number(requestedTmdbId), 1)
     }
 
     function restorePendingSeasonFocus() {
@@ -563,6 +567,7 @@ FocusScope {
     onSeriesIdChanged: {
         seerrRecommendedItems = []
         seerrRecommendationsLoading = false
+        seerrPendingTmdbId = ""
 
         if (seriesId !== "") {
             SeriesDetailsViewModel.loadSeriesDetails(seriesId)
@@ -2007,7 +2012,10 @@ FocusScope {
         target: SeerrService
 
         function onSimilarResultsLoaded(mediaType, requestedTmdbId, results) {
-            if (String(mediaType).toLowerCase() !== "tv" || String(requestedTmdbId) !== root.tmdbId) {
+            const requestTmdbId = String(requestedTmdbId)
+            if (String(mediaType).toLowerCase() !== "tv"
+                    || requestTmdbId !== root.tmdbId
+                    || requestTmdbId !== seerrPendingTmdbId) {
                 return
             }
 
@@ -2016,13 +2024,20 @@ FocusScope {
                 mappedResults.push(results[i])
             }
             seerrRecommendedItems = mappedResults
+            seerrPendingTmdbId = ""
             seerrRecommendationsLoading = false
         }
 
-        function onErrorOccurred(endpoint) {
-            if (endpoint === "similar") {
-                seerrRecommendationsLoading = false
+        function onSimilarResultsFailed(mediaType, requestedTmdbId) {
+            const requestTmdbId = String(requestedTmdbId)
+            if (String(mediaType).toLowerCase() !== "tv"
+                    || requestTmdbId !== root.tmdbId
+                    || requestTmdbId !== seerrPendingTmdbId) {
+                return
             }
+
+            seerrPendingTmdbId = ""
+            seerrRecommendationsLoading = false
         }
     }
 

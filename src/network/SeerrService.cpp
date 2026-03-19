@@ -226,12 +226,25 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
 {
     const QString normalizedMediaType = mediaType.trimmed().toLower();
     if (tmdbId <= 0 || (normalizedMediaType != "movie" && normalizedMediaType != "tv")) {
-        emit errorOccurred("similar", tr("Invalid media target for similar titles"));
+        const QString error = tr("Invalid media target for similar titles");
+        emit errorOccurred("similar", error);
+        emit similarResultsFailed(normalizedMediaType, tmdbId, error);
         emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
         return;
     }
 
-    if (!ensureConfigured("similar")) {
+    if (!m_authService || !m_authService->networkManager()) {
+        const QString error = tr("Network service unavailable");
+        emit errorOccurred("similar", error);
+        emit similarResultsFailed(normalizedMediaType, tmdbId, error);
+        emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
+        return;
+    }
+
+    if (!isConfigured()) {
+        const QString error = tr("Seerr URL or API key is not configured");
+        emit errorOccurred("similar", error);
+        emit similarResultsFailed(normalizedMediaType, tmdbId, error);
         emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
         return;
     }
@@ -248,14 +261,18 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            emit errorOccurred("similar", tr("Failed loading similar titles: %1").arg(reply->errorString()));
+            const QString error = tr("Failed loading similar titles: %1").arg(reply->errorString());
+            emit errorOccurred("similar", error);
+            emit similarResultsFailed(normalizedMediaType, tmdbId, error);
             emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
             return;
         }
 
         const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
         if (!doc.isObject()) {
-            emit errorOccurred("similar", tr("Invalid similar titles response"));
+            const QString error = tr("Invalid similar titles response");
+            emit errorOccurred("similar", error);
+            emit similarResultsFailed(normalizedMediaType, tmdbId, error);
             emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
             return;
         }
