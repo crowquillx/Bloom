@@ -14,6 +14,7 @@ FocusScope {
     property var seerrRecommendedItems: []
     property bool seerrRecommendationsLoading: false
     property string seerrPendingTmdbId: ""
+    property string seerrLoadedTmdbId: ""
 
     readonly property string seriesName: SeriesDetailsViewModel.title
     readonly property string seriesOverview: SeriesDetailsViewModel.overview
@@ -506,14 +507,21 @@ FocusScope {
 
     function requestSeerrRecommendations() {
         const requestedTmdbId = String(tmdbId || "")
-        seerrPendingTmdbId = ""
-        seerrRecommendedItems = []
-        seerrRecommendationsLoading = false
 
         if (!seerrConfigured || requestedTmdbId === "" || Number(requestedTmdbId) <= 0) {
+            seerrPendingTmdbId = ""
             return
         }
 
+        if ((seerrRecommendationsLoading && seerrPendingTmdbId === requestedTmdbId)
+                || seerrLoadedTmdbId === requestedTmdbId) {
+            return
+        }
+
+        seerrPendingTmdbId = ""
+        seerrLoadedTmdbId = ""
+        seerrRecommendedItems = []
+        seerrRecommendationsLoading = false
         seerrPendingTmdbId = requestedTmdbId
         seerrRecommendationsLoading = true
         SeerrService.getSimilar("tv", Number(requestedTmdbId), 1)
@@ -568,6 +576,7 @@ FocusScope {
         seerrRecommendedItems = []
         seerrRecommendationsLoading = false
         seerrPendingTmdbId = ""
+        seerrLoadedTmdbId = ""
 
         if (seriesId !== "") {
             SeriesDetailsViewModel.loadSeriesDetails(seriesId)
@@ -2024,6 +2033,7 @@ FocusScope {
                 mappedResults.push(results[i])
             }
             seerrRecommendedItems = mappedResults
+            seerrLoadedTmdbId = requestTmdbId
             seerrPendingTmdbId = ""
             seerrRecommendationsLoading = false
         }
