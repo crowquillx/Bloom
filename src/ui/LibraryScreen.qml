@@ -1268,11 +1268,6 @@ FocusScope {
             // Restore backdrop after it was cleared by loadItemsForCurrentParent
             updateBackdropForItem(item)
             
-            // Load series details, seasons, and next episode
-            LibraryService.getSeriesDetails(item.Id)
-            LibraryService.getItems(item.Id, 0, 0)  // Load seasons (no pagination)
-            LibraryService.getNextUnplayedEpisode(item.Id)
-            
         } else if (item.Type === "Season") {
             // Show season view with episodes list
             var previousContext = {
