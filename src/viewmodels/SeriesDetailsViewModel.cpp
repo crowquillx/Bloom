@@ -790,6 +790,7 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_people.clear();
     m_genres.clear();
     m_similarItems.clear();
+    m_similarItemsAttempted = false;
     m_similarItemsLoading = false;
     m_seasonCount = 0;
     m_seriesData = QJsonObject();
@@ -1051,6 +1052,7 @@ void SeriesDetailsViewModel::onSeriesDetailsLoaded(const QString &seriesId, cons
     storeSeriesCache(seriesId, seriesData);
 
     if (m_similarItems.isEmpty()) {
+        m_similarItemsAttempted = true;
         m_similarItemsLoading = true;
         emit similarItemsLoadingChanged();
         m_libraryService->getSimilarItems(seriesId);
@@ -1075,7 +1077,8 @@ void SeriesDetailsViewModel::onSeriesDetailsNotModified(const QString &seriesId)
         m_loadingSeries = false;
         m_seriesData = cached;
         updateSeriesMetadata(cached);
-        if (m_similarItems.isEmpty() && m_libraryService) {
+        if (!m_similarItemsAttempted && m_similarItems.isEmpty() && m_libraryService) {
+            m_similarItemsAttempted = true;
             m_similarItemsLoading = true;
             emit similarItemsLoadingChanged();
             m_libraryService->getSimilarItems(seriesId);

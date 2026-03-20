@@ -377,6 +377,7 @@ private:
     QVariantList m_people;
     QStringList m_genres;
     QVariantList m_similarItems;
+    bool m_similarItemsAttempted = false;
     bool m_similarItemsLoading = false;
 
     int m_seasonCount = 0;
