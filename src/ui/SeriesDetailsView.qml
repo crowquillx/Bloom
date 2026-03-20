@@ -30,6 +30,7 @@ FocusScope {
     readonly property var libraryRecommendations: SeriesDetailsViewModel.similarItems || []
     readonly property bool libraryRecommendationsLoading: SeriesDetailsViewModel.similarItemsLoading
     readonly property bool seerrConfigured: typeof SeerrService !== "undefined" && SeerrService.configured
+    readonly property string seerrMediaType: "tv" // SeriesDetailsView only issues TV similar-title requests.
 
     readonly property int heroPosterWidth: Math.round(320 * Theme.layoutScale)
     readonly property int heroPosterHeight: Math.round(heroPosterWidth * 1.5)
@@ -524,7 +525,7 @@ FocusScope {
         seerrRecommendationsLoading = false
         seerrPendingTmdbId = requestedTmdbId
         seerrRecommendationsLoading = true
-        SeerrService.getSimilar("tv", Number(requestedTmdbId), 1)
+        SeerrService.getSimilar(seerrMediaType, Number(requestedTmdbId), 1)
     }
 
     function restorePendingSeasonFocus() {
@@ -2055,7 +2056,7 @@ FocusScope {
 
         function onSimilarResultsLoaded(mediaType, requestedTmdbId, results) {
             const requestTmdbId = String(requestedTmdbId)
-            if (String(mediaType).toLowerCase() !== "tv"
+            if (String(mediaType).toLowerCase() !== seerrMediaType
                     || requestTmdbId !== root.tmdbId
                     || requestTmdbId !== seerrPendingTmdbId) {
                 return
@@ -2073,7 +2074,7 @@ FocusScope {
 
         function onSimilarResultsFailed(mediaType, requestedTmdbId, error) {
             const requestTmdbId = String(requestedTmdbId)
-            if (String(mediaType).toLowerCase() !== "tv"
+            if (String(mediaType).toLowerCase() !== seerrMediaType
                     || requestTmdbId !== root.tmdbId
                     || requestTmdbId !== seerrPendingTmdbId) {
                 return
