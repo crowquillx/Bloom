@@ -23,6 +23,7 @@ class ConfigManager;
 class SeerrService : public QObject
 {
     Q_OBJECT
+    Q_PROPERTY(bool configured READ isConfigured NOTIFY configuredChanged)
 
 public:
     /** @brief Constructs the service with the given auth and config dependencies. */
@@ -109,6 +110,8 @@ public:
                                    const QString &rootFolderPath);
 
 signals:
+    void configuredChanged();
+
     /** @brief Emitted after validateConnection() completes. @p ok is false on any error. */
     void connectionValidated(bool ok, const QString &message);
 

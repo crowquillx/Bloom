@@ -15,6 +15,12 @@ SeerrService::SeerrService(AuthenticationService *authService, ConfigManager *co
     , m_authService(authService)
     , m_configManager(configManager)
 {
+    if (m_configManager) {
+        connect(m_configManager, &ConfigManager::seerrBaseUrlChanged,
+                this, &SeerrService::configuredChanged);
+        connect(m_configManager, &ConfigManager::seerrApiKeyChanged,
+                this, &SeerrService::configuredChanged);
+    }
 }
 
 bool SeerrService::isConfigured() const

@@ -29,7 +29,7 @@ FocusScope {
     readonly property var castAndCrew: SeriesDetailsViewModel.people || []
     readonly property var libraryRecommendations: SeriesDetailsViewModel.similarItems || []
     readonly property bool libraryRecommendationsLoading: SeriesDetailsViewModel.similarItemsLoading
-    readonly property bool seerrConfigured: typeof SeerrService !== "undefined" && SeerrService.isConfigured()
+    readonly property bool seerrConfigured: typeof SeerrService !== "undefined" && SeerrService.configured
 
     readonly property int heroPosterWidth: Math.round(320 * Theme.layoutScale)
     readonly property int heroPosterHeight: Math.round(heroPosterWidth * 1.5)
@@ -2019,6 +2019,18 @@ FocusScope {
 
     Connections {
         target: SeerrService
+
+        function onConfiguredChanged() {
+            if (!SeerrService.configured) {
+                seerrPendingTmdbId = ""
+                seerrLoadedTmdbId = ""
+                seerrRecommendedItems = []
+                seerrRecommendationsLoading = false
+                return
+            }
+
+            Qt.callLater(root.requestSeerrRecommendations)
+        }
 
         function onSimilarResultsLoaded(mediaType, requestedTmdbId, results) {
             const requestTmdbId = String(requestedTmdbId)
