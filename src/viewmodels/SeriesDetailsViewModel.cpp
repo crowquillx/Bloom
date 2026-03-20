@@ -1051,7 +1051,7 @@ void SeriesDetailsViewModel::onSeriesDetailsLoaded(const QString &seriesId, cons
     updateSeriesMetadata(seriesData);
     storeSeriesCache(seriesId, seriesData);
 
-    if (m_similarItems.isEmpty()) {
+    if (m_similarItems.isEmpty() && !m_similarItemsLoading) {
         m_similarItemsAttempted = true;
         m_similarItemsLoading = true;
         emit similarItemsLoadingChanged();
