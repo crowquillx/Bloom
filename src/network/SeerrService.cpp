@@ -243,7 +243,6 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
 {
     const QString normalizedMediaType = mediaType.trimmed().toLower();
     const auto emitSimilarFailure = [this, normalizedMediaType, tmdbId](const QString &error) {
-        emit errorOccurred("similar", error);
         emit similarResultsFailed(normalizedMediaType, tmdbId, error);
     };
 

@@ -64,7 +64,7 @@ public:
      * @p mediaType is used as a fallback so no results are silently dropped.
      * Emits similarResultsLoaded() on success. On validation, network, or parsing
      * failure it emits similarResultsFailed() with the requested media type, TMDB
-     * id, and error text, and also emits errorOccurred("similar", ...).
+     * id, and error text.
      *
      * @param mediaType  "movie" or "tv" (case-insensitive).
      * @param tmdbId     The TMDB identifier for the reference title.
@@ -139,9 +139,8 @@ signals:
     /**
      * @brief Emitted on any network or parsing error; @p endpoint identifies the failing call.
      *
-     * For similar-title failures, consumers should generally prefer
-     * similarResultsFailed() when they need request-scoped correlation, and may
-     * treat errorOccurred() as a broader service-level error stream.
+     * Similar-title request failures are reported through similarResultsFailed();
+     * errorOccurred() is reserved for broader service-level failures.
      */
     void errorOccurred(const QString &endpoint, const QString &error);
 
