@@ -1258,8 +1258,8 @@ FocusScope {
                                 Text {
                                     Layout.fillWidth: true
                                     text: {
-                                        const season = SeriesDetailsViewModel.nextSeasonNumber || "?"
-                                        const episode = SeriesDetailsViewModel.nextEpisodeNumber || "?"
+                                        const season = SeriesDetailsViewModel.nextSeasonNumber
+                                        const episode = SeriesDetailsViewModel.nextEpisodeNumber
                                         return "S" + season + "E" + episode
                                     }
                                     font.pixelSize: Theme.fontSizeSmall
