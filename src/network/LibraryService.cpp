@@ -59,7 +59,8 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
 
     // Check for 401 Unauthorized - session expired
     if (httpStatus == 401) {
-        qCWarning(libraryService) << "Session expired (401) for endpoint:" << endpoint;
+        qCWarning(libraryService) << "Session expired (401) for endpoint:" << endpoint
+                                  << "userMessage:" << netError.userMessage;
         if (failureHandler) {
             failureHandler(netError);
         }
