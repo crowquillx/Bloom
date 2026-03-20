@@ -29,7 +29,7 @@ FocusScope {
     readonly property var castAndCrew: SeriesDetailsViewModel.people || []
     readonly property var libraryRecommendations: SeriesDetailsViewModel.similarItems || []
     readonly property bool libraryRecommendationsLoading: SeriesDetailsViewModel.similarItemsLoading
-    readonly property bool seerrConfigured: typeof SeerrService !== "undefined" && SeerrService.configured
+    readonly property bool seerrConfigured: typeof SeerrService !== "undefined" && SeerrService !== null && SeerrService.configured
     readonly property string seerrMediaType: "tv" // SeriesDetailsView only issues TV similar-title requests.
 
     readonly property int heroPosterWidth: Math.round(320 * Theme.layoutScale)
