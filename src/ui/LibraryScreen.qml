@@ -1265,7 +1265,8 @@ FocusScope {
             showSeriesDetails = true
             showSeasonView = false
             
-            // Restore backdrop after it was cleared by loadItemsForCurrentParent
+            // loadItemsForCurrentParent() now preserves the current backdrop while loading;
+            // updateBackdropForItem(item) refreshes or restores the series backdrop after navigation changes.
             updateBackdropForItem(item)
             
         } else if (item.Type === "Season") {
