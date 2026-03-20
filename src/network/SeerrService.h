@@ -148,6 +148,7 @@ signals:
 private:
     AuthenticationService *m_authService;
     ConfigManager *m_configManager;
+    bool m_lastConfigured = false;
 
     /** @brief Returns the configured base URL with any trailing slashes stripped. */
     QString normalizedBaseUrl() const;

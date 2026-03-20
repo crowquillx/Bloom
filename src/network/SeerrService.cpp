@@ -14,12 +14,23 @@ SeerrService::SeerrService(AuthenticationService *authService, ConfigManager *co
     : QObject(parent)
     , m_authService(authService)
     , m_configManager(configManager)
+    , m_lastConfigured(isConfigured())
 {
     if (m_configManager) {
+        const auto notifyConfiguredIfChanged = [this]() {
+            const bool configuredNow = isConfigured();
+            if (configuredNow == m_lastConfigured) {
+                return;
+            }
+
+            m_lastConfigured = configuredNow;
+            emit configuredChanged();
+        };
+
         connect(m_configManager, &ConfigManager::seerrBaseUrlChanged,
-                this, &SeerrService::configuredChanged);
+                this, notifyConfiguredIfChanged);
         connect(m_configManager, &ConfigManager::seerrApiKeyChanged,
-                this, &SeerrService::configuredChanged);
+                this, notifyConfiguredIfChanged);
     }
 }
 
