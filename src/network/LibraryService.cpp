@@ -651,6 +651,11 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
         return;
     }
 
+    if (itemId.isEmpty()) {
+        emit similarItemsFailed(itemId, tr("Item ID is empty"));
+        return;
+    }
+
     const QStringList fields = {
         "Type",
         "ImageTags",
