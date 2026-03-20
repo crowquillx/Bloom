@@ -88,8 +88,9 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
     } else {
         if (failureHandler) {
             failureHandler(netError);
+        } else {
+            emitError(netError);
         }
-        emitError(netError);
     }
 }
 
