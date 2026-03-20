@@ -1693,6 +1693,13 @@ FocusScope {
                                 isFocused: castList.activeFocus && castList.currentIndex === index
                             }
                         }
+
+                        WheelStepScroller {
+                            anchors.fill: parent
+                            target: castList
+                            orientation: Qt.Horizontal
+                            stepPx: root.peopleCardWidth + Theme.spacingMedium
+                        }
                     }
                 }
             }
@@ -1836,6 +1843,13 @@ FocusScope {
                                     root.itemSelected(modelData)
                                 }
                             }
+                        }
+
+                        WheelStepScroller {
+                            anchors.fill: parent
+                            target: libraryRecommendationsList
+                            orientation: Qt.Horizontal
+                            stepPx: root.recommendationCardWidth + Theme.spacingMedium
                         }
                     }
                 }
@@ -1982,6 +1996,13 @@ FocusScope {
                                     seerrRequestDialog.openForItem(modelData, seerrDelegate)
                                 }
                             }
+                        }
+
+                        WheelStepScroller {
+                            anchors.fill: parent
+                            target: seerrRecommendationsList
+                            orientation: Qt.Horizontal
+                            stepPx: root.recommendationCardWidth + Theme.spacingMedium
                         }
                     }
                 }
