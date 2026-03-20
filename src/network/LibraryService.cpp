@@ -647,7 +647,6 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
         error.code = -1;
         error.userMessage = tr("Not authenticated");
         emit similarItemsFailed(itemId, error.userMessage);
-        emitError(error);
         return;
     }
 
@@ -714,7 +713,6 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
         error.code = -1;
         error.userMessage = tr("Not authenticated");
         emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
-        emitError(error);
         return;
     }
     
