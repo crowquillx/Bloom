@@ -1398,6 +1398,7 @@ void SeriesDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const Q
         return;
     }
 
+    m_similarItemsAttempted = false;
     if (m_similarItemsLoading) {
         m_similarItemsLoading = false;
         emit similarItemsLoadingChanged();
