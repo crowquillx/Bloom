@@ -63,6 +63,8 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
                                   << "userMessage:" << netError.userMessage;
         if (failureHandler) {
             failureHandler(netError);
+        } else {
+            emitError(netError);
         }
         return;
     }
