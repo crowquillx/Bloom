@@ -613,7 +613,9 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
         qDebug() << "SeriesDetailsViewModel: Serving seasons from cache"
                  << (hasFreshSeasons ? "FRESH" : "STALE")
                  << "count:" << cachedSeasons.size();
-        // Mark as loading so onSeasonsLoaded guard passes
+        // Block seriesLoaded() during synchronous cache hydration; the async
+        // series request will emit the real completion signal later.
+        m_loadingSeries = true;
         m_loadingSeasons = true;
         onSeasonsLoaded(seriesId, cachedSeasons);
     }
