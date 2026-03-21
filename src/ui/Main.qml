@@ -213,7 +213,13 @@ Window {
             }
             if (activeFocus && stackView.currentItem && !stackView.currentItem.activeFocus) {
                 console.log("[FocusDebug] mainContentArea got focus, forwarding to currentItem")
-                Qt.callLater(() => stackView.currentItem.forceActiveFocus())
+                const item = stackView.currentItem
+                Qt.callLater(function() {
+                    if (!mainContentArea.activeFocus || !item || item !== stackView.currentItem || item.activeFocus) {
+                        return
+                    }
+                    item.forceActiveFocus()
+                })
             }
         }
         

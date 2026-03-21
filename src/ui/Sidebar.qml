@@ -160,19 +160,21 @@ Item {
     
     function close() {
         SidebarSettings.sidebarExpanded = false
-        // Return focus to main content
-        console.log("[FocusDebug] Sidebar.close() called, attempting to restore focus to mainContent")
-        if (mainContent) {
-            console.log("[FocusDebug] mainContent exists, restoring focus")
-            if (typeof mainContent.restoreFocusFromSidebar === "function") {
-                mainContent.restoreFocusFromSidebar()
+        Qt.callLater(function() {
+            // Return focus to main content after the sidebar collapse settles.
+            console.log("[FocusDebug] Sidebar.close() called, attempting to restore focus to mainContent")
+            if (mainContent) {
+                console.log("[FocusDebug] mainContent exists, restoring focus")
+                if (typeof mainContent.restoreFocusFromSidebar === "function") {
+                    mainContent.restoreFocusFromSidebar()
+                } else {
+                    mainContent.forceActiveFocus()
+                }
+                console.log("[FocusDebug] mainContent.activeFocus:", mainContent.activeFocus)
             } else {
-                mainContent.forceActiveFocus()
+                console.log("[FocusDebug] mainContent is null!")
             }
-            console.log("[FocusDebug] mainContent.activeFocus:", mainContent.activeFocus)
-        } else {
-            console.log("[FocusDebug] mainContent is null!")
-        }
+        })
     }
 
     function restoreMainContentFocus() {

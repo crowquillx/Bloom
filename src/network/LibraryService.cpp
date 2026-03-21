@@ -767,7 +767,16 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
                 emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
                 return;
             }
-            const QJsonArray items = doc.object()["Items"].toArray();
+            const QJsonObject root = doc.object();
+            if (!root.contains("Items") || !root.value("Items").isArray()) {
+                NetworkError error;
+                error.endpoint = "getNextUnplayedEpisode";
+                error.code = -2;
+                error.userMessage = tr("Invalid next unplayed episode response");
+                emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
+                return;
+            }
+            const QJsonArray items = root.value("Items").toArray();
             const QJsonObject selectedEpisode =
                 NextEpisodeResolver::resolveBestNextEpisode(items, excludeItemId);
             emit nextUnplayedEpisodeLoaded(seriesId, selectedEpisode);

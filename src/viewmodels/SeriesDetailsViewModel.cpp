@@ -1157,7 +1157,7 @@ void SeriesDetailsViewModel::onSeriesDetailsLoaded(const QString &seriesId, cons
     updateSeriesMetadata(seriesData);
     storeSeriesCache(seriesId, seriesData);
 
-    if (!m_similarItemsAttempted && m_similarItems.isEmpty() && !m_similarItemsLoading && m_libraryService) {
+    if (!m_similarItemsAttempted && !m_similarItemsLoading && m_libraryService) {
         m_similarItemsAttempted = true;
         m_similarItemsLoading = true;
         emit similarItemsLoadingChanged();
@@ -1183,7 +1183,7 @@ void SeriesDetailsViewModel::onSeriesDetailsNotModified(const QString &seriesId)
         m_loadingSeries = false;
         m_seriesData = cached;
         updateSeriesMetadata(cached);
-        if (!m_similarItemsAttempted && m_similarItems.isEmpty() && !m_similarItemsLoading && m_libraryService) {
+        if (!m_similarItemsAttempted && !m_similarItemsLoading && m_libraryService) {
             m_similarItemsAttempted = true;
             m_similarItemsLoading = true;
             emit similarItemsLoadingChanged();

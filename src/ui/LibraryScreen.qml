@@ -1965,6 +1965,7 @@ FocusScope {
                 // Ensure focus is set to the content for series details view
                 Qt.callLater(function() {
                     if (contentLoader.item
+                            && !root.restoringFocusFromSidebar
                             && !root.restoringFocusFromSeriesDetailsReturn
                             && !contentLoader.item.isRestoringReturnFocus) {
                         contentLoader.item.forceActiveFocus()

@@ -283,7 +283,13 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
             return;
         }
 
-        const QJsonArray rawResults = doc.object().value("results").toArray();
+        const QJsonObject root = doc.object();
+        if (!root.contains("results") || !root.value("results").isArray()) {
+            emitSimilarFailure(tr("Invalid similar titles response"));
+            return;
+        }
+
+        const QJsonArray rawResults = root.value("results").toArray();
         QJsonArray mappedResults;
         for (const QJsonValue &value : rawResults) {
             const QJsonObject item = value.toObject();
