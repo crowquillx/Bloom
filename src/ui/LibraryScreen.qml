@@ -32,6 +32,8 @@ FocusScope {
     property int _lastSelectedSeasonIndex: -1  // Temporarily stores season index during navigation
     property var _seriesDetailsReturnState: null
     property bool _restoreSeriesDetailsReturnState: false
+    property var _movieDetailsReturnState: null
+    property bool _restoreMovieDetailsReturnState: false
     
     // Theme song context - true while viewing a series, season, or episode
     property bool inSeriesContext: currentSeriesId !== "" && (showSeriesDetails || showSeasonView)
@@ -66,6 +68,7 @@ FocusScope {
     property var pendingEpisodeData: null
     property bool restoringFocusFromSidebar: false
     property bool restoringFocusFromSeriesDetailsReturn: false
+    property bool restoringFocusFromMovieDetailsReturn: false
     property var _seerrRecommendationCache: ({})
 
     function saveFocusForSidebar() {
@@ -108,6 +111,19 @@ FocusScope {
         _restoreSeriesDetailsReturnState = false
         restoringFocusFromSeriesDetailsReturn = false
     }
+
+    function saveMovieDetailsReturnState() {
+        if (contentLoader.item && typeof contentLoader.item.saveReturnState === "function") {
+            _movieDetailsReturnState = contentLoader.item.saveReturnState()
+            _restoreMovieDetailsReturnState = false
+        }
+    }
+
+    function clearMovieDetailsReturnState() {
+        _movieDetailsReturnState = null
+        _restoreMovieDetailsReturnState = false
+        restoringFocusFromMovieDetailsReturn = false
+    }
     
     // Only show pagination/filter controls at the library level (not in series/seasons/episodes/movies)
     property bool showPaginationControls: {
@@ -142,7 +158,9 @@ FocusScope {
                     }
                 })
             }
-            if (!restoringFocusFromSidebar && !restoringFocusFromSeriesDetailsReturn) {
+            if (!restoringFocusFromSidebar
+                    && !restoringFocusFromSeriesDetailsReturn
+                    && !restoringFocusFromMovieDetailsReturn) {
                 Qt.callLater(function() {
                     if (contentLoader.item) {
                         contentLoader.item.forceActiveFocus()
@@ -333,14 +351,21 @@ FocusScope {
         
         // Transfer focus to loaded content when it changes
         onLoaded: {
-            if (item && !root.restoringFocusFromSidebar && !root.restoringFocusFromSeriesDetailsReturn) {
+            if (item
+                    && !root.restoringFocusFromSidebar
+                    && !root.restoringFocusFromSeriesDetailsReturn
+                    && !root.restoringFocusFromMovieDetailsReturn) {
                 item.forceActiveFocus()
             }
         }
         
         // Also handle status changes for initial load
         onStatusChanged: {
-            if (status === Loader.Ready && item && !root.restoringFocusFromSidebar && !root.restoringFocusFromSeriesDetailsReturn) {
+            if (status === Loader.Ready
+                    && item
+                    && !root.restoringFocusFromSidebar
+                    && !root.restoringFocusFromSeriesDetailsReturn
+                    && !root.restoringFocusFromMovieDetailsReturn) {
                 item.forceActiveFocus()
             }
         }
@@ -447,14 +472,27 @@ FocusScope {
         
         MovieDetailsView {
             movieId: root.currentMovieData ? root.currentMovieData.Id : ""
-            
+            pendingReturnState: root._movieDetailsReturnState
+            restorePendingReturnState: root._restoreMovieDetailsReturnState
+             
             onPlayRequested: function(request) {
                 requestPlaybackWithResolvedLibrary(Object.assign({}, request || {}, {
                     seriesId: "",
                     seasonId: ""
                 }))
             }
-            
+
+            onReturnStateConsumed: {
+                Qt.callLater(function() {
+                    root.clearMovieDetailsReturnState()
+                })
+            }
+
+            onItemSelected: function(itemData) {
+                root.saveMovieDetailsReturnState()
+                handleSelection(itemData)
+            }
+             
             onBackRequested: {
                 exitMovieDetails()
             }
@@ -1308,7 +1346,10 @@ FocusScope {
                 seriesId: currentSeriesId,
                 showSeriesDetails: showSeriesDetails,
                 showSeasonView: showSeasonView,
+                showMovieDetails: showMovieDetails,
                 seriesDetailsReturnState: _seriesDetailsReturnState,
+                movieDetailsReturnState: _movieDetailsReturnState,
+                movieData: currentMovieData,
                 selectedGenres: selectedGenres.slice(),
                 selectedNetworks: selectedNetworks.slice(),
                 showFilterPanel: showFilterPanel,
@@ -1337,7 +1378,10 @@ FocusScope {
                 seriesId: currentSeriesId,
                 showSeriesDetails: showSeriesDetails,
                 showSeasonView: showSeasonView,
+                showMovieDetails: showMovieDetails,
                 seriesDetailsReturnState: _seriesDetailsReturnState,
+                movieDetailsReturnState: _movieDetailsReturnState,
+                movieData: currentMovieData,
                 seasonId: currentSeasonId,
                 seasonName: currentSeasonName,
                 seasonNumber: currentSeasonNumber,
@@ -1383,7 +1427,10 @@ FocusScope {
                 seriesId: currentSeriesId,
                 showSeriesDetails: showSeriesDetails,
                 showSeasonView: showSeasonView,
+                showMovieDetails: showMovieDetails,
                 seriesDetailsReturnState: _seriesDetailsReturnState,
+                movieDetailsReturnState: _movieDetailsReturnState,
+                movieData: currentMovieData,
                 selectedGenres: selectedGenres.slice(),
                 selectedNetworks: selectedNetworks.slice(),
                 showFilterPanel: showFilterPanel,
@@ -1448,6 +1495,8 @@ FocusScope {
                 currentSeasonPosterUrl = ""
                 initialEpisodeId = ""
                 currentMovieData = null
+                clearSeriesDetailsReturnState()
+                clearMovieDetailsReturnState()
 
                 if (currentParentId !== currentLibraryId) {
                     currentParentId = currentLibraryId
@@ -1514,6 +1563,18 @@ FocusScope {
                 restoringFocusFromSeriesDetailsReturn = _restoreSeriesDetailsReturnState
             } else {
                 clearSeriesDetailsReturnState()
+            }
+
+            if (targetShowMovieDetails) {
+                currentMovieData = prevContext.movieData || null
+                _movieDetailsReturnState = prevContext.movieDetailsReturnState || null
+                _restoreMovieDetailsReturnState = _movieDetailsReturnState !== null
+                restoringFocusFromMovieDetailsReturn = _restoreMovieDetailsReturnState
+                if (currentMovieData) {
+                    updateBackdropForItem(currentMovieData)
+                }
+            } else {
+                clearMovieDetailsReturnState()
             }
             
             console.log("[Library] Restoring state:",
@@ -1608,7 +1669,7 @@ FocusScope {
     function showMovieDetailsView(movieData) {
         // Show movie details view
         // Capture current grid position for restoration unless we came directly from Home
-        var shouldPushContext = !(directNavigationMode && navigationStack.length === 0)
+        var shouldPushContext = !(directNavigationMode && navigationStack.length === 0 && !showMovieDetails)
         if (shouldPushContext) {
             var gridRef = contentLoader.item ? contentLoader.item.grid : null
             var previousContext = {
@@ -1618,10 +1679,12 @@ FocusScope {
                 showSeasonView: showSeasonView,
                 showMovieDetails: showMovieDetails,
                 seriesDetailsReturnState: _seriesDetailsReturnState,
+                movieDetailsReturnState: _movieDetailsReturnState,
                 selectedGenres: selectedGenres.slice(),
                 selectedNetworks: selectedNetworks.slice(),
                 showFilterPanel: showFilterPanel,
                 activeFilterCategory: activeFilterCategory,
+                movieData: currentMovieData,
                 gridIndex: gridRef ? gridRef.currentIndex : -1,
                 gridContentY: gridRef ? gridRef.contentY : -1
             }
@@ -1662,7 +1725,10 @@ FocusScope {
                 seriesId: currentSeriesId,
                 showSeriesDetails: showSeriesDetails,
                 showSeasonView: showSeasonView,
+                showMovieDetails: showMovieDetails,
                 seriesDetailsReturnState: _seriesDetailsReturnState,
+                movieDetailsReturnState: _movieDetailsReturnState,
+                movieData: currentMovieData,
                 seasonId: currentSeasonId,
                 seasonName: currentSeasonName,
                 seasonNumber: currentSeasonNumber,
@@ -1967,6 +2033,7 @@ FocusScope {
                     if (contentLoader.item
                             && !root.restoringFocusFromSidebar
                             && !root.restoringFocusFromSeriesDetailsReturn
+                            && !root.restoringFocusFromMovieDetailsReturn
                             && !contentLoader.item.isRestoringReturnFocus) {
                         contentLoader.item.forceActiveFocus()
                     }

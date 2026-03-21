@@ -4,15 +4,21 @@ import QtQuick.Layouts
 import QtQuick.Effects
 
 import BloomUI
+import "TrackUtils.js" as TrackUtils
+
 FocusScope {
     id: root
-    
-    // Input property
-    property string movieId: ""
 
-    // Bindings to ViewModel
+    property string movieId: ""
+    property var pendingReturnState: null
+    property bool restorePendingReturnState: false
+    readonly property bool isRestoringReturnFocus: restoringFocusFromSidebar
+                                                 || restoringFocusFromReturnState
+                                                 || suppressHeroAutofocus
+                                                 || hasPendingReturnStateForCurrentMovie()
+
     readonly property string movieName: MovieDetailsViewModel.title
-    readonly property string overview: MovieDetailsViewModel.overview
+    readonly property string movieOverview: MovieDetailsViewModel.overview
     readonly property var runtimeTicks: MovieDetailsViewModel.runtimeTicks
     readonly property var communityRating: MovieDetailsViewModel.communityRating
     readonly property string premiereDate: MovieDetailsViewModel.premiereDate
@@ -21,46 +27,547 @@ FocusScope {
     readonly property var playbackPositionTicks: MovieDetailsViewModel.playbackPositionTicks
     readonly property string officialRating: MovieDetailsViewModel.officialRating
     readonly property var genres: MovieDetailsViewModel.genres
-    
+    readonly property var castAndCrew: MovieDetailsViewModel.people || []
+    readonly property var libraryRecommendations: MovieDetailsViewModel.similarItems || []
+    readonly property bool libraryRecommendationsLoading: MovieDetailsViewModel.similarItemsLoading
+    readonly property bool isLoading: MovieDetailsViewModel.isLoading
+    readonly property var externalRatings: MovieDetailsViewModel.mdbListRatings || ({})
+
     readonly property string logoUrl: MovieDetailsViewModel.logoUrl
     readonly property string posterUrl: MovieDetailsViewModel.posterUrl
     readonly property string backdropUrl: MovieDetailsViewModel.backdropUrl
-    
-    // Playback info
+
+    readonly property int heroPosterWidth: Math.round(320 * Theme.layoutScale)
+    readonly property int heroPosterHeight: Math.round(heroPosterWidth * 1.5)
+    readonly property int heroPanelPadding: Theme.spacingXLarge
+    readonly property int heroActionsBottomSpacing: Theme.spacingMedium
+    readonly property int peopleCardWidth: Math.round(176 * Theme.layoutScale)
+    readonly property int peopleCardHeight: Math.round(320 * Theme.layoutScale)
+    readonly property int recommendationCardWidth: Math.round(236 * Theme.layoutScale)
+    readonly property int recommendationCardHeight: recommendationCardWidth + Math.round(recommendationCardWidth * 0.5) + Math.round(74 * Theme.layoutScale)
+    readonly property int shelfEdgePadding: Math.round(14 * Theme.layoutScale)
+
     property var playbackInfo: null
-    property var currentMediaSource: playbackInfo && playbackInfo.mediaSources && playbackInfo.mediaSources.length > 0 
+    property var currentMediaSource: playbackInfo && playbackInfo.mediaSources && playbackInfo.mediaSources.length > 0
                                      ? playbackInfo.mediaSources[0] : null
     property bool playbackInfoLoading: false
     property int selectedAudioIndex: -1
     property int selectedSubtitleIndex: -1
-    
-    // Load movie details when ID changes
-    onMovieIdChanged: {
-        if (movieId !== "") {
-            console.log("[MovieDetailsView] Loading movie details for:", movieId)
-            MovieDetailsViewModel.loadMovieDetails(movieId)
-            
-            // Also load playback info
-            playbackInfoLoading = true
-            playbackInfo = null
-            selectedAudioIndex = -1
-            selectedSubtitleIndex = -1
-            PlaybackService.getPlaybackInfo(movieId)
-        } else {
-            // Clear stale playback state when movieId is empty
-            MovieDetailsViewModel.clear()
-            playbackInfo = null
-            playbackInfoLoading = false
-            selectedAudioIndex = -1
-            selectedSubtitleIndex = -1
+
+    signal playRequested(var request)
+    signal itemSelected(var itemData)
+    signal backRequested()
+    signal returnStateConsumed()
+
+    component MetadataChip: Rectangle {
+        property string text: ""
+        implicitHeight: Math.round(38 * Theme.layoutScale)
+        implicitWidth: chipText.implicitWidth + Math.round(22 * Theme.layoutScale)
+        radius: implicitHeight / 2
+        color: Qt.rgba(0, 0, 0, 0.28)
+        border.width: 1
+        border.color: Qt.rgba(1, 1, 1, 0.12)
+        visible: text !== ""
+
+        Text {
+            id: chipText
+            anchors.centerIn: parent
+            text: parent.text
+            font.pixelSize: Theme.fontSizeSmall
+            font.family: Theme.fontPrimary
+            font.weight: Font.DemiBold
+            color: Theme.textPrimary
         }
     }
 
-    // Signals
-    signal playRequested(var request)
-    signal backRequested()
-    
-    // Helper function to get framerate from media source
+    component RatingMetadataChip: Rectangle {
+        id: ratingChip
+
+        property var ratingData: ({})
+        property string originalSource: ratingData && ratingData.source ? String(ratingData.source) : ""
+        property var score: ratingData && ratingData.score !== undefined ? ratingData.score : ratingData.value
+
+        readonly property string normalizedSource: root.normalizedRatingSource(originalSource)
+        readonly property string logoSource: root.ratingLogoSource(normalizedSource, score)
+        readonly property string displayValue: root.ratingDisplayValue(normalizedSource, score)
+        readonly property string fallbackText: root.ratingFallbackLabel(normalizedSource, originalSource)
+
+        implicitHeight: Math.round(38 * Theme.layoutScale)
+        implicitWidth: ratingRow.implicitWidth + Math.round(20 * Theme.layoutScale)
+        radius: implicitHeight / 2
+        color: Qt.rgba(0, 0, 0, 0.28)
+        border.width: 1
+        border.color: Qt.rgba(1, 1, 1, 0.12)
+        visible: displayValue !== ""
+
+        RowLayout {
+            id: ratingRow
+            anchors.centerIn: parent
+            spacing: Math.round(6 * Theme.layoutScale)
+
+            Item {
+                Layout.preferredWidth: Math.round(42 * Theme.layoutScale)
+                Layout.preferredHeight: Math.round(16 * Theme.layoutScale)
+                Layout.alignment: Qt.AlignVCenter
+
+                Image {
+                    anchors.fill: parent
+                    source: ratingChip.logoSource
+                    fillMode: Image.PreserveAspectFit
+                    visible: source !== ""
+                    asynchronous: true
+                    cache: true
+                }
+
+                Text {
+                    anchors.centerIn: parent
+                    visible: ratingChip.logoSource === ""
+                    text: ratingChip.fallbackText
+                    font.pixelSize: Math.round(13 * Theme.layoutScale)
+                    font.family: Theme.fontPrimary
+                    font.weight: Font.Black
+                    color: Theme.textSecondary
+                }
+            }
+
+            Text {
+                text: ratingChip.displayValue
+                font.pixelSize: Theme.fontSizeSmall
+                font.family: Theme.fontPrimary
+                font.weight: Font.Black
+                color: Theme.textPrimary
+                verticalAlignment: Text.AlignVCenter
+                Layout.alignment: Qt.AlignVCenter
+            }
+        }
+    }
+
+    component SecondaryActionButton: Button {
+        id: actionButton
+
+        property string iconGlyph: ""
+        property color iconColor: Theme.textPrimary
+
+        padding: 0
+        leftPadding: 0
+        rightPadding: 0
+        topPadding: 0
+        bottomPadding: 0
+
+        implicitHeight: Theme.buttonHeightMedium
+        implicitWidth: text === ""
+                       ? Theme.buttonHeightMedium
+                       : buttonContent.implicitWidth + Math.round(34 * Theme.layoutScale)
+
+        background: Rectangle {
+            radius: Theme.radiusMedium
+            color: {
+                if (!actionButton.enabled) return Qt.rgba(0, 0, 0, 0.18)
+                if (actionButton.down) return Qt.rgba(1, 1, 1, 0.18)
+                if (actionButton.hovered) return Qt.rgba(1, 1, 1, 0.12)
+                return Qt.rgba(0, 0, 0, 0.26)
+            }
+            border.width: actionButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+            border.color: actionButton.activeFocus ? Theme.buttonSecondaryBorderFocused : Qt.rgba(1, 1, 1, 0.14)
+
+            Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+            Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+        }
+
+        contentItem: RowLayout {
+            id: buttonContent
+            implicitWidth: buttonInnerRow.implicitWidth
+            implicitHeight: buttonInnerRow.implicitHeight
+            anchors.centerIn: parent
+
+            RowLayout {
+                id: buttonInnerRow
+                anchors.centerIn: parent
+                spacing: Theme.spacingSmall
+
+                Text {
+                    text: actionButton.iconGlyph
+                    visible: text !== ""
+                    font.family: Theme.fontIcon
+                    font.pixelSize: Theme.fontSizeIcon
+                    color: actionButton.iconColor
+                    verticalAlignment: Text.AlignVCenter
+                    horizontalAlignment: Text.AlignHCenter
+                    Layout.alignment: Qt.AlignVCenter
+                }
+
+                Text {
+                    text: actionButton.text
+                    visible: text !== ""
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    font.weight: Font.Black
+                    color: Theme.textPrimary
+                    verticalAlignment: Text.AlignVCenter
+                    horizontalAlignment: Text.AlignHCenter
+                    Layout.alignment: Qt.AlignVCenter
+                }
+            }
+        }
+    }
+
+    component ScrollingCardLabel: Item {
+        id: scrollingLabel
+
+        property string text: ""
+        property color textColor: Theme.textPrimary
+        property int fontPixelSize: Theme.fontSizeSmall
+        property string fontFamily: Theme.fontPrimary
+        property int fontWeight: Font.DemiBold
+        property bool active: false
+
+        implicitHeight: label.implicitHeight
+        clip: true
+
+        readonly property real overflowWidth: Math.max(0, label.implicitWidth - width)
+
+        states: [
+            State {
+                name: "static"
+                when: !labelScrollAnimation.running
+
+                AnchorChanges {
+                    target: label
+                    anchors.left: scrollingLabel.overflowWidth > 0 ? scrollingLabel.left : undefined
+                    anchors.horizontalCenter: scrollingLabel.overflowWidth > 0 ? undefined : scrollingLabel.horizontalCenter
+                }
+
+                PropertyChanges {
+                    target: label
+                    x: 0
+                }
+            },
+            State {
+                name: "scrolling"
+                when: labelScrollAnimation.running
+
+                AnchorChanges {
+                    target: label
+                    anchors.left: undefined
+                    anchors.horizontalCenter: undefined
+                }
+
+                PropertyChanges {
+                    target: label
+                    x: 0
+                }
+            }
+        ]
+
+        Text {
+            id: label
+            text: scrollingLabel.text
+            font.pixelSize: scrollingLabel.fontPixelSize
+            font.family: scrollingLabel.fontFamily
+            font.weight: scrollingLabel.fontWeight
+            color: scrollingLabel.textColor
+            wrapMode: Text.NoWrap
+        }
+
+        SequentialAnimation {
+            id: labelScrollAnimation
+            running: scrollingLabel.active && scrollingLabel.overflowWidth > 0
+            loops: Animation.Infinite
+
+            PauseAnimation { duration: 1000 }
+            NumberAnimation {
+                target: label
+                property: "x"
+                to: -scrollingLabel.overflowWidth
+                duration: Math.max(1200, scrollingLabel.overflowWidth * 20)
+                easing.type: Easing.Linear
+            }
+            PauseAnimation { duration: 1000 }
+            NumberAnimation {
+                target: label
+                property: "x"
+                to: 0
+                duration: Math.max(1200, scrollingLabel.overflowWidth * 20)
+                easing.type: Easing.Linear
+            }
+        }
+    }
+
+    component PersonCard: Item {
+        id: personCard
+
+        required property var itemData
+        property bool isFocused: false
+        property bool isHovered: InputModeManager.pointerActive && personMouseArea.containsMouse
+        readonly property int posterFrameWidth: width
+        readonly property int posterFrameHeight: Math.round(posterFrameWidth * 1.5)
+
+        width: root.peopleCardWidth
+        height: root.peopleCardHeight
+        scale: isFocused ? 1.04 : (isHovered ? 1.02 : 1.0)
+        transformOrigin: Item.Center
+        Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
+
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: Theme.spacingSmall
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: personCard.posterFrameHeight
+                radius: Theme.imageRadius
+                color: "transparent"
+                clip: false
+
+                Image {
+                    id: personImage
+                    anchors.fill: parent
+                    source: personCard.itemData.Id && personCard.itemData.PrimaryImageTag
+                            ? LibraryService.getCachedImageUrlWithWidth(personCard.itemData.Id, "Primary", 360)
+                            : ""
+                    fillMode: Image.PreserveAspectCrop
+                    horizontalAlignment: Image.AlignHCenter
+                    verticalAlignment: Image.AlignBottom
+                    asynchronous: true
+                    cache: true
+
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        maskEnabled: true
+                        maskSource: personImageMask
+                    }
+                }
+
+                Item {
+                    id: personImageMask
+                    anchors.fill: parent
+                    visible: false
+                    layer.enabled: true
+                    layer.smooth: true
+
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: Theme.imageRadius
+                        color: "white"
+                    }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Theme.imageRadius
+                    color: Qt.rgba(0.08, 0.08, 0.08, 0.45)
+                    visible: personImage.status !== Image.Ready
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: Icons.person
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Math.round(56 * Theme.layoutScale)
+                        color: Theme.textSecondary
+                    }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Theme.imageRadius
+                    color: "transparent"
+                    border.width: personCard.isFocused ? Theme.buttonFocusBorderWidth : 0
+                    border.color: Theme.accentPrimary
+                    visible: border.width > 0
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: castNameLabel.implicitHeight
+
+                ScrollingCardLabel {
+                    id: castNameLabel
+                    anchors.fill: parent
+                    text: personCard.itemData.Name || ""
+                    fontPixelSize: Theme.fontSizeSmall
+                    fontWeight: Font.DemiBold
+                    textColor: Theme.textPrimary
+                    active: personCard.isFocused
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: castSubtitleLabel.implicitHeight
+                visible: castSubtitleLabel.text !== ""
+
+                ScrollingCardLabel {
+                    id: castSubtitleLabel
+                    anchors.fill: parent
+                    text: personCard.itemData.Subtitle || ""
+                    fontPixelSize: Theme.fontSizeSmall
+                    fontWeight: Font.Normal
+                    textColor: Theme.textSecondary
+                    active: personCard.isFocused
+                }
+            }
+        }
+
+        MouseArea {
+            id: personMouseArea
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: parent.forceActiveFocus()
+        }
+    }
+
+    component RecommendationPosterCard: Item {
+        id: recommendationCard
+
+        required property var itemData
+        property bool isFocused: false
+        property bool isHovered: InputModeManager.pointerActive && recommendationMouseArea.containsMouse
+        readonly property string posterSource: itemData.Id
+                                              ? LibraryService.getCachedImageUrlWithWidth(itemData.Id, "Primary", 420)
+                                              : ""
+        readonly property string title: itemData.Name || ""
+        readonly property string subtitle: {
+            if (itemData.ProductionYear) {
+                return String(itemData.ProductionYear)
+            }
+            if (itemData.PremiereDate) {
+                const date = new Date(itemData.PremiereDate)
+                if (!isNaN(date.getTime())) {
+                    return String(date.getFullYear())
+                }
+            }
+            return ""
+        }
+
+        width: root.recommendationCardWidth
+        height: root.recommendationCardHeight
+        scale: isFocused ? 1.035 : (isHovered ? 1.015 : 1.0)
+        z: isFocused ? 2 : 0
+        transformOrigin: Item.Center
+        Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
+
+        signal clicked()
+
+        Column {
+            anchors.fill: parent
+            spacing: Theme.spacingSmall
+
+            Rectangle {
+                id: recommendationPosterContainer
+                anchors.horizontalCenter: parent.horizontalCenter
+                width: root.recommendationCardWidth
+                height: Math.round(width * 1.5)
+                radius: Theme.imageRadius
+                color: "transparent"
+                clip: false
+
+                Image {
+                    id: recommendationPosterImage
+                    anchors.fill: parent
+                    source: recommendationCard.posterSource
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: true
+
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        maskEnabled: true
+                        maskSource: recommendationPosterMask
+                    }
+                }
+
+                Item {
+                    id: recommendationPosterMask
+                    anchors.fill: parent
+                    visible: false
+                    layer.enabled: true
+                    layer.smooth: true
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: recommendationPosterImage.paintedWidth
+                        height: recommendationPosterImage.paintedHeight
+                        radius: Theme.imageRadius
+                        color: "white"
+                    }
+                }
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Theme.imageRadius
+                    color: Qt.rgba(0.08, 0.08, 0.08, 0.45)
+                    visible: recommendationPosterImage.status !== Image.Ready
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: recommendationCard.itemData.Type === "Series" ? Icons.tvShows : Icons.movie
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Math.round(56 * Theme.layoutScale)
+                        color: Theme.textSecondary
+                    }
+                }
+
+                Item {
+                    width: recommendationPosterImage.paintedWidth
+                    height: recommendationPosterImage.paintedHeight
+                    anchors.centerIn: parent
+
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: parent.width + border.width * 2
+                        height: parent.height + border.width * 2
+                        radius: Theme.imageRadius + border.width
+                        color: "transparent"
+                        border.width: recommendationCard.isFocused ? Theme.buttonFocusBorderWidth : 0
+                        border.color: Theme.accentPrimary
+                        visible: border.width > 0
+                    }
+                }
+            }
+
+            Item {
+                width: root.recommendationCardWidth
+                height: recommendationTitleLabel.implicitHeight
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                ScrollingCardLabel {
+                    id: recommendationTitleLabel
+                    anchors.fill: parent
+                    text: recommendationCard.title
+                    fontPixelSize: Theme.fontSizeSmall
+                    fontWeight: Font.DemiBold
+                    textColor: Theme.textPrimary
+                    active: recommendationCard.isFocused
+                }
+            }
+
+            Item {
+                width: root.recommendationCardWidth
+                height: recommendationSubtitleLabel.implicitHeight
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: recommendationSubtitleLabel.text !== ""
+
+                ScrollingCardLabel {
+                    id: recommendationSubtitleLabel
+                    anchors.fill: parent
+                    text: recommendationCard.subtitle
+                    fontPixelSize: Theme.fontSizeSmall
+                    fontWeight: Font.Normal
+                    textColor: Theme.textSecondary
+                    active: recommendationCard.isFocused
+                }
+            }
+        }
+
+        MouseArea {
+            id: recommendationMouseArea
+            anchors.fill: parent
+            hoverEnabled: true
+            onClicked: recommendationCard.clicked()
+        }
+    }
+
     function getVideoFramerate() {
         if (!currentMediaSource || !currentMediaSource.mediaStreams) return 0.0
         for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
@@ -72,21 +579,92 @@ FocusScope {
         }
         return 0.0
     }
-    
-    // Helper function to check if content is HDR
+
     function isVideoHDR() {
         if (!currentMediaSource || !currentMediaSource.mediaStreams) return false
         for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
             var stream = currentMediaSource.mediaStreams[i]
             if (stream.type === "Video" && stream.videoRange) {
-                var range = stream.videoRange.toUpperCase()
+                var range = String(stream.videoRange).toUpperCase()
                 if (range !== "SDR" && range !== "") return true
             }
         }
         return false
     }
-    
-    // Function to build a playback request with the current page metadata and track hints.
+
+    function getAudioStreams() {
+        if (!currentMediaSource || !currentMediaSource.mediaStreams) return []
+        var audio = []
+        for (var i = 0; i < currentMediaSource.mediaStreams.length; ++i) {
+            if (currentMediaSource.mediaStreams[i].type === "Audio") {
+                audio.push(currentMediaSource.mediaStreams[i])
+            }
+        }
+        return audio
+    }
+
+    function getSubtitleStreams() {
+        if (!currentMediaSource || !currentMediaSource.mediaStreams) return []
+        var subtitles = []
+        for (var i = 0; i < currentMediaSource.mediaStreams.length; ++i) {
+            if (currentMediaSource.mediaStreams[i].type === "Subtitle") {
+                subtitles.push(currentMediaSource.mediaStreams[i])
+            }
+        }
+        return subtitles
+    }
+
+    function shortTrackLabel(track, fallback) {
+        if (!track) {
+            return fallback || qsTr("Default")
+        }
+
+        var title = track.title || track.Title
+        if (title) {
+            return title
+        }
+
+        var language = track.language || track.Language
+        if (language) {
+            return TrackUtils.getLanguageName(language)
+        }
+
+        var codec = track.codec || track.Codec
+        if (codec) {
+            return String(codec).toUpperCase()
+        }
+
+        var index = track.index !== undefined ? track.index : track.Index
+        if (index !== undefined) {
+            return qsTr("Track %1").arg(index)
+        }
+
+        return fallback || qsTr("Default")
+    }
+
+    function selectedAudioSummary() {
+        var tracks = getAudioStreams()
+        for (var i = 0; i < tracks.length; ++i) {
+            if (tracks[i].index === selectedAudioIndex) {
+                return shortTrackLabel(tracks[i], qsTr("Default"))
+            }
+        }
+        return tracks.length > 0 ? shortTrackLabel(tracks[0], qsTr("Default")) : qsTr("Unavailable")
+    }
+
+    function selectedSubtitleSummary() {
+        if (selectedSubtitleIndex === -1) {
+            return qsTr("Off")
+        }
+        var tracks = getSubtitleStreams()
+        for (var i = 0; i < tracks.length; ++i) {
+            if (tracks[i].index === selectedSubtitleIndex) {
+                return shortTrackLabel(tracks[i], qsTr("Off"))
+            }
+        }
+        return tracks.length > 0 ? shortTrackLabel(tracks[0], qsTr("Auto")) : qsTr("Unavailable")
+    }
+
     function buildPlaybackRequest() {
         var framerate = getVideoFramerate()
         var hdr = isVideoHDR()
@@ -112,798 +690,1671 @@ FocusScope {
         }
     }
 
-    // Function to start playback with current track selections
     function startPlaybackWithTracks() {
-        console.log("[MovieDetailsView] Starting playback with request for:", movieId)
         root.playRequested(buildPlaybackRequest())
     }
-    
-    // Key handling for back navigation
-    Keys.onPressed: (event) => {
-        if (event.isAutoRepeat) {
-            event.accepted = true
-            return
-        }
-        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
-            console.log("[MovieDetailsView] Back key pressed")
-            root.backRequested()
-            event.accepted = true
-        }
-    }
-    
-    focus: true
-    
-    // Focus when this view receives active focus
-    onActiveFocusChanged: {
-        if (activeFocus && playButton) {
-            Qt.callLater(function() {
-                playButton.forceActiveFocus()
-            })
-        }
-    }
-    
-    // Helper functions
+
     function formatRuntime(ticks) {
         if (!ticks || ticks === 0) return ""
         var totalMinutes = Math.round(ticks / 600000000)
         var hours = Math.floor(totalMinutes / 60)
         var minutes = totalMinutes % 60
         if (hours > 0) {
-            return hours + "h " + minutes + "m"
+            return qsTr("%1h %2m").arg(hours).arg(minutes)
         }
-        return minutes + "m"
+        return qsTr("%1m").arg(minutes)
     }
-    
-    function calculateEndTime(runtimeTicks) {
-        if (!runtimeTicks || runtimeTicks === 0) return ""
-        var now = new Date()
-        var runtimeMs = runtimeTicks / 10000
-        var endTime = new Date(now.getTime() + runtimeMs)
-        return "Ends at " + endTime.toLocaleTimeString(Qt.locale(), "h:mm AP")
-    }
-    
-    function formatRating(rating) {
-        if (!rating || rating === 0) return ""
-        return "★ " + rating.toFixed(1)
-    }
-    
-    function formatPremiereDate(dateStr) {
-        if (!dateStr) return ""
-        var date = new Date(dateStr)
-        return date.toLocaleDateString(Qt.locale(), "MMMM d, yyyy")
-    }
-    
 
-    
-    // Movie Backdrop
+    function calculateEndTime(ticks) {
+        if (!ticks || ticks === 0) return ""
+        var now = new Date()
+        var runtimeMs = ticks / 10000
+        var endTime = new Date(now.getTime() + runtimeMs)
+        return qsTr("Ends %1").arg(endTime.toLocaleTimeString(Qt.locale(), "h:mm AP"))
+    }
+
+    function formatCommunityRating() {
+        if (!communityRating || communityRating <= 0) return ""
+        return "★ " + communityRating.toFixed(1)
+    }
+
+    function watchedMinutes() {
+        return Math.round((playbackPositionTicks || 0) / 600000000)
+    }
+
+    function totalMinutes() {
+        return Math.round((runtimeTicks || 0) / 600000000)
+    }
+
+    function remainingMinutes() {
+        return Math.max(0, totalMinutes() - watchedMinutes())
+    }
+
+    function visibleExternalRatings() {
+        const ratings = externalRatings["ratings"] || []
+        const filtered = []
+        for (let i = 0; i < ratings.length; ++i) {
+            const rating = ratings[i]
+            if (!rating) {
+                continue
+            }
+            const value = rating.value
+            const score = rating.score
+            if ((value === undefined || value === null || value === "" || value === 0 || value === "0")
+                    && (score === undefined || score === null || score === "" || score === 0 || score === "0")) {
+                continue
+            }
+            filtered.push(rating)
+        }
+        return filtered
+    }
+
+    function normalizedRatingSource(source) {
+        const normalized = String(source || "").toLowerCase().replace(/\s+/g, "_")
+        if (normalized.indexOf("tomatoes") !== -1) return normalized.indexOf("audience") !== -1 ? "audience" : "tomatoes"
+        if (normalized.indexOf("imdb") !== -1) return "imdb"
+        if (normalized.indexOf("metacritic") !== -1) return "metacritic"
+        if (normalized.indexOf("tmdb") !== -1) return "tmdb"
+        if (normalized.indexOf("trakt") !== -1) return "trakt"
+        if (normalized.indexOf("letterboxd") !== -1) return "letterboxd"
+        if (normalized.indexOf("myanimelist") !== -1 || normalized === "mal") return "mal"
+        if (normalized.indexOf("anilist") !== -1) return "anilist"
+        if (normalized.indexOf("rogerebert") !== -1) return "rogerebert"
+        if (normalized.indexOf("kinopoisk") !== -1) return "kinopoisk"
+        if (normalized.indexOf("douban") !== -1) return "douban"
+        return normalized
+    }
+
+    function ratingLogoSource(source, score) {
+        const value = parseFloat(score) || 0
+        if (source === "imdb") return "qrc:/images/ratings/imdb.png"
+        if (source === "tmdb") return "qrc:/images/ratings/tmdb.png"
+        if (source === "mal") return "qrc:/images/ratings/mal.png"
+        if (source === "anilist") return "qrc:/images/ratings/anilist.png"
+        if (source === "trakt") return "qrc:/images/ratings/trakt.png"
+        if (source === "letterboxd") return "qrc:/images/ratings/letterboxd.png"
+        if (source === "metacritic") return "qrc:/images/ratings/metacritic.png"
+        if (source === "rogerebert") return "qrc:/images/ratings/rogerebert.png"
+        if (source === "kinopoisk") return "qrc:/images/ratings/kinopoisk.png"
+        if (source === "douban") return "qrc:/images/ratings/douban.png"
+        if (source === "tomatoes") {
+            if (value < 60) return "qrc:/images/ratings/tomatoes_rotten.png"
+            if (value >= 75) return "qrc:/images/ratings/tomatoes_certified.png"
+            return "qrc:/images/ratings/tomatoes.png"
+        }
+        if (source === "audience") {
+            if (value < 60) return "qrc:/images/ratings/audience_rotten.png"
+            return "qrc:/images/ratings/audience.png"
+        }
+        return ""
+    }
+
+    function ratingFallbackLabel(source, originalSource) {
+        if (source === "imdb") return "IMDb"
+        if (source === "tomatoes") return "RT"
+        if (source === "audience") return "Popcorn"
+        if (source === "metacritic") return "Meta"
+        if (source === "mal") return "MAL"
+        if (source === "anilist") return "AniList"
+        return String(originalSource || "")
+    }
+
+    function ratingDisplayValue(source, score) {
+        const value = parseFloat(score)
+        if (!isFinite(value) || value <= 0) {
+            return ""
+        }
+        if (source === "tomatoes" || source === "audience" || source === "rogerebert") {
+            return Math.round(value) + "%"
+        }
+        return Number.isInteger(value) ? String(value) : value.toFixed(1)
+    }
+
+    function itemIsDescendant(item, ancestor) {
+        let current = item
+        while (current) {
+            if (current === ancestor) {
+                return true
+            }
+            current = current.parent
+        }
+        return false
+    }
+
+    function hasPendingReturnStateForCurrentMovie() {
+        return restorePendingReturnState
+                && pendingReturnState
+                && String(pendingReturnState.movieId || "") === String(movieId || "")
+    }
+
+    function currentFocusArea() {
+        const activeItem = root.Window.activeFocusItem
+        if (!activeItem) {
+            return "hero"
+        }
+        if (itemIsDescendant(activeItem, playButton)
+                || itemIsDescendant(activeItem, markWatchedButton)
+                || itemIsDescendant(activeItem, contextMenuButton)) {
+            return "hero"
+        }
+        if (itemIsDescendant(activeItem, castList)) {
+            return "cast"
+        }
+        if (itemIsDescendant(activeItem, libraryRecommendationsList)) {
+            return "libraryRecommendations"
+        }
+        return "hero"
+    }
+
+    function currentFocusIndex() {
+        const area = currentFocusArea()
+        const activeItem = root.Window.activeFocusItem
+
+        if (area === "hero") {
+            if (itemIsDescendant(activeItem, markWatchedButton)) return 1
+            if (itemIsDescendant(activeItem, contextMenuButton)) return 2
+            return 0
+        }
+        if (area === "cast") return Math.max(0, castList.currentIndex)
+        if (area === "libraryRecommendations") return Math.max(0, libraryRecommendationsList.currentIndex)
+        return 0
+    }
+
+    function saveReturnState() {
+        return {
+            movieId: movieId,
+            focusArea: currentFocusArea(),
+            focusIndex: currentFocusIndex(),
+            contentY: contentFlickable.contentY
+        }
+    }
+
+    function focusCurrentViewItem(view) {
+        if (!view) {
+            return false
+        }
+        if (view.currentItem && typeof view.currentItem.forceActiveFocus === "function") {
+            view.currentItem.forceActiveFocus()
+            return true
+        }
+        if (typeof view.forceActiveFocus === "function") {
+            view.forceActiveFocus()
+            return true
+        }
+        return false
+    }
+
+    function restoreFocusToArea(area, index) {
+        const targetIndex = Math.max(0, index || 0)
+
+        if (area === "hero") {
+            if (targetIndex === 1 && markWatchedButton.visible) {
+                markWatchedButton.forceActiveFocus()
+            } else if (targetIndex === 2 && contextMenuButton.visible) {
+                contextMenuButton.forceActiveFocus()
+            } else {
+                playButton.forceActiveFocus()
+            }
+            return true
+        }
+
+        if (area === "cast" && castSection.visible && castList.count > 0) {
+            castList.currentIndex = Math.min(targetIndex, castList.count - 1)
+            castList.positionViewAtIndex(castList.currentIndex, ListView.Contain)
+            ensureItemVisible(castSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+            return focusCurrentViewItem(castList)
+        }
+
+        if (area === "libraryRecommendations" && libraryRecommendationsSection.visible && libraryRecommendationsList.count > 0) {
+            libraryRecommendationsList.currentIndex = Math.min(targetIndex, libraryRecommendationsList.count - 1)
+            libraryRecommendationsList.positionViewAtIndex(libraryRecommendationsList.currentIndex, ListView.Contain)
+            ensureItemVisible(libraryRecommendationsSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+            return focusCurrentViewItem(libraryRecommendationsList)
+        }
+
+        return false
+    }
+
+    function restoreReturnState(state) {
+        if (!state || String(state.movieId || "") !== String(movieId || "")) {
+            return false
+        }
+
+        if (state.contentY !== undefined && state.contentY >= 0) {
+            const maxScroll = Math.max(0, contentFlickable.contentHeight - contentFlickable.height)
+            contentFlickable.contentY = Math.min(state.contentY, maxScroll)
+        }
+
+        const desiredArea = state.focusArea || "hero"
+        const castReady = castList.count > 0
+        const recsReady = libraryRecommendationsList.count > 0
+        const castPending = isLoading
+        const recsPending = libraryRecommendationsLoading
+
+        if (desiredArea === "cast" && !castReady && !recsReady && (castPending || recsPending)) {
+            return false
+        }
+        if (desiredArea === "libraryRecommendations" && !recsReady && !castReady && (recsPending || castPending)) {
+            return false
+        }
+
+        if (restoreFocusToArea(desiredArea, state.focusIndex || 0)) {
+            return true
+        }
+
+        if (restoreFocusToArea("libraryRecommendations", state.focusIndex || 0)) {
+            return true
+        }
+
+        if (restoreFocusToArea("cast", state.focusIndex || 0)) {
+            return true
+        }
+
+        if (playButton.enabled) {
+            playButton.forceActiveFocus()
+            return true
+        }
+
+        focusFirstLowerSection()
+        return true
+    }
+
+    function tryRestorePendingReturnState() {
+        if (!hasPendingReturnStateForCurrentMovie() || restoringFocusFromReturnState) {
+            return
+        }
+
+        restoringFocusFromReturnState = true
+        const restored = restoreReturnState(pendingReturnState)
+        if (restored) {
+            focusTimer.stop()
+            suppressHeroAutofocus = true
+            returnStateConsumed()
+            heroAutofocusResetTimer.restart()
+        }
+        Qt.callLater(function() {
+            restoringFocusFromReturnState = false
+        })
+    }
+
+    function focusTarget(target) {
+        if (!target || !target.visible) {
+            return
+        }
+        if (typeof target.focusCurrentOrFirst === "function") {
+            target.focusCurrentOrFirst()
+            return
+        }
+        if (typeof target.forceActiveFocus === "function") {
+            target.forceActiveFocus()
+        }
+    }
+
+    function ensureItemVisible(item, topPadding, bottomPadding) {
+        if (!item) {
+            return
+        }
+
+        const pos = item.mapToItem(contentColumn, 0, 0)
+        const itemTop = pos.y
+        const itemBottom = itemTop + item.height
+        const viewportTop = contentFlickable.contentY
+        const viewportBottom = viewportTop + contentFlickable.height
+        const topInset = topPadding !== undefined ? topPadding : Math.round(48 * Theme.layoutScale)
+        const bottomInset = bottomPadding !== undefined ? bottomPadding : Math.round(96 * Theme.layoutScale)
+        const maxScroll = Math.max(0, contentFlickable.contentHeight - contentFlickable.height)
+
+        if (itemTop < viewportTop + topInset) {
+            contentFlickable.contentY = Math.max(0, itemTop - topInset)
+        } else if (itemBottom > viewportBottom - bottomInset) {
+            contentFlickable.contentY = Math.min(maxScroll, itemBottom - contentFlickable.height + bottomInset)
+        }
+    }
+
+    function ensureTopVisible() {
+        if (contentFlickable.contentY > 0) {
+            contentFlickable.contentY = 0
+        }
+    }
+
+    function focusFirstLowerSection() {
+        if (castSection.visible) {
+            castSection.focusCurrentOrFirst()
+        } else if (libraryRecommendationsSection.visible) {
+            libraryRecommendationsSection.focusCurrentOrFirst()
+        }
+    }
+
+    function nextSectionAfterCast() {
+        if (libraryRecommendationsSection.visible) {
+            return libraryRecommendationsSection
+        }
+        return null
+    }
+
+    Keys.onPressed: (event) => {
+        if (event.isAutoRepeat) {
+            event.accepted = true
+            return
+        }
+
+        if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
+            if (contextMenu.opened) {
+                contextMenu.close()
+                event.accepted = true
+                return
+            }
+            root.backRequested()
+            event.accepted = true
+        }
+    }
+
+    focus: true
+
+    onActiveFocusChanged: {
+        if (!activeFocus) {
+            return
+        }
+        if (restoringFocusFromSidebar
+                || restoringFocusFromReturnState
+                || suppressHeroAutofocus
+                || hasPendingReturnStateForCurrentMovie()) {
+            return
+        }
+        Qt.callLater(function() {
+            if (playButton && playButton.enabled) {
+                playButton.forceActiveFocus()
+            } else {
+                focusFirstLowerSection()
+            }
+        })
+    }
+
+    onMovieIdChanged: {
+        if (movieId !== "") {
+            MovieDetailsViewModel.loadMovieDetails(movieId)
+            playbackInfoLoading = true
+            playbackInfo = null
+            selectedAudioIndex = -1
+            selectedSubtitleIndex = -1
+            PlaybackService.getPlaybackInfo(movieId)
+        } else {
+            MovieDetailsViewModel.clear()
+            playbackInfo = null
+            playbackInfoLoading = false
+            selectedAudioIndex = -1
+            selectedSubtitleIndex = -1
+        }
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onPendingReturnStateChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onRestorePendingReturnStateChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onCastAndCrewChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onLibraryRecommendationsChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
     Rectangle {
-        id: backdropContainer
         anchors.fill: parent
-        z: 0
-        radius: Theme.radiusLarge
         color: "transparent"
+        z: -1
         clip: true
-        
+
         Image {
-            id: backdropImage
             anchors.fill: parent
-            source: backdropUrl
+            source: backdropUrl !== "" ? backdropUrl : posterUrl
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: true
-            
+            opacity: status === Image.Ready ? 1.0 : 0.0
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
+
             layer.enabled: true
             layer.effect: MultiEffect {
                 blurEnabled: true
-                blur: 0.6
+                blur: 0.58
                 blurMax: 48
             }
         }
-        
-        // Gradient overlay for readability
+
         Rectangle {
             anchors.fill: parent
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.3) }
-                GradientStop { position: 0.5; color: Qt.rgba(0, 0, 0, 0.6) }
-                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.9) }
+                GradientStop { position: 0.0; color: Qt.rgba(0.02, 0.02, 0.02, 0.30) }
+                GradientStop { position: 0.38; color: Qt.rgba(0.03, 0.03, 0.03, 0.62) }
+                GradientStop { position: 1.0; color: Qt.rgba(0.02, 0.02, 0.02, 0.93) }
             }
         }
     }
-    
-    // Main Content
-    RowLayout {
+
+    Item {
         anchors.fill: parent
-        anchors.margins: 64
-        spacing: Theme.spacingXLarge
-        z: 1
-        
-        // Left side - Movie details
+        visible: isLoading
+        z: 100
+
+        Rectangle {
+            anchors.fill: parent
+            color: Qt.rgba(0, 0, 0, 0.34)
+        }
+
+        BusyIndicator {
+            anchors.centerIn: parent
+            running: isLoading
+            width: Math.round(64 * Theme.layoutScale)
+            height: Math.round(64 * Theme.layoutScale)
+        }
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.verticalCenter
+            anchors.topMargin: Theme.spacingXLarge
+            text: qsTr("Loading movie details...")
+            font.pixelSize: Theme.fontSizeBody
+            font.family: Theme.fontPrimary
+            color: Theme.textSecondary
+        }
+    }
+
+    Flickable {
+        id: contentFlickable
+        anchors.fill: parent
+        anchors.margins: Theme.spacingLarge
+        contentWidth: width
+        contentHeight: contentColumn.implicitHeight + Math.round(180 * Theme.layoutScale)
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        flickableDirection: Flickable.VerticalFlick
+
+        Behavior on contentY {
+            NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic }
+        }
+
         ColumnLayout {
-            Layout.fillHeight: true
-            Layout.preferredWidth: parent.width * 0.6
-            spacing: Theme.spacingSmall * 2
-            
-            // Movie Logo (if available)
-            Item {
+            id: contentColumn
+            width: contentFlickable.width
+            spacing: Theme.spacingXLarge
+
+            Rectangle {
+                id: heroPanel
                 Layout.fillWidth: true
-                Layout.preferredHeight: logoUrl ? Math.round(Theme.seriesLogoHeight * 0.5) : 0
-                visible: logoUrl !== ""
-                
-                Image {
-                    id: logoImage
-                    anchors.left: parent.left
-                    width: Math.min(Math.round(Theme.seriesLogoMaxWidth * 0.5), parent.width)
-                    height: parent.height
-                    source: logoUrl
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                    cache: true
-                    opacity: status === Image.Ready ? 1.0 : 0.0
-                    Behavior on opacity { NumberAnimation { duration: 300 } }
-                }
-            }
-            
-            // Movie Title
-            Text {
-                visible: logoUrl === ""
-                text: movieName
-                font.pixelSize: Theme.fontSizeDisplay
-                font.family: Theme.fontPrimary
-                font.bold: true
-                color: Theme.textPrimary
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-            
-            // Metadata row
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacingMedium
-                
-                Text {
-                    visible: productionYear > 0
-                    text: productionYear.toString()
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                }
-                
-                Text {
-                    visible: officialRating !== ""
-                    text: officialRating
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                    
-                    Rectangle {
-                        anchors.fill: parent
-                        anchors.margins: -4
-                        z: -1
-                        color: "transparent"
-                        border.width: 1
-                        border.color: Theme.textSecondary
-                        radius: 2
+                Layout.preferredHeight: Math.max(heroPosterHeight + root.heroPanelPadding * 2,
+                                                 heroContent.implicitHeight + root.heroPanelPadding * 2)
+                radius: Theme.radiusLarge
+                color: Qt.rgba(0, 0, 0, 0.22)
+                border.width: 1
+                border.color: Qt.rgba(1, 1, 1, 0.10)
+
+                Rectangle {
+                    anchors.fill: parent
+                    radius: parent.radius
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.04) }
+                        GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, 0.01) }
                     }
-                }
-                
-                Text {
-                    visible: runtimeTicks > 0
-                    text: formatRuntime(runtimeTicks)
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                }
-                
-                Text {
-                    visible: communityRating > 0
-                    text: formatRating(communityRating)
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: "#FFD700"
                 }
 
-                // MDBList Ratings
-                Repeater {
-                    model: {
-                        var ratings = MovieDetailsViewModel.mdbListRatings["ratings"] || []
-                        var list = []
-                        for (var i = 0; i < ratings.length; i++) {
-                            var r = ratings[i]
-                            var val = r.value
-                            var sc = r.score
-                            
-                            // Skip if no score or if score/value is effectively "0"
-                            if (val === undefined || val === null || val === "" || val == 0 || val === "0") continue
-                            if (sc === undefined && val === undefined) continue
-                            if (sc == 0 || sc === "0") continue
-                            
-                            list.push(r)
-                        }
-                        return list
-                    }
-                    
-                    delegate: RowLayout {
-                        spacing: Math.round(4 * Theme.layoutScale)
-                        property var rating: modelData
-                        property string originalSource: rating.source || ""
-                        property var score: rating.score || rating.value
-                        
-                        // Normalize source for matching
-                        readonly property string normalizedSource: {
-                            var s = originalSource.toLowerCase().replace(/\s+/g, '_')
-                            if (s.indexOf("tomatoes") !== -1) return s.indexOf("audience") !== -1 ? "audience" : "tomatoes" 
-                            if (s.indexOf("imdb") !== -1) return "imdb"
-                            if (s.indexOf("metacritic") !== -1) return "metacritic"
-                            if (s.indexOf("tmdb") !== -1) return "tmdb"
-                            if (s.indexOf("trakt") !== -1) return "trakt"
-                            if (s.indexOf("letterboxd") !== -1) return "letterboxd"
-                            if (s.indexOf("myanimelist") !== -1 || s === "mal") return "mal"
-                            if (s.indexOf("anilist") !== -1) return "anilist"
-                            return s
-                        }
-                        
-                        // Source Logo
-                        Image {
-                            Layout.preferredWidth: 48
-                            Layout.preferredHeight: 16
-                            fillMode: Image.PreserveAspectFit
-                            
-                            source: {
-                                var s = normalizedSource
-                                var val = parseFloat(score) || 0
-                                
-                                if (s === "imdb") return "qrc:/images/ratings/imdb.png"
-                                if (s === "tmdb") return "qrc:/images/ratings/tmdb.png"
-                                if (s === "mal") return "qrc:/images/ratings/mal.png"
-                                if (s === "anilist") return "qrc:/images/ratings/anilist.png"
-                                if (s === "trakt") return "qrc:/images/ratings/trakt.png"
-                                if (s === "letterboxd") return "qrc:/images/ratings/letterboxd.png"
-                                if (s === "metacritic") return "qrc:/images/ratings/metacritic.png"
-                                if (s === "rogerebert") return "qrc:/images/ratings/rogerebert.png"
-                                if (s === "kinopoisk") return "qrc:/images/ratings/kinopoisk.png"
-                                if (s === "douban") return "qrc:/images/ratings/douban.png"
-                                
-                                if (s === "tomatoes") {
-                                    if (val < 60) return "qrc:/images/ratings/tomatoes_rotten.png"
-                                    if (val >= 75) return "qrc:/images/ratings/tomatoes_certified.png"
-                                    return "qrc:/images/ratings/tomatoes.png"
+                RowLayout {
+                    id: heroContent
+                    anchors.fill: parent
+                    anchors.margins: root.heroPanelPadding
+                    spacing: Theme.spacingXLarge
+
+                    Item {
+                        Layout.preferredWidth: heroPosterWidth
+                        Layout.preferredHeight: heroPosterHeight
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: Theme.imageRadius
+                            color: Theme.backgroundSecondary
+                            border.width: 1
+                            border.color: Qt.rgba(1, 1, 1, 0.08)
+
+                            Image {
+                                id: heroPosterImage
+                                anchors.fill: parent
+                                source: posterUrl
+                                fillMode: Image.PreserveAspectCrop
+                                asynchronous: true
+                                cache: true
+
+                                layer.enabled: true
+                                layer.effect: MultiEffect {
+                                    maskEnabled: true
+                                    maskSource: posterMask
                                 }
-                                
-                                if (s === "audience") {
-                                    if (val < 60) return "qrc:/images/ratings/audience_rotten.png"
-                                    return "qrc:/images/ratings/audience.png"
-                                }
-                                
-                                return ""
                             }
-                            
-                            // Fallback text if no logo found
+
+                            Rectangle {
+                                id: posterMask
+                                anchors.fill: parent
+                                radius: Theme.imageRadius
+                                visible: false
+                                layer.enabled: true
+                                layer.smooth: true
+                            }
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: Theme.imageRadius
+                                color: Qt.rgba(0.06, 0.06, 0.06, 0.55)
+                                visible: heroPosterImage.status !== Image.Ready
+                            }
+
                             Text {
                                 anchors.centerIn: parent
-                                visible: parent.status === Image.Error || parent.source == ""
-                                text: {
-                                    var s = normalizedSource
-                                    if (s === "imdb") return "IMDb"
-                                    if (s === "tomatoes") return "RT"
-                                    if (s === "audience") return "Popcorn"
-                                    if (s === "metacritic") return "Meta"
-                                    if (s === "mal") return "MAL"
-                                    if (s === "anilist") return "AniList"
-                                    return originalSource
-                                }
-                                font.pixelSize: Theme.fontSizeCaption
-                                font.family: Theme.fontPrimary
-                                font.bold: true
+                                text: Icons.movie
+                                visible: heroPosterImage.status !== Image.Ready
+                                font.family: Theme.fontIcon
+                                font.pixelSize: Math.round(76 * Theme.layoutScale)
                                 color: Theme.textSecondary
                             }
                         }
-                        
-                        // Score
-                        Text {
-                            text: {
-                                var val = parseFloat(score) || 0
-                                var s = normalizedSource
-                                // Percentage for RT/Audience
-                                if (s === "tomatoes" || s === "audience" || s === "rogerebert") return val + "%"
-                                return val
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        spacing: Theme.spacingMedium
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: logoUrl !== "" ? Math.min(Theme.seriesLogoHeight, Math.round(132 * Theme.layoutScale)) : titleFallback.implicitHeight
+
+                            Image {
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: Math.min(Theme.seriesLogoMaxWidth, parent.width)
+                                height: parent.height
+                                source: logoUrl
+                                fillMode: Image.PreserveAspectFit
+                                asynchronous: true
+                                cache: true
+                                visible: logoUrl !== ""
+                                opacity: status === Image.Ready ? 1.0 : 0.0
+                                Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
                             }
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            font.bold: true
-                            color: Theme.textPrimary
-                        }
-                    }
-                }
-                
-                Text {
-                    visible: runtimeTicks > 0
-                    text: calculateEndTime(runtimeTicks)
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                }
-            }
-            
-            // Genres row
-            RowLayout {
-                visible: genres.length > 0
-                Layout.fillWidth: true
-                spacing: Theme.spacingSmall
-                
-                Repeater {
-                    model: genres.slice(0, 4)  // Limit to 4 genres
-                    
-                    Rectangle {
-                        width: genreText.width + Theme.spacingSmall * 2
-                        height: Math.round(28 * Theme.layoutScale)
-                        radius: Math.round(14 * Theme.layoutScale)
-                        color: Theme.backgroundSecondary
-                        border.width: Theme.borderWidth
-                        border.color: Theme.borderLight
-                        
-                        Text {
-                            id: genreText
-                            anchors.centerIn: parent
-                            text: modelData
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                        }
-                    }
-                }
-            }
-            
-            // Action Buttons Row
-            RowLayout {
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.spacingSmall * 2
-                spacing: Theme.spacingSmall * 2
-                
-                // Play Button
-                Button {
-                    id: playButton
-                    text: playbackPositionTicks > 0 ? "▶ Resume" : "▶ Play"
-                    Layout.preferredWidth: 200
-                    Layout.preferredHeight: Theme.buttonHeightLarge
-                    
-                    KeyNavigation.right: markWatchedButton
-                    KeyNavigation.down: mediaInfoPanel.visible ? mediaInfoPanel : overviewText
-                    
-                    Keys.onReturnPressed: (event) => {
-                        if (event.isAutoRepeat) {
-                            event.accepted = true
-                            return
-                        }
-                        clicked()
-                        event.accepted = true
-                    }
-                    Keys.onEnterPressed: (event) => {
-                        if (event.isAutoRepeat) {
-                            event.accepted = true
-                            return
-                        }
-                        clicked()
-                        event.accepted = true
-                    }
-                    
-                    onClicked: {
-                        // Use startPlaybackWithTracks to include track selections
-                        root.startPlaybackWithTracks()
-                    }
-                    
-                    background: Rectangle {
-                        radius: Theme.radiusLarge
-                        color: {
-                            if (parent.down) return Theme.buttonPrimaryBackgroundPressed
-                            if (parent.hovered) return Theme.buttonPrimaryBackgroundHover
-                            return Theme.buttonPrimaryBackground
-                        }
-                        border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                        border.color: parent.activeFocus ? Theme.buttonPrimaryBorderFocused : Theme.buttonPrimaryBorder
-                        
-                        Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                        Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-                    }
-                    
-                    contentItem: Text {
-                        text: parent.text
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fontSizeMedium
-                        font.family: Theme.fontPrimary
-                        font.bold: true
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-                
-                // Mark Watched/Unwatched Button
-                Button {
-                    id: markWatchedButton
-                    text: isPlayed ? "Mark Unwatched" : "Mark Watched"
-                    Layout.preferredWidth: implicitWidth + 32
-                    Layout.preferredHeight: Theme.buttonHeightLarge
-                    
-                    KeyNavigation.left: playButton
-                    KeyNavigation.down: mediaInfoPanel.visible ? mediaInfoPanel : overviewText
-                    
-                    Keys.onReturnPressed: (event) => {
-                        if (event.isAutoRepeat) {
-                            event.accepted = true
-                            return
-                        }
-                        clicked()
-                        event.accepted = true
-                    }
-                    Keys.onEnterPressed: (event) => {
-                        if (event.isAutoRepeat) {
-                            event.accepted = true
-                            return
-                        }
-                        clicked()
-                        event.accepted = true
-                    }
-                    
-                    onClicked: {
-                        console.log("Marking movie", isPlayed ? "unwatched" : "watched")
-                        if (isPlayed) {
-                            MovieDetailsViewModel.markAsUnwatched()
-                        } else {
-                            MovieDetailsViewModel.markAsWatched()
-                        }
-                    }
-                    
-                    background: Rectangle {
-                        radius: Theme.radiusLarge
-                        color: {
-                            if (parent.down) return Theme.buttonSecondaryBackgroundPressed
-                            if (parent.hovered) return Theme.buttonSecondaryBackgroundHover
-                            return Theme.buttonSecondaryBackground
-                        }
-                        border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                        border.color: {
-                            if (parent.activeFocus) return Theme.buttonSecondaryBorderFocused
-                            if (parent.hovered) return Theme.buttonSecondaryBorderHover
-                            return Theme.buttonSecondaryBorder
-                        }
-                        
-                        Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                        Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-                    }
-                    
-                    contentItem: Text {
-                        text: parent.text
-                        color: Theme.textPrimary
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                }
-            }
-            
-            // Progress bar (if partially watched)
-            ColumnLayout {
-                visible: playbackPositionTicks > 0 && !isPlayed
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.spacingSmall
-                spacing: Math.round(4 * Theme.layoutScale)
-                
-                RowLayout {
-                    Layout.fillWidth: true
-                    
-                    Text {
-                        property var watchedMinutes: Math.round(playbackPositionTicks / 600000000)
-                        property var totalMinutes: Math.round(runtimeTicks / 600000000)
-                        text: watchedMinutes + " of " + totalMinutes + " min watched"
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                    }
-                    
-                    Item { Layout.fillWidth: true }
-                    
-                    Text {
-                        property var remainingMinutes: Math.round((runtimeTicks - playbackPositionTicks) / 600000000)
-                        text: remainingMinutes + " min remaining"
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                    }
-                }
-                
-                Rectangle {
-                    Layout.fillWidth: true
-                    height: Math.round(6 * Theme.layoutScale)
-                    radius: Math.round(3 * Theme.layoutScale)
-                    color: Qt.rgba(1, 1, 1, 0.2)
-                    
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.top: parent.top
-                        anchors.bottom: parent.bottom
-                        width: parent.width * Math.min(1, playbackPositionTicks / runtimeTicks)
-                        radius: 3
-                        color: Theme.accentPrimary
-                    }
-                }
-            }
-            
-            // Media Info Panel - Video/Audio/Subtitle selection
-            MediaInfoPanel {
-                id: mediaInfoPanel
-                Layout.fillWidth: true
-                Layout.topMargin: Theme.spacingSmall * 2
-                Layout.preferredWidth: 350
-                Layout.maximumHeight: 250
-                visible: currentMediaSource !== null && !playbackInfoLoading
-                
-                mediaSource: root.currentMediaSource
-                selectedAudioIndex: root.selectedAudioIndex
-                selectedSubtitleIndex: root.selectedSubtitleIndex
-                
-                KeyNavigation.up: playButton
-                KeyNavigation.down: overviewText
-                
-                onAudioTrackChanged: function(index) {
-                    root.selectedAudioIndex = index
-                    console.log("[MovieDetailsView] Audio track changed to", index, "movieId:", root.movieId)
-                    if (root.movieId) {
-                        PlayerController.setExplicitMovieAudioPreference(root.movieId, index)
-                    }
-                }
-                
-                onSubtitleTrackChanged: function(index) {
-                    root.selectedSubtitleIndex = index
-                    console.log("[MovieDetailsView] Subtitle track changed to", index, "movieId:", root.movieId)
-                    if (root.movieId) {
-                        PlayerController.setExplicitMovieSubtitlePreference(root.movieId, index)
-                    }
-                }
-            }
-            
-            // Overview/Description
-            ScrollView {
-                id: overviewScrollView
-                Layout.fillWidth: true
-                Layout.fillHeight: true
-                Layout.topMargin: Theme.spacingMedium
-                clip: true
-                
-                contentWidth: availableWidth
-                ScrollBar.vertical.policy: ScrollBar.AsNeeded
-                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-                
-                Text {
-                    id: overviewText
-                    width: overviewScrollView.availableWidth
-                    text: overview || "No description available."
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                    wrapMode: Text.WordWrap
-                    opacity: activeFocus ? 1.0 : 0.85
-                    focus: true
-                    
-                    KeyNavigation.up: mediaInfoPanel.visible ? mediaInfoPanel : playButton
-                    
-                    Keys.onUpPressed: (event) => {
-                        var step = 40
-                        if (overviewScrollView.contentY > 0) {
-                            overviewScrollView.contentY = Math.max(0, overviewScrollView.contentY - step)
-                            event.accepted = true
-                        } else {
-                            event.accepted = false
-                        }
-                    }
-                    Keys.onDownPressed: (event) => {
-                        var step = 40
-                        var maxScroll = height - overviewScrollView.height
-                        if (maxScroll > 0 && overviewScrollView.contentY < maxScroll) {
-                            overviewScrollView.contentY = Math.min(maxScroll, overviewScrollView.contentY + step)
-                            event.accepted = true
-                        } else {
-                            event.accepted = false
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Right side - Movie Poster
-        Item {
-            Layout.fillHeight: true
-            Layout.preferredWidth: parent.width * 0.35
-            
-            // Movie poster card
-            Rectangle {
-                id: posterCard
-                anchors.top: parent.top
-                anchors.right: parent.right
-                width: Math.min(parent.width, 350)
-                height: width * 1.5 // 2:3 aspect ratio
-                radius: Theme.radiusLarge
-                antialiasing: true
-                color: Theme.cardBackground
-                border.width: Theme.borderWidth
-                border.color: Theme.cardBorder
-                clip: true
-                
-                layer.enabled: true
-                layer.smooth: true
-                layer.effect: MultiEffect {
-                    shadowEnabled: true
-                    shadowHorizontalOffset: 0
-                    shadowVerticalOffset: 12
-                    shadowBlur: 0.6
-                    shadowColor: Qt.rgba(0, 0, 0, 0.5)
-                }
-                
-                // Poster image container with rounded corners
-                Rectangle {
-                    id: posterImageContainer
-                    anchors.fill: parent
-                    anchors.margins: 8
-                    radius: Theme.imageRadius
-                    antialiasing: true
-                    color: "transparent"
-                    clip: false
-                    
-                    Image {
-                        id: posterImage
-                        anchors.fill: parent
-                        source: posterUrl
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: true
-                        visible: true
 
-                        layer.enabled: true
-                        layer.effect: MultiEffect {
-                            maskEnabled: true
-                            maskSource: posterMask
+                            Text {
+                                id: titleFallback
+                                anchors.left: parent.left
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width
+                                text: movieName
+                                visible: logoUrl === ""
+                                font.pixelSize: Theme.fontSizeDisplay
+                                font.family: Theme.fontPrimary
+                                font.weight: Font.Black
+                                color: Theme.textPrimary
+                                wrapMode: Text.WordWrap
+                            }
                         }
+
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingSmall
+
+                            MetadataChip { text: productionYear > 0 ? String(productionYear) : "" }
+                            MetadataChip { text: officialRating }
+                            MetadataChip { text: formatRuntime(runtimeTicks) }
+                            MetadataChip { text: calculateEndTime(runtimeTicks) }
+                            MetadataChip { text: formatCommunityRating() }
+
+                            Repeater {
+                                model: root.visibleExternalRatings()
+
+                                RatingMetadataChip {
+                                    required property var modelData
+                                    ratingData: modelData
+                                }
+                            }
+                        }
+
+                        Flow {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingSmall
+
+                            Repeater {
+                                model: genres || []
+
+                                MetadataChip {
+                                    required property var modelData
+                                    text: modelData
+                                }
+                            }
+                        }
+
+                        Item {
+                            id: overviewContainer
+                            Layout.fillWidth: true
+                            Layout.minimumHeight: Math.round(148 * Theme.layoutScale)
+                            Layout.preferredHeight: overviewColumn.implicitHeight
+
+                            property bool expanded: false
+                            readonly property int collapsedHeight: Math.round(150 * Theme.layoutScale)
+                            property bool hasOverflow: overviewText.implicitHeight > collapsedHeight
+
+                            ColumnLayout {
+                                id: overviewColumn
+                                anchors.fill: parent
+                                spacing: Math.round(10 * Theme.layoutScale)
+
+                                Item {
+                                    id: overviewTextArea
+                                    Layout.fillWidth: true
+                                    Layout.preferredHeight: overviewContainer.expanded
+                                                            ? overviewText.implicitHeight
+                                                            : Math.min(overviewText.implicitHeight, overviewContainer.collapsedHeight)
+                                    clip: true
+
+                                    Text {
+                                        id: overviewText
+                                        width: parent.width
+                                        text: movieOverview || qsTr("No description available.")
+                                        font.pixelSize: Theme.fontSizeBody
+                                        font.family: Theme.fontPrimary
+                                        font.weight: Font.Medium
+                                        color: Theme.textPrimary
+                                        wrapMode: Text.WordWrap
+                                    }
+
+                                    Rectangle {
+                                        anchors.left: parent.left
+                                        anchors.right: parent.right
+                                        anchors.bottom: parent.bottom
+                                        height: Math.round(56 * Theme.layoutScale)
+                                        visible: !overviewContainer.expanded && overviewContainer.hasOverflow
+                                        gradient: Gradient {
+                                            GradientStop { position: 0.0; color: "transparent" }
+                                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.92) }
+                                        }
+                                    }
+                                }
+
+                                Button {
+                                    id: readMoreButton
+                                    visible: overviewContainer.hasOverflow
+                                    Layout.alignment: Qt.AlignLeft
+                                    padding: 0
+                                    implicitHeight: Math.round(34 * Theme.layoutScale)
+                                    implicitWidth: readMoreRow.implicitWidth + Math.round(22 * Theme.layoutScale)
+
+                                    background: Rectangle {
+                                        radius: Theme.radiusMedium
+                                        color: {
+                                            if (readMoreButton.down) return Qt.rgba(1, 1, 1, 0.18)
+                                            if (readMoreButton.hovered || readMoreButton.activeFocus) return Qt.rgba(1, 1, 1, 0.13)
+                                            return Qt.rgba(0, 0, 0, 0.24)
+                                        }
+                                        border.width: readMoreButton.activeFocus ? Theme.buttonFocusBorderWidth : 1
+                                        border.color: readMoreButton.activeFocus ? Theme.buttonSecondaryBorderFocused : Qt.rgba(1, 1, 1, 0.14)
+                                    }
+
+                                    contentItem: Item {
+                                        implicitWidth: readMoreRow.implicitWidth
+                                        implicitHeight: readMoreRow.implicitHeight
+
+                                        RowLayout {
+                                            id: readMoreRow
+                                            anchors.centerIn: parent
+                                            spacing: Math.round(6 * Theme.layoutScale)
+
+                                            Text {
+                                                text: overviewContainer.expanded ? qsTr("Show Less") : qsTr("Read More")
+                                                font.pixelSize: Theme.fontSizeSmall
+                                                font.family: Theme.fontPrimary
+                                                font.weight: Font.Black
+                                                color: Theme.textPrimary
+                                                Layout.alignment: Qt.AlignVCenter
+                                            }
+
+                                            Text {
+                                                text: overviewContainer.expanded ? Icons.expandLess : Icons.expandMore
+                                                font.family: Theme.fontIcon
+                                                font.pixelSize: Theme.fontSizeIcon
+                                                color: Theme.textPrimary
+                                                Layout.alignment: Qt.AlignVCenter
+                                            }
+                                        }
+                                    }
+
+                                    onClicked: overviewContainer.expanded = !overviewContainer.expanded
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            Layout.bottomMargin: root.heroActionsBottomSpacing
+                            spacing: Theme.spacingMedium
+
+                            Button {
+                                id: playButton
+                                text: playbackPositionTicks > 0 ? qsTr("Resume") : qsTr("Play")
+                                enabled: movieId !== ""
+                                Layout.preferredHeight: Theme.buttonHeightLarge
+                                Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
+
+                                KeyNavigation.right: markWatchedButton
+
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        root.ensureTopVisible()
+                                    }
+                                }
+
+                                Keys.onDownPressed: (event) => {
+                                    root.focusFirstLowerSection()
+                                    event.accepted = true
+                                }
+
+                                Keys.onReturnPressed: (event) => {
+                                    if (!event.isAutoRepeat && enabled) {
+                                        clicked()
+                                        event.accepted = true
+                                    }
+                                }
+
+                                Keys.onEnterPressed: (event) => {
+                                    if (!event.isAutoRepeat && enabled) {
+                                        clicked()
+                                        event.accepted = true
+                                    }
+                                }
+
+                                onClicked: root.startPlaybackWithTracks()
+
+                                background: Rectangle {
+                                    radius: Theme.radiusMedium
+                                    gradient: Gradient {
+                                        GradientStop {
+                                            position: 0.0
+                                            color: !playButton.enabled
+                                                   ? Qt.rgba(0.12, 0.12, 0.12, 0.55)
+                                                   : (playButton.down
+                                                      ? Theme.buttonPrimaryBackgroundPressed
+                                                      : playButton.hovered
+                                                        ? Theme.buttonPrimaryBackgroundHover
+                                                        : Theme.buttonPrimaryBackground)
+                                        }
+                                        GradientStop {
+                                            position: 1.0
+                                            color: !playButton.enabled
+                                                   ? Qt.rgba(0.08, 0.08, 0.08, 0.55)
+                                                   : (playButton.down
+                                                      ? Qt.darker(Theme.buttonPrimaryBackgroundPressed, 1.1)
+                                                      : playButton.hovered
+                                                        ? Qt.darker(Theme.buttonPrimaryBackgroundHover, 1.08)
+                                                        : Qt.darker(Theme.buttonPrimaryBackground, 1.12))
+                                        }
+                                    }
+                                    border.width: playButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                                    border.color: playButton.activeFocus ? Theme.buttonPrimaryBorderFocused : Qt.rgba(1, 1, 1, 0.12)
+
+                                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                                }
+
+                                contentItem: RowLayout {
+                                    implicitWidth: playInnerRow.implicitWidth
+                                    implicitHeight: playInnerRow.implicitHeight
+                                    anchors.centerIn: parent
+
+                                    RowLayout {
+                                        id: playInnerRow
+                                        anchors.centerIn: parent
+                                        spacing: Theme.spacingSmall
+
+                                        Text {
+                                            text: Icons.playArrow
+                                            font.family: Theme.fontIcon
+                                            font.pixelSize: Theme.fontSizeIcon
+                                            color: Theme.textPrimary
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
+
+                                        Text {
+                                            text: playButton.text
+                                            font.pixelSize: Theme.fontSizeBody
+                                            font.family: Theme.fontPrimary
+                                            font.weight: Font.Black
+                                            color: Theme.textPrimary
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
+                                    }
+                                }
+                            }
+
+                            SecondaryActionButton {
+                                id: markWatchedButton
+                                text: isPlayed ? qsTr("Mark Unwatched") : qsTr("Mark Watched")
+                                iconGlyph: isPlayed ? Icons.visibilityOff : Icons.visibility
+                                Layout.preferredHeight: Theme.buttonHeightLarge
+
+                                KeyNavigation.left: playButton
+                                KeyNavigation.right: contextMenuButton
+
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        root.ensureTopVisible()
+                                    }
+                                }
+
+                                Keys.onDownPressed: (event) => {
+                                    root.focusFirstLowerSection()
+                                    event.accepted = true
+                                }
+
+                                Keys.onReturnPressed: (event) => {
+                                    if (!event.isAutoRepeat) {
+                                        clicked()
+                                        event.accepted = true
+                                    }
+                                }
+
+                                Keys.onEnterPressed: (event) => {
+                                    if (!event.isAutoRepeat) {
+                                        clicked()
+                                        event.accepted = true
+                                    }
+                                }
+
+                                onClicked: {
+                                    if (isPlayed) {
+                                        MovieDetailsViewModel.markAsUnwatched()
+                                    } else {
+                                        MovieDetailsViewModel.markAsWatched()
+                                    }
+                                }
+                            }
+
+                            SecondaryActionButton {
+                                id: contextMenuButton
+                                text: ""
+                                iconGlyph: Icons.moreVert
+                                implicitWidth: Theme.buttonIconSize
+                                Layout.preferredHeight: Theme.buttonHeightLarge
+                                Layout.preferredWidth: Theme.buttonIconSize
+
+                                KeyNavigation.left: markWatchedButton
+
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        root.ensureTopVisible()
+                                    }
+                                }
+
+                                Keys.onDownPressed: (event) => {
+                                    root.focusFirstLowerSection()
+                                    event.accepted = true
+                                }
+
+                                Keys.onReturnPressed: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
+                                Keys.onEnterPressed: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
+                                onClicked: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
+
+                                ToolTip.visible: hovered
+                                ToolTip.text: qsTr("More options")
+                                ToolTip.delay: 500
+                            }
+
+                            Item { Layout.fillWidth: true }
+                        }
+
+                        ColumnLayout {
+                            visible: playbackPositionTicks > 0 && !isPlayed
+                            Layout.fillWidth: true
+                            spacing: Math.round(4 * Theme.layoutScale)
+
+                            RowLayout {
+                                Layout.fillWidth: true
+
+                                Text {
+                                    text: qsTr("%1 of %2 min watched").arg(root.watchedMinutes()).arg(root.totalMinutes())
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                    color: Theme.textSecondary
+                                }
+
+                                Item { Layout.fillWidth: true }
+
+                                Text {
+                                    text: qsTr("%1 min remaining").arg(root.remainingMinutes())
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                    color: Theme.textSecondary
+                                }
+                            }
+
+                            Rectangle {
+                                Layout.fillWidth: true
+                                height: Math.round(6 * Theme.layoutScale)
+                                radius: Math.round(3 * Theme.layoutScale)
+                                color: Qt.rgba(1, 1, 1, 0.2)
+
+                                Rectangle {
+                                    anchors.left: parent.left
+                                    anchors.top: parent.top
+                                    anchors.bottom: parent.bottom
+                                    width: runtimeTicks > 0 ? parent.width * Math.min(1, playbackPositionTicks / runtimeTicks) : 0
+                                    radius: 3
+                                    color: Theme.accentPrimary
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            FocusScope {
+                id: castSection
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                visible: castAndCrew.length > 0
+                implicitHeight: castSectionContent.implicitHeight
+
+                function focusCurrentOrFirst() {
+                    if (castList.count <= 0) {
+                        return
+                    }
+                    castList.currentIndex = Math.max(0, castList.currentIndex)
+                    castList.forceActiveFocus()
+                }
+
+                ColumnLayout {
+                    id: castSectionContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    spacing: Theme.spacingMedium
+
+                    Text {
+                        text: qsTr("Cast & Crew")
+                        font.pixelSize: Theme.fontSizeHeader
+                        font.family: Theme.fontPrimary
+                        font.weight: Font.Black
+                        color: Theme.textPrimary
                     }
 
-                    Rectangle {
-                        id: posterMask
-                        anchors.fill: parent
-                        radius: Theme.imageRadius
-                        visible: false
-                        layer.enabled: true
-                        layer.smooth: true
-                    }
-                    
-                    // Play icon overlay
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: Math.round(80 * Theme.layoutScale)
-                        height: Math.round(80 * Theme.layoutScale)
-                        radius: Math.round(40 * Theme.layoutScale)
-                        color: Qt.rgba(0, 0, 0, 0.7)
-                        visible: posterImage.status === Image.Ready
-                        
-                        Text {
-                            anchors.centerIn: parent
-                            text: Icons.playArrow
-                            font.pixelSize: Theme.fontSizeDisplay
-                            font.family: Theme.fontIcon
-                            color: Theme.textPrimary
+                    ListView {
+                        id: castList
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
+                        orientation: ListView.Horizontal
+                        spacing: Theme.spacingMedium
+                        model: castAndCrew
+                        clip: false
+                        interactive: false
+                        boundsBehavior: Flickable.StopAtBounds
+                        leftMargin: Math.round(8 * Theme.layoutScale)
+                        rightMargin: Math.round(8 * Theme.layoutScale)
+                        topMargin: Math.round(8 * Theme.layoutScale)
+                        bottomMargin: Math.round(8 * Theme.layoutScale)
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root.ensureItemVisible(castSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+                            }
                         }
-                        
-                        MouseArea {
+
+                        onCurrentIndexChanged: {
+                            if (activeFocus && currentIndex >= 0) {
+                                positionViewAtIndex(currentIndex, ListView.Contain)
+                            }
+                        }
+
+                        delegate: FocusScope {
+                            id: castDelegate
+
+                            required property int index
+                            required property var modelData
+
+                            width: root.peopleCardWidth
+                            height: root.peopleCardHeight
+
+                            Keys.onLeftPressed: (event) => {
+                                if (index > 0) {
+                                    castList.currentIndex = index - 1
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
+                                }
+                            }
+
+                            Keys.onRightPressed: {
+                                if (index + 1 < castList.count) {
+                                    castList.currentIndex = index + 1
+                                }
+                            }
+
+                            Keys.onUpPressed: {
+                                playButton.forceActiveFocus()
+                            }
+
+                            Keys.onDownPressed: {
+                                root.focusTarget(root.nextSectionAfterCast())
+                            }
+
+                            Keys.onReturnPressed: (event) => {
+                                event.accepted = true
+                            }
+
+                            Keys.onEnterPressed: (event) => {
+                                event.accepted = true
+                            }
+
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    castList.currentIndex = index
+                                }
+                            }
+
+                            PersonCard {
+                                anchors.fill: parent
+                                itemData: modelData
+                                isFocused: castList.activeFocus && castList.currentIndex === index
+                            }
+                        }
+
+                        WheelStepScroller {
                             anchors.fill: parent
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: root.startPlaybackWithTracks()
-                        }
-                    }
-                    
-                    // Placeholder
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: Theme.imageRadius
-                        color: Qt.rgba(0.15, 0.15, 0.15, 0.9)
-                        visible: posterImage.status !== Image.Ready
-                        
-                        Text {
-                            anchors.centerIn: parent
-                            text: movieName ? movieName.charAt(0).toUpperCase() : "?"
-                            font.pixelSize: Theme.fontSizeDisplay
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
+                            target: castList
+                            orientation: Qt.Horizontal
+                            stepPx: root.peopleCardWidth + Theme.spacingMedium
                         }
                     }
                 }
             }
-            
-            // Watched badge
-            Rectangle {
-                visible: isPlayed
-                anchors.top: posterCard.bottom
-                anchors.topMargin: Theme.spacingSmall * 2
-                anchors.horizontalCenter: posterCard.horizontalCenter
-                width: watchedLabel.width + Theme.spacingMedium
-                height: Theme.spacingLarge
-                radius: 16
-                color: Theme.accentSecondary
-                
-                Row {
-                    id: watchedLabel
-                    anchors.centerIn: parent
-                    spacing: Math.round(4 * Theme.layoutScale)
-                    Text {
-                        text: Icons.check
-                        font.family: Theme.fontIcon
-                        font.pixelSize: Theme.fontSizeSmall
-                        color: Theme.textPrimary
-                        anchors.verticalCenter: parent.verticalCenter
+
+            FocusScope {
+                id: libraryRecommendationsSection
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                visible: libraryRecommendationsLoading || libraryRecommendations.length > 0
+                implicitHeight: libraryRecommendationsContent.implicitHeight
+
+                function focusCurrentOrFirst() {
+                    if (libraryRecommendationsList.count <= 0) {
+                        return
                     }
+                    libraryRecommendationsList.currentIndex = Math.max(0, libraryRecommendationsList.currentIndex)
+                    libraryRecommendationsList.forceActiveFocus()
+                }
+
+                ColumnLayout {
+                    id: libraryRecommendationsContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    spacing: Theme.spacingMedium
+
                     Text {
-                        text: "Watched"
-                        font.pixelSize: Theme.fontSizeSmall
+                        text: qsTr("Recommended From Your Library")
+                        font.pixelSize: Theme.fontSizeHeader
                         font.family: Theme.fontPrimary
-                        font.bold: true
+                        font.weight: Font.Black
                         color: Theme.textPrimary
-                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.round(120 * Theme.layoutScale)
+                        visible: libraryRecommendationsLoading && libraryRecommendations.length === 0
+                        radius: Theme.radiusMedium
+                        color: Qt.rgba(1, 1, 1, 0.05)
+                        border.width: 1
+                        border.color: Theme.cardBorder
+
+                        BusyIndicator {
+                            anchors.centerIn: parent
+                            running: parent.visible
+                        }
+                    }
+
+                    ListView {
+                        id: libraryRecommendationsList
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: root.recommendationCardHeight + Math.round(16 * Theme.layoutScale)
+                        visible: libraryRecommendations.length > 0
+                        orientation: ListView.Horizontal
+                        spacing: Theme.spacingMedium
+                        model: libraryRecommendations
+                        clip: false
+                        interactive: false
+                        boundsBehavior: Flickable.StopAtBounds
+                        leftMargin: root.shelfEdgePadding
+                        rightMargin: root.shelfEdgePadding
+                        topMargin: Math.round(8 * Theme.layoutScale)
+                        bottomMargin: Math.round(8 * Theme.layoutScale)
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root.ensureItemVisible(libraryRecommendationsSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+                            }
+                        }
+
+                        onCurrentIndexChanged: {
+                            if (activeFocus && currentIndex >= 0) {
+                                positionViewAtIndex(currentIndex, ListView.Contain)
+                            }
+                        }
+
+                        delegate: FocusScope {
+                            id: libraryDelegate
+
+                            required property int index
+                            required property var modelData
+
+                            width: root.recommendationCardWidth
+                            height: root.recommendationCardHeight
+
+                            Keys.onLeftPressed: (event) => {
+                                if (index > 0) {
+                                    libraryRecommendationsList.currentIndex = index - 1
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
+                                }
+                            }
+
+                            Keys.onRightPressed: {
+                                if (index + 1 < libraryRecommendationsList.count) {
+                                    libraryRecommendationsList.currentIndex = index + 1
+                                }
+                            }
+
+                            Keys.onUpPressed: {
+                                if (castSection.visible) {
+                                    castSection.focusCurrentOrFirst()
+                                } else {
+                                    playButton.forceActiveFocus()
+                                }
+                            }
+
+                            Keys.onDownPressed: (event) => {
+                                event.accepted = true
+                            }
+
+                            Keys.onReturnPressed: {
+                                root.itemSelected(modelData)
+                            }
+
+                            Keys.onEnterPressed: {
+                                root.itemSelected(modelData)
+                            }
+
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    libraryRecommendationsList.currentIndex = index
+                                }
+                            }
+
+                            RecommendationPosterCard {
+                                anchors.fill: parent
+                                itemData: modelData
+                                isFocused: libraryRecommendationsList.activeFocus && libraryRecommendationsList.currentIndex === index
+                                onClicked: {
+                                    libraryDelegate.forceActiveFocus()
+                                    libraryRecommendationsList.currentIndex = index
+                                    root.itemSelected(modelData)
+                                }
+                            }
+                        }
+
+                        WheelStepScroller {
+                            anchors.fill: parent
+                            target: libraryRecommendationsList
+                            orientation: Qt.Horizontal
+                            stepPx: root.recommendationCardWidth + Theme.spacingMedium
+                        }
                     }
                 }
             }
         }
     }
-    
-    // Load playback info when movie changes
 
-    
+    Menu {
+        id: contextMenu
 
-    
-    // Connection to receive playback info
+        background: Rectangle {
+            implicitWidth: Math.round(280 * Theme.layoutScale)
+            color: Theme.cardBackground
+            radius: Theme.radiusMedium
+            border.color: Theme.cardBorder
+            border.width: 1
+
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                shadowEnabled: true
+                shadowHorizontalOffset: 0
+                shadowVerticalOffset: 4
+                shadowBlur: 0.5
+                shadowColor: "#44000000"
+            }
+        }
+
+        delegate: MenuItem {
+            id: menuItem
+            implicitWidth: Math.round(240 * Theme.layoutScale)
+            implicitHeight: Math.round(40 * Theme.layoutScale)
+
+            arrow: Canvas {
+                x: parent.width - width - 12
+                y: parent.height / 2 - height / 2
+                width: 12
+                height: 12
+                visible: menuItem.subMenu
+                onPaint: {
+                    const ctx = getContext("2d")
+                    ctx.fillStyle = menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
+                    ctx.moveTo(0, 0)
+                    ctx.lineTo(0, height)
+                    ctx.lineTo(width, height / 2)
+                    ctx.closePath()
+                    ctx.fill()
+                }
+            }
+
+            contentItem: Text {
+                text: menuItem.text
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                color: menuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: Theme.spacingSmall
+                rightPadding: menuItem.arrow.width + 12
+            }
+
+            background: Rectangle {
+                implicitWidth: Math.round(240 * Theme.layoutScale)
+                implicitHeight: Math.round(40 * Theme.layoutScale)
+                opacity: enabled ? 1 : 0.3
+                color: menuItem.highlighted ? Theme.hoverOverlay : "transparent"
+                radius: Theme.radiusSmall
+            }
+        }
+
+        onOpened: {
+            currentIndex = 0
+            forceActiveFocus()
+            if (currentMediaSource) {
+                var resolved = PlayerController.resolveTrackSelectionForMediaSource(currentMediaSource, root.movieId, true)
+                selectedAudioIndex = resolved.audioIndex
+                selectedSubtitleIndex = resolved.subtitleIndex
+            }
+        }
+
+        onClosed: {
+            Qt.callLater(function() {
+                contextMenuButton.forceActiveFocus()
+            })
+        }
+
+        MenuItem {
+            id: watchedMenuItem
+            text: isPlayed ? qsTr("Mark as Unwatched") : qsTr("Mark as Watched")
+
+            contentItem: Text {
+                text: watchedMenuItem.text
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                color: watchedMenuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: Theme.spacingSmall
+                rightPadding: Theme.spacingSmall
+            }
+
+            background: Rectangle {
+                implicitWidth: Math.round(240 * Theme.layoutScale)
+                implicitHeight: Math.round(40 * Theme.layoutScale)
+                opacity: watchedMenuItem.enabled ? 1 : 0.3
+                color: watchedMenuItem.highlighted ? Theme.hoverOverlay : "transparent"
+                radius: Theme.radiusSmall
+            }
+
+            onTriggered: {
+                if (isPlayed) {
+                    MovieDetailsViewModel.markAsUnwatched()
+                } else {
+                    MovieDetailsViewModel.markAsWatched()
+                }
+                contextMenu.close()
+            }
+        }
+
+        MenuSeparator {
+            contentItem: Rectangle {
+                implicitHeight: 1
+                color: Theme.borderLight
+            }
+        }
+
+        Menu {
+            id: audioMenu
+            title: qsTr("Audio: %1").arg(root.selectedAudioSummary())
+            enabled: getAudioStreams().length > 0
+
+            background: Rectangle {
+                implicitWidth: Math.round(280 * Theme.layoutScale)
+                color: Theme.cardBackground
+                radius: Theme.radiusMedium
+                border.color: Theme.cardBorder
+                border.width: 1
+            }
+
+            Repeater {
+                model: getAudioStreams()
+
+                MenuItem {
+                    id: audioMenuItem
+                    required property var modelData
+
+                    text: TrackUtils.formatTrackName(modelData)
+                    checkable: true
+                    checked: modelData.index === selectedAudioIndex
+                    indicator: Item {}
+
+                    contentItem: RowLayout {
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: audioMenuItem.checked ? "✓" : "  "
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.accentPrimary
+                            Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: scrollingAudioText.height
+                            clip: true
+
+                            Text {
+                                id: scrollingAudioText
+                                text: audioMenuItem.text
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+
+                                SequentialAnimation on x {
+                                    running: scrollingAudioText.width > parent.width && audioMenuItem.highlighted
+                                    loops: Animation.Infinite
+
+                                    PauseAnimation { duration: 1000 }
+                                    NumberAnimation {
+                                        to: -scrollingAudioText.width + parent.width
+                                        duration: Math.max(1000, (scrollingAudioText.width - parent.width) * 20)
+                                        easing.type: Easing.Linear
+                                    }
+                                    PauseAnimation { duration: 1000 }
+                                    NumberAnimation {
+                                        to: 0
+                                        duration: Math.max(1000, (scrollingAudioText.width - parent.width) * 20)
+                                        easing.type: Easing.Linear
+                                    }
+                                }
+
+                                onXChanged: {
+                                    if (!running && x !== 0) x = 0
+                                }
+                                property bool running: scrollingAudioText.width > parent.width && audioMenuItem.highlighted
+                            }
+                        }
+                    }
+
+                    background: Rectangle {
+                        color: parent.highlighted ? Theme.hoverOverlay : "transparent"
+                        radius: Theme.radiusSmall
+                    }
+
+                    onTriggered: {
+                        selectedAudioIndex = modelData.index
+                        if (root.movieId) {
+                            PlayerController.setExplicitMovieAudioPreference(root.movieId, selectedAudioIndex)
+                        }
+                        contextMenu.close()
+                    }
+                }
+            }
+        }
+
+        Menu {
+            id: subtitleMenu
+            title: qsTr("Subtitles: %1").arg(root.selectedSubtitleSummary())
+            enabled: getSubtitleStreams().length > 0 || selectedSubtitleIndex === -1
+
+            background: Rectangle {
+                implicitWidth: Math.round(280 * Theme.layoutScale)
+                color: Theme.cardBackground
+                radius: Theme.radiusMedium
+                border.color: Theme.cardBorder
+                border.width: 1
+            }
+
+            MenuItem {
+                text: qsTr("Off")
+                checkable: true
+                checked: selectedSubtitleIndex === -1
+                indicator: Item {}
+
+                contentItem: RowLayout {
+                    spacing: Theme.spacingSmall
+
+                    Text {
+                        text: parent.checked ? "✓" : "  "
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        color: Theme.accentPrimary
+                        Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
+                    }
+
+                    Text {
+                        text: parent.text
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: Theme.textPrimary
+                    }
+                }
+
+                background: Rectangle {
+                    color: parent.highlighted ? Theme.hoverOverlay : "transparent"
+                    radius: Theme.radiusSmall
+                }
+
+                onTriggered: {
+                    selectedSubtitleIndex = -1
+                    if (root.movieId) {
+                        PlayerController.setExplicitMovieSubtitlePreference(root.movieId, selectedSubtitleIndex)
+                    }
+                    contextMenu.close()
+                }
+            }
+
+            Repeater {
+                model: getSubtitleStreams()
+
+                MenuItem {
+                    id: subtitleMenuItem
+                    required property var modelData
+
+                    text: TrackUtils.formatTrackName(modelData)
+                    checkable: true
+                    checked: modelData.index === selectedSubtitleIndex
+                    indicator: Item {}
+
+                    contentItem: RowLayout {
+                        spacing: Theme.spacingSmall
+
+                        Text {
+                            text: subtitleMenuItem.checked ? "✓" : "  "
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.accentPrimary
+                            Layout.preferredWidth: Math.round(20 * Theme.layoutScale)
+                        }
+
+                        Item {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: scrollingSubtitleText.height
+                            clip: true
+
+                            Text {
+                                id: scrollingSubtitleText
+                                text: subtitleMenuItem.text
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+
+                                SequentialAnimation on x {
+                                    running: scrollingSubtitleText.width > parent.width && subtitleMenuItem.highlighted
+                                    loops: Animation.Infinite
+
+                                    PauseAnimation { duration: 1000 }
+                                    NumberAnimation {
+                                        to: -scrollingSubtitleText.width + parent.width
+                                        duration: Math.max(1000, (scrollingSubtitleText.width - parent.width) * 20)
+                                        easing.type: Easing.Linear
+                                    }
+                                    PauseAnimation { duration: 1000 }
+                                    NumberAnimation {
+                                        to: 0
+                                        duration: Math.max(1000, (scrollingSubtitleText.width - parent.width) * 20)
+                                        easing.type: Easing.Linear
+                                    }
+                                }
+
+                                onXChanged: {
+                                    if (!running && x !== 0) x = 0
+                                }
+                                property bool running: scrollingSubtitleText.width > parent.width && subtitleMenuItem.highlighted
+                            }
+                        }
+                    }
+
+                    background: Rectangle {
+                        color: parent.highlighted ? Theme.hoverOverlay : "transparent"
+                        radius: Theme.radiusSmall
+                    }
+
+                    onTriggered: {
+                        selectedSubtitleIndex = modelData.index
+                        if (root.movieId) {
+                            PlayerController.setExplicitMovieSubtitlePreference(root.movieId, selectedSubtitleIndex)
+                        }
+                        contextMenu.close()
+                    }
+                }
+            }
+        }
+    }
+
     Connections {
         target: PlaybackService
-        
+
         function onPlaybackInfoLoaded(itemId, info) {
             if (itemId === root.movieId) {
-                console.log("[MovieDetailsView] Playback info loaded for", itemId)
                 root.playbackInfo = info
                 root.playbackInfoLoading = false
-                
+
                 if (info.mediaSources && info.mediaSources.length > 0) {
                     var source = info.mediaSources[0]
                     var resolved = PlayerController.resolveTrackSelectionForMediaSource(source, root.movieId, true)
                     root.selectedAudioIndex = resolved.audioIndex
                     root.selectedSubtitleIndex = resolved.subtitleIndex
-                    console.log("[MovieDetailsView] Resolved startup tracks:",
-                                resolved.audioIndex, resolved.audioSource,
-                                resolved.subtitleIndex, resolved.subtitleSource)
                 }
             }
         }
     }
-    
+
     Timer {
         id: focusTimer
         interval: 50
         repeat: false
         onTriggered: {
-            console.log("[MovieDetailsView] Setting focus to playButton")
-            playButton.forceActiveFocus()
+            if (playButton && playButton.enabled) {
+                playButton.forceActiveFocus()
+            } else {
+                focusFirstLowerSection()
+            }
         }
     }
-    
+
+    Timer {
+        id: heroAutofocusResetTimer
+        interval: 200
+        repeat: false
+
+        onTriggered: {
+            root.suppressHeroAutofocus = false
+        }
+    }
+
     Connections {
         target: MovieDetailsViewModel
         function onMovieLoaded() {
-            focusTimer.start()
+            if (!hasPendingReturnStateForCurrentMovie() && !suppressHeroAutofocus) {
+                focusTimer.start()
+            }
+            Qt.callLater(root.tryRestorePendingReturnState)
         }
     }
 
     Component.onCompleted: {
-        // Load playback info if we have a movie
         if (movieId) {
-            // Trigger load if already set
             MovieDetailsViewModel.loadMovieDetails(movieId)
-            
             playbackInfoLoading = true
             PlaybackService.getPlaybackInfo(movieId)
+            Qt.callLater(root.tryRestorePendingReturnState)
         }
+    }
+
+    property var savedFocusItem: null
+    property string savedFocusArea: "hero"
+    property int savedFocusIndex: 0
+    property bool restoringFocusFromSidebar: false
+    property bool restoringFocusFromReturnState: false
+    property bool suppressHeroAutofocus: false
+
+    function saveFocusForSidebar() {
+        savedFocusItem = root.Window.activeFocusItem
+        savedFocusArea = currentFocusArea()
+        savedFocusIndex = currentFocusIndex()
+    }
+
+    function restoreFocusFromSidebar() {
+        restoringFocusFromSidebar = true
+        Qt.callLater(root.restoreSavedSidebarFocus)
+    }
+
+    function restoreSavedSidebarFocus() {
+        if (savedFocusItem && savedFocusItem.parent && typeof savedFocusItem.forceActiveFocus === "function") {
+            savedFocusItem.forceActiveFocus()
+        } else if (restoreFocusToArea(savedFocusArea, savedFocusIndex)) {
+        } else if (playButton.enabled) {
+            playButton.forceActiveFocus()
+        } else {
+            root.focusFirstLowerSection()
+        }
+
+        savedFocusItem = null
+        savedFocusArea = "hero"
+        savedFocusIndex = 0
+        Qt.callLater(function() {
+            restoringFocusFromSidebar = false
+        })
     }
 }
