@@ -153,6 +153,7 @@ Window {
         anchors.bottom: parent.bottom
         anchors.leftMargin: contentOffset
         visible: !embeddedPlaybackActive
+        property bool restoringFocusFromSidebar: false
         
         Behavior on anchors.leftMargin {
             NumberAnimation { 
@@ -160,10 +161,31 @@ Window {
                 easing.type: Easing.OutCubic
             }
         }
+
+        function saveFocusForSidebar() {
+            if (stackView.currentItem && typeof stackView.currentItem.saveFocusForSidebar === "function") {
+                stackView.currentItem.saveFocusForSidebar()
+            }
+        }
+
+        function restoreFocusFromSidebar() {
+            restoringFocusFromSidebar = true
+            if (stackView.currentItem && typeof stackView.currentItem.restoreFocusFromSidebar === "function") {
+                stackView.currentItem.restoreFocusFromSidebar()
+            } else if (stackView.currentItem) {
+                stackView.currentItem.forceActiveFocus()
+            } else {
+                forceActiveFocus()
+            }
+            Qt.callLater(function() {
+                restoringFocusFromSidebar = false
+            })
+        }
         
         // Handle Left arrow to focus sidebar when at left edge
         Keys.onLeftPressed: function(event) {
             if (isLoggedIn) {
+                saveFocusForSidebar()
                 if (sidebar.expanded) {
                     // When sidebar is expanded, focus first nav item
                     sidebar.focusNavigation()
@@ -182,6 +204,13 @@ Window {
 
         // Explicitly forward focus to content when this scope receives it
         onActiveFocusChanged: {
+            if (restoringFocusFromSidebar) {
+                return
+            }
+            if (stackView.currentItem
+                    && stackView.currentItem.restoringFocusFromSeriesDetailsReturn) {
+                return
+            }
             if (activeFocus && stackView.currentItem && !stackView.currentItem.activeFocus) {
                 console.log("[FocusDebug] mainContentArea got focus, forwarding to currentItem")
                 Qt.callLater(() => stackView.currentItem.forceActiveFocus())

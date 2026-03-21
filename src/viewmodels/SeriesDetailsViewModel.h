@@ -291,9 +291,12 @@ public:
     void storeSeriesCache(const QString &seriesId, const QJsonObject &seriesData) const;
     bool loadItemsFromCache(const QString &parentId, QJsonArray &items, bool requireFresh) const;
     void storeItemsCache(const QString &parentId, const QJsonArray &items) const;
+    bool loadSimilarItemsFromCache(const QString &seriesId, QJsonArray &items, bool requireFresh) const;
+    void storeSimilarItemsCache(const QString &seriesId, const QJsonArray &items) const;
     QString cacheDir() const;
     QString seriesCachePath(const QString &seriesId) const;
     QString itemsCachePath(const QString &parentId) const;
+    QString similarItemsCachePath(const QString &seriesId) const;
     void clearCacheForTest(const QString &id);
     
     // MDBList

@@ -30,6 +30,8 @@ FocusScope {
     property int _pendingEpisodeIndex: -1
     property int _pendingSeasonsGridIndex: -1
     property int _lastSelectedSeasonIndex: -1  // Temporarily stores season index during navigation
+    property var _seriesDetailsReturnState: null
+    property bool _restoreSeriesDetailsReturnState: false
     
     // Theme song context - true while viewing a series, season, or episode
     property bool inSeriesContext: currentSeriesId !== "" && (showSeriesDetails || showSeasonView)
@@ -62,6 +64,50 @@ FocusScope {
     
     property var pendingPlaybackRequest: null
     property var pendingEpisodeData: null
+    property bool restoringFocusFromSidebar: false
+    property bool restoringFocusFromSeriesDetailsReturn: false
+    property var _seerrRecommendationCache: ({})
+
+    function saveFocusForSidebar() {
+        if (contentLoader.item && typeof contentLoader.item.saveFocusForSidebar === "function") {
+            contentLoader.item.saveFocusForSidebar()
+        }
+    }
+
+    function restoreFocusFromSidebar() {
+        restoringFocusFromSidebar = true
+        if (contentLoader.item && typeof contentLoader.item.restoreFocusFromSidebar === "function") {
+            contentLoader.item.restoreFocusFromSidebar()
+        } else if (contentLoader.item) {
+            contentLoader.item.forceActiveFocus()
+        } else {
+            forceActiveFocus()
+        }
+        Qt.callLater(function() {
+            restoringFocusFromSidebar = false
+        })
+    }
+
+    function saveSeriesDetailsReturnState() {
+        if (contentLoader.item && typeof contentLoader.item.saveReturnState === "function") {
+            _seriesDetailsReturnState = contentLoader.item.saveReturnState()
+            _restoreSeriesDetailsReturnState = false
+        }
+    }
+
+    function consumeSeriesDetailsReturnState() {
+        var state = _seriesDetailsReturnState
+        _seriesDetailsReturnState = null
+        _restoreSeriesDetailsReturnState = false
+        restoringFocusFromSeriesDetailsReturn = false
+        return state
+    }
+
+    function clearSeriesDetailsReturnState() {
+        _seriesDetailsReturnState = null
+        _restoreSeriesDetailsReturnState = false
+        restoringFocusFromSeriesDetailsReturn = false
+    }
     
     // Only show pagination/filter controls at the library level (not in series/seasons/episodes/movies)
     property bool showPaginationControls: {
@@ -96,11 +142,13 @@ FocusScope {
                     }
                 })
             }
-            Qt.callLater(function() {
-                if (contentLoader.item) {
-                    contentLoader.item.forceActiveFocus()
-                }
-            })
+            if (!restoringFocusFromSidebar && !restoringFocusFromSeriesDetailsReturn) {
+                Qt.callLater(function() {
+                    if (contentLoader.item) {
+                        contentLoader.item.forceActiveFocus()
+                    }
+                })
+            }
         }
         updateThemeSongPlayback()
     }
@@ -285,14 +333,14 @@ FocusScope {
         
         // Transfer focus to loaded content when it changes
         onLoaded: {
-            if (item) {
+            if (item && !root.restoringFocusFromSidebar && !root.restoringFocusFromSeriesDetailsReturn) {
                 item.forceActiveFocus()
             }
         }
         
         // Also handle status changes for initial load
         onStatusChanged: {
-            if (status === Loader.Ready && item) {
+            if (status === Loader.Ready && item && !root.restoringFocusFromSidebar && !root.restoringFocusFromSeriesDetailsReturn) {
                 item.forceActiveFocus()
             }
         }
@@ -305,10 +353,20 @@ FocusScope {
         SeriesDetailsView {
             seriesId: root.currentSeriesId
             pendingSeasonsGridIndex: root._pendingSeasonsGridIndex
+            pendingReturnState: root._seriesDetailsReturnState
+            restorePendingReturnState: root._restoreSeriesDetailsReturnState
+            seerrRecommendationCacheStore: root._seerrRecommendationCache
+
+            onReturnStateConsumed: {
+                Qt.callLater(function() {
+                    root.clearSeriesDetailsReturnState()
+                })
+            }
             
             onNavigateToSeasons: function(seasonIndex) {
                 // Navigate into selected season
                 if (SeriesDetailsViewModel.seasonCount > 0 && seasonIndex >= 0) {
+                    root.saveSeriesDetailsReturnState()
                     // Store the season index for navigation context
                     root._lastSelectedSeasonIndex = seasonIndex
                     var season = SeriesDetailsViewModel.seasonsModel.getItem(seasonIndex)
@@ -338,10 +396,12 @@ FocusScope {
             }
 
             onNavigateToEpisode: function(episodeData) {
+                root.saveSeriesDetailsReturnState()
                 showEpisodeDetails(episodeData)
             }
 
             onItemSelected: function(itemData) {
+                root.saveSeriesDetailsReturnState()
                 handleSelection(itemData)
             }
             
@@ -1248,6 +1308,7 @@ FocusScope {
                 seriesId: currentSeriesId,
                 showSeriesDetails: showSeriesDetails,
                 showSeasonView: showSeasonView,
+                seriesDetailsReturnState: _seriesDetailsReturnState,
                 selectedGenres: selectedGenres.slice(),
                 selectedNetworks: selectedNetworks.slice(),
                 showFilterPanel: showFilterPanel,
@@ -1276,6 +1337,7 @@ FocusScope {
                 seriesId: currentSeriesId,
                 showSeriesDetails: showSeriesDetails,
                 showSeasonView: showSeasonView,
+                seriesDetailsReturnState: _seriesDetailsReturnState,
                 seasonId: currentSeasonId,
                 seasonName: currentSeasonName,
                 seasonNumber: currentSeasonNumber,
@@ -1321,6 +1383,7 @@ FocusScope {
                 seriesId: currentSeriesId,
                 showSeriesDetails: showSeriesDetails,
                 showSeasonView: showSeasonView,
+                seriesDetailsReturnState: _seriesDetailsReturnState,
                 selectedGenres: selectedGenres.slice(),
                 selectedNetworks: selectedNetworks.slice(),
                 showFilterPanel: showFilterPanel,
@@ -1446,6 +1509,11 @@ FocusScope {
                     _pendingSeasonsGridIndex = prevContext.seasonsGridIndex
                     console.log("[Library] Set pending seasons grid index:", _pendingSeasonsGridIndex)
                 }
+                _seriesDetailsReturnState = prevContext.seriesDetailsReturnState || null
+                _restoreSeriesDetailsReturnState = _seriesDetailsReturnState !== null
+                restoringFocusFromSeriesDetailsReturn = _restoreSeriesDetailsReturnState
+            } else {
+                clearSeriesDetailsReturnState()
             }
             
             console.log("[Library] Restoring state:",
@@ -1480,11 +1548,13 @@ FocusScope {
                 showSeriesDetails = false
             }
 
+            // Set IDs before toggling view state so recreated views bind to the correct item immediately.
+            currentSeriesId = targetSeriesId
+
             // Now set the target states
             showSeriesDetails = targetShowSeriesDetails
             showSeasonView = targetShowSeasonView
             showMovieDetails = targetShowMovieDetails
-            currentSeriesId = targetSeriesId
             
             if (currentParentId !== targetParentId) {
                 console.log("[Library] Parent ID changed, updating and reloading")
@@ -1547,6 +1617,7 @@ FocusScope {
                 showSeriesDetails: showSeriesDetails,
                 showSeasonView: showSeasonView,
                 showMovieDetails: showMovieDetails,
+                seriesDetailsReturnState: _seriesDetailsReturnState,
                 selectedGenres: selectedGenres.slice(),
                 selectedNetworks: selectedNetworks.slice(),
                 showFilterPanel: showFilterPanel,
@@ -1591,6 +1662,7 @@ FocusScope {
                 seriesId: currentSeriesId,
                 showSeriesDetails: showSeriesDetails,
                 showSeasonView: showSeasonView,
+                seriesDetailsReturnState: _seriesDetailsReturnState,
                 seasonId: currentSeasonId,
                 seasonName: currentSeasonName,
                 seasonNumber: currentSeasonNumber,
@@ -1892,7 +1964,7 @@ FocusScope {
                 currentSeriesSeasons = seasons
                 // Ensure focus is set to the content for series details view
                 Qt.callLater(function() {
-                    if (contentLoader.item) {
+                    if (contentLoader.item && !root.restoringFocusFromSeriesDetailsReturn) {
                         contentLoader.item.forceActiveFocus()
                     }
                 })

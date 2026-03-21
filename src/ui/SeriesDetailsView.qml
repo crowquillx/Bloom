@@ -10,6 +10,10 @@ FocusScope {
 
     property string seriesId: ""
     property int pendingSeasonsGridIndex: -1
+    property var pendingReturnState: null
+    property bool restorePendingReturnState: false
+    property var seerrRecommendationCacheStore: null
+    property int seerrRecommendationCacheTtlMs: 10 * 60 * 1000
 
     property var seerrRecommendedItems: []
     property bool seerrRecommendationsLoading: false
@@ -34,11 +38,13 @@ FocusScope {
 
     readonly property int heroPosterWidth: Math.round(320 * Theme.layoutScale)
     readonly property int heroPosterHeight: Math.round(heroPosterWidth * 1.5)
+    readonly property int heroPanelPadding: Theme.spacingXLarge
+    readonly property int heroActionsBottomSpacing: Theme.spacingMedium
     readonly property int railWidth: Math.round(360 * Theme.layoutScale)
     readonly property int peopleCardWidth: Math.round(176 * Theme.layoutScale)
     readonly property int peopleCardHeight: Math.round(320 * Theme.layoutScale)
-    readonly property int recommendationCardWidth: Math.round(220 * Theme.layoutScale)
-    readonly property int recommendationCardHeight: Math.round(404 * Theme.layoutScale)
+    readonly property int recommendationCardWidth: Math.round(236 * Theme.layoutScale)
+    readonly property int recommendationCardHeight: recommendationCardWidth + Math.round(recommendationCardWidth * 0.5) + Math.round(74 * Theme.layoutScale)
     readonly property int shelfEdgePadding: Math.round(14 * Theme.layoutScale)
 
     signal navigateToSeasons(int seasonIndex)
@@ -46,6 +52,7 @@ FocusScope {
     signal navigateToEpisode(var episodeData)
     signal itemSelected(var itemData)
     signal backRequested()
+    signal returnStateConsumed()
 
     focus: true
 
@@ -138,12 +145,96 @@ FocusScope {
         }
     }
 
+    component ScrollingCardLabel: Item {
+        id: scrollingLabel
+
+        property string text: ""
+        property color textColor: Theme.textPrimary
+        property int fontPixelSize: Theme.fontSizeSmall
+        property string fontFamily: Theme.fontPrimary
+        property int fontWeight: Font.DemiBold
+        property bool active: false
+
+        implicitHeight: label.implicitHeight
+        clip: true
+
+        readonly property real overflowWidth: Math.max(0, label.implicitWidth - width)
+
+        states: [
+            State {
+                name: "static"
+                when: !labelScrollAnimation.running
+
+                AnchorChanges {
+                    target: label
+                    anchors.left: scrollingLabel.overflowWidth > 0 ? scrollingLabel.left : undefined
+                    anchors.horizontalCenter: scrollingLabel.overflowWidth > 0 ? undefined : scrollingLabel.horizontalCenter
+                }
+
+                PropertyChanges {
+                    target: label
+                    x: 0
+                }
+            },
+            State {
+                name: "scrolling"
+                when: labelScrollAnimation.running
+
+                AnchorChanges {
+                    target: label
+                    anchors.left: undefined
+                    anchors.horizontalCenter: undefined
+                }
+
+                PropertyChanges {
+                    target: label
+                    x: 0
+                }
+            }
+        ]
+
+        Text {
+            id: label
+            text: scrollingLabel.text
+            font.pixelSize: scrollingLabel.fontPixelSize
+            font.family: scrollingLabel.fontFamily
+            font.weight: scrollingLabel.fontWeight
+            color: scrollingLabel.textColor
+            wrapMode: Text.NoWrap
+        }
+
+        SequentialAnimation {
+            id: labelScrollAnimation
+            running: scrollingLabel.active && scrollingLabel.overflowWidth > 0
+            loops: Animation.Infinite
+
+            PauseAnimation { duration: 1000 }
+            NumberAnimation {
+                target: label
+                property: "x"
+                to: -scrollingLabel.overflowWidth
+                duration: Math.max(1200, scrollingLabel.overflowWidth * 20)
+                easing.type: Easing.Linear
+            }
+            PauseAnimation { duration: 1000 }
+            NumberAnimation {
+                target: label
+                property: "x"
+                to: 0
+                duration: Math.max(1200, scrollingLabel.overflowWidth * 20)
+                easing.type: Easing.Linear
+            }
+        }
+    }
+
     component PersonCard: Item {
         id: personCard
 
         required property var itemData
         property bool isFocused: false
         property bool isHovered: InputModeManager.pointerActive && personMouseArea.containsMouse
+        readonly property int posterFrameWidth: width
+        readonly property int posterFrameHeight: Math.round(posterFrameWidth * 1.5)
 
         width: root.peopleCardWidth
         height: root.peopleCardHeight
@@ -151,75 +242,103 @@ FocusScope {
         transformOrigin: Item.Center
         Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
 
-        Rectangle {
+        ColumnLayout {
             anchors.fill: parent
-            radius: Theme.radiusMedium
-            color: personCard.isFocused ? Theme.cardBackgroundFocused : Theme.cardBackground
-            border.width: personCard.isFocused ? Theme.buttonFocusBorderWidth : 1
-            border.color: personCard.isFocused ? Theme.cardBorderFocused : Theme.cardBorder
+            spacing: Theme.spacingSmall
 
-            ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Theme.spacingSmall
-                spacing: Theme.spacingSmall
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: personCard.posterFrameHeight
+                radius: Theme.imageRadius
+                color: "transparent"
+                clip: false
 
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: Math.round(184 * Theme.layoutScale)
-                    radius: Theme.imageRadius
-                    color: Theme.backgroundSecondary
-                    clip: true
+                Image {
+                    id: personImage
+                    anchors.fill: parent
+                    source: personCard.itemData.Id && personCard.itemData.PrimaryImageTag
+                            ? LibraryService.getCachedImageUrlWithWidth(personCard.itemData.Id, "Primary", 360)
+                            : ""
+                    fillMode: Image.PreserveAspectCrop
+                    horizontalAlignment: Image.AlignHCenter
+                    verticalAlignment: Image.AlignBottom
+                    asynchronous: true
+                    cache: true
 
-                    Image {
-                        id: personImage
-                        anchors.fill: parent
-                        source: personCard.itemData.Id && personCard.itemData.PrimaryImageTag
-                                ? LibraryService.getCachedImageUrlWithWidth(personCard.itemData.Id, "Primary", 360)
-                                : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: true
+                    layer.enabled: true
+                    layer.effect: MultiEffect {
+                        maskEnabled: true
+                        maskSource: personImageMask
                     }
+                }
+
+                Item {
+                    id: personImageMask
+                    anchors.fill: parent
+                    visible: false
+                    layer.enabled: true
+                    layer.smooth: true
 
                     Rectangle {
                         anchors.fill: parent
-                        color: Theme.backgroundSecondary
-                        visible: personImage.status !== Image.Ready
-
-                        Text {
-                            anchors.centerIn: parent
-                            text: Icons.person
-                            font.family: Theme.fontIcon
-                            font.pixelSize: Math.round(56 * Theme.layoutScale)
-                            color: Theme.textSecondary
-                        }
+                        radius: Theme.imageRadius
+                        color: "white"
                     }
                 }
 
-                Text {
-                    text: personCard.itemData.Name || ""
-                    Layout.fillWidth: true
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    font.weight: Font.DemiBold
-                    color: Theme.textPrimary
-                    elide: Text.ElideRight
-                    maximumLineCount: 2
-                    wrapMode: Text.WordWrap
-                    clip: true
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Theme.imageRadius
+                    color: Qt.rgba(0.08, 0.08, 0.08, 0.45)
+                    visible: personImage.status !== Image.Ready
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: Icons.person
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Math.round(56 * Theme.layoutScale)
+                        color: Theme.textSecondary
+                    }
                 }
 
-                Text {
+                Rectangle {
+                    anchors.fill: parent
+                    radius: Theme.imageRadius
+                    color: "transparent"
+                    border.width: personCard.isFocused ? Theme.buttonFocusBorderWidth : 0
+                    border.color: Theme.accentPrimary
+                    visible: border.width > 0
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: castNameLabel.implicitHeight
+
+                ScrollingCardLabel {
+                    id: castNameLabel
+                    anchors.fill: parent
+                    text: personCard.itemData.Name || ""
+                    fontPixelSize: Theme.fontSizeSmall
+                    fontWeight: Font.DemiBold
+                    textColor: Theme.textPrimary
+                    active: personCard.isFocused
+                }
+            }
+
+            Item {
+                Layout.fillWidth: true
+                Layout.preferredHeight: castSubtitleLabel.implicitHeight
+                visible: castSubtitleLabel.text !== ""
+
+                ScrollingCardLabel {
+                    id: castSubtitleLabel
+                    anchors.fill: parent
                     text: personCard.itemData.Subtitle || ""
-                    Layout.fillWidth: true
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                    elide: Text.ElideRight
-                    maximumLineCount: 1
-                    wrapMode: Text.NoWrap
-                    clip: true
-                    visible: text !== ""
+                    fontPixelSize: Theme.fontSizeSmall
+                    fontWeight: Font.Normal
+                    textColor: Theme.textSecondary
+                    active: personCard.isFocused
                 }
             }
         }
@@ -273,15 +392,12 @@ FocusScope {
 
         Column {
             anchors.fill: parent
-            anchors.leftMargin: Math.round(4 * Theme.layoutScale)
-            anchors.rightMargin: Math.round(4 * Theme.layoutScale)
-            anchors.topMargin: Math.round(4 * Theme.layoutScale)
             spacing: Theme.spacingSmall
 
             Rectangle {
                 id: recommendationPosterContainer
                 anchors.horizontalCenter: parent.horizontalCenter
-                width: root.recommendationCardWidth - Math.round(8 * Theme.layoutScale)
+                width: root.recommendationCardWidth
                 height: Math.round(width * 1.5)
                 radius: Theme.imageRadius
                 color: "transparent"
@@ -353,33 +469,37 @@ FocusScope {
                 }
             }
 
-            Text {
+            Item {
                 width: root.recommendationCardWidth
+                height: recommendationTitleLabel.implicitHeight
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: recommendationCard.title
-                horizontalAlignment: Text.AlignHCenter
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                font.weight: Font.Black
-                color: Theme.textPrimary
-                wrapMode: Text.WordWrap
-                maximumLineCount: 2
-                elide: Text.ElideRight
-                clip: true
+
+                ScrollingCardLabel {
+                    id: recommendationTitleLabel
+                    anchors.fill: parent
+                    text: recommendationCard.title
+                    fontPixelSize: Theme.fontSizeSmall
+                    fontWeight: Font.DemiBold
+                    textColor: Theme.textPrimary
+                    active: recommendationCard.isFocused
+                }
             }
 
-            Text {
+            Item {
                 width: root.recommendationCardWidth
+                height: recommendationSubtitleLabel.implicitHeight
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: recommendationCard.subtitle
-                visible: text !== ""
-                horizontalAlignment: Text.AlignHCenter
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                color: Theme.textSecondary
-                elide: Text.ElideRight
-                maximumLineCount: 1
-                clip: true
+                visible: recommendationSubtitleLabel.text !== ""
+
+                ScrollingCardLabel {
+                    id: recommendationSubtitleLabel
+                    anchors.fill: parent
+                    text: recommendationCard.subtitle
+                    fontPixelSize: Theme.fontSizeSmall
+                    fontWeight: Font.Normal
+                    textColor: Theme.textSecondary
+                    active: recommendationCard.isFocused
+                }
             }
         }
 
@@ -440,8 +560,6 @@ FocusScope {
             focusTarget(libraryRecommendationsSection)
         } else if (seerrRecommendationsSection.visible) {
             focusTarget(seerrRecommendationsSection)
-        } else if (nextUpCard.visible) {
-            focusTarget(nextUpCard)
         }
     }
 
@@ -506,12 +624,212 @@ FocusScope {
         return names.join(", ")
     }
 
+    function itemIsDescendant(item, ancestor) {
+        let current = item
+        while (current) {
+            if (current === ancestor) {
+                return true
+            }
+            current = current.parent
+        }
+        return false
+    }
+
+    function hasPendingReturnStateForCurrentSeries() {
+        return restorePendingReturnState
+                && pendingReturnState
+                && String(pendingReturnState.seriesId || "") === String(seriesId || "")
+    }
+
+    function currentFocusArea() {
+        const activeItem = root.Window.activeFocusItem
+        if (!activeItem) {
+            return "hero"
+        }
+        if (itemIsDescendant(activeItem, playButton)
+                || itemIsDescendant(activeItem, favoriteButton)
+                || itemIsDescendant(activeItem, contextMenuButton)) {
+            return "hero"
+        }
+        if (itemIsDescendant(activeItem, seasonsGrid)) {
+            return "seasons"
+        }
+        if (itemIsDescendant(activeItem, castList)) {
+            return "cast"
+        }
+        if (itemIsDescendant(activeItem, libraryRecommendationsList)) {
+            return "libraryRecommendations"
+        }
+        if (itemIsDescendant(activeItem, seerrRecommendationsList)) {
+            return "seerrRecommendations"
+        }
+        return "hero"
+    }
+
+    function currentFocusIndex() {
+        const area = currentFocusArea()
+        const activeItem = root.Window.activeFocusItem
+
+        if (area === "hero") {
+            if (itemIsDescendant(activeItem, favoriteButton)) return 1
+            if (itemIsDescendant(activeItem, contextMenuButton)) return 2
+            return 0
+        }
+        if (area === "seasons") return Math.max(0, seasonsGrid.currentIndex)
+        if (area === "cast") return Math.max(0, castList.currentIndex)
+        if (area === "libraryRecommendations") return Math.max(0, libraryRecommendationsList.currentIndex)
+        if (area === "seerrRecommendations") return Math.max(0, seerrRecommendationsList.currentIndex)
+        return 0
+    }
+
+    function saveReturnState() {
+        return {
+            seriesId: seriesId,
+            focusArea: currentFocusArea(),
+            focusIndex: currentFocusIndex(),
+            seasonsGridIndex: Math.max(0, seasonsGrid.currentIndex),
+            contentY: contentFlickable.contentY,
+            seerrTmdbId: String(tmdbId || seerrLoadedTmdbId || ""),
+            seerrRecommendations: (seerrRecommendedItems || []).slice()
+        }
+    }
+
+    function focusCurrentViewItem(view) {
+        if (!view) {
+            return false
+        }
+        if (view.currentItem && typeof view.currentItem.forceActiveFocus === "function") {
+            view.currentItem.forceActiveFocus()
+            return true
+        }
+        if (typeof view.forceActiveFocus === "function") {
+            view.forceActiveFocus()
+            return true
+        }
+        return false
+    }
+
+    function restoreFocusToArea(area, index) {
+        const targetIndex = Math.max(0, index || 0)
+
+        if (area === "hero") {
+            if (targetIndex === 1 && favoriteButton.visible) {
+                favoriteButton.forceActiveFocus()
+            } else if (targetIndex === 2 && contextMenuButton.visible) {
+                contextMenuButton.forceActiveFocus()
+            } else {
+                playButton.forceActiveFocus()
+            }
+            return true
+        }
+
+        if (area === "seasons" && seasonsGrid.count > 0) {
+            seasonsGrid.currentIndex = Math.min(targetIndex, seasonsGrid.count - 1)
+            seasonsGrid.positionViewAtIndex(seasonsGrid.currentIndex, GridView.Contain)
+            ensureItemVisible(seasonsGrid, Math.round(80 * Theme.layoutScale), Math.round(120 * Theme.layoutScale))
+            return focusCurrentViewItem(seasonsGrid)
+        }
+
+        if (area === "cast" && castSection.visible && castList.count > 0) {
+            castList.currentIndex = Math.min(targetIndex, castList.count - 1)
+            castList.positionViewAtIndex(castList.currentIndex, ListView.Contain)
+            ensureItemVisible(castSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+            return focusCurrentViewItem(castList)
+        }
+
+        if (area === "libraryRecommendations" && libraryRecommendationsSection.visible && libraryRecommendationsList.count > 0) {
+            libraryRecommendationsList.currentIndex = Math.min(targetIndex, libraryRecommendationsList.count - 1)
+            libraryRecommendationsList.positionViewAtIndex(libraryRecommendationsList.currentIndex, ListView.Contain)
+            ensureItemVisible(libraryRecommendationsSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+            return focusCurrentViewItem(libraryRecommendationsList)
+        }
+
+        if (area === "seerrRecommendations" && seerrRecommendationsSection.visible && seerrRecommendationsList.count > 0) {
+            seerrRecommendationsList.currentIndex = Math.min(targetIndex, seerrRecommendationsList.count - 1)
+            seerrRecommendationsList.positionViewAtIndex(seerrRecommendationsList.currentIndex, ListView.Contain)
+            ensureItemVisible(seerrRecommendationsSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+            return focusCurrentViewItem(seerrRecommendationsList)
+        }
+
+        return false
+    }
+
+    function restoreReturnState(state) {
+        if (!state || String(state.seriesId || "") !== String(seriesId || "")) {
+            return false
+        }
+
+        if (state.seerrRecommendations && state.seerrRecommendations.length > 0) {
+            seerrRecommendedItems = state.seerrRecommendations.slice()
+            seerrLoadedTmdbId = String(state.seerrTmdbId || "")
+            seerrPendingTmdbId = ""
+            seerrRecommendationsLoading = false
+        }
+
+        if (state.contentY !== undefined && state.contentY >= 0) {
+            const maxScroll = Math.max(0, contentFlickable.contentHeight - contentFlickable.height)
+            contentFlickable.contentY = Math.min(state.contentY, maxScroll)
+        }
+
+        const desiredArea = state.focusArea || "hero"
+        if (desiredArea === "seasons" && seasonsGrid.count <= 0) return false
+        if (desiredArea === "cast" && castList.count <= 0) return false
+        if (desiredArea === "libraryRecommendations" && libraryRecommendations.length <= 0) return false
+        if (desiredArea === "seerrRecommendations" && seerrRecommendedItems.length <= 0) return false
+
+        if (restoreFocusToArea(desiredArea, state.focusIndex || 0)) {
+            return true
+        }
+
+        if (restoreFocusToArea("seasons", state.seasonsGridIndex || 0)) {
+            return true
+        }
+
+        if (playButton.enabled) {
+            playButton.forceActiveFocus()
+            return true
+        }
+
+        focusFirstLowerSection()
+        return true
+    }
+
+    function tryRestorePendingReturnState() {
+        if (!hasPendingReturnStateForCurrentSeries() || restoringFocusFromReturnState) {
+            return
+        }
+
+        restoringFocusFromReturnState = true
+        const restored = restoreReturnState(pendingReturnState)
+        if (restored) {
+            focusTimer.stop()
+            suppressHeroAutofocus = true
+            returnStateConsumed()
+            heroAutofocusResetTimer.restart()
+        }
+        Qt.callLater(function() {
+            restoringFocusFromReturnState = false
+        })
+    }
+
     function requestSeerrRecommendations() {
         const requestedTmdbId = String(tmdbId || "")
 
         if (!seerrConfigured || requestedTmdbId === "" || Number(requestedTmdbId) <= 0) {
             seerrPendingTmdbId = ""
             return
+        }
+
+        if (seerrRecommendationCacheStore) {
+            const cachedEntry = seerrRecommendationCacheStore[requestedTmdbId]
+            const now = Date.now()
+            if (cachedEntry && cachedEntry.timestamp && (now - cachedEntry.timestamp) <= seerrRecommendationCacheTtlMs) {
+                seerrRecommendedItems = (cachedEntry.items || []).slice()
+                seerrLoadedTmdbId = requestedTmdbId
+                seerrPendingTmdbId = ""
+                seerrRecommendationsLoading = false
+                return
+            }
         }
 
         if ((seerrRecommendationsLoading && seerrPendingTmdbId === requestedTmdbId)
@@ -564,6 +882,12 @@ FocusScope {
         if (!activeFocus) {
             return
         }
+        if ((restoringFocusFromSidebar && savedFocusItem)
+                || restoringFocusFromReturnState
+                || suppressHeroAutofocus
+                || hasPendingReturnStateForCurrentSeries()) {
+            return
+        }
         Qt.callLater(function() {
             if (playButton && playButton.enabled) {
                 playButton.forceActiveFocus()
@@ -574,16 +898,45 @@ FocusScope {
     }
 
     onSeriesIdChanged: {
-        seerrRecommendedItems = []
-        seerrRecommendationsLoading = false
-        seerrPendingTmdbId = ""
-        seerrLoadedTmdbId = ""
+        if (hasPendingReturnStateForCurrentSeries()
+                && pendingReturnState.seerrRecommendations
+                && pendingReturnState.seerrRecommendations.length > 0) {
+            seerrRecommendedItems = pendingReturnState.seerrRecommendations.slice()
+            seerrRecommendationsLoading = false
+            seerrPendingTmdbId = ""
+            seerrLoadedTmdbId = String(pendingReturnState.seerrTmdbId || "")
+        } else {
+            seerrRecommendedItems = []
+            seerrRecommendationsLoading = false
+            seerrPendingTmdbId = ""
+            seerrLoadedTmdbId = ""
+        }
 
         if (seriesId !== "") {
             SeriesDetailsViewModel.loadSeriesDetails(seriesId)
         } else {
             SeriesDetailsViewModel.clear()
         }
+    }
+
+    onPendingReturnStateChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onRestorePendingReturnStateChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onCastAndCrewChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onLibraryRecommendationsChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onSeerrRecommendedItemsChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
     }
 
     onPendingSeasonsGridIndexChanged: {
@@ -675,8 +1028,8 @@ FocusScope {
             Rectangle {
                 id: heroPanel
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.max(heroPosterHeight + Math.round(44 * Theme.layoutScale),
-                                                 heroContent.implicitHeight + Math.round(40 * Theme.layoutScale))
+                Layout.preferredHeight: Math.max(heroPosterHeight + root.heroPanelPadding * 2,
+                                                 heroContent.implicitHeight + root.heroPanelPadding * 2)
                 radius: Theme.radiusLarge
                 color: Qt.rgba(0, 0, 0, 0.22)
                 border.width: 1
@@ -694,7 +1047,7 @@ FocusScope {
                 RowLayout {
                     id: heroContent
                     anchors.fill: parent
-                    anchors.margins: Theme.spacingXLarge
+                    anchors.margins: root.heroPanelPadding
                     spacing: Theme.spacingXLarge
 
                     Item {
@@ -940,6 +1293,7 @@ FocusScope {
 
                         RowLayout {
                             Layout.fillWidth: true
+                            Layout.bottomMargin: root.heroActionsBottomSpacing
                             spacing: Theme.spacingMedium
 
                             Button {
@@ -1106,7 +1460,6 @@ FocusScope {
                                 Layout.preferredWidth: Theme.buttonIconSize
 
                                 KeyNavigation.left: favoriteButton
-                                KeyNavigation.right: nextUpCard.visible ? nextUpCard : null
 
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
@@ -1132,166 +1485,6 @@ FocusScope {
                         }
                     }
 
-                    FocusScope {
-                        id: nextUpCard
-                        visible: hasNextEpisode
-                        Layout.preferredWidth: root.railWidth
-                        Layout.fillHeight: true
-
-                        property bool isHovered: InputModeManager.pointerActive && nextUpMouseArea.containsMouse
-
-                        function openNextEpisode() {
-                            if (hasNextEpisode) {
-                                root.navigateToEpisode(SeriesDetailsViewModel.getNextEpisodeData())
-                            }
-                        }
-
-                        Keys.onUpPressed: (event) => {
-                            contextMenuButton.forceActiveFocus()
-                            event.accepted = true
-                        }
-
-                        Keys.onLeftPressed: (event) => {
-                            contextMenuButton.forceActiveFocus()
-                            event.accepted = true
-                        }
-
-                        Keys.onDownPressed: (event) => {
-                            root.focusFirstLowerSection()
-                            event.accepted = true
-                        }
-
-                        Keys.onReturnPressed: (event) => {
-                            if (!event.isAutoRepeat) {
-                                openNextEpisode()
-                                event.accepted = true
-                            }
-                        }
-
-                        Keys.onEnterPressed: (event) => {
-                            if (!event.isAutoRepeat) {
-                                openNextEpisode()
-                                event.accepted = true
-                            }
-                        }
-
-                        onActiveFocusChanged: {
-                            if (activeFocus) {
-                                root.ensureTopVisible()
-                            }
-                        }
-
-                        Rectangle {
-                            anchors.fill: parent
-                            radius: Theme.radiusLarge
-                            color: nextUpCard.activeFocus ? Theme.cardBackgroundFocused : Theme.cardBackground
-                            border.width: nextUpCard.activeFocus ? Theme.buttonFocusBorderWidth : 1
-                            border.color: nextUpCard.activeFocus ? Theme.cardBorderFocused : Theme.cardBorder
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: Theme.spacingMedium
-                                spacing: Theme.spacingSmall
-
-                                Text {
-                                    text: qsTr("Next Up")
-                                    font.pixelSize: Theme.fontSizeTitle
-                                    font.family: Theme.fontPrimary
-                                    font.weight: Font.Black
-                                    color: Theme.textPrimary
-                                }
-
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    Layout.preferredHeight: Math.round(220 * Theme.layoutScale)
-                                    radius: Theme.imageRadius
-                                    color: Theme.backgroundSecondary
-                                    clip: true
-
-                                    Image {
-                                        anchors.fill: parent
-                                        source: SeriesDetailsViewModel.nextEpisodeImageUrl !== ""
-                                                ? SeriesDetailsViewModel.nextEpisodeImageUrl
-                                                : posterUrl
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
-                                        cache: true
-                                    }
-
-                                    Rectangle {
-                                        anchors.fill: parent
-                                        gradient: Gradient {
-                                            GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0.05) }
-                                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.55) }
-                                        }
-                                    }
-
-                                    Rectangle {
-                                        anchors.centerIn: parent
-                                        width: Math.round(64 * Theme.layoutScale)
-                                        height: width
-                                        radius: width / 2
-                                        color: Qt.rgba(0, 0, 0, nextUpCard.activeFocus ? 0.72 : 0.6)
-
-                                        Text {
-                                            anchors.centerIn: parent
-                                            anchors.horizontalCenterOffset: Math.round(2 * Theme.layoutScale)
-                                            text: Icons.playArrow
-                                            font.family: Theme.fontIcon
-                                            font.pixelSize: Math.round(34 * Theme.layoutScale)
-                                            color: Theme.textPrimary
-                                        }
-                                    }
-
-                                    MediaProgressBar {
-                                        anchors.left: parent.left
-                                        anchors.right: parent.right
-                                        anchors.bottom: parent.bottom
-                                        positionTicks: SeriesDetailsViewModel.nextEpisodePlaybackPositionTicks
-                                        runtimeTicks: {
-                                            const data = SeriesDetailsViewModel.getNextEpisodeData()
-                                            return data && data.RunTimeTicks ? data.RunTimeTicks : 0
-                                        }
-                                    }
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: {
-                                        const season = SeriesDetailsViewModel.nextSeasonNumber
-                                        const episode = SeriesDetailsViewModel.nextEpisodeNumber
-                                        return "S" + season + "E" + episode
-                                    }
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.family: Theme.fontPrimary
-                                    color: Theme.textSecondary
-                                }
-
-                                Text {
-                                    Layout.fillWidth: true
-                                    text: SeriesDetailsViewModel.nextEpisodeName || ""
-                                    font.pixelSize: Theme.fontSizeBody
-                                    font.family: Theme.fontPrimary
-                                    font.weight: Font.DemiBold
-                                    color: Theme.textPrimary
-                                    wrapMode: Text.WordWrap
-                                    maximumLineCount: 2
-                                    elide: Text.ElideRight
-                                }
-                            }
-
-                            MouseArea {
-                                id: nextUpMouseArea
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                onClicked: {
-                                    nextUpCard.forceActiveFocus()
-                                    nextUpCard.openNextEpisode()
-                                }
-                            }
-                        }
-                    }
                 }
             }
 
@@ -1306,15 +1499,6 @@ FocusScope {
                     font.family: Theme.fontPrimary
                     font.weight: Font.Black
                     color: Theme.textPrimary
-                }
-
-                Text {
-                    text: qsTr("Browse the full run, jump back in, or head straight into a season.")
-                    Layout.fillWidth: true
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                    wrapMode: Text.WordWrap
                 }
 
                 ColumnLayout {
@@ -1336,14 +1520,14 @@ FocusScope {
                 GridView {
                     id: seasonsGrid
                     Layout.fillWidth: true
-                    property int tileWidth: Math.round(236 * Theme.layoutScale)
+                    property int tileWidth: root.recommendationCardWidth
                     property int tileGap: Math.round(22 * Theme.layoutScale)
                     property int idealColumns: Math.max(1, Math.min(6, Math.floor((width + tileGap) / (tileWidth + tileGap))))
                     property int columns: count > 0 ? Math.min(count, idealColumns) : idealColumns
-                    property real rawCellHeight: tileWidth * 1.5 + Math.round(84 * Theme.layoutScale)
+                    property real rawCellHeight: root.recommendationCardHeight
 
                     cellWidth: tileWidth + tileGap
-                    cellHeight: Math.min(rawCellHeight, root.height * 0.34)
+                    cellHeight: rawCellHeight
                     Layout.preferredHeight: {
                         if (count === 0) return cellHeight
                         const cols = Math.max(1, columns)
@@ -1406,8 +1590,10 @@ FocusScope {
                         const currentColumn = currentIndex % columns
                         if (currentColumn > 0) {
                             currentIndex = Math.max(0, currentIndex - 1)
+                            event.accepted = true
+                        } else {
+                            event.accepted = false
                         }
-                        event.accepted = true
                     }
 
                     Keys.onRightPressed: (event) => {
@@ -1446,8 +1632,8 @@ FocusScope {
                         width: seasonsGrid.tileWidth
                         height: seasonsGrid.cellHeight
 
-                        property real posterWidth: seasonsGrid.tileWidth
-                        property real posterHeight: Math.min(posterWidth * 1.5, seasonsGrid.cellHeight - Math.round(74 * Theme.layoutScale))
+                        property real posterWidth: root.recommendationCardWidth
+                        property real posterHeight: Math.round(posterWidth * 1.5)
                         property bool isFocused: seasonsGrid.currentIndex === index && seasonsGrid.activeFocus
                         property bool isHovered: InputModeManager.pointerActive && seasonMouseArea.containsMouse
 
@@ -1540,29 +1726,37 @@ FocusScope {
                                 }
                             }
 
-                            Text {
+                            Item {
                                 width: seasonDelegate.posterWidth
+                                height: seasonNameLabel.implicitHeight
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                text: seasonDelegate.name
-                                horizontalAlignment: Text.AlignHCenter
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.family: Theme.fontPrimary
-                                font.weight: Font.DemiBold
-                                color: Theme.textPrimary
-                                elide: Text.ElideRight
-                                maximumLineCount: 1
+
+                                ScrollingCardLabel {
+                                    id: seasonNameLabel
+                                    anchors.fill: parent
+                                    text: seasonDelegate.name
+                                    fontPixelSize: Theme.fontSizeSmall
+                                    fontWeight: Font.DemiBold
+                                    textColor: Theme.textPrimary
+                                    active: seasonDelegate.isFocused
+                                }
                             }
 
-                            Text {
+                            Item {
                                 width: seasonDelegate.posterWidth
+                                height: seasonEpisodesLabel.implicitHeight
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                text: seasonDelegate.episodeCount > 0 ? seasonDelegate.episodeCount + qsTr(" Episodes") : ""
-                                horizontalAlignment: Text.AlignHCenter
-                                font.pixelSize: Theme.fontSizeSmall
-                                font.family: Theme.fontPrimary
-                                color: Theme.textSecondary
-                                elide: Text.ElideRight
-                                maximumLineCount: 1
+                                visible: seasonEpisodesLabel.text !== ""
+
+                                ScrollingCardLabel {
+                                    id: seasonEpisodesLabel
+                                    anchors.fill: parent
+                                    text: seasonDelegate.episodeCount > 0 ? seasonDelegate.episodeCount + qsTr(" Episodes") : ""
+                                    fontPixelSize: Theme.fontSizeSmall
+                                    fontWeight: Font.Normal
+                                    textColor: Theme.textSecondary
+                                    active: seasonDelegate.isFocused
+                                }
                             }
                         }
 
@@ -1609,15 +1803,6 @@ FocusScope {
                         color: Theme.textPrimary
                     }
 
-                    Text {
-                        text: qsTr("The faces and names behind the series.")
-                        Layout.fillWidth: true
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                        wrapMode: Text.WordWrap
-                    }
-
                     ListView {
                         id: castList
                         Layout.fillWidth: true
@@ -1654,9 +1839,12 @@ FocusScope {
                             width: root.peopleCardWidth
                             height: root.peopleCardHeight
 
-                            Keys.onLeftPressed: {
+                            Keys.onLeftPressed: (event) => {
                                 if (index > 0) {
                                     castList.currentIndex = index - 1
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
                                 }
                             }
 
@@ -1735,15 +1923,6 @@ FocusScope {
                         color: Theme.textPrimary
                     }
 
-                    Text {
-                        text: qsTr("Nearby titles already in Jellyfin, pulled from the server's similar-items API.")
-                        Layout.fillWidth: true
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                        wrapMode: Text.WordWrap
-                    }
-
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.round(120 * Theme.layoutScale)
@@ -1796,9 +1975,12 @@ FocusScope {
                             width: root.recommendationCardWidth
                             height: root.recommendationCardHeight
 
-                            Keys.onLeftPressed: {
+                            Keys.onLeftPressed: (event) => {
                                 if (index > 0) {
                                     libraryRecommendationsList.currentIndex = index - 1
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
                                 }
                             }
 
@@ -1886,15 +2068,6 @@ FocusScope {
                         color: Theme.textPrimary
                     }
 
-                    Text {
-                        text: qsTr("Similar titles you can request via Seerr with the same modal used in Search.")
-                        Layout.fillWidth: true
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                        wrapMode: Text.WordWrap
-                    }
-
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.round(120 * Theme.layoutScale)
@@ -1947,9 +2120,12 @@ FocusScope {
                             width: root.recommendationCardWidth
                             height: root.recommendationCardHeight
 
-                            Keys.onLeftPressed: {
+                            Keys.onLeftPressed: (event) => {
                                 if (index > 0) {
                                     seerrRecommendationsList.currentIndex = index - 1
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
                                 }
                             }
 
@@ -2026,8 +2202,11 @@ FocusScope {
         target: SeriesDetailsViewModel
 
         function onSeriesLoaded() {
-            focusTimer.start()
+            if (!hasPendingReturnStateForCurrentSeries() && !suppressHeroAutofocus) {
+                focusTimer.start()
+            }
             Qt.callLater(root.requestSeerrRecommendations)
+            Qt.callLater(root.tryRestorePendingReturnState)
         }
     }
 
@@ -2036,6 +2215,7 @@ FocusScope {
 
         function onModelReset() {
             Qt.callLater(root.restorePendingSeasonFocus)
+            Qt.callLater(root.tryRestorePendingReturnState)
         }
     }
 
@@ -2067,9 +2247,16 @@ FocusScope {
                 mappedResults.push(results[i])
             }
             seerrRecommendedItems = mappedResults
+            if (root.seerrRecommendationCacheStore) {
+                root.seerrRecommendationCacheStore[requestTmdbId] = {
+                    timestamp: Date.now(),
+                    items: mappedResults.slice()
+                }
+            }
             seerrLoadedTmdbId = requestTmdbId
             seerrPendingTmdbId = ""
             seerrRecommendationsLoading = false
+            Qt.callLater(root.tryRestorePendingReturnState)
         }
 
         function onSimilarResultsFailed(mediaType, requestedTmdbId, error) {
@@ -2092,6 +2279,9 @@ FocusScope {
         repeat: false
 
         onTriggered: {
+            if (root.suppressHeroAutofocus) {
+                return
+            }
             if (playButton.enabled) {
                 playButton.forceActiveFocus()
             } else {
@@ -2100,16 +2290,42 @@ FocusScope {
         }
     }
 
+    Timer {
+        id: heroAutofocusResetTimer
+        interval: 200
+        repeat: false
+
+        onTriggered: {
+            root.suppressHeroAutofocus = false
+        }
+    }
+
     Component.onCompleted: {
         if (SeriesDetailsViewModel.seriesId !== "" && SeriesDetailsViewModel.title !== "") {
-            focusTimer.start()
+            if (!hasPendingReturnStateForCurrentSeries() && !suppressHeroAutofocus) {
+                focusTimer.start()
+            }
             Qt.callLater(root.restorePendingSeasonFocus)
             Qt.callLater(root.requestSeerrRecommendations)
+            Qt.callLater(root.tryRestorePendingReturnState)
         }
     }
 
     property var savedFocusItem: null
     property int savedSeasonIndex: -1
+    property bool restoringFocusFromSidebar: false
+    property bool restoringFocusFromReturnState: false
+    property bool suppressHeroAutofocus: false
+
+    function saveFocusForSidebar() {
+        savedSeasonIndex = seasonsGrid.currentIndex
+        savedFocusItem = root.Window.activeFocusItem
+    }
+
+    function restoreFocusFromSidebar() {
+        restoringFocusFromSidebar = true
+        Qt.callLater(root.restoreSavedSidebarFocus)
+    }
 
     Connections {
         target: ResponsiveLayoutManager
@@ -2136,6 +2352,28 @@ FocusScope {
         }
 
         savedFocusItem = null
+    }
+
+    function restoreSavedSidebarFocus() {
+        if (savedSeasonIndex >= 0 && seasonsGrid.count > 0) {
+            seasonsGrid.currentIndex = Math.min(savedSeasonIndex, seasonsGrid.count - 1)
+            seasonsGrid.positionViewAtIndex(seasonsGrid.currentIndex, GridView.Contain)
+        }
+
+        if (savedFocusItem && savedFocusItem.parent && typeof savedFocusItem.forceActiveFocus === "function") {
+            savedFocusItem.forceActiveFocus()
+        } else if (savedSeasonIndex >= 0 && seasonsGrid.count > 0) {
+            seasonsGrid.forceActiveFocus()
+        } else if (playButton.enabled) {
+            playButton.forceActiveFocus()
+        } else {
+            root.focusFirstLowerSection()
+        }
+
+        savedFocusItem = null
+        Qt.callLater(function() {
+            restoringFocusFromSidebar = false
+        })
     }
 
     Menu {
@@ -2212,7 +2450,28 @@ FocusScope {
         }
 
         MenuItem {
+            id: watchedMenuItem
             text: isWatched ? qsTr("Mark as Unwatched") : qsTr("Mark as Watched")
+
+            contentItem: Text {
+                text: watchedMenuItem.text
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                color: watchedMenuItem.highlighted ? Theme.textPrimary : Theme.textSecondary
+                elide: Text.ElideRight
+                verticalAlignment: Text.AlignVCenter
+                leftPadding: Theme.spacingSmall
+                rightPadding: Theme.spacingSmall
+            }
+
+            background: Rectangle {
+                implicitWidth: Math.round(240 * Theme.layoutScale)
+                implicitHeight: Math.round(40 * Theme.layoutScale)
+                opacity: watchedMenuItem.enabled ? 1 : 0.3
+                color: watchedMenuItem.highlighted ? Theme.hoverOverlay : "transparent"
+                radius: Theme.radiusSmall
+            }
+
             onTriggered: {
                 if (isWatched) {
                     SeriesDetailsViewModel.markAsUnwatched()
@@ -2249,7 +2508,7 @@ FocusScope {
             }
 
             background: Rectangle {
-                implicitWidth: 220
+                implicitWidth: Math.round(280 * Theme.layoutScale)
                 color: Theme.cardBackground
                 radius: Theme.radiusMedium
                 border.color: Theme.cardBorder
