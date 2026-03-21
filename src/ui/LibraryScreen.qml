@@ -1669,7 +1669,7 @@ FocusScope {
     function showMovieDetailsView(movieData) {
         // Show movie details view
         // Capture current grid position for restoration unless we came directly from Home
-        var shouldPushContext = !(directNavigationMode && navigationStack.length === 0)
+        var shouldPushContext = !(directNavigationMode && navigationStack.length === 0 && !showMovieDetails)
         if (shouldPushContext) {
             var gridRef = contentLoader.item ? contentLoader.item.grid : null
             var previousContext = {

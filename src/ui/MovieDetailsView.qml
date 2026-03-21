@@ -926,8 +926,17 @@ FocusScope {
         }
 
         const desiredArea = state.focusArea || "hero"
-        if (desiredArea === "cast" && castList.count <= 0) return false
-        if (desiredArea === "libraryRecommendations" && libraryRecommendations.length <= 0) return false
+        const castReady = castList.count > 0
+        const recsReady = libraryRecommendationsList.count > 0
+        const castPending = isLoading
+        const recsPending = libraryRecommendationsLoading
+
+        if (desiredArea === "cast" && !castReady && !recsReady && (castPending || recsPending)) {
+            return false
+        }
+        if (desiredArea === "libraryRecommendations" && !recsReady && !castReady && (recsPending || castPending)) {
+            return false
+        }
 
         if (restoreFocusToArea(desiredArea, state.focusIndex || 0)) {
             return true
