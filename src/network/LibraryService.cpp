@@ -24,6 +24,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
 void LibraryService::sendRequestWithRetry(const QString &endpoint,
                                            RequestFactory requestFactory,
                                            ResponseHandler responseHandler,
+                                           FailureHandler failureHandler,
                                            int attemptNumber)
 {
     qCDebug(libraryService) << "Sending request to:" << endpoint 
@@ -31,8 +32,8 @@ void LibraryService::sendRequestWithRetry(const QString &endpoint,
     
     QNetworkReply *reply = requestFactory();
     
-    connect(reply, &QNetworkReply::finished, this, [this, reply, endpoint, requestFactory, responseHandler, attemptNumber]() {
-        handleReplyWithRetry(reply, endpoint, requestFactory, responseHandler, attemptNumber);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
+        handleReplyWithRetry(reply, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber);
     });
 }
 
@@ -40,6 +41,7 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
                                            const QString &endpoint,
                                            RequestFactory requestFactory,
                                            ResponseHandler responseHandler,
+                                           FailureHandler failureHandler,
                                            int attemptNumber)
 {
     reply->deleteLater();
@@ -53,14 +55,19 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
     // Get HTTP status code
     int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     
+    NetworkError netError = ErrorHandler::createError(reply, endpoint);
+
     // Check for 401 Unauthorized - session expired
     if (httpStatus == 401) {
-        qCWarning(libraryService) << "Session expired (401) for endpoint:" << endpoint;
+        qCWarning(libraryService) << "Session expired (401) for endpoint:" << endpoint
+                                  << "userMessage:" << netError.userMessage;
+        if (failureHandler) {
+            failureHandler(netError);
+        } else {
+            emitError(netError);
+        }
         return;
     }
-    
-    // Create structured error
-    NetworkError netError = ErrorHandler::createError(reply, endpoint);
     
     qCWarning(libraryService) << "Request failed:" << endpoint
                               << "Error:" << reply->error()
@@ -77,11 +84,15 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
         int delayMs = ErrorHandler::calculateBackoffDelay(attemptNumber, m_retryPolicy);
         qCInfo(libraryService) << "Retrying request to:" << endpoint << "in" << delayMs << "ms";
         
-        QTimer::singleShot(delayMs, this, [this, endpoint, requestFactory, responseHandler, attemptNumber]() {
-            sendRequestWithRetry(endpoint, requestFactory, responseHandler, attemptNumber + 1);
+        QTimer::singleShot(delayMs, this, [this, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
+            sendRequestWithRetry(endpoint, requestFactory, responseHandler, failureHandler, attemptNumber + 1);
         });
     } else {
-        emitError(netError);
+        if (failureHandler) {
+            failureHandler(netError);
+        } else {
+            emitError(netError);
+        }
     }
 }
 
@@ -631,6 +642,71 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
         });
 }
 
+void LibraryService::getSimilarItems(const QString &itemId, int limit)
+{
+    if (!m_authService->isAuthenticated()) {
+        NetworkError error;
+        error.endpoint = "getSimilarItems";
+        error.code = -1;
+        error.userMessage = tr("Not authenticated");
+        emit similarItemsFailed(itemId, error.userMessage);
+        return;
+    }
+
+    if (itemId.isEmpty()) {
+        emit similarItemsFailed(itemId, tr("Item ID is empty"));
+        return;
+    }
+
+    const QStringList fields = {
+        "Type",
+        "ImageTags",
+        "PrimaryImageAspectRatio",
+        "ProductionYear",
+        "PremiereDate",
+        "Overview",
+        "UserData",
+        "ChildCount"
+    };
+
+    QString endpoint = QString("/Items/%1/Similar?UserId=%2&Limit=%3&Fields=%4&EnableImageTypes=Primary")
+                           .arg(itemId, m_authService->getUserId())
+                           .arg(qMax(1, limit))
+                           .arg(fields.join(","));
+
+    sendRequestWithRetry(endpoint,
+        [this, endpoint]() {
+            QNetworkRequest request = m_authService->createRequest(endpoint);
+            return m_authService->networkManager()->get(request);
+        },
+        [this, itemId](QNetworkReply *reply) {
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (!doc.isObject()) {
+                NetworkError error;
+                error.endpoint = "getSimilarItems";
+                error.code = -2;
+                error.userMessage = tr("Invalid similar items response");
+                emit similarItemsFailed(itemId, error.userMessage);
+                return;
+            }
+
+            const QJsonObject root = doc.object();
+            if (!root.contains("Items") || !root.value("Items").isArray()) {
+                NetworkError error;
+                error.endpoint = "getSimilarItems";
+                error.code = -2;
+                error.userMessage = tr("Invalid similar items response");
+                emit similarItemsFailed(itemId, error.userMessage);
+                return;
+            }
+
+            emit similarItemsLoaded(itemId, root.value("Items").toArray());
+        },
+        [this, itemId](const NetworkError &error) {
+            emit similarItemsFailed(itemId, error.userMessage);
+        });
+}
+
 /**
  * @brief Resolves the best next episode for a series, optionally skipping a specific episode.
  *
@@ -649,7 +725,7 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
         error.endpoint = "getNextUnplayedEpisode";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
-        emitError(error);
+        emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
         return;
     }
     
@@ -688,13 +764,25 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
                 error.endpoint = "getNextUnplayedEpisode";
                 error.code = -2;
                 error.userMessage = tr("Invalid next unplayed episode response");
-                emitError(error);
+                emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
                 return;
             }
-            const QJsonArray items = doc.object()["Items"].toArray();
+            const QJsonObject root = doc.object();
+            if (!root.contains("Items") || !root.value("Items").isArray()) {
+                NetworkError error;
+                error.endpoint = "getNextUnplayedEpisode";
+                error.code = -2;
+                error.userMessage = tr("Invalid next unplayed episode response");
+                emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
+                return;
+            }
+            const QJsonArray items = root.value("Items").toArray();
             const QJsonObject selectedEpisode =
                 NextEpisodeResolver::resolveBestNextEpisode(items, excludeItemId);
             emit nextUnplayedEpisodeLoaded(seriesId, selectedEpisode);
+        },
+        [this, seriesId](const NetworkError &error) {
+            emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
         });
 }
 

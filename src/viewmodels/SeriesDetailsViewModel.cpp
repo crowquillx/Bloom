@@ -16,6 +16,8 @@ constexpr qint64 kSeriesMemoryTtlMs = 5 * 60 * 1000;   // 5 minutes
 constexpr qint64 kSeriesDiskTtlMs   = 60 * 60 * 1000;  // 1 hour
 constexpr qint64 kItemsMemoryTtlMs  = 5 * 60 * 1000;
 constexpr qint64 kItemsDiskTtlMs    = 60 * 60 * 1000;
+constexpr qint64 kSimilarMemoryTtlMs = 5 * 60 * 1000;
+constexpr qint64 kSimilarDiskTtlMs   = 60 * 60 * 1000;
 
 struct SeriesCacheEntry {
     QJsonObject data;
@@ -37,6 +39,7 @@ struct ItemsCacheEntry {
 
 static QHash<QString, SeriesCacheEntry> s_seriesCache;
 static QHash<QString, ItemsCacheEntry> s_itemsCache;  // keyed by parentId (series -> seasons, season -> episodes)
+static QHash<QString, ItemsCacheEntry> s_similarItemsCache;  // keyed by seriesId
 }
 
 static bool hasSpecialPlacementFields(const QJsonArray &items)
@@ -82,6 +85,14 @@ QString SeriesDetailsViewModel::itemsCachePath(const QString &parentId) const
     QDir dir(cacheDir());
     dir.mkpath(".");
     return dir.filePath(parentId + "_items.json");
+}
+
+QString SeriesDetailsViewModel::similarItemsCachePath(const QString &seriesId) const
+{
+    if (seriesId.isEmpty()) return QString();
+    QDir dir(cacheDir());
+    dir.mkpath(".");
+    return dir.filePath(seriesId + "_similar_items.json");
 }
 
 bool SeriesDetailsViewModel::loadSeriesFromCache(const QString &seriesId, QJsonObject &seriesData, bool requireFresh) const
@@ -218,10 +229,77 @@ void SeriesDetailsViewModel::storeItemsCache(const QString &parentId, const QJso
     file.close();
 }
 
+bool SeriesDetailsViewModel::loadSimilarItemsFromCache(const QString &seriesId, QJsonArray &items, bool requireFresh) const
+{
+    if (s_similarItemsCache.contains(seriesId)) {
+        const auto &entry = s_similarItemsCache[seriesId];
+        if (entry.timestamp > 0 && (!requireFresh || entry.isValid(kSimilarMemoryTtlMs))) {
+            items = entry.items;
+            return true;
+        }
+    }
+
+    QString path = similarItemsCachePath(seriesId);
+    if (path.isEmpty() || !QFile::exists(path))
+        return false;
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return false;
+
+    QJsonParseError err;
+    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
+    if (err.error != QJsonParseError::NoError || !doc.isObject())
+        return false;
+
+    ItemsCacheEntry entry;
+    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
+    entry.items = doc.object().value("items").toArray();
+
+    if (entry.timestamp <= 0)
+        return false;
+
+    if (requireFresh && !entry.isValid(kSimilarDiskTtlMs))
+        return false;
+
+    s_similarItemsCache[seriesId] = entry;
+    items = entry.items;
+    return true;
+}
+
+void SeriesDetailsViewModel::storeSimilarItemsCache(const QString &seriesId, const QJsonArray &items) const
+{
+    ItemsCacheEntry entry;
+    entry.items = items;
+    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
+    s_similarItemsCache[seriesId] = entry;
+
+    QString path = similarItemsCachePath(seriesId);
+    if (path.isEmpty())
+        return;
+
+    QDir dir(cacheDir());
+    if (!dir.exists()) {
+        dir.mkpath(".");
+    }
+
+    QJsonObject root;
+    root.insert("timestamp", static_cast<double>(entry.timestamp));
+    root.insert("items", items);
+
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return;
+
+    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    file.close();
+}
+
 void SeriesDetailsViewModel::clearCacheForTest(const QString &id)
 {
     s_seriesCache.remove(id);
     s_itemsCache.remove(id);
+    s_similarItemsCache.remove(id);
 
     QString seriesPath = seriesCachePath(id);
     if (!seriesPath.isEmpty() && QFile::exists(seriesPath)) {
@@ -231,6 +309,11 @@ void SeriesDetailsViewModel::clearCacheForTest(const QString &id)
     QString itemsPath = itemsCachePath(id);
     if (!itemsPath.isEmpty() && QFile::exists(itemsPath)) {
         QFile::remove(itemsPath);
+    }
+
+    QString similarPath = similarItemsCachePath(id);
+    if (!similarPath.isEmpty() && QFile::exists(similarPath)) {
+        QFile::remove(similarPath);
     }
 }
 
@@ -551,8 +634,16 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
                 this, &SeriesDetailsViewModel::onItemsNotModified);
         connect(m_libraryService, &LibraryService::nextUnplayedEpisodeLoaded,
                 this, &SeriesDetailsViewModel::onNextEpisodeLoaded);
+        connect(m_libraryService, &LibraryService::nextUnplayedEpisodeFailed,
+                this, &SeriesDetailsViewModel::onNextEpisodeFailed);
         connect(m_libraryService, &LibraryService::seriesWatchedStatusChanged,
                 this, &SeriesDetailsViewModel::onSeriesWatchedStatusChanged);
+        connect(m_libraryService, &LibraryService::favoriteStatusChanged,
+                this, &SeriesDetailsViewModel::onFavoriteStatusChanged);
+        connect(m_libraryService, &LibraryService::similarItemsLoaded,
+                this, &SeriesDetailsViewModel::onSimilarItemsLoaded);
+        connect(m_libraryService, &LibraryService::similarItemsFailed,
+                this, &SeriesDetailsViewModel::onSimilarItemsFailed);
         connect(m_libraryService, &LibraryService::errorOccurred,
                 this, &SeriesDetailsViewModel::onErrorOccurred);
     } else {
@@ -589,10 +680,13 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
     // Try cache first (serve stale-while-revalidate)
     QJsonObject cachedSeries;
     QJsonArray cachedSeasons;
+    QJsonArray cachedSimilarItems;
     bool hasFreshSeries = loadSeriesFromCache(seriesId, cachedSeries, /*requireFresh*/true);
     bool hasAnySeries = hasFreshSeries || loadSeriesFromCache(seriesId, cachedSeries, /*requireFresh*/false);
     bool hasFreshSeasons = loadItemsFromCache(seriesId, cachedSeasons, /*requireFresh*/true);
     bool hasAnySeasons = hasFreshSeasons || loadItemsFromCache(seriesId, cachedSeasons, /*requireFresh*/false);
+    bool hasFreshSimilarItems = loadSimilarItemsFromCache(seriesId, cachedSimilarItems, /*requireFresh*/true);
+    bool hasAnySimilarItems = hasFreshSimilarItems || loadSimilarItemsFromCache(seriesId, cachedSimilarItems, /*requireFresh*/false);
 
     if (hasAnySeries) {
         qDebug() << "SeriesDetailsViewModel: Serving series details from cache"
@@ -605,9 +699,31 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
         qDebug() << "SeriesDetailsViewModel: Serving seasons from cache"
                  << (hasFreshSeasons ? "FRESH" : "STALE")
                  << "count:" << cachedSeasons.size();
-        // Mark as loading so onSeasonsLoaded guard passes
+        // Block seriesLoaded() during synchronous cache hydration; the async
+        // series request will emit the real completion signal later.
+        m_loadingSeries = true;
         m_loadingSeasons = true;
         onSeasonsLoaded(seriesId, cachedSeasons);
+    }
+
+    if (hasAnySimilarItems) {
+        qDebug() << "SeriesDetailsViewModel: Serving similar items from cache"
+                 << (hasFreshSimilarItems ? "FRESH" : "STALE")
+                 << "count:" << cachedSimilarItems.size();
+        QVariantList mappedItems;
+        mappedItems.reserve(cachedSimilarItems.size());
+        for (const auto &value : cachedSimilarItems) {
+            const QJsonObject item = value.toObject();
+            if (item.isEmpty()) {
+                continue;
+            }
+            mappedItems.append(item.toVariantMap());
+        }
+        m_similarItems = mappedItems;
+        m_similarItemsAttempted = hasFreshSimilarItems;
+        m_similarItemsLoading = false;
+        emit similarItemsChanged();
+        emit similarItemsLoadingChanged();
     }
 
     m_loadingSeries = !hasFreshSeries;
@@ -754,6 +870,15 @@ void SeriesDetailsViewModel::markAsUnwatched()
     m_libraryService->markSeriesUnwatched(m_seriesId);
 }
 
+void SeriesDetailsViewModel::toggleFavorite()
+{
+    if (!m_libraryService || m_seriesId.isEmpty()) {
+        return;
+    }
+
+    m_libraryService->toggleFavorite(m_seriesId, !m_isFavorite);
+}
+
 void SeriesDetailsViewModel::clear(bool preserveArtwork)
 {
     m_seriesId.clear();
@@ -766,6 +891,13 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     }
     m_productionYear = 0;
     m_isWatched = false;
+    m_isFavorite = false;
+    m_tmdbId.clear();
+    m_people.clear();
+    m_genres.clear();
+    m_similarItems.clear();
+    m_similarItemsAttempted = false;
+    m_similarItemsLoading = false;
     m_seasonCount = 0;
     m_seriesData = QJsonObject();
 
@@ -806,6 +938,12 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     emit backdropUrlChanged();
     emit productionYearChanged();
     emit isWatchedChanged();
+    emit isFavoriteChanged();
+    emit tmdbIdChanged();
+    emit peopleChanged();
+    emit genresChanged();
+    emit similarItemsChanged();
+    emit similarItemsLoadingChanged();
     emit seasonCountChanged();
     emit nextEpisodeChanged();
     emit selectedSeasonIndexChanged();
@@ -1018,6 +1156,13 @@ void SeriesDetailsViewModel::onSeriesDetailsLoaded(const QString &seriesId, cons
     m_seriesData = seriesData;
     updateSeriesMetadata(seriesData);
     storeSeriesCache(seriesId, seriesData);
+
+    if (!m_similarItemsAttempted && !m_similarItemsLoading && m_libraryService) {
+        m_similarItemsAttempted = true;
+        m_similarItemsLoading = true;
+        emit similarItemsLoadingChanged();
+        m_libraryService->getSimilarItems(seriesId);
+    }
     
     // Check if all loading is complete
     if (!m_loadingSeries && !m_loadingSeasons) {
@@ -1038,6 +1183,12 @@ void SeriesDetailsViewModel::onSeriesDetailsNotModified(const QString &seriesId)
         m_loadingSeries = false;
         m_seriesData = cached;
         updateSeriesMetadata(cached);
+        if (!m_similarItemsAttempted && !m_similarItemsLoading && m_libraryService) {
+            m_similarItemsAttempted = true;
+            m_similarItemsLoading = true;
+            emit similarItemsLoadingChanged();
+            m_libraryService->getSimilarItems(seriesId);
+        }
         if (!m_loadingSeasons) {
             setLoading(false);
             emit seriesLoaded();
@@ -1099,6 +1250,7 @@ void SeriesDetailsViewModel::onSeasonsLoaded(const QString &parentId, const QJso
     // Check if all loading is complete
     if (!m_loadingSeries && !m_loadingSeasons) {
         setLoading(false);
+        emit seriesLoaded();
     }
 }
 
@@ -1112,11 +1264,9 @@ void SeriesDetailsViewModel::onItemsNotModified(const QString &parentId)
 
     if (parentId == m_seriesId) {
         qDebug() << "SeriesDetailsViewModel: Seasons not modified, using cached data";
-        m_loadingSeasons = false;
         onSeasonsLoaded(parentId, cached);
     } else if (parentId == m_selectedSeasonId) {
         qDebug() << "SeriesDetailsViewModel: Episodes not modified, using cached data for season" << parentId;
-        m_loadingEpisodes = false;
         onEpisodesLoaded(parentId, cached);
     } else if (m_prefetchSeasonIds.contains(parentId)) {
         storeItemsCache(parentId, cached);
@@ -1275,6 +1425,15 @@ void SeriesDetailsViewModel::onNextEpisodeLoaded(const QString &seriesId, const 
     updateNextEpisode(episodeData);
 }
 
+void SeriesDetailsViewModel::onNextEpisodeFailed(const QString &seriesId, const QString &error)
+{
+    if (seriesId != m_seriesId) {
+        return;
+    }
+
+    qWarning() << "SeriesDetailsViewModel next episode error:" << error;
+}
+
 void SeriesDetailsViewModel::onSeriesWatchedStatusChanged(const QString &seriesId)
 {
     if (seriesId != m_seriesId) {
@@ -1293,11 +1452,72 @@ void SeriesDetailsViewModel::onSeriesWatchedStatusChanged(const QString &seriesI
     }
 }
 
+void SeriesDetailsViewModel::onFavoriteStatusChanged(const QString &itemId, bool isFavorite)
+{
+    if (itemId != m_seriesId) {
+        return;
+    }
+
+    const bool favoriteChanged = (m_isFavorite != isFavorite);
+
+    m_isFavorite = isFavorite;
+
+    if (!m_seriesData.isEmpty()) {
+        QJsonObject userData = m_seriesData.value("UserData").toObject();
+        userData.insert("IsFavorite", isFavorite);
+        m_seriesData.insert("UserData", userData);
+        storeSeriesCache(itemId, m_seriesData);
+    }
+
+    if (favoriteChanged) {
+        emit isFavoriteChanged();
+    }
+}
+
+void SeriesDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items)
+{
+    if (itemId != m_seriesId) {
+        return;
+    }
+
+    QVariantList mappedItems;
+    mappedItems.reserve(items.size());
+    for (const auto &value : items) {
+        const QJsonObject item = value.toObject();
+        if (item.isEmpty()) {
+            continue;
+        }
+        mappedItems.append(item.toVariantMap());
+    }
+
+    m_similarItems = mappedItems;
+    m_similarItemsAttempted = true;
+    m_similarItemsLoading = false;
+    storeSimilarItemsCache(itemId, items);
+    emit similarItemsChanged();
+    emit similarItemsLoadingChanged();
+}
+
+void SeriesDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const QString &error)
+{
+    if (itemId != m_seriesId) {
+        return;
+    }
+
+    m_similarItemsAttempted = false;
+    if (m_similarItemsLoading) {
+        m_similarItemsLoading = false;
+        emit similarItemsLoadingChanged();
+    }
+
+    qWarning() << "SeriesDetailsViewModel similar items error:" << error;
+}
+
 void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
 {
     // Only handle errors for our current requests
-    if (endpoint != "getSeriesDetails" && endpoint != "getItems" && 
-        endpoint != "getNextUnplayedEpisode" && endpoint != "markSeriesWatched" &&
+    if (endpoint != "getSeriesDetails" && endpoint != "getItems" &&
+        endpoint != "markSeriesWatched" &&
         endpoint != "markSeriesUnwatched") {
         return;
     }
@@ -1328,6 +1548,8 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
     const QJsonObject userData = data.value("UserData").toObject();
     m_isWatched = userData.value("Played").toBool();
     emit isWatchedChanged();
+    m_isFavorite = userData.value("IsFavorite").toBool();
+    emit isFavoriteChanged();
 
     m_officialRating = data.value("OfficialRating").toString();
     emit officialRatingChanged();
@@ -1374,10 +1596,48 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
     }
     emit backdropUrlChanged();
 
+    QVariantList mappedPeople;
+    const QJsonArray people = data.value("People").toArray();
+    mappedPeople.reserve(people.size());
+    for (const auto &value : people) {
+        const QJsonObject person = value.toObject();
+        const QString name = person.value("Name").toString();
+        if (name.isEmpty()) {
+            continue;
+        }
+
+        QVariantMap mapped = person.toVariantMap();
+        QString subtitle = person.value("Role").toString();
+        if (subtitle.isEmpty()) {
+            subtitle = person.value("Type").toString();
+        }
+        mapped.insert("Subtitle", subtitle);
+        mappedPeople.append(mapped);
+        if (mappedPeople.size() >= 18) {
+            break;
+        }
+    }
+    m_people = mappedPeople;
+    emit peopleChanged();
+
+    QStringList genres;
+    const QJsonArray genresArray = data.value("Genres").toArray();
+    genres.reserve(genresArray.size());
+    for (const auto &value : genresArray) {
+        const QString genre = value.toString();
+        if (!genre.isEmpty()) {
+            genres.append(genre);
+        }
+    }
+    m_genres = genres;
+    emit genresChanged();
+
     // Trigger MDBList fetch
     QJsonObject providerIds = data.value("ProviderIds").toObject();
     QString imdbId = providerIds.value("Imdb").toString();
     QString tmdbId = providerIds.value("Tmdb").toString();
+    m_tmdbId = tmdbId;
+    emit tmdbIdChanged();
     
     if (!imdbId.isEmpty() || !tmdbId.isEmpty()) {
         fetchMdbListRatings(imdbId, tmdbId, "show");

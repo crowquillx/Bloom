@@ -14,7 +14,24 @@ SeerrService::SeerrService(AuthenticationService *authService, ConfigManager *co
     : QObject(parent)
     , m_authService(authService)
     , m_configManager(configManager)
+    , m_lastConfigured(isConfigured())
 {
+    if (m_configManager) {
+        const auto notifyConfiguredIfChanged = [this]() {
+            const bool configuredNow = isConfigured();
+            if (configuredNow == m_lastConfigured) {
+                return;
+            }
+
+            m_lastConfigured = configuredNow;
+            emit configuredChanged();
+        };
+
+        connect(m_configManager, &ConfigManager::seerrBaseUrlChanged,
+                this, notifyConfiguredIfChanged);
+        connect(m_configManager, &ConfigManager::seerrApiKeyChanged,
+                this, notifyConfiguredIfChanged);
+    }
 }
 
 bool SeerrService::isConfigured() const
@@ -225,14 +242,22 @@ void SeerrService::search(const QString &searchTerm, int page)
 void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
 {
     const QString normalizedMediaType = mediaType.trimmed().toLower();
+    const auto emitSimilarFailure = [this, normalizedMediaType, tmdbId](const QString &error) {
+        emit similarResultsFailed(normalizedMediaType, tmdbId, error);
+    };
+
     if (tmdbId <= 0 || (normalizedMediaType != "movie" && normalizedMediaType != "tv")) {
-        emit errorOccurred("similar", tr("Invalid media target for similar titles"));
-        emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
+        emitSimilarFailure(tr("Invalid media target for similar titles"));
         return;
     }
 
-    if (!ensureConfigured("similar")) {
-        emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
+    if (!m_authService || !m_authService->networkManager()) {
+        emitSimilarFailure(tr("Network service unavailable"));
+        return;
+    }
+
+    if (!isConfigured()) {
+        emitSimilarFailure(tr("Seerr URL or API key is not configured"));
         return;
     }
 
@@ -244,23 +269,27 @@ void SeerrService::getSimilar(const QString &mediaType, int tmdbId, int page)
     query.addQueryItem("page", QString::number(qMax(1, page)));
 
     QNetworkReply *reply = m_authService->networkManager()->get(createRequest(endpoint, query));
-    connect(reply, &QNetworkReply::finished, this, [this, reply, normalizedMediaType, tmdbId]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, normalizedMediaType, tmdbId, emitSimilarFailure]() {
         reply->deleteLater();
 
         if (reply->error() != QNetworkReply::NoError) {
-            emit errorOccurred("similar", tr("Failed loading similar titles: %1").arg(reply->errorString()));
-            emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
+            emitSimilarFailure(tr("Failed loading similar titles: %1").arg(reply->errorString()));
             return;
         }
 
         const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
         if (!doc.isObject()) {
-            emit errorOccurred("similar", tr("Invalid similar titles response"));
-            emit similarResultsLoaded(normalizedMediaType, tmdbId, QJsonArray());
+            emitSimilarFailure(tr("Invalid similar titles response"));
             return;
         }
 
-        const QJsonArray rawResults = doc.object().value("results").toArray();
+        const QJsonObject root = doc.object();
+        if (!root.contains("results") || !root.value("results").isArray()) {
+            emitSimilarFailure(tr("Invalid similar titles response"));
+            return;
+        }
+
+        const QJsonArray rawResults = root.value("results").toArray();
         QJsonArray mappedResults;
         for (const QJsonValue &value : rawResults) {
             const QJsonObject item = value.toObject();

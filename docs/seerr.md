@@ -6,8 +6,9 @@ Overview
   - Search screen shows Seerr results in a dedicated section.
   - Selecting a Seerr result opens a request dialog.
   - Request dialog supports server/profile/root-folder selection and TV season selection.
+  - Series details can render a Seerr recommendations shelf when the current series has a TMDB id and Seerr is configured.
 - Future scope:
-  - Similar-title provider hook is implemented in `SeerrService` but not yet rendered in series/movie views.
+  - Similar-title provider hook is now rendered in series details; movie details can reuse the same service later.
 
 Configuration
 - Settings path: `Settings > Third Party`
@@ -50,9 +51,10 @@ Code map
 - `src/ui/SearchScreen.qml`: independent Seerr search flow + Seerr section rendering.
 - `src/ui/SeerrRequestDialog.qml`: keyboard-first request dialog.
 - `src/ui/SearchResultCard.qml`: Seerr-aware card rendering (TMDB posters/source-status badge).
+- `src/ui/SeriesDetailsView.qml`: Seerr recommendations shelf for series details, reusing the request dialog.
 
-Future plug point: Similar Titles
-- `SeerrService::getSimilar(mediaType, tmdbId, page)` and `similarResultsLoaded(...)` are available for future UI wiring.
+Similar Titles
+- `SeerrService::getSimilar(mediaType, tmdbId, page)` and `similarResultsLoaded(...)` drive the recommendations shelf in series details.
 - Endpoints:
   - `GET /api/v1/movie/{movieId}/similar`
   - `GET /api/v1/tv/{tvId}/similar`

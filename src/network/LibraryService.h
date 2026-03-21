@@ -9,6 +9,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrent>
 #include <QHash>
+#include <functional>
 #include "Types.h"  // Shared data structs and error helpers
 
 class AuthenticationService;
@@ -60,6 +61,7 @@ public:
 
     // Series details and episodes
     Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);
+    Q_INVOKABLE virtual void getSimilarItems(const QString &itemId, int limit = 12);
     Q_INVOKABLE virtual void getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId = QString());
     Q_INVOKABLE virtual void markSeriesWatched(const QString &seriesId);
     Q_INVOKABLE virtual void markSeriesUnwatched(const QString &seriesId);
@@ -99,7 +101,10 @@ signals:
     void homeBackdropItemsLoaded(const QJsonArray &items);
     void seriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void seriesDetailsNotModified(const QString &seriesId);
+    void similarItemsLoaded(const QString &itemId, const QJsonArray &items);
+    void similarItemsFailed(const QString &itemId, const QString &error);
     void nextUnplayedEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
+    void nextUnplayedEpisodeFailed(const QString &seriesId, const QString &error);
     void seriesWatchedStatusChanged(const QString &seriesId);
     void itemPlayedStatusChanged(const QString &itemId, bool isPlayed);
     void favoriteStatusChanged(const QString &itemId, bool isFavorite);
@@ -123,16 +128,19 @@ private:
     // Retry mechanism types
     using ResponseHandler = std::function<void(QNetworkReply*)>;
     using RequestFactory = std::function<QNetworkReply*()>;
+    using FailureHandler = std::function<void(const NetworkError&)>;
     
     void sendRequestWithRetry(const QString &endpoint,
                                RequestFactory requestFactory,
                                ResponseHandler responseHandler,
+                               FailureHandler failureHandler = FailureHandler(),
                                int attemptNumber = 0);
     
     void handleReplyWithRetry(QNetworkReply *reply,
                                const QString &endpoint,
                                RequestFactory requestFactory,
                                ResponseHandler responseHandler,
+                               FailureHandler failureHandler,
                                int attemptNumber);
     
     void emitError(const NetworkError &error);

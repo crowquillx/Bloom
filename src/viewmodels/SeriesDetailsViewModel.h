@@ -146,6 +146,12 @@ class SeriesDetailsViewModel : public BaseViewModel
     Q_PROPERTY(QString backdropUrl READ backdropUrl NOTIFY backdropUrlChanged)
     Q_PROPERTY(int productionYear READ productionYear NOTIFY productionYearChanged)
     Q_PROPERTY(bool isWatched READ isWatched NOTIFY isWatchedChanged)
+    Q_PROPERTY(bool isFavorite READ isFavorite NOTIFY isFavoriteChanged)
+    Q_PROPERTY(QString tmdbId READ tmdbId NOTIFY tmdbIdChanged)
+    Q_PROPERTY(QVariantList people READ people NOTIFY peopleChanged)
+    Q_PROPERTY(QStringList genres READ genres NOTIFY genresChanged)
+    Q_PROPERTY(QVariantList similarItems READ similarItems NOTIFY similarItemsChanged)
+    Q_PROPERTY(bool similarItemsLoading READ similarItemsLoading NOTIFY similarItemsLoadingChanged)
 
     Q_PROPERTY(int seasonCount READ seasonCount NOTIFY seasonCountChanged)
     Q_PROPERTY(QString officialRating READ officialRating NOTIFY officialRatingChanged)
@@ -187,6 +193,12 @@ public:
     QString backdropUrl() const { return m_backdropUrl; }
     int productionYear() const { return m_productionYear; }
     bool isWatched() const { return m_isWatched; }
+    bool isFavorite() const { return m_isFavorite; }
+    QString tmdbId() const { return m_tmdbId; }
+    QVariantList people() const { return m_people; }
+    QStringList genres() const { return m_genres; }
+    QVariantList similarItems() const { return m_similarItems; }
+    bool similarItemsLoading() const { return m_similarItemsLoading; }
 
     int seasonCount() const { return m_seasonCount; }
     QString officialRating() const { return m_officialRating; }
@@ -256,6 +268,7 @@ public:
      * @brief Mark the series as unwatched.
      */
     Q_INVOKABLE void markAsUnwatched();
+    Q_INVOKABLE void toggleFavorite();
 
     /**
      * @brief Clear all data and reset state.
@@ -278,9 +291,12 @@ public:
     void storeSeriesCache(const QString &seriesId, const QJsonObject &seriesData) const;
     bool loadItemsFromCache(const QString &parentId, QJsonArray &items, bool requireFresh) const;
     void storeItemsCache(const QString &parentId, const QJsonArray &items) const;
+    bool loadSimilarItemsFromCache(const QString &seriesId, QJsonArray &items, bool requireFresh) const;
+    void storeSimilarItemsCache(const QString &seriesId, const QJsonArray &items) const;
     QString cacheDir() const;
     QString seriesCachePath(const QString &seriesId) const;
     QString itemsCachePath(const QString &parentId) const;
+    QString similarItemsCachePath(const QString &seriesId) const;
     void clearCacheForTest(const QString &id);
     
     // MDBList
@@ -301,6 +317,12 @@ signals:
     void backdropUrlChanged();
     void productionYearChanged();
     void isWatchedChanged();
+    void isFavoriteChanged();
+    void tmdbIdChanged();
+    void peopleChanged();
+    void genresChanged();
+    void similarItemsChanged();
+    void similarItemsLoadingChanged();
 
     void seasonCountChanged();
     void officialRatingChanged();
@@ -329,7 +351,11 @@ private slots:
     void onEpisodesLoaded(const QString &parentId, const QJsonArray &items);
     void onItemsNotModified(const QString &parentId);
     void onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
+    void onNextEpisodeFailed(const QString &seriesId, const QString &error);
     void onSeriesWatchedStatusChanged(const QString &seriesId);
+    void onFavoriteStatusChanged(const QString &itemId, bool isFavorite);
+    void onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items);
+    void onSimilarItemsFailed(const QString &itemId, const QString &error);
     void onErrorOccurred(const QString &endpoint, const QString &error);
 
 private:
@@ -349,6 +375,13 @@ private:
     QString m_backdropUrl;
     int m_productionYear = 0;
     bool m_isWatched = false;
+    bool m_isFavorite = false;
+    QString m_tmdbId;
+    QVariantList m_people;
+    QStringList m_genres;
+    QVariantList m_similarItems;
+    bool m_similarItemsAttempted = false;
+    bool m_similarItemsLoading = false;
 
     int m_seasonCount = 0;
     QString m_officialRating;

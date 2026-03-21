@@ -160,14 +160,30 @@ Item {
     
     function close() {
         SidebarSettings.sidebarExpanded = false
-        // Return focus to main content
-        console.log("[FocusDebug] Sidebar.close() called, attempting to restore focus to mainContent")
-        if (mainContent) {
-            console.log("[FocusDebug] mainContent exists, calling forceActiveFocus()")
-            mainContent.forceActiveFocus()
-            console.log("[FocusDebug] mainContent.activeFocus:", mainContent.activeFocus)
+        Qt.callLater(function() {
+            // Return focus to main content after the sidebar collapse settles.
+            console.log("[FocusDebug] Sidebar.close() called, attempting to restore focus to mainContent")
+            if (mainContent) {
+                console.log("[FocusDebug] mainContent exists, restoring focus")
+                if (typeof mainContent.restoreFocusFromSidebar === "function") {
+                    mainContent.restoreFocusFromSidebar()
+                } else {
+                    mainContent.forceActiveFocus()
+                }
+                console.log("[FocusDebug] mainContent.activeFocus:", mainContent.activeFocus)
+            } else {
+                console.log("[FocusDebug] mainContent is null!")
+            }
+        })
+    }
+
+    function restoreMainContentFocus() {
+        if (!mainContent)
+            return
+        if (typeof mainContent.restoreFocusFromSidebar === "function") {
+            mainContent.restoreFocusFromSidebar()
         } else {
-            console.log("[FocusDebug] mainContent is null!")
+            mainContent.forceActiveFocus()
         }
     }
     
@@ -494,7 +510,7 @@ Item {
                         // Navigate to main content
                         console.log("[FocusDebug] Nav delegate Right pressed, mainContent:", root.mainContent ? "exists" : "null")
                         if (root.mainContent) {
-                            root.mainContent.forceActiveFocus()
+                            root.restoreMainContentFocus()
                             console.log("[FocusDebug] After forceActiveFocus, mainContent.activeFocus:", root.mainContent.activeFocus)
                         }
                     }
@@ -728,7 +744,7 @@ Item {
                     Keys.onRightPressed: function(event) {
                         if (root.mainContent) {
                             console.log("[FocusDebug] libraryListView delegate Right pressed, setting focus to mainContent")
-                            root.mainContent.forceActiveFocus()
+                            root.restoreMainContentFocus()
                             event.accepted = true
                         }
                     }
@@ -986,7 +1002,7 @@ Item {
                 }
                 Keys.onRightPressed: {
                     if (root.mainContent) {
-                        root.mainContent.forceActiveFocus()
+                        root.restoreMainContentFocus()
                     }
                 }
                 Keys.onEscapePressed: root.close()
@@ -1106,7 +1122,7 @@ Item {
                 }
                 Keys.onRightPressed: {
                     if (root.mainContent) {
-                        root.mainContent.forceActiveFocus()
+                        root.restoreMainContentFocus()
                     }
                 }
                 Keys.onEscapePressed: root.close()
@@ -1237,7 +1253,7 @@ Item {
                 }
                 Keys.onRightPressed: {
                     if (root.mainContent) {
-                        root.mainContent.forceActiveFocus()
+                        root.restoreMainContentFocus()
                     }
                 }
                 Keys.onEscapePressed: root.close()
@@ -1344,7 +1360,7 @@ Item {
             // Navigate to main content
             console.log("[FocusDebug] hamburgerButton Right pressed")
             if (root.mainContent) {
-                root.mainContent.forceActiveFocus()
+                root.restoreMainContentFocus()
                 console.log("[FocusDebug] After forceActiveFocus on mainContent, activeFocus:", root.mainContent.activeFocus)
             }
         }
