@@ -1000,7 +1000,7 @@ Item {
                 }
                 Keys.onRightPressed: {
                     if (root.mainContent) {
-                            root.restoreMainContentFocus()
+                        root.restoreMainContentFocus()
                     }
                 }
                 Keys.onEscapePressed: root.close()

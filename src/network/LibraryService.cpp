@@ -690,7 +690,17 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
                 return;
             }
 
-            emit similarItemsLoaded(itemId, doc.object().value("Items").toArray());
+            const QJsonObject root = doc.object();
+            if (!root.contains("Items") || !root.value("Items").isArray()) {
+                NetworkError error;
+                error.endpoint = "getSimilarItems";
+                error.code = -2;
+                error.userMessage = tr("Invalid similar items response");
+                emit similarItemsFailed(itemId, error.userMessage);
+                return;
+            }
+
+            emit similarItemsLoaded(itemId, root.value("Items").toArray());
         },
         [this, itemId](const NetworkError &error) {
             emit similarItemsFailed(itemId, error.userMessage);

@@ -233,7 +233,7 @@ bool SeriesDetailsViewModel::loadSimilarItemsFromCache(const QString &seriesId, 
 {
     if (s_similarItemsCache.contains(seriesId)) {
         const auto &entry = s_similarItemsCache[seriesId];
-        if (entry.hasData() && (!requireFresh || entry.isValid(kSimilarMemoryTtlMs))) {
+        if (entry.timestamp > 0 && (!requireFresh || entry.isValid(kSimilarMemoryTtlMs))) {
             items = entry.items;
             return true;
         }
@@ -256,7 +256,7 @@ bool SeriesDetailsViewModel::loadSimilarItemsFromCache(const QString &seriesId, 
     entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
     entry.items = doc.object().value("items").toArray();
 
-    if (!entry.hasData())
+    if (entry.timestamp <= 0)
         return false;
 
     if (requireFresh && !entry.isValid(kSimilarDiskTtlMs))
@@ -720,7 +720,7 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
             mappedItems.append(item.toVariantMap());
         }
         m_similarItems = mappedItems;
-        m_similarItemsAttempted = true;
+        m_similarItemsAttempted = hasFreshSimilarItems;
         m_similarItemsLoading = false;
         emit similarItemsChanged();
         emit similarItemsLoadingChanged();
@@ -1264,11 +1264,9 @@ void SeriesDetailsViewModel::onItemsNotModified(const QString &parentId)
 
     if (parentId == m_seriesId) {
         qDebug() << "SeriesDetailsViewModel: Seasons not modified, using cached data";
-        m_loadingSeasons = false;
         onSeasonsLoaded(parentId, cached);
     } else if (parentId == m_selectedSeasonId) {
         qDebug() << "SeriesDetailsViewModel: Episodes not modified, using cached data for season" << parentId;
-        m_loadingEpisodes = false;
         onEpisodesLoaded(parentId, cached);
     } else if (m_prefetchSeasonIds.contains(parentId)) {
         storeItemsCache(parentId, cached);

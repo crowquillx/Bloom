@@ -1964,7 +1964,9 @@ FocusScope {
                 currentSeriesSeasons = seasons
                 // Ensure focus is set to the content for series details view
                 Qt.callLater(function() {
-                    if (contentLoader.item && !root.restoringFocusFromSeriesDetailsReturn) {
+                    if (contentLoader.item
+                            && !root.restoringFocusFromSeriesDetailsReturn
+                            && !contentLoader.item.isRestoringReturnFocus) {
                         contentLoader.item.forceActiveFocus()
                     }
                 })

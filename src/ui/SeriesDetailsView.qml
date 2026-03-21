@@ -14,6 +14,10 @@ FocusScope {
     property bool restorePendingReturnState: false
     property var seerrRecommendationCacheStore: null
     property int seerrRecommendationCacheTtlMs: 10 * 60 * 1000
+    readonly property bool isRestoringReturnFocus: restoringFocusFromSidebar
+                                                 || restoringFocusFromReturnState
+                                                 || suppressHeroAutofocus
+                                                 || hasPendingReturnStateForCurrentSeries()
 
     property var seerrRecommendedItems: []
     property bool seerrRecommendationsLoading: false
