@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BaseViewModel.h"
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
 #include <QList>
@@ -32,7 +33,10 @@ class MovieDetailsViewModel : public BaseViewModel
     Q_PROPERTY(QString officialRating READ officialRating NOTIFY officialRatingChanged)
     Q_PROPERTY(qint64 runtimeTicks READ runtimeTicks NOTIFY runtimeTicksChanged)
     Q_PROPERTY(double communityRating READ communityRating NOTIFY communityRatingChanged)
+    Q_PROPERTY(QVariantList people READ people NOTIFY peopleChanged)
     Q_PROPERTY(QStringList genres READ genres NOTIFY genresChanged)
+    Q_PROPERTY(QVariantList similarItems READ similarItems NOTIFY similarItemsChanged)
+    Q_PROPERTY(bool similarItemsLoading READ similarItemsLoading NOTIFY similarItemsLoadingChanged)
     Q_PROPERTY(QDateTime premiereDate READ premiereDate NOTIFY premiereDateChanged)
     Q_PROPERTY(qint64 playbackPositionTicks READ playbackPositionTicks NOTIFY playbackPositionTicksChanged)
 
@@ -56,7 +60,10 @@ public:
     QString officialRating() const { return m_officialRating; }
     qint64 runtimeTicks() const { return m_runtimeTicks; }
     double communityRating() const { return m_communityRating; }
+    QVariantList people() const { return m_people; }
     QStringList genres() const { return m_genres; }
+    QVariantList similarItems() const { return m_similarItems; }
+    bool similarItemsLoading() const { return m_similarItemsLoading; }
     QDateTime premiereDate() const { return m_premiereDate; }
     qint64 playbackPositionTicks() const { return m_playbackPositionTicks; }
 
@@ -98,8 +105,11 @@ public:
     // Cache helpers
     QString cacheDir() const;
     QString movieCachePath(const QString &movieId) const;
+    QString similarItemsCachePath(const QString &movieId) const;
     bool loadMovieFromCache(const QString &movieId, QJsonObject &movieData, bool requireFresh) const;
+    bool loadSimilarItemsFromCache(const QString &movieId, QJsonArray &items, bool requireFresh) const;
     void storeMovieCache(const QString &movieId, const QJsonObject &movieData) const;
+    void storeSimilarItemsCache(const QString &movieId, const QJsonArray &items) const;
 
     // MDBList
     void fetchMdbListRatings(const QString &imdbId, const QString &tmdbId, const QString &type = "movie");
@@ -122,7 +132,10 @@ signals:
     void officialRatingChanged();
     void runtimeTicksChanged();
     void communityRatingChanged();
+    void peopleChanged();
     void genresChanged();
+    void similarItemsChanged();
+    void similarItemsLoadingChanged();
     void premiereDateChanged();
     void playbackPositionTicksChanged();
     void mdbListRatingsChanged();
@@ -133,6 +146,8 @@ signals:
 private slots:
     void onMovieDetailsLoaded(const QString &itemId, const QJsonObject &data);
     void onMovieDetailsNotModified(const QString &itemId);
+    void onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items);
+    void onSimilarItemsFailed(const QString &itemId, const QString &error);
     void onErrorOccurred(const QString &endpoint, const QString &error);
 
 private:
@@ -155,7 +170,11 @@ private:
     QString m_officialRating;
     qint64 m_runtimeTicks = 0;
     double m_communityRating = 0.0;
+    QVariantList m_people;
     QStringList m_genres;
+    QVariantList m_similarItems;
+    bool m_similarItemsAttempted = false;
+    bool m_similarItemsLoading = false;
     QDateTime m_premiereDate;
     qint64 m_playbackPositionTicks = 0;
 
