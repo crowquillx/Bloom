@@ -318,6 +318,7 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
 void MovieDetailsViewModel::reload()
 {
     if (!m_movieId.isEmpty()) {
+        m_similarItemsAttempted = false;
         loadMovieDetails(m_movieId);
     }
 }
@@ -469,7 +470,7 @@ void MovieDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const QS
         return;
     }
 
-    m_similarItemsAttempted = false;
+    m_similarItemsAttempted = true;
     if (m_similarItemsLoading) {
         m_similarItemsLoading = false;
         emit similarItemsLoadingChanged();
