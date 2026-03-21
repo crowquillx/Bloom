@@ -62,30 +62,36 @@ private:
 
 
 ## MovieDetailsViewModel
-ViewModel for displaying movie metadata and external ratings.
+ViewModel for the series-style movie details screen.
 
 ### Purpose
-Acts as the data source for `MovieDetailsView.qml`. It aggregates Jellyfin item metadata with external ratings from MDBList (IMDb, TMDB, Rotten Tomatoes, etc.) and AniList.
+Acts as the data source for `MovieDetailsView.qml`. It aggregates Jellyfin movie metadata, playback progress, cast, similar-library recommendations, and external ratings from MDBList (IMDb, TMDB, Rotten Tomatoes, etc.) plus AniList when available.
 
 ### Public API
 - **Key Properties**:
-  - `title`, `overview`, `logoUrl`, `posterUrl`, `backdropUrl`: UI-ready metadata and image URLs.
-  - `isWatched`, `playbackPositionTicks`: Syncs with Jellyfin `UserData`.
-  - `mdbListRatings`: `QVariantMap` containing a list of ratings from various providers.
+  - `title`, `overview`, `logoUrl`, `posterUrl`, `backdropUrl`: UI-ready metadata and artwork.
+  - `officialRating`, `runtimeTicks`, `communityRating`, `premiereDate`, `genres`: movie metadata used by the hero chips and synopsis area.
+  - `isWatched`, `playbackPositionTicks`: sync with Jellyfin `UserData` and drive `Play` vs `Resume` UI.
+  - `people`: cast/crew entries used by the lower cast shelf.
+  - `similarItems`, `similarItemsLoading`: recommendation shelf data and loading state for similar titles.
+  - `mdbListRatings`: `QVariantMap` containing normalized external ratings, including AniList when merged in.
 - **Methods**:
-  - `loadMovieDetails(QString movieId)`: Fetches data from cache or network.
-  - `markAsWatched()` / `markAsUnwatched()`: Syncs played status to the server.
-  - `clear(bool preserveArtwork)`: Resets the model. Set `preserveArtwork=true` to maintain visual continuity while loading a new item.
+  - `loadMovieDetails(QString movieId)`: hydrates from cache when possible, then refreshes metadata and similar items from the library service.
+  - `reload()`: retries the active movie load for error/retry flows.
+  - `markAsWatched()` / `markAsUnwatched()`: sync played status to the server.
+  - `clear(bool preserveArtwork)`: resets state. Set `preserveArtwork=true` to keep artwork visible during transitions.
 - **Signals**:
-  - `movieLoaded()`: Metadata is ready for display.
-  - `loadError(QString error)`: Standardized error notification.
+  - `movieLoaded()`: metadata is ready for display.
+  - `loadError(QString error)`: standardized error notification.
+  - `peopleChanged()`, `similarItemsChanged()`, `similarItemsLoadingChanged()`: update the cast and recommendation shelves.
 
 ### Integration
-- **Services**: Retrieves `LibraryService` via `ServiceLocator` for Jellyfin interaction.
-- **Network**: Uses an internal `QNetworkAccessManager` for MDBList and Wikidata/AniList API lookups.
-- **Config**: Reads `ConfigManager` for API keys and storage paths.
+- **Services**: Retrieves `LibraryService` via `ServiceLocator` for movie details, user-data updates, and similar-item requests.
+- **Network**: Uses an internal `QNetworkAccessManager` for MDBList and Wikidata/AniList lookups.
+- **Config**: Reads `ConfigManager` for API keys and cache storage paths.
 
 ### Lifecycle & Side Effects
-- **Caching**: Implements two-layer caching (Memory/Disk). Disk cache resides in `<configDir>/cache/movies/` with a 1-hour TTL.
-- **Rating Fetching**: Automatically triggers external rating lookups (MDBList/AniList) upon successful item metadata load if provider IDs (IMDb/TMDB) are present.
-- **State Cleanup**: `clear()` should be called when navigating away from the view to prevent stale data display.
+- **Caching**: Uses separate in-memory and disk caches for movie details and similar items. Disk cache resides in `<configDir>/cache/movies/` with a 1-hour TTL.
+- **Rating Fetching**: Automatically triggers external rating lookups after metadata loads when provider IDs (IMDb/TMDB) are present.
+- **Recommendation Fetching**: Requests similar items after details load, while still allowing cached empty recommendation results to short-circuit redundant network fetches.
+- **State Cleanup**: `clear()` should be called when navigating away from the view to prevent stale shelves or metadata from lingering.
