@@ -1040,6 +1040,7 @@ FocusScope {
 
         if (event.key === Qt.Key_Back || event.key === Qt.Key_Escape) {
             if (contextMenu.opened) {
+                contextMenu.close()
                 event.accepted = true
                 return
             }
