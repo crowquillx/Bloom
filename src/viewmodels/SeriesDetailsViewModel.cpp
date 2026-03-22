@@ -3,6 +3,8 @@
 #include "../network/LibraryService.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/DetailViewCache.h"
+#include "../utils/DetailListHelper.h"
+#include "../utils/DetailMetadataHelper.h"
 #include "../utils/ExternalRatingsHelper.h"
 #include <QDateTime>
 #include <QDir>
@@ -1233,17 +1235,7 @@ void SeriesDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const Q
         return;
     }
 
-    QVariantList mappedItems;
-    mappedItems.reserve(items.size());
-    for (const auto &value : items) {
-        const QJsonObject item = value.toObject();
-        if (item.isEmpty()) {
-            continue;
-        }
-        mappedItems.append(item.toVariantMap());
-    }
-
-    m_similarItems = mappedItems;
+    m_similarItems = DetailListHelper::mapSimilarItems(items);
     m_similarItemsAttempted = true;
     m_similarItemsLoading = false;
     storeSimilarItemsCache(itemId, items);
@@ -1286,25 +1278,31 @@ void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QStr
 
 void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
 {
-    m_title = data.value("Name").toString();
+    const auto common = DetailMetadataHelper::extractCommonMetadata(
+        data,
+        m_seriesId,
+        [this](const QString &itemId, const QString &imageType, int width) {
+            return buildImageUrl(itemId, imageType, width);
+        },
+        QStringLiteral("No synopsis available."),
+        false);
+
+    m_title = common.title;
     emit titleChanged();
 
-    m_overview = data.value("Overview").toString();
-    if (m_overview.isEmpty()) {
-        m_overview = "No synopsis available.";
-    }
+    m_overview = common.overview;
     emit overviewChanged();
 
-    m_productionYear = data.value("ProductionYear").toInt();
+    m_productionYear = common.productionYear;
     emit productionYearChanged();
 
     const QJsonObject userData = data.value("UserData").toObject();
-    m_isWatched = userData.value("Played").toBool();
+    m_isWatched = common.isWatched;
     emit isWatchedChanged();
     m_isFavorite = userData.value("IsFavorite").toBool();
     emit isFavoriteChanged();
 
-    m_officialRating = data.value("OfficialRating").toString();
+    m_officialRating = common.officialRating;
     emit officialRatingChanged();
 
     // Cumulative item count (episodes)
@@ -1324,65 +1322,32 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
 
     const QJsonObject imageTags = data.value("ImageTags").toObject();
 
-    // Logo URL
     if (imageTags.contains("Logo")) {
-        m_logoUrl = buildImageUrl(m_seriesId, "Logo", 2000);
+        m_logoUrl = common.logoUrl;
     } else {
         m_logoUrl.clear();
     }
     emit logoUrlChanged();
 
-    // Poster URL
     if (imageTags.contains("Primary")) {
-        m_posterUrl = buildImageUrl(m_seriesId, "Primary", 400);
+        m_posterUrl = common.posterUrl;
     } else {
         m_posterUrl.clear();
     }
     emit posterUrlChanged();
 
-    // Backdrop URL
     const QJsonArray backdropTags = data.value("BackdropImageTags").toArray();
     if (!backdropTags.isEmpty()) {
-        m_backdropUrl = buildImageUrl(m_seriesId, "Backdrop", 1920);
+        m_backdropUrl = common.backdropUrl;
     } else {
         m_backdropUrl.clear();
     }
     emit backdropUrlChanged();
 
-    QVariantList mappedPeople;
-    const QJsonArray people = data.value("People").toArray();
-    mappedPeople.reserve(people.size());
-    for (const auto &value : people) {
-        const QJsonObject person = value.toObject();
-        const QString name = person.value("Name").toString();
-        if (name.isEmpty()) {
-            continue;
-        }
-
-        QVariantMap mapped = person.toVariantMap();
-        QString subtitle = person.value("Role").toString();
-        if (subtitle.isEmpty()) {
-            subtitle = person.value("Type").toString();
-        }
-        mapped.insert("Subtitle", subtitle);
-        mappedPeople.append(mapped);
-        if (mappedPeople.size() >= 18) {
-            break;
-        }
-    }
-    m_people = mappedPeople;
+    m_people = common.people;
     emit peopleChanged();
 
-    QStringList genres;
-    const QJsonArray genresArray = data.value("Genres").toArray();
-    genres.reserve(genresArray.size());
-    for (const auto &value : genresArray) {
-        const QString genre = value.toString();
-        if (!genre.isEmpty()) {
-            genres.append(genre);
-        }
-    }
-    m_genres = genres;
+    m_genres = common.genres;
     emit genresChanged();
 
     // Trigger MDBList fetch

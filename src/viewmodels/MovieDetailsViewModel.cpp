@@ -3,6 +3,8 @@
 #include "../network/LibraryService.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/DetailViewCache.h"
+#include "../utils/DetailListHelper.h"
+#include "../utils/DetailMetadataHelper.h"
 #include "../utils/ExternalRatingsHelper.h"
 #include <QDateTime>
 #include <QDir>
@@ -335,17 +337,7 @@ void MovieDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const QJ
         return;
     }
 
-    QVariantList mappedItems;
-    mappedItems.reserve(items.size());
-    for (const auto &value : items) {
-        const QJsonObject item = value.toObject();
-        if (item.isEmpty()) {
-            continue;
-        }
-        mappedItems.append(item.toVariantMap());
-    }
-
-    m_similarItems = mappedItems;
+    m_similarItems = DetailListHelper::mapSimilarItems(items);
     m_similarItemsAttempted = true;
     m_similarItemsLoading = false;
     storeSimilarItemsCache(itemId, items);
@@ -383,63 +375,34 @@ void MovieDetailsViewModel::onErrorOccurred(const QString &endpoint, const QStri
 
 void MovieDetailsViewModel::updateMovieMetadata(const QJsonObject &data)
 {
-    m_title = data.value("Name").toString();
-    m_overview = data.value("Overview").toString();
-    m_productionYear = data.value("ProductionYear").toInt();
-    m_officialRating = data.value("OfficialRating").toString();
+    const auto common = DetailMetadataHelper::extractCommonMetadata(
+        data,
+        m_movieId,
+        [this](const QString &itemId, const QString &imageType, int width) {
+            return m_libraryService ? m_libraryService->getCachedImageUrlWithWidth(itemId, imageType, width)
+                                    : QString();
+        },
+        QString(),
+        true);
+
+    m_title = common.title;
+    m_overview = common.overview;
+    m_productionYear = common.productionYear;
+    m_officialRating = common.officialRating;
     m_runtimeTicks = data.value("RunTimeTicks").toVariant().toLongLong();
     m_communityRating = data.value("CommunityRating").toDouble();
-    
+
     if (data.contains("PremiereDate")) {
         m_premiereDate = QDateTime::fromString(data.value("PremiereDate").toString(), Qt::ISODate);
     }
-    
-    m_genres.clear();
-    QJsonArray genresArray = data.value("Genres").toArray();
-    for (const auto &g : genresArray) {
-        m_genres.append(g.toString());
-    }
-    
-    // UserData
-    QJsonObject userData = data.value("UserData").toObject();
-    m_isWatched = userData.value("Played").toBool();
-    m_playbackPositionTicks = userData.value("PlaybackPositionTicks").toVariant().toLongLong();
 
-    QVariantList mappedPeople;
-    const QJsonArray people = data.value("People").toArray();
-    mappedPeople.reserve(people.size());
-    for (const auto &value : people) {
-        const QJsonObject person = value.toObject();
-        const QString name = person.value("Name").toString();
-        if (name.isEmpty()) {
-            continue;
-        }
-
-        QVariantMap mapped = person.toVariantMap();
-        QString subtitle = person.value("Role").toString();
-        if (subtitle.isEmpty()) {
-            subtitle = person.value("Type").toString();
-        }
-        mapped.insert("Subtitle", subtitle);
-        mappedPeople.append(mapped);
-        if (mappedPeople.size() >= 18) {
-            break;
-        }
-    }
-    m_people = mappedPeople;
-    
-    // Images - use LibraryService cache helpers
-    if (m_libraryService) {
-        m_logoUrl = m_libraryService->getCachedImageUrlWithWidth(m_movieId, "Logo", 2000);
-        m_posterUrl = m_libraryService->getCachedImageUrlWithWidth(m_movieId, "Primary", 400);
-        
-        // Try Backdrop, fallback to Primary
-        QString backdrop = m_libraryService->getCachedImageUrlWithWidth(m_movieId, "Backdrop", 1920);
-        if (backdrop.isEmpty()) {
-            backdrop = m_posterUrl;
-        }
-        m_backdropUrl = backdrop;
-    }
+    m_genres = common.genres;
+    m_isWatched = common.isWatched;
+    m_playbackPositionTicks = common.playbackPositionTicks;
+    m_people = common.people;
+    m_logoUrl = common.logoUrl;
+    m_posterUrl = common.posterUrl;
+    m_backdropUrl = common.backdropUrl;
 
     emit titleChanged();
     emit overviewChanged();
