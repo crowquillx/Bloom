@@ -10,6 +10,23 @@
 
 Q_LOGGING_CATEGORY(libraryService, "bloom.library")
 
+namespace {
+
+const QStringList kItemFields = {
+    "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
+    "Genres", "Studios", "People", "UserData",
+    "ProductionYear", "PremiereDate", "OfficialRating",
+    "RunTimeTicks", "CommunityRating", "ProviderIds"
+};
+
+QString buildItemEndpoint(const QString &userId, const QString &itemId)
+{
+    return QString("/Users/%1/Items/%2?Fields=%3")
+        .arg(userId, itemId, kItemFields.join(","));
+}
+
+}
+
 LibraryService::LibraryService(AuthenticationService *authService, QObject *parent)
     : QObject(parent)
     , m_authService(authService)
@@ -516,16 +533,8 @@ void LibraryService::getItem(const QString &itemId)
         emitError(error);
         return;
     }
-    
-    const QStringList fields = {
-        "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
-        "Genres", "Studios", "People", "UserData",
-        "ProductionYear", "PremiereDate", "OfficialRating",
-        "RunTimeTicks", "CommunityRating", "ProviderIds"
-    };
-    
-    QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
-        .arg(m_authService->getUserId(), itemId, fields.join(","));
+
+    const QString endpoint = buildItemEndpoint(m_authService->getUserId(), itemId);
     
     sendRequestWithRetry(endpoint,
         [this, endpoint, itemId]() {
@@ -574,15 +583,7 @@ void LibraryService::clearItemCacheValidation(const QString &itemId)
         return;
     }
 
-    const QStringList fields = {
-        "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
-        "Genres", "Studios", "People", "UserData",
-        "ProductionYear", "PremiereDate", "OfficialRating",
-        "RunTimeTicks", "CommunityRating", "ProviderIds"
-    };
-
-    const QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
-                                 .arg(m_authService->getUserId(), itemId, fields.join(","));
+    const QString endpoint = buildItemEndpoint(m_authService->getUserId(), itemId);
     m_etags.remove(endpoint);
     m_lastModified.remove(endpoint);
 }

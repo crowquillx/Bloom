@@ -242,6 +242,14 @@ FocusScope {
         }
 
         var targetIndex = initialSeasonIndex
+        if (targetIndex >= 0 && targetIndex < SeriesDetailsViewModel.seasonsModel.rowCount()) {
+            var targetSeason = SeriesDetailsViewModel.seasonsModel.getItem(targetIndex)
+            var targetSeasonId = targetSeason ? (targetSeason.itemId || targetSeason.Id || "") : ""
+            if (targetSeasonId !== initialSeasonId) {
+                targetIndex = -1
+            }
+        }
+
         if (targetIndex < 0 || targetIndex >= SeriesDetailsViewModel.seasonsModel.rowCount()) {
             targetIndex = seasonIndexForId(initialSeasonId)
         }
