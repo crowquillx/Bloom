@@ -28,6 +28,32 @@ bool loadObjectCache(QHash<QString, ObjectCacheEntry> &memoryCache,
                      QJsonObject &data,
                      bool requireFresh)
 {
+    if (requireFresh && !path.isEmpty() && QFile::exists(path)) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            return false;
+        }
+
+        QJsonParseError err;
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
+        if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+            return false;
+        }
+
+        ObjectCacheEntry entry;
+        entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
+        entry.data = doc.object().value("data").toObject();
+
+        if (!entry.hasData() || !entry.isValid(diskTtl)) {
+            memoryCache.remove(cacheKey);
+            return false;
+        }
+
+        memoryCache[cacheKey] = entry;
+        data = entry.data;
+        return true;
+    }
+
     if (memoryCache.contains(cacheKey)) {
         const auto &entry = memoryCache[cacheKey];
         if (entry.hasData() && (!requireFresh || entry.isValid(memoryTtl))) {
@@ -119,6 +145,32 @@ bool loadArrayCache(QHash<QString, ArrayCacheEntry> &memoryCache,
                     bool requireFresh,
                     bool allowEmpty)
 {
+    if (requireFresh && !path.isEmpty() && QFile::exists(path)) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            return false;
+        }
+
+        QJsonParseError err;
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
+        if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+            return false;
+        }
+
+        ArrayCacheEntry entry;
+        entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
+        entry.data = doc.object().value("items").toArray();
+
+        if (!entry.hasData(allowEmpty) || !entry.isValid(diskTtl)) {
+            memoryCache.remove(cacheKey);
+            return false;
+        }
+
+        memoryCache[cacheKey] = entry;
+        data = entry.data;
+        return true;
+    }
+
     if (memoryCache.contains(cacheKey)) {
         const auto &entry = memoryCache[cacheKey];
         if (entry.hasData(allowEmpty) && (!requireFresh || entry.isValid(memoryTtl))) {
