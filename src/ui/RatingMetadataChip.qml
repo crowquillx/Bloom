@@ -23,9 +23,9 @@ Rectangle {
     implicitHeight: Math.round(38 * Theme.layoutScale)
     implicitWidth: ratingRow.implicitWidth + Math.round(20 * Theme.layoutScale)
     radius: implicitHeight / 2
-    color: Qt.rgba(0, 0, 0, 0.28)
+    color: Theme.chipBackground
     border.width: 1
-    border.color: Qt.rgba(1, 1, 1, 0.12)
+    border.color: Theme.chipBorder
     visible: displayValue !== ""
 
     RowLayout {

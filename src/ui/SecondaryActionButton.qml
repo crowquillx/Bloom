@@ -24,13 +24,17 @@ Button {
     background: Rectangle {
         radius: Theme.radiusMedium
         color: {
-            if (!actionButton.enabled) return Qt.rgba(0, 0, 0, 0.18)
-            if (actionButton.down) return Qt.rgba(1, 1, 1, 0.18)
-            if (actionButton.hovered) return Qt.rgba(1, 1, 1, 0.12)
-            return Qt.rgba(0, 0, 0, 0.26)
+            if (!actionButton.enabled) return Theme.buttonSecondaryBackgroundDisabled
+            if (actionButton.down) return Theme.buttonSecondaryBackgroundPressed
+            if (actionButton.hovered) return Theme.buttonSecondaryBackgroundHover
+            return Theme.buttonSecondaryBackground
         }
         border.width: actionButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-        border.color: actionButton.activeFocus ? Theme.buttonSecondaryBorderFocused : Qt.rgba(1, 1, 1, 0.14)
+        border.color: {
+            if (actionButton.activeFocus) return Theme.buttonSecondaryBorderFocused
+            if (actionButton.hovered) return Theme.buttonSecondaryBorderHover
+            return Theme.buttonSecondaryBorder
+        }
 
         Behavior on color { ColorAnimation { duration: Theme.durationShort } }
         Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }

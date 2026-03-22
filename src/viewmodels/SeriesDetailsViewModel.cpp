@@ -863,7 +863,9 @@ void SeriesDetailsViewModel::fetchAniListIdFromWikidata(const QString &imdbId, s
 void SeriesDetailsViewModel::queryAniListById(const QString &anilistId)
 {
     ExternalRatingsHelper::queryAniListById(m_networkManager, this, anilistId, [this](const QJsonObject &media) {
-        const int score = media["meanScore"].toInt();
+        const int avgScore = media["averageScore"].toInt();
+        const int meanScore = media["meanScore"].toInt();
+        const int score = (avgScore > 0) ? avgScore : meanScore;
 
         if (score > 0) {
             qDebug() << "AniList Score found:" << score;
@@ -872,6 +874,7 @@ void SeriesDetailsViewModel::queryAniListById(const QString &anilistId)
             anilistRating["source"] = "AniList";
             anilistRating["value"] = score;
             anilistRating["score"] = score;
+            anilistRating["url"] = media["siteUrl"].toString();
 
             m_aniListRating = anilistRating;
             compileRatings();
@@ -1296,6 +1299,7 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
     m_productionYear = common.productionYear;
     emit productionYearChanged();
 
+    // Keep the local parse for series-only flags not exposed by CommonDetailMetadata.
     const QJsonObject userData = data.value("UserData").toObject();
     m_isWatched = common.isWatched;
     emit isWatchedChanged();

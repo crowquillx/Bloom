@@ -1,11 +1,7 @@
 #include <QtTest/QtTest>
 
-#define private public
-#define protected public
 #include "../src/viewmodels/MovieDetailsViewModel.h"
 #include "../src/viewmodels/SeriesDetailsViewModel.h"
-#undef private
-#undef protected
 
 #include "../src/core/ServiceLocator.h"
 #include "../src/network/LibraryService.h"

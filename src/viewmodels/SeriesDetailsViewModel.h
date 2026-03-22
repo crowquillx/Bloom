@@ -137,6 +137,8 @@ class SeriesDetailsViewModel : public BaseViewModel
 {
     Q_OBJECT
 
+    friend class SimilarItemsRetryTest;
+
     // Series metadata properties
     Q_PROPERTY(QString seriesId READ seriesId NOTIFY seriesIdChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)

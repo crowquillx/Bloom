@@ -20,6 +20,8 @@ class MovieDetailsViewModel : public BaseViewModel
 {
     Q_OBJECT
 
+    friend class SimilarItemsRetryTest;
+
     // Movie metadata properties
     Q_PROPERTY(QString movieId READ movieId NOTIFY movieIdChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)

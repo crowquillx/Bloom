@@ -341,6 +341,9 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/SearchResultCard.qml
     ${CMAKE_SOURCE_DIR}/src/ui/UnwatchedBadge.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RetryButton.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/MetadataChip.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/RatingMetadataChip.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SecondaryActionButton.qml
     ${CMAKE_SOURCE_DIR}/src/ui/Theme.qml
     ${CMAKE_SOURCE_DIR}/src/ui/Icons.qml
     ${CMAKE_SOURCE_DIR}/src/ui/Sidebar.qml

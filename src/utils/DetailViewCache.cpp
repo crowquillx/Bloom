@@ -1,5 +1,8 @@
 #include "DetailViewCache.h"
 
+#include <QDebug>
+#include <QSaveFile>
+
 namespace DetailViewCache {
 
 QString sanitizeCacheKey(QString key)
@@ -89,12 +92,22 @@ void storeObjectCache(QHash<QString, ObjectCacheEntry> &memoryCache,
     root.insert("timestamp", static_cast<double>(entry.timestamp));
     root.insert("data", data);
 
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "DetailViewCache: Failed to open object cache for write:" << path;
         return;
     }
 
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Compact);
+    if (file.write(payload) != payload.size()) {
+        qWarning() << "DetailViewCache: Failed to write object cache:" << path;
+        file.cancelWriting();
+        return;
+    }
+
+    if (!file.commit()) {
+        qWarning() << "DetailViewCache: Failed to commit object cache:" << path;
+    }
 }
 
 bool loadArrayCache(QHash<QString, ArrayCacheEntry> &memoryCache,
@@ -170,12 +183,22 @@ void storeArrayCache(QHash<QString, ArrayCacheEntry> &memoryCache,
     root.insert("timestamp", static_cast<double>(entry.timestamp));
     root.insert("items", data);
 
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        qWarning() << "DetailViewCache: Failed to open array cache for write:" << path;
         return;
     }
 
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
+    const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Compact);
+    if (file.write(payload) != payload.size()) {
+        qWarning() << "DetailViewCache: Failed to write array cache:" << path;
+        file.cancelWriting();
+        return;
+    }
+
+    if (!file.commit()) {
+        qWarning() << "DetailViewCache: Failed to commit array cache:" << path;
+    }
 }
 
 }
