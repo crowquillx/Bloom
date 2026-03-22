@@ -1,20 +1,12 @@
 # Bloom - Containerized build environment
 FROM archlinux:latest
 
-# Pin package versions by using specific repo snapshot
-# You can change this date to pin to a specific Arch snapshot
-ARG REPO_DATE=2026/01/27
-
-# Update mirrorlist to use archive for reproducibility
-RUN echo "Server = https://archive.archlinux.org/repos/${REPO_DATE}/\$repo/os/\$arch" > /etc/pacman.d/mirrorlist
-
 # Install build dependencies
 RUN pacman -Sy --noconfirm archlinux-keyring && \
     pacman-key --init && \
     pacman-key --populate archlinux
 
-RUN pacman -Syu --noconfirm && \
-    pacman -S --noconfirm \
+RUN pacman -Syu --noconfirm --needed \
     base-devel \
     cmake \
     ninja \
