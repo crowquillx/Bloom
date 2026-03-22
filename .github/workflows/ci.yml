@@ -277,26 +277,6 @@ jobs:
             Bloom-Setup-0.5.0.exe
           fail_on_unmatched_files: true
 
-      - name: Create Dev Release
-        uses: softprops/action-gh-release@v2
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        with:
-          tag_name: dev-latest
-          name: Development Build
-          body: |
-            Latest development build from main branch.
-
-            ## Portable ZIP
-            SHA256: `${{ steps.archive.outputs.zip_hash }}`
-
-            ## Installer
-            SHA256: `${{ steps.archive.outputs.installer_hash }}`
-          prerelease: true
-          files: |
-            Bloom-Windows.zip
-            Bloom-Setup-0.5.0.exe
-          fail_on_unmatched_files: true
-
       - name: Trigger Scoop Bucket Update (Stable)
         if: startsWith(github.ref, 'refs/tags/v')
         shell: pwsh
@@ -318,31 +298,11 @@ jobs:
             https://api.github.com/repos/crowquillx/scoop-bloom/dispatches `
             -d $payload
 
-      - name: Trigger Scoop Bucket Update (Dev)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: pwsh
-        run: |
-          $version = (Get-Date).ToString("yyyy.MM.dd.HHmm")
-          $payload = @{
-            event_type = "update-manifest"
-            client_payload = @{
-              hash = "${{ steps.archive.outputs.zip_hash }}"
-              url = "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
-              version = $version
-            }
-          } | ConvertTo-Json -Compress
-          
-          curl.exe -X POST `
-            -H "Accept: application/vnd.github+json" `
-            -H "Authorization: Bearer ${{ secrets.SCOOP_REPO_TOKEN }}" `
-            https://api.github.com/repos/crowquillx/scoop-bloom/dispatches `
-            -d $payload
-
-      - name: Upload Artifact
+      - name: Upload ZIP Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Bloom-Windows-Portable
-          path: Bloom-Windows/
+          path: Bloom-Windows.zip
 
       - name: Upload Installer Artifact
         uses: actions/upload-artifact@v4
@@ -490,15 +450,175 @@ jobs:
             artifacts/Bloom-Linux.tar.gz
           fail_on_unmatched_files: false
 
-      - name: Update dev-latest release with Linux artifacts
+  publish-dev-release:
+    name: Publish Rolling Dev Release
+    runs-on: ubuntu-latest
+    needs:
+      - windows
+      - linux
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Windows portable artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Bloom-Windows-Portable
+          path: dev-artifacts/windows
+
+      - name: Download Windows installer artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Bloom-Windows-Installer
+          path: dev-artifacts/windows-installer
+
+      - name: Download Linux AppImage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Bloom-Linux-AppImage
+          path: dev-artifacts/linux-appimage
+
+      - name: Download Linux .deb artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Bloom-Linux-Deb
+          path: dev-artifacts/linux-deb
+
+      - name: Download Linux tarball artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Bloom-Linux-Tarball
+          path: dev-artifacts/linux-tarball
+
+      - name: Move dev-latest tag to current main
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f dev-latest "$GITHUB_SHA"
+          git push origin refs/tags/dev-latest --force
+
+      - name: Normalize dev release assets
+        id: normalize_assets
+        run: |
+          set -euo pipefail
+
+          mkdir -p release-assets
+
+          cp dev-artifacts/windows/Bloom-Windows.zip release-assets/Bloom-Windows.zip
+          cp dev-artifacts/windows-installer/Bloom-Setup-0.5.0.exe release-assets/Bloom-Setup-dev.exe
+
+          APPIMAGE=$(find dev-artifacts/linux-appimage -maxdepth 1 -type f -name 'Bloom-*.AppImage' | head -1)
+          DEB=$(find dev-artifacts/linux-deb -maxdepth 1 -type f -name 'bloom_*.deb' | head -1)
+          TARBALL=$(find dev-artifacts/linux-tarball -maxdepth 1 -type f -name 'Bloom-Linux.tar.gz' | head -1)
+
+          if [ -z "$APPIMAGE" ] || [ -z "$DEB" ] || [ -z "$TARBALL" ]; then
+            echo "Expected Linux artifacts were not downloaded correctly." >&2
+            exit 1
+          fi
+
+          cp "$APPIMAGE" release-assets/Bloom-x86_64.AppImage
+          cp "$DEB" release-assets/bloom_dev_amd64.deb
+          cp "$TARBALL" release-assets/Bloom-Linux.tar.gz
+
+          WINDOWS_ZIP_HASH=$(sha256sum release-assets/Bloom-Windows.zip | cut -d' ' -f1)
+          WINDOWS_INSTALLER_HASH=$(sha256sum release-assets/Bloom-Setup-dev.exe | cut -d' ' -f1)
+          APPIMAGE_HASH=$(sha256sum release-assets/Bloom-x86_64.AppImage | cut -d' ' -f1)
+          DEB_HASH=$(sha256sum release-assets/bloom_dev_amd64.deb | cut -d' ' -f1)
+          TARBALL_HASH=$(sha256sum release-assets/Bloom-Linux.tar.gz | cut -d' ' -f1)
+
+          {
+            echo "windows_zip_hash=$WINDOWS_ZIP_HASH"
+            echo "windows_installer_hash=$WINDOWS_INSTALLER_HASH"
+            echo "appimage_hash=$APPIMAGE_HASH"
+            echo "deb_hash=$DEB_HASH"
+            echo "tarball_hash=$TARBALL_HASH"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build dev release notes
+        run: |
+          cat > dev-release-notes.md <<'EOF'
+          Latest development build from main branch.
+
+          ## Windows
+          Portable ZIP (`Bloom-Windows.zip`)
+          SHA256: `${{ steps.normalize_assets.outputs.windows_zip_hash }}`
+
+          Installer (`Bloom-Setup-dev.exe`)
+          SHA256: `${{ steps.normalize_assets.outputs.windows_installer_hash }}`
+
+          ## Linux
+          AppImage (`Bloom-x86_64.AppImage`)
+          SHA256: `${{ steps.normalize_assets.outputs.appimage_hash }}`
+
+          Debian package (`bloom_dev_amd64.deb`)
+          SHA256: `${{ steps.normalize_assets.outputs.deb_hash }}`
+
+          Tarball (`Bloom-Linux.tar.gz`)
+          SHA256: `${{ steps.normalize_assets.outputs.tarball_hash }}`
+          EOF
+
+      - name: Remove existing dev release assets
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            let release;
+            try {
+              release = await github.rest.repos.getReleaseByTag({
+                owner,
+                repo,
+                tag: 'dev-latest'
+              });
+            } catch (error) {
+              if (error.status === 404) {
+                core.info('dev-latest release does not exist yet; nothing to delete.');
+                return;
+              }
+              throw error;
+            }
+
+            for (const asset of release.data.assets) {
+              core.info(`Deleting stale asset ${asset.name}`);
+              await github.rest.repos.deleteReleaseAsset({
+                owner,
+                repo,
+                asset_id: asset.id
+              });
+            }
+
+      - name: Publish dev-latest release
         uses: softprops/action-gh-release@v2
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           tag_name: dev-latest
+          target_commitish: ${{ github.sha }}
           name: Development Build
+          body_path: dev-release-notes.md
           prerelease: true
+          overwrite_files: true
           files: |
-            artifacts/Bloom-*.AppImage
-            artifacts/bloom_*.deb
-            artifacts/Bloom-Linux.tar.gz
-          fail_on_unmatched_files: false
+            release-assets/Bloom-Windows.zip
+            release-assets/Bloom-Setup-dev.exe
+            release-assets/Bloom-x86_64.AppImage
+            release-assets/bloom_dev_amd64.deb
+            release-assets/Bloom-Linux.tar.gz
+          fail_on_unmatched_files: true
+
+      - name: Trigger Scoop Bucket Update (Dev)
+        env:
+          SCOOP_REPO_TOKEN: ${{ secrets.SCOOP_REPO_TOKEN }}
+        run: |
+          VERSION=$(date -u +%Y.%m.%d.%H%M)
+          PAYLOAD=$(jq -cn \
+            --arg hash "${{ steps.normalize_assets.outputs.windows_zip_hash }}" \
+            --arg url "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip" \
+            --arg version "$VERSION" \
+            '{event_type:"update-manifest",client_payload:{hash:$hash,url:$url,version:$version}}')
+
+          curl -fsSL -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $SCOOP_REPO_TOKEN" \
+            https://api.github.com/repos/crowquillx/scoop-bloom/dispatches \
+            -d "$PAYLOAD"
