@@ -261,6 +261,7 @@ QtObject {
     property int episodeCardMinHeightBase: 300
     property int episodeThumbMinWidthBase: 400
     property int episodeListMinHeightBase: 280
+    property int detailViewLogoHeightBase: 132
     property int seriesLogoHeightBase: 426
     property int seriesLogoMaxWidthBase: 1334
     property int seriesOverviewMaxHeightBase: 160
@@ -291,6 +292,14 @@ QtObject {
     
     // Episode list height to accommodate full 16:9 cards with text labels
     property int episodeListHeight: Math.round(episodeThumbWidth * 9 / 16 + 50 * layoutScale)
+
+    readonly property real detailViewLogoScaleBoost: breakpoint === "XL" ? 1.28
+        : breakpoint === "Large" ? 1.14
+        : 1.0
+    property int detailViewLogoHeight: Math.min(
+        seriesLogoHeight,
+        Math.round(detailViewLogoHeightBase * layoutScale * detailViewLogoScaleBoost)
+    )
     
     // Series Details View dimensions (responsive)
     property int seriesLogoHeight: Math.round(seriesLogoHeightBase * layoutScale)

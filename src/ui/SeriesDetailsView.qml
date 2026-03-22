@@ -1106,10 +1106,10 @@ FocusScope {
 
                         Item {
                             Layout.fillWidth: true
-                            Layout.preferredHeight: logoUrl !== "" ? Math.min(Theme.seriesLogoHeight, Math.round(132 * Theme.layoutScale)) : titleFallback.implicitHeight
+                            Layout.preferredHeight: logoUrl !== "" ? Theme.detailViewLogoHeight : titleFallback.implicitHeight
 
                             Image {
-                                anchors.left: parent.left
+                                anchors.horizontalCenter: parent.horizontalCenter
                                 anchors.verticalCenter: parent.verticalCenter
                                 width: Math.min(Theme.seriesLogoMaxWidth, parent.width)
                                 height: parent.height

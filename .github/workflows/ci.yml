@@ -30,21 +30,84 @@ jobs:
     name: Windows
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Cache Qt SDK
+        id: cache_qt_windows
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.workspace }}/Qt
+          key: windows-qt-6.10.0-win64_msvc2022_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-v1
+
+      - name: Install aqtinstall
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "aqtinstall==3.3.*" "py7zr==1.0.*"
 
       - name: Install Qt
-        uses: jurplel/install-qt-action@v4
-        with:
-          version: "6.10.0"
-          host: "windows"
-          target: "desktop"
-          arch: "win64_msvc2022_64"
-          modules: "qtmultimedia qtshadertools qtimageformats qt5compat"
-          cache: true
-          setup-python: false
+        if: steps.cache_qt_windows.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          python -m aqt install-qt -O "$env:RUNNER_WORKSPACE\Qt" windows desktop 6.10.0 win64_msvc2022_64 -m qtmultimedia qtshadertools qtimageformats qt5compat
 
-      - name: Setup MSVC
-        uses: ilammy/msvc-dev-cmd@v1
+      - name: Export Qt environment
+        shell: pwsh
+        run: |
+          $qtVersionRoot = Join-Path $env:RUNNER_WORKSPACE "Qt\6.10.0"
+          $qtRoot = Get-ChildItem -Path $qtVersionRoot -Directory |
+            Where-Object { Test-Path (Join-Path $_.FullName "bin\qmake.exe") } |
+            Select-Object -First 1
+
+          if (-not $qtRoot) {
+            Write-Error "Could not locate Qt root under $qtVersionRoot"
+            exit 1
+          }
+
+          $qtRootPath = $qtRoot.FullName
+          "QT_ROOT_DIR=$qtRootPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CMAKE_PREFIX_PATH=$qtRootPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "QT_PLUGIN_PATH=$(Join-Path $qtRootPath 'plugins')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "QML2_IMPORT_PATH=$(Join-Path $qtRootPath 'qml')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          (Join-Path $qtRootPath 'bin') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Configure MSVC environment
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) {
+            Write-Error "vswhere.exe not found at $vswhere"
+            exit 1
+          }
+
+          $installationPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $installationPath) {
+            Write-Error "Could not find a Visual Studio installation with C++ tools"
+            exit 1
+          }
+
+          $vsDevCmd = Join-Path $installationPath "Common7\Tools\VsDevCmd.bat"
+          if (-not (Test-Path $vsDevCmd)) {
+            Write-Error "VsDevCmd.bat not found at $vsDevCmd"
+            exit 1
+          }
+
+          $envDump = & cmd.exe /s /c "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && set"
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to initialize the MSVC developer environment"
+            exit 1
+          }
+
+          foreach ($line in $envDump) {
+            if ($line -match '^[^=][^=]*=.*$') {
+              $line | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+            }
+          }
 
       - name: Install Ninja
         run: choco install ninja -y
@@ -174,7 +237,7 @@ jobs:
           Write-Host "Using MPV_ROOT=$mpvRoot"
 
       - name: Cache sccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .sccache
           key: ${{ runner.os }}-sccache-msvc2022-qt610-v2
@@ -299,13 +362,13 @@ jobs:
             -d $payload
 
       - name: Upload ZIP Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Bloom-Windows-Portable
           path: Bloom-Windows.zip
 
       - name: Upload Installer Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         if: hashFiles('Bloom-Setup-0.5.1.exe') != ''
         with:
           name: Bloom-Windows-Installer
@@ -316,7 +379,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install system dependencies
         run: |
@@ -337,12 +400,46 @@ jobs:
             dpkg-dev \
             file
 
-      - name: Install Qt
-        uses: jurplel/install-qt-action@v4
+      - name: Setup Python
+        uses: actions/setup-python@v6
         with:
-          version: "6.10.0"
-          cache: true
-          modules: "qtmultimedia qtshadertools qtimageformats qt5compat"
+          python-version: "3.13"
+
+      - name: Cache Qt SDK
+        id: cache_qt_linux
+        uses: actions/cache@v5
+        with:
+          path: ${{ runner.workspace }}/Qt
+          key: linux-qt-6.10.0-gcc_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-v1
+
+      - name: Install aqtinstall
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "aqtinstall==3.3.*" "py7zr==1.0.*"
+
+      - name: Install Qt
+        if: steps.cache_qt_linux.outputs.cache-hit != 'true'
+        run: |
+          python -m aqt install-qt -O "$RUNNER_WORKSPACE/Qt" linux desktop 6.10.0 gcc_64 -m qtmultimedia qtshadertools qtimageformats qt5compat
+
+      - name: Export Qt environment
+        run: |
+          set -euo pipefail
+
+          QT_VERSION_ROOT="$RUNNER_WORKSPACE/Qt/6.10.0"
+          QT_ROOT_DIR=$(find "$QT_VERSION_ROOT" -mindepth 1 -maxdepth 1 -type d -exec test -x '{}/bin/qmake' ';' -print -quit)
+
+          if [ -z "$QT_ROOT_DIR" ]; then
+            echo "Could not locate Qt root under $QT_VERSION_ROOT" >&2
+            exit 1
+          fi
+
+          echo "QT_ROOT_DIR=$QT_ROOT_DIR" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$QT_ROOT_DIR" >> "$GITHUB_ENV"
+          echo "QT_PLUGIN_PATH=$QT_ROOT_DIR/plugins" >> "$GITHUB_ENV"
+          echo "QML2_IMPORT_PATH=$QT_ROOT_DIR/qml" >> "$GITHUB_ENV"
+          echo "LD_LIBRARY_PATH=$QT_ROOT_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          echo "$QT_ROOT_DIR/bin" >> "$GITHUB_PATH"
 
       - name: Configure CMake
         run: |
@@ -418,21 +515,21 @@ jobs:
           echo "Tarball SHA256: $TARBALL_HASH"
 
       - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Bloom-Linux-AppImage
           path: artifacts/Bloom-*.AppImage
           if-no-files-found: warn
 
       - name: Upload .deb artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Bloom-Linux-Deb
           path: artifacts/bloom_*.deb
           if-no-files-found: warn
 
       - name: Upload tarball artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Bloom-Linux-Tarball
           path: artifacts/Bloom-Linux.tar.gz
@@ -459,36 +556,36 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Download Windows portable artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Bloom-Windows-Portable
           path: dev-artifacts/windows
 
       - name: Download Windows installer artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Bloom-Windows-Installer
           path: dev-artifacts/windows-installer
 
       - name: Download Linux AppImage artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Bloom-Linux-AppImage
           path: dev-artifacts/linux-appimage
 
       - name: Download Linux .deb artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Bloom-Linux-Deb
           path: dev-artifacts/linux-deb
 
       - name: Download Linux tarball artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: Bloom-Linux-Tarball
           path: dev-artifacts/linux-tarball
@@ -561,7 +658,7 @@ jobs:
           EOF
 
       - name: Remove existing dev release assets
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const { owner, repo } = context.repo;
