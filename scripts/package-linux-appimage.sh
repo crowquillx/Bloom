@@ -81,6 +81,10 @@ export PATH="$PROJECT_ROOT:$PATH"
 export APPIMAGE_EXTRACT_AND_RUN=1
 export EXTRA_QT_PLUGINS="svg;waylandclient;multimedia"
 export QML_SOURCES_PATHS="$PROJECT_ROOT/src/ui"
+# linuxdeploy's embedded strip can lag modern ELF features such as SHT_RELR
+# (.relr.dyn), causing AppImage packaging to fail on newer distro libraries.
+# Default to skipping the strip pass, but allow callers to override if needed.
+export NO_STRIP="${NO_STRIP:-1}"
 
 # Desktop file and icon
 DESKTOP_FILE="$APPDIR/usr/share/applications/com.github.crowquillx.Bloom.desktop"
