@@ -415,13 +415,10 @@ Window {
                 stackView.push("LibraryScreen.qml", {
                     currentParentId: libraryId,
                     currentLibraryId: libraryId,
-                    currentLibraryName: libraryName
-                })
-                Qt.callLater(function() {
-                    var screen = stackView.currentItem
-                    if (screen && screen.showMovieDetailsView) {
-                        screen.showMovieDetailsView(movieData)
-                    }
+                    currentLibraryName: libraryName,
+                    currentMovieData: movieData,
+                    showMovieDetails: true,
+                    preferStackPopOnDirectBack: true
                 })
             })
             
@@ -433,7 +430,8 @@ Window {
                     currentLibraryId: "",
                     currentLibraryName: "",
                     currentSeriesId: seriesId,
-                    showSeriesDetails: true
+                    showSeriesDetails: true,
+                    preferStackPopOnDirectBack: true
                 })
                 // Load series details, seasons, and next episode
                 LibraryService.getSeriesDetails(seriesId)
