@@ -555,16 +555,7 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
         qDebug() << "SeriesDetailsViewModel: Serving similar items from cache"
                  << (hasFreshSimilarItems ? "FRESH" : "STALE")
                  << "count:" << cachedSimilarItems.size();
-        QVariantList mappedItems;
-        mappedItems.reserve(cachedSimilarItems.size());
-        for (const auto &value : cachedSimilarItems) {
-            const QJsonObject item = value.toObject();
-            if (item.isEmpty()) {
-                continue;
-            }
-            mappedItems.append(item.toVariantMap());
-        }
-        m_similarItems = mappedItems;
+        m_similarItems = DetailListHelper::mapSimilarItems(cachedSimilarItems);
         m_similarItemsAttempted = hasFreshSimilarItems;
         m_similarItemsLoading = false;
         emit similarItemsChanged();
@@ -808,13 +799,20 @@ void SeriesDetailsViewModel::fetchMdbListRatings(const QString &imdbId, const QS
     auto *config = ServiceLocator::tryGet<ConfigManager>();
     if (!config) return;
 
+    const QString requestedImdbId = imdbId;
+    const QString requestedTmdbId = tmdbId;
+
     ExternalRatingsHelper::fetchMdbListRatings(m_networkManager,
                                                this,
                                                config->getMdbListApiKey(),
                                                imdbId,
                                                tmdbId,
                                                type,
-                                               [this](const QVariantMap &rawRatings) {
+                                               [this, requestedImdbId, requestedTmdbId](const QVariantMap &rawRatings) {
+        if (requestedImdbId != m_imdbId || requestedTmdbId != m_tmdbId) {
+            return;
+        }
+
         m_rawMdbListRatings = rawRatings;
         compileRatings();
 
@@ -834,6 +832,9 @@ void SeriesDetailsViewModel::compileRatings()
 
 void SeriesDetailsViewModel::fetchAniListRating(const QString &imdbId, const QString &title, int year)
 {
+    Q_UNUSED(title)
+    Q_UNUSED(year)
+
     if (imdbId.isEmpty()) {
         return;
     }
@@ -846,9 +847,14 @@ void SeriesDetailsViewModel::fetchAniListRating(const QString &imdbId, const QSt
         m_currentAniListImdbId = imdbId;
     }
 
-    fetchAniListIdFromWikidata(imdbId, [this](const QString &anilistId) {
+    const QString requestedImdbId = imdbId;
+    fetchAniListIdFromWikidata(imdbId, [this, requestedImdbId](const QString &anilistId) {
+        if (requestedImdbId != m_imdbId || requestedImdbId != m_currentAniListImdbId) {
+            return;
+        }
+
         if (!anilistId.isEmpty()) {
-            queryAniListById(anilistId);
+            queryAniListById(anilistId, requestedImdbId);
         } else {
             qDebug() << "AniList ID not found via Wikidata";
         }
@@ -860,9 +866,13 @@ void SeriesDetailsViewModel::fetchAniListIdFromWikidata(const QString &imdbId, s
     ExternalRatingsHelper::fetchAniListIdFromWikidata(m_networkManager, this, imdbId, std::move(callback));
 }
 
-void SeriesDetailsViewModel::queryAniListById(const QString &anilistId)
+void SeriesDetailsViewModel::queryAniListById(const QString &anilistId, const QString &requestImdbId)
 {
-    ExternalRatingsHelper::queryAniListById(m_networkManager, this, anilistId, [this](const QJsonObject &media) {
+    ExternalRatingsHelper::queryAniListById(m_networkManager, this, anilistId, [this, requestImdbId](const QJsonObject &media) {
+        if (requestImdbId != m_imdbId || requestImdbId != m_currentAniListImdbId) {
+            return;
+        }
+
         const int avgScore = media["averageScore"].toInt();
         const int meanScore = media["meanScore"].toInt();
         const int score = (avgScore > 0) ? avgScore : meanScore;

@@ -54,6 +54,7 @@ void SimilarItemsRetryTest::init()
 void SimilarItemsRetryTest::cleanup()
 {
     ServiceLocator::clear();
+    delete m_libraryService;
     m_libraryService = nullptr;
 }
 

@@ -307,7 +307,7 @@ public:
     // AniList
     void fetchAniListRating(const QString &imdbId, const QString &title, int year);
     void fetchAniListIdFromWikidata(const QString &imdbId, std::function<void(const QString&)> callback);
-    void queryAniListById(const QString &anilistId);
+    void queryAniListById(const QString &anilistId, const QString &requestImdbId);
 
 signals:
     // Series metadata signals
