@@ -2,6 +2,7 @@
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
 #include "../utils/ConfigManager.h"
+#include "../utils/DetailViewCache.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -20,26 +21,8 @@ constexpr qint64 kMovieDiskTtlMs   = 60 * 60 * 1000;  // 1 hour
 constexpr qint64 kSimilarMemoryTtlMs = 5 * 60 * 1000;
 constexpr qint64 kSimilarDiskTtlMs   = 60 * 60 * 1000;
 
-struct MovieCacheEntry {
-    QJsonObject data;
-    qint64 timestamp = 0;
-    bool hasData() const { return !data.isEmpty(); }
-    bool isValid(qint64 ttl) const {
-        return timestamp > 0 && (QDateTime::currentMSecsSinceEpoch() - timestamp) <= ttl;
-    }
-};
-
-struct ItemsCacheEntry {
-    QJsonArray items;
-    qint64 timestamp = 0;
-    bool hasData() const { return timestamp > 0; }
-    bool isValid(qint64 ttl) const {
-        return timestamp > 0 && (QDateTime::currentMSecsSinceEpoch() - timestamp) <= ttl;
-    }
-};
-
-static QHash<QString, MovieCacheEntry> s_movieCache;
-static QHash<QString, ItemsCacheEntry> s_similarItemsCache;
+static QHash<QString, DetailViewCache::ObjectCacheEntry> s_movieCache;
+static QHash<QString, DetailViewCache::ArrayCacheEntry> s_similarItemsCache;
 }
 
 MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
@@ -98,7 +81,7 @@ QString MovieDetailsViewModel::movieCachePath(const QString &movieId) const
     if (movieId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(movieId + "_details.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(movieId) + "_details.json");
 }
 
 QString MovieDetailsViewModel::similarItemsCachePath(const QString &movieId) const
@@ -106,141 +89,46 @@ QString MovieDetailsViewModel::similarItemsCachePath(const QString &movieId) con
     if (movieId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(movieId + "_similar_items.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(movieId) + "_similar_items.json");
 }
 
 bool MovieDetailsViewModel::loadMovieFromCache(const QString &movieId, QJsonObject &movieData, bool requireFresh) const
 {
-    // Memory cache
-    if (s_movieCache.contains(movieId)) {
-        const auto &entry = s_movieCache[movieId];
-        if (entry.hasData() && (!requireFresh || entry.isValid(kMovieMemoryTtlMs))) {
-            movieData = entry.data;
-            return true;
-        }
-    }
-
-    // Disk cache
-    QString path = movieCachePath(movieId);
-    if (path.isEmpty() || !QFile::exists(path))
-        return false;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return false;
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-        return false;
-
-    MovieCacheEntry entry;
-    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
-    entry.data = doc.object().value("data").toObject();
-
-    if (!entry.hasData())
-        return false;
-
-    if (requireFresh && !entry.isValid(kMovieDiskTtlMs))
-        return false;
-
-    s_movieCache[movieId] = entry;
-    movieData = entry.data;
-    return true;
+    return DetailViewCache::loadObjectCache(s_movieCache,
+                                            movieId,
+                                            movieCachePath(movieId),
+                                            kMovieMemoryTtlMs,
+                                            kMovieDiskTtlMs,
+                                            movieData,
+                                            requireFresh);
 }
 
 bool MovieDetailsViewModel::loadSimilarItemsFromCache(const QString &movieId, QJsonArray &items, bool requireFresh) const
 {
-    if (s_similarItemsCache.contains(movieId)) {
-        const auto &entry = s_similarItemsCache[movieId];
-        if (entry.hasData() && (!requireFresh || entry.isValid(kSimilarMemoryTtlMs))) {
-            items = entry.items;
-            return true;
-        }
-    }
-
-    QString path = similarItemsCachePath(movieId);
-    if (path.isEmpty() || !QFile::exists(path))
-        return false;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return false;
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-        return false;
-
-    ItemsCacheEntry entry;
-    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
-    entry.items = doc.object().value("items").toArray();
-
-    if (!entry.hasData())
-        return false;
-
-    if (requireFresh && !entry.isValid(kSimilarDiskTtlMs))
-        return false;
-
-    s_similarItemsCache[movieId] = entry;
-    items = entry.items;
-    return true;
+    return DetailViewCache::loadArrayCache(s_similarItemsCache,
+                                           movieId,
+                                           similarItemsCachePath(movieId),
+                                           kSimilarMemoryTtlMs,
+                                           kSimilarDiskTtlMs,
+                                           items,
+                                           requireFresh,
+                                           true);
 }
 
 void MovieDetailsViewModel::storeMovieCache(const QString &movieId, const QJsonObject &movieData) const
 {
-    MovieCacheEntry entry;
-    entry.data = movieData;
-    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    s_movieCache[movieId] = entry;
-
-    QString path = movieCachePath(movieId);
-    if (path.isEmpty())
-        return;
-
-    QDir dir(cacheDir());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QJsonObject root;
-    root.insert("timestamp", static_cast<double>(entry.timestamp));
-    root.insert("data", movieData);
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    file.close();
+    DetailViewCache::storeObjectCache(s_movieCache,
+                                      movieId,
+                                      movieCachePath(movieId),
+                                      movieData);
 }
 
 void MovieDetailsViewModel::storeSimilarItemsCache(const QString &movieId, const QJsonArray &items) const
 {
-    ItemsCacheEntry entry;
-    entry.items = items;
-    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    s_similarItemsCache[movieId] = entry;
-
-    QString path = similarItemsCachePath(movieId);
-    if (path.isEmpty())
-        return;
-
-    QDir dir(cacheDir());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QJsonObject root;
-    root.insert("timestamp", static_cast<double>(entry.timestamp));
-    root.insert("items", items);
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    file.close();
+    DetailViewCache::storeArrayCache(s_similarItemsCache,
+                                     movieId,
+                                     similarItemsCachePath(movieId),
+                                     items);
 }
 
 void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)

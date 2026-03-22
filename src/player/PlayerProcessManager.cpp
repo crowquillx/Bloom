@@ -138,8 +138,11 @@ bool PlayerProcessManager::isRunning() const
 void PlayerProcessManager::connectIpc()
 {
     if (!isRunning()) return;
-    
-    if (m_ipcSocket->state() == QLocalSocket::ConnectedState) return;
+
+    if (m_ipcSocket->state() == QLocalSocket::ConnectedState ||
+        m_ipcSocket->state() == QLocalSocket::ConnectingState) {
+        return;
+    }
 
     // On Windows, QLocalSocket connects to "bloom-mpv-socket" if path is "\\.\pipe\bloom-mpv-socket"
     QString serverName = m_ipcPath;
@@ -149,14 +152,31 @@ void PlayerProcessManager::connectIpc()
     }
 #endif
 
+    m_ipcSocket->abort();
     m_ipcSocket->connectToServer(serverName);
-    
-    // If failed, retry in a bit if process is still running
-    if (!m_ipcSocket->waitForConnected(100)) {
-         if (isRunning()) {
-             QTimer::singleShot(500, this, &PlayerProcessManager::connectIpc);
-         }
+    scheduleIpcReconnect();
+}
+
+void PlayerProcessManager::scheduleIpcReconnect()
+{
+    if (m_ipcReconnectScheduled || !isRunning()) {
+        return;
     }
+
+    m_ipcReconnectScheduled = true;
+    QTimer::singleShot(500, this, [this]() {
+        m_ipcReconnectScheduled = false;
+
+        if (!isRunning() || m_ipcSocket->state() == QLocalSocket::ConnectedState) {
+            return;
+        }
+
+        if (m_ipcSocket->state() == QLocalSocket::ConnectingState) {
+            m_ipcSocket->abort();
+        }
+
+        connectIpc();
+    });
 }
 
 void PlayerProcessManager::sendCommand(const QStringList &command)
@@ -219,6 +239,7 @@ void PlayerProcessManager::onProcessFinished(int exitCode, QProcess::ExitStatus 
     }
     m_ipcSocket->abort();
     m_isConnected = false;
+    m_ipcReconnectScheduled = false;
     m_pendingCommands.clear();
     m_playlistPosition = -1;
     m_playlistCount = 0;
@@ -244,6 +265,7 @@ void PlayerProcessManager::onSocketConnected()
 {
     qInfo() << "mpv IPC connected";
     m_isConnected = true;
+    m_ipcReconnectScheduled = false;
     
     // Start observing properties
     // Use integers for IDs as mpv expects

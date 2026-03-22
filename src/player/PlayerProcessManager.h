@@ -51,12 +51,14 @@ private slots:
 private:
     QString getIpcPath() const;
     void connectIpc();
+    void scheduleIpcReconnect();
     void flushPendingCommands();
 
     QProcess *m_process = nullptr;
     QLocalSocket *m_ipcSocket = nullptr;
     QString m_ipcPath;
     bool m_isConnected = false;
+    bool m_ipcReconnectScheduled = false;
     QList<QVariantList> m_pendingCommands;
     int m_playlistPosition = -1;
     int m_playlistCount = 0;

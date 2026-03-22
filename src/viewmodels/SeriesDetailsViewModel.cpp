@@ -2,6 +2,7 @@
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
 #include "../utils/ConfigManager.h"
+#include "../utils/DetailViewCache.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -19,27 +20,9 @@ constexpr qint64 kItemsDiskTtlMs    = 60 * 60 * 1000;
 constexpr qint64 kSimilarMemoryTtlMs = 5 * 60 * 1000;
 constexpr qint64 kSimilarDiskTtlMs   = 60 * 60 * 1000;
 
-struct SeriesCacheEntry {
-    QJsonObject data;
-    qint64 timestamp = 0;
-    bool hasData() const { return !data.isEmpty(); }
-    bool isValid(qint64 ttl) const {
-        return timestamp > 0 && (QDateTime::currentMSecsSinceEpoch() - timestamp) <= ttl;
-    }
-};
-
-struct ItemsCacheEntry {
-    QJsonArray items;
-    qint64 timestamp = 0;
-    bool hasData() const { return !items.isEmpty(); }
-    bool isValid(qint64 ttl) const {
-        return timestamp > 0 && (QDateTime::currentMSecsSinceEpoch() - timestamp) <= ttl;
-    }
-};
-
-static QHash<QString, SeriesCacheEntry> s_seriesCache;
-static QHash<QString, ItemsCacheEntry> s_itemsCache;  // keyed by parentId (series -> seasons, season -> episodes)
-static QHash<QString, ItemsCacheEntry> s_similarItemsCache;  // keyed by seriesId
+static QHash<QString, DetailViewCache::ObjectCacheEntry> s_seriesCache;
+static QHash<QString, DetailViewCache::ArrayCacheEntry> s_itemsCache;  // keyed by parentId (series -> seasons, season -> episodes)
+static QHash<QString, DetailViewCache::ArrayCacheEntry> s_similarItemsCache;  // keyed by seriesId
 }
 
 static bool hasSpecialPlacementFields(const QJsonArray &items)
@@ -76,7 +59,7 @@ QString SeriesDetailsViewModel::seriesCachePath(const QString &seriesId) const
     if (seriesId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(seriesId + "_details.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(seriesId) + "_details.json");
 }
 
 QString SeriesDetailsViewModel::itemsCachePath(const QString &parentId) const
@@ -84,7 +67,7 @@ QString SeriesDetailsViewModel::itemsCachePath(const QString &parentId) const
     if (parentId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(parentId + "_items.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(parentId) + "_items.json");
 }
 
 QString SeriesDetailsViewModel::similarItemsCachePath(const QString &seriesId) const
@@ -92,207 +75,66 @@ QString SeriesDetailsViewModel::similarItemsCachePath(const QString &seriesId) c
     if (seriesId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(seriesId + "_similar_items.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(seriesId) + "_similar_items.json");
 }
 
 bool SeriesDetailsViewModel::loadSeriesFromCache(const QString &seriesId, QJsonObject &seriesData, bool requireFresh) const
 {
-    // Memory cache first
-    if (s_seriesCache.contains(seriesId)) {
-        const auto &entry = s_seriesCache[seriesId];
-        if (entry.hasData() && (!requireFresh || entry.isValid(kSeriesMemoryTtlMs))) {
-            seriesData = entry.data;
-            return true;
-        }
-    }
-
-    // Disk cache
-    QString path = seriesCachePath(seriesId);
-    if (path.isEmpty() || !QFile::exists(path))
-        return false;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return false;
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-        return false;
-
-    SeriesCacheEntry entry;
-    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
-    entry.data = doc.object().value("data").toObject();
-
-    if (!entry.hasData())
-        return false;
-
-    if (requireFresh && !entry.isValid(kSeriesDiskTtlMs))
-        return false;
-
-    s_seriesCache[seriesId] = entry;
-    seriesData = entry.data;
-    return true;
+    return DetailViewCache::loadObjectCache(s_seriesCache,
+                                            seriesId,
+                                            seriesCachePath(seriesId),
+                                            kSeriesMemoryTtlMs,
+                                            kSeriesDiskTtlMs,
+                                            seriesData,
+                                            requireFresh);
 }
 
 void SeriesDetailsViewModel::storeSeriesCache(const QString &seriesId, const QJsonObject &seriesData) const
 {
-    SeriesCacheEntry entry;
-    entry.data = seriesData;
-    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    s_seriesCache[seriesId] = entry;
-
-    QString path = seriesCachePath(seriesId);
-    if (path.isEmpty())
-        return;
-
-    QDir dir(cacheDir());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QJsonObject root;
-    root.insert("timestamp", static_cast<double>(entry.timestamp));
-    root.insert("data", seriesData);
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    file.close();
+    DetailViewCache::storeObjectCache(s_seriesCache,
+                                      seriesId,
+                                      seriesCachePath(seriesId),
+                                      seriesData);
 }
 
 bool SeriesDetailsViewModel::loadItemsFromCache(const QString &parentId, QJsonArray &items, bool requireFresh) const
 {
-    if (s_itemsCache.contains(parentId)) {
-        const auto &entry = s_itemsCache[parentId];
-        if (entry.hasData() && (!requireFresh || entry.isValid(kItemsMemoryTtlMs))) {
-            items = entry.items;
-            return true;
-        }
-    }
-
-    QString path = itemsCachePath(parentId);
-    if (path.isEmpty() || !QFile::exists(path))
-        return false;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return false;
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-        return false;
-
-    ItemsCacheEntry entry;
-    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
-    entry.items = doc.object().value("items").toArray();
-
-    if (!entry.hasData())
-        return false;
-
-    if (requireFresh && !entry.isValid(kItemsDiskTtlMs))
-        return false;
-
-    s_itemsCache[parentId] = entry;
-    items = entry.items;
-    return true;
+    return DetailViewCache::loadArrayCache(s_itemsCache,
+                                           parentId,
+                                           itemsCachePath(parentId),
+                                           kItemsMemoryTtlMs,
+                                           kItemsDiskTtlMs,
+                                           items,
+                                           requireFresh,
+                                           false);
 }
 
 void SeriesDetailsViewModel::storeItemsCache(const QString &parentId, const QJsonArray &items) const
 {
-    ItemsCacheEntry entry;
-    entry.items = items;
-    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    s_itemsCache[parentId] = entry;
-
-    QString path = itemsCachePath(parentId);
-    if (path.isEmpty())
-        return;
-
-    QDir dir(cacheDir());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QJsonObject root;
-    root.insert("timestamp", static_cast<double>(entry.timestamp));
-    root.insert("items", items);
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    file.close();
+    DetailViewCache::storeArrayCache(s_itemsCache,
+                                     parentId,
+                                     itemsCachePath(parentId),
+                                     items);
 }
 
 bool SeriesDetailsViewModel::loadSimilarItemsFromCache(const QString &seriesId, QJsonArray &items, bool requireFresh) const
 {
-    if (s_similarItemsCache.contains(seriesId)) {
-        const auto &entry = s_similarItemsCache[seriesId];
-        if (entry.timestamp > 0 && (!requireFresh || entry.isValid(kSimilarMemoryTtlMs))) {
-            items = entry.items;
-            return true;
-        }
-    }
-
-    QString path = similarItemsCachePath(seriesId);
-    if (path.isEmpty() || !QFile::exists(path))
-        return false;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return false;
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-        return false;
-
-    ItemsCacheEntry entry;
-    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
-    entry.items = doc.object().value("items").toArray();
-
-    if (entry.timestamp <= 0)
-        return false;
-
-    if (requireFresh && !entry.isValid(kSimilarDiskTtlMs))
-        return false;
-
-    s_similarItemsCache[seriesId] = entry;
-    items = entry.items;
-    return true;
+    return DetailViewCache::loadArrayCache(s_similarItemsCache,
+                                           seriesId,
+                                           similarItemsCachePath(seriesId),
+                                           kSimilarMemoryTtlMs,
+                                           kSimilarDiskTtlMs,
+                                           items,
+                                           requireFresh,
+                                           true);
 }
 
 void SeriesDetailsViewModel::storeSimilarItemsCache(const QString &seriesId, const QJsonArray &items) const
 {
-    ItemsCacheEntry entry;
-    entry.items = items;
-    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    s_similarItemsCache[seriesId] = entry;
-
-    QString path = similarItemsCachePath(seriesId);
-    if (path.isEmpty())
-        return;
-
-    QDir dir(cacheDir());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QJsonObject root;
-    root.insert("timestamp", static_cast<double>(entry.timestamp));
-    root.insert("items", items);
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    file.close();
+    DetailViewCache::storeArrayCache(s_similarItemsCache,
+                                     seriesId,
+                                     similarItemsCachePath(seriesId),
+                                     items);
 }
 
 void SeriesDetailsViewModel::clearCacheForTest(const QString &id)

@@ -59,158 +59,6 @@ FocusScope {
     signal backRequested()
     signal returnStateConsumed()
 
-    component MetadataChip: Rectangle {
-        property string text: ""
-        implicitHeight: Math.round(38 * Theme.layoutScale)
-        implicitWidth: chipText.implicitWidth + Math.round(22 * Theme.layoutScale)
-        radius: implicitHeight / 2
-        color: Qt.rgba(0, 0, 0, 0.28)
-        border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.12)
-        visible: text !== ""
-
-        Text {
-            id: chipText
-            anchors.centerIn: parent
-            text: parent.text
-            font.pixelSize: Theme.fontSizeSmall
-            font.family: Theme.fontPrimary
-            font.weight: Font.DemiBold
-            color: Theme.textPrimary
-        }
-    }
-
-    component RatingMetadataChip: Rectangle {
-        id: ratingChip
-
-        property var ratingData: ({})
-        property string originalSource: ratingData && ratingData.source ? String(ratingData.source) : ""
-        property var score: ratingData && ratingData.score !== undefined ? ratingData.score : ratingData.value
-
-        readonly property string normalizedSource: root.normalizedRatingSource(originalSource)
-        readonly property string logoSource: root.ratingLogoSource(normalizedSource, score)
-        readonly property string displayValue: root.ratingDisplayValue(normalizedSource, score)
-        readonly property string fallbackText: root.ratingFallbackLabel(normalizedSource, originalSource)
-
-        implicitHeight: Math.round(38 * Theme.layoutScale)
-        implicitWidth: ratingRow.implicitWidth + Math.round(20 * Theme.layoutScale)
-        radius: implicitHeight / 2
-        color: Qt.rgba(0, 0, 0, 0.28)
-        border.width: 1
-        border.color: Qt.rgba(1, 1, 1, 0.12)
-        visible: displayValue !== ""
-
-        RowLayout {
-            id: ratingRow
-            anchors.centerIn: parent
-            spacing: Math.round(6 * Theme.layoutScale)
-
-            Item {
-                Layout.preferredWidth: Math.round(42 * Theme.layoutScale)
-                Layout.preferredHeight: Math.round(16 * Theme.layoutScale)
-                Layout.alignment: Qt.AlignVCenter
-
-                Image {
-                    anchors.fill: parent
-                    source: ratingChip.logoSource
-                    fillMode: Image.PreserveAspectFit
-                    visible: source !== ""
-                    asynchronous: true
-                    cache: true
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    visible: ratingChip.logoSource === ""
-                    text: ratingChip.fallbackText
-                    font.pixelSize: Math.round(13 * Theme.layoutScale)
-                    font.family: Theme.fontPrimary
-                    font.weight: Font.Black
-                    color: Theme.textSecondary
-                }
-            }
-
-            Text {
-                text: ratingChip.displayValue
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                font.weight: Font.Black
-                color: Theme.textPrimary
-                verticalAlignment: Text.AlignVCenter
-                Layout.alignment: Qt.AlignVCenter
-            }
-        }
-    }
-
-    component SecondaryActionButton: Button {
-        id: actionButton
-
-        property string iconGlyph: ""
-        property color iconColor: Theme.textPrimary
-
-        padding: 0
-        leftPadding: 0
-        rightPadding: 0
-        topPadding: 0
-        bottomPadding: 0
-
-        implicitHeight: Theme.buttonHeightMedium
-        implicitWidth: text === ""
-                       ? Theme.buttonHeightMedium
-                       : buttonContent.implicitWidth + Math.round(34 * Theme.layoutScale)
-
-        background: Rectangle {
-            radius: Theme.radiusMedium
-            color: {
-                if (!actionButton.enabled) return Qt.rgba(0, 0, 0, 0.18)
-                if (actionButton.down) return Qt.rgba(1, 1, 1, 0.18)
-                if (actionButton.hovered) return Qt.rgba(1, 1, 1, 0.12)
-                return Qt.rgba(0, 0, 0, 0.26)
-            }
-            border.width: actionButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-            border.color: actionButton.activeFocus ? Theme.buttonSecondaryBorderFocused : Qt.rgba(1, 1, 1, 0.14)
-
-            Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-            Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-        }
-
-        contentItem: RowLayout {
-            id: buttonContent
-            implicitWidth: buttonInnerRow.implicitWidth
-            implicitHeight: buttonInnerRow.implicitHeight
-            anchors.centerIn: parent
-
-            RowLayout {
-                id: buttonInnerRow
-                anchors.centerIn: parent
-                spacing: Theme.spacingSmall
-
-                Text {
-                    text: actionButton.iconGlyph
-                    visible: text !== ""
-                    font.family: Theme.fontIcon
-                    font.pixelSize: Theme.fontSizeIcon
-                    color: actionButton.iconColor
-                    verticalAlignment: Text.AlignVCenter
-                    horizontalAlignment: Text.AlignHCenter
-                    Layout.alignment: Qt.AlignVCenter
-                }
-
-                Text {
-                    text: actionButton.text
-                    visible: text !== ""
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    font.weight: Font.Black
-                    color: Theme.textPrimary
-                    verticalAlignment: Text.AlignVCenter
-                    horizontalAlignment: Text.AlignHCenter
-                    Layout.alignment: Qt.AlignVCenter
-                }
-            }
-        }
-    }
-
     component ScrollingCardLabel: Item {
         id: scrollingLabel
 
@@ -1316,6 +1164,10 @@ FocusScope {
                                 RatingMetadataChip {
                                     required property var modelData
                                     ratingData: modelData
+                                    normalizedRatingSourceFn: root.normalizedRatingSource
+                                    ratingLogoSourceFn: root.ratingLogoSource
+                                    ratingDisplayValueFn: root.ratingDisplayValue
+                                    ratingFallbackLabelFn: root.ratingFallbackLabel
                                 }
                             }
                         }

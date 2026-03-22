@@ -176,9 +176,23 @@ QStringList ConfigManager::getMpvConfigArgs()
     QString scriptsDir = getMpvScriptsDir();
     if (!scriptsDir.isEmpty()) {
         QDir scripts(scriptsDir);
+        const QString scriptsRoot = scripts.canonicalPath().isEmpty() ? scripts.absolutePath() : scripts.canonicalPath();
         QStringList scriptFiles = scripts.entryList({"*.lua", "*.js", "*.so", "*.dll"}, QDir::Files);
         for (const QString &script : scriptFiles) {
-            args << "--script=" + scripts.absoluteFilePath(script);
+            const QFileInfo scriptInfo(scripts.absoluteFilePath(script));
+            const QString canonicalPath = scriptInfo.canonicalFilePath();
+
+            if (canonicalPath.isEmpty()) {
+                qWarning() << "ConfigManager: Skipping mpv script with unresolved path:" << scriptInfo.absoluteFilePath();
+                continue;
+            }
+
+            if (!canonicalPath.startsWith(scriptsRoot + QDir::separator())) {
+                qWarning() << "ConfigManager: Skipping mpv script outside scripts directory:" << canonicalPath;
+                continue;
+            }
+
+            args << "--script=" + canonicalPath;
         }
     }
     

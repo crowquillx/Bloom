@@ -7,6 +7,7 @@ qt_add_executable(Bloom
     ui/WindowManager.cpp
     ui/FontLoader.cpp
     utils/CacheMigrator.cpp
+    utils/DetailViewCache.cpp
     main.cpp
     core/ServiceLocator.h
     core/ServiceLocator.cpp
@@ -43,6 +44,7 @@ qt_add_executable(Bloom
     network/SessionService.cpp
     utils/ConfigManager.cpp
     utils/ConfigManager.h
+    utils/DetailViewCache.h
     utils/TrackPreferencesManager.cpp
     utils/TrackPreferencesManager.h
     utils/LibraryCacheStore.cpp
@@ -128,6 +130,9 @@ qt_add_qml_module(Bloom
         ui/Main.qml
         ui/LoginScreen.qml
         ui/LibraryScreen.qml
+        ui/MetadataChip.qml
+        ui/RatingMetadataChip.qml
+        ui/SecondaryActionButton.qml
         ui/SeriesDetailsView.qml
         ui/SeasonView.qml
         ui/SeriesSeasonEpisodeView.qml

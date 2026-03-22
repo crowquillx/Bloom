@@ -26,6 +26,7 @@ add_executable(SeriesDetailsCacheTest
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
 )
 
 target_include_directories(SeriesDetailsCacheTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -235,6 +236,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/utils/SidebarSettings.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/GpuMemoryTrimmer.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/CacheMigrator.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp
     # Network sources
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
