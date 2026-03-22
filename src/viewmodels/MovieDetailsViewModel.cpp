@@ -351,7 +351,7 @@ void MovieDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const QS
         return;
     }
 
-    m_similarItemsAttempted = true;
+    m_similarItemsAttempted = false;
     if (m_similarItemsLoading) {
         m_similarItemsLoading = false;
         emit similarItemsLoadingChanged();

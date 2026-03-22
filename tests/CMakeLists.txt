@@ -183,6 +183,31 @@ target_link_libraries(TrackPreferencesManagerTest
 
 add_test(NAME TrackPreferencesManagerTest COMMAND TrackPreferencesManagerTest)
 
+add_executable(SimilarItemsRetryTest
+    SimilarItemsRetryTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/MovieDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
+)
+
+target_include_directories(SimilarItemsRetryTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(SimilarItemsRetryTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME SimilarItemsRetryTest COMMAND SimilarItemsRetryTest)
+
 # ============================================================================
 # Visual Regression Test Fixtures
 # ============================================================================
