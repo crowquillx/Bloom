@@ -51,6 +51,9 @@ FocusScope {
     property var currentMediaSource: playbackInfo && playbackInfo.mediaSources && playbackInfo.mediaSources.length > 0
                                      ? playbackInfo.mediaSources[0] : null
     property bool playbackInfoLoading: false
+    property bool playbackReturnFocusPending: false
+    property bool playbackReturnFocusActivated: false
+    property Item lastPlaybackRestoreFocusTarget: null
     property int selectedAudioIndex: -1
     property int selectedSubtitleIndex: -1
 
@@ -58,212 +61,6 @@ FocusScope {
     signal itemSelected(var itemData)
     signal backRequested()
     signal returnStateConsumed()
-
-    component ScrollingCardLabel: Item {
-        id: scrollingLabel
-
-        property string text: ""
-        property color textColor: Theme.textPrimary
-        property int fontPixelSize: Theme.fontSizeSmall
-        property string fontFamily: Theme.fontPrimary
-        property int fontWeight: Font.DemiBold
-        property bool active: false
-
-        implicitHeight: label.implicitHeight
-        clip: true
-
-        readonly property real overflowWidth: Math.max(0, label.implicitWidth - width)
-
-        states: [
-            State {
-                name: "static"
-                when: !labelScrollAnimation.running
-
-                AnchorChanges {
-                    target: label
-                    anchors.left: scrollingLabel.overflowWidth > 0 ? scrollingLabel.left : undefined
-                    anchors.horizontalCenter: scrollingLabel.overflowWidth > 0 ? undefined : scrollingLabel.horizontalCenter
-                }
-
-                PropertyChanges {
-                    target: label
-                    x: 0
-                }
-            },
-            State {
-                name: "scrolling"
-                when: labelScrollAnimation.running
-
-                AnchorChanges {
-                    target: label
-                    anchors.left: undefined
-                    anchors.horizontalCenter: undefined
-                }
-
-                PropertyChanges {
-                    target: label
-                    x: 0
-                }
-            }
-        ]
-
-        Text {
-            id: label
-            text: scrollingLabel.text
-            font.pixelSize: scrollingLabel.fontPixelSize
-            font.family: scrollingLabel.fontFamily
-            font.weight: scrollingLabel.fontWeight
-            color: scrollingLabel.textColor
-            wrapMode: Text.NoWrap
-        }
-
-        SequentialAnimation {
-            id: labelScrollAnimation
-            running: scrollingLabel.active && scrollingLabel.overflowWidth > 0
-            loops: Animation.Infinite
-
-            PauseAnimation { duration: 1000 }
-            NumberAnimation {
-                target: label
-                property: "x"
-                to: -scrollingLabel.overflowWidth
-                duration: Math.max(1200, scrollingLabel.overflowWidth * 20)
-                easing.type: Easing.Linear
-            }
-            PauseAnimation { duration: 1000 }
-            NumberAnimation {
-                target: label
-                property: "x"
-                to: 0
-                duration: Math.max(1200, scrollingLabel.overflowWidth * 20)
-                easing.type: Easing.Linear
-            }
-        }
-    }
-
-    component PersonCard: Item {
-        id: personCard
-
-        required property var itemData
-        property bool isFocused: false
-        property bool isHovered: InputModeManager.pointerActive && personMouseArea.containsMouse
-        readonly property int posterFrameWidth: width
-        readonly property int posterFrameHeight: Math.round(posterFrameWidth * 1.5)
-
-        width: root.peopleCardWidth
-        height: root.peopleCardHeight
-        scale: isFocused ? 1.04 : (isHovered ? 1.02 : 1.0)
-        transformOrigin: Item.Center
-        Behavior on scale { NumberAnimation { duration: Theme.durationShort } enabled: Theme.uiAnimationsEnabled }
-
-        ColumnLayout {
-            anchors.fill: parent
-            spacing: Theme.spacingSmall
-
-            Rectangle {
-                Layout.fillWidth: true
-                Layout.preferredHeight: personCard.posterFrameHeight
-                radius: Theme.imageRadius
-                color: "transparent"
-                clip: false
-
-                Image {
-                    id: personImage
-                    anchors.fill: parent
-                    source: personCard.itemData.Id && personCard.itemData.PrimaryImageTag
-                            ? LibraryService.getCachedImageUrlWithWidth(personCard.itemData.Id, "Primary", 360)
-                            : ""
-                    fillMode: Image.PreserveAspectCrop
-                    horizontalAlignment: Image.AlignHCenter
-                    verticalAlignment: Image.AlignBottom
-                    asynchronous: true
-                    cache: true
-
-                    layer.enabled: true
-                    layer.effect: MultiEffect {
-                        maskEnabled: true
-                        maskSource: personImageMask
-                    }
-                }
-
-                Item {
-                    id: personImageMask
-                    anchors.fill: parent
-                    visible: false
-                    layer.enabled: true
-                    layer.smooth: true
-
-                    Rectangle {
-                        anchors.fill: parent
-                        radius: Theme.imageRadius
-                        color: "white"
-                    }
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: Theme.imageRadius
-                    color: Qt.rgba(0.08, 0.08, 0.08, 0.45)
-                    visible: personImage.status !== Image.Ready
-
-                    Text {
-                        anchors.centerIn: parent
-                        text: Icons.person
-                        font.family: Theme.fontIcon
-                        font.pixelSize: Math.round(56 * Theme.layoutScale)
-                        color: Theme.textSecondary
-                    }
-                }
-
-                Rectangle {
-                    anchors.fill: parent
-                    radius: Theme.imageRadius
-                    color: "transparent"
-                    border.width: personCard.isFocused ? Theme.buttonFocusBorderWidth : 0
-                    border.color: Theme.accentPrimary
-                    visible: border.width > 0
-                }
-            }
-
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: castNameLabel.implicitHeight
-
-                ScrollingCardLabel {
-                    id: castNameLabel
-                    anchors.fill: parent
-                    text: personCard.itemData.Name || ""
-                    fontPixelSize: Theme.fontSizeSmall
-                    fontWeight: Font.DemiBold
-                    textColor: Theme.textPrimary
-                    active: personCard.isFocused
-                }
-            }
-
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: castSubtitleLabel.implicitHeight
-                visible: castSubtitleLabel.text !== ""
-
-                ScrollingCardLabel {
-                    id: castSubtitleLabel
-                    anchors.fill: parent
-                    text: personCard.itemData.Subtitle || ""
-                    fontPixelSize: Theme.fontSizeSmall
-                    fontWeight: Font.Normal
-                    textColor: Theme.textSecondary
-                    active: personCard.isFocused
-                }
-            }
-        }
-
-        MouseArea {
-            id: personMouseArea
-            anchors.fill: parent
-            hoverEnabled: true
-            onClicked: parent.forceActiveFocus()
-        }
-    }
 
     component RecommendationPosterCard: Item {
         id: recommendationCard
@@ -539,6 +336,14 @@ FocusScope {
     }
 
     function startPlaybackWithTracks() {
+        if (playbackInfoLoading || !playbackInfo || !currentMediaSource) {
+            playbackToast.show(qsTr("Playback is still preparing. Try again in a moment."))
+            return
+        }
+
+        lastPlaybackRestoreFocusTarget = playButton
+        playbackReturnFocusPending = true
+        playbackReturnFocusActivated = false
         root.playRequested(buildPlaybackRequest())
     }
 
@@ -810,6 +615,25 @@ FocusScope {
         } else if (libraryRecommendationsSection.visible) {
             libraryRecommendationsSection.focusCurrentOrFirst()
         }
+    }
+
+    function restoreFocusAfterPlaybackExit() {
+        if (!root.visible) {
+            return
+        }
+
+        root.forceActiveFocus()
+        Qt.callLater(function() {
+            if (lastPlaybackRestoreFocusTarget
+                    && lastPlaybackRestoreFocusTarget.parent
+                    && typeof lastPlaybackRestoreFocusTarget.forceActiveFocus === "function") {
+                lastPlaybackRestoreFocusTarget.forceActiveFocus()
+            } else if (playButton.enabled) {
+                playButton.forceActiveFocus()
+            } else {
+                focusFirstLowerSection()
+            }
+        })
     }
 
     function nextSectionAfterCast() {
@@ -2067,6 +1891,37 @@ FocusScope {
         }
     }
 
+    Connections {
+        target: PlayerController
+
+        function onIsPlaybackActiveChanged() {
+            if (PlayerController.isPlaybackActive) {
+                if (root.playbackReturnFocusPending) {
+                    root.playbackReturnFocusActivated = true
+                }
+                return
+            }
+
+            if (!root.playbackReturnFocusPending
+                    || !root.playbackReturnFocusActivated
+                    || PlayerController.awaitingNextEpisodeResolution) {
+                return
+            }
+
+            root.playbackReturnFocusPending = false
+            root.playbackReturnFocusActivated = false
+            Qt.callLater(root.restoreFocusAfterPlaybackExit)
+        }
+
+        function onAwaitingNextEpisodeResolutionChanged() {
+            if (PlayerController.awaitingNextEpisodeResolution) {
+                root.playbackReturnFocusPending = false
+                root.playbackReturnFocusActivated = false
+                root.lastPlaybackRestoreFocusTarget = null
+            }
+        }
+    }
+
     Timer {
         id: focusTimer
         interval: 50
@@ -2088,6 +1943,11 @@ FocusScope {
         onTriggered: {
             root.suppressHeroAutofocus = false
         }
+    }
+
+    ToastNotification {
+        id: playbackToast
+        z: 300
     }
 
     Connections {

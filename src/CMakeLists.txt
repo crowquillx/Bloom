@@ -101,6 +101,10 @@ set_source_files_properties(ui/Icons.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
 
+set_source_files_properties(ui/AccessibilityHelpers.qml PROPERTIES
+    QT_QML_SINGLETON_TYPE TRUE
+)
+
 if(COMMAND qt_policy)
     qt_policy(SET QTP0004 NEW)
 endif()
@@ -130,8 +134,12 @@ qt_add_qml_module(Bloom
         ui/Main.qml
         ui/LoginScreen.qml
         ui/LibraryScreen.qml
+        ui/AccessibilityHelpers.qml
+        ui/A11yButton.qml
         ui/MetadataChip.qml
         ui/RatingMetadataChip.qml
+        ui/PersonCard.qml
+        ui/ScrollingCardLabel.qml
         ui/SecondaryActionButton.qml
         ui/SeriesDetailsView.qml
         ui/SeasonView.qml
