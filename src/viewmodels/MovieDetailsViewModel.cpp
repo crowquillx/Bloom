@@ -37,9 +37,11 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
     if (m_libraryService) {
         // Connect to generalized item loading signals or specific movie signals if available
         // LibraryService emits itemLoaded for individual items
-        connect(m_libraryService, &LibraryService::itemLoaded,
+        connect(m_libraryService,
+                qOverload<const QString &, const QJsonObject &>(&LibraryService::itemLoaded),
                 this, &MovieDetailsViewModel::onMovieDetailsLoaded);
-        connect(m_libraryService, &LibraryService::itemNotModified,
+        connect(m_libraryService,
+                qOverload<const QString &>(&LibraryService::itemNotModified),
                 this, &MovieDetailsViewModel::onMovieDetailsNotModified);
         connect(m_libraryService, &LibraryService::similarItemsLoaded,
                 this, &MovieDetailsViewModel::onSimilarItemsLoaded);

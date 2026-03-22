@@ -374,14 +374,19 @@ private slots:
     void onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items);
     void onSimilarItemsFailed(const QString &itemId, const QString &error);
     void onErrorOccurred(const QString &endpoint, const QString &error);
-    void onEpisodeDetailsLoaded(const QString &itemId, const QJsonObject &data);
-    void onEpisodeDetailsNotModified(const QString &itemId);
+    void onEpisodeDetailsLoaded(const QString &itemId, const QJsonObject &data, const QString &requestContext);
+    void onEpisodeDetailsNotModified(const QString &itemId, const QString &requestContext);
+    void onEpisodeDetailsFailed(const QString &itemId, const QString &error, const QString &requestContext);
 
 private:
     void updateSeriesMetadata(const QJsonObject &data);
     void updateNextEpisode(const QJsonObject &episodeData);
     QString buildImageUrl(const QString &itemId, const QString &imageType, int width = 400) const;
     void applyFocusedEpisodeDetails(const QString &episodeId, const QJsonObject &data);
+    QString startEpisodeDetailsRequest(const QString &episodeId);
+    bool matchesEpisodeDetailsRequest(const QString &itemId, const QString &requestContext) const;
+    void finishEpisodeDetailsRequest(const QString &itemId);
+    void stopFocusedEpisodeDetailsLoadingFor(const QString &itemId);
     void setFocusedEpisodeDetailsLoading(bool loading);
 
 private:
@@ -435,6 +440,9 @@ private:
     bool m_focusedEpisodeDetailsLoading = false;
     QHash<QString, QJsonObject> m_episodeDetailsCache;
     QSet<QString> m_pendingEpisodeDetailIds;
+    QHash<QString, QString> m_episodeDetailRequestTokens;
+    QSet<QString> m_episodeDetailRetried;
+    quint64 m_episodeDetailRequestSequence = 0;
 
     // State
     bool m_loadingSeries = false;

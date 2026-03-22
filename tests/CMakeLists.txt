@@ -194,6 +194,8 @@ add_executable(SimilarItemsRetryTest
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
+    ${CMAKE_SOURCE_DIR}/src/test/MockLibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/test/TestModeController.cpp
 )
 
 target_include_directories(SimilarItemsRetryTest PRIVATE ${CMAKE_SOURCE_DIR}/src)

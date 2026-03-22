@@ -525,11 +525,17 @@ void LibraryService::getHomeBackdropItems(int limit)
 
 void LibraryService::getItem(const QString &itemId)
 {
+    getItem(itemId, QString());
+}
+
+void LibraryService::getItem(const QString &itemId, const QString &requestContext)
+{
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getItem";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
+        emit itemFailed(itemId, error.userMessage, requestContext);
         emitError(error);
         return;
     }
@@ -547,10 +553,11 @@ void LibraryService::getItem(const QString &itemId)
             }
             return m_authService->networkManager()->get(request);
         },
-        [this, itemId, endpoint](QNetworkReply *reply) {
+        [this, itemId, endpoint, requestContext](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (httpStatus == 304) {
+                emit itemNotModified(itemId, requestContext);
                 emit itemNotModified(itemId);
                 return;
             }
@@ -570,10 +577,16 @@ void LibraryService::getItem(const QString &itemId)
                 error.endpoint = "getItem";
                 error.code = -2;
                 error.userMessage = tr("Invalid item response");
+                emit itemFailed(itemId, error.userMessage, requestContext);
                 emitError(error);
                 return;
             }
+            emit itemLoaded(itemId, doc.object(), requestContext);
             emit itemLoaded(itemId, doc.object());
+        },
+        [this, itemId, requestContext](const NetworkError &error) {
+            emit itemFailed(itemId, error.userMessage, requestContext);
+            emitError(error);
         });
 }
 
