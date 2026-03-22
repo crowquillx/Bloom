@@ -28,6 +28,14 @@ bool loadObjectCache(QHash<QString, ObjectCacheEntry> &memoryCache,
                      QJsonObject &data,
                      bool requireFresh)
 {
+    if (memoryCache.contains(cacheKey)) {
+        const auto &entry = memoryCache[cacheKey];
+        if (entry.hasData() && (!requireFresh || entry.isValid(memoryTtl))) {
+            data = entry.data;
+            return true;
+        }
+    }
+
     if (requireFresh && !path.isEmpty() && QFile::exists(path)) {
         QFile file(path);
         if (!file.open(QIODevice::ReadOnly)) {
@@ -45,21 +53,12 @@ bool loadObjectCache(QHash<QString, ObjectCacheEntry> &memoryCache,
         entry.data = doc.object().value("data").toObject();
 
         if (!entry.hasData() || !entry.isValid(diskTtl)) {
-            memoryCache.remove(cacheKey);
             return false;
         }
 
         memoryCache[cacheKey] = entry;
         data = entry.data;
         return true;
-    }
-
-    if (memoryCache.contains(cacheKey)) {
-        const auto &entry = memoryCache[cacheKey];
-        if (entry.hasData() && (!requireFresh || entry.isValid(memoryTtl))) {
-            data = entry.data;
-            return true;
-        }
     }
 
     if (path.isEmpty() || !QFile::exists(path)) {
@@ -145,6 +144,14 @@ bool loadArrayCache(QHash<QString, ArrayCacheEntry> &memoryCache,
                     bool requireFresh,
                     bool allowEmpty)
 {
+    if (memoryCache.contains(cacheKey)) {
+        const auto &entry = memoryCache[cacheKey];
+        if (entry.hasData(allowEmpty) && (!requireFresh || entry.isValid(memoryTtl))) {
+            data = entry.data;
+            return true;
+        }
+    }
+
     if (requireFresh && !path.isEmpty() && QFile::exists(path)) {
         QFile file(path);
         if (!file.open(QIODevice::ReadOnly)) {
@@ -162,21 +169,12 @@ bool loadArrayCache(QHash<QString, ArrayCacheEntry> &memoryCache,
         entry.data = doc.object().value("items").toArray();
 
         if (!entry.hasData(allowEmpty) || !entry.isValid(diskTtl)) {
-            memoryCache.remove(cacheKey);
             return false;
         }
 
         memoryCache[cacheKey] = entry;
         data = entry.data;
         return true;
-    }
-
-    if (memoryCache.contains(cacheKey)) {
-        const auto &entry = memoryCache[cacheKey];
-        if (entry.hasData(allowEmpty) && (!requireFresh || entry.isValid(memoryTtl))) {
-            data = entry.data;
-            return true;
-        }
     }
 
     if (path.isEmpty() || !QFile::exists(path)) {
