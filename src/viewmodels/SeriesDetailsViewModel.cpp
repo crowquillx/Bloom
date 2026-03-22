@@ -2,6 +2,10 @@
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
 #include "../utils/ConfigManager.h"
+#include "../utils/DetailViewCache.h"
+#include "../utils/DetailListHelper.h"
+#include "../utils/DetailMetadataHelper.h"
+#include "../utils/ExternalRatingsHelper.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -19,27 +23,9 @@ constexpr qint64 kItemsDiskTtlMs    = 60 * 60 * 1000;
 constexpr qint64 kSimilarMemoryTtlMs = 5 * 60 * 1000;
 constexpr qint64 kSimilarDiskTtlMs   = 60 * 60 * 1000;
 
-struct SeriesCacheEntry {
-    QJsonObject data;
-    qint64 timestamp = 0;
-    bool hasData() const { return !data.isEmpty(); }
-    bool isValid(qint64 ttl) const {
-        return timestamp > 0 && (QDateTime::currentMSecsSinceEpoch() - timestamp) <= ttl;
-    }
-};
-
-struct ItemsCacheEntry {
-    QJsonArray items;
-    qint64 timestamp = 0;
-    bool hasData() const { return !items.isEmpty(); }
-    bool isValid(qint64 ttl) const {
-        return timestamp > 0 && (QDateTime::currentMSecsSinceEpoch() - timestamp) <= ttl;
-    }
-};
-
-static QHash<QString, SeriesCacheEntry> s_seriesCache;
-static QHash<QString, ItemsCacheEntry> s_itemsCache;  // keyed by parentId (series -> seasons, season -> episodes)
-static QHash<QString, ItemsCacheEntry> s_similarItemsCache;  // keyed by seriesId
+static QHash<QString, DetailViewCache::ObjectCacheEntry> s_seriesCache;
+static QHash<QString, DetailViewCache::ArrayCacheEntry> s_itemsCache;  // keyed by parentId (series -> seasons, season -> episodes)
+static QHash<QString, DetailViewCache::ArrayCacheEntry> s_similarItemsCache;  // keyed by seriesId
 }
 
 static bool hasSpecialPlacementFields(const QJsonArray &items)
@@ -76,7 +62,7 @@ QString SeriesDetailsViewModel::seriesCachePath(const QString &seriesId) const
     if (seriesId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(seriesId + "_details.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(seriesId) + "_details.json");
 }
 
 QString SeriesDetailsViewModel::itemsCachePath(const QString &parentId) const
@@ -84,7 +70,7 @@ QString SeriesDetailsViewModel::itemsCachePath(const QString &parentId) const
     if (parentId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(parentId + "_items.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(parentId) + "_items.json");
 }
 
 QString SeriesDetailsViewModel::similarItemsCachePath(const QString &seriesId) const
@@ -92,207 +78,66 @@ QString SeriesDetailsViewModel::similarItemsCachePath(const QString &seriesId) c
     if (seriesId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(seriesId + "_similar_items.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(seriesId) + "_similar_items.json");
 }
 
 bool SeriesDetailsViewModel::loadSeriesFromCache(const QString &seriesId, QJsonObject &seriesData, bool requireFresh) const
 {
-    // Memory cache first
-    if (s_seriesCache.contains(seriesId)) {
-        const auto &entry = s_seriesCache[seriesId];
-        if (entry.hasData() && (!requireFresh || entry.isValid(kSeriesMemoryTtlMs))) {
-            seriesData = entry.data;
-            return true;
-        }
-    }
-
-    // Disk cache
-    QString path = seriesCachePath(seriesId);
-    if (path.isEmpty() || !QFile::exists(path))
-        return false;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return false;
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-        return false;
-
-    SeriesCacheEntry entry;
-    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
-    entry.data = doc.object().value("data").toObject();
-
-    if (!entry.hasData())
-        return false;
-
-    if (requireFresh && !entry.isValid(kSeriesDiskTtlMs))
-        return false;
-
-    s_seriesCache[seriesId] = entry;
-    seriesData = entry.data;
-    return true;
+    return DetailViewCache::loadObjectCache(s_seriesCache,
+                                            seriesId,
+                                            seriesCachePath(seriesId),
+                                            kSeriesMemoryTtlMs,
+                                            kSeriesDiskTtlMs,
+                                            seriesData,
+                                            requireFresh);
 }
 
 void SeriesDetailsViewModel::storeSeriesCache(const QString &seriesId, const QJsonObject &seriesData) const
 {
-    SeriesCacheEntry entry;
-    entry.data = seriesData;
-    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    s_seriesCache[seriesId] = entry;
-
-    QString path = seriesCachePath(seriesId);
-    if (path.isEmpty())
-        return;
-
-    QDir dir(cacheDir());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QJsonObject root;
-    root.insert("timestamp", static_cast<double>(entry.timestamp));
-    root.insert("data", seriesData);
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    file.close();
+    DetailViewCache::storeObjectCache(s_seriesCache,
+                                      seriesId,
+                                      seriesCachePath(seriesId),
+                                      seriesData);
 }
 
 bool SeriesDetailsViewModel::loadItemsFromCache(const QString &parentId, QJsonArray &items, bool requireFresh) const
 {
-    if (s_itemsCache.contains(parentId)) {
-        const auto &entry = s_itemsCache[parentId];
-        if (entry.hasData() && (!requireFresh || entry.isValid(kItemsMemoryTtlMs))) {
-            items = entry.items;
-            return true;
-        }
-    }
-
-    QString path = itemsCachePath(parentId);
-    if (path.isEmpty() || !QFile::exists(path))
-        return false;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return false;
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-        return false;
-
-    ItemsCacheEntry entry;
-    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
-    entry.items = doc.object().value("items").toArray();
-
-    if (!entry.hasData())
-        return false;
-
-    if (requireFresh && !entry.isValid(kItemsDiskTtlMs))
-        return false;
-
-    s_itemsCache[parentId] = entry;
-    items = entry.items;
-    return true;
+    return DetailViewCache::loadArrayCache(s_itemsCache,
+                                           parentId,
+                                           itemsCachePath(parentId),
+                                           kItemsMemoryTtlMs,
+                                           kItemsDiskTtlMs,
+                                           items,
+                                           requireFresh,
+                                           false);
 }
 
 void SeriesDetailsViewModel::storeItemsCache(const QString &parentId, const QJsonArray &items) const
 {
-    ItemsCacheEntry entry;
-    entry.items = items;
-    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    s_itemsCache[parentId] = entry;
-
-    QString path = itemsCachePath(parentId);
-    if (path.isEmpty())
-        return;
-
-    QDir dir(cacheDir());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QJsonObject root;
-    root.insert("timestamp", static_cast<double>(entry.timestamp));
-    root.insert("items", items);
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    file.close();
+    DetailViewCache::storeArrayCache(s_itemsCache,
+                                     parentId,
+                                     itemsCachePath(parentId),
+                                     items);
 }
 
 bool SeriesDetailsViewModel::loadSimilarItemsFromCache(const QString &seriesId, QJsonArray &items, bool requireFresh) const
 {
-    if (s_similarItemsCache.contains(seriesId)) {
-        const auto &entry = s_similarItemsCache[seriesId];
-        if (entry.timestamp > 0 && (!requireFresh || entry.isValid(kSimilarMemoryTtlMs))) {
-            items = entry.items;
-            return true;
-        }
-    }
-
-    QString path = similarItemsCachePath(seriesId);
-    if (path.isEmpty() || !QFile::exists(path))
-        return false;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return false;
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-        return false;
-
-    ItemsCacheEntry entry;
-    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
-    entry.items = doc.object().value("items").toArray();
-
-    if (entry.timestamp <= 0)
-        return false;
-
-    if (requireFresh && !entry.isValid(kSimilarDiskTtlMs))
-        return false;
-
-    s_similarItemsCache[seriesId] = entry;
-    items = entry.items;
-    return true;
+    return DetailViewCache::loadArrayCache(s_similarItemsCache,
+                                           seriesId,
+                                           similarItemsCachePath(seriesId),
+                                           kSimilarMemoryTtlMs,
+                                           kSimilarDiskTtlMs,
+                                           items,
+                                           requireFresh,
+                                           true);
 }
 
 void SeriesDetailsViewModel::storeSimilarItemsCache(const QString &seriesId, const QJsonArray &items) const
 {
-    ItemsCacheEntry entry;
-    entry.items = items;
-    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    s_similarItemsCache[seriesId] = entry;
-
-    QString path = similarItemsCachePath(seriesId);
-    if (path.isEmpty())
-        return;
-
-    QDir dir(cacheDir());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QJsonObject root;
-    root.insert("timestamp", static_cast<double>(entry.timestamp));
-    root.insert("items", items);
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    file.close();
+    DetailViewCache::storeArrayCache(s_similarItemsCache,
+                                     seriesId,
+                                     similarItemsCachePath(seriesId),
+                                     items);
 }
 
 void SeriesDetailsViewModel::clearCacheForTest(const QString &id)
@@ -710,16 +555,7 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
         qDebug() << "SeriesDetailsViewModel: Serving similar items from cache"
                  << (hasFreshSimilarItems ? "FRESH" : "STALE")
                  << "count:" << cachedSimilarItems.size();
-        QVariantList mappedItems;
-        mappedItems.reserve(cachedSimilarItems.size());
-        for (const auto &value : cachedSimilarItems) {
-            const QJsonObject item = value.toObject();
-            if (item.isEmpty()) {
-                continue;
-            }
-            mappedItems.append(item.toVariantMap());
-        }
-        m_similarItems = mappedItems;
+        m_similarItems = DetailListHelper::mapSimilarItems(cachedSimilarItems);
         m_similarItemsAttempted = hasFreshSimilarItems;
         m_similarItemsLoading = false;
         emit similarItemsChanged();
@@ -892,6 +728,7 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_productionYear = 0;
     m_isWatched = false;
     m_isFavorite = false;
+    m_imdbId.clear();
     m_tmdbId.clear();
     m_people.clear();
     m_genres.clear();
@@ -962,75 +799,32 @@ void SeriesDetailsViewModel::fetchMdbListRatings(const QString &imdbId, const QS
 {
     auto *config = ServiceLocator::tryGet<ConfigManager>();
     if (!config) return;
-    
-    QString apiKey = config->getMdbListApiKey();
-    if (apiKey.isEmpty()) return;
-    
-    if (imdbId.isEmpty() && tmdbId.isEmpty()) {
-        qWarning() << "No external IDs found for MDBList lookup";
-        return;
-    }
 
-    qDebug() << "Fetching MDBList ratings for IMDb:" << imdbId << "TMDB:" << tmdbId;
-    
-    QUrl url;
-    QUrlQuery query;
-    query.addQueryItem("apikey", apiKey);
-    
-    // Script uses: https://api.mdblist.com/tmdb/{type}/{id}
-    // We try to match that pattern if we have a TMDB ID.
-    if (!tmdbId.isEmpty()) {
-        url = QUrl("https://api.mdblist.com/tmdb/" + type + "/" + tmdbId);
-    } else if (!imdbId.isEmpty()) {
-        // Fallback to IMDb endpoint if supported, or legacy search
-        url = QUrl("https://api.mdblist.com/imdb/" + imdbId);
-    } else {
-        qWarning() << "No IDs for MDBList request";
-        return;
-    }
-    
-    url.setQuery(query);
-    
-    QNetworkRequest request(url);
-    QNetworkReply *reply = m_networkManager->get(request);
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        reply->deleteLater();
-        if (reply->error() == QNetworkReply::NoError) {
-            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (doc.isObject()) {
-                m_rawMdbListRatings = doc.object().toVariantMap();
-                compileRatings();
-                
-                // Debug log
-                QVariantList ratingsList = m_mdbListRatings.value("ratings").toList();
-                qDebug() << "MDBList ratings updated, count:" << ratingsList.size();
-            }
-        } else {
-            qWarning() << "MDBList API error:" << reply->errorString();
+    const QString requestedImdbId = imdbId;
+    const QString requestedTmdbId = tmdbId;
+
+    ExternalRatingsHelper::fetchMdbListRatings(m_networkManager,
+                                               this,
+                                               config->getMdbListApiKey(),
+                                               imdbId,
+                                               tmdbId,
+                                               type,
+                                               [this, requestedImdbId, requestedTmdbId](const QVariantMap &rawRatings) {
+        if (requestedImdbId != m_imdbId || requestedTmdbId != m_tmdbId) {
+            return;
         }
+
+        m_rawMdbListRatings = rawRatings;
+        compileRatings();
+
+        const QVariantList ratingsList = m_mdbListRatings.value("ratings").toList();
+        qDebug() << "MDBList ratings updated, count:" << ratingsList.size();
     });
 }
 
 void SeriesDetailsViewModel::compileRatings()
 {
-    QVariantMap combined = m_rawMdbListRatings;
-    QVariantList ratings = combined.value("ratings").toList();
-
-    if (!m_aniListRating.isEmpty()) {
-        bool found = false;
-        auto getScore = [](const QVariantMap &m) { return m.value("score", m.value("value")).toInt(); };
-        for (QVariant &r : ratings) {
-            if (r.toMap()["source"].toString().compare("AniList", Qt::CaseInsensitive) == 0) {
-                if (getScore(m_aniListRating) > getScore(r.toMap())) r = m_aniListRating;
-                found = true;
-                break;
-            }
-        }
-        if (!found) ratings.append(m_aniListRating);
-    }
-
-    combined["ratings"] = ratings;
+    const QVariantMap combined = ExternalRatingsHelper::mergeRatings(m_rawMdbListRatings, m_aniListRating);
     if (m_mdbListRatings != combined) {
         m_mdbListRatings = combined;
         emit mdbListRatingsChanged();
@@ -1039,6 +833,9 @@ void SeriesDetailsViewModel::compileRatings()
 
 void SeriesDetailsViewModel::fetchAniListRating(const QString &imdbId, const QString &title, int year)
 {
+    Q_UNUSED(title)
+    Q_UNUSED(year)
+
     if (imdbId.isEmpty()) {
         return;
     }
@@ -1051,9 +848,14 @@ void SeriesDetailsViewModel::fetchAniListRating(const QString &imdbId, const QSt
         m_currentAniListImdbId = imdbId;
     }
 
-    fetchAniListIdFromWikidata(imdbId, [this](const QString &anilistId) {
+    const QString requestedImdbId = imdbId;
+    fetchAniListIdFromWikidata(imdbId, [this, requestedImdbId](const QString &anilistId) {
+        if (requestedImdbId != m_imdbId || requestedImdbId != m_currentAniListImdbId) {
+            return;
+        }
+
         if (!anilistId.isEmpty()) {
-            queryAniListById(anilistId);
+            queryAniListById(anilistId, requestedImdbId);
         } else {
             qDebug() << "AniList ID not found via Wikidata";
         }
@@ -1062,64 +864,31 @@ void SeriesDetailsViewModel::fetchAniListRating(const QString &imdbId, const QSt
 
 void SeriesDetailsViewModel::fetchAniListIdFromWikidata(const QString &imdbId, std::function<void(const QString&)> callback)
 {
-    QString sparql = QString("SELECT ?anilist WHERE { ?item wdt:P345 \"%1\" . ?item wdt:P8729 ?anilist . } LIMIT 1").arg(imdbId);
-    QUrl url("https://query.wikidata.org/sparql");
-    QUrlQuery query;
-    query.addQueryItem("format", "json");
-    query.addQueryItem("query", sparql);
-    url.setQuery(query);
-    
-    QNetworkRequest request(url);
-    QNetworkReply *reply = m_networkManager->get(request);
-    
-    connect(reply, &QNetworkReply::finished, this, [reply, callback]() {
-        reply->deleteLater();
-        QString anilistId;
-        if (reply->error() == QNetworkReply::NoError) {
-            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            QJsonObject root = doc.object();
-            QJsonArray bindings = root["results"].toObject()["bindings"].toArray();
-            if (!bindings.isEmpty()) {
-                anilistId = bindings[0].toObject()["anilist"].toObject()["value"].toString();
-            }
-        }
-        callback(anilistId);
-    });
+    ExternalRatingsHelper::fetchAniListIdFromWikidata(m_networkManager, this, imdbId, std::move(callback));
 }
 
-void SeriesDetailsViewModel::queryAniListById(const QString &anilistId)
+void SeriesDetailsViewModel::queryAniListById(const QString &anilistId, const QString &requestImdbId)
 {
-    QUrl url("https://graphql.anilist.co");
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    
-    QJsonObject variables;
-    variables["id"] = anilistId.toInt();
-    
-    QJsonObject queryObj;
-    queryObj["query"] = "query($id:Int){ Media(id:$id,type:ANIME){ id meanScore } }";
-    queryObj["variables"] = variables;
-    
-    QNetworkReply *reply = m_networkManager->post(request, QJsonDocument(queryObj).toJson());
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply, anilistId]() {
-        reply->deleteLater();
-        if (reply->error() == QNetworkReply::NoError) {
-            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            QJsonObject media = doc.object()["data"].toObject()["Media"].toObject();
-            int score = media["meanScore"].toInt();
-            
-            if (score > 0) {
-                qDebug() << "AniList Score found:" << score;
-                
-                QVariantMap anilistRating;
-                anilistRating["source"] = "AniList";
-                anilistRating["value"] = score;
-                anilistRating["score"] = score;
-                
-                m_aniListRating = anilistRating;
-                compileRatings();
-            }
+    ExternalRatingsHelper::queryAniListById(m_networkManager, this, anilistId, [this, requestImdbId](const QJsonObject &media) {
+        if (requestImdbId != m_imdbId || requestImdbId != m_currentAniListImdbId) {
+            return;
+        }
+
+        const int avgScore = media["averageScore"].toInt();
+        const int meanScore = media["meanScore"].toInt();
+        const int score = (avgScore > 0) ? avgScore : meanScore;
+
+        if (score > 0) {
+            qDebug() << "AniList Score found:" << score;
+
+            QVariantMap anilistRating;
+            anilistRating["source"] = "AniList";
+            anilistRating["value"] = score;
+            anilistRating["score"] = score;
+            anilistRating["url"] = media["siteUrl"].toString();
+
+            m_aniListRating = anilistRating;
+            compileRatings();
         }
     });
 }
@@ -1480,17 +1249,7 @@ void SeriesDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const Q
         return;
     }
 
-    QVariantList mappedItems;
-    mappedItems.reserve(items.size());
-    for (const auto &value : items) {
-        const QJsonObject item = value.toObject();
-        if (item.isEmpty()) {
-            continue;
-        }
-        mappedItems.append(item.toVariantMap());
-    }
-
-    m_similarItems = mappedItems;
+    m_similarItems = DetailListHelper::mapSimilarItems(items);
     m_similarItemsAttempted = true;
     m_similarItemsLoading = false;
     storeSimilarItemsCache(itemId, items);
@@ -1533,25 +1292,32 @@ void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QStr
 
 void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
 {
-    m_title = data.value("Name").toString();
+    const auto common = DetailMetadataHelper::extractCommonMetadata(
+        data,
+        m_seriesId,
+        [this](const QString &itemId, const QString &imageType, int width) {
+            return buildImageUrl(itemId, imageType, width);
+        },
+        QStringLiteral("No synopsis available."),
+        false);
+
+    m_title = common.title;
     emit titleChanged();
 
-    m_overview = data.value("Overview").toString();
-    if (m_overview.isEmpty()) {
-        m_overview = "No synopsis available.";
-    }
+    m_overview = common.overview;
     emit overviewChanged();
 
-    m_productionYear = data.value("ProductionYear").toInt();
+    m_productionYear = common.productionYear;
     emit productionYearChanged();
 
+    // Keep the local parse for series-only flags not exposed by CommonDetailMetadata.
     const QJsonObject userData = data.value("UserData").toObject();
-    m_isWatched = userData.value("Played").toBool();
+    m_isWatched = common.isWatched;
     emit isWatchedChanged();
     m_isFavorite = userData.value("IsFavorite").toBool();
     emit isFavoriteChanged();
 
-    m_officialRating = data.value("OfficialRating").toString();
+    m_officialRating = common.officialRating;
     emit officialRatingChanged();
 
     // Cumulative item count (episodes)
@@ -1571,71 +1337,39 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
 
     const QJsonObject imageTags = data.value("ImageTags").toObject();
 
-    // Logo URL
     if (imageTags.contains("Logo")) {
-        m_logoUrl = buildImageUrl(m_seriesId, "Logo", 2000);
+        m_logoUrl = common.logoUrl;
     } else {
         m_logoUrl.clear();
     }
     emit logoUrlChanged();
 
-    // Poster URL
     if (imageTags.contains("Primary")) {
-        m_posterUrl = buildImageUrl(m_seriesId, "Primary", 400);
+        m_posterUrl = common.posterUrl;
     } else {
         m_posterUrl.clear();
     }
     emit posterUrlChanged();
 
-    // Backdrop URL
     const QJsonArray backdropTags = data.value("BackdropImageTags").toArray();
     if (!backdropTags.isEmpty()) {
-        m_backdropUrl = buildImageUrl(m_seriesId, "Backdrop", 1920);
+        m_backdropUrl = common.backdropUrl;
     } else {
         m_backdropUrl.clear();
     }
     emit backdropUrlChanged();
 
-    QVariantList mappedPeople;
-    const QJsonArray people = data.value("People").toArray();
-    mappedPeople.reserve(people.size());
-    for (const auto &value : people) {
-        const QJsonObject person = value.toObject();
-        const QString name = person.value("Name").toString();
-        if (name.isEmpty()) {
-            continue;
-        }
-
-        QVariantMap mapped = person.toVariantMap();
-        QString subtitle = person.value("Role").toString();
-        if (subtitle.isEmpty()) {
-            subtitle = person.value("Type").toString();
-        }
-        mapped.insert("Subtitle", subtitle);
-        mappedPeople.append(mapped);
-        if (mappedPeople.size() >= 18) {
-            break;
-        }
-    }
-    m_people = mappedPeople;
+    m_people = common.people;
     emit peopleChanged();
 
-    QStringList genres;
-    const QJsonArray genresArray = data.value("Genres").toArray();
-    genres.reserve(genresArray.size());
-    for (const auto &value : genresArray) {
-        const QString genre = value.toString();
-        if (!genre.isEmpty()) {
-            genres.append(genre);
-        }
-    }
-    m_genres = genres;
+    m_genres = common.genres;
     emit genresChanged();
 
     // Trigger MDBList fetch
     QJsonObject providerIds = data.value("ProviderIds").toObject();
     QString imdbId = providerIds.value("Imdb").toString();
     QString tmdbId = providerIds.value("Tmdb").toString();
+    m_imdbId = imdbId;
     m_tmdbId = tmdbId;
     emit tmdbIdChanged();
     

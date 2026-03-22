@@ -64,11 +64,14 @@ QtObject {
             "buttonPrimaryBorder": Qt.rgba(1, 1, 1, 0.25),
             "buttonPrimaryBorderFocused": Qt.rgba(1, 1, 1, 0.9),
             "buttonSecondaryBackground": Qt.rgba(1, 1, 1, 0.08),
+            "buttonSecondaryBackgroundDisabled": Qt.rgba(0, 0, 0, 0.18),
             "buttonSecondaryBackgroundHover": Qt.rgba(1, 1, 1, 0.15),
             "buttonSecondaryBackgroundPressed": Qt.rgba(1, 1, 1, 0.2),
             "buttonSecondaryBorder": Qt.rgba(1, 1, 1, 0.15),
             "buttonSecondaryBorderHover": Qt.rgba(1, 1, 1, 0.25),
-            "buttonSecondaryBorderFocused": "#00A4DC" // accentPrimary
+            "buttonSecondaryBorderFocused": "#00A4DC", // accentPrimary
+            "chipBackground": Qt.rgba(0, 0, 0, 0.28),
+            "chipBorder": Qt.rgba(1, 1, 1, 0.12)
         },
         "Rosé Pine": {
             "backgroundPrimary": "#191724", // Base
@@ -93,11 +96,14 @@ QtObject {
             "buttonPrimaryBorder": Qt.rgba(1, 1, 1, 0.25),
             "buttonPrimaryBorderFocused": Qt.rgba(1, 1, 1, 0.9),
             "buttonSecondaryBackground": Qt.rgba(1, 1, 1, 0.08),
+            "buttonSecondaryBackgroundDisabled": Qt.rgba(0, 0, 0, 0.18),
             "buttonSecondaryBackgroundHover": Qt.rgba(1, 1, 1, 0.15),
             "buttonSecondaryBackgroundPressed": Qt.rgba(1, 1, 1, 0.2),
             "buttonSecondaryBorder": Qt.rgba(1, 1, 1, 0.15),
             "buttonSecondaryBorderHover": Qt.rgba(1, 1, 1, 0.25),
-            "buttonSecondaryBorderFocused": "#9ccfd8" // Foam
+            "buttonSecondaryBorderFocused": "#9ccfd8", // Foam
+            "chipBackground": Qt.rgba(0.12, 0.11, 0.18, 0.65),
+            "chipBorder": Qt.rgba(1, 1, 1, 0.12)
         }
     }
     
@@ -119,6 +125,8 @@ QtObject {
     property color textPrimary: activeTheme.textPrimary
     property color textSecondary: activeTheme.textSecondary
     property color textDisabled: activeTheme.textDisabled
+    property color chipBackground: activeTheme.chipBackground
+    property color chipBorder: activeTheme.chipBorder
     property color textOnAccent: "#191724"  // Dark text for use on accent-colored backgrounds
     
     // Overlays & Gradients
@@ -261,6 +269,7 @@ QtObject {
     property int episodeCardMinHeightBase: 300
     property int episodeThumbMinWidthBase: 400
     property int episodeListMinHeightBase: 280
+    property int detailViewLogoHeightBase: 132
     property int seriesLogoHeightBase: 426
     property int seriesLogoMaxWidthBase: 1334
     property int seriesOverviewMaxHeightBase: 160
@@ -291,6 +300,14 @@ QtObject {
     
     // Episode list height to accommodate full 16:9 cards with text labels
     property int episodeListHeight: Math.round(episodeThumbWidth * 9 / 16 + 50 * layoutScale)
+
+    readonly property real detailViewLogoScaleBoost: breakpoint === "XL" ? 1.28
+        : breakpoint === "Large" ? 1.14
+        : 1.0
+    property int detailViewLogoHeight: Math.min(
+        seriesLogoHeight,
+        Math.round(detailViewLogoHeightBase * layoutScale * detailViewLogoScaleBoost)
+    )
     
     // Series Details View dimensions (responsive)
     property int seriesLogoHeight: Math.round(seriesLogoHeightBase * layoutScale)
@@ -327,6 +344,7 @@ QtObject {
     
     // Secondary Button (Mark Watched, Back, etc.) - Frosted glass effect
     property color buttonSecondaryBackground: activeTheme.buttonSecondaryBackground
+    property color buttonSecondaryBackgroundDisabled: activeTheme.buttonSecondaryBackgroundDisabled
     property color buttonSecondaryBackgroundHover: activeTheme.buttonSecondaryBackgroundHover
     property color buttonSecondaryBackgroundPressed: activeTheme.buttonSecondaryBackgroundPressed
     property color buttonSecondaryBorder: activeTheme.buttonSecondaryBorder

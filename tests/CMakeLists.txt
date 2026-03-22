@@ -26,6 +26,7 @@ add_executable(SeriesDetailsCacheTest
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
 )
 
 target_include_directories(SeriesDetailsCacheTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -182,6 +183,31 @@ target_link_libraries(TrackPreferencesManagerTest
 
 add_test(NAME TrackPreferencesManagerTest COMMAND TrackPreferencesManagerTest)
 
+add_executable(SimilarItemsRetryTest
+    SimilarItemsRetryTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/MovieDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
+)
+
+target_include_directories(SimilarItemsRetryTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(SimilarItemsRetryTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME SimilarItemsRetryTest COMMAND SimilarItemsRetryTest)
+
 # ============================================================================
 # Visual Regression Test Fixtures
 # ============================================================================
@@ -235,6 +261,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/utils/SidebarSettings.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/GpuMemoryTrimmer.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/CacheMigrator.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp
     # Network sources
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
@@ -314,6 +341,9 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/SearchResultCard.qml
     ${CMAKE_SOURCE_DIR}/src/ui/UnwatchedBadge.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RetryButton.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/MetadataChip.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/RatingMetadataChip.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SecondaryActionButton.qml
     ${CMAKE_SOURCE_DIR}/src/ui/Theme.qml
     ${CMAKE_SOURCE_DIR}/src/ui/Icons.qml
     ${CMAKE_SOURCE_DIR}/src/ui/Sidebar.qml

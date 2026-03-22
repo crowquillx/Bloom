@@ -75,6 +75,8 @@ Standard component sizes.
 - `buttonHeightSmall` (48px), `buttonHeightMedium` (56px), `buttonHeightLarge` (64px)
 - `posterWidth` / `posterHeight` (standard 2:3 ratio)
 - `cardWidthMedium` / `cardHeightMedium` (standard 16:9 ratio)
+- `detailViewLogoHeight`: hero logo height for movie and series detail views, with a larger breakpoint-aware boost on Large and XL screens
+- `seriesLogoHeight` / `seriesLogoMaxWidth`: generic logo bounds for series and related logo usages
 
 ### Playback Overlay Tokens
 - `playbackOverlayTopTint`

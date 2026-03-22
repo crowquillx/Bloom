@@ -137,6 +137,8 @@ class SeriesDetailsViewModel : public BaseViewModel
 {
     Q_OBJECT
 
+    friend class SimilarItemsRetryTest;
+
     // Series metadata properties
     Q_PROPERTY(QString seriesId READ seriesId NOTIFY seriesIdChanged)
     Q_PROPERTY(QString title READ title NOTIFY titleChanged)
@@ -305,7 +307,7 @@ public:
     // AniList
     void fetchAniListRating(const QString &imdbId, const QString &title, int year);
     void fetchAniListIdFromWikidata(const QString &imdbId, std::function<void(const QString&)> callback);
-    void queryAniListById(const QString &anilistId);
+    void queryAniListById(const QString &anilistId, const QString &requestImdbId);
 
 signals:
     // Series metadata signals
@@ -376,6 +378,7 @@ private:
     int m_productionYear = 0;
     bool m_isWatched = false;
     bool m_isFavorite = false;
+    QString m_imdbId;
     QString m_tmdbId;
     QVariantList m_people;
     QStringList m_genres;

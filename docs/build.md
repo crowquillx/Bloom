@@ -13,7 +13,7 @@ Bloom uses CMake as its build system and supports multiple build methods:
 ## Prerequisites
 
 ### Linux (Native Build)
-- **Qt 6.10+** with modules: Core, Gui, Quick, QuickControls2, Network, Sql, Concurrent, Multimedia, Test, ShaderTools
+- **Qt 6.10+** with modules: Core, Gui, Quick, QuickControls2, Network, Sql, Concurrent, Multimedia, Test, ShaderTools, LinguistTools
 - **CMake 3.16+**
 - **Ninja** (recommended) or Make
 - **mpv** (runtime dependency)

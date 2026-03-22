@@ -1084,7 +1084,7 @@ void LinuxMpvBackend::renderFrame()
         if (m_swFrameDispatchQueued.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
             QMetaObject::invokeMethod(this, [this]() {
                 m_swFrameDispatchQueued.store(false, std::memory_order_release);
-                const QPointer<QObject> target = m_videoTarget;
+                const QPointer<QQuickItem> target = m_videoTarget;
                 if (!target) {
                     return;
                 }

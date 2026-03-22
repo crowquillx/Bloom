@@ -2,6 +2,10 @@
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
 #include "../utils/ConfigManager.h"
+#include "../utils/DetailViewCache.h"
+#include "../utils/DetailListHelper.h"
+#include "../utils/DetailMetadataHelper.h"
+#include "../utils/ExternalRatingsHelper.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -20,26 +24,8 @@ constexpr qint64 kMovieDiskTtlMs   = 60 * 60 * 1000;  // 1 hour
 constexpr qint64 kSimilarMemoryTtlMs = 5 * 60 * 1000;
 constexpr qint64 kSimilarDiskTtlMs   = 60 * 60 * 1000;
 
-struct MovieCacheEntry {
-    QJsonObject data;
-    qint64 timestamp = 0;
-    bool hasData() const { return !data.isEmpty(); }
-    bool isValid(qint64 ttl) const {
-        return timestamp > 0 && (QDateTime::currentMSecsSinceEpoch() - timestamp) <= ttl;
-    }
-};
-
-struct ItemsCacheEntry {
-    QJsonArray items;
-    qint64 timestamp = 0;
-    bool hasData() const { return timestamp > 0; }
-    bool isValid(qint64 ttl) const {
-        return timestamp > 0 && (QDateTime::currentMSecsSinceEpoch() - timestamp) <= ttl;
-    }
-};
-
-static QHash<QString, MovieCacheEntry> s_movieCache;
-static QHash<QString, ItemsCacheEntry> s_similarItemsCache;
+static QHash<QString, DetailViewCache::ObjectCacheEntry> s_movieCache;
+static QHash<QString, DetailViewCache::ArrayCacheEntry> s_similarItemsCache;
 }
 
 MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
@@ -98,7 +84,7 @@ QString MovieDetailsViewModel::movieCachePath(const QString &movieId) const
     if (movieId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(movieId + "_details.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(movieId) + "_details.json");
 }
 
 QString MovieDetailsViewModel::similarItemsCachePath(const QString &movieId) const
@@ -106,141 +92,46 @@ QString MovieDetailsViewModel::similarItemsCachePath(const QString &movieId) con
     if (movieId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(movieId + "_similar_items.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(movieId) + "_similar_items.json");
 }
 
 bool MovieDetailsViewModel::loadMovieFromCache(const QString &movieId, QJsonObject &movieData, bool requireFresh) const
 {
-    // Memory cache
-    if (s_movieCache.contains(movieId)) {
-        const auto &entry = s_movieCache[movieId];
-        if (entry.hasData() && (!requireFresh || entry.isValid(kMovieMemoryTtlMs))) {
-            movieData = entry.data;
-            return true;
-        }
-    }
-
-    // Disk cache
-    QString path = movieCachePath(movieId);
-    if (path.isEmpty() || !QFile::exists(path))
-        return false;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return false;
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-        return false;
-
-    MovieCacheEntry entry;
-    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
-    entry.data = doc.object().value("data").toObject();
-
-    if (!entry.hasData())
-        return false;
-
-    if (requireFresh && !entry.isValid(kMovieDiskTtlMs))
-        return false;
-
-    s_movieCache[movieId] = entry;
-    movieData = entry.data;
-    return true;
+    return DetailViewCache::loadObjectCache(s_movieCache,
+                                            movieId,
+                                            movieCachePath(movieId),
+                                            kMovieMemoryTtlMs,
+                                            kMovieDiskTtlMs,
+                                            movieData,
+                                            requireFresh);
 }
 
 bool MovieDetailsViewModel::loadSimilarItemsFromCache(const QString &movieId, QJsonArray &items, bool requireFresh) const
 {
-    if (s_similarItemsCache.contains(movieId)) {
-        const auto &entry = s_similarItemsCache[movieId];
-        if (entry.hasData() && (!requireFresh || entry.isValid(kSimilarMemoryTtlMs))) {
-            items = entry.items;
-            return true;
-        }
-    }
-
-    QString path = similarItemsCachePath(movieId);
-    if (path.isEmpty() || !QFile::exists(path))
-        return false;
-
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return false;
-
-    QJsonParseError err;
-    QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
-    if (err.error != QJsonParseError::NoError || !doc.isObject())
-        return false;
-
-    ItemsCacheEntry entry;
-    entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
-    entry.items = doc.object().value("items").toArray();
-
-    if (!entry.hasData())
-        return false;
-
-    if (requireFresh && !entry.isValid(kSimilarDiskTtlMs))
-        return false;
-
-    s_similarItemsCache[movieId] = entry;
-    items = entry.items;
-    return true;
+    return DetailViewCache::loadArrayCache(s_similarItemsCache,
+                                           movieId,
+                                           similarItemsCachePath(movieId),
+                                           kSimilarMemoryTtlMs,
+                                           kSimilarDiskTtlMs,
+                                           items,
+                                           requireFresh,
+                                           true);
 }
 
 void MovieDetailsViewModel::storeMovieCache(const QString &movieId, const QJsonObject &movieData) const
 {
-    MovieCacheEntry entry;
-    entry.data = movieData;
-    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    s_movieCache[movieId] = entry;
-
-    QString path = movieCachePath(movieId);
-    if (path.isEmpty())
-        return;
-
-    QDir dir(cacheDir());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QJsonObject root;
-    root.insert("timestamp", static_cast<double>(entry.timestamp));
-    root.insert("data", movieData);
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    file.close();
+    DetailViewCache::storeObjectCache(s_movieCache,
+                                      movieId,
+                                      movieCachePath(movieId),
+                                      movieData);
 }
 
 void MovieDetailsViewModel::storeSimilarItemsCache(const QString &movieId, const QJsonArray &items) const
 {
-    ItemsCacheEntry entry;
-    entry.items = items;
-    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    s_similarItemsCache[movieId] = entry;
-
-    QString path = similarItemsCachePath(movieId);
-    if (path.isEmpty())
-        return;
-
-    QDir dir(cacheDir());
-    if (!dir.exists()) {
-        dir.mkpath(".");
-    }
-
-    QJsonObject root;
-    root.insert("timestamp", static_cast<double>(entry.timestamp));
-    root.insert("items", items);
-
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-
-    file.write(QJsonDocument(root).toJson(QJsonDocument::Compact));
-    file.close();
+    DetailViewCache::storeArrayCache(s_similarItemsCache,
+                                     movieId,
+                                     similarItemsCachePath(movieId),
+                                     items);
 }
 
 void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
@@ -446,17 +337,7 @@ void MovieDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const QJ
         return;
     }
 
-    QVariantList mappedItems;
-    mappedItems.reserve(items.size());
-    for (const auto &value : items) {
-        const QJsonObject item = value.toObject();
-        if (item.isEmpty()) {
-            continue;
-        }
-        mappedItems.append(item.toVariantMap());
-    }
-
-    m_similarItems = mappedItems;
+    m_similarItems = DetailListHelper::mapSimilarItems(items);
     m_similarItemsAttempted = true;
     m_similarItemsLoading = false;
     storeSimilarItemsCache(itemId, items);
@@ -470,7 +351,7 @@ void MovieDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const QS
         return;
     }
 
-    m_similarItemsAttempted = true;
+    m_similarItemsAttempted = false;
     if (m_similarItemsLoading) {
         m_similarItemsLoading = false;
         emit similarItemsLoadingChanged();
@@ -494,63 +375,34 @@ void MovieDetailsViewModel::onErrorOccurred(const QString &endpoint, const QStri
 
 void MovieDetailsViewModel::updateMovieMetadata(const QJsonObject &data)
 {
-    m_title = data.value("Name").toString();
-    m_overview = data.value("Overview").toString();
-    m_productionYear = data.value("ProductionYear").toInt();
-    m_officialRating = data.value("OfficialRating").toString();
+    const auto common = DetailMetadataHelper::extractCommonMetadata(
+        data,
+        m_movieId,
+        [this](const QString &itemId, const QString &imageType, int width) {
+            return m_libraryService ? m_libraryService->getCachedImageUrlWithWidth(itemId, imageType, width)
+                                    : QString();
+        },
+        QString(),
+        true);
+
+    m_title = common.title;
+    m_overview = common.overview;
+    m_productionYear = common.productionYear;
+    m_officialRating = common.officialRating;
     m_runtimeTicks = data.value("RunTimeTicks").toVariant().toLongLong();
     m_communityRating = data.value("CommunityRating").toDouble();
-    
+
     if (data.contains("PremiereDate")) {
         m_premiereDate = QDateTime::fromString(data.value("PremiereDate").toString(), Qt::ISODate);
     }
-    
-    m_genres.clear();
-    QJsonArray genresArray = data.value("Genres").toArray();
-    for (const auto &g : genresArray) {
-        m_genres.append(g.toString());
-    }
-    
-    // UserData
-    QJsonObject userData = data.value("UserData").toObject();
-    m_isWatched = userData.value("Played").toBool();
-    m_playbackPositionTicks = userData.value("PlaybackPositionTicks").toVariant().toLongLong();
 
-    QVariantList mappedPeople;
-    const QJsonArray people = data.value("People").toArray();
-    mappedPeople.reserve(people.size());
-    for (const auto &value : people) {
-        const QJsonObject person = value.toObject();
-        const QString name = person.value("Name").toString();
-        if (name.isEmpty()) {
-            continue;
-        }
-
-        QVariantMap mapped = person.toVariantMap();
-        QString subtitle = person.value("Role").toString();
-        if (subtitle.isEmpty()) {
-            subtitle = person.value("Type").toString();
-        }
-        mapped.insert("Subtitle", subtitle);
-        mappedPeople.append(mapped);
-        if (mappedPeople.size() >= 18) {
-            break;
-        }
-    }
-    m_people = mappedPeople;
-    
-    // Images - use LibraryService cache helpers
-    if (m_libraryService) {
-        m_logoUrl = m_libraryService->getCachedImageUrlWithWidth(m_movieId, "Logo", 2000);
-        m_posterUrl = m_libraryService->getCachedImageUrlWithWidth(m_movieId, "Primary", 400);
-        
-        // Try Backdrop, fallback to Primary
-        QString backdrop = m_libraryService->getCachedImageUrlWithWidth(m_movieId, "Backdrop", 1920);
-        if (backdrop.isEmpty()) {
-            backdrop = m_posterUrl;
-        }
-        m_backdropUrl = backdrop;
-    }
+    m_genres = common.genres;
+    m_isWatched = common.isWatched;
+    m_playbackPositionTicks = common.playbackPositionTicks;
+    m_people = common.people;
+    m_logoUrl = common.logoUrl;
+    m_posterUrl = common.posterUrl;
+    m_backdropUrl = common.backdropUrl;
 
     emit titleChanged();
     emit overviewChanged();
@@ -599,136 +451,43 @@ void MovieDetailsViewModel::fetchMdbListRatings(const QString &imdbId, const QSt
 {
     auto *config = ServiceLocator::tryGet<ConfigManager>();
     if (!config) return;
-    
-    QString apiKey = config->getMdbListApiKey();
-    if (apiKey.isEmpty()) return;
-    
-    if (imdbId.isEmpty() && tmdbId.isEmpty()) {
-        qWarning() << "No external IDs found for MDBList lookup";
-        return;
-    }
 
-    qDebug() << "Fetching MDBList ratings for IMDb:" << imdbId << "TMDB:" << tmdbId;
-    
-    QUrl url;
-    QUrlQuery query;
-    query.addQueryItem("apikey", apiKey);
-    
-    // Script uses: https://api.mdblist.com/tmdb/{type}/{id}
-    // We try to match that pattern if we have a TMDB ID.
-    if (!tmdbId.isEmpty()) {
-        url = QUrl("https://api.mdblist.com/tmdb/" + type + "/" + tmdbId);
-    } else if (!imdbId.isEmpty()) {
-        // Fallback to IMDb endpoint if supported, or legacy search
-        url = QUrl("https://api.mdblist.com/imdb/" + imdbId);
-    } else {
-        qWarning() << "No IDs for MDBList request";
-        return;
-    }
-    
-    url.setQuery(query);
-    
-    QNetworkRequest request(url);
-    QNetworkReply *reply = m_networkManager->get(request);
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        reply->deleteLater();
-        if (reply->error() == QNetworkReply::NoError) {
-            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (doc.isObject()) {
-                m_rawMdbListRatings = doc.object().toVariantMap();
-                compileRatings();
-                
-                // Debug log
-                QVariantList ratingsList = m_mdbListRatings.value("ratings").toList();
-                qDebug() << "MDBList ratings updated, count:" << ratingsList.size();
-            }
-        } else {
-            qWarning() << "MDBList API error:" << reply->errorString();
-        }
+    ExternalRatingsHelper::fetchMdbListRatings(m_networkManager,
+                                               this,
+                                               config->getMdbListApiKey(),
+                                               imdbId,
+                                               tmdbId,
+                                               type,
+                                               [this](const QVariantMap &rawRatings) {
+        m_rawMdbListRatings = rawRatings;
+        compileRatings();
+
+        const QVariantList ratingsList = m_mdbListRatings.value("ratings").toList();
+        qDebug() << "MDBList ratings updated, count:" << ratingsList.size();
     });
 }
 
 void MovieDetailsViewModel::fetchAniListIdFromWikidata(const QString &imdbId, std::function<void(const QString&)> callback)
 {
-    // SPARQL query to find AniList ID from IMDb ID
-    QString sparql = QString(
-        "SELECT ?anilistId WHERE { "
-        "?item wdt:P345 \"%1\". " // P345 is IMDb ID
-        "?item wdt:P8729 ?anilistId. " // P8729 is AniList ID
-        "}"
-    ).arg(imdbId);
-
-    QUrl url("https://query.wikidata.org/sparql");
-    QUrlQuery query;
-    query.addQueryItem("query", sparql);
-    query.addQueryItem("format", "json");
-    url.setQuery(query);
-
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::UserAgentHeader, "Bloom/1.0 (Qt 6)");
-
-    auto *reply = m_networkManager->get(request);
-    QPointer<MovieDetailsViewModel> self = this;
-    connect(reply, &QNetworkReply::finished, this, [self, reply, callback]() {
-        reply->deleteLater();
-        if (!self) return;
-
-        QString anilistId;
-        if (reply->error() == QNetworkReply::NoError) {
-            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            QJsonArray bindings = doc.object()["results"].toObject()["bindings"].toArray();
-            if (!bindings.isEmpty()) {
-                anilistId = bindings[0].toObject()["anilistId"].toObject()["value"].toString();
-            }
-        } else {
-            qWarning() << "Wikidata query failed:" << reply->errorString();
-        }
-        if (callback) callback(anilistId);
-    });
+    ExternalRatingsHelper::fetchAniListIdFromWikidata(m_networkManager, this, imdbId, std::move(callback));
 }
 
 void MovieDetailsViewModel::queryAniListById(const QString &anilistId)
 {
-    QUrl url("https://graphql.anilist.co");
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    ExternalRatingsHelper::queryAniListById(m_networkManager, this, anilistId, [this](const QJsonObject &media) {
+        const int avgScore = media["averageScore"].toInt();
+        const int meanScore = media["meanScore"].toInt();
+        const int score = (avgScore > 0) ? avgScore : meanScore;
 
-    // Query for mean score and average score
-    QString query = QString(
-        "query { Media(id: %1, type: ANIME) { averageScore meanScore siteUrl } }"
-    ).arg(anilistId);
-
-    QJsonObject json;
-    json["query"] = query;
-
-    auto *reply = m_networkManager->post(request, QJsonDocument(json).toJson());
-    QPointer<MovieDetailsViewModel> self = this;
-    connect(reply, &QNetworkReply::finished, this, [self, reply]() {
-        reply->deleteLater();
-        if (!self) return;
-
-        if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "AniList API error:" << reply->errorString();
-            return;
-        }
-
-        QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-        QJsonObject media = doc.object()["data"].toObject()["Media"].toObject();
-        
-        int avgScore = media["averageScore"].toInt();
-        int meanScore = media["meanScore"].toInt();
-        int score = (avgScore > 0) ? avgScore : meanScore;
-        
         if (score > 0) {
             QVariantMap aniRating;
             aniRating["source"] = "AniList";
             aniRating["value"] = score;
             aniRating["score"] = score;
             aniRating["url"] = media["siteUrl"].toString();
-            
-            self->m_aniListRating = aniRating;
-            self->compileRatings();
+
+            m_aniListRating = aniRating;
+            compileRatings();
         }
     });
 }
@@ -758,23 +517,7 @@ void MovieDetailsViewModel::fetchAniListRating(const QString &imdbId, const QStr
 
 void MovieDetailsViewModel::compileRatings()
 {
-    QVariantMap combined = m_rawMdbListRatings;
-    QVariantList ratings = combined.value("ratings").toList();
-
-    if (!m_aniListRating.isEmpty()) {
-        bool found = false;
-        auto getScore = [](const QVariantMap &m) { return m.value("score", m.value("value")).toInt(); };
-        for (QVariant &r : ratings) {
-            if (r.toMap()["source"].toString().compare("AniList", Qt::CaseInsensitive) == 0) {
-                if (getScore(m_aniListRating) > getScore(r.toMap())) r = m_aniListRating;
-                found = true;
-                break;
-            }
-        }
-        if (!found) ratings.append(m_aniListRating);
-    }
-
-    combined["ratings"] = ratings;
+    const QVariantMap combined = ExternalRatingsHelper::mergeRatings(m_rawMdbListRatings, m_aniListRating);
     if (m_mdbListRatings != combined) {
         m_mdbListRatings = combined;
         emit mdbListRatingsChanged();
