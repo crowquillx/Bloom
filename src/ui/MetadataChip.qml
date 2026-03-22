@@ -9,6 +9,8 @@ Item {
 
     implicitHeight: visualRect.implicitHeight
     implicitWidth: visualRect.implicitWidth
+    height: implicitHeight
+    width: implicitWidth
     visible: text !== ""
 
     Rectangle {
