@@ -194,6 +194,8 @@ add_executable(SimilarItemsRetryTest
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
+    ${CMAKE_SOURCE_DIR}/src/test/MockLibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/test/TestModeController.cpp
 )
 
 target_include_directories(SimilarItemsRetryTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -314,6 +316,9 @@ set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/Theme.qml PROPERTIES
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/Icons.qml PROPERTIES
     QT_QML_SINGLETON_TYPE TRUE
 )
+set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/AccessibilityHelpers.qml PROPERTIES
+    QT_QML_SINGLETON_TYPE TRUE
+)
 set_source_files_properties(${CMAKE_SOURCE_DIR}/src/ui/EpisodeSelection.js PROPERTIES
     QT_QML_SKIP_QMLDIR_ENTRY TRUE
 )
@@ -330,6 +335,8 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/Main.qml
     ${CMAKE_SOURCE_DIR}/src/ui/LoginScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/LibraryScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/AccessibilityHelpers.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/A11yButton.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SeriesDetailsView.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SeasonView.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SeriesSeasonEpisodeView.qml
@@ -337,12 +344,16 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/HomeScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SettingsScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SearchScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/MediaSourceSelectionDialog.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SeerrRequestDialog.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/SeerrComboBox.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SearchResultCard.qml
     ${CMAKE_SOURCE_DIR}/src/ui/UnwatchedBadge.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RetryButton.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MetadataChip.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RatingMetadataChip.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/PersonCard.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/ScrollingCardLabel.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SecondaryActionButton.qml
     ${CMAKE_SOURCE_DIR}/src/ui/Theme.qml
     ${CMAKE_SOURCE_DIR}/src/ui/Icons.qml
@@ -351,8 +362,10 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/MpvProfileEditor.qml
     ${CMAKE_SOURCE_DIR}/src/ui/EmbeddedPlaybackOverlay.qml
     ${CMAKE_SOURCE_DIR}/src/ui/TrackSelector.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/WheelStepScroller.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaInfoPanel.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ToastNotification.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/UpNextScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/VideoSurface.qml
     ${CMAKE_SOURCE_DIR}/src/ui/RoundedImage.qml
     ${CMAKE_SOURCE_DIR}/src/ui/ActiveSessionsScreen.qml

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "network/LibraryService.h"
+#include <QSet>
 
 /**
  * @brief Find and emit the next unplayed episode for a series, optionally excluding an episode.
@@ -45,6 +46,8 @@ public:
     
     // Generic Item Details - searches all fixture items
     Q_INVOKABLE void getItem(const QString &itemId) override;
+    void getItem(const QString &itemId, const QString &requestContext) override;
+    void clearItemCacheValidation(const QString &itemId) override;
 
     // Series details and episodes
     Q_INVOKABLE void getSeriesDetails(const QString &seriesId) override;
@@ -80,8 +83,17 @@ private:
     QJsonObject m_nextUp;
     QJsonObject m_latestItems;
     QJsonObject m_libraries;
-    
+    int m_clearItemCacheValidationCallCount = 0;
+    QSet<QString> m_clearedItemCacheValidationIds;
+
     QJsonObject findItemById(const QString &itemId) const;
     QJsonArray findEpisodesBySeriesId(const QString &seriesId) const;
     QJsonArray findSeasonsBySeriesId(const QString &seriesId) const;
+
+public:
+    int clearItemCacheValidationCallCount() const { return m_clearItemCacheValidationCallCount; }
+    bool wasItemCacheValidationCleared(const QString &itemId) const
+    {
+        return m_clearedItemCacheValidationIds.contains(itemId);
+    }
 };

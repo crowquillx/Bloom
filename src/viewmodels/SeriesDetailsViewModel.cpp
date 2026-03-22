@@ -485,6 +485,14 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
                 this, &SeriesDetailsViewModel::onSeriesWatchedStatusChanged);
         connect(m_libraryService, &LibraryService::favoriteStatusChanged,
                 this, &SeriesDetailsViewModel::onFavoriteStatusChanged);
+        connect(m_libraryService,
+                qOverload<const QString &, const QJsonObject &, const QString &>(&LibraryService::itemLoaded),
+                this, &SeriesDetailsViewModel::onEpisodeDetailsLoaded);
+        connect(m_libraryService,
+                qOverload<const QString &, const QString &>(&LibraryService::itemNotModified),
+                this, &SeriesDetailsViewModel::onEpisodeDetailsNotModified);
+        connect(m_libraryService, &LibraryService::itemFailed,
+                this, &SeriesDetailsViewModel::onEpisodeDetailsFailed);
         connect(m_libraryService, &LibraryService::similarItemsLoaded,
                 this, &SeriesDetailsViewModel::onSimilarItemsLoaded);
         connect(m_libraryService, &LibraryService::similarItemsFailed,
@@ -715,6 +723,58 @@ void SeriesDetailsViewModel::toggleFavorite()
     m_libraryService->toggleFavorite(m_seriesId, !m_isFavorite);
 }
 
+void SeriesDetailsViewModel::loadFocusedEpisodeDetails(const QString &episodeId)
+{
+    if (!m_libraryService) {
+        qWarning() << "SeriesDetailsViewModel::loadFocusedEpisodeDetails without LibraryService";
+        clearFocusedEpisodeDetails();
+        return;
+    }
+
+    if (episodeId.isEmpty()) {
+        clearFocusedEpisodeDetails();
+        return;
+    }
+
+    if (m_episodeDetailsCache.contains(episodeId)) {
+        applyFocusedEpisodeDetails(episodeId, m_episodeDetailsCache.value(episodeId));
+        return;
+    }
+
+    m_focusedEpisodeDetailId = episodeId;
+    m_focusedEpisodeDetails = QJsonObject();
+    m_focusedEpisodePeople.clear();
+    emit focusedEpisodeDetailsChanged();
+
+    setFocusedEpisodeDetailsLoading(true);
+
+    if (m_pendingEpisodeDetailIds.contains(episodeId)) {
+        return;
+    }
+
+    startEpisodeDetailsRequest(episodeId);
+}
+
+void SeriesDetailsViewModel::clearFocusedEpisodeDetails()
+{
+    const bool hadFocusedEpisode = !m_focusedEpisodeDetailId.isEmpty()
+                                   || !m_focusedEpisodeDetails.isEmpty()
+                                   || !m_focusedEpisodePeople.isEmpty()
+                                   || m_focusedEpisodeDetailsLoading;
+
+    m_focusedEpisodeDetailId.clear();
+    m_focusedEpisodeDetails = QJsonObject();
+    m_focusedEpisodePeople.clear();
+    m_pendingEpisodeDetailIds.clear();
+    m_episodeDetailRequestTokens.clear();
+    m_episodeDetailRetried.clear();
+    setFocusedEpisodeDetailsLoading(false);
+
+    if (hadFocusedEpisode) {
+        emit focusedEpisodeDetailsChanged();
+    }
+}
+
 void SeriesDetailsViewModel::clear(bool preserveArtwork)
 {
     m_seriesId.clear();
@@ -752,6 +812,14 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_nextSeasonNumber = 0;
     m_nextEpisodeImageUrl.clear();
     m_nextEpisodeData = QJsonObject();
+    m_focusedEpisodeDetailId.clear();
+    m_focusedEpisodeDetails = QJsonObject();
+    m_focusedEpisodePeople.clear();
+    m_focusedEpisodeDetailsLoading = false;
+    m_episodeDetailsCache.clear();
+    m_pendingEpisodeDetailIds.clear();
+    m_episodeDetailRequestTokens.clear();
+    m_episodeDetailRetried.clear();
 
     m_selectedSeasonIndex = -1;
     m_selectedSeasonId.clear();
@@ -783,6 +851,8 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     emit similarItemsLoadingChanged();
     emit seasonCountChanged();
     emit nextEpisodeChanged();
+    emit focusedEpisodeDetailsChanged();
+    emit focusedEpisodeDetailsLoadingChanged();
     emit selectedSeasonIndexChanged();
     emit selectedSeasonIdChanged();
     emit officialRatingChanged();
@@ -1290,6 +1360,76 @@ void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QStr
     emit loadError(error);
 }
 
+void SeriesDetailsViewModel::onEpisodeDetailsLoaded(const QString &itemId,
+                                                    const QJsonObject &data,
+                                                    const QString &requestContext)
+{
+    if (!matchesEpisodeDetailsRequest(itemId, requestContext)) {
+        return;
+    }
+
+    finishEpisodeDetailsRequest(itemId);
+    m_episodeDetailRetried.remove(itemId);
+    m_episodeDetailsCache.insert(itemId, data);
+
+    if (itemId == m_focusedEpisodeDetailId) {
+        applyFocusedEpisodeDetails(itemId, data);
+    }
+}
+
+void SeriesDetailsViewModel::onEpisodeDetailsNotModified(const QString &itemId,
+                                                         const QString &requestContext)
+{
+    if (!matchesEpisodeDetailsRequest(itemId, requestContext)) {
+        return;
+    }
+
+    finishEpisodeDetailsRequest(itemId);
+
+    if (m_episodeDetailsCache.contains(itemId)) {
+        m_episodeDetailRetried.remove(itemId);
+        if (itemId == m_focusedEpisodeDetailId) {
+            applyFocusedEpisodeDetails(itemId, m_episodeDetailsCache.value(itemId));
+        }
+        return;
+    }
+
+    qWarning() << "SeriesDetailsViewModel::onEpisodeDetailsNotModified missing local cache for" << itemId;
+    if (itemId == m_focusedEpisodeDetailId && m_libraryService) {
+        if (m_episodeDetailRetried.contains(itemId)) {
+            qWarning() << "SeriesDetailsViewModel::onEpisodeDetailsNotModified stopping repeated retry for" << itemId;
+            m_episodeDetailRetried.remove(itemId);
+            stopFocusedEpisodeDetailsLoadingFor(itemId);
+            return;
+        }
+
+        m_episodeDetailRetried.insert(itemId);
+        m_libraryService->clearItemCacheValidation(itemId);
+        startEpisodeDetailsRequest(itemId);
+        return;
+    }
+
+    stopFocusedEpisodeDetailsLoadingFor(itemId);
+}
+
+void SeriesDetailsViewModel::onEpisodeDetailsFailed(const QString &itemId,
+                                                    const QString &error,
+                                                    const QString &requestContext)
+{
+    if (!matchesEpisodeDetailsRequest(itemId, requestContext)) {
+        return;
+    }
+
+    finishEpisodeDetailsRequest(itemId);
+    m_episodeDetailRetried.remove(itemId);
+
+    qWarning() << "SeriesDetailsViewModel focused episode details error for" << itemId << ":" << error;
+
+    if (itemId == m_focusedEpisodeDetailId || m_pendingEpisodeDetailIds.isEmpty()) {
+        stopFocusedEpisodeDetailsLoadingFor(m_focusedEpisodeDetailId == itemId ? itemId : QString());
+    }
+}
+
 void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
 {
     const auto common = DetailMetadataHelper::extractCommonMetadata(
@@ -1385,6 +1525,71 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
     if (!imdbId.isEmpty()) {
         fetchAniListRating(imdbId, m_title, m_productionYear);
     }
+}
+
+void SeriesDetailsViewModel::applyFocusedEpisodeDetails(const QString &episodeId, const QJsonObject &data)
+{
+    m_focusedEpisodeDetailId = episodeId;
+    m_focusedEpisodeDetails = data;
+    m_focusedEpisodePeople = DetailMetadataHelper::mapPeople(data.value("People").toArray());
+    setFocusedEpisodeDetailsLoading(false);
+    emit focusedEpisodeDetailsChanged();
+}
+
+QString SeriesDetailsViewModel::startEpisodeDetailsRequest(const QString &episodeId)
+{
+    if (!m_libraryService || episodeId.isEmpty()) {
+        return QString();
+    }
+
+    const QString requestContext =
+        QStringLiteral("SeriesDetails:%1:%2:%3")
+            .arg(static_cast<qulonglong>(reinterpret_cast<quintptr>(this)), 0, 16)
+            .arg(++m_episodeDetailRequestSequence)
+            .arg(episodeId);
+
+    m_pendingEpisodeDetailIds.insert(episodeId);
+    m_episodeDetailRequestTokens.insert(episodeId, requestContext);
+    m_libraryService->getItem(episodeId, requestContext);
+    return requestContext;
+}
+
+bool SeriesDetailsViewModel::matchesEpisodeDetailsRequest(const QString &itemId,
+                                                          const QString &requestContext) const
+{
+    if (itemId.isEmpty() || requestContext.isEmpty()) {
+        return false;
+    }
+
+    return m_episodeDetailRequestTokens.value(itemId) == requestContext;
+}
+
+void SeriesDetailsViewModel::finishEpisodeDetailsRequest(const QString &itemId)
+{
+    m_pendingEpisodeDetailIds.remove(itemId);
+    m_episodeDetailRequestTokens.remove(itemId);
+}
+
+void SeriesDetailsViewModel::stopFocusedEpisodeDetailsLoadingFor(const QString &itemId)
+{
+    if (!itemId.isEmpty() && itemId != m_focusedEpisodeDetailId) {
+        return;
+    }
+
+    if (m_pendingEpisodeDetailIds.isEmpty()) {
+        setFocusedEpisodeDetailsLoading(false);
+        emit focusedEpisodeDetailsChanged();
+    }
+}
+
+void SeriesDetailsViewModel::setFocusedEpisodeDetailsLoading(bool loading)
+{
+    if (m_focusedEpisodeDetailsLoading == loading) {
+        return;
+    }
+
+    m_focusedEpisodeDetailsLoading = loading;
+    emit focusedEpisodeDetailsLoadingChanged();
 }
 
 void SeriesDetailsViewModel::updateNextEpisode(const QJsonObject &episodeData)

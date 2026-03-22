@@ -10,6 +10,23 @@
 
 Q_LOGGING_CATEGORY(libraryService, "bloom.library")
 
+namespace {
+
+const QStringList kItemFields = {
+    "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
+    "Genres", "Studios", "People", "UserData",
+    "ProductionYear", "PremiereDate", "OfficialRating",
+    "RunTimeTicks", "CommunityRating", "ProviderIds"
+};
+
+QString buildItemEndpoint(const QString &userId, const QString &itemId)
+{
+    return QString("/Users/%1/Items/%2?Fields=%3")
+        .arg(userId, itemId, kItemFields.join(","));
+}
+
+}
+
 LibraryService::LibraryService(AuthenticationService *authService, QObject *parent)
     : QObject(parent)
     , m_authService(authService)
@@ -508,24 +525,22 @@ void LibraryService::getHomeBackdropItems(int limit)
 
 void LibraryService::getItem(const QString &itemId)
 {
+    getItem(itemId, QString());
+}
+
+void LibraryService::getItem(const QString &itemId, const QString &requestContext)
+{
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getItem";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
+        emit itemFailed(itemId, error.userMessage, requestContext);
         emitError(error);
         return;
     }
-    
-    const QStringList fields = {
-        "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
-        "Genres", "Studios", "People", "UserData",
-        "ProductionYear", "PremiereDate", "OfficialRating",
-        "RunTimeTicks", "CommunityRating", "ProviderIds"
-    };
-    
-    QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
-        .arg(m_authService->getUserId(), itemId, fields.join(","));
+
+    const QString endpoint = buildItemEndpoint(m_authService->getUserId(), itemId);
     
     sendRequestWithRetry(endpoint,
         [this, endpoint, itemId]() {
@@ -538,10 +553,11 @@ void LibraryService::getItem(const QString &itemId)
             }
             return m_authService->networkManager()->get(request);
         },
-        [this, itemId, endpoint](QNetworkReply *reply) {
+        [this, itemId, endpoint, requestContext](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (httpStatus == 304) {
+                emit itemNotModified(itemId, requestContext);
                 emit itemNotModified(itemId);
                 return;
             }
@@ -561,11 +577,28 @@ void LibraryService::getItem(const QString &itemId)
                 error.endpoint = "getItem";
                 error.code = -2;
                 error.userMessage = tr("Invalid item response");
+                emit itemFailed(itemId, error.userMessage, requestContext);
                 emitError(error);
                 return;
             }
+            emit itemLoaded(itemId, doc.object(), requestContext);
             emit itemLoaded(itemId, doc.object());
+        },
+        [this, itemId, requestContext](const NetworkError &error) {
+            emit itemFailed(itemId, error.userMessage, requestContext);
+            emitError(error);
         });
+}
+
+void LibraryService::clearItemCacheValidation(const QString &itemId)
+{
+    if (!m_authService || !m_authService->isAuthenticated() || itemId.isEmpty()) {
+        return;
+    }
+
+    const QString endpoint = buildItemEndpoint(m_authService->getUserId(), itemId);
+    m_etags.remove(endpoint);
+    m_lastModified.remove(endpoint);
 }
 
 // ============================================================================

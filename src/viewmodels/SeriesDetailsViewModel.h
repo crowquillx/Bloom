@@ -7,6 +7,7 @@
 #include <QString>
 #include <QVector>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QSet>
 #include <QNetworkAccessManager>
 #include <functional>
@@ -173,6 +174,12 @@ class SeriesDetailsViewModel : public BaseViewModel
     Q_PROPERTY(bool hasNextEpisode READ hasNextEpisode NOTIFY nextEpisodeChanged)
     Q_PROPERTY(qint64 nextEpisodePlaybackPositionTicks READ nextEpisodePlaybackPositionTicks NOTIFY nextEpisodeChanged)
 
+    // Focused episode details (for episode-centric season view hero/cast updates)
+    Q_PROPERTY(QVariantMap focusedEpisodeDetails READ focusedEpisodeDetails NOTIFY focusedEpisodeDetailsChanged)
+    Q_PROPERTY(QVariantList focusedEpisodePeople READ focusedEpisodePeople NOTIFY focusedEpisodeDetailsChanged)
+    Q_PROPERTY(QString focusedEpisodeDetailId READ focusedEpisodeDetailId NOTIFY focusedEpisodeDetailsChanged)
+    Q_PROPERTY(bool focusedEpisodeDetailsLoading READ focusedEpisodeDetailsLoading NOTIFY focusedEpisodeDetailsLoadingChanged)
+
     // Models
     Q_PROPERTY(SeasonsModel* seasonsModel READ seasonsModel CONSTANT)
     Q_PROPERTY(EpisodesModel* episodesModel READ episodesModel CONSTANT)
@@ -219,6 +226,10 @@ public:
     QString nextEpisodeImageUrl() const { return m_nextEpisodeImageUrl; }
     bool hasNextEpisode() const { return !m_nextEpisodeId.isEmpty(); }
     qint64 nextEpisodePlaybackPositionTicks() const;
+    QVariantMap focusedEpisodeDetails() const { return m_focusedEpisodeDetails.toVariantMap(); }
+    QVariantList focusedEpisodePeople() const { return m_focusedEpisodePeople; }
+    QString focusedEpisodeDetailId() const { return m_focusedEpisodeDetailId; }
+    bool focusedEpisodeDetailsLoading() const { return m_focusedEpisodeDetailsLoading; }
 
     // Property accessors - State
     // Property accessors - Models
@@ -271,6 +282,8 @@ public:
      */
     Q_INVOKABLE void markAsUnwatched();
     Q_INVOKABLE void toggleFavorite();
+    Q_INVOKABLE void loadFocusedEpisodeDetails(const QString &episodeId);
+    Q_INVOKABLE void clearFocusedEpisodeDetails();
 
     /**
      * @brief Clear all data and reset state.
@@ -335,6 +348,8 @@ signals:
 
     // Next episode signals
     void nextEpisodeChanged();
+    void focusedEpisodeDetailsChanged();
+    void focusedEpisodeDetailsLoadingChanged();
 
     // Selected season signals
     void selectedSeasonIndexChanged();
@@ -359,11 +374,20 @@ private slots:
     void onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items);
     void onSimilarItemsFailed(const QString &itemId, const QString &error);
     void onErrorOccurred(const QString &endpoint, const QString &error);
+    void onEpisodeDetailsLoaded(const QString &itemId, const QJsonObject &data, const QString &requestContext);
+    void onEpisodeDetailsNotModified(const QString &itemId, const QString &requestContext);
+    void onEpisodeDetailsFailed(const QString &itemId, const QString &error, const QString &requestContext);
 
 private:
     void updateSeriesMetadata(const QJsonObject &data);
     void updateNextEpisode(const QJsonObject &episodeData);
     QString buildImageUrl(const QString &itemId, const QString &imageType, int width = 400) const;
+    void applyFocusedEpisodeDetails(const QString &episodeId, const QJsonObject &data);
+    QString startEpisodeDetailsRequest(const QString &episodeId);
+    bool matchesEpisodeDetailsRequest(const QString &itemId, const QString &requestContext) const;
+    void finishEpisodeDetailsRequest(const QString &itemId);
+    void stopFocusedEpisodeDetailsLoadingFor(const QString &itemId);
+    void setFocusedEpisodeDetailsLoading(bool loading);
 
 private:
     LibraryService *m_libraryService = nullptr;
@@ -410,6 +434,15 @@ private:
     int m_nextSeasonNumber = 0;
     QString m_nextEpisodeImageUrl;
     QJsonObject m_nextEpisodeData;
+    QString m_focusedEpisodeDetailId;
+    QJsonObject m_focusedEpisodeDetails;
+    QVariantList m_focusedEpisodePeople;
+    bool m_focusedEpisodeDetailsLoading = false;
+    QHash<QString, QJsonObject> m_episodeDetailsCache;
+    QSet<QString> m_pendingEpisodeDetailIds;
+    QHash<QString, QString> m_episodeDetailRequestTokens;
+    QSet<QString> m_episodeDetailRetried;
+    quint64 m_episodeDetailRequestSequence = 0;
 
     // State
     bool m_loadingSeries = false;

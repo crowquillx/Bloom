@@ -36,6 +36,31 @@ bool loadObjectCache(QHash<QString, ObjectCacheEntry> &memoryCache,
         }
     }
 
+    if (requireFresh && !path.isEmpty() && QFile::exists(path)) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            return false;
+        }
+
+        QJsonParseError err;
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
+        if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+            return false;
+        }
+
+        ObjectCacheEntry entry;
+        entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
+        entry.data = doc.object().value("data").toObject();
+
+        if (!entry.hasData() || !entry.isValid(diskTtl)) {
+            return false;
+        }
+
+        memoryCache[cacheKey] = entry;
+        data = entry.data;
+        return true;
+    }
+
     if (path.isEmpty() || !QFile::exists(path)) {
         return false;
     }
@@ -125,6 +150,31 @@ bool loadArrayCache(QHash<QString, ArrayCacheEntry> &memoryCache,
             data = entry.data;
             return true;
         }
+    }
+
+    if (requireFresh && !path.isEmpty() && QFile::exists(path)) {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) {
+            return false;
+        }
+
+        QJsonParseError err;
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
+        if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+            return false;
+        }
+
+        ArrayCacheEntry entry;
+        entry.timestamp = static_cast<qint64>(doc.object().value("timestamp").toDouble());
+        entry.data = doc.object().value("items").toArray();
+
+        if (!entry.hasData(allowEmpty) || !entry.isValid(diskTtl)) {
+            return false;
+        }
+
+        memoryCache[cacheKey] = entry;
+        data = entry.data;
+        return true;
     }
 
     if (path.isEmpty() || !QFile::exists(path)) {

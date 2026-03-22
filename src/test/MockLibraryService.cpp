@@ -118,14 +118,31 @@ void MockLibraryService::getHomeBackdropItems(int limit)
 
 void MockLibraryService::getItem(const QString &itemId)
 {
+    getItem(itemId, QString());
+}
+
+void MockLibraryService::getItem(const QString &itemId, const QString &requestContext)
+{
     QJsonObject item = findItemById(itemId);
     if (!item.isEmpty()) {
         qDebug() << "MockLibraryService::getItem(" << itemId << ") -> found";
+        emit itemLoaded(itemId, item, requestContext);
         emit itemLoaded(itemId, item);
     } else {
         qWarning() << "MockLibraryService::getItem(" << itemId << ") -> not found";
+        emit itemFailed(itemId, "Item not found: " + itemId, requestContext);
         emit errorOccurred("getItem", "Item not found: " + itemId);
     }
+}
+
+void MockLibraryService::clearItemCacheValidation(const QString &itemId)
+{
+    if (itemId.isEmpty()) {
+        return;
+    }
+
+    ++m_clearItemCacheValidationCallCount;
+    m_clearedItemCacheValidationIds.insert(itemId);
 }
 
 /**
