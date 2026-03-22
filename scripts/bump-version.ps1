@@ -90,7 +90,7 @@ if ($Tag) {
 
     Write-Host "`n Next steps:" -ForegroundColor Yellow
     Write-Host "  1. Push to trigger the release CI:" -ForegroundColor White
-    Write-Host "     git push origin main --tags" -ForegroundColor Gray
+    Write-Host "     git push origin main v$Version" -ForegroundColor Gray
     Write-Host "  2. CI will automatically create a GitHub Release 'Bloom v$Version'" -ForegroundColor White
     Write-Host "     with Windows (ZIP + installer) and Linux (AppImage + .deb + tarball) artifacts." -ForegroundColor White
     Write-Host "  3. Scoop stable manifest will be updated via repository dispatch." -ForegroundColor White
@@ -100,7 +100,7 @@ else {
     Write-Host "  1. Review the changes:  git diff" -ForegroundColor White
     Write-Host "  2. Commit:              git add -A && git commit -m `"release: v$Version`"" -ForegroundColor White
     Write-Host "  3. Tag:                 git tag -a v$Version -F RELEASE_NOTES.md" -ForegroundColor White
-    Write-Host "  4. Push:                git push origin main --tags" -ForegroundColor White
+    Write-Host "  4. Push:                git push origin main v$Version" -ForegroundColor White
     Write-Host "`n  Or re-run with -Tag to do steps 2-3 automatically:" -ForegroundColor Gray
     Write-Host "     .\scripts\bump-version.ps1 $Version -Tag" -ForegroundColor Gray
 }
