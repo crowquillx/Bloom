@@ -398,48 +398,24 @@ jobs:
             libtiff-dev \
             libfuse2 \
             dpkg-dev \
-            file
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.13"
-
-      - name: Cache Qt SDK
-        id: cache_qt_linux
-        uses: actions/cache@v5
-        with:
-          path: ${{ runner.workspace }}/Qt
-          key: linux-qt-6.10.0-gcc_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-v1
-
-      - name: Install aqtinstall
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install "aqtinstall==3.3.*" "py7zr==1.0.*"
-
-      - name: Install Qt
-        if: steps.cache_qt_linux.outputs.cache-hit != 'true'
-        run: |
-          python -m aqt install-qt -O "$RUNNER_WORKSPACE/Qt" linux desktop 6.10.0 gcc_64 -m qtmultimedia qtshadertools qtimageformats qt5compat
+            file \
+            qt6-base-dev \
+            qt6-base-dev-tools \
+            qt6-declarative-dev \
+            qt6-declarative-dev-tools \
+            qt6-multimedia-dev \
+            qt6-shadertools-dev \
+            qt6-5compat-dev \
+            qt6-image-formats-plugins \
+            qt6-tools-dev-tools \
+            qt6-wayland \
+            qt6-wayland-dev
 
       - name: Export Qt environment
         run: |
-          set -euo pipefail
-
-          QT_VERSION_ROOT="$RUNNER_WORKSPACE/Qt/6.10.0"
-          QT_ROOT_DIR=$(find "$QT_VERSION_ROOT" -mindepth 1 -maxdepth 1 -type d -exec test -x '{}/bin/qmake' ';' -print -quit)
-
-          if [ -z "$QT_ROOT_DIR" ]; then
-            echo "Could not locate Qt root under $QT_VERSION_ROOT" >&2
-            exit 1
-          fi
-
-          echo "QT_ROOT_DIR=$QT_ROOT_DIR" >> "$GITHUB_ENV"
-          echo "CMAKE_PREFIX_PATH=$QT_ROOT_DIR" >> "$GITHUB_ENV"
-          echo "QT_PLUGIN_PATH=$QT_ROOT_DIR/plugins" >> "$GITHUB_ENV"
-          echo "QML2_IMPORT_PATH=$QT_ROOT_DIR/qml" >> "$GITHUB_ENV"
-          echo "LD_LIBRARY_PATH=$QT_ROOT_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
-          echo "$QT_ROOT_DIR/bin" >> "$GITHUB_PATH"
+          echo "/usr/lib/qt6/bin" >> "$GITHUB_PATH"
+          echo "QT_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt6/plugins" >> "$GITHUB_ENV"
+          echo "QML2_IMPORT_PATH=/usr/lib/x86_64-linux-gnu/qt6/qml" >> "$GITHUB_ENV"
 
       - name: Configure CMake
         run: |
@@ -462,10 +438,6 @@ jobs:
           INSTALL_DIR: ${{ github.workspace }}/install-linux/usr
           OUTPUT_DIR: ${{ github.workspace }}/artifacts
         run: |
-          # Remove Qt plugins with deps unavailable on ubuntu-latest.
-          # Bloom only needs SQLite — remove all other SQL drivers and the TIFF plugin.
-          find "$RUNNER_WORKSPACE/Qt" -name "libqtiff.so" -delete 2>/dev/null || true
-          find "$RUNNER_WORKSPACE/Qt" -path "*/sqldrivers/*" ! -name "libqsqlite.so" -name "*.so" -delete 2>/dev/null || true
           ./scripts/package-linux-appimage.sh \
             --install-dir "$INSTALL_DIR" \
             --output-dir "$OUTPUT_DIR"
