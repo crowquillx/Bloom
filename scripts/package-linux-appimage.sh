@@ -78,6 +78,7 @@ if [ ! -f "$PROJECT_ROOT/$LINUXDEPLOY_QT" ]; then
 fi
 
 export PATH="$PROJECT_ROOT:$PATH"
+export APPIMAGE_EXTRACT_AND_RUN=1
 export EXTRA_QT_PLUGINS="svg;waylandclient;multimedia"
 export QML_SOURCES_PATHS="$PROJECT_ROOT/src/ui"
 

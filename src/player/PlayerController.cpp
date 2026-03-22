@@ -222,6 +222,10 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     // Connect to LibraryService for autoplay next episode
     connect(m_libraryService, &LibraryService::nextUnplayedEpisodeLoaded,
             this, &PlayerController::onNextEpisodeLoaded);
+        connect(m_libraryService, &LibraryService::seriesDetailsLoaded,
+            this, &PlayerController::onSeriesDetailsLoaded);
+        connect(m_libraryService, &LibraryService::seriesDetailsNotModified,
+            this, &PlayerController::onSeriesDetailsNotModified);
     
     // Connect to PlaybackService for media segments and trickplay info signals
     connect(m_playbackService, &PlaybackService::playbackInfoLoaded,
@@ -1355,11 +1359,70 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     pending.useAffinityFallback = request.value(QStringLiteral("useAffinityFallback"), false).toBool();
     pending.restoreFocusTarget = qobject_cast<QObject *>(request.value(QStringLiteral("restoreFocusTarget")).value<QObject *>());
     pending.awaitedPlaybackInfoIds.insert(itemId);
+    maybeResolvePendingRequestLibraryId(pending);
 
     m_pendingPlaybackRequests.insert(pending.requestId, pending);
 
     m_playbackService->getPlaybackInfo(itemId);
     m_playbackService->getAdditionalParts(itemId);
+}
+
+void PlayerController::onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData)
+{
+    m_seriesLibraryResolutionInFlight.remove(seriesId);
+
+    const QString libraryId = seriesData.value(QStringLiteral("ParentId")).toString();
+    if (!libraryId.isEmpty()) {
+        m_seriesLibraryIdCache.insert(seriesId, libraryId);
+    }
+
+    QStringList requestIdsToFinalize;
+    for (auto it = m_pendingPlaybackRequests.begin(); it != m_pendingPlaybackRequests.end(); ++it) {
+        if (it->seriesId != seriesId || !it->awaitingLibraryResolution) {
+            continue;
+        }
+
+        if (!libraryId.isEmpty()) {
+            it->libraryId = libraryId;
+        } else {
+            qCWarning(lcPlayback) << "Series details loaded without ParentId for playback request"
+                                  << "seriesId=" << seriesId
+                                  << "itemId=" << it->itemId;
+        }
+        it->awaitingLibraryResolution = false;
+        requestIdsToFinalize.append(it.key());
+    }
+
+    for (const QString &requestId : std::as_const(requestIdsToFinalize)) {
+        maybeFinalizePendingPlaybackRequest(requestId);
+    }
+}
+
+void PlayerController::onSeriesDetailsNotModified(const QString &seriesId)
+{
+    m_seriesLibraryResolutionInFlight.remove(seriesId);
+
+    const QString cachedLibraryId = m_seriesLibraryIdCache.value(seriesId);
+    QStringList requestIdsToFinalize;
+    for (auto it = m_pendingPlaybackRequests.begin(); it != m_pendingPlaybackRequests.end(); ++it) {
+        if (it->seriesId != seriesId || !it->awaitingLibraryResolution) {
+            continue;
+        }
+
+        if (!cachedLibraryId.isEmpty()) {
+            it->libraryId = cachedLibraryId;
+        } else {
+            qCWarning(lcPlayback) << "Series details unchanged but no cached library mapping for playback request"
+                                  << "seriesId=" << seriesId
+                                  << "itemId=" << it->itemId;
+        }
+        it->awaitingLibraryResolution = false;
+        requestIdsToFinalize.append(it.key());
+    }
+
+    for (const QString &requestId : std::as_const(requestIdsToFinalize)) {
+        maybeFinalizePendingPlaybackRequest(requestId);
+    }
 }
 
 void PlayerController::confirmPlaybackVersion(const QString &requestId, const QString &mediaSourceId)
@@ -1417,6 +1480,10 @@ void PlayerController::maybeFinalizePendingPlaybackRequest(const QString &reques
     if (!it->additionalPartsLoaded
         || !it->playbackInfos.contains(it->itemId)
         || !it->awaitedPlaybackInfoIds.isEmpty()) {
+        return;
+    }
+
+    if (it->awaitingLibraryResolution) {
         return;
     }
 
@@ -1985,6 +2052,41 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     request[QStringLiteral("preferredAudioIndex")] = m_pendingAutoplayAudioTrack;
     request[QStringLiteral("preferredSubtitleIndex")] = pendingAutoplaySubtitleOverrideIndex();
     requestPlayback(request);
+}
+
+void PlayerController::maybeResolvePendingRequestLibraryId(PlayerController::PendingPlaybackRequest &pending)
+{
+    pending.awaitingLibraryResolution = false;
+
+    if (!pending.libraryId.isEmpty() || pending.seriesId.isEmpty()) {
+        return;
+    }
+
+    if (pending.seriesId == m_currentSeriesId && !m_currentLibraryId.isEmpty()) {
+        pending.libraryId = m_currentLibraryId;
+        return;
+    }
+
+    if (pending.seriesId == m_pendingAutoplaySeriesId && !m_pendingAutoplayLibraryId.isEmpty()) {
+        pending.libraryId = m_pendingAutoplayLibraryId;
+        return;
+    }
+
+    const auto cachedIt = m_seriesLibraryIdCache.constFind(pending.seriesId);
+    if (cachedIt != m_seriesLibraryIdCache.constEnd() && !cachedIt.value().isEmpty()) {
+        pending.libraryId = cachedIt.value();
+        return;
+    }
+
+    if (!m_libraryService) {
+        return;
+    }
+
+    pending.awaitingLibraryResolution = true;
+    if (!m_seriesLibraryResolutionInFlight.contains(pending.seriesId)) {
+        m_seriesLibraryResolutionInFlight.insert(pending.seriesId);
+        m_libraryService->getSeriesDetails(pending.seriesId);
+    }
 }
 
 // === PUBLIC API ===

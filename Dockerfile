@@ -18,8 +18,11 @@ RUN pacman -Syu --noconfirm && \
     base-devel \
     cmake \
     ninja \
+    curl \
     qt6-base \
     qt6-declarative \
+    qt6-svg \
+    qt6-imageformats \
     qt6-tools \
     qt6-multimedia \
     qt6-wayland \

@@ -343,6 +343,8 @@ private slots:
     void onPlaybackEnded();
     void onPlaylistPositionChanged(int index);
     void onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
+    void onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
+    void onSeriesDetailsNotModified(const QString &seriesId);
     void onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
     void onAdditionalPartsLoaded(const QString &itemId, const QJsonArray &parts);
     void onPlaybackServiceErrorOccurred(const QString &endpoint, const QString &error);
@@ -367,6 +369,7 @@ private:
 #ifdef BLOOM_TESTING
     friend class PlayerControllerAutoplayContextTest;
 #endif
+    struct PendingPlaybackRequest;
     // State machine
     void setupStateMachine();
     bool processEvent(Event event);
@@ -544,6 +547,7 @@ private:
     void fallbackToPendingAutoplayPlayback();
     [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex() const;
     void stopAutoplayPlaybackInfoWait();
+    void maybeResolvePendingRequestLibraryId(PendingPlaybackRequest &pending);
     void maybeFinalizePendingPlaybackRequest(const QString &requestId);
     void launchResolvedPlaybackRequest(const QString &requestId);
     QVariantMap buildPlaybackVersionDialogModel(const QString &requestId) const;
@@ -588,6 +592,7 @@ private:
         bool isMovie = false;
         bool allowVersionPrompt = true;
         bool useAffinityFallback = false;
+        bool awaitingLibraryResolution = false;
         QObject *restoreFocusTarget = nullptr;
         bool additionalPartsLoaded = false;
         bool versionSelectionRequested = false;
@@ -687,6 +692,8 @@ private:
     bool m_waitingForAutoplayPlaybackInfo = false;
     QJsonObject m_pendingAutoplayEpisodeData;
     QHash<QString, PendingPlaybackRequest> m_pendingPlaybackRequests;
+    QHash<QString, QString> m_seriesLibraryIdCache;
+    QSet<QString> m_seriesLibraryResolutionInFlight;
     QList<QVariantMap> m_playbackSegments;
     int m_activePlaybackSegmentIndex = -1;
     qint64 m_activePlaybackSegmentOffsetTicks = 0;

@@ -634,50 +634,8 @@ Window {
                 // Play the next episode
                 upNextScreen.playRequested.connect(function() {
                     console.log("[Main] Up Next: Play requested")
-                    var autoplayTriggered = autoplay && upNextScreen && upNextScreen.countdown === 0
                     stackView.pop(null, StackView.Immediate)
-
-                    if (autoplayTriggered) {
-                        PlayerController.playNextEpisode(episodeData, seriesId)
-                        return
-                    }
-
-                    var resumeTicks = 0
-                    if (episodeData && episodeData.UserData && episodeData.UserData.PlaybackPositionTicks) {
-                        resumeTicks = episodeData.UserData.PlaybackPositionTicks
-                    }
-
-                    var seasonId = episodeData && episodeData.SeasonId ? episodeData.SeasonId : ""
-                    if (!seasonId && episodeData && episodeData.ParentId) {
-                        seasonId = episodeData.ParentId
-                    }
-
-                    var overlayTitle = episodeData && episodeData.SeriesName
-                            ? episodeData.SeriesName
-                            : qsTr("Now Playing")
-                    var overlaySubtitle = qsTr("Episode")
-                    if (episodeData) {
-                        overlaySubtitle = qsTr("S%1 E%2").arg(episodeData.ParentIndexNumber).arg(episodeData.IndexNumber)
-                        if (episodeData.Name) {
-                            overlaySubtitle += " - " + episodeData.Name
-                        }
-                    }
-
-                    PlayerController.requestPlayback({
-                        itemId: episodeData && episodeData.Id ? episodeData.Id : "",
-                        startPositionTicks: resumeTicks,
-                        seriesId: seriesId || "",
-                        seasonId: seasonId,
-                        libraryId: "",
-                        overlayTitle: overlayTitle,
-                        overlaySubtitle: overlaySubtitle,
-                        overlayBackdropUrl: "",
-                        preferredAudioIndex: lastAudioIndex,
-                        preferredSubtitleIndex: lastSubtitleIndex,
-                        isMovie: false,
-                        allowVersionPrompt: true,
-                        restoreFocusTarget: null
-                    })
+                    PlayerController.playNextEpisode(episodeData, seriesId)
                 })
                 
                 // Navigate to the episode list (same as ESC)

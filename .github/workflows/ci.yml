@@ -434,14 +434,27 @@ jobs:
           echo "=== Install tree ==="
           find ${{ github.workspace }}/install-linux -type f | head -50
 
-      - name: Build AppImage
+      - name: Build AppImage in Docker
         env:
-          INSTALL_DIR: ${{ github.workspace }}/install-linux/usr
           OUTPUT_DIR: ${{ github.workspace }}/artifacts
         run: |
-          ./scripts/package-linux-appimage.sh \
-            --install-dir "$INSTALL_DIR" \
-            --output-dir "$OUTPUT_DIR"
+          docker build -t bloom-appimage-build .
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            bloom-appimage-build \
+            /bin/bash -lc '
+              set -euo pipefail
+              rm -rf /workspace/build-appimage /workspace/install-appimage /workspace/Bloom.AppDir
+              cmake -S /workspace -B /workspace/build-appimage -G Ninja \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_INSTALL_PREFIX=/usr \
+                -DBUILD_TESTING=OFF
+              cmake --build /workspace/build-appimage --parallel
+              DESTDIR=/workspace/install-appimage cmake --install /workspace/build-appimage
+              /workspace/scripts/package-linux-appimage.sh \
+                --install-dir /workspace/install-appimage/usr \
+                --output-dir /workspace/artifacts
+            '
 
       - name: Build .deb package
         env:

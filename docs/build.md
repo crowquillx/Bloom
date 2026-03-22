@@ -91,6 +91,8 @@ The `build-docker.sh` script handles containerized builds with automatic depende
 4. Runs the build, preserving `build-docker/` (or `build-docker-windows/`) on the host for incremental builds
 5. Outputs the executable to `build-docker/src/Bloom` (or `build-docker-windows/src/Bloom.exe`)
 
+AppImage packaging in CI also uses the containerized Linux environment rather than the runner's system Qt packages. This avoids Qt runtime/module mismatches on `ubuntu-latest`, particularly for QML modules and SVG plugins required by Bloom's UI.
+
 **Testing the build:**
 ```bash
 # Linux build
