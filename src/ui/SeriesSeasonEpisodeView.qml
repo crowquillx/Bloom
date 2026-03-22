@@ -139,7 +139,6 @@ FocusScope {
         playbackInfoPreloadTimer.stop()
         playbackInfo = null
         playbackInfoOwnerId = ""
-        playbackInfoLoading = false
         playbackInfoLoadingItemId = ""
         pendingPlaybackInfo = null
         pendingPlaybackInfoOwnerId = ""
@@ -201,7 +200,6 @@ FocusScope {
     }
     property int selectedAudioIndex: -1
     property int selectedSubtitleIndex: -1
-    property bool playbackInfoLoading: false
     
     // Logo priority: Season logo -> Series logo -> Text fallback
     readonly property string displayLogoUrl: {
@@ -579,7 +577,6 @@ FocusScope {
                 return
             }
 
-            playbackInfoLoading = false
             playbackInfoLoadingItemId = ""
             waitingForContextInfo = false
             hasPendingPlayback = false
@@ -696,8 +693,7 @@ FocusScope {
         console.log("[SeriesSeasonEpisodeView] startPlayback - Episode:", selectedEpisodeName,
                     "ID:", selectedEpisodeId,
                     "fromBeginning:", fromBeginning,
-                    "hasPlaybackInfo:", playbackInfo !== null,
-                    "playbackInfoLoading:", playbackInfoLoading)
+                    "hasPlaybackInfo:", playbackInfo !== null)
         
         if (playbackInfoOwnerId !== selectedEpisodeId || !currentMediaSource) {
             if (playbackInfoLoadingItemId !== selectedEpisodeId) {

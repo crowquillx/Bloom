@@ -1337,6 +1337,10 @@ void SeriesDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const Q
 void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
 {
     if (endpoint == "getItem") {
+        if (m_pendingEpisodeDetailIds.isEmpty() && !m_focusedEpisodeDetailsLoading) {
+            return;
+        }
+
         qWarning() << "SeriesDetailsViewModel focused episode details error:" << error;
         m_pendingEpisodeDetailIds.clear();
         if (m_focusedEpisodeDetailsLoading) {
