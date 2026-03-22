@@ -58,6 +58,7 @@ public:
     
     // Generic Item Details
     Q_INVOKABLE virtual void getItem(const QString &itemId);
+    virtual void clearItemCacheValidation(const QString &itemId);
 
     // Series details and episodes
     Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);

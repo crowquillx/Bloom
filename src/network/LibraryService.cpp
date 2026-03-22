@@ -568,6 +568,25 @@ void LibraryService::getItem(const QString &itemId)
         });
 }
 
+void LibraryService::clearItemCacheValidation(const QString &itemId)
+{
+    if (!m_authService || !m_authService->isAuthenticated() || itemId.isEmpty()) {
+        return;
+    }
+
+    const QStringList fields = {
+        "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
+        "Genres", "Studios", "People", "UserData",
+        "ProductionYear", "PremiereDate", "OfficialRating",
+        "RunTimeTicks", "CommunityRating", "ProviderIds"
+    };
+
+    const QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
+                                 .arg(m_authService->getUserId(), itemId, fields.join(","));
+    m_etags.remove(endpoint);
+    m_lastModified.remove(endpoint);
+}
+
 // ============================================================================
 // Series Details
 /**

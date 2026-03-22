@@ -1336,6 +1336,16 @@ void SeriesDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const Q
 
 void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
 {
+    if (endpoint == "getItem") {
+        qWarning() << "SeriesDetailsViewModel focused episode details error:" << error;
+        m_pendingEpisodeDetailIds.clear();
+        if (m_focusedEpisodeDetailsLoading) {
+            setFocusedEpisodeDetailsLoading(false);
+            emit focusedEpisodeDetailsChanged();
+        }
+        return;
+    }
+
     // Only handle errors for our current requests
     if (endpoint != "getSeriesDetails" && endpoint != "getItems" &&
         endpoint != "markSeriesWatched" &&
@@ -1382,6 +1392,13 @@ void SeriesDetailsViewModel::onEpisodeDetailsNotModified(const QString &itemId)
     }
 
     qWarning() << "SeriesDetailsViewModel::onEpisodeDetailsNotModified missing local cache for" << itemId;
+    if (itemId == m_focusedEpisodeDetailId && m_libraryService) {
+        m_pendingEpisodeDetailIds.insert(itemId);
+        m_libraryService->clearItemCacheValidation(itemId);
+        m_libraryService->getItem(itemId);
+        return;
+    }
+
     if (itemId == m_focusedEpisodeDetailId) {
         setFocusedEpisodeDetailsLoading(false);
         emit focusedEpisodeDetailsChanged();
