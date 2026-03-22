@@ -336,7 +336,13 @@ FocusScope {
     }
 
     function startPlaybackWithTracks() {
+        resetPlaybackReturnFocusState()
+
         if (playbackInfoLoading || !playbackInfo || !currentMediaSource) {
+            if (!playbackInfoLoading && movieId !== "") {
+                playbackInfoLoading = true
+                PlaybackService.getPlaybackInfo(movieId)
+            }
             playbackToast.show(qsTr("Playback is still preparing. Try again in a moment."))
             return
         }
@@ -617,10 +623,22 @@ FocusScope {
         }
     }
 
+    function resetPlaybackReturnFocusState() {
+        playbackReturnFocusPending = false
+        playbackReturnFocusActivated = false
+        lastPlaybackRestoreFocusTarget = null
+    }
+
     function restoreFocusAfterPlaybackExit() {
-        if (!root.visible) {
+        if (!root.visible
+                || !root.playbackReturnFocusPending
+                || !root.playbackReturnFocusActivated
+                || PlayerController.awaitingNextEpisodeResolution) {
             return
         }
+
+        root.playbackReturnFocusPending = false
+        root.playbackReturnFocusActivated = false
 
         root.forceActiveFocus()
         Qt.callLater(function() {
@@ -1889,6 +1907,15 @@ FocusScope {
                 }
             }
         }
+
+        function onErrorOccurred(endpoint, error) {
+            if (endpoint !== "getPlaybackInfo") {
+                return
+            }
+
+            root.playbackInfoLoading = false
+            root.resetPlaybackReturnFocusState()
+        }
     }
 
     Connections {
@@ -1908,16 +1935,12 @@ FocusScope {
                 return
             }
 
-            root.playbackReturnFocusPending = false
-            root.playbackReturnFocusActivated = false
             Qt.callLater(root.restoreFocusAfterPlaybackExit)
         }
 
         function onAwaitingNextEpisodeResolutionChanged() {
             if (PlayerController.awaitingNextEpisodeResolution) {
-                root.playbackReturnFocusPending = false
-                root.playbackReturnFocusActivated = false
-                root.lastPlaybackRestoreFocusTarget = null
+                root.resetPlaybackReturnFocusState()
             }
         }
     }

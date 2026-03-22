@@ -4,7 +4,7 @@ import QtQuick.Effects
 
 import BloomUI
 
-Item {
+FocusScope {
     id: personCard
 
     required property var itemData
@@ -125,6 +125,6 @@ Item {
         id: personMouseArea
         anchors.fill: parent
         hoverEnabled: true
-        onClicked: parent.forceActiveFocus()
+        onClicked: personCard.forceActiveFocus()
     }
 }

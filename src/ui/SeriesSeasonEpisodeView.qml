@@ -418,7 +418,9 @@ FocusScope {
     Connections {
         target: SeriesDetailsViewModel
         function onEpisodesLoaded() {
-            updateSelectedEpisode(episodesList.currentIndex)
+            if (!initialEpisodeSelectionPending) {
+                updateSelectedEpisode(episodesList.currentIndex)
+            }
         }
     }
 
@@ -563,6 +565,19 @@ FocusScope {
                 }
             }
         }
+
+        function onErrorOccurred(endpoint, error) {
+            if (endpoint !== "getPlaybackInfo") {
+                return
+            }
+
+            playbackInfoLoading = false
+            playbackInfoLoadingItemId = ""
+            waitingForContextInfo = false
+            hasPendingPlayback = false
+            pendingPlaybackRequestEpisodeId = ""
+            pendingPlaybackRestoreFocusTarget = null
+        }
     }
     
     function applyTrackPreferences() {
@@ -634,10 +649,22 @@ FocusScope {
         playbackToast.show(qsTr("Playback is still preparing. Try again in a moment."))
     }
 
+    function resetPlaybackReturnFocusState() {
+        playbackReturnFocusPending = false
+        playbackReturnFocusActivated = false
+        lastPlaybackRestoreFocusTarget = null
+    }
+
     function restoreFocusAfterPlaybackExit() {
-        if (!root.visible) {
+        if (!root.visible
+                || !root.playbackReturnFocusPending
+                || !root.playbackReturnFocusActivated
+                || PlayerController.awaitingNextEpisodeResolution) {
             return
         }
+
+        root.playbackReturnFocusPending = false
+        root.playbackReturnFocusActivated = false
 
         root.forceActiveFocus()
         Qt.callLater(function() {
@@ -2189,16 +2216,12 @@ FocusScope {
                 return
             }
 
-            root.playbackReturnFocusPending = false
-            root.playbackReturnFocusActivated = false
             Qt.callLater(root.restoreFocusAfterPlaybackExit)
         }
 
         function onAwaitingNextEpisodeResolutionChanged() {
             if (PlayerController.awaitingNextEpisodeResolution) {
-                root.playbackReturnFocusPending = false
-                root.playbackReturnFocusActivated = false
-                root.lastPlaybackRestoreFocusTarget = null
+                root.resetPlaybackReturnFocusState()
             }
         }
     }
