@@ -728,6 +728,7 @@ void SeriesDetailsViewModel::clear(bool preserveArtwork)
     m_productionYear = 0;
     m_isWatched = false;
     m_isFavorite = false;
+    m_imdbId.clear();
     m_tmdbId.clear();
     m_people.clear();
     m_genres.clear();
@@ -1368,6 +1369,7 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
     QJsonObject providerIds = data.value("ProviderIds").toObject();
     QString imdbId = providerIds.value("Imdb").toString();
     QString tmdbId = providerIds.value("Tmdb").toString();
+    m_imdbId = imdbId;
     m_tmdbId = tmdbId;
     emit tmdbIdChanged();
     

@@ -378,6 +378,7 @@ private:
     int m_productionYear = 0;
     bool m_isWatched = false;
     bool m_isFavorite = false;
+    QString m_imdbId;
     QString m_tmdbId;
     QVariantList m_people;
     QStringList m_genres;
