@@ -1693,7 +1693,7 @@ FocusScope {
                     clip: false
                     boundsBehavior: Flickable.StopAtBounds
                     interactive: false
-                    focus: true
+                    focus: false
                     topMargin: Math.round(10 * Theme.layoutScale)
                     bottomMargin: Math.round(10 * Theme.layoutScale)
                     leftMargin: Math.round(6 * Theme.layoutScale)
