@@ -87,7 +87,7 @@ if $TAG; then
     echo "  1. Push to trigger the release CI:"
     echo "     git push origin main v$VERSION"
     echo "  2. CI will automatically create a GitHub Release 'Bloom v$VERSION'"
-    echo "     with Windows (ZIP + installer) and Linux (AppImage + .deb + tarball) artifacts."
+    echo "     with Windows (ZIP + installer) and Linux (.deb + tarball) artifacts."
     echo "  3. Scoop stable manifest will be updated via repository dispatch."
 else
     echo -e "\n\033[33m Next steps:\033[0m"

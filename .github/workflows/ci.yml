@@ -434,28 +434,6 @@ jobs:
           echo "=== Install tree ==="
           find ${{ github.workspace }}/install-linux -type f | head -50
 
-      - name: Build AppImage in Docker
-        env:
-          OUTPUT_DIR: ${{ github.workspace }}/artifacts
-        run: |
-          docker build -t bloom-appimage-build .
-          docker run --rm \
-            -v "${{ github.workspace }}:/workspace" \
-            bloom-appimage-build \
-            /bin/bash -lc '
-              set -euo pipefail
-              rm -rf /workspace/build-appimage /workspace/install-appimage /workspace/Bloom.AppDir
-              cmake -S /workspace -B /workspace/build-appimage -G Ninja \
-                -DCMAKE_BUILD_TYPE=Release \
-                -DCMAKE_INSTALL_PREFIX=/usr \
-                -DBUILD_TESTING=OFF
-              cmake --build /workspace/build-appimage --parallel
-              DESTDIR=/workspace/install-appimage cmake --install /workspace/build-appimage
-              /workspace/scripts/package-linux-appimage.sh \
-                --install-dir /workspace/install-appimage/usr \
-                --output-dir /workspace/artifacts
-            '
-
       - name: Build .deb package
         env:
           INSTALL_DIR: ${{ github.workspace }}/install-linux/usr
@@ -479,15 +457,7 @@ jobs:
           echo "=== Linux Artifacts ==="
           ls -la
 
-          APPIMAGE=$(ls Bloom-*.AppImage 2>/dev/null | head -1)
           DEB=$(ls bloom_*.deb 2>/dev/null | head -1)
-
-          if [ -n "$APPIMAGE" ]; then
-            APPIMAGE_HASH=$(sha256sum "$APPIMAGE" | cut -d' ' -f1)
-            echo "appimage_hash=$APPIMAGE_HASH" >> $GITHUB_OUTPUT
-            echo "appimage_name=$APPIMAGE" >> $GITHUB_OUTPUT
-            echo "AppImage SHA256: $APPIMAGE_HASH"
-          fi
 
           if [ -n "$DEB" ]; then
             DEB_HASH=$(sha256sum "$DEB" | cut -d' ' -f1)
@@ -499,13 +469,6 @@ jobs:
           TARBALL_HASH=$(sha256sum Bloom-Linux.tar.gz | cut -d' ' -f1)
           echo "tarball_hash=$TARBALL_HASH" >> $GITHUB_OUTPUT
           echo "Tarball SHA256: $TARBALL_HASH"
-
-      - name: Upload AppImage artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: Bloom-Linux-AppImage
-          path: artifacts/Bloom-*.AppImage
-          if-no-files-found: warn
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v6
@@ -528,7 +491,6 @@ jobs:
           name: Bloom ${{ github.ref_name }}
           prerelease: false
           files: |
-            artifacts/Bloom-*.AppImage
             artifacts/bloom_*.deb
             artifacts/Bloom-Linux.tar.gz
           fail_on_unmatched_files: false
@@ -557,12 +519,6 @@ jobs:
         with:
           name: Bloom-Windows-Installer
           path: dev-artifacts/windows-installer
-
-      - name: Download Linux AppImage artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: Bloom-Linux-AppImage
-          path: dev-artifacts/linux-appimage
 
       - name: Download Linux .deb artifact
         uses: actions/download-artifact@v8
@@ -593,29 +549,25 @@ jobs:
           cp dev-artifacts/windows/Bloom-Windows.zip release-assets/Bloom-Windows.zip
           cp dev-artifacts/windows-installer/Bloom-Setup-0.5.1.exe release-assets/Bloom-Setup-dev.exe
 
-          APPIMAGE=$(find dev-artifacts/linux-appimage -maxdepth 1 -type f -name 'Bloom-*.AppImage' | head -1)
           DEB=$(find dev-artifacts/linux-deb -maxdepth 1 -type f -name 'bloom_*.deb' | head -1)
           TARBALL=$(find dev-artifacts/linux-tarball -maxdepth 1 -type f -name 'Bloom-Linux.tar.gz' | head -1)
 
-          if [ -z "$APPIMAGE" ] || [ -z "$DEB" ] || [ -z "$TARBALL" ]; then
+          if [ -z "$DEB" ] || [ -z "$TARBALL" ]; then
             echo "Expected Linux artifacts were not downloaded correctly." >&2
             exit 1
           fi
 
-          cp "$APPIMAGE" release-assets/Bloom-x86_64.AppImage
           cp "$DEB" release-assets/bloom_dev_amd64.deb
           cp "$TARBALL" release-assets/Bloom-Linux.tar.gz
 
           WINDOWS_ZIP_HASH=$(sha256sum release-assets/Bloom-Windows.zip | cut -d' ' -f1)
           WINDOWS_INSTALLER_HASH=$(sha256sum release-assets/Bloom-Setup-dev.exe | cut -d' ' -f1)
-          APPIMAGE_HASH=$(sha256sum release-assets/Bloom-x86_64.AppImage | cut -d' ' -f1)
           DEB_HASH=$(sha256sum release-assets/bloom_dev_amd64.deb | cut -d' ' -f1)
           TARBALL_HASH=$(sha256sum release-assets/Bloom-Linux.tar.gz | cut -d' ' -f1)
 
           {
             echo "windows_zip_hash=$WINDOWS_ZIP_HASH"
             echo "windows_installer_hash=$WINDOWS_INSTALLER_HASH"
-            echo "appimage_hash=$APPIMAGE_HASH"
             echo "deb_hash=$DEB_HASH"
             echo "tarball_hash=$TARBALL_HASH"
           } >> "$GITHUB_OUTPUT"
@@ -633,9 +585,6 @@ jobs:
           SHA256: `${{ steps.normalize_assets.outputs.windows_installer_hash }}`
 
           ## Linux
-          AppImage (`Bloom-x86_64.AppImage`)
-          SHA256: `${{ steps.normalize_assets.outputs.appimage_hash }}`
-
           Debian package (`bloom_dev_amd64.deb`)
           SHA256: `${{ steps.normalize_assets.outputs.deb_hash }}`
 
@@ -684,7 +633,6 @@ jobs:
           files: |
             release-assets/Bloom-Windows.zip
             release-assets/Bloom-Setup-dev.exe
-            release-assets/Bloom-x86_64.AppImage
             release-assets/bloom_dev_amd64.deb
             release-assets/Bloom-Linux.tar.gz
           fail_on_unmatched_files: true

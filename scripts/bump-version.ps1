@@ -92,7 +92,7 @@ if ($Tag) {
     Write-Host "  1. Push to trigger the release CI:" -ForegroundColor White
     Write-Host "     git push origin main v$Version" -ForegroundColor Gray
     Write-Host "  2. CI will automatically create a GitHub Release 'Bloom v$Version'" -ForegroundColor White
-    Write-Host "     with Windows (ZIP + installer) and Linux (AppImage + .deb + tarball) artifacts." -ForegroundColor White
+    Write-Host "     with Windows (ZIP + installer) and Linux (.deb + tarball) artifacts." -ForegroundColor White
     Write-Host "  3. Scoop stable manifest will be updated via repository dispatch." -ForegroundColor White
 }
 else {
