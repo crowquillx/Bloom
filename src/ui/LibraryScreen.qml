@@ -1327,6 +1327,14 @@ FocusScope {
         // so we don't clear it here
     }
 
+    function isInitialDirectNavigationEntry() {
+        return directNavigationMode
+                && navigationStack.length === 0
+                && !showSeriesDetails
+                && !showSeasonView
+                && !showMovieDetails
+    }
+
     function handleSelection(item) {
         console.log("[Library] handleSelection",
                     "itemType:", item && item.Type,
@@ -1669,7 +1677,7 @@ FocusScope {
     function showMovieDetailsView(movieData) {
         // Show movie details view
         // Capture current grid position for restoration unless we came directly from Home
-        var shouldPushContext = !(directNavigationMode && navigationStack.length === 0 && !showMovieDetails)
+        var shouldPushContext = !isInitialDirectNavigationEntry()
         if (shouldPushContext) {
             var gridRef = contentLoader.item ? contentLoader.item.grid : null
             var previousContext = {
@@ -1708,7 +1716,7 @@ FocusScope {
         // Show episode using the SeriesSeasonEpisodeView to allow full season/episode navigation
         // Capture episode index for restoration when coming back to season view
         var shouldPushContext = forcePushContext === true
-                                || !(directNavigationMode && navigationStack.length === 0)
+                                || !isInitialDirectNavigationEntry()
         var episodeIndex = -1
         if (SeriesDetailsViewModel.episodesModel) {
             for (var i = 0; i < SeriesDetailsViewModel.episodesModel.rowCount(); i++) {
