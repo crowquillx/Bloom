@@ -3,6 +3,7 @@
 #include "../network/LibraryService.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/DetailViewCache.h"
+#include "../utils/ExternalRatingsHelper.h"
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
@@ -804,75 +805,25 @@ void SeriesDetailsViewModel::fetchMdbListRatings(const QString &imdbId, const QS
 {
     auto *config = ServiceLocator::tryGet<ConfigManager>();
     if (!config) return;
-    
-    QString apiKey = config->getMdbListApiKey();
-    if (apiKey.isEmpty()) return;
-    
-    if (imdbId.isEmpty() && tmdbId.isEmpty()) {
-        qWarning() << "No external IDs found for MDBList lookup";
-        return;
-    }
 
-    qDebug() << "Fetching MDBList ratings for IMDb:" << imdbId << "TMDB:" << tmdbId;
-    
-    QUrl url;
-    QUrlQuery query;
-    query.addQueryItem("apikey", apiKey);
-    
-    // Script uses: https://api.mdblist.com/tmdb/{type}/{id}
-    // We try to match that pattern if we have a TMDB ID.
-    if (!tmdbId.isEmpty()) {
-        url = QUrl("https://api.mdblist.com/tmdb/" + type + "/" + tmdbId);
-    } else if (!imdbId.isEmpty()) {
-        // Fallback to IMDb endpoint if supported, or legacy search
-        url = QUrl("https://api.mdblist.com/imdb/" + imdbId);
-    } else {
-        qWarning() << "No IDs for MDBList request";
-        return;
-    }
-    
-    url.setQuery(query);
-    
-    QNetworkRequest request(url);
-    QNetworkReply *reply = m_networkManager->get(request);
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        reply->deleteLater();
-        if (reply->error() == QNetworkReply::NoError) {
-            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (doc.isObject()) {
-                m_rawMdbListRatings = doc.object().toVariantMap();
-                compileRatings();
-                
-                // Debug log
-                QVariantList ratingsList = m_mdbListRatings.value("ratings").toList();
-                qDebug() << "MDBList ratings updated, count:" << ratingsList.size();
-            }
-        } else {
-            qWarning() << "MDBList API error:" << reply->errorString();
-        }
+    ExternalRatingsHelper::fetchMdbListRatings(m_networkManager,
+                                               this,
+                                               config->getMdbListApiKey(),
+                                               imdbId,
+                                               tmdbId,
+                                               type,
+                                               [this](const QVariantMap &rawRatings) {
+        m_rawMdbListRatings = rawRatings;
+        compileRatings();
+
+        const QVariantList ratingsList = m_mdbListRatings.value("ratings").toList();
+        qDebug() << "MDBList ratings updated, count:" << ratingsList.size();
     });
 }
 
 void SeriesDetailsViewModel::compileRatings()
 {
-    QVariantMap combined = m_rawMdbListRatings;
-    QVariantList ratings = combined.value("ratings").toList();
-
-    if (!m_aniListRating.isEmpty()) {
-        bool found = false;
-        auto getScore = [](const QVariantMap &m) { return m.value("score", m.value("value")).toInt(); };
-        for (QVariant &r : ratings) {
-            if (r.toMap()["source"].toString().compare("AniList", Qt::CaseInsensitive) == 0) {
-                if (getScore(m_aniListRating) > getScore(r.toMap())) r = m_aniListRating;
-                found = true;
-                break;
-            }
-        }
-        if (!found) ratings.append(m_aniListRating);
-    }
-
-    combined["ratings"] = ratings;
+    const QVariantMap combined = ExternalRatingsHelper::mergeRatings(m_rawMdbListRatings, m_aniListRating);
     if (m_mdbListRatings != combined) {
         m_mdbListRatings = combined;
         emit mdbListRatingsChanged();
@@ -904,64 +855,24 @@ void SeriesDetailsViewModel::fetchAniListRating(const QString &imdbId, const QSt
 
 void SeriesDetailsViewModel::fetchAniListIdFromWikidata(const QString &imdbId, std::function<void(const QString&)> callback)
 {
-    QString sparql = QString("SELECT ?anilist WHERE { ?item wdt:P345 \"%1\" . ?item wdt:P8729 ?anilist . } LIMIT 1").arg(imdbId);
-    QUrl url("https://query.wikidata.org/sparql");
-    QUrlQuery query;
-    query.addQueryItem("format", "json");
-    query.addQueryItem("query", sparql);
-    url.setQuery(query);
-    
-    QNetworkRequest request(url);
-    QNetworkReply *reply = m_networkManager->get(request);
-    
-    connect(reply, &QNetworkReply::finished, this, [reply, callback]() {
-        reply->deleteLater();
-        QString anilistId;
-        if (reply->error() == QNetworkReply::NoError) {
-            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            QJsonObject root = doc.object();
-            QJsonArray bindings = root["results"].toObject()["bindings"].toArray();
-            if (!bindings.isEmpty()) {
-                anilistId = bindings[0].toObject()["anilist"].toObject()["value"].toString();
-            }
-        }
-        callback(anilistId);
-    });
+    ExternalRatingsHelper::fetchAniListIdFromWikidata(m_networkManager, this, imdbId, std::move(callback));
 }
 
 void SeriesDetailsViewModel::queryAniListById(const QString &anilistId)
 {
-    QUrl url("https://graphql.anilist.co");
-    QNetworkRequest request(url);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    
-    QJsonObject variables;
-    variables["id"] = anilistId.toInt();
-    
-    QJsonObject queryObj;
-    queryObj["query"] = "query($id:Int){ Media(id:$id,type:ANIME){ id meanScore } }";
-    queryObj["variables"] = variables;
-    
-    QNetworkReply *reply = m_networkManager->post(request, QJsonDocument(queryObj).toJson());
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply, anilistId]() {
-        reply->deleteLater();
-        if (reply->error() == QNetworkReply::NoError) {
-            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            QJsonObject media = doc.object()["data"].toObject()["Media"].toObject();
-            int score = media["meanScore"].toInt();
-            
-            if (score > 0) {
-                qDebug() << "AniList Score found:" << score;
-                
-                QVariantMap anilistRating;
-                anilistRating["source"] = "AniList";
-                anilistRating["value"] = score;
-                anilistRating["score"] = score;
-                
-                m_aniListRating = anilistRating;
-                compileRatings();
-            }
+    ExternalRatingsHelper::queryAniListById(m_networkManager, this, anilistId, [this](const QJsonObject &media) {
+        const int score = media["meanScore"].toInt();
+
+        if (score > 0) {
+            qDebug() << "AniList Score found:" << score;
+
+            QVariantMap anilistRating;
+            anilistRating["source"] = "AniList";
+            anilistRating["value"] = score;
+            anilistRating["score"] = score;
+
+            m_aniListRating = anilistRating;
+            compileRatings();
         }
     });
 }
