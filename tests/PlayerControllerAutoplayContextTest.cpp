@@ -46,7 +46,9 @@ public:
             return;
         }
         m_running = false;
-        emit stateChanged(false);
+        if (emitStopStateChangeSynchronously) {
+            emit stateChanged(false);
+        }
     }
 
     bool isRunning() const override
@@ -89,11 +91,17 @@ private:
     bool m_running = false;
 
 public:
+    bool emitStopStateChangeSynchronously = true;
     QList<QVariantList> variantCommands;
     QList<QStringList> commands;
     QStringList appendedUrls;
     QStringList lastStartArgs;
     QString lastStartUrl;
+
+    void setRunning(bool running)
+    {
+        m_running = running;
+    }
 
     void emitAudioTrackId(int mpvTrackId)
     {
@@ -225,6 +233,7 @@ class PlayerControllerAutoplayContextTest : public QObject
 private slots:
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
+    void userStopBelowThresholdTransitionsIdleBeforeBackendExit();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
     void autoplayPlaybackInfoErrorFallsBackToBasicPlayback();
@@ -320,6 +329,48 @@ void PlayerControllerAutoplayContextTest::userStopPastThresholdRequestsNextEpiso
     QVERIFY(controller.m_waitingForNextEpisodeAtPlaybackEnd);
     QCOMPARE(controller.m_pendingAutoplayItemId, QStringLiteral("item-1"));
     QCOMPARE(controller.m_pendingAutoplaySeriesId, QStringLiteral("series-1"));
+}
+
+void PlayerControllerAutoplayContextTest::userStopBelowThresholdTransitionsIdleBeforeBackendExit()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(false);
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    backend.emitStopStateChangeSynchronously = false;
+    backend.setRunning(true);
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 40.0;
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_shouldAutoplay = true;
+    controller.m_waitingForNextEpisodeAtPlaybackEnd = true;
+    controller.m_pendingAutoplayItemId = QStringLiteral("stale-item");
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("stale-series");
+
+    controller.stop();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QVERIFY(!controller.awaitingNextEpisodeResolution());
+    QVERIFY(!controller.m_shouldAutoplay);
+    QVERIFY(controller.m_pendingAutoplayItemId.isEmpty());
+    QVERIFY(controller.m_pendingAutoplaySeriesId.isEmpty());
+    QVERIFY(libraryService.requestedSeriesIds.isEmpty());
 }
 
 void PlayerControllerAutoplayContextTest::nextEpisodeNavigationUsesPendingTrackContext()

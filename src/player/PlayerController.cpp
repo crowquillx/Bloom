@@ -1072,6 +1072,10 @@ void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
             m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId, m_pendingAutoplayItemId);
         }
         qDebug() << "PlayerController: Threshold met, requesting next episode for autoplay";
+    } else {
+        clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
+        m_shouldAutoplay = false;
     }
 
     processEvent(stopEvent);
@@ -2331,26 +2335,12 @@ void PlayerController::stop()
 {
     qDebug() << "PlayerController: stop requested";
 
-    const bool wouldMeetThreshold = wouldMeetCompletionThreshold();
-
-    if (wouldMeetThreshold) {
-        handlePlaybackStopAndAutoplay(Event::Stop);
-        m_playerBackend->stopMpv();
-    } else {
-        clearPendingAutoplayContext();
-        clearNextEpisodePrefetchState();
-        m_shouldAutoplay = false;
-
-        reportPlaybackStop();
-        checkCompletionThreshold();
-
-        m_playerBackend->stopMpv();
-        // Some backends emit stateChanged(false) synchronously from stopMpv(), which
-        // can already transition us to Idle via onProcessStateChanged().
-        if (m_playbackState != Idle && m_playbackState != Error) {
-            processEvent(Event::Stop);
-        }
+    if (m_playbackState == Idle || m_playbackState == Error) {
+        return;
     }
+
+    handlePlaybackStopAndAutoplay(Event::Stop);
+    m_playerBackend->stopMpv();
 }
 
 void PlayerController::pause()
