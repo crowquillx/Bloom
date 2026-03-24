@@ -120,6 +120,20 @@ void SeriesDetailsViewModel::storeItemsCache(const QString &parentId, const QJso
                                      items);
 }
 
+void SeriesDetailsViewModel::clearItemsCache(const QString &parentId) const
+{
+    if (parentId.isEmpty()) {
+        return;
+    }
+
+    s_itemsCache.remove(parentId);
+
+    const QString path = itemsCachePath(parentId);
+    if (!path.isEmpty() && QFile::exists(path)) {
+        QFile::remove(path);
+    }
+}
+
 bool SeriesDetailsViewModel::loadSimilarItemsFromCache(const QString &seriesId, QJsonArray &items, bool requireFresh) const
 {
     return DetailViewCache::loadArrayCache(s_similarItemsCache,
@@ -637,6 +651,34 @@ void SeriesDetailsViewModel::loadSeasonEpisodes(const QString &seasonId)
     qDebug() << "SeriesDetailsViewModel::loadSeasonEpisodes" << seasonId;
     m_episodesTimer.restart();
     m_libraryService->getItems(seasonId, 0, 0, QStringList(), QStringList(), QString(), QString(), /*includeHeavyFields*/false, /*useCacheValidation*/true);
+}
+
+void SeriesDetailsViewModel::refreshSeasonEpisodes(const QString &seasonId)
+{
+    if (!m_libraryService) {
+        setError("Library service not available");
+        emit loadError(errorMessage());
+        return;
+    }
+
+    if (seasonId.isEmpty()) {
+        return;
+    }
+
+    if (m_selectedSeasonId != seasonId) {
+        m_selectedSeasonId = seasonId;
+        emit selectedSeasonIdChanged();
+    }
+
+    clearItemsCache(seasonId);
+    clearError();
+    m_loadingEpisodes = true;
+    setLoading(true);
+
+    qDebug() << "SeriesDetailsViewModel::refreshSeasonEpisodes" << seasonId;
+    m_episodesTimer.restart();
+    m_libraryService->getItems(seasonId, 0, 0, QStringList(), QStringList(), QString(), QString(),
+                               /*includeHeavyFields*/false, /*useCacheValidation*/false);
 }
 
 void SeriesDetailsViewModel::setSelectedSeasonIndex(int index)

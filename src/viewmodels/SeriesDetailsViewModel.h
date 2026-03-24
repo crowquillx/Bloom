@@ -260,6 +260,12 @@ public:
     Q_INVOKABLE void loadSeasonEpisodes(const QString &seasonId);
 
     /**
+     * @brief Force a network refresh for season episodes, bypassing local cache.
+     * @param seasonId The Jellyfin season ID
+     */
+    Q_INVOKABLE void refreshSeasonEpisodes(const QString &seasonId);
+
+    /**
      * @brief Select a season by index and load its episodes.
      * @param index The season index in the seasons model
      */
@@ -306,6 +312,7 @@ public:
     void storeSeriesCache(const QString &seriesId, const QJsonObject &seriesData) const;
     bool loadItemsFromCache(const QString &parentId, QJsonArray &items, bool requireFresh) const;
     void storeItemsCache(const QString &parentId, const QJsonArray &items) const;
+    void clearItemsCache(const QString &parentId) const;
     bool loadSimilarItemsFromCache(const QString &seriesId, QJsonArray &items, bool requireFresh) const;
     void storeSimilarItemsCache(const QString &seriesId, const QJsonArray &items) const;
     QString cacheDir() const;

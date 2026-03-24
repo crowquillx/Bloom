@@ -125,10 +125,18 @@ FocusScope {
     property bool initialEpisodeSelectionPending: true
     property bool userHasInteracted: false
     property bool suppressInteractionTracking: false
+    property bool explicitEpisodeRefreshPending: false
+    property bool playbackSelectionRestorePending: false
+    property string playbackAnchorEpisodeId: ""
+    property string pendingPlaybackSelectionEpisodeId: ""
 
     function resetInitialSelectionState() {
         initialEpisodeSelectionPending = true
         userHasInteracted = false
+        explicitEpisodeRefreshPending = initialEpisodeId !== ""
+        playbackSelectionRestorePending = false
+        playbackAnchorEpisodeId = ""
+        pendingPlaybackSelectionEpisodeId = ""
         pendingTrackOverrideConsumed = false
         appliedPendingTrackOverride = false
         userMadeAudioSelection = false
@@ -381,6 +389,78 @@ FocusScope {
             episodesList.forceActiveFocus()
         })
     }
+
+    function episodeIndexById(episodeId) {
+        if (!episodeId) {
+            return -1
+        }
+
+        for (var i = 0; i < SeriesDetailsViewModel.episodesModel.rowCount(); ++i) {
+            var episode = SeriesDetailsViewModel.episodesModel.getItem(i)
+            if (episode && (episode.itemId === episodeId || episode.Id === episodeId)) {
+                return i
+            }
+        }
+
+        return -1
+    }
+
+    function applyEpisodeSelection(index, alignmentMode) {
+        if (index < 0 || index >= episodesList.count) {
+            return false
+        }
+
+        suppressInteractionTracking = true
+        episodesList.currentIndex = index
+        suppressInteractionTracking = false
+        episodesList.positionViewAtIndex(index, alignmentMode || ListView.Center)
+        updateSelectedEpisode(index)
+        return true
+    }
+
+    function resolveNextUnplayedIndexAfter(anchorEpisodeId) {
+        var episodes = []
+        for (var i = 0; i < episodesList.count; ++i) {
+            episodes.push(SeriesDetailsViewModel.episodesModel.getItem(i))
+        }
+
+        if (episodes.length === 0) {
+            return -1
+        }
+
+        var anchorIndex = episodeIndexById(anchorEpisodeId)
+        if (anchorIndex >= 0) {
+            for (var afterIndex = anchorIndex + 1; afterIndex < episodes.length; ++afterIndex) {
+                var afterEpisode = episodes[afterIndex]
+                if (afterEpisode && !EpisodeSelection.episodeIsPlayed(afterEpisode)) {
+                    return afterIndex
+                }
+            }
+        }
+
+        var fallback = EpisodeSelection.resolveInitialEpisodeSelection(episodes, "", initialSeasonId)
+        return fallback.shouldApply ? fallback.targetIndex : -1
+    }
+
+    function applyPendingPlaybackSelection() {
+        if (!playbackSelectionRestorePending || episodesList.count === 0) {
+            return false
+        }
+
+        var targetIndex = episodeIndexById(pendingPlaybackSelectionEpisodeId)
+        if (targetIndex < 0) {
+            targetIndex = resolveNextUnplayedIndexAfter(playbackAnchorEpisodeId)
+        }
+        if (targetIndex < 0 && episodesList.currentIndex >= 0) {
+            targetIndex = Math.min(episodesList.currentIndex, episodesList.count - 1)
+        }
+
+        playbackSelectionRestorePending = false
+        playbackAnchorEpisodeId = ""
+        pendingPlaybackSelectionEpisodeId = ""
+
+        return applyEpisodeSelection(targetIndex, ListView.Center)
+    }
     
     function updateSelectedEpisode(index) {
         if (index >= 0 && index < SeriesDetailsViewModel.episodesModel.rowCount()) {
@@ -401,8 +481,10 @@ FocusScope {
             if (PlayerController.awaitingNextEpisodeResolution) {
                 return
             }
-            // Reload episodes to update watch progress
             if (SeriesDetailsViewModel.selectedSeasonId) {
+                playbackSelectionRestorePending = true
+                playbackAnchorEpisodeId = selectedEpisodeId
+                pendingPlaybackSelectionEpisodeId = ""
                 refreshEpisodesTimer.start()
             }
         }
@@ -415,7 +497,7 @@ FocusScope {
         onTriggered: {
             console.log("[SeriesSeasonEpisodeView] Refreshing episodes immediately after playback stop")
             if (SeriesDetailsViewModel.selectedSeasonId) {
-                SeriesDetailsViewModel.loadSeasonEpisodes(SeriesDetailsViewModel.selectedSeasonId)
+                SeriesDetailsViewModel.refreshSeasonEpisodes(SeriesDetailsViewModel.selectedSeasonId)
             }
         }
     }
@@ -424,8 +506,28 @@ FocusScope {
     Connections {
         target: SeriesDetailsViewModel
         function onEpisodesLoaded() {
+            if (initialEpisodeSelectionPending && !userHasInteracted) {
+                return
+            }
+
+            if (playbackSelectionRestorePending && applyPendingPlaybackSelection()) {
+                return
+            }
+
             if (!initialEpisodeSelectionPending) {
                 updateSelectedEpisode(episodesList.currentIndex)
+            }
+
+            if (explicitEpisodeRefreshPending && initialEpisodeId !== "" && SeriesDetailsViewModel.selectedSeasonId) {
+                explicitEpisodeRefreshPending = false
+                playbackSelectionRestorePending = true
+                playbackAnchorEpisodeId = initialEpisodeId
+                pendingPlaybackSelectionEpisodeId = initialEpisodeId
+                Qt.callLater(function() {
+                    if (SeriesDetailsViewModel.selectedSeasonId) {
+                        SeriesDetailsViewModel.refreshSeasonEpisodes(SeriesDetailsViewModel.selectedSeasonId)
+                    }
+                })
             }
         }
     }
@@ -437,7 +539,10 @@ FocusScope {
             if (itemId === selectedEpisodeId) {
                 // Refresh the episodes model to get updated UserData
                 if (SeriesDetailsViewModel.selectedSeasonId) {
-                    SeriesDetailsViewModel.loadSeasonEpisodes(SeriesDetailsViewModel.selectedSeasonId)
+                    playbackSelectionRestorePending = true
+                    playbackAnchorEpisodeId = selectedEpisodeId
+                    pendingPlaybackSelectionEpisodeId = selectedEpisodeId
+                    SeriesDetailsViewModel.refreshSeasonEpisodes(SeriesDetailsViewModel.selectedSeasonId)
                 }
             }
         }
