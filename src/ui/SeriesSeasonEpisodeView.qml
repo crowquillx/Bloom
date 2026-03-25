@@ -125,7 +125,6 @@ FocusScope {
     property bool initialEpisodeSelectionPending: true
     property bool userHasInteracted: false
     property bool suppressInteractionTracking: false
-    property bool explicitEpisodeRefreshPending: false
     property bool playbackSelectionRestorePending: false
     property string playbackAnchorEpisodeId: ""
     property string pendingPlaybackSelectionEpisodeId: ""
@@ -133,7 +132,6 @@ FocusScope {
     function resetInitialSelectionState() {
         initialEpisodeSelectionPending = true
         userHasInteracted = false
-        explicitEpisodeRefreshPending = initialEpisodeId !== ""
         playbackSelectionRestorePending = false
         playbackAnchorEpisodeId = ""
         pendingPlaybackSelectionEpisodeId = ""
@@ -325,6 +323,23 @@ FocusScope {
 
     onInitialEpisodeIdChanged: {
         resetInitialSelectionState()
+        if (initialEpisodeId === "") {
+            return
+        }
+
+        Qt.callLater(function() {
+            if (initialSeasonId !== "" && SeriesDetailsViewModel.selectedSeasonId !== initialSeasonId) {
+                enforceInitialSeasonSelection()
+            }
+
+            if (SeriesDetailsViewModel.selectedSeasonId) {
+                SeriesDetailsViewModel.refreshSeasonEpisodes(SeriesDetailsViewModel.selectedSeasonId)
+            } else if (initialSeasonId !== "") {
+                SeriesDetailsViewModel.refreshSeasonEpisodes(initialSeasonId)
+            } else if (episodesList.count > 0) {
+                selectInitialEpisode()
+            }
+        })
     }
     
     // When episodes are loaded, find next-up/partially-watched episode
@@ -506,28 +521,16 @@ FocusScope {
     Connections {
         target: SeriesDetailsViewModel
         function onEpisodesLoaded() {
-            if (initialEpisodeSelectionPending && !userHasInteracted) {
+            if (playbackSelectionRestorePending && applyPendingPlaybackSelection()) {
                 return
             }
 
-            if (playbackSelectionRestorePending && applyPendingPlaybackSelection()) {
+            if (initialEpisodeSelectionPending && !userHasInteracted) {
                 return
             }
 
             if (!initialEpisodeSelectionPending) {
                 updateSelectedEpisode(episodesList.currentIndex)
-            }
-
-            if (explicitEpisodeRefreshPending && initialEpisodeId !== "" && SeriesDetailsViewModel.selectedSeasonId) {
-                explicitEpisodeRefreshPending = false
-                playbackSelectionRestorePending = true
-                playbackAnchorEpisodeId = initialEpisodeId
-                pendingPlaybackSelectionEpisodeId = initialEpisodeId
-                Qt.callLater(function() {
-                    if (SeriesDetailsViewModel.selectedSeasonId) {
-                        SeriesDetailsViewModel.refreshSeasonEpisodes(SeriesDetailsViewModel.selectedSeasonId)
-                    }
-                })
             }
         }
     }

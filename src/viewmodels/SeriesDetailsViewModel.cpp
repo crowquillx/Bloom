@@ -645,8 +645,10 @@ void SeriesDetailsViewModel::loadSeasonEpisodes(const QString &seasonId)
         onEpisodesLoaded(seasonId, cachedEpisodes);
     }
 
-    m_loadingEpisodes = !hasFreshEpisodes;
-    setLoading(m_loadingEpisodes);
+    // Always keep the network request "live" so cache-backed UI still gets refreshed
+    // when playback/user-data state changes on the server.
+    m_loadingEpisodes = true;
+    setLoading(!hasAnyEpisodes);
 
     qDebug() << "SeriesDetailsViewModel::loadSeasonEpisodes" << seasonId;
     m_episodesTimer.restart();
