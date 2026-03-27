@@ -184,10 +184,12 @@ void MockLibraryService::getSeriesDetails(const QString &seriesId)
  * @param seriesId The series identifier to search episodes for.
  * @param excludeItemId An optional episode Id to skip; pass an empty string to skip none.
  *
- * @remarks Emits nextUnplayedEpisodeLoaded(seriesId, episode) with the found episode as a QJsonObject,
+ * @remarks Emits nextUnplayedEpisodeLoaded(seriesId, episode, requestContext) with the found episode as a QJsonObject,
  * or with an empty QJsonObject if no eligible episode is found.
  */
-void MockLibraryService::getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId)
+void MockLibraryService::getNextUnplayedEpisode(const QString &seriesId,
+                                                const QString &excludeItemId,
+                                                const QString &requestContext)
 {
     const QJsonArray episodes = findEpisodesBySeriesId(seriesId);
     const QJsonObject resolvedEpisode =
@@ -196,7 +198,7 @@ void MockLibraryService::getNextUnplayedEpisode(const QString &seriesId, const Q
     qDebug() << "MockLibraryService::getNextUnplayedEpisode(" << seriesId
              << ", exclude:" << excludeItemId << ") ->"
              << (resolvedEpisode.isEmpty() ? "no eligible episodes" : "resolved");
-    emit nextUnplayedEpisodeLoaded(seriesId, resolvedEpisode);
+    emit nextUnplayedEpisodeLoaded(seriesId, resolvedEpisode, requestContext);
 }
 
 void MockLibraryService::markSeriesWatched(const QString &seriesId)

@@ -1298,8 +1298,11 @@ void SeriesDetailsViewModel::onEpisodesLoaded(const QString &parentId, const QJs
     emit episodesLoaded();
 }
 
-void SeriesDetailsViewModel::onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData)
+void SeriesDetailsViewModel::onNextEpisodeLoaded(const QString &seriesId,
+                                                 const QJsonObject &episodeData,
+                                                 const QString &requestContext)
 {
+    Q_UNUSED(requestContext);
     if (seriesId != m_seriesId) {
         return;
     }
@@ -1308,8 +1311,11 @@ void SeriesDetailsViewModel::onNextEpisodeLoaded(const QString &seriesId, const 
     updateNextEpisode(episodeData);
 }
 
-void SeriesDetailsViewModel::onNextEpisodeFailed(const QString &seriesId, const QString &error)
+void SeriesDetailsViewModel::onNextEpisodeFailed(const QString &seriesId,
+                                                 const QString &error,
+                                                 const QString &requestContext)
 {
+    Q_UNUSED(requestContext);
     if (seriesId != m_seriesId) {
         return;
     }

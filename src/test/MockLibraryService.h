@@ -51,7 +51,9 @@ public:
 
     // Series details and episodes
     Q_INVOKABLE void getSeriesDetails(const QString &seriesId) override;
-    Q_INVOKABLE void getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId = QString()) override;
+    Q_INVOKABLE void getNextUnplayedEpisode(const QString &seriesId,
+                                            const QString &excludeItemId = QString(),
+                                            const QString &requestContext = QString()) override;
     Q_INVOKABLE void markSeriesWatched(const QString &seriesId) override;
     Q_INVOKABLE void markSeriesUnwatched(const QString &seriesId) override;
     Q_INVOKABLE void markItemPlayed(const QString &itemId) override;

@@ -342,7 +342,9 @@ private slots:
     void onPausedForCacheChanged(bool pausedForCache);
     void onPlaybackEnded();
     void onPlaylistPositionChanged(int index);
-    void onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
+    void onNextEpisodeLoaded(const QString &seriesId,
+                             const QJsonObject &episodeData,
+                             const QString &requestContext);
     void onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void onSeriesDetailsNotModified(const QString &seriesId);
     void onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
@@ -410,6 +412,9 @@ private:
      * @returns `true` if a prefetched next-episode item is ready and applicable to consume, `false` otherwise.
      */
     bool hasUsablePrefetchedNextEpisode() const;
+    QString expectedPrefetchRequestContext() const;
+    QString expectedAutoplayResolutionRequestContext() const;
+    bool matchesPlaybackRequestContext(const QString &requestContext, bool awaitingPlaybackEnd) const;
     /**
      * Consume any prefetched next-episode payload and navigate to it using the stored autoplay/context.
      */

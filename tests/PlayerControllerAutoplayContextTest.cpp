@@ -129,10 +129,13 @@ public:
     {
     }
 
-    void getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId = QString()) override
+    void getNextUnplayedEpisode(const QString &seriesId,
+                                const QString &excludeItemId = QString(),
+                                const QString &requestContext = QString()) override
     {
         requestedSeriesIds.append(seriesId);
         requestedExcludeIds.append(excludeItemId);
+        requestedContexts.append(requestContext);
     }
 
     void getSeriesDetails(const QString &seriesId) override
@@ -156,6 +159,7 @@ public:
 
     QStringList requestedSeriesIds;
     QStringList requestedExcludeIds;
+    QStringList requestedContexts;
     QStringList requestedSeriesDetailsIds;
 };
 
@@ -236,6 +240,7 @@ private slots:
     void userStopBelowThresholdTransitionsIdleBeforeBackendExit();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
+    void playbackPrefetchIgnoresGenericNextEpisodeResponses();
     void autoplayPlaybackInfoErrorFallsBackToBasicPlayback();
     void autoplayPlaybackInfoUsesStoredSubtitlePreferenceWhenOverrideUnset();
     void staleAutoplayPlaybackInfoResponseFallsBackAfterTimeout();
@@ -283,6 +288,8 @@ void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectl
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
     QCOMPARE(libraryService.requestedSeriesIds.first(), QStringLiteral("series-1"));
     QCOMPARE(libraryService.requestedExcludeIds.first(), QStringLiteral("item-1"));
+    QCOMPARE(libraryService.requestedContexts.first(),
+             QStringLiteral("player:resolve:series-1:item-1"));
     QVERIFY(controller.m_shouldAutoplay);
     QVERIFY(controller.m_waitingForNextEpisodeAtPlaybackEnd);
     QCOMPARE(controller.m_pendingAutoplayItemId, QStringLiteral("item-1"));
@@ -325,6 +332,8 @@ void PlayerControllerAutoplayContextTest::userStopPastThresholdRequestsNextEpiso
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
     QCOMPARE(libraryService.requestedSeriesIds.first(), QStringLiteral("series-1"));
     QCOMPARE(libraryService.requestedExcludeIds.first(), QStringLiteral("item-1"));
+    QCOMPARE(libraryService.requestedContexts.first(),
+             QStringLiteral("player:resolve:series-1:item-1"));
     QVERIFY(controller.m_shouldAutoplay);
     QVERIFY(controller.m_waitingForNextEpisodeAtPlaybackEnd);
     QCOMPARE(controller.m_pendingAutoplayItemId, QStringLiteral("item-1"));
@@ -414,7 +423,8 @@ void PlayerControllerAutoplayContextTest::nextEpisodeNavigationUsesPendingTrackC
                                       "onNextEpisodeLoaded",
                                       Qt::DirectConnection,
                                       Q_ARG(QString, QStringLiteral("series-1")),
-                                      Q_ARG(QJsonObject, episodeData)));
+                                      Q_ARG(QJsonObject, episodeData),
+                                      Q_ARG(QString, QStringLiteral("player:resolve:series-1:item-1"))));
     QCoreApplication::processEvents();
 
     QCOMPARE(navigationSpy.count(), 1);
@@ -471,7 +481,8 @@ void PlayerControllerAutoplayContextTest::nextEpisodeIgnoresMismatchedSeries()
                                       "onNextEpisodeLoaded",
                                       Qt::DirectConnection,
                                       Q_ARG(QString, QStringLiteral("series-other")),
-                                      Q_ARG(QJsonObject, episodeData)));
+                                      Q_ARG(QJsonObject, episodeData),
+                                      Q_ARG(QString, QStringLiteral("player:resolve:series-1:item-1"))));
     QCoreApplication::processEvents();
 
     QCOMPARE(navigationSpy.count(), 0);
@@ -479,6 +490,89 @@ void PlayerControllerAutoplayContextTest::nextEpisodeIgnoresMismatchedSeries()
     QCOMPARE(controller.m_pendingAutoplaySeriesId, QStringLiteral("series-1"));
     QCOMPARE(controller.m_pendingAutoplayAudioTrack, 4);
     QCOMPARE(controller.m_pendingAutoplaySubtitleTrack, 7);
+}
+
+void PlayerControllerAutoplayContextTest::playbackPrefetchIgnoresGenericNextEpisodeResponses()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(false);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("s1e22");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 95.0;
+    controller.m_playbackState = PlayerController::Playing;
+
+    controller.maybeTriggerNextEpisodePrefetch();
+
+    QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
+    QCOMPARE(libraryService.requestedExcludeIds.first(), QStringLiteral("s1e22"));
+    QCOMPARE(libraryService.requestedContexts.first(),
+             QStringLiteral("player:prefetch:series-1:s1e22"));
+
+    const QJsonObject specialEpisode{
+        {QStringLiteral("Id"), QStringLiteral("special-s0e1")},
+        {QStringLiteral("Name"), QStringLiteral("Special 1")},
+        {QStringLiteral("SeriesName"), QStringLiteral("Series A")},
+        {QStringLiteral("ParentIndexNumber"), 0},
+        {QStringLiteral("IndexNumber"), 1},
+        {QStringLiteral("ParentId"), QStringLiteral("season-0")}
+    };
+    const QJsonObject genericEpisode{
+        {QStringLiteral("Id"), QStringLiteral("s2e1")},
+        {QStringLiteral("Name"), QStringLiteral("Episode 1")},
+        {QStringLiteral("SeriesName"), QStringLiteral("Series A")},
+        {QStringLiteral("ParentIndexNumber"), 2},
+        {QStringLiteral("IndexNumber"), 1},
+        {QStringLiteral("ParentId"), QStringLiteral("season-2")}
+    };
+
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onNextEpisodeLoaded",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("series-1")),
+                                      Q_ARG(QJsonObject, specialEpisode),
+                                      Q_ARG(QString, QStringLiteral("player:prefetch:series-1:s1e22"))));
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onNextEpisodeLoaded",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("series-1")),
+                                      Q_ARG(QJsonObject, genericEpisode),
+                                      Q_ARG(QString, QStringLiteral(""))));
+
+    controller.m_hasEvaluatedCompletionForAttempt = true;
+    controller.m_pendingAutoplayItemId = QStringLiteral("s1e22");
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-1");
+    controller.m_pendingAutoplayAudioTrack = 2;
+    controller.m_pendingAutoplaySubtitleTrack = 5;
+    controller.m_pendingAutoplaySubtitleMode = TrackPreferenceMode::ExplicitStream;
+    controller.m_shouldAutoplay = true;
+    controller.m_waitingForNextEpisodeAtPlaybackEnd = true;
+
+    QSignalSpy navigationSpy(&controller, &PlayerController::navigateToNextEpisode);
+    controller.consumePrefetchedNextEpisodeAndNavigate();
+    QCoreApplication::processEvents();
+
+    QCOMPARE(navigationSpy.count(), 1);
+    const QList<QVariant> signalArgs = navigationSpy.takeFirst();
+    const QJsonObject navigatedEpisode = signalArgs.at(0).toJsonObject();
+    QCOMPARE(navigatedEpisode.value(QStringLiteral("Id")).toString(),
+             QStringLiteral("special-s0e1"));
+    QCOMPARE(signalArgs.at(1).toString(), QStringLiteral("series-1"));
 }
 
 void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoErrorFallsBackToBasicPlayback()
@@ -739,6 +833,9 @@ void PlayerControllerAutoplayContextTest::requestPlaybackPromptsForVersionSelect
                                 &authService);
 
     QSignalSpy selectionSpy(&controller, &PlayerController::playbackVersionSelectionRequested);
+    authService.restoreSession(QStringLiteral("https://example.invalid"),
+                               QStringLiteral("user-1"),
+                               QStringLiteral("token-1"));
 
     controller.requestPlayback(QVariantMap{
         {QStringLiteral("itemId"), QStringLiteral("episode-1")},

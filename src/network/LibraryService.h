@@ -64,7 +64,9 @@ public:
     // Series details and episodes
     Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);
     Q_INVOKABLE virtual void getSimilarItems(const QString &itemId, int limit = 12);
-    Q_INVOKABLE virtual void getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId = QString());
+    Q_INVOKABLE virtual void getNextUnplayedEpisode(const QString &seriesId,
+                                                    const QString &excludeItemId = QString(),
+                                                    const QString &requestContext = QString());
     Q_INVOKABLE virtual void markSeriesWatched(const QString &seriesId);
     Q_INVOKABLE virtual void markSeriesUnwatched(const QString &seriesId);
     Q_INVOKABLE virtual void markItemPlayed(const QString &itemId);
@@ -108,8 +110,12 @@ signals:
     void seriesDetailsNotModified(const QString &seriesId);
     void similarItemsLoaded(const QString &itemId, const QJsonArray &items);
     void similarItemsFailed(const QString &itemId, const QString &error);
-    void nextUnplayedEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
-    void nextUnplayedEpisodeFailed(const QString &seriesId, const QString &error);
+    void nextUnplayedEpisodeLoaded(const QString &seriesId,
+                                   const QJsonObject &episodeData,
+                                   const QString &requestContext);
+    void nextUnplayedEpisodeFailed(const QString &seriesId,
+                                   const QString &error,
+                                   const QString &requestContext);
     void seriesWatchedStatusChanged(const QString &seriesId);
     void itemPlayedStatusChanged(const QString &itemId, bool isPlayed);
     void favoriteStatusChanged(const QString &itemId, bool isFavorite);

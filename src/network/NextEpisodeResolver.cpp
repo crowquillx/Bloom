@@ -21,6 +21,7 @@ struct EpisodeEntry {
     int m_airsBeforeSeason = -1;
     int m_airsAfterSeason = -1;
     int m_airsBeforeEpisode = -1;
+    bool m_hasPlacementMetadata = false;
     bool m_isPlayed = false;
     bool m_isSpecial = false;
     int m_canonicalIndex = -1;
@@ -64,8 +65,11 @@ EpisodeEntry toEntry(const QJsonObject &episode)
     entry.m_airsBeforeSeason = episode.value(QStringLiteral("AirsBeforeSeasonNumber")).toInt(-1);
     entry.m_airsAfterSeason = episode.value(QStringLiteral("AirsAfterSeasonNumber")).toInt(-1);
     entry.m_airsBeforeEpisode = episode.value(QStringLiteral("AirsBeforeEpisodeNumber")).toInt(-1);
+    entry.m_hasPlacementMetadata = entry.m_airsBeforeSeason > 0
+                                || entry.m_airsAfterSeason > 0
+                                || entry.m_airsBeforeEpisode > 0;
     entry.m_isPlayed = userData.value(QStringLiteral("Played")).toBool();
-    entry.m_isSpecial = entry.m_seasonNumber == 0;
+    entry.m_isSpecial = entry.m_seasonNumber == 0 || entry.m_hasPlacementMetadata;
     return entry;
 }
 

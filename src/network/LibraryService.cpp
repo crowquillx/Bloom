@@ -745,20 +745,23 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
  *
  * Fetches the recursive episode list for the series, resolves a canonical series order locally,
  * and emits the best next episode based on watch state. On success emits
- * nextUnplayedEpisodeLoaded(seriesId, episode) where `episode` is the selected episode object
- * or an empty object if no eligible episode was found. On error emits an error via emitError.
+ * nextUnplayedEpisodeLoaded(seriesId, episode, requestContext) where `episode` is the selected
+ * episode object or an empty object if no eligible episode was found.
  *
  * @param seriesId The series identifier to query.
  * @param excludeItemId If non-empty, the returned episode will not have this Id; pass an empty string to allow any episode.
+ * @param requestContext Optional internal request ownership tag used by playback-prefetch callers.
  */
-void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QString &excludeItemId)
+void LibraryService::getNextUnplayedEpisode(const QString &seriesId,
+                                            const QString &excludeItemId,
+                                            const QString &requestContext)
 {
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getNextUnplayedEpisode";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
-        emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
+        emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
         return;
     }
     
@@ -789,7 +792,7 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, seriesId, excludeItemId](QNetworkReply *reply) {
+        [this, seriesId, excludeItemId, requestContext](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
@@ -797,7 +800,7 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
                 error.endpoint = "getNextUnplayedEpisode";
                 error.code = -2;
                 error.userMessage = tr("Invalid next unplayed episode response");
-                emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
+                emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
                 return;
             }
             const QJsonObject root = doc.object();
@@ -806,16 +809,16 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId, const QStri
                 error.endpoint = "getNextUnplayedEpisode";
                 error.code = -2;
                 error.userMessage = tr("Invalid next unplayed episode response");
-                emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
+                emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
                 return;
             }
             const QJsonArray items = root.value("Items").toArray();
             const QJsonObject selectedEpisode =
                 NextEpisodeResolver::resolveBestNextEpisode(items, excludeItemId);
-            emit nextUnplayedEpisodeLoaded(seriesId, selectedEpisode);
+            emit nextUnplayedEpisodeLoaded(seriesId, selectedEpisode, requestContext);
         },
-        [this, seriesId](const NetworkError &error) {
-            emit nextUnplayedEpisodeFailed(seriesId, error.userMessage);
+        [this, seriesId, requestContext](const NetworkError &error) {
+            emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
         });
 }
 

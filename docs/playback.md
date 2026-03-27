@@ -163,6 +163,7 @@ Track Preference Persistence
   - `AirsBeforeSeasonNumber`
   - `AirsAfterSeasonNumber`
   - `AirsBeforeEpisodeNumber`
+- Post-playback Up Next and next-episode prefetch use this same canonical resolver, so specials placed after a season or before a specific episode must win over later regular-season episodes.
 - Missing episodes (`LocationType == "Virtual"`) are excluded from the canonical timeline.
 - Resolution order:
   - If `excludeItemId` is set, treat it as the explicit anchor and return the first later not-fully-played episode.
@@ -171,6 +172,7 @@ Track Preference Persistence
   - If no anchor exists, fall back to the first unplayed regular episode, then to the first unplayed special.
 - Tie-breakers when play dates are missing or equal prefer later canonical position, then larger `PlaybackPositionTicks`.
 - `excludeItemId` is used by autoplay/prefetch so the player can advance from the current item even before Jellyfin has updated watch state on the server.
+- Leaving the Up Next interstitial keeps the exact resolved episode context, including season-0 specials, by carrying the resolved episode id plus its `ParentId`/`SeasonId` back into `SeriesSeasonEpisodeView`.
 
 UI Components for Track Selection
 - `TrackSelector.qml`: Reusable dropdown component for selecting audio/subtitle tracks with keyboard navigation.

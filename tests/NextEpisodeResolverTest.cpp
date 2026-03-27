@@ -59,6 +59,10 @@ private slots:
     void prefersMostRecentInProgressEpisode();
     void skipsExplicitExcludedAnchorToFollowingEpisode();
     void placesSpecialsUsingPlacementFields();
+    void resolvesSpecialAfterSeasonFinaleWhenExcludedAnchorIsSeasonEpisode();
+    void resolvesSpecialAfterSeasonFinaleWhenSpecialAndNextSeasonAreBothUnplayed();
+    void fallsThroughToNextSeasonOnlyAfterAfterSeasonSpecialIsPlayed();
+    void supportsPlacementDrivenSpecialEvenIfPayloadShapeIsSparse();
     void ignoresVirtualEpisodes();
     void fallsBackToFirstRegularEpisodeWithoutHistory();
     void fallsBackToSpecialOnlyWhenNoRegularEpisodesRemain();
@@ -118,6 +122,59 @@ void NextEpisodeResolverTest::placesSpecialsUsingPlacementFields()
 
     QCOMPARE(resolvedId(episodes), QStringLiteral("special-before-e2"));
     QCOMPARE(resolvedId(episodes, QStringLiteral("s1e2")), QStringLiteral("special-after-s1"));
+}
+
+void NextEpisodeResolverTest::resolvesSpecialAfterSeasonFinaleWhenExcludedAnchorIsSeasonEpisode()
+{
+    const QJsonArray episodes{
+        buildEpisode(QStringLiteral("s1e22"), 1, 22, true),
+        buildEpisode(QStringLiteral("special-after-s1"), 0, 1, false, 0, QString(), QJsonObject{
+            {QStringLiteral("AirsAfterSeasonNumber"), 1}
+        }),
+        buildEpisode(QStringLiteral("s2e1"), 2, 1, false)
+    };
+
+    QCOMPARE(resolvedId(episodes, QStringLiteral("s1e22")), QStringLiteral("special-after-s1"));
+}
+
+void NextEpisodeResolverTest::resolvesSpecialAfterSeasonFinaleWhenSpecialAndNextSeasonAreBothUnplayed()
+{
+    const QJsonArray episodes{
+        buildEpisode(QStringLiteral("s1e21"), 1, 21, true, 0, QStringLiteral("2026-03-01T18:00:00Z")),
+        buildEpisode(QStringLiteral("s1e22"), 1, 22, true, 0, QStringLiteral("2026-03-05T18:00:00Z")),
+        buildEpisode(QStringLiteral("special-after-s1"), 0, 1, false, 0, QString(), QJsonObject{
+            {QStringLiteral("AirsAfterSeasonNumber"), 1}
+        }),
+        buildEpisode(QStringLiteral("s2e1"), 2, 1, false)
+    };
+
+    QCOMPARE(resolvedId(episodes), QStringLiteral("special-after-s1"));
+}
+
+void NextEpisodeResolverTest::fallsThroughToNextSeasonOnlyAfterAfterSeasonSpecialIsPlayed()
+{
+    const QJsonArray episodes{
+        buildEpisode(QStringLiteral("s1e22"), 1, 22, true, 0, QStringLiteral("2026-03-05T18:00:00Z")),
+        buildEpisode(QStringLiteral("special-after-s1"), 0, 1, true, 0, QStringLiteral("2026-03-06T18:00:00Z"), QJsonObject{
+            {QStringLiteral("AirsAfterSeasonNumber"), 1}
+        }),
+        buildEpisode(QStringLiteral("s2e1"), 2, 1, false)
+    };
+
+    QCOMPARE(resolvedId(episodes), QStringLiteral("s2e1"));
+}
+
+void NextEpisodeResolverTest::supportsPlacementDrivenSpecialEvenIfPayloadShapeIsSparse()
+{
+    const QJsonArray episodes{
+        buildEpisode(QStringLiteral("s1e22"), 1, 22, true),
+        buildEpisode(QStringLiteral("special-sparse"), 3, 1, false, 0, QString(), QJsonObject{
+            {QStringLiteral("AirsAfterSeasonNumber"), 1}
+        }),
+        buildEpisode(QStringLiteral("s2e1"), 2, 1, false)
+    };
+
+    QCOMPARE(resolvedId(episodes, QStringLiteral("s1e22")), QStringLiteral("special-sparse"));
 }
 
 void NextEpisodeResolverTest::ignoresVirtualEpisodes()

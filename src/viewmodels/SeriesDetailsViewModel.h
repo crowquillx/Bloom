@@ -374,8 +374,12 @@ private slots:
     void onSeasonsLoaded(const QString &parentId, const QJsonArray &items);
     void onEpisodesLoaded(const QString &parentId, const QJsonArray &items);
     void onItemsNotModified(const QString &parentId);
-    void onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData);
-    void onNextEpisodeFailed(const QString &seriesId, const QString &error);
+    void onNextEpisodeLoaded(const QString &seriesId,
+                             const QJsonObject &episodeData,
+                             const QString &requestContext);
+    void onNextEpisodeFailed(const QString &seriesId,
+                             const QString &error,
+                             const QString &requestContext);
     void onSeriesWatchedStatusChanged(const QString &seriesId);
     void onFavoriteStatusChanged(const QString &itemId, bool isFavorite);
     void onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items);

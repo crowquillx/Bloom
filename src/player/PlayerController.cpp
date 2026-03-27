@@ -56,6 +56,16 @@ bool embeddedLinuxTrickplayAllowed(const IPlayerBackend *backend)
     return qEnvironmentVariableIntValue("BLOOM_LINUX_LIBMPV_ENABLE_TRICKPLAY") == 1;
 }
 
+QString buildNextEpisodeRequestContext(const QString &mode,
+                                       const QString &seriesId,
+                                       const QString &itemId)
+{
+    if (mode.isEmpty() || seriesId.isEmpty() || itemId.isEmpty()) {
+        return {};
+    }
+    return QStringLiteral("player:%1:%2:%3").arg(mode, seriesId, itemId);
+}
+
 class NullPlayerBackend final : public IPlayerBackend
 {
 public:
@@ -222,9 +232,9 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     // Connect to LibraryService for autoplay next episode
     connect(m_libraryService, &LibraryService::nextUnplayedEpisodeLoaded,
             this, &PlayerController::onNextEpisodeLoaded);
-        connect(m_libraryService, &LibraryService::seriesDetailsLoaded,
+    connect(m_libraryService, &LibraryService::seriesDetailsLoaded,
             this, &PlayerController::onSeriesDetailsLoaded);
-        connect(m_libraryService, &LibraryService::seriesDetailsNotModified,
+    connect(m_libraryService, &LibraryService::seriesDetailsNotModified,
             this, &PlayerController::onSeriesDetailsNotModified);
     
     // Connect to PlaybackService for media segments and trickplay info signals
@@ -1069,7 +1079,9 @@ void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
         stashPendingAutoplayContext();
         prefetchedReady = hasUsablePrefetchedNextEpisode();
         if (!prefetchedReady) {
-            m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId, m_pendingAutoplayItemId);
+            m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId,
+                                                     m_pendingAutoplayItemId,
+                                                     expectedAutoplayResolutionRequestContext());
         }
         qDebug() << "PlayerController: Threshold met, requesting next episode for autoplay";
     } else {
@@ -1098,10 +1110,15 @@ void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
  * @param episodeData JSON object containing the next-episode metadata (expected keys include "Id", "Name",
  *                    "SeriesName", "ParentIndexNumber", "IndexNumber", and user data used when starting playback).
  */
-void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonObject &episodeData)
+void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
+                                           const QJsonObject &episodeData,
+                                           const QString &requestContext)
 {
     if (!m_waitingForNextEpisodeAtPlaybackEnd) {
         if (seriesId != m_currentSeriesId || m_currentSeriesId.isEmpty()) {
+            return;
+        }
+        if (!matchesPlaybackRequestContext(requestContext, false)) {
             return;
         }
 
@@ -1116,6 +1133,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
         qCDebug(lcPlayback) << "Next-episode prefetch result cached"
                             << "itemId=" << m_prefetchedForItemId
                             << "seriesId=" << m_prefetchedNextEpisodeSeriesId
+                            << "requestContext=" << requestContext
                             << "episodeId=" << prefetchedEpisodeId
                             << "pointsToCurrentEpisode=" << pointsToCurrentEpisode
                             << "ready=" << m_nextEpisodePrefetchReady;
@@ -1124,6 +1142,9 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId, const QJsonO
 
     // Only handle this if we're expecting an autoplay/navigation
     if (!m_shouldAutoplay) {
+        return;
+    }
+    if (!matchesPlaybackRequestContext(requestContext, true)) {
         return;
     }
 
@@ -3397,7 +3418,42 @@ void PlayerController::maybeTriggerNextEpisodePrefetch()
                         << "itemId=" << m_currentItemId
                         << "seriesId=" << m_currentSeriesId
                         << "progressPercent=" << progressPercent;
-    m_libraryService->getNextUnplayedEpisode(m_currentSeriesId, m_currentItemId);
+    m_libraryService->getNextUnplayedEpisode(m_currentSeriesId,
+                                             m_currentItemId,
+                                             expectedPrefetchRequestContext());
+}
+
+QString PlayerController::expectedPrefetchRequestContext() const
+{
+    return buildNextEpisodeRequestContext(QStringLiteral("prefetch"),
+                                          m_currentSeriesId,
+                                          m_currentItemId);
+}
+
+QString PlayerController::expectedAutoplayResolutionRequestContext() const
+{
+    return buildNextEpisodeRequestContext(QStringLiteral("resolve"),
+                                          m_pendingAutoplaySeriesId,
+                                          m_pendingAutoplayItemId);
+}
+
+bool PlayerController::matchesPlaybackRequestContext(const QString &requestContext,
+                                                     bool awaitingPlaybackEnd) const
+{
+    const QString expectedContext = awaitingPlaybackEnd
+        ? expectedAutoplayResolutionRequestContext()
+        : expectedPrefetchRequestContext();
+    if (expectedContext.isEmpty()) {
+        return requestContext.isEmpty();
+    }
+    if (requestContext != expectedContext) {
+        qCDebug(lcPlayback) << "Ignoring next-episode response with unexpected context"
+                            << "expected=" << expectedContext
+                            << "received=" << requestContext
+                            << "awaitingPlaybackEnd=" << awaitingPlaybackEnd;
+        return false;
+    }
+    return true;
 }
 
 /**
