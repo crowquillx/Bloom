@@ -15,7 +15,9 @@ struct UpdateAsset {
 
     bool isValid() const
     {
-        return !url.trimmed().isEmpty() && !filename.trimmed().isEmpty();
+        return !url.trimmed().isEmpty()
+            && !filename.trimmed().isEmpty()
+            && !sha256.trimmed().isEmpty();
     }
 };
 

@@ -11,6 +11,8 @@ class IUpdateProvider : public QObject
     Q_OBJECT
 
 public:
+    using FetchManifestCallback = std::function<void(std::optional<UpdateManifest>, const QString &)>;
+
     explicit IUpdateProvider(QObject *parent = nullptr)
         : QObject(parent)
     {
@@ -20,5 +22,5 @@ public:
 
     virtual void fetchManifest(const QString &channel,
                                QObject *context,
-                               std::function<void(std::optional<UpdateManifest>, const QString &)> completion) = 0;
+                               FetchManifestCallback completion) = 0;
 };

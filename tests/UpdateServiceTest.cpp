@@ -30,7 +30,7 @@ public:
 
     void fetchManifest(const QString &channel,
                        QObject *context,
-                       std::function<void(std::optional<UpdateManifest>, const QString &)> completion) override
+                       FetchManifestCallback completion) override
     {
         lastChannel = channel;
         if (context) {
@@ -79,12 +79,12 @@ UpdateManifest makeManifest(const QString &channel,
     manifest.installer = UpdateAsset{
         QStringLiteral("https://example.invalid/Bloom-Setup.exe"),
         QStringLiteral("Bloom-Setup.exe"),
-        QStringLiteral("abc123")
+        QStringLiteral("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     };
     manifest.portable = UpdateAsset{
         QStringLiteral("https://example.invalid/Bloom-Windows.zip"),
         QStringLiteral("Bloom-Windows.zip"),
-        QStringLiteral("def456")
+        QStringLiteral("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
     };
     return manifest;
 }
@@ -122,20 +122,20 @@ void UpdateServiceTest::parseManifestBytes_acceptsValidJson()
 {
     const QJsonObject root{
         {QStringLiteral("channel"), QStringLiteral("stable")},
-        {QStringLiteral("version"), QStringLiteral("0.5.3")},
-        {QStringLiteral("build_id"), QStringLiteral("0.5.3")},
-        {QStringLiteral("release_tag"), QStringLiteral("v0.5.3")},
+        {QStringLiteral("version"), QStringLiteral("99.99.99")},
+        {QStringLiteral("build_id"), QStringLiteral("99.99.99")},
+        {QStringLiteral("release_tag"), QStringLiteral("v99.99.99")},
         {QStringLiteral("published_at"), QStringLiteral("2026-03-27T00:00:00Z")},
         {QStringLiteral("notes"), QStringLiteral("Release notes")},
         {QStringLiteral("installer"), QJsonObject{
             {QStringLiteral("url"), QStringLiteral("https://example.invalid/setup.exe")},
-            {QStringLiteral("filename"), QStringLiteral("Bloom-Setup-0.5.3.exe")},
-            {QStringLiteral("sha256"), QStringLiteral("deadbeef")}
+            {QStringLiteral("filename"), QStringLiteral("Bloom-Setup-99.99.99.exe")},
+            {QStringLiteral("sha256"), QStringLiteral("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")}
         }},
         {QStringLiteral("portable"), QJsonObject{
             {QStringLiteral("url"), QStringLiteral("https://example.invalid/Bloom-Windows.zip")},
             {QStringLiteral("filename"), QStringLiteral("Bloom-Windows.zip")},
-            {QStringLiteral("sha256"), QStringLiteral("cafebabe")}
+            {QStringLiteral("sha256"), QStringLiteral("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")}
         }}
     };
 
@@ -145,9 +145,9 @@ void UpdateServiceTest::parseManifestBytes_acceptsValidJson()
 
     QVERIFY2(manifest.has_value(), qPrintable(error));
     QCOMPARE(manifest->channel, QStringLiteral("stable"));
-    QCOMPARE(manifest->version, QStringLiteral("0.5.3"));
-    QCOMPARE(manifest->buildId, QStringLiteral("0.5.3"));
-    QCOMPARE(manifest->installer.filename, QStringLiteral("Bloom-Setup-0.5.3.exe"));
+    QCOMPARE(manifest->version, QStringLiteral("99.99.99"));
+    QCOMPARE(manifest->buildId, QStringLiteral("99.99.99"));
+    QCOMPARE(manifest->installer.filename, QStringLiteral("Bloom-Setup-99.99.99.exe"));
 }
 
 void UpdateServiceTest::startupCheck_showsPopupForNewUpdate()
@@ -159,7 +159,7 @@ void UpdateServiceTest::startupCheck_showsPopupForNewUpdate()
     configManager.setLastUpdateCheckAt(QString());
 
     auto *provider = new FakeUpdateProvider;
-    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("0.5.3"));
+    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
     auto *applier = new FakeUpdateApplier(UpdateApplySupport::Supported);
 
     UpdateService service(&configManager, nullptr, provider, applier);
@@ -170,7 +170,7 @@ void UpdateServiceTest::startupCheck_showsPopupForNewUpdate()
     QCOMPARE(popupSpy.count(), 1);
     QVERIFY(service.updateAvailable());
     QVERIFY(service.shouldShowStartupPopup());
-    QCOMPARE(service.availableVersion(), QStringLiteral("0.5.3"));
+    QCOMPARE(service.availableVersion(), QStringLiteral("99.99.99"));
 }
 
 void UpdateServiceTest::startupCheck_throttlesRecentCheck()
@@ -181,7 +181,7 @@ void UpdateServiceTest::startupCheck_throttlesRecentCheck()
     configManager.setLastUpdateCheckAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
 
     auto *provider = new FakeUpdateProvider;
-    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("0.5.3"));
+    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
     auto *applier = new FakeUpdateApplier(UpdateApplySupport::NotifyOnly);
 
     UpdateService service(&configManager, nullptr, provider, applier);
@@ -199,7 +199,7 @@ void UpdateServiceTest::manualCheck_bypassesThrottle()
     configManager.setLastUpdateCheckAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
 
     auto *provider = new FakeUpdateProvider;
-    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("0.5.3"));
+    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
     auto *applier = new FakeUpdateApplier(UpdateApplySupport::NotifyOnly);
 
     UpdateService service(&configManager, nullptr, provider, applier);
@@ -217,7 +217,7 @@ void UpdateServiceTest::dismissStartupPopup_persistsMarker()
     configManager.setLastUpdateCheckAt(QString());
 
     auto *provider = new FakeUpdateProvider;
-    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("0.5.3"), QStringLiteral("0.5.3"));
+    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"), QStringLiteral("99.99.99"));
     auto *applier = new FakeUpdateApplier(UpdateApplySupport::Supported);
 
     UpdateService service(&configManager, nullptr, provider, applier);
@@ -227,7 +227,7 @@ void UpdateServiceTest::dismissStartupPopup_persistsMarker()
     service.dismissStartupPopup();
 
     QVERIFY(!service.shouldShowStartupPopup());
-    QCOMPARE(configManager.getSkippedUpdateVersion(), QStringLiteral("stable:0.5.3:0.5.3"));
+    QCOMPARE(configManager.getSkippedUpdateVersion(), QStringLiteral("stable:99.99.99:99.99.99"));
 }
 
 QTEST_MAIN(UpdateServiceTest)

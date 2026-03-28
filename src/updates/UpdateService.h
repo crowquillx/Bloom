@@ -93,6 +93,7 @@ private:
     void setShouldShowStartupPopup(bool show);
     void setStatus(const QString &status);
     void setError(const QString &error);
+    void applyPendingChannelIfNeeded();
     void emitStateChanged();
 
     ConfigManager *m_configManager = nullptr;
@@ -111,4 +112,5 @@ private:
     UpdateManifest m_availableManifest;
     QString m_statusMessage;
     QString m_errorMessage;
+    QString m_pendingChannel;
 };

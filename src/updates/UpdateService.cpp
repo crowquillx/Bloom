@@ -3,6 +3,7 @@
 #include "GitHubReleaseUpdateProvider.h"
 #include "IUpdateApplier.h"
 #include "config/version.h"
+#include "player/PlayerController.h"
 #include "utils/ConfigManager.h"
 #include "updates/WindowsNsisUpdateApplier.h"
 
@@ -30,7 +31,7 @@ bool playbackIsActive(const PlayerController *playerController)
         return false;
     }
 
-    return reinterpret_cast<const QObject *>(playerController)->property("isPlaybackActive").toBool();
+    return static_cast<const QObject *>(playerController)->property("isPlaybackActive").toBool();
 }
 
 } // namespace
@@ -199,6 +200,11 @@ void UpdateService::setChannel(const QString &channel)
         return;
     }
 
+    if (m_checking) {
+        m_pendingChannel = normalized;
+        return;
+    }
+
     m_configManager->setUpdateChannel(normalized);
     emit channelChanged();
     emitStateChanged();
@@ -260,6 +266,9 @@ void UpdateService::finishCheck(std::optional<UpdateManifest> manifest,
                                 CheckOrigin origin)
 {
     m_checking = false;
+    if (m_configManager) {
+        m_configManager->setLastUpdateCheckAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    }
 
     if (!errorMessage.trimmed().isEmpty() || !manifest.has_value()) {
         setUpdateAvailableState(false);
@@ -269,13 +278,11 @@ void UpdateService::finishCheck(std::optional<UpdateManifest> manifest,
             emit updateError(m_errorMessage);
         }
         emitStateChanged();
+        applyPendingChannelIfNeeded();
         return;
     }
 
     m_availableManifest = manifest.value();
-    if (m_configManager) {
-        m_configManager->setLastUpdateCheckAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-    }
 
     const bool available = manifestRepresentsNewerVersion(m_availableManifest);
     setUpdateAvailableState(available);
@@ -283,6 +290,7 @@ void UpdateService::finishCheck(std::optional<UpdateManifest> manifest,
     if (!available) {
         setStatus(tr("Bloom is up to date."));
         emitStateChanged();
+        applyPendingChannelIfNeeded();
         return;
     }
 
@@ -304,6 +312,7 @@ void UpdateService::finishCheck(std::optional<UpdateManifest> manifest,
     }
 
     emitStateChanged();
+    applyPendingChannelIfNeeded();
 }
 
 bool UpdateService::shouldThrottleStartupCheck() const
@@ -384,6 +393,24 @@ void UpdateService::setError(const QString &error)
     if (!error.trimmed().isEmpty()) {
         m_statusMessage = error;
     }
+}
+
+void UpdateService::applyPendingChannelIfNeeded()
+{
+    if (!m_configManager || m_pendingChannel.trimmed().isEmpty()) {
+        return;
+    }
+
+    const QString pendingChannel = m_pendingChannel;
+    m_pendingChannel.clear();
+    if (pendingChannel == currentChannel()) {
+        return;
+    }
+
+    m_configManager->setUpdateChannel(pendingChannel);
+    emit channelChanged();
+    emitStateChanged();
+    startCheck(CheckOrigin::Manual);
 }
 
 void UpdateService::emitStateChanged()

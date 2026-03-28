@@ -52,6 +52,22 @@ QString registryInstallLocation()
     return QString();
 }
 
+QString sanitizedInstallerFilename(const QString &filename)
+{
+    const QString trimmed = filename.trimmed();
+    if (trimmed.isEmpty() || trimmed.contains(QLatin1Char('/')) || trimmed.contains(QLatin1Char('\\'))
+        || trimmed.contains(QStringLiteral(".."))) {
+        return QString();
+    }
+
+    const QString sanitized = QFileInfo(trimmed).fileName();
+    if (sanitized.isEmpty() || sanitized != trimmed) {
+        return QString();
+    }
+
+    return sanitized;
+}
+
 } // namespace
 
 WindowsNsisUpdateApplier::WindowsNsisUpdateApplier(QObject *parent)
@@ -106,9 +122,14 @@ void WindowsNsisUpdateApplier::downloadAndInstall(const UpdateManifest &manifest
 
     m_pendingManifest = manifest;
     m_pendingChannel = channel.trimmed().isEmpty() ? QStringLiteral("stable") : channel.trimmed();
+    const QString installerFilename = sanitizedInstallerFilename(manifest.installer.filename);
+    if (installerFilename.isEmpty()) {
+        emit installFinished(false, tr("Update manifest specified an invalid installer filename."));
+        return;
+    }
     m_pendingFilePath = updatesDir.filePath(QStringLiteral("updates/%1/%2")
                                                 .arg(m_pendingChannel,
-                                                     manifest.installer.filename));
+                                                     installerFilename));
 
     if (QFileInfo::exists(m_pendingFilePath)) {
         QFile::remove(m_pendingFilePath);
@@ -126,7 +147,12 @@ void WindowsNsisUpdateApplier::downloadAndInstall(const UpdateManifest &manifest
 
     connect(m_reply, &QNetworkReply::readyRead, this, [this]() {
         if (m_reply && m_outputFile.isOpen()) {
-            m_outputFile.write(m_reply->readAll());
+            const QByteArray chunk = m_reply->readAll();
+            const qint64 bytesWritten = m_outputFile.write(chunk);
+            if (bytesWritten != chunk.size()) {
+                discardPartialDownload();
+                finishWithError(tr("Failed to write the downloaded update installer to disk."));
+            }
         }
     });
     connect(m_reply, &QNetworkReply::downloadProgress, this, &WindowsNsisUpdateApplier::downloadProgressChanged);
@@ -137,8 +163,18 @@ void WindowsNsisUpdateApplier::downloadAndInstall(const UpdateManifest &manifest
         }
 
         if (m_outputFile.isOpen()) {
-            m_outputFile.write(m_reply->readAll());
-            m_outputFile.flush();
+            const QByteArray remainingBytes = m_reply->readAll();
+            const qint64 bytesWritten = m_outputFile.write(remainingBytes);
+            if (bytesWritten != remainingBytes.size()) {
+                discardPartialDownload();
+                finishWithError(tr("Failed to write the downloaded update installer to disk."));
+                return;
+            }
+            if (!m_outputFile.flush()) {
+                discardPartialDownload();
+                finishWithError(tr("Failed to finalize the downloaded update installer on disk."));
+                return;
+            }
             m_outputFile.close();
         }
 
@@ -158,19 +194,25 @@ void WindowsNsisUpdateApplier::downloadAndInstall(const UpdateManifest &manifest
             return;
         }
 
-        if (!m_pendingManifest.installer.sha256.trimmed().isEmpty()) {
-            QFile file(m_pendingFilePath);
-            if (!file.open(QIODevice::ReadOnly)) {
-                finishWithError(tr("Downloaded installer could not be verified."));
-                return;
-            }
+        if (m_pendingManifest.installer.sha256.trimmed().isEmpty()) {
+            discardPartialDownload();
+            finishWithError(tr("Update manifest is missing an installer checksum; cannot verify download."));
+            return;
+        }
 
-            const QByteArray digest = QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256).toHex().toLower();
-            const QByteArray expected = m_pendingManifest.installer.sha256.toUtf8().trimmed().toLower();
-            if (digest != expected) {
-                finishWithError(tr("Downloaded installer failed checksum verification."));
-                return;
-            }
+        QFile file(m_pendingFilePath);
+        if (!file.open(QIODevice::ReadOnly)) {
+            discardPartialDownload();
+            finishWithError(tr("Downloaded installer could not be verified."));
+            return;
+        }
+
+        const QByteArray digest = QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256).toHex().toLower();
+        const QByteArray expected = m_pendingManifest.installer.sha256.toUtf8().trimmed().toLower();
+        if (digest != expected) {
+            discardPartialDownload();
+            finishWithError(tr("Downloaded installer failed checksum verification."));
+            return;
         }
 
 #ifdef Q_OS_WIN
@@ -198,6 +240,22 @@ void WindowsNsisUpdateApplier::resetDownloadState()
 
     if (m_outputFile.isOpen()) {
         m_outputFile.close();
+    }
+}
+
+void WindowsNsisUpdateApplier::discardPartialDownload()
+{
+    if (m_reply) {
+        disconnect(m_reply, nullptr, this, nullptr);
+        m_reply->abort();
+    }
+
+    if (m_outputFile.isOpen()) {
+        m_outputFile.close();
+    }
+
+    if (!m_pendingFilePath.trimmed().isEmpty()) {
+        QFile::remove(m_pendingFilePath);
     }
 }
 

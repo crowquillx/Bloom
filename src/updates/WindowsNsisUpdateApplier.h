@@ -22,6 +22,7 @@ public:
 private:
     void resetDownloadState();
     void finishWithError(const QString &message);
+    void discardPartialDownload();
     static QString normalizedPath(const QString &path);
 
     QNetworkAccessManager m_networkAccessManager;

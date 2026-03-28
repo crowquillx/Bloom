@@ -1,5 +1,13 @@
 enable_testing()
 
+set(UPDATER_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateApplier.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/GitHubReleaseUpdateProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/UpdateService.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/WindowsNsisUpdateApplier.cpp
+)
+
 add_executable(BaseViewModelTest
     BaseViewModelTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
@@ -212,11 +220,7 @@ add_test(NAME SimilarItemsRetryTest COMMAND SimilarItemsRetryTest)
 
 add_executable(UpdateServiceTest
     UpdateServiceTest.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateProvider.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateApplier.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/GitHubReleaseUpdateProvider.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/UpdateService.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/WindowsNsisUpdateApplier.cpp
+    ${UPDATER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
 )
 
@@ -299,11 +303,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateProvider.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateApplier.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/GitHubReleaseUpdateProvider.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/UpdateService.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/WindowsNsisUpdateApplier.cpp
+    ${UPDATER_SOURCES}
     # Player sources
     ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp

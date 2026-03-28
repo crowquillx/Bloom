@@ -35,7 +35,7 @@ GitHubReleaseUpdateProvider::GitHubReleaseUpdateProvider(QObject *parent)
 
 void GitHubReleaseUpdateProvider::fetchManifest(const QString &channel,
                                                 QObject *context,
-                                                std::function<void(std::optional<UpdateManifest>, const QString &)> completion)
+                                                FetchManifestCallback completion)
 {
     const QString manifestUrl = manifestUrlForChannel(channel);
     QNetworkRequest request{QUrl(manifestUrl)};
@@ -53,10 +53,11 @@ void GitHubReleaseUpdateProvider::fetchManifest(const QString &channel,
         const QByteArray body = reply->readAll();
         const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QNetworkReply::NetworkError networkError = reply->error();
+        const QString errorString = reply->errorString();
         reply->deleteLater();
 
         if (networkError != QNetworkReply::NoError) {
-            finish(std::nullopt, QObject::tr("Update check failed: %1").arg(reply->errorString()));
+            finish(std::nullopt, QObject::tr("Update check failed: %1").arg(errorString));
             return;
         }
 

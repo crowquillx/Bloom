@@ -13,7 +13,7 @@ public:
 
     void fetchManifest(const QString &channel,
                        QObject *context,
-                       std::function<void(std::optional<UpdateManifest>, const QString &)> completion) override;
+                       FetchManifestCallback completion) override;
 
     static std::optional<UpdateManifest> parseManifestBytes(const QByteArray &data, QString *errorMessage = nullptr);
     static QString manifestUrlForChannel(const QString &channel);
