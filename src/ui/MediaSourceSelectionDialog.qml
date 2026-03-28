@@ -98,14 +98,14 @@ FocusScope {
             var pointInContent = item.mapToItem(optionColumn, 0, 0)
             var itemTop = pointInContent.y
             var itemBottom = itemTop + item.height
-            var viewTop = flick.contentY
+            var viewTop = flick["contentY"]
             var viewBottom = viewTop + flick.height
 
             if (itemTop < viewTop) {
-                flick.contentY = Math.max(0, itemTop - Theme.spacingSmall)
+                flick["contentY"] = Math.max(0, itemTop - Theme.spacingSmall)
             } else if (itemBottom > viewBottom) {
-                var maxY = Math.max(0, flick.contentHeight - flick.height)
-                flick.contentY = Math.min(maxY, itemBottom - flick.height + Theme.spacingSmall)
+                var maxY = Math.max(0, flick["contentHeight"] - flick.height)
+                flick["contentY"] = Math.min(maxY, itemBottom - flick.height + Theme.spacingSmall)
             }
         }
 
@@ -130,13 +130,6 @@ FocusScope {
             if (initialItem) {
                 initialItem.forceActiveFocus()
                 ensureOptionVisible(initialItem)
-            }
-        }
-
-        Keys.onPressed: function(event) {
-            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
-                closeWithoutSelection()
-                event.accepted = true
             }
         }
 
@@ -200,9 +193,16 @@ FocusScope {
             }
         }
 
-        contentItem: Item {
+        contentItem: FocusScope {
             implicitWidth: Math.round(680 * Theme.layoutScale)
             implicitHeight: Math.round(560 * Theme.layoutScale)
+
+            Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+                    dialog.closeWithoutSelection()
+                    event.accepted = true
+                }
+            }
 
             ScrollView {
                 id: contentScroll
@@ -217,12 +217,12 @@ FocusScope {
 
                     Repeater {
                         id: optionRepeater
-                        model: optionsModel
+                        model: dialog.optionsModel
 
                         delegate: Button {
                             id: optionButton
                             required property int index
-                            readonly property var optionData: optionsModel[index]
+                            readonly property var optionData: dialog.optionsModel[index]
                             readonly property bool selectedOption: !!(optionData && optionData.selected)
 
                             width: optionColumn.width

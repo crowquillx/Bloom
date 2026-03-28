@@ -443,7 +443,7 @@ FocusScope {
                     onClicked: newProfileDialog.reject()
 
                     contentItem: Text {
-                        text: parent.text
+                        text: newProfileCancelBtn.text
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         color: Theme.textSecondary
@@ -487,7 +487,7 @@ FocusScope {
                     onClicked: newProfileDialog.accept()
 
                     contentItem: Text {
-                        text: parent.text
+                        text: newProfileCreateBtn.text
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         color: parent.enabled ? Theme.textPrimary : Theme.textDisabled
@@ -639,7 +639,7 @@ FocusScope {
                     onClicked: deleteProfileDialog.reject()
 
                     contentItem: Text {
-                        text: parent.text
+                        text: deleteDialogCancelBtn.text
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         color: Theme.textSecondary
@@ -672,7 +672,7 @@ FocusScope {
                     onClicked: deleteProfileDialog.accept()
 
                     contentItem: Text {
-                        text: parent.text
+                        text: deleteDialogConfirmBtn.text
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         color: "#ff6b6b"
@@ -844,7 +844,7 @@ FocusScope {
                                 KeyNavigation.down: accountSection.toggleButton
 
                                 contentItem: Text {
-                                    text: parent.text
+                                    text: expandAllButton.text
                                     font.pixelSize: Theme.fontSizeSmall
                                     font.family: Theme.fontPrimary
                                     color: Theme.textPrimary
@@ -874,7 +874,7 @@ FocusScope {
                                 KeyNavigation.down: accountSection.toggleButton
 
                                 contentItem: Text {
-                                    text: parent.text
+                                    text: collapseAllButton.text
                                     font.pixelSize: Theme.fontSizeSmall
                                     font.family: Theme.fontPrimary
                                     color: Theme.textPrimary
@@ -1196,8 +1196,6 @@ FocusScope {
 
                                         ScrollIndicator.vertical: ScrollIndicator { }
 
-                                        onCurrentIndexChanged: autoplayCountdownCombo.highlightedIndex = currentIndex
-
                                         onActiveFocusChanged: {
                                             if (activeFocus) {
                                                 InputModeManager.setNavigationMode("keyboard")
@@ -1452,8 +1450,6 @@ FocusScope {
 
                                         ScrollIndicator.vertical: ScrollIndicator { }
 
-                                        onCurrentIndexChanged: uiSoundsVolumeCombo.highlightedIndex = currentIndex
-
                                         Keys.onReturnPressed: {
                                             uiSoundsVolumeCombo.currentIndex = currentIndex
                                             uiSoundsVolumeCombo.popup.close()
@@ -1593,8 +1589,6 @@ FocusScope {
 
                                         ScrollIndicator.vertical: ScrollIndicator { }
 
-                                        onCurrentIndexChanged: themeSongVolumeCombo.highlightedIndex = currentIndex
-                                        
                                         Keys.onReturnPressed: { 
                                             themeSongVolumeCombo.currentIndex = currentIndex
                                             themeSongVolumeCombo.popup.close() 
@@ -1773,8 +1767,6 @@ FocusScope {
 
                                         ScrollIndicator.vertical: ScrollIndicator { }
 
-                                        onCurrentIndexChanged: themeCombo.highlightedIndex = currentIndex
-                                        
                                         Keys.onReturnPressed: { 
                                             themeCombo.currentIndex = currentIndex
                                             themeCombo.popup.close() 
@@ -2212,8 +2204,6 @@ FocusScope {
 
                                         ScrollIndicator.vertical: ScrollIndicator { }
 
-                                        onCurrentIndexChanged: defaultProfileCombo.highlightedIndex = currentIndex
-                                        
                                         Keys.onReturnPressed: { 
                                             defaultProfileCombo.currentIndex = currentIndex
                                             defaultProfileCombo.popup.close() 
@@ -2426,8 +2416,6 @@ FocusScope {
                                                 : editProfileCombo.currentIndex
 
                                             ScrollIndicator.vertical: ScrollIndicator { }
-                                            onCurrentIndexChanged: editProfileCombo.highlightedIndex = currentIndex
-
                                             Keys.onReturnPressed: {
                                                 editProfileCombo.currentIndex = currentIndex
                                                 editProfileCombo.popup.close()
@@ -2465,7 +2453,7 @@ FocusScope {
                                     Keys.onRightPressed: duplicateProfileBtn.forceActiveFocus()
                                     
                                     contentItem: Text {
-                                        text: parent.text
+                                        text: newProfileBtn.text
                                         font.pixelSize: Theme.fontSizeSmall
                                         font.family: Theme.fontPrimary
                                         color: Theme.accentPrimary
@@ -2538,7 +2526,7 @@ FocusScope {
                                     }
 
                                     contentItem: Text {
-                                        text: parent.text
+                                        text: duplicateProfileBtn.text
                                         font.pixelSize: Theme.fontSizeSmall
                                         font.family: Theme.fontPrimary
                                         color: duplicateProfileBtn.enabled ? Theme.accentPrimary : Theme.textDisabled
@@ -2593,7 +2581,7 @@ FocusScope {
                                     }
 
                                     contentItem: Text {
-                                        text: parent.text
+                                        text: deleteProfileBtn.text
                                         font.pixelSize: Theme.fontSizeSmall
                                         font.family: Theme.fontPrimary
                                         color: deleteProfileBtn.enabled ? "#ff8c8c" : Theme.textDisabled
@@ -3937,11 +3925,15 @@ FocusScope {
         property int stepSize: 1
         property string unit: ""
         
-        Accessible.role: Accessible.SpinButton
+        Accessible.role: Accessible.SpinBox
         Accessible.name: label
         Accessible.description: description
         
         signal spinBoxValueChanged(int newValue)
+
+        function formatSpinBoxValue(value) {
+            return value + (spinBoxRow.unit ? " " + spinBoxRow.unit : "")
+        }
         
         implicitHeight: spinBoxContent.implicitHeight
         
@@ -4006,10 +3998,6 @@ FocusScope {
                         spinBoxRow.spinBoxValueChanged(value)
                     }
                     
-                    textFromValue: function(value, locale) {
-                        return value + (spinBoxRow.unit ? " " + spinBoxRow.unit : "")
-                    }
-
                     valueFromText: function(text, locale) {
                         var cleanText = text
                         if (spinBoxRow.unit) {
@@ -4020,7 +4008,7 @@ FocusScope {
                     
                     contentItem: TextInput {
                         z: 2
-                        text: spinBox.textFromValue(spinBox.value, spinBox.locale)
+                        text: spinBoxRow.formatSpinBoxValue(spinBox.value)
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         color: Theme.textPrimary

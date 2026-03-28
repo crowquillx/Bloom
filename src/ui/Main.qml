@@ -165,17 +165,19 @@ Window {
         }
 
         function saveFocusForSidebar() {
-            if (stackView.currentItem && typeof stackView.currentItem.saveFocusForSidebar === "function") {
-                stackView.currentItem.saveFocusForSidebar()
+            var currentItem = stackView.currentItem
+            if (currentItem && typeof currentItem["saveFocusForSidebar"] === "function") {
+                currentItem["saveFocusForSidebar"]()
             }
         }
 
         function restoreFocusFromSidebar() {
             restoringFocusFromSidebar = true
-            if (stackView.currentItem && typeof stackView.currentItem.restoreFocusFromSidebar === "function") {
-                stackView.currentItem.restoreFocusFromSidebar()
-            } else if (stackView.currentItem) {
-                stackView.currentItem.forceActiveFocus()
+            var currentItem = stackView.currentItem
+            if (currentItem && typeof currentItem["restoreFocusFromSidebar"] === "function") {
+                currentItem["restoreFocusFromSidebar"]()
+            } else if (currentItem) {
+                currentItem.forceActiveFocus()
             } else {
                 forceActiveFocus()
             }
@@ -209,13 +211,14 @@ Window {
             if (restoringFocusFromSidebar) {
                 return
             }
-            if (stackView.currentItem
-                    && stackView.currentItem.restoringFocusFromSeriesDetailsReturn) {
+            var currentItem = stackView.currentItem
+            if (currentItem
+                    && currentItem["restoringFocusFromSeriesDetailsReturn"]) {
                 return
             }
-            if (activeFocus && stackView.currentItem && !stackView.currentItem.activeFocus) {
+            if (activeFocus && currentItem && !currentItem.activeFocus) {
                 console.log("[FocusDebug] mainContentArea got focus, forwarding to currentItem")
-                const item = stackView.currentItem
+                const item = currentItem
                 Qt.callLater(function() {
                     if (!mainContentArea.activeFocus || !item || item !== stackView.currentItem || item.activeFocus) {
                         return
@@ -235,7 +238,7 @@ Window {
                 // Let screens with restoreFocusState handle their own focus restoration
                 // This allows HomeScreen to restore focus to the previously selected item
                 if (currentItem && !sidebar.expanded) {
-                    if (currentItem.restoreFocusState) {
+                    if (typeof currentItem["restoreFocusState"] === "function") {
                         console.log("[FocusDebug] Screen has restoreFocusState, letting it handle focus")
                         // Don't force focus here - let StackView.onStatusChanged in the screen handle it
                     } else {
@@ -285,8 +288,8 @@ Window {
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
                 running: upNextBlockingOverlay.visible
-                width: Math.round(52 * Theme.layoutScale)
-                height: Math.round(52 * Theme.layoutScale)
+                Layout.preferredWidth: Math.round(52 * Theme.layoutScale)
+                Layout.preferredHeight: Math.round(52 * Theme.layoutScale)
                 palette.dark: Theme.textPrimary
                 palette.light: Theme.accentSecondary
             }
@@ -447,8 +450,8 @@ Window {
             switch (navigationId) {
                 case "home":
                     // Save focus state before navigating
-                    var homeScreen = stackView.find(function(item) { return item && item.navigationId === "home" })
-                    if (homeScreen) homeScreen.saveFocusState()
+                    var homeScreen = stackView.find(function(item) { return item && item["navigationId"] === "home" })
+                    if (homeScreen && typeof homeScreen["saveFocusState"] === "function") homeScreen["saveFocusState"]()
                     // Pop back to home screen
                     while (stackView.depth > 1) {
                         stackView.pop()
@@ -456,22 +459,22 @@ Window {
                     break
                 case "search":
                     // Save focus state before navigating
-                    var homeForSearch = stackView.find(function(item) { return item && item.navigationId === "home" })
-                    if (homeForSearch) homeForSearch.saveFocusState()
+                    var homeForSearch = stackView.find(function(item) { return item && item["navigationId"] === "home" })
+                    if (homeForSearch && typeof homeForSearch["saveFocusState"] === "function") homeForSearch["saveFocusState"]()
                     // Navigate to search screen
                     pushSearchScreen()
                     break
                 case "settings":
                     // Save focus state before navigating
-                    var homeForSettings = stackView.find(function(item) { return item && item.navigationId === "home" })
-                    if (homeForSettings) homeForSettings.saveFocusState()
+                    var homeForSettings = stackView.find(function(item) { return item && item["navigationId"] === "home" })
+                    if (homeForSettings && typeof homeForSettings["saveFocusState"] === "function") homeForSettings["saveFocusState"]()
                     // Navigate to settings screen
                     pushSettingsScreen()
                     break
                 case "updates":
                     // Save focus state before navigating
-                    var homeForUpdates = stackView.find(function(item) { return item && item.navigationId === "home" })
-                    if (homeForUpdates) homeForUpdates.saveFocusState()
+                    var homeForUpdates = stackView.find(function(item) { return item && item["navigationId"] === "home" })
+                    if (homeForUpdates && typeof homeForUpdates["saveFocusState"] === "function") homeForUpdates["saveFocusState"]()
                     pushSettingsScreen({ focusUpdatesOnActivate: true })
                     break
             }
@@ -482,8 +485,8 @@ Window {
             if (!libraryId)
                 return
             // Save focus state before navigating
-            var homeScreenForLibrary = stackView.find(function(item) { return item && item.navigationId === "home" })
-            if (homeScreenForLibrary) homeScreenForLibrary.saveFocusState()
+            var homeScreenForLibrary = stackView.find(function(item) { return item && item["navigationId"] === "home" })
+            if (homeScreenForLibrary && typeof homeScreenForLibrary["saveFocusState"] === "function") homeScreenForLibrary["saveFocusState"]()
             stackView.push("LibraryScreen.qml", {
                 currentParentId: libraryId,
                 currentLibraryId: libraryId,
@@ -505,7 +508,7 @@ Window {
     // Function to push settings screen and wire up signals
     function updateSidebarNavigation() {
         var item = stackView.currentItem
-        var navigationId = (item && item.navigationId) ? item.navigationId : "home"
+        var navigationId = (item && item["navigationId"]) ? item["navigationId"] : "home"
         sidebar.currentNavigation = navigationId
         if (navigationId && navigationId.indexOf("library:") === 0) {
             sidebar.currentLibraryId = navigationId.substring("library:".length)
@@ -528,13 +531,13 @@ Window {
         })
         Qt.callLater(function() {
             var settingsScreen = stackView.currentItem
-            if (settingsScreen && settingsScreen.signOutRequested) {
-                settingsScreen.signOutRequested.connect(function() {
+            if (settingsScreen && settingsScreen["signOutRequested"]) {
+                settingsScreen["signOutRequested"].connect(function() {
                     AuthenticationService.logout()
                 })
             }
-            if (settingsScreen && options.focusUpdatesOnActivate && settingsScreen.requestUpdateSectionFocus) {
-                settingsScreen.requestUpdateSectionFocus()
+            if (settingsScreen && options.focusUpdatesOnActivate && typeof settingsScreen["requestUpdateSectionFocus"] === "function") {
+                settingsScreen["requestUpdateSectionFocus"]()
             }
         })
         updateSidebarNavigation()
@@ -668,8 +671,8 @@ Window {
                     // Defer calling showMovieDetailsView until screen is ready
                     Qt.callLater(function() {
                         var screen = stackView.currentItem
-                        if (screen && screen.showMovieDetailsView) {
-                            screen.showMovieDetailsView(movieData)
+                        if (screen && typeof screen["showMovieDetailsView"] === "function") {
+                            screen["showMovieDetailsView"](movieData)
                         }
                     })
                 })
@@ -690,8 +693,8 @@ Window {
                     // Defer calling showEpisodeDetails until screen is ready
                     Qt.callLater(function() {
                         var screen = stackView.currentItem
-                        if (screen && screen.showEpisodeDetails) {
-                            screen.showEpisodeDetails(episodeData)
+                        if (screen && typeof screen["showEpisodeDetails"] === "function") {
+                            screen["showEpisodeDetails"](episodeData)
                         }
                     })
                 })
@@ -872,7 +875,7 @@ Window {
         enabled: !PlayerController.isPlaybackActive
                  && stackView.depth > 1
                  && !sidebar.expanded
-                 && !(stackView.currentItem && stackView.currentItem.handlesOwnBackNavigation === true)
+                 && !(stackView.currentItem && stackView.currentItem["handlesOwnBackNavigation"] === true)
         onActivated: {
             console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "sidebar.expanded:", sidebar.expanded)
             if (stackView.depth > 1) {

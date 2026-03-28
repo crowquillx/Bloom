@@ -8,12 +8,12 @@ Column {
     property bool autoHide: true      // Hide unless hasError when true
     property string fallbackMessage: qsTr("Something went wrong")
     spacing: 8
-    visible: !autoHide || (target && target.hasError)
+    visible: !root.autoHide || (root.target && root.target.hasError)
 
     Label {
         id: messageLabel
-        visible: target && target.hasError
-        text: target && target.errorMessage ? target.errorMessage : fallbackMessage
+        visible: root.target && root.target.hasError
+        text: root.target && root.target.errorMessage ? root.target.errorMessage : root.fallbackMessage
         color: Theme.textMuted
         wrapMode: Text.WordWrap
         horizontalAlignment: Text.AlignHCenter
@@ -22,21 +22,20 @@ Column {
     Button {
         id: retryButton
         text: qsTr("Retry")
-        enabled: target && !target.isLoading
+        enabled: root.target && !root.target.isLoading
         onClicked: {
-            if (target && target.reload) {
-                target.reload()
+            if (root.target && root.target.reload) {
+                root.target.reload()
             }
         }
     }
 
     BusyIndicator {
         anchors.horizontalCenter: retryButton.horizontalCenter
-        running: target && target.isLoading
+        running: root.target && root.target.isLoading
         visible: running
     }
 }
-
 
 
 

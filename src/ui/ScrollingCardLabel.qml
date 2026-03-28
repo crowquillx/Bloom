@@ -28,10 +28,6 @@ Item {
                 anchors.horizontalCenter: scrollingLabel.overflowWidth > 0 ? undefined : scrollingLabel.horizontalCenter
             }
 
-            PropertyChanges {
-                target: label
-                x: 0
-            }
         },
         State {
             name: "scrolling"
@@ -43,10 +39,6 @@ Item {
                 anchors.horizontalCenter: undefined
             }
 
-            PropertyChanges {
-                target: label
-                x: 0
-            }
         }
     ]
 
@@ -58,6 +50,7 @@ Item {
         font.weight: scrollingLabel.fontWeight
         color: scrollingLabel.textColor
         wrapMode: Text.NoWrap
+        x: 0
     }
 
     SequentialAnimation {

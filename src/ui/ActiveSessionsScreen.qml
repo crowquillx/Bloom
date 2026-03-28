@@ -27,13 +27,13 @@ FocusScope {
 
     // Handle self-session revocation
     Connections {
-        target: sessionService
+        target: root.sessionService
         function onSelfSessionRevoked() {
             // Current session was revoked - show message and navigate to login
             toast.show("Your session was revoked on another device. Logging out...");
             Qt.callLater(function() {
-                if (authService) {
-                    authService.logout();
+                if (root.authService) {
+                    root.authService.logout();
                 }
             });
         }
@@ -60,8 +60,8 @@ FocusScope {
                 text: "\ue92f"  // Back arrow icon
                 font.family: Icons.materialFamily
                 font.pixelSize: Theme.iconSizeMedium
-                width: Theme.iconSizeLarge
-                height: Theme.iconSizeLarge
+                Layout.preferredWidth: Theme.iconSizeLarge
+                Layout.preferredHeight: Theme.iconSizeLarge
 
                 onClicked: root.backRequested()
                 onActivated: root.backRequested()
@@ -83,8 +83,8 @@ FocusScope {
                 text: "\ue5d5"  // Refresh icon
                 font.family: Icons.materialFamily
                 font.pixelSize: Theme.iconSizeSmall
-                width: Theme.iconSizeMedium
-                height: Theme.iconSizeMedium
+                Layout.preferredWidth: Theme.iconSizeMedium
+                Layout.preferredHeight: Theme.iconSizeMedium
                 toolTipText: "Refresh"
 
                 onClicked: refresh()
@@ -99,17 +99,17 @@ FocusScope {
                 text: "Revoke All Others"
                 font.pixelSize: Theme.fontSizeBody
                 height: Theme.iconSizeMedium
-                enabled: sessionService && sessionService.sessions.length > 1
+                enabled: root.sessionService && root.sessionService.sessions.length > 1
                 opacity: enabled ? 1.0 : 0.5
 
                 onClicked: {
-                    if (sessionService) {
-                        sessionService.revokeAllOtherSessions();
+                    if (root.sessionService) {
+                        root.sessionService.revokeAllOtherSessions();
                     }
                 }
                 onActivated: {
-                    if (sessionService) {
-                        sessionService.revokeAllOtherSessions();
+                    if (root.sessionService) {
+                        root.sessionService.revokeAllOtherSessions();
                     }
                 }
 
@@ -121,17 +121,17 @@ FocusScope {
         // Loading indicator
         BusyIndicator {
             Layout.alignment: Qt.AlignHCenter
-            running: sessionService && sessionService.isLoading
+            running: root.sessionService && root.sessionService.isLoading
             visible: running
-            width: Theme.iconSizeLarge
-            height: Theme.iconSizeLarge
+            Layout.preferredWidth: Theme.iconSizeLarge
+            Layout.preferredHeight: Theme.iconSizeLarge
         }
 
         // Error display
         Label {
             Layout.fillWidth: true
-            text: sessionService ? sessionService.errorString : ""
-            visible: sessionService && sessionService.errorString.length > 0
+            text: root.sessionService ? root.sessionService.errorString : ""
+            visible: root.sessionService && root.sessionService.errorString.length > 0
             color: Theme.errorColor
             font.pixelSize: Theme.fontSizeBody
             wrapMode: Text.Wrap
@@ -145,7 +145,7 @@ FocusScope {
             Layout.fillHeight: true
             clip: true
             spacing: Theme.spacingSmall
-            model: sessionService ? sessionService.sessions : []
+            model: root.sessionService ? root.sessionService.sessions : []
 
             KeyNavigation.up: backButton
 
@@ -153,7 +153,7 @@ FocusScope {
                 id: sessionDelegate
                 width: sessionsList.width
                 height: 80
-                property bool isCurrent: model.id === (sessionService ? sessionService.currentSessionId : "")
+                property bool isCurrent: model.id === (root.sessionService ? root.sessionService.currentSessionId : "")
 
                 // Background
                 Rectangle {
@@ -198,8 +198,8 @@ FocusScope {
                             // Current session badge
                             Rectangle {
                                 visible: sessionDelegate.isCurrent
-                                width: currentSessionLabel.width + Theme.spacingSmall * 2
-                                height: currentSessionLabel.height + Theme.spacingXSmall * 2
+                                implicitWidth: currentSessionLabel.implicitWidth + Theme.spacingSmall * 2
+                                implicitHeight: currentSessionLabel.implicitHeight + Theme.spacingXSmall * 2
                                 color: Theme.accentColor
                                 radius: Theme.radiusSmall
 
@@ -235,18 +235,18 @@ FocusScope {
                         text: "\ue14c"  // Close/cancel icon
                         font.family: Icons.materialFamily
                         font.pixelSize: Theme.iconSizeSmall
-                        width: Theme.iconSizeMedium
-                        height: Theme.iconSizeMedium
+                        Layout.preferredWidth: Theme.iconSizeMedium
+                        Layout.preferredHeight: Theme.iconSizeMedium
                         toolTipText: "Revoke session"
 
                         onClicked: {
-                            if (sessionService) {
-                                sessionService.revokeSession(model.id);
+                            if (root.sessionService) {
+                                root.sessionService.revokeSession(model.id);
                             }
                         }
                         onActivated: {
-                            if (sessionService) {
-                                sessionService.revokeSession(model.id);
+                            if (root.sessionService) {
+                                root.sessionService.revokeSession(model.id);
                             }
                         }
 
@@ -268,7 +268,7 @@ FocusScope {
 
             // Empty state
             Label {
-                visible: parent.count === 0 && (!sessionService || !sessionService.isLoading)
+                visible: parent.count === 0 && (!root.sessionService || !root.sessionService.isLoading)
                 anchors.centerIn: parent
                 text: "No active sessions found"
                 font.pixelSize: Theme.fontSizeBody

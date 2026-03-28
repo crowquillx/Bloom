@@ -26,11 +26,11 @@ Item {
         anchors {
             right: parent.right
             bottom: parent.bottom
-            rightMargin: shrinkEnabled ? Theme.spacingLg : 0
-            bottomMargin: shrinkEnabled ? Theme.spacingLg : 0
+            rightMargin: root.shrinkEnabled ? Theme.spacingLarge : 0
+            bottomMargin: root.shrinkEnabled ? Theme.spacingLarge : 0
         }
-        width: shrinkEnabled ? parent.width * 0.72 : parent.width
-        height: shrinkEnabled ? (parent.height * 0.72) : parent.height
+        width: root.shrinkEnabled ? parent.width * 0.72 : parent.width
+        height: root.shrinkEnabled ? (parent.height * 0.72) : parent.height
 
         onViewportChanged: function(x, y, width, height) {
             PlayerController.setEmbeddedVideoViewport(x, y, width, height)

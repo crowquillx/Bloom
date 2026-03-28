@@ -172,9 +172,11 @@ FocusScope {
             // Check if a recentlyAddedList has focus and save its state
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                 var item = recentlyAddedRepeater.itemAt(i)
-                if (item && item.recentlyAddedListRef && item.recentlyAddedListRef.activeFocus) {
-                    savedRecentlyAddedLibraryId = item.libraryId
-                    savedRecentlyAddedIndex = item.recentlyAddedListRef.currentIndex
+                var recentlyAddedListRef = item ? item["recentlyAddedListRef"] : null
+                var libraryId = item ? item["libraryId"] : ""
+                if (item && recentlyAddedListRef && recentlyAddedListRef.activeFocus) {
+                    savedRecentlyAddedLibraryId = libraryId
+                    savedRecentlyAddedIndex = recentlyAddedListRef.currentIndex
                     break
                 }
             }
@@ -195,8 +197,10 @@ FocusScope {
             // Find the matching recentlyAddedList for the saved library
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                 var item = recentlyAddedRepeater.itemAt(i)
-                if (item && item.libraryId === savedRecentlyAddedLibraryId && item.recentlyAddedListRef) {
-                    var list = item.recentlyAddedListRef
+                var itemLibraryId = item ? item["libraryId"] : ""
+                var itemListRef = item ? item["recentlyAddedListRef"] : null
+                if (item && itemLibraryId === savedRecentlyAddedLibraryId && itemListRef) {
+                    var list = itemListRef
                     if (savedRecentlyAddedIndex < list.count) {
                         list.currentIndex = savedRecentlyAddedIndex
                         list.positionViewAtIndex(savedRecentlyAddedIndex, ListView.Contain)
@@ -228,9 +232,11 @@ FocusScope {
             // Check recentlyAdded lists
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                 var list = recentlyAddedRepeater.itemAt(i)
-                if (list && list.recentlyAddedListRef && list.recentlyAddedListRef.activeFocus) {
-                    section = "recentlyAdded:" + list.libraryId
-                    index = list.recentlyAddedListRef.currentIndex
+                var recentlyAddedListRef = list ? list["recentlyAddedListRef"] : null
+                var libraryId = list ? list["libraryId"] : ""
+                if (list && recentlyAddedListRef && recentlyAddedListRef.activeFocus) {
+                    section = "recentlyAdded:" + libraryId
+                    index = recentlyAddedListRef.currentIndex
                     break
                 }
             }
@@ -262,8 +268,10 @@ FocusScope {
             var libraryId = lastFocusedSection.substring("recentlyAdded:".length)
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                 var list = recentlyAddedRepeater.itemAt(i)
-                if (list && list.libraryId === libraryId && list.recentlyAddedListRef) {
-                    targetList = list.recentlyAddedListRef
+                var listLibraryId = list ? list["libraryId"] : ""
+                var listRef = list ? list["recentlyAddedListRef"] : null
+                if (list && listLibraryId === libraryId && listRef) {
+                    targetList = listRef
                     targetSection = list
                     break
                 }
@@ -516,7 +524,7 @@ FocusScope {
             spacing: Theme.spacingXLarge
             
             // Top spacing
-            Item { height: Theme.paddingLarge }
+            Item { Layout.preferredHeight: Theme.paddingLarge }
             
             // My Media Section
             ColumnLayout {
@@ -703,8 +711,9 @@ FocusScope {
                             // Find first visible recently added list
                             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                                 var item = recentlyAddedRepeater.itemAt(i)
-                                if (item && item.visible) {
-                                    item.recentlyAddedListRef.forceActiveFocus()
+                                var recentlyAddedListRef = item ? item["recentlyAddedListRef"] : null
+                                if (item && item.visible && recentlyAddedListRef) {
+                                    recentlyAddedListRef.forceActiveFocus()
                                     break
                                 }
                             }
@@ -970,8 +979,9 @@ FocusScope {
                         if (recentlyAddedRepeater.count > 0) {
                             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
                                 var item = recentlyAddedRepeater.itemAt(i)
-                                if (item && item.visible) {
-                                    item.recentlyAddedListRef.forceActiveFocus()
+                                var recentlyAddedListRef = item ? item["recentlyAddedListRef"] : null
+                                if (item && item.visible && recentlyAddedListRef) {
+                                    recentlyAddedListRef.forceActiveFocus()
                                     break
                                 }
                             }
@@ -1300,7 +1310,7 @@ FocusScope {
             }
             
             // Bottom spacing
-            Item { height: Theme.paddingLarge }
+            Item { Layout.preferredHeight: Theme.paddingLarge }
         } // end mainColumn
     } // end Flickable
 

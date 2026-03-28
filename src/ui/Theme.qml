@@ -120,14 +120,17 @@ QtObject {
     property color accentSecondary: activeTheme.accentSecondary
     property color accentGradientStart: activeTheme.accentGradientStart
     property color accentGradientEnd: activeTheme.accentGradientEnd
+    property color accentColor: accentPrimary
 
     // Text colors
     property color textPrimary: activeTheme.textPrimary
     property color textSecondary: activeTheme.textSecondary
     property color textDisabled: activeTheme.textDisabled
+    property color textMuted: textSecondary
     property color chipBackground: activeTheme.chipBackground
     property color chipBorder: activeTheme.chipBorder
     property color textOnAccent: "#191724"  // Dark text for use on accent-colored backgrounds
+    property color errorColor: "#ff6b6b"
     
     // Overlays & Gradients
     property color overlayDark: "#60000000"
@@ -205,6 +208,9 @@ QtObject {
     property int fontSizeSmall: Math.round(fontSizeSmallBase * layoutScale)
     property int fontSizeCaption: Math.round(fontSizeCaptionBase * layoutScale)
     property int fontSizeMedium: Math.round(fontSizeMediumBase * layoutScale)
+    property int iconSizeSmall: fontSizeSmall
+    property int iconSizeMedium: fontSizeIcon
+    property int iconSizeLarge: fontSizeMedium
     
     // ============================
     // Responsive Spacing
@@ -221,6 +227,8 @@ QtObject {
     property int spacingMedium: Math.round(spacingMediumBase * layoutScale)
     property int spacingLarge: Math.round(spacingLargeBase * layoutScale)
     property int spacingXLarge: Math.round(spacingXLargeBase * layoutScale)
+    property int spacingXSmall: Math.max(4, Math.round(spacingSmall * 0.5))
+    property int spacingLg: spacingLarge
     property int paddingLarge: Math.round(paddingLargeBase * layoutScale)
     
     // ============================
@@ -328,6 +336,7 @@ QtObject {
     // Animation durations are fixed (not scaled) for consistent feel
     property int durationShort: uiAnimationsEnabled ? 150 : 0
     property int durationNormal: uiAnimationsEnabled ? 200 : 0
+    property int durationMedium: durationNormal
     property int durationLong: uiAnimationsEnabled ? 300 : 0
     property int durationFade: uiAnimationsEnabled ? 500 : 0
     
