@@ -62,6 +62,22 @@ RUN printf '#!/bin/bash\n\
     \n\
     echo "Running incremental build..."\n\
     ninja\n\
+    \n\
+    echo "Running QML lint..."\n\
+    qmllint_bin="$(command -v qmllint || true)"\n\
+    if [ -z "$qmllint_bin" ] && [ -x /usr/lib/qt6/bin/qmllint ]; then\n\
+    qmllint_bin=/usr/lib/qt6/bin/qmllint\n\
+    fi\n\
+    if [ -z "$qmllint_bin" ]; then\n\
+    echo "qmllint not found in container."\n\
+    exit 1\n\
+    fi\n\
+    mapfile -t qml_files < <(find /workspace/build-docker/src/BloomUI/ui -type f -name "*.qml" | sort)\n\
+    if [ "${#qml_files[@]}" -eq 0 ]; then\n\
+    echo "No built QML files found for linting."\n\
+    exit 1\n\
+    fi\n\
+    "$qmllint_bin" -I /workspace/build-docker/src -I /usr/lib/qt6/qml "${qml_files[@]}"\n\
     echo ""\n\
     echo "Build complete! Binary at: build-docker/src/Bloom"\n' > /usr/local/bin/build-bloom.sh && \
     chmod +x /usr/local/bin/build-bloom.sh

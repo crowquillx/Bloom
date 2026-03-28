@@ -394,30 +394,36 @@ Window {
             }
         }
 
-        footer: RowLayout {
-            spacing: Theme.spacingMedium
-            padding: Theme.spacingLarge
+        footer: Item {
+            implicitHeight: footerLayout.implicitHeight + (Theme.spacingLarge * 2)
 
-            Button {
-                id: updatePrimaryButton
-                text: UpdateService.applySupported ? qsTr("Download and Install") : qsTr("Open Download Page")
-                enabled: !UpdateService.downloadInProgress && !UpdateService.installerLaunched
-                onClicked: {
-                    if (UpdateService.applySupported) {
-                        updateDialog.close()
-                        UpdateService.downloadAndInstallUpdate()
-                    } else {
-                        UpdateService.openUpdateDownloadPage()
-                        updateDialog.close()
+            RowLayout {
+                id: footerLayout
+                anchors.fill: parent
+                anchors.margins: Theme.spacingLarge
+                spacing: Theme.spacingMedium
+
+                Button {
+                    id: updatePrimaryButton
+                    text: UpdateService.applySupported ? qsTr("Download and Install") : qsTr("Open Download Page")
+                    enabled: !UpdateService.downloadInProgress && !UpdateService.installerLaunched
+                    onClicked: {
+                        if (UpdateService.applySupported) {
+                            updateDialog.close()
+                            UpdateService.downloadAndInstallUpdate()
+                        } else {
+                            UpdateService.openUpdateDownloadPage()
+                            updateDialog.close()
+                        }
                     }
                 }
-            }
 
-            Button {
-                text: qsTr("Later")
-                onClicked: {
-                    UpdateService.dismissStartupPopup()
-                    updateDialog.close()
+                Button {
+                    text: qsTr("Later")
+                    onClicked: {
+                        UpdateService.dismissStartupPopup()
+                        updateDialog.close()
+                    }
                 }
             }
         }

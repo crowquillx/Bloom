@@ -89,7 +89,8 @@ The `build-docker.sh` script handles containerized builds with automatic depende
 2. Builds the `bloom-build` container image from the Dockerfile
 3. Mounts the project directory at `/workspace` inside the container
 4. Runs the build, preserving `build-docker/` (or `build-docker-windows/`) on the host for incremental builds
-5. Outputs the executable to `build-docker/src/Bloom` (or `build-docker-windows/src/Bloom.exe`)
+5. Runs `qmllint` against the built `BloomUI` module so QML warnings are surfaced during the standard build
+6. Outputs the executable to `build-docker/src/Bloom` (or `build-docker-windows/src/Bloom.exe`)
 
 **Testing the build:**
 ```bash
