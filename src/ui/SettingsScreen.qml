@@ -3095,9 +3095,6 @@ FocusScope {
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
                                         root.activateKeyboardFocusForItem(updateChannelCombo)
-                                    } else if (!popup.visible && typeof InputModeManager !== "undefined") {
-                                        InputModeManager.setNavigationMode("pointer")
-                                        InputModeManager.hideCursor(false)
                                     }
                                 }
 

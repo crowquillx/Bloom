@@ -92,13 +92,19 @@ def main() -> int:
 
     notes = ""
     if args.notes_file:
-        notes = Path(args.notes_file).read_text(encoding="utf-8").strip()
+        try:
+            notes = Path(args.notes_file).read_text(encoding="utf-8").strip()
+        except Exception as exc:
+            return fail(args.notes_file, str(exc))
+
+    normalized_build_id = args.build_id.strip()
+    normalized_release_tag = args.release_tag.strip()
 
     payload = {
         "channel": args.channel,
         "version": version,
-        "build_id": args.build_id,
-        "release_tag": args.release_tag,
+        "build_id": normalized_build_id,
+        "release_tag": normalized_release_tag,
         "published_at": published_at,
         "notes": notes,
         "installer": {

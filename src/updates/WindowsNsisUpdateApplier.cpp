@@ -207,7 +207,19 @@ void WindowsNsisUpdateApplier::downloadAndInstall(const UpdateManifest &manifest
             return;
         }
 
-        const QByteArray digest = QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256).toHex().toLower();
+        QCryptographicHash hash(QCryptographicHash::Sha256);
+        constexpr qint64 chunkSize = 64 * 1024;
+        while (!file.atEnd()) {
+            const QByteArray chunk = file.read(chunkSize);
+            if (chunk.isEmpty() && file.error() != QFileDevice::NoError) {
+                discardPartialDownload();
+                finishWithError(tr("Downloaded installer could not be verified."));
+                return;
+            }
+            hash.addData(chunk);
+        }
+
+        const QByteArray digest = hash.result().toHex().toLower();
         const QByteArray expected = m_pendingManifest.installer.sha256.toUtf8().trimmed().toLower();
         if (digest != expected) {
             discardPartialDownload();

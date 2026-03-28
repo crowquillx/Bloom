@@ -72,7 +72,6 @@ UpdateService::UpdateService(ConfigManager *configManager,
             m_downloadInProgress = false;
             if (success) {
                 setStatus(message);
-                emitStateChanged();
                 scheduleAutoQuitIfAllowed();
             } else {
                 setError(message);
@@ -351,6 +350,8 @@ bool UpdateService::manifestRepresentsNewerVersion(const UpdateManifest &manifes
     if (selectedChannel == QLatin1String("dev")) {
         const QString currentId = currentBuildId();
         const QString remoteId = manifest.buildId.trimmed().isEmpty() ? manifest.publishedAt.trimmed() : manifest.buildId.trimmed();
+        // Dev build IDs are compared lexicographically, so they must be ISO-8601 timestamps
+        // or another fixed-width format where remoteId > currentId preserves build order.
         return remoteId > currentId;
     }
 

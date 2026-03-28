@@ -320,11 +320,6 @@ Window {
         padding: Theme.spacingLarge
 
         onRejected: UpdateService.dismissStartupPopup()
-        onClosed: {
-            if (UpdateService.shouldShowStartupPopup) {
-                UpdateService.dismissStartupPopup()
-            }
-        }
 
         background: Rectangle {
             color: Theme.cardBackground
@@ -419,7 +414,10 @@ Window {
 
             Button {
                 text: qsTr("Later")
-                onClicked: updateDialog.close()
+                onClicked: {
+                    UpdateService.dismissStartupPopup()
+                    updateDialog.close()
+                }
             }
         }
     }
