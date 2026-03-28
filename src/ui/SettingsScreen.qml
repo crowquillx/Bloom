@@ -94,7 +94,7 @@ FocusScope {
     }
 
     function activateKeyboardFocusForItem(item) {
-        if (typeof InputModeManager !== "undefined") {
+        if (typeof InputModeManager !== "undefined" && !InputModeManager.pointerActive) {
             InputModeManager.setNavigationMode("keyboard")
             InputModeManager.hideCursor(true)
         }
@@ -3261,6 +3261,11 @@ FocusScope {
                                                 : (updateDownloadButton.visible ? updateDownloadButton : checkUpdatesButton))
                                 root.activateKeyboardFocusForItem(target)
                                 target.forceActiveFocus()
+                                event.accepted = true
+                            }
+                            Keys.onDownPressed: function(event) {
+                                root.activateKeyboardFocusForItem(aboutSection.toggleButton)
+                                aboutSection.toggleButton.forceActiveFocus()
                                 event.accepted = true
                             }
                             onClicked: UpdateService.openUpdateDownloadPage()

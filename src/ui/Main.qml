@@ -367,15 +367,24 @@ Window {
         contentItem: ColumnLayout {
             spacing: Theme.spacingMedium
 
-            Text {
-                text: UpdateService.releaseNotes.length > 0
-                      ? UpdateService.releaseNotes
-                      : qsTr("Open Settings > Updates for full details and download options.")
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                wrapMode: Text.WordWrap
+            ScrollView {
                 Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(updateDialogNotesText.implicitHeight + Theme.spacingMedium,
+                                                 Math.round(window.height * 0.32))
+                Layout.maximumHeight: Math.round(window.height * 0.32)
+                clip: true
+
+                Text {
+                    id: updateDialogNotesText
+                    width: parent.width
+                    text: UpdateService.releaseNotes.length > 0
+                          ? UpdateService.releaseNotes
+                          : qsTr("Open Settings > Updates for full details and download options.")
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+                    wrapMode: Text.WordWrap
+                }
             }
 
             Text {
