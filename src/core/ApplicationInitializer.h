@@ -25,6 +25,7 @@ class SidebarSettings;
 class UiSoundController;
 class SessionManager;
 class SessionService;
+class UpdateService;
 class MockAuthenticationService;
 class MockLibraryService;
 
@@ -110,6 +111,7 @@ private:
     std::unique_ptr<UiSoundController> m_uiSoundController;
     std::unique_ptr<SessionManager> m_sessionManager;
     std::unique_ptr<SessionService> m_sessionService;
+    std::unique_ptr<UpdateService> m_updateService;
     std::unique_ptr<ResponsiveLayoutManager> m_responsiveLayoutManager;
     
     // Test mode mock services

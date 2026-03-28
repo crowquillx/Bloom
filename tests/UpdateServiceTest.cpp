@@ -1,0 +1,234 @@
+#include <QtTest/QtTest>
+
+#include <QDir>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QSignalSpy>
+#include <QStandardPaths>
+
+#include "updates/GitHubReleaseUpdateProvider.h"
+#include "updates/IUpdateApplier.h"
+#include "updates/IUpdateProvider.h"
+#include "updates/UpdateService.h"
+#include "utils/ConfigManager.h"
+
+namespace {
+
+class FakeUpdateProvider final : public IUpdateProvider
+{
+    Q_OBJECT
+
+public:
+    explicit FakeUpdateProvider(QObject *parent = nullptr)
+        : IUpdateProvider(parent)
+    {
+    }
+
+    std::optional<UpdateManifest> nextManifest;
+    QString nextError;
+    QString lastChannel;
+
+    void fetchManifest(const QString &channel,
+                       QObject *context,
+                       std::function<void(std::optional<UpdateManifest>, const QString &)> completion) override
+    {
+        lastChannel = channel;
+        if (context) {
+            completion(nextManifest, nextError);
+        }
+    }
+};
+
+class FakeUpdateApplier final : public IUpdateApplier
+{
+    Q_OBJECT
+
+public:
+    explicit FakeUpdateApplier(UpdateApplySupport support, QObject *parent = nullptr)
+        : IUpdateApplier(parent)
+        , m_support(support)
+    {
+    }
+
+    InstallEligibility detectEligibility() const override
+    {
+        return {m_support, m_support == UpdateApplySupport::Supported
+                              ? QString()
+                              : QStringLiteral("notify-only")};
+    }
+
+    void downloadAndInstall(const UpdateManifest &, const QString &) override
+    {
+    }
+
+private:
+    UpdateApplySupport m_support = UpdateApplySupport::NotifyOnly;
+};
+
+UpdateManifest makeManifest(const QString &channel,
+                            const QString &version,
+                            const QString &buildId = QStringLiteral("build-2"))
+{
+    UpdateManifest manifest;
+    manifest.channel = channel;
+    manifest.version = version;
+    manifest.buildId = buildId;
+    manifest.releaseTag = channel == QStringLiteral("dev") ? QStringLiteral("dev-latest") : QStringLiteral("v") + version;
+    manifest.publishedAt = QStringLiteral("2026-03-27T00:00:00Z");
+    manifest.notes = QStringLiteral("Notes");
+    manifest.installer = UpdateAsset{
+        QStringLiteral("https://example.invalid/Bloom-Setup.exe"),
+        QStringLiteral("Bloom-Setup.exe"),
+        QStringLiteral("abc123")
+    };
+    manifest.portable = UpdateAsset{
+        QStringLiteral("https://example.invalid/Bloom-Windows.zip"),
+        QStringLiteral("Bloom-Windows.zip"),
+        QStringLiteral("def456")
+    };
+    return manifest;
+}
+
+void clearTestConfig()
+{
+    const QString configDir = ConfigManager::getConfigDir();
+    if (QDir(configDir).exists()) {
+        QDir(configDir).removeRecursively();
+    }
+}
+
+} // namespace
+
+class UpdateServiceTest : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void init();
+    void parseManifestBytes_acceptsValidJson();
+    void startupCheck_showsPopupForNewUpdate();
+    void startupCheck_throttlesRecentCheck();
+    void manualCheck_bypassesThrottle();
+    void dismissStartupPopup_persistsMarker();
+};
+
+void UpdateServiceTest::init()
+{
+    QStandardPaths::setTestModeEnabled(true);
+    clearTestConfig();
+}
+
+void UpdateServiceTest::parseManifestBytes_acceptsValidJson()
+{
+    const QJsonObject root{
+        {QStringLiteral("channel"), QStringLiteral("stable")},
+        {QStringLiteral("version"), QStringLiteral("0.5.3")},
+        {QStringLiteral("build_id"), QStringLiteral("0.5.3")},
+        {QStringLiteral("release_tag"), QStringLiteral("v0.5.3")},
+        {QStringLiteral("published_at"), QStringLiteral("2026-03-27T00:00:00Z")},
+        {QStringLiteral("notes"), QStringLiteral("Release notes")},
+        {QStringLiteral("installer"), QJsonObject{
+            {QStringLiteral("url"), QStringLiteral("https://example.invalid/setup.exe")},
+            {QStringLiteral("filename"), QStringLiteral("Bloom-Setup-0.5.3.exe")},
+            {QStringLiteral("sha256"), QStringLiteral("deadbeef")}
+        }},
+        {QStringLiteral("portable"), QJsonObject{
+            {QStringLiteral("url"), QStringLiteral("https://example.invalid/Bloom-Windows.zip")},
+            {QStringLiteral("filename"), QStringLiteral("Bloom-Windows.zip")},
+            {QStringLiteral("sha256"), QStringLiteral("cafebabe")}
+        }}
+    };
+
+    QString error;
+    const std::optional<UpdateManifest> manifest = GitHubReleaseUpdateProvider::parseManifestBytes(
+        QJsonDocument(root).toJson(QJsonDocument::Compact), &error);
+
+    QVERIFY2(manifest.has_value(), qPrintable(error));
+    QCOMPARE(manifest->channel, QStringLiteral("stable"));
+    QCOMPARE(manifest->version, QStringLiteral("0.5.3"));
+    QCOMPARE(manifest->buildId, QStringLiteral("0.5.3"));
+    QCOMPARE(manifest->installer.filename, QStringLiteral("Bloom-Setup-0.5.3.exe"));
+}
+
+void UpdateServiceTest::startupCheck_showsPopupForNewUpdate()
+{
+    ConfigManager configManager;
+    configManager.load();
+    configManager.setAutoUpdateCheckEnabled(true);
+    configManager.setUpdateChannel(QStringLiteral("stable"));
+    configManager.setLastUpdateCheckAt(QString());
+
+    auto *provider = new FakeUpdateProvider;
+    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("0.5.3"));
+    auto *applier = new FakeUpdateApplier(UpdateApplySupport::Supported);
+
+    UpdateService service(&configManager, nullptr, provider, applier);
+    QSignalSpy popupSpy(&service, &UpdateService::startupPopupRequested);
+
+    service.performStartupCheck();
+
+    QCOMPARE(popupSpy.count(), 1);
+    QVERIFY(service.updateAvailable());
+    QVERIFY(service.shouldShowStartupPopup());
+    QCOMPARE(service.availableVersion(), QStringLiteral("0.5.3"));
+}
+
+void UpdateServiceTest::startupCheck_throttlesRecentCheck()
+{
+    ConfigManager configManager;
+    configManager.load();
+    configManager.setAutoUpdateCheckEnabled(true);
+    configManager.setLastUpdateCheckAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+
+    auto *provider = new FakeUpdateProvider;
+    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("0.5.3"));
+    auto *applier = new FakeUpdateApplier(UpdateApplySupport::NotifyOnly);
+
+    UpdateService service(&configManager, nullptr, provider, applier);
+    service.performStartupCheck();
+
+    QVERIFY(provider->lastChannel.isEmpty());
+    QVERIFY(!service.updateAvailable());
+}
+
+void UpdateServiceTest::manualCheck_bypassesThrottle()
+{
+    ConfigManager configManager;
+    configManager.load();
+    configManager.setAutoUpdateCheckEnabled(true);
+    configManager.setLastUpdateCheckAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+
+    auto *provider = new FakeUpdateProvider;
+    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("0.5.3"));
+    auto *applier = new FakeUpdateApplier(UpdateApplySupport::NotifyOnly);
+
+    UpdateService service(&configManager, nullptr, provider, applier);
+    service.checkForUpdates(true);
+
+    QCOMPARE(provider->lastChannel, QStringLiteral("stable"));
+    QVERIFY(service.updateAvailable());
+}
+
+void UpdateServiceTest::dismissStartupPopup_persistsMarker()
+{
+    ConfigManager configManager;
+    configManager.load();
+    configManager.setAutoUpdateCheckEnabled(true);
+    configManager.setLastUpdateCheckAt(QString());
+
+    auto *provider = new FakeUpdateProvider;
+    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("0.5.3"), QStringLiteral("0.5.3"));
+    auto *applier = new FakeUpdateApplier(UpdateApplySupport::Supported);
+
+    UpdateService service(&configManager, nullptr, provider, applier);
+    service.performStartupCheck();
+    QVERIFY(service.shouldShowStartupPopup());
+
+    service.dismissStartupPopup();
+
+    QVERIFY(!service.shouldShowStartupPopup());
+    QCOMPARE(configManager.getSkippedUpdateVersion(), QStringLiteral("stable:0.5.3:0.5.3"));
+}
+
+QTEST_MAIN(UpdateServiceTest)
+#include "UpdateServiceTest.moc"

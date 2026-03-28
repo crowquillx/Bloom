@@ -42,6 +42,17 @@ qt_add_executable(Bloom
     network/SessionManager.cpp
     network/SessionService.h
     network/SessionService.cpp
+    updates/UpdateTypes.h
+    updates/IUpdateProvider.h
+    updates/IUpdateProvider.cpp
+    updates/GitHubReleaseUpdateProvider.h
+    updates/GitHubReleaseUpdateProvider.cpp
+    updates/IUpdateApplier.h
+    updates/IUpdateApplier.cpp
+    updates/WindowsNsisUpdateApplier.h
+    updates/WindowsNsisUpdateApplier.cpp
+    updates/UpdateService.h
+    updates/UpdateService.cpp
     utils/ConfigManager.cpp
     utils/ConfigManager.h
     utils/DetailViewCache.h

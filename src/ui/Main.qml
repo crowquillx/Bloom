@@ -22,6 +22,8 @@ Window {
             console.log("Main.qml: Launching in fullscreen mode")
             showFullScreen()
         }
+
+        startupUpdateTimer.start()
     }
     
     // ========================================
@@ -301,6 +303,117 @@ Window {
     MediaSourceSelectionDialog {
         id: mediaSourceSelectionDialog
     }
+
+    Timer {
+        id: startupUpdateTimer
+        interval: 1500
+        repeat: false
+        onTriggered: UpdateService.performStartupCheck()
+    }
+
+    Dialog {
+        id: updateDialog
+        modal: true
+        focus: true
+        anchors.centerIn: parent
+        width: Math.round(720 * Theme.layoutScale)
+        padding: Theme.spacingLarge
+
+        onRejected: UpdateService.dismissStartupPopup()
+        onClosed: {
+            if (UpdateService.shouldShowStartupPopup) {
+                UpdateService.dismissStartupPopup()
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.cardBackground
+            radius: Theme.radiusMedium
+            border.color: Theme.cardBorder
+            border.width: 1
+        }
+
+        header: Rectangle {
+            color: "transparent"
+            height: Math.round(84 * Theme.layoutScale)
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: Theme.spacingLarge
+                spacing: Theme.spacingSmall
+
+                Text {
+                    text: qsTr("Update Available")
+                    font.pixelSize: Theme.fontSizeTitle
+                    font.family: Theme.fontPrimary
+                    font.weight: Font.DemiBold
+                    color: Theme.textPrimary
+                }
+
+                Text {
+                    text: UpdateService.availableVersion.length > 0
+                          ? qsTr("Bloom %1 is available on the %2 channel.")
+                                .arg(UpdateService.availableVersion)
+                                .arg(UpdateService.availableChannel)
+                          : qsTr("A Bloom update is available.")
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMedium
+
+            Text {
+                text: UpdateService.releaseNotes.length > 0
+                      ? UpdateService.releaseNotes
+                      : qsTr("Open Settings > Updates for full details and download options.")
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                color: Theme.textPrimary
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+
+            Text {
+                text: UpdateService.applySupported
+                      ? qsTr("Bloom can download and launch the installer for you.")
+                      : qsTr("This build cannot auto-install updates, but download links are available.")
+                font.pixelSize: Theme.fontSizeSmall
+                font.family: Theme.fontPrimary
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+
+        footer: RowLayout {
+            spacing: Theme.spacingMedium
+            padding: Theme.spacingLarge
+
+            Button {
+                id: updatePrimaryButton
+                text: UpdateService.applySupported ? qsTr("Download and Install") : qsTr("Open Download Page")
+                onClicked: {
+                    if (UpdateService.applySupported) {
+                        updateDialog.close()
+                        UpdateService.downloadAndInstallUpdate()
+                    } else {
+                        UpdateService.openUpdateDownloadPage()
+                        updateDialog.close()
+                    }
+                }
+            }
+
+            Button {
+                text: qsTr("Later")
+                onClicked: updateDialog.close()
+            }
+        }
+    }
     
     // ========================================
     // Sidebar Navigation Shell
@@ -340,6 +453,12 @@ Window {
                     if (homeForSettings) homeForSettings.saveFocusState()
                     // Navigate to settings screen
                     pushSettingsScreen()
+                    break
+                case "updates":
+                    // Save focus state before navigating
+                    var homeForUpdates = stackView.find(function(item) { return item && item.navigationId === "home" })
+                    if (homeForUpdates) homeForUpdates.saveFocusState()
+                    pushSettingsScreen({ focusUpdatesOnActivate: true })
                     break
             }
         }
@@ -387,15 +506,21 @@ Window {
         }
     }
 
-    function pushSettingsScreen() {
+    function pushSettingsScreen(options) {
+        options = options || {}
         playPointerSelectSound()
-        stackView.push("SettingsScreen.qml")
+        stackView.push("SettingsScreen.qml", {
+            focusUpdatesOnActivate: !!options.focusUpdatesOnActivate
+        })
         Qt.callLater(function() {
             var settingsScreen = stackView.currentItem
             if (settingsScreen && settingsScreen.signOutRequested) {
                 settingsScreen.signOutRequested.connect(function() {
                     AuthenticationService.logout()
                 })
+            }
+            if (settingsScreen && options.focusUpdatesOnActivate && settingsScreen.requestUpdateSectionFocus) {
+                settingsScreen.requestUpdateSectionFocus()
             }
         })
         updateSidebarNavigation()
@@ -458,6 +583,18 @@ Window {
         function onSelectKeyPressed() { UiSoundController.playSelect() }
         function onBackKeyPressed() { UiSoundController.playBack() }
         ignoreUnknownSignals: true
+    }
+
+    Connections {
+        target: UpdateService
+        function onStartupPopupRequested() {
+            if (!updateDialog.visible) {
+                updateDialog.open()
+                Qt.callLater(function() {
+                    updatePrimaryButton.forceActiveFocus()
+                })
+            }
+        }
     }
     
     // ========================================

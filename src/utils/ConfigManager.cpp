@@ -16,6 +16,13 @@
 
 namespace {
 
+QString normalizeUpdateChannelValue(const QString &channel)
+{
+    return channel.trimmed().compare(QStringLiteral("dev"), Qt::CaseInsensitive) == 0
+        ? QStringLiteral("dev")
+        : QStringLiteral("stable");
+}
+
 QString preferredConfigDir()
 {
 #ifdef Q_OS_WIN
@@ -1276,6 +1283,132 @@ bool ConfigManager::getUiAnimationsEnabled() const
     return true; // Default: animations enabled
 }
 
+void ConfigManager::setUpdateChannel(const QString &channel)
+{
+    const QString normalized = normalizeUpdateChannelValue(channel);
+    if (normalized == getUpdateChannel()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject updates;
+    if (settings.contains("updates") && settings["updates"].isObject()) {
+        updates = settings["updates"].toObject();
+    }
+    updates["channel"] = normalized;
+    settings["updates"] = updates;
+    m_config["settings"] = settings;
+    save();
+    emit updateChannelChanged();
+}
+
+QString ConfigManager::getUpdateChannel() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        const QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("updates") && settings["updates"].isObject()) {
+            return normalizeUpdateChannelValue(settings["updates"].toObject().value("channel").toString());
+        }
+    }
+    return QStringLiteral("stable");
+}
+
+void ConfigManager::setAutoUpdateCheckEnabled(bool enabled)
+{
+    if (enabled == getAutoUpdateCheckEnabled()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject updates;
+    if (settings.contains("updates") && settings["updates"].isObject()) {
+        updates = settings["updates"].toObject();
+    }
+    updates["auto_check_enabled"] = enabled;
+    settings["updates"] = updates;
+    m_config["settings"] = settings;
+    save();
+    emit autoUpdateCheckEnabledChanged();
+}
+
+bool ConfigManager::getAutoUpdateCheckEnabled() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        const QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("updates") && settings["updates"].isObject()) {
+            const QJsonObject updates = settings["updates"].toObject();
+            if (updates.contains("auto_check_enabled")) {
+                return updates["auto_check_enabled"].toBool(true);
+            }
+        }
+    }
+    return true;
+}
+
+void ConfigManager::setLastUpdateCheckAt(const QString &timestamp)
+{
+    const QString trimmed = timestamp.trimmed();
+    if (trimmed == getLastUpdateCheckAt()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject updates;
+    if (settings.contains("updates") && settings["updates"].isObject()) {
+        updates = settings["updates"].toObject();
+    }
+    updates["last_check_at"] = trimmed;
+    settings["updates"] = updates;
+    m_config["settings"] = settings;
+    save();
+    emit lastUpdateCheckAtChanged();
+}
+
+QString ConfigManager::getLastUpdateCheckAt() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        const QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("updates") && settings["updates"].isObject()) {
+            return settings["updates"].toObject().value("last_check_at").toString().trimmed();
+        }
+    }
+    return QString();
+}
+
+void ConfigManager::setSkippedUpdateVersion(const QString &marker)
+{
+    const QString trimmed = marker.trimmed();
+    if (trimmed == getSkippedUpdateVersion()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject updates;
+    if (settings.contains("updates") && settings["updates"].isObject()) {
+        updates = settings["updates"].toObject();
+    }
+    updates["skipped_update_version"] = trimmed;
+    settings["updates"] = updates;
+    m_config["settings"] = settings;
+    save();
+    emit skippedUpdateVersionChanged();
+}
+
+QString ConfigManager::getSkippedUpdateVersion() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        const QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("updates") && settings["updates"].isObject()) {
+            return settings["updates"].toObject().value("skipped_update_version").toString().trimmed();
+        }
+    }
+    return QString();
+}
+
 
 void ConfigManager::setUiSoundsEnabled(bool enabled)
 {
@@ -1930,6 +2063,31 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV14ToV15(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 15;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject updates = settings.value("updates").toObject();
+        if (!updates.contains("channel")) {
+            updates["channel"] = QStringLiteral("stable");
+        }
+        if (!updates.contains("auto_check_enabled")) {
+            updates["auto_check_enabled"] = true;
+        }
+        if (!updates.contains("last_check_at")) {
+            updates["last_check_at"] = QString();
+        }
+        if (!updates.contains("skipped_update_version")) {
+            updates["skipped_update_version"] = QString();
+        }
+
+        settings["updates"] = updates;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -2062,6 +2220,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 14) {
+            m_config = ConfigMigrator::migrateV14ToV15(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -2156,6 +2322,13 @@ QJsonObject ConfigManager::defaultConfig() const
     seerr["base_url"] = "";
     seerr["api_key"] = "";
     settings["seerr"] = seerr;
+
+    QJsonObject updates;
+    updates["channel"] = QStringLiteral("stable");
+    updates["auto_check_enabled"] = true;
+    updates["last_check_at"] = QString();
+    updates["skipped_update_version"] = QString();
+    settings["updates"] = updates;
 
     cfg["settings"] = settings;
     return cfg;

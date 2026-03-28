@@ -21,6 +21,7 @@ FocusScope {
     focus: true
     property string navigationId: "settings"
     property int contentMaxWidth: Math.max(1100, Math.min(width - Theme.paddingLarge * 2, Math.round(1600 * Theme.layoutScale)))
+    property bool focusUpdatesOnActivate: false
 
     // Home-style rotating backdrop state
     property var backdropCandidates: []
@@ -76,7 +77,20 @@ FocusScope {
         videoSection.expanded = expanded
         mpvProfilesSection.expanded = expanded
         thirdPartySection.expanded = expanded
+        updatesSection.expanded = expanded
         aboutSection.expanded = expanded
+    }
+
+    function requestUpdateSectionFocus() {
+        updatesSection.expanded = true
+        Qt.callLater(function() {
+            updatesSection.toggleButton.forceActiveFocus()
+            Qt.callLater(function() {
+                if (checkUpdatesButton.visible) {
+                    checkUpdatesButton.forceActiveFocus()
+                }
+            })
+        })
     }
 
     function refreshBackdropCandidates() {
@@ -146,7 +160,12 @@ FocusScope {
             if (backdropCandidates.length === 0) {
                 refreshBackdropCandidates()
             }
-            accountSection.toggleButton.forceActiveFocus()
+            if (focusUpdatesOnActivate) {
+                requestUpdateSectionFocus()
+                focusUpdatesOnActivate = false
+            } else {
+                accountSection.toggleButton.forceActiveFocus()
+            }
         }
     }
 
@@ -2907,7 +2926,7 @@ FocusScope {
                     expanded: false
                     previousSection: mpvProfilesSection
                     previousSectionButton: mpvProfilesSection.toggleButton
-                    nextSectionButton: aboutSection.toggleButton
+                    nextSectionButton: updatesSection.toggleButton
                     firstFocusableItem: mdbListApiKeyRow.input
                     lastFocusableItem: seerrApiKeyRow.input
                     Layout.fillWidth: true
@@ -2993,11 +3012,156 @@ FocusScope {
                             echoMode: TextInput.Password
                             Layout.fillWidth: true
                             keyUpTarget: seerrBaseUrlRow.input
-                            keyDownTarget: aboutSection.toggleButton
+                            keyDownTarget: updatesSection.toggleButton
                             
                             onEditingFinished: {
                                 ConfigManager.seerrApiKey = text
                             }
+                        }
+                    }
+                }
+
+                SettingsSection {
+                    id: updatesSection
+                    title: qsTr("Updates")
+                    icon: Icons.download
+                    expanded: false
+                    previousSection: thirdPartySection
+                    previousSectionButton: thirdPartySection.toggleButton
+                    nextSectionButton: aboutSection.toggleButton
+                    firstFocusableItem: checkUpdatesButton
+                    lastFocusableItem: updatePortableAssetButton.visible ? updatePortableAssetButton
+                                       : (updateInstallerAssetButton.visible ? updateInstallerAssetButton
+                                          : (updateDownloadButton.visible ? updateDownloadButton : checkUpdatesButton))
+                    Layout.fillWidth: true
+
+                    ColumnLayout {
+                        spacing: Theme.spacingMedium
+                        Layout.fillWidth: true
+
+                        SettingsToggleRow {
+                            id: autoUpdateCheckToggle
+                            label: qsTr("Automatically Check for Updates")
+                            description: qsTr("Check for Bloom updates at app startup.")
+                            checked: ConfigManager.autoUpdateCheckEnabled
+                            Layout.fillWidth: true
+                            onToggled: function(value) {
+                                ConfigManager.autoUpdateCheckEnabled = value
+                            }
+                        }
+
+                        ColumnLayout {
+                            spacing: Theme.spacingSmall
+                            Layout.fillWidth: true
+
+                            Text {
+                                text: qsTr("Update Channel")
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+                            }
+
+                            ComboBox {
+                                id: updateChannelCombo
+                                Layout.fillWidth: true
+                                model: [qsTr("Stable"), qsTr("Development")]
+                                currentIndex: ConfigManager.updateChannel === "dev" ? 1 : 0
+
+                                onActivated: {
+                                    var channel = currentIndex === 1 ? "dev" : "stable"
+                                    if (channel !== ConfigManager.updateChannel) {
+                                        UpdateService.setChannel(channel)
+                                    }
+                                }
+                            }
+                        }
+
+                        RowLayout {
+                            spacing: Theme.spacingMedium
+                            Layout.fillWidth: true
+
+                            Button {
+                                id: checkUpdatesButton
+                                text: UpdateService.checking ? qsTr("Checking...") : qsTr("Check for Updates")
+                                enabled: !UpdateService.checking
+                                onClicked: UpdateService.checkForUpdates(true)
+                            }
+
+                            Button {
+                                id: updateDownloadButton
+                                visible: UpdateService.updateAvailable && UpdateService.applySupported
+                                text: UpdateService.downloadInProgress ? qsTr("Downloading...") : qsTr("Download and Install")
+                                enabled: !UpdateService.downloadInProgress
+                                onClicked: UpdateService.downloadAndInstallUpdate()
+                            }
+
+                            Button {
+                                id: updateInstallerAssetButton
+                                visible: UpdateService.updateAvailable && !UpdateService.applySupported && UpdateService.installerUrl.length > 0
+                                text: qsTr("Open Installer")
+                                onClicked: UpdateService.openInstallerAsset()
+                            }
+
+                            Button {
+                                id: updatePortableAssetButton
+                                visible: UpdateService.updateAvailable && !UpdateService.applySupported && UpdateService.portableUrl.length > 0
+                                text: qsTr("Open Portable ZIP")
+                                onClicked: UpdateService.openPortableAsset()
+                            }
+                        }
+
+                        SettingsInfoRow {
+                            label: qsTr("Current Version")
+                            value: appVersion
+                            Layout.fillWidth: true
+                        }
+
+                        SettingsInfoRow {
+                            label: qsTr("Current Build")
+                            value: appBuildChannel + " / " + appBuildId
+                            Layout.fillWidth: true
+                        }
+
+                        SettingsInfoRow {
+                            label: qsTr("Selected Channel")
+                            value: ConfigManager.updateChannel
+                            Layout.fillWidth: true
+                        }
+
+                        SettingsInfoRow {
+                            label: qsTr("Last Checked")
+                            value: ConfigManager.lastUpdateCheckAt.length > 0 ? ConfigManager.lastUpdateCheckAt : qsTr("Never")
+                            Layout.fillWidth: true
+                        }
+
+                        SettingsInfoRow {
+                            label: qsTr("Status")
+                            value: UpdateService.errorMessage.length > 0
+                                   ? UpdateService.errorMessage
+                                   : (UpdateService.checking
+                                      ? qsTr("Checking...")
+                                      : (UpdateService.updateAvailable
+                                         ? (UpdateService.applySupported
+                                            ? qsTr("Update %1 available").arg(UpdateService.availableVersion)
+                                            : qsTr("Update %1 available. Automatic install unavailable.").arg(UpdateService.availableVersion))
+                                         : qsTr("Up to date")))
+                            Layout.fillWidth: true
+                        }
+
+                        Text {
+                            visible: UpdateService.releaseNotes.length > 0
+                            text: UpdateService.releaseNotes
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+
+                        Button {
+                            visible: UpdateService.updateAvailable
+                            text: qsTr("Open Download Page")
+                            onClicked: UpdateService.openUpdateDownloadPage()
                         }
                     }
                 }
@@ -3011,8 +3175,8 @@ FocusScope {
                     title: qsTr("About")
                     icon: Icons.info
                     expanded: false
-                    previousSection: thirdPartySection
-                    previousSectionButton: thirdPartySection.toggleButton
+                    previousSection: updatesSection
+                    previousSectionButton: updatesSection.toggleButton
                     nextSectionButton: null
                     firstFocusableItem: null
                     lastFocusableItem: null

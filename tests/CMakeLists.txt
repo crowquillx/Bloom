@@ -210,6 +210,31 @@ target_link_libraries(SimilarItemsRetryTest
 
 add_test(NAME SimilarItemsRetryTest COMMAND SimilarItemsRetryTest)
 
+add_executable(UpdateServiceTest
+    UpdateServiceTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateApplier.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/GitHubReleaseUpdateProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/UpdateService.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/WindowsNsisUpdateApplier.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+)
+
+target_include_directories(UpdateServiceTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(UpdateServiceTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME UpdateServiceTest COMMAND UpdateServiceTest)
+
 # ============================================================================
 # Visual Regression Test Fixtures
 # ============================================================================
@@ -274,6 +299,11 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateApplier.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/GitHubReleaseUpdateProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/UpdateService.cpp
+    ${CMAKE_SOURCE_DIR}/src/updates/WindowsNsisUpdateApplier.cpp
     # Player sources
     ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
@@ -410,6 +440,7 @@ endif()
 target_include_directories(VisualRegressionTest PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/player
+    ${CMAKE_BINARY_DIR}/src
 )
 
 target_link_libraries(VisualRegressionTest PRIVATE

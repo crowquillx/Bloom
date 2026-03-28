@@ -17,7 +17,9 @@
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
 #include "network/SeerrService.h"
+#include "updates/UpdateService.h"
 #include "core/ServiceLocator.h"
+#include "config/version.h"
 
 #include <QQmlContext>
 #include <QQuickStyle>
@@ -158,10 +160,13 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("LibraryService", ServiceLocator::get<LibraryService>());
     context->setContextProperty("PlaybackService", ServiceLocator::get<PlaybackService>());
     context->setContextProperty("SeerrService", ServiceLocator::get<SeerrService>());
+    context->setContextProperty("UpdateService", ServiceLocator::get<UpdateService>());
 
     // App metadata for QML
     context->setContextProperty("appVersion", QCoreApplication::applicationVersion());
     context->setContextProperty("qtVersion", QString(qVersion()));
+    context->setContextProperty("appBuildChannel", QString::fromUtf8(BLOOM_BUILD_CHANNEL));
+    context->setContextProperty("appBuildId", QString::fromUtf8(BLOOM_BUILD_ID));
 }
 
 /**
