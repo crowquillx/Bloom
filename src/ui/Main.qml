@@ -587,6 +587,7 @@ Window {
 
     Connections {
         target: UpdateService
+        ignoreUnknownSignals: true
         function onStartupPopupRequested() {
             if (!updateDialog.visible) {
                 updateDialog.open()

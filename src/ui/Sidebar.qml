@@ -736,7 +736,11 @@ Item {
                             libraryListView.currentItem.forceActiveFocus()
                             event.accepted = true
                         } else {
-                            settingsButton.forceActiveFocus()
+                            if (updatesButton.visible) {
+                                updatesButton.forceActiveFocus()
+                            } else {
+                                settingsButton.forceActiveFocus()
+                            }
                             event.accepted = true
                         }
                     }
@@ -942,7 +946,7 @@ Item {
                     }
 
                     Text {
-                        text: "Updates"
+                        text: qsTr("Updates")
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         font.weight: Font.DemiBold
@@ -959,7 +963,7 @@ Item {
                 }
 
                 ToolTip.visible: !expanded && hovered
-                ToolTip.text: "Updates Available"
+                ToolTip.text: qsTr("Updates Available")
                 ToolTip.delay: 500
 
                 onClicked: {
@@ -1015,8 +1019,8 @@ Item {
                 Keys.onEscapePressed: root.close()
 
                 Accessible.role: Accessible.Button
-                Accessible.name: "Updates"
-                Accessible.description: "View available application updates"
+                Accessible.name: qsTr("Updates")
+                Accessible.description: qsTr("View available application updates")
             }
             
             // Settings button (now placed above Sign Out)

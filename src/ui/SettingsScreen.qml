@@ -86,11 +86,21 @@ FocusScope {
         Qt.callLater(function() {
             updatesSection.toggleButton.forceActiveFocus()
             Qt.callLater(function() {
-                if (checkUpdatesButton.visible) {
-                    checkUpdatesButton.forceActiveFocus()
+                if (autoUpdateCheckToggle.visible) {
+                    autoUpdateCheckToggle.forceActiveFocus()
                 }
             })
         })
+    }
+
+    function activateKeyboardFocusForItem(item) {
+        if (typeof InputModeManager !== "undefined") {
+            InputModeManager.setNavigationMode("keyboard")
+            InputModeManager.hideCursor(true)
+        }
+        if (item && typeof flickable !== "undefined") {
+            flickable.ensureFocusVisible(item)
+        }
     }
 
     function refreshBackdropCandidates() {
@@ -3029,10 +3039,11 @@ FocusScope {
                     previousSection: thirdPartySection
                     previousSectionButton: thirdPartySection.toggleButton
                     nextSectionButton: aboutSection.toggleButton
-                    firstFocusableItem: checkUpdatesButton
-                    lastFocusableItem: updatePortableAssetButton.visible ? updatePortableAssetButton
+                    firstFocusableItem: autoUpdateCheckToggle
+                    lastFocusableItem: openUpdateDownloadPageButton.visible ? openUpdateDownloadPageButton
+                                       : (updatePortableAssetButton.visible ? updatePortableAssetButton
                                        : (updateInstallerAssetButton.visible ? updateInstallerAssetButton
-                                          : (updateDownloadButton.visible ? updateDownloadButton : checkUpdatesButton))
+                                          : (updateDownloadButton.visible ? updateDownloadButton : checkUpdatesButton)))
                     Layout.fillWidth: true
 
                     ColumnLayout {
@@ -3045,6 +3056,20 @@ FocusScope {
                             description: qsTr("Check for Bloom updates at app startup.")
                             checked: ConfigManager.autoUpdateCheckEnabled
                             Layout.fillWidth: true
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    root.activateKeyboardFocusForItem(autoUpdateCheckToggle)
+                                }
+                            }
+                            Keys.onUpPressed: function(event) {
+                                updatesSection.toggleButton.forceActiveFocus()
+                                event.accepted = true
+                            }
+                            Keys.onDownPressed: function(event) {
+                                root.activateKeyboardFocusForItem(updateChannelCombo)
+                                updateChannelCombo.forceActiveFocus()
+                                event.accepted = true
+                            }
                             onToggled: function(value) {
                                 ConfigManager.autoUpdateCheckEnabled = value
                             }
@@ -3067,12 +3092,38 @@ FocusScope {
                                 model: [qsTr("Stable"), qsTr("Development")]
                                 currentIndex: ConfigManager.updateChannel === "dev" ? 1 : 0
 
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        root.activateKeyboardFocusForItem(updateChannelCombo)
+                                    } else if (!popup.visible && typeof InputModeManager !== "undefined") {
+                                        InputModeManager.setNavigationMode("pointer")
+                                        InputModeManager.hideCursor(false)
+                                    }
+                                }
+
                                 onActivated: {
                                     var channel = currentIndex === 1 ? "dev" : "stable"
                                     if (channel !== ConfigManager.updateChannel) {
                                         UpdateService.setChannel(channel)
                                     }
                                 }
+
+                                Keys.onUpPressed: function(event) {
+                                    if (!popup.visible) {
+                                        root.activateKeyboardFocusForItem(autoUpdateCheckToggle)
+                                        autoUpdateCheckToggle.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                }
+                                Keys.onDownPressed: function(event) {
+                                    if (!popup.visible) {
+                                        root.activateKeyboardFocusForItem(checkUpdatesButton)
+                                        checkUpdatesButton.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                }
+                                Keys.onReturnPressed: popup.open()
+                                Keys.onEnterPressed: popup.open()
                             }
                         }
 
@@ -3084,6 +3135,27 @@ FocusScope {
                                 id: checkUpdatesButton
                                 text: UpdateService.checking ? qsTr("Checking...") : qsTr("Check for Updates")
                                 enabled: !UpdateService.checking
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        root.activateKeyboardFocusForItem(checkUpdatesButton)
+                                    }
+                                }
+                                Keys.onUpPressed: function(event) {
+                                    root.activateKeyboardFocusForItem(updateChannelCombo)
+                                    updateChannelCombo.forceActiveFocus()
+                                    event.accepted = true
+                                }
+                                Keys.onDownPressed: function(event) {
+                                    var target = updateDownloadButton.visible ? updateDownloadButton
+                                                 : (updateInstallerAssetButton.visible ? updateInstallerAssetButton
+                                                    : (updatePortableAssetButton.visible ? updatePortableAssetButton
+                                                       : (openUpdateDownloadPageButton.visible ? openUpdateDownloadPageButton : aboutSection.toggleButton)))
+                                    if (target) {
+                                        root.activateKeyboardFocusForItem(target)
+                                        target.forceActiveFocus()
+                                        event.accepted = true
+                                    }
+                                }
                                 onClicked: UpdateService.checkForUpdates(true)
                             }
 
@@ -3092,6 +3164,13 @@ FocusScope {
                                 visible: UpdateService.updateAvailable && UpdateService.applySupported
                                 text: UpdateService.downloadInProgress ? qsTr("Downloading...") : qsTr("Download and Install")
                                 enabled: !UpdateService.downloadInProgress
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        root.activateKeyboardFocusForItem(updateDownloadButton)
+                                    }
+                                }
+                                KeyNavigation.left: checkUpdatesButton
+                                KeyNavigation.down: openUpdateDownloadPageButton.visible ? openUpdateDownloadPageButton : aboutSection.toggleButton
                                 onClicked: UpdateService.downloadAndInstallUpdate()
                             }
 
@@ -3099,6 +3178,14 @@ FocusScope {
                                 id: updateInstallerAssetButton
                                 visible: UpdateService.updateAvailable && !UpdateService.applySupported && UpdateService.installerUrl.length > 0
                                 text: qsTr("Open Installer")
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        root.activateKeyboardFocusForItem(updateInstallerAssetButton)
+                                    }
+                                }
+                                KeyNavigation.left: checkUpdatesButton
+                                KeyNavigation.right: updatePortableAssetButton.visible ? updatePortableAssetButton : null
+                                KeyNavigation.down: openUpdateDownloadPageButton.visible ? openUpdateDownloadPageButton : aboutSection.toggleButton
                                 onClicked: UpdateService.openInstallerAsset()
                             }
 
@@ -3106,6 +3193,13 @@ FocusScope {
                                 id: updatePortableAssetButton
                                 visible: UpdateService.updateAvailable && !UpdateService.applySupported && UpdateService.portableUrl.length > 0
                                 text: qsTr("Open Portable ZIP")
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        root.activateKeyboardFocusForItem(updatePortableAssetButton)
+                                    }
+                                }
+                                KeyNavigation.left: updateInstallerAssetButton.visible ? updateInstallerAssetButton : checkUpdatesButton
+                                KeyNavigation.down: openUpdateDownloadPageButton.visible ? openUpdateDownloadPageButton : aboutSection.toggleButton
                                 onClicked: UpdateService.openPortableAsset()
                             }
                         }
@@ -3136,15 +3230,9 @@ FocusScope {
 
                         SettingsInfoRow {
                             label: qsTr("Status")
-                            value: UpdateService.errorMessage.length > 0
-                                   ? UpdateService.errorMessage
-                                   : (UpdateService.checking
-                                      ? qsTr("Checking...")
-                                      : (UpdateService.updateAvailable
-                                         ? (UpdateService.applySupported
-                                            ? qsTr("Update %1 available").arg(UpdateService.availableVersion)
-                                            : qsTr("Update %1 available. Automatic install unavailable.").arg(UpdateService.availableVersion))
-                                         : qsTr("Up to date")))
+                            value: UpdateService.statusMessage.length > 0
+                                   ? UpdateService.statusMessage
+                                   : qsTr("No update check has been run yet.")
                             Layout.fillWidth: true
                         }
 
@@ -3159,8 +3247,22 @@ FocusScope {
                         }
 
                         Button {
+                            id: openUpdateDownloadPageButton
                             visible: UpdateService.updateAvailable
                             text: qsTr("Open Download Page")
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    root.activateKeyboardFocusForItem(openUpdateDownloadPageButton)
+                                }
+                            }
+                            Keys.onUpPressed: function(event) {
+                                var target = updatePortableAssetButton.visible ? updatePortableAssetButton
+                                             : (updateInstallerAssetButton.visible ? updateInstallerAssetButton
+                                                : (updateDownloadButton.visible ? updateDownloadButton : checkUpdatesButton))
+                                root.activateKeyboardFocusForItem(target)
+                                target.forceActiveFocus()
+                                event.accepted = true
+                            }
                             onClicked: UpdateService.openUpdateDownloadPage()
                         }
                     }
