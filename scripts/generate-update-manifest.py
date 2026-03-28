@@ -73,7 +73,8 @@ def main() -> int:
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    if args.channel not in ALLOWED_CHANNELS:
+    normalized_channel = args.channel.strip()
+    if normalized_channel not in ALLOWED_CHANNELS:
         return fail("args.channel", f"must be one of: {', '.join(sorted(ALLOWED_CHANNELS))}")
 
     try:
@@ -100,7 +101,7 @@ def main() -> int:
             return fail(args.notes_file, str(exc))
 
     payload = {
-        "channel": args.channel,
+        "channel": normalized_channel,
         "version": version,
         "build_id": normalized_build_id,
         "release_tag": normalized_release_tag,
@@ -123,7 +124,10 @@ def main() -> int:
     }
 
     output_path = Path(args.output)
-    output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        output_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError as exc:
+        return fail("--output", str(exc))
     return 0
 
 
