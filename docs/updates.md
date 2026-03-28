@@ -1,15 +1,15 @@
 # Updates
 
-Overview
+## Overview
 - Bloom currently supports first-party update checks on all builds.
 - Automatic in-app install is phase-1 Windows only and only for NSIS-installed builds.
 - Portable Windows builds and non-Windows builds stay in notify-only mode and expose direct download links instead.
 
-Channels
+## Channels
 - `stable`: latest non-prerelease tagged release.
 - `dev`: rolling `dev-latest` release built from `main`.
 
-Runtime behavior
+## Runtime behavior
 - Bloom can check for updates automatically at startup when `settings.updates.auto_check_enabled` is true.
 - The startup popup is startup-only; after dismissal the update remains visible through the sidebar update entry and Settings > Updates.
 - Manual `Check for updates` is always available from Settings, even on notify-only builds.

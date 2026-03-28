@@ -195,6 +195,14 @@ The Windows updater reads static JSON manifests published by CI:
 
 The default runtime URLs point at the `update-manifests` branch on GitHub raw content. CI updates those files whenever a tagged stable release or the rolling `dev-latest` release is published.
 
+For local/testing, override the manifest host with `BLOOM_UPDATE_MANIFEST_BASE_URL` at configure time:
+
+```bash
+cmake .. -DBLOOM_UPDATE_MANIFEST_BASE_URL=https://example.com/my-manifests
+```
+
+This points the updater at a custom manifest base URL so Windows update checks can be validated against non-production manifests.
+
 ## Troubleshooting
 
 ### Missing Qt Dependencies
