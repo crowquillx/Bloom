@@ -65,6 +65,17 @@ Window {
                                               && activeEmbeddedPlaybackOverlay.selectorOpen
     readonly property bool awaitingUpNextTransition: PlayerController.awaitingNextEpisodeResolution
                                                   && !PlayerController.isPlaybackActive
+    property bool pendingStartupUpdatePopup: false
+
+    function openStartupUpdateDialog() {
+        if (updateDialog.visible) {
+            return
+        }
+        updateDialog.open()
+        Qt.callLater(function() {
+            updatePrimaryButton.forceActiveFocus()
+        })
+    }
 
     function ensurePlaybackOverlayFocus() {
         if (!embeddedPlaybackActive) {
@@ -603,12 +614,12 @@ Window {
         target: UpdateService
         ignoreUnknownSignals: true
         function onStartupPopupRequested() {
-            if (!updateDialog.visible) {
-                updateDialog.open()
-                Qt.callLater(function() {
-                    updatePrimaryButton.forceActiveFocus()
-                })
+            if (!window.isLoggedIn && !AuthenticationService.authenticated) {
+                pendingStartupUpdatePopup = true
+                return
             }
+            pendingStartupUpdatePopup = false
+            openStartupUpdateDialog()
         }
     }
     
@@ -735,6 +746,15 @@ Window {
                 })
             }
             updateSidebarNavigation()
+
+            if (pendingStartupUpdatePopup) {
+                Qt.callLater(function() {
+                    if (window.isLoggedIn) {
+                        pendingStartupUpdatePopup = false
+                        openStartupUpdateDialog()
+                    }
+                })
+            }
         }
         
         function onLoggedOut() {
