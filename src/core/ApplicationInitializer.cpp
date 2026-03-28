@@ -24,6 +24,7 @@
 #include "utils/Logger.h"
 #include "network/SessionManager.h"
 #include "network/SessionService.h"
+#include "updates/UpdateService.h"
 #include "test/TestModeController.h"
 #include "test/MockAuthenticationService.h"
 #include "test/MockLibraryService.h"
@@ -258,6 +259,10 @@ void ApplicationInitializer::registerServices()
     // 10. SessionManager - Depends on ConfigManager and SecretStore
     m_sessionManager = std::make_unique<SessionManager>(m_configManager.get(), m_secretStore.get());
     ServiceLocator::registerService<SessionManager>(m_sessionManager.get());
+
+    // 10.5 UpdateService - Depends on ConfigManager and PlayerController
+    m_updateService = std::make_unique<UpdateService>(m_configManager.get(), m_playerController.get());
+    ServiceLocator::registerService<UpdateService>(m_updateService.get());
 
     // 11. SessionService - Depends on AuthenticationService
     if (isTestMode) {

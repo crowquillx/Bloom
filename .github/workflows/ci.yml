@@ -37,6 +37,26 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Determine build metadata
+        id: build_meta
+        shell: pwsh
+        run: |
+          $projectVersion = (Select-String -Path CMakeLists.txt -Pattern 'project\(Bloom VERSION ([0-9]+\.[0-9]+\.[0-9]+)' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if (-not $projectVersion) {
+            Write-Error "Could not determine Bloom project version"
+            exit 1
+          }
+
+          $buildChannel = if ("${{ github.ref }}" -eq "refs/heads/main") { "dev" } else { "stable" }
+          $shortSha = $env:GITHUB_SHA.Substring(0, 7)
+          $buildId = if ($buildChannel -eq "dev") { "$(Get-Date -AsUTC -Format yyyyMMddHHmmss)-$shortSha" } else { $projectVersion }
+          $installerName = "Bloom-Setup-$projectVersion.exe"
+
+          "project_version=$projectVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "build_channel=$buildChannel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "build_id=$buildId" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "installer_name=$installerName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
       - name: Cache Qt SDK
         id: cache_qt_windows
         uses: actions/cache@v5
@@ -266,7 +286,7 @@ jobs:
             New-Item -ItemType Directory -Path build-windows
           }
           cd build-windows
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX="$installPrefix" -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX="$installPrefix" -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DBLOOM_BUILD_CHANNEL="${{ steps.build_meta.outputs.build_channel }}" -DBLOOM_BUILD_ID="${{ steps.build_meta.outputs.build_id }}" -DBLOOM_GIT_SHA="$env:GITHUB_SHA"
           cmake --build .
           cmake --install . --config Release
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -320,8 +340,9 @@ jobs:
           echo "zip_hash=$zipHash" >> $env:GITHUB_OUTPUT
           echo "ZIP Hash: $zipHash"
 
-          if (Test-Path "Bloom-Setup-0.5.2.exe") {
-            $installerHash = (Get-FileHash Bloom-Setup-0.5.2.exe -Algorithm SHA256).Hash
+          $installerName = "${{ steps.build_meta.outputs.installer_name }}"
+          if (Test-Path $installerName) {
+            $installerHash = (Get-FileHash $installerName -Algorithm SHA256).Hash
             echo "installer_hash=$installerHash" >> $env:GITHUB_OUTPUT
             echo "Installer Hash: $installerHash"
           }
@@ -337,8 +358,50 @@ jobs:
           prerelease: false
           files: |
             Bloom-Windows.zip
-            Bloom-Setup-0.5.2.exe
+            ${{ steps.build_meta.outputs.installer_name }}
           fail_on_unmatched_files: true
+
+      - name: Generate stable update manifest
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        run: |
+          python ./scripts/generate-update-manifest.py `
+            --channel stable `
+            --version "${{ steps.build_meta.outputs.project_version }}" `
+            --build-id "${{ steps.build_meta.outputs.project_version }}" `
+            --release-tag "${{ github.ref_name }}" `
+            --published-at "$(Get-Date -AsUTC -Format o)" `
+            --notes-file RELEASE_NOTES.md `
+            --installer-url "https://github.com/crowquillx/Bloom/releases/download/${{ github.ref_name }}/${{ steps.build_meta.outputs.installer_name }}" `
+            --installer-filename "${{ steps.build_meta.outputs.installer_name }}" `
+            --installer-sha256 "${{ steps.archive.outputs.installer_hash }}" `
+            --portable-url "https://github.com/crowquillx/Bloom/releases/download/${{ github.ref_name }}/Bloom-Windows.zip" `
+            --portable-filename "Bloom-Windows.zip" `
+            --portable-sha256 "${{ steps.archive.outputs.zip_hash }}" `
+            --minimum-supported-version "${{ steps.build_meta.outputs.project_version }}" `
+            --output stable.json
+
+      - name: Publish stable update manifest
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" manifest-repo
+          cd manifest-repo
+          if git ls-remote --exit-code --heads origin update-manifests >/dev/null 2>&1; then
+            git checkout update-manifests
+          else
+            git checkout --orphan update-manifests
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+          cp ../stable.json stable.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add stable.json
+          git commit -m "chore: update stable manifest" || true
+          git push origin update-manifests
 
       - name: Trigger Scoop Bucket Update (Stable)
         if: startsWith(github.ref, 'refs/tags/v')
@@ -369,10 +432,10 @@ jobs:
 
       - name: Upload Installer Artifact
         uses: actions/upload-artifact@v6
-        if: hashFiles('Bloom-Setup-0.5.2.exe') != ''
         with:
           name: Bloom-Windows-Installer
-          path: Bloom-Setup-0.5.2.exe
+          path: ${{ steps.build_meta.outputs.installer_name }}
+          if-no-files-found: error
 
   linux:
     name: Linux Build & Package
@@ -380,6 +443,27 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+
+      - name: Determine build metadata
+        id: build_meta_linux
+        run: |
+          PROJECT_VERSION=$(sed -n 's/^project(Bloom VERSION \([0-9.]\+\).*/\1/p' CMakeLists.txt)
+          if [ -z "$PROJECT_VERSION" ]; then
+            echo "Could not determine Bloom project version" >&2
+            exit 1
+          fi
+          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
+            BUILD_CHANNEL=dev
+            BUILD_ID="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          else
+            BUILD_CHANNEL=stable
+            BUILD_ID="$PROJECT_VERSION"
+          fi
+          {
+            echo "project_version=$PROJECT_VERSION"
+            echo "build_channel=$BUILD_CHANNEL"
+            echo "build_id=$BUILD_ID"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Install system dependencies
         run: |
@@ -423,7 +507,10 @@ jobs:
           cmake -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX=/usr \
-            -DBUILD_TESTING=OFF
+            -DBUILD_TESTING=OFF \
+            -DBLOOM_BUILD_CHANNEL="${{ steps.build_meta_linux.outputs.build_channel }}" \
+            -DBLOOM_BUILD_ID="${{ steps.build_meta_linux.outputs.build_id }}" \
+            -DBLOOM_GIT_SHA="${GITHUB_SHA}"
 
       - name: Build
         run: cmake --build build --parallel
@@ -508,6 +595,22 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Determine release metadata
+        id: dev_meta
+        run: |
+          PROJECT_VERSION=$(sed -n 's/^project(Bloom VERSION \([0-9.]\+\).*/\1/p' CMakeLists.txt)
+          if [ -z "$PROJECT_VERSION" ]; then
+            echo "Could not determine Bloom project version" >&2
+            exit 1
+          fi
+          BUILD_ID="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
+          INSTALLER_NAME="Bloom-Setup-${PROJECT_VERSION}.exe"
+          {
+            echo "project_version=$PROJECT_VERSION"
+            echo "build_id=$BUILD_ID"
+            echo "installer_name=$INSTALLER_NAME"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Download Windows portable artifact
         uses: actions/download-artifact@v8
         with:
@@ -547,7 +650,7 @@ jobs:
           mkdir -p release-assets
 
           cp dev-artifacts/windows/Bloom-Windows.zip release-assets/Bloom-Windows.zip
-          cp dev-artifacts/windows-installer/Bloom-Setup-0.5.2.exe release-assets/Bloom-Setup-dev.exe
+          cp "dev-artifacts/windows-installer/${{ steps.dev_meta.outputs.installer_name }}" release-assets/Bloom-Setup-dev.exe
 
           DEB=$(find dev-artifacts/linux-deb -maxdepth 1 -type f -name 'bloom_*.deb' | head -1)
           TARBALL=$(find dev-artifacts/linux-tarball -maxdepth 1 -type f -name 'Bloom-Linux.tar.gz' | head -1)
@@ -636,6 +739,45 @@ jobs:
             release-assets/bloom_dev_amd64.deb
             release-assets/Bloom-Linux.tar.gz
           fail_on_unmatched_files: true
+
+      - name: Generate dev update manifest
+        run: |
+          python3 ./scripts/generate-update-manifest.py \
+            --channel dev \
+            --version "${{ steps.dev_meta.outputs.project_version }}" \
+            --build-id "${{ steps.dev_meta.outputs.build_id }}" \
+            --release-tag "dev-latest" \
+            --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --notes-file dev-release-notes.md \
+            --installer-url "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-dev.exe" \
+            --installer-filename "Bloom-Setup-dev.exe" \
+            --installer-sha256 "${{ steps.normalize_assets.outputs.windows_installer_hash }}" \
+            --portable-url "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip" \
+            --portable-filename "Bloom-Windows.zip" \
+            --portable-sha256 "${{ steps.normalize_assets.outputs.windows_zip_hash }}" \
+            --minimum-supported-version "${{ steps.dev_meta.outputs.project_version }}" \
+            --output dev.json
+
+      - name: Publish dev update manifest
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" manifest-repo
+          cd manifest-repo
+          if git ls-remote --exit-code --heads origin update-manifests >/dev/null 2>&1; then
+            git checkout update-manifests
+          else
+            git checkout --orphan update-manifests
+            git rm -rf . >/dev/null 2>&1 || true
+          fi
+          cp ../dev.json dev.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dev.json
+          git commit -m "chore: update dev manifest" || true
+          git push origin update-manifests
 
       - name: Trigger Scoop Bucket Update (Dev)
         env:

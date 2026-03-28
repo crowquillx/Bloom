@@ -178,6 +178,31 @@ wine Bloom-Setup-0.1.0.exe
 # Copy the .exe to a Windows machine and run natively
 ```
 
+### Update metadata
+
+Bloom now embeds updater metadata at configure time:
+- `BLOOM_BUILD_CHANNEL`
+- `BLOOM_BUILD_ID`
+- `BLOOM_GIT_SHA`
+
+CI passes these values for tagged stable releases and rolling `main` builds so the app can compare itself against the published channel manifest.
+
+### Update manifests
+
+The Windows updater reads static JSON manifests published by CI:
+- `stable.json`
+- `dev.json`
+
+The default runtime URLs point at the `update-manifests` branch on GitHub raw content. CI updates those files whenever a tagged stable release or the rolling `dev-latest` release is published.
+
+For local/testing, override the manifest host with `BLOOM_UPDATE_MANIFEST_BASE_URL` at configure time:
+
+```bash
+cmake .. -DBLOOM_UPDATE_MANIFEST_BASE_URL=https://example.com/my-manifests
+```
+
+This points the updater at a custom manifest base URL so Windows update checks can be validated against non-production manifests.
+
 ## Troubleshooting
 
 ### Missing Qt Dependencies

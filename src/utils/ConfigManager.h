@@ -116,6 +116,10 @@ class ConfigManager : public QObject
     
     // UI Animations
     Q_PROPERTY(bool uiAnimationsEnabled READ getUiAnimationsEnabled WRITE setUiAnimationsEnabled NOTIFY uiAnimationsEnabledChanged)
+    Q_PROPERTY(QString updateChannel READ getUpdateChannel WRITE setUpdateChannel NOTIFY updateChannelChanged)
+    Q_PROPERTY(bool autoUpdateCheckEnabled READ getAutoUpdateCheckEnabled WRITE setAutoUpdateCheckEnabled NOTIFY autoUpdateCheckEnabledChanged)
+    Q_PROPERTY(QString lastUpdateCheckAt READ getLastUpdateCheckAt WRITE setLastUpdateCheckAt NOTIFY lastUpdateCheckAtChanged)
+    Q_PROPERTY(QString skippedUpdateVersion READ getSkippedUpdateVersion WRITE setSkippedUpdateVersion NOTIFY skippedUpdateVersionChanged)
     
 public:
     explicit ConfigManager(QObject *parent = nullptr);
@@ -362,6 +366,16 @@ public:
     void setUiAnimationsEnabled(bool enabled);
     bool getUiAnimationsEnabled() const;
 
+    // Updates
+    void setUpdateChannel(const QString &channel);
+    QString getUpdateChannel() const;
+    void setAutoUpdateCheckEnabled(bool enabled);
+    bool getAutoUpdateCheckEnabled() const;
+    void setLastUpdateCheckAt(const QString &timestamp);
+    QString getLastUpdateCheckAt() const;
+    void setSkippedUpdateVersion(const QString &marker);
+    QString getSkippedUpdateVersion() const;
+
 signals:
     void backdropRotationIntervalChanged();
     void launchInFullscreenChanged();
@@ -401,6 +415,10 @@ signals:
     void seerrApiKeyChanged();
     void manualDpiScaleOverrideChanged();
     void uiAnimationsEnabledChanged();
+    void updateChannelChanged();
+    void autoUpdateCheckEnabledChanged();
+    void lastUpdateCheckAtChanged();
+    void skippedUpdateVersionChanged();
 
 private:
     QString normalizePlayerBackendName(const QString &backendName) const;
@@ -409,6 +427,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 14;
+    static constexpr int kCurrentConfigVersion = 15;
     QJsonObject defaultConfig() const;
 };

@@ -736,7 +736,11 @@ Item {
                             libraryListView.currentItem.forceActiveFocus()
                             event.accepted = true
                         } else {
-                            settingsButton.forceActiveFocus()
+                            if (updatesButton.visible) {
+                                updatesButton.forceActiveFocus()
+                            } else {
+                                settingsButton.forceActiveFocus()
+                            }
                             event.accepted = true
                         }
                     }
@@ -887,6 +891,137 @@ Item {
                 color: Theme.borderLight
                 visible: expanded || !overlayMode
             }
+
+            ItemDelegate {
+                id: updatesButton
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
+                visible: (expanded || !overlayMode) && typeof UpdateService !== "undefined" && UpdateService.updateAvailable
+
+                background: Rectangle {
+                    anchors.fill: parent
+                    anchors.leftMargin: Theme.spacingSmall
+                    anchors.rightMargin: Theme.spacingSmall
+                    radius: Theme.radiusMedium
+                    color: {
+                        if (updatesButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
+                        if (root.currentNavigation === "updates") return Theme.buttonTabBackgroundActive
+                        if (updatesButton.hovered) return Theme.buttonSecondaryBackgroundHover
+                        return "transparent"
+                    }
+                    border.color: updatesButton.activeFocus ? Theme.focusBorder : "transparent"
+                    border.width: updatesButton.activeFocus ? 2 : (root.currentNavigation === "updates" ? 1 : 0)
+                }
+
+                contentItem: RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: expanded ? Theme.spacingMedium : 0
+                    anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
+                    spacing: expanded ? Theme.spacingSmall * 2 : 0
+
+                    Item {
+                        Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
+                        Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
+                        Layout.alignment: Qt.AlignVCenter
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: Icons.download
+                            font.pixelSize: Theme.fontSizeIcon
+                            font.family: Theme.fontIcon
+                            color: Theme.accentPrimary
+                            renderType: Text.NativeRendering
+                        }
+
+                        Rectangle {
+                            width: Math.round(10 * Theme.layoutScale)
+                            height: width
+                            radius: width / 2
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            color: Theme.accentPrimary
+                            border.color: Theme.backgroundPrimary
+                            border.width: 1
+                        }
+                    }
+
+                    Text {
+                        text: qsTr("Updates")
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        font.weight: Font.DemiBold
+                        color: Theme.textPrimary
+                        visible: expanded
+                        opacity: expanded ? 1.0 : 0.0
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+
+                        Behavior on opacity {
+                            NumberAnimation { duration: root.animDuration }
+                        }
+                    }
+                }
+
+                ToolTip.visible: !expanded && hovered
+                ToolTip.text: qsTr("Updates Available")
+                ToolTip.delay: 500
+
+                onClicked: {
+                    root.currentNavigation = "updates"
+                    root.navigationRequested("updates")
+                    if (root.overlayMode) {
+                        root.close()
+                    }
+                }
+
+                Keys.onReturnPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onSpacePressed: (event) => {
+                    if (event.isAutoRepeat) {
+                        event.accepted = true
+                        return
+                    }
+                    clicked()
+                    event.accepted = true
+                }
+
+                Keys.onUpPressed: {
+                    if (libraryListView.count > 0) {
+                        libraryListView.currentIndex = libraryListView.count - 1
+                        libraryListView.currentItem.forceActiveFocus()
+                    } else if (navListView.count > 0) {
+                        navListView.currentIndex = navListView.count - 1
+                        navListView.currentItem.forceActiveFocus()
+                    }
+                }
+                Keys.onDownPressed: {
+                    settingsButton.forceActiveFocus()
+                }
+                Keys.onRightPressed: {
+                    if (root.mainContent) {
+                        root.restoreMainContentFocus()
+                    }
+                }
+                Keys.onEscapePressed: root.close()
+
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Updates")
+                Accessible.description: qsTr("View available application updates")
+            }
             
             // Settings button (now placed above Sign Out)
             ItemDelegate {
@@ -989,7 +1124,9 @@ Item {
                 }
                 
                 Keys.onUpPressed: {
-                    if (libraryListView.count > 0) {
+                    if (updatesButton.visible) {
+                        updatesButton.forceActiveFocus()
+                    } else if (libraryListView.count > 0) {
                         libraryListView.currentIndex = libraryListView.count - 1
                         libraryListView.currentItem.forceActiveFocus()
                     } else if (navListView.count > 0) {

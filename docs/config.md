@@ -57,6 +57,12 @@ UI settings
 - `settings.ui.backdrop_rotation_interval`: Backdrop rotation interval in milliseconds. Default 30000 (30 seconds).
 - `settings.ui.ui_animations_enabled` (Q_PROPERTY `uiAnimationsEnabled`): Toggle the QML transition/animation flourishes for keyboard/remote navigation; defaults to true but can be toggled to reduce GPU load.
 
+Update settings
+- `settings.updates.channel` (Q_PROPERTY `updateChannel`): Update track to query. Valid values are `stable` and `dev`. Default `stable`.
+- `settings.updates.auto_check_enabled` (Q_PROPERTY `autoUpdateCheckEnabled`): Whether Bloom checks for updates automatically at startup. Default true.
+- `settings.updates.last_check_at` (Q_PROPERTY `lastUpdateCheckAt`): UTC ISO-8601 timestamp of the last successful manifest check. Empty means Bloom has never checked.
+- `settings.updates.skipped_update_version` (Q_PROPERTY `skippedUpdateVersion`): Stores the last dismissed startup-popup marker so the same update is not re-prompted on every launch.
+
 Display settings
 - `settings.manualDpiScaleOverride` (Q_PROPERTY `manualDpiScaleOverride`): Manual DPI scale multiplier applied to automatic DPI detection. Range: 0.5 to 2.0. Default: 1.0 (automatic, no override).
   - Values below 1.0 decrease content size (e.g., 0.8 = 20% smaller)
