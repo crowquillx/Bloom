@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 from pathlib import Path
 
 ALLOWED_CHANNELS = {"stable", "dev"}
-SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
+SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 SHA256_RE = re.compile(r"^[A-Fa-f0-9]{64}$")
 
 

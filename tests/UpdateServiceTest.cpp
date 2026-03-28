@@ -89,6 +89,28 @@ UpdateManifest makeManifest(const QString &channel,
     return manifest;
 }
 
+QJsonObject manifestToJsonObject(const UpdateManifest &manifest)
+{
+    return QJsonObject{
+        {QStringLiteral("channel"), manifest.channel},
+        {QStringLiteral("version"), manifest.version},
+        {QStringLiteral("build_id"), manifest.buildId},
+        {QStringLiteral("release_tag"), manifest.releaseTag},
+        {QStringLiteral("published_at"), manifest.publishedAt},
+        {QStringLiteral("notes"), manifest.notes},
+        {QStringLiteral("installer"), QJsonObject{
+            {QStringLiteral("url"), manifest.installer.url},
+            {QStringLiteral("filename"), manifest.installer.filename},
+            {QStringLiteral("sha256"), manifest.installer.sha256}
+        }},
+        {QStringLiteral("portable"), QJsonObject{
+            {QStringLiteral("url"), manifest.portable.url},
+            {QStringLiteral("filename"), manifest.portable.filename},
+            {QStringLiteral("sha256"), manifest.portable.sha256}
+        }}
+    };
+}
+
 void clearTestConfig()
 {
     const QString configDir = ConfigManager::getConfigDir();
@@ -106,6 +128,7 @@ class UpdateServiceTest : public QObject
 private slots:
     void init();
     void parseManifestBytes_acceptsValidJson();
+    void parseManifestBytes_rejectsInvalidJson();
     void startupCheck_showsPopupForNewUpdate();
     void startupCheck_throttlesRecentCheck();
     void manualCheck_bypassesThrottle();
@@ -150,6 +173,24 @@ void UpdateServiceTest::parseManifestBytes_acceptsValidJson()
     QCOMPARE(manifest->installer.filename, QStringLiteral("Bloom-Setup-99.99.99.exe"));
 }
 
+void UpdateServiceTest::parseManifestBytes_rejectsInvalidJson()
+{
+    QString error;
+    const std::optional<UpdateManifest> malformedManifest = GitHubReleaseUpdateProvider::parseManifestBytes(
+        QByteArrayLiteral("{\"channel\":\"stable\""), &error);
+    QVERIFY(!malformedManifest.has_value());
+    QVERIFY(!error.trimmed().isEmpty());
+
+    QJsonObject incompleteRoot = manifestToJsonObject(makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99")));
+    incompleteRoot.remove(QStringLiteral("version"));
+
+    error.clear();
+    const std::optional<UpdateManifest> incompleteManifest = GitHubReleaseUpdateProvider::parseManifestBytes(
+        QJsonDocument(incompleteRoot).toJson(QJsonDocument::Compact), &error);
+    QVERIFY(!incompleteManifest.has_value());
+    QVERIFY(!error.trimmed().isEmpty());
+}
+
 void UpdateServiceTest::startupCheck_showsPopupForNewUpdate()
 {
     ConfigManager configManager;
@@ -158,6 +199,7 @@ void UpdateServiceTest::startupCheck_showsPopupForNewUpdate()
     configManager.setUpdateChannel(QStringLiteral("stable"));
     configManager.setLastUpdateCheckAt(QString());
 
+    // UpdateService adopts unparented provider/applier instances in its constructor.
     auto *provider = new FakeUpdateProvider;
     provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
     auto *applier = new FakeUpdateApplier(UpdateApplySupport::Supported);
@@ -180,6 +222,7 @@ void UpdateServiceTest::startupCheck_throttlesRecentCheck()
     configManager.setAutoUpdateCheckEnabled(true);
     configManager.setLastUpdateCheckAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
 
+    // UpdateService adopts unparented provider/applier instances in its constructor.
     auto *provider = new FakeUpdateProvider;
     provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
     auto *applier = new FakeUpdateApplier(UpdateApplySupport::NotifyOnly);
@@ -198,6 +241,7 @@ void UpdateServiceTest::manualCheck_bypassesThrottle()
     configManager.setAutoUpdateCheckEnabled(true);
     configManager.setLastUpdateCheckAt(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
 
+    // UpdateService adopts unparented provider/applier instances in its constructor.
     auto *provider = new FakeUpdateProvider;
     provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
     auto *applier = new FakeUpdateApplier(UpdateApplySupport::NotifyOnly);
@@ -216,6 +260,7 @@ void UpdateServiceTest::dismissStartupPopup_persistsMarker()
     configManager.setAutoUpdateCheckEnabled(true);
     configManager.setLastUpdateCheckAt(QString());
 
+    // UpdateService adopts unparented provider/applier instances in its constructor.
     auto *provider = new FakeUpdateProvider;
     provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"), QStringLiteral("99.99.99"));
     auto *applier = new FakeUpdateApplier(UpdateApplySupport::Supported);

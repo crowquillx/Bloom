@@ -70,6 +70,7 @@ signals:
     void updateAvailableChanged();
     void downloadProgressChanged();
     void startupPopupRequested();
+    void requestAutoQuit();
     void updateError(const QString &message);
     void channelChanged();
 
@@ -89,6 +90,8 @@ private:
     bool shouldThrottleStartupCheck() const;
     bool manifestRepresentsNewerVersion(const UpdateManifest &manifest) const;
     QString availabilityMarker(const UpdateManifest &manifest) const;
+    bool confirmAutoQuit() const;
+    void scheduleAutoQuitIfAllowed();
     void setUpdateAvailableState(bool available);
     void setShouldShowStartupPopup(bool show);
     void setStatus(const QString &status);

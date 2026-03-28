@@ -31,7 +31,7 @@ bool playbackIsActive(const PlayerController *playerController)
         return false;
     }
 
-    return static_cast<const QObject *>(playerController)->property("isPlaybackActive").toBool();
+    return playerController->isPlaybackActive();
 }
 
 } // namespace
@@ -73,7 +73,7 @@ UpdateService::UpdateService(ConfigManager *configManager,
             if (success) {
                 setStatus(message);
                 emitStateChanged();
-                QTimer::singleShot(0, qApp, &QCoreApplication::quit);
+                scheduleAutoQuitIfAllowed();
             } else {
                 setError(message);
                 emit updateError(message);
@@ -360,6 +360,22 @@ bool UpdateService::manifestRepresentsNewerVersion(const UpdateManifest &manifes
 QString UpdateService::availabilityMarker(const UpdateManifest &manifest) const
 {
     return manifest.availabilityMarker();
+}
+
+bool UpdateService::confirmAutoQuit() const
+{
+    return !playbackIsActive(m_playerController);
+}
+
+void UpdateService::scheduleAutoQuitIfAllowed()
+{
+    if (!confirmAutoQuit()) {
+        setStatus(tr("Bloom launched the installer. Close playback to continue the update."));
+        return;
+    }
+
+    emit requestAutoQuit();
+    QTimer::singleShot(0, qApp, &QCoreApplication::quit);
 }
 
 void UpdateService::setUpdateAvailableState(bool available)

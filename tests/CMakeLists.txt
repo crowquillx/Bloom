@@ -220,6 +220,7 @@ add_test(NAME SimilarItemsRetryTest COMMAND SimilarItemsRetryTest)
 
 add_executable(UpdateServiceTest
     UpdateServiceTest.cpp
+    PlayerControllerPlaybackStateStub.cpp
     ${UPDATER_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
 )

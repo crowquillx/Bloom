@@ -181,15 +181,15 @@ void WindowsNsisUpdateApplier::downloadAndInstall(const UpdateManifest &manifest
         const int statusCode = m_reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const QString networkError = m_reply->errorString();
         const QNetworkReply::NetworkError errorCode = m_reply->error();
-        m_reply->deleteLater();
-        m_reply = nullptr;
 
         if (errorCode != QNetworkReply::NoError) {
+            discardPartialDownload();
             finishWithError(tr("Failed to download the update installer: %1").arg(networkError));
             return;
         }
 
         if (statusCode != 200) {
+            discardPartialDownload();
             finishWithError(tr("Failed to download the update installer (HTTP %1).").arg(statusCode));
             return;
         }
@@ -213,6 +213,11 @@ void WindowsNsisUpdateApplier::downloadAndInstall(const UpdateManifest &manifest
             discardPartialDownload();
             finishWithError(tr("Downloaded installer failed checksum verification."));
             return;
+        }
+
+        if (m_reply) {
+            m_reply->deleteLater();
+            m_reply = nullptr;
         }
 
 #ifdef Q_OS_WIN
@@ -248,6 +253,8 @@ void WindowsNsisUpdateApplier::discardPartialDownload()
     if (m_reply) {
         disconnect(m_reply, nullptr, this, nullptr);
         m_reply->abort();
+        m_reply->deleteLater();
+        m_reply = nullptr;
     }
 
     if (m_outputFile.isOpen()) {
