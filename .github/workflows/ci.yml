@@ -320,8 +320,8 @@ jobs:
           echo "zip_hash=$zipHash" >> $env:GITHUB_OUTPUT
           echo "ZIP Hash: $zipHash"
 
-          if (Test-Path "Bloom-Setup-0.5.1.exe") {
-            $installerHash = (Get-FileHash Bloom-Setup-0.5.1.exe -Algorithm SHA256).Hash
+          if (Test-Path "Bloom-Setup-0.5.2.exe") {
+            $installerHash = (Get-FileHash Bloom-Setup-0.5.2.exe -Algorithm SHA256).Hash
             echo "installer_hash=$installerHash" >> $env:GITHUB_OUTPUT
             echo "Installer Hash: $installerHash"
           }
@@ -337,7 +337,7 @@ jobs:
           prerelease: false
           files: |
             Bloom-Windows.zip
-            Bloom-Setup-0.5.1.exe
+            Bloom-Setup-0.5.2.exe
           fail_on_unmatched_files: true
 
       - name: Trigger Scoop Bucket Update (Stable)
@@ -369,10 +369,10 @@ jobs:
 
       - name: Upload Installer Artifact
         uses: actions/upload-artifact@v6
-        if: hashFiles('Bloom-Setup-0.5.1.exe') != ''
+        if: hashFiles('Bloom-Setup-0.5.2.exe') != ''
         with:
           name: Bloom-Windows-Installer
-          path: Bloom-Setup-0.5.1.exe
+          path: Bloom-Setup-0.5.2.exe
 
   linux:
     name: Linux Build & Package
@@ -547,7 +547,7 @@ jobs:
           mkdir -p release-assets
 
           cp dev-artifacts/windows/Bloom-Windows.zip release-assets/Bloom-Windows.zip
-          cp dev-artifacts/windows-installer/Bloom-Setup-0.5.1.exe release-assets/Bloom-Setup-dev.exe
+          cp dev-artifacts/windows-installer/Bloom-Setup-0.5.2.exe release-assets/Bloom-Setup-dev.exe
 
           DEB=$(find dev-artifacts/linux-deb -maxdepth 1 -type f -name 'bloom_*.deb' | head -1)
           TARBALL=$(find dev-artifacts/linux-tarball -maxdepth 1 -type f -name 'Bloom-Linux.tar.gz' | head -1)
