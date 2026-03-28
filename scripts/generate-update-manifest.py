@@ -78,6 +78,8 @@ def main() -> int:
 
     try:
         version = validate_semver(args.version, "args.version")
+        normalized_build_id = validate_filename(args.build_id, "args.build_id")
+        normalized_release_tag = validate_filename(args.release_tag, "args.release_tag")
         published_at = validate_iso8601(args.published_at, "args.published_at")
         installer_url = validate_url(args.installer_url, "args.installer_url")
         portable_url = validate_url(args.portable_url, "args.portable_url")
@@ -96,9 +98,6 @@ def main() -> int:
             notes = Path(args.notes_file).read_text(encoding="utf-8").strip()
         except (OSError, UnicodeDecodeError) as exc:
             return fail(args.notes_file, str(exc))
-
-    normalized_build_id = args.build_id.strip()
-    normalized_release_tag = args.release_tag.strip()
 
     payload = {
         "channel": args.channel,
