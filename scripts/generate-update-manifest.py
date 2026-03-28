@@ -94,7 +94,7 @@ def main() -> int:
     if args.notes_file:
         try:
             notes = Path(args.notes_file).read_text(encoding="utf-8").strip()
-        except Exception as exc:
+        except (OSError, UnicodeDecodeError) as exc:
             return fail(args.notes_file, str(exc))
 
     normalized_build_id = args.build_id.strip()

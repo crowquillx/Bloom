@@ -401,6 +401,7 @@ Window {
             Button {
                 id: updatePrimaryButton
                 text: UpdateService.applySupported ? qsTr("Download and Install") : qsTr("Open Download Page")
+                enabled: !UpdateService.downloadInProgress && !UpdateService.installerLaunched
                 onClicked: {
                     if (UpdateService.applySupported) {
                         updateDialog.close()

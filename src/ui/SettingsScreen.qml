@@ -103,6 +103,19 @@ FocusScope {
         }
     }
 
+    function formatUpdateCheckTimestamp(timestamp) {
+        if (!timestamp || timestamp.length === 0) {
+            return qsTr("Never")
+        }
+
+        var parsed = new Date(timestamp)
+        if (isNaN(parsed.getTime())) {
+            return qsTr("Never")
+        }
+
+        return parsed.toLocaleString(Qt.locale())
+    }
+
     function refreshBackdropCandidates() {
         backdropCandidates = []
         currentBackdropUrl = ""
@@ -3100,9 +3113,7 @@ FocusScope {
 
                                 onActivated: {
                                     var channel = currentIndex === 1 ? "dev" : "stable"
-                                    if (channel !== ConfigManager.updateChannel) {
-                                        UpdateService.setChannel(channel)
-                                    }
+                                    UpdateService.setChannel(channel)
                                 }
 
                                 Keys.onUpPressed: function(event) {
@@ -3131,7 +3142,7 @@ FocusScope {
                             Button {
                                 id: checkUpdatesButton
                                 text: UpdateService.checking ? qsTr("Checking...") : qsTr("Check for Updates")
-                                enabled: !UpdateService.checking
+                                enabled: !UpdateService.checking && !UpdateService.downloadInProgress && !UpdateService.installerLaunched
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
                                         root.activateKeyboardFocusForItem(checkUpdatesButton)
@@ -3160,7 +3171,7 @@ FocusScope {
                                 id: updateDownloadButton
                                 visible: UpdateService.updateAvailable && UpdateService.applySupported
                                 text: UpdateService.downloadInProgress ? qsTr("Downloading...") : qsTr("Download and Install")
-                                enabled: !UpdateService.downloadInProgress
+                                enabled: !UpdateService.downloadInProgress && !UpdateService.installerLaunched
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
                                         root.activateKeyboardFocusForItem(updateDownloadButton)
@@ -3221,7 +3232,7 @@ FocusScope {
 
                         SettingsInfoRow {
                             label: qsTr("Last Checked")
-                            value: ConfigManager.lastUpdateCheckAt.length > 0 ? ConfigManager.lastUpdateCheckAt : qsTr("Never")
+                            value: root.formatUpdateCheckTimestamp(ConfigManager.lastUpdateCheckAt)
                             Layout.fillWidth: true
                         }
 

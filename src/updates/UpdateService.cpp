@@ -69,11 +69,13 @@ UpdateService::UpdateService(ConfigManager *configManager,
         });
 
         connect(m_applier, &IUpdateApplier::installFinished, this, [this](bool success, const QString &message) {
-            m_downloadInProgress = false;
             if (success) {
+                m_installerLaunched = true;
+                m_downloadInProgress = false;
                 setStatus(message);
                 scheduleAutoQuitIfAllowed();
             } else {
+                m_downloadInProgress = false;
                 setError(message);
                 emit updateError(message);
             }
@@ -126,6 +128,10 @@ void UpdateService::checkForUpdates(bool manual)
 
 void UpdateService::downloadAndInstallUpdate()
 {
+    if (m_installerLaunched) {
+        return;
+    }
+
     if (!m_updateAvailable) {
         const QString message = tr("No update is currently available.");
         setError(message);
@@ -196,6 +202,7 @@ void UpdateService::setChannel(const QString &channel)
 
     const QString normalized = normalizedChannel(channel);
     if (normalized == currentChannel()) {
+        m_pendingChannel.clear();
         return;
     }
 
@@ -229,7 +236,7 @@ QString UpdateService::currentBuildId() const
 
 void UpdateService::startCheck(CheckOrigin origin)
 {
-    if (!m_provider || m_checking) {
+    if (!m_provider || m_checking || m_downloadInProgress || m_installerLaunched) {
         return;
     }
 

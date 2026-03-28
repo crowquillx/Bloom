@@ -19,6 +19,7 @@ class UpdateService : public QObject
     Q_PROPERTY(bool checking READ checking NOTIFY updateStateChanged)
     Q_PROPERTY(bool updateAvailable READ updateAvailable NOTIFY updateAvailableChanged)
     Q_PROPERTY(bool downloadInProgress READ downloadInProgress NOTIFY updateStateChanged)
+    Q_PROPERTY(bool installerLaunched READ installerLaunched NOTIFY updateStateChanged)
     Q_PROPERTY(bool applySupported READ applySupported NOTIFY updateStateChanged)
     Q_PROPERTY(bool shouldShowStartupPopup READ shouldShowStartupPopup NOTIFY updateStateChanged)
     Q_PROPERTY(QString currentVersion READ currentVersion CONSTANT)
@@ -44,6 +45,7 @@ public:
     bool checking() const { return m_checking; }
     bool updateAvailable() const { return m_updateAvailable; }
     bool downloadInProgress() const { return m_downloadInProgress; }
+    bool installerLaunched() const { return m_installerLaunched; }
     bool applySupported() const { return m_applySupported; }
     bool shouldShowStartupPopup() const { return m_shouldShowStartupPopup; }
     QString currentVersion() const;
@@ -109,6 +111,7 @@ private:
     bool m_checking = false;
     bool m_updateAvailable = false;
     bool m_downloadInProgress = false;
+    bool m_installerLaunched = false;
     bool m_applySupported = false;
     bool m_shouldShowStartupPopup = false;
     qreal m_downloadProgress = 0.0;
