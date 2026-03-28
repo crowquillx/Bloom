@@ -98,7 +98,7 @@ def main() -> int:
         try:
             notes = Path(args.notes_file).read_text(encoding="utf-8").strip()
         except (OSError, UnicodeDecodeError) as exc:
-            return fail(args.notes_file, str(exc))
+            return fail("--notes-file", str(exc))
 
     payload = {
         "channel": normalized_channel,
