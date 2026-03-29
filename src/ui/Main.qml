@@ -47,6 +47,7 @@ Window {
     
     /// Whether the user is logged in (controls sidebar visibility)
     property bool isLoggedIn: false
+    property var sidebarProxy: sidebarLoader.item || sidebarStub
     
     /// Sidebar overlay mode threshold (narrow screens use overlay)
     readonly property int overlayThreshold: 960
@@ -54,8 +55,8 @@ Window {
     /// Current content offset based on sidebar state
     readonly property int contentOffset: {
         if (!isLoggedIn) return 0
-        if (sidebar.overlayMode) return 0
-        return sidebar.sidebarWidth
+        if (sidebarProxy.overlayMode) return 0
+        return sidebarProxy.sidebarWidth
     }
     readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
     readonly property bool useDetachedPlaybackOverlayWindow: Qt.platform.os === "windows"
@@ -67,13 +68,33 @@ Window {
                                                   && !PlayerController.isPlaybackActive
     property bool pendingStartupUpdatePopup: false
 
+    function ensureMediaSourceSelectionDialog() {
+        if (!mediaSourceSelectionDialogLoader.active) {
+            mediaSourceSelectionDialogLoader.active = true
+        }
+        return mediaSourceSelectionDialogLoader.item
+    }
+
     function openStartupUpdateDialog() {
-        if (updateDialog.visible) {
+        if (!updateDialogLoader.active) {
+            updateDialogLoader.active = true
+        }
+
+        const dialog = updateDialogLoader.item
+        if (!dialog) {
+            Qt.callLater(openStartupUpdateDialog)
             return
         }
-        updateDialog.open()
+
+        if (dialog.visible) {
+            return
+        }
+
+        dialog.open()
         Qt.callLater(function() {
-            updatePrimaryButton.forceActiveFocus()
+            if (dialog.primaryButton) {
+                dialog.primaryButton.forceActiveFocus()
+            }
         })
     }
 
@@ -199,13 +220,13 @@ Window {
         Keys.onLeftPressed: function(event) {
             if (isLoggedIn) {
                 saveFocusForSidebar()
-                if (sidebar.expanded) {
+                if (sidebarProxy.expanded) {
                     // When sidebar is expanded, focus first nav item
-                    sidebar.focusNavigation()
+                    sidebarProxy.focusNavigation()
                     event.accepted = true
-                } else if (!sidebar.overlayMode) {
+                } else if (!sidebarProxy.overlayMode) {
                     // When sidebar is collapsed (rail mode), focus hamburger
-                    sidebar.focusHamburger()
+                    sidebarProxy.focusHamburger()
                     event.accepted = true
                 } else {
                     event.accepted = false
@@ -242,10 +263,10 @@ Window {
             initialItem: "LoginScreen.qml"
             
             onCurrentItemChanged: {
-                console.log("[FocusDebug] StackView.currentItemChanged:", currentItem ? currentItem.toString() : "null", "sidebar.expanded:", sidebar.expanded)
+                console.log("[FocusDebug] StackView.currentItemChanged:", currentItem ? currentItem.toString() : "null", "sidebar.expanded:", sidebarProxy.expanded)
                 // Let screens with restoreFocusState handle their own focus restoration
                 // This allows HomeScreen to restore focus to the previously selected item
-                if (currentItem && !sidebar.expanded) {
+                if (currentItem && !sidebarProxy.expanded) {
                     if (currentItem.restoreFocusState) {
                         console.log("[FocusDebug] Screen has restoreFocusState, letting it handle focus")
                         // Don't force focus here - let StackView.onStatusChanged in the screen handle it
@@ -253,7 +274,7 @@ Window {
                         console.log("[FocusDebug] Setting focus to currentItem (no restoreFocusState)")
                         currentItem.forceActiveFocus()
                     }
-                } else if (currentItem && sidebar.expanded) {
+                } else if (currentItem && sidebarProxy.expanded) {
                     console.log("[FocusDebug] Skipping focus - sidebar is expanded, will restore later")
                 }
                 updateSidebarNavigation()
@@ -307,12 +328,25 @@ Window {
     Connections {
         target: PlayerController
         function onPlaybackVersionSelectionRequested(requestId, dialogModel, restoreFocusHint) {
-            mediaSourceSelectionDialog.openForRequest(requestId, dialogModel, restoreFocusHint)
+            const dialog = ensureMediaSourceSelectionDialog()
+            if (dialog) {
+                dialog.openForRequest(requestId, dialogModel, restoreFocusHint)
+            } else {
+                Qt.callLater(function() {
+                    const deferredDialog = ensureMediaSourceSelectionDialog()
+                    if (deferredDialog) {
+                        deferredDialog.openForRequest(requestId, dialogModel, restoreFocusHint)
+                    }
+                })
+            }
         }
     }
 
-    MediaSourceSelectionDialog {
-        id: mediaSourceSelectionDialog
+    Loader {
+        id: mediaSourceSelectionDialogLoader
+        active: false
+        sourceComponent: MediaSourceSelectionDialog {
+        }
     }
 
     Timer {
@@ -322,118 +356,125 @@ Window {
         onTriggered: UpdateService.performStartupCheck()
     }
 
-    Dialog {
-        id: updateDialog
-        modal: true
-        focus: true
-        anchors.centerIn: parent
-        width: Math.round(720 * Theme.layoutScale)
-        padding: Theme.spacingLarge
+    Loader {
+        id: updateDialogLoader
+        active: false
 
-        onRejected: UpdateService.dismissStartupPopup()
+        sourceComponent: Dialog {
+            id: updateDialog
+            property alias primaryButton: updatePrimaryButton
+            parent: Overlay.overlay
+            modal: true
+            focus: true
+            anchors.centerIn: parent
+            width: Math.round(720 * Theme.layoutScale)
+            padding: Theme.spacingLarge
 
-        background: Rectangle {
-            color: Theme.cardBackground
-            radius: Theme.radiusMedium
-            border.color: Theme.cardBorder
-            border.width: 1
-        }
+            onRejected: UpdateService.dismissStartupPopup()
 
-        header: Rectangle {
-            color: "transparent"
-            height: Math.round(84 * Theme.layoutScale)
-
-            Column {
-                anchors.fill: parent
-                anchors.margins: Theme.spacingLarge
-                spacing: Theme.spacingSmall
-
-                Text {
-                    text: qsTr("Update Available")
-                    font.pixelSize: Theme.fontSizeTitle
-                    font.family: Theme.fontPrimary
-                    font.weight: Font.DemiBold
-                    color: Theme.textPrimary
-                }
-
-                Text {
-                    text: UpdateService.availableVersion.length > 0
-                          ? qsTr("Bloom %1 is available on the %2 channel.")
-                                .arg(UpdateService.availableVersion)
-                                .arg(UpdateService.availableChannel)
-                          : qsTr("A Bloom update is available.")
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                    wrapMode: Text.WordWrap
-                }
+            background: Rectangle {
+                color: Theme.cardBackground
+                radius: Theme.radiusMedium
+                border.color: Theme.cardBorder
+                border.width: 1
             }
-        }
 
-        contentItem: ColumnLayout {
-            spacing: Theme.spacingMedium
+            header: Rectangle {
+                color: "transparent"
+                height: Math.round(84 * Theme.layoutScale)
 
-            ScrollView {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.min(updateDialogNotesText.implicitHeight + Theme.spacingMedium,
-                                                 Math.round(window.height * 0.32))
-                Layout.maximumHeight: Math.round(window.height * 0.32)
-                clip: true
+                Column {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingLarge
+                    spacing: Theme.spacingSmall
 
-                Text {
-                    id: updateDialogNotesText
-                    width: parent.width
-                    text: UpdateService.releaseNotes.length > 0
-                          ? UpdateService.releaseNotes
-                          : qsTr("Open Settings > Updates for full details and download options.")
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                    wrapMode: Text.WordWrap
+                    Text {
+                        text: qsTr("Update Available")
+                        font.pixelSize: Theme.fontSizeTitle
+                        font.family: Theme.fontPrimary
+                        font.weight: Font.DemiBold
+                        color: Theme.textPrimary
+                    }
+
+                    Text {
+                        text: UpdateService.availableVersion.length > 0
+                              ? qsTr("Bloom %1 is available on the %2 channel.")
+                                    .arg(UpdateService.availableVersion)
+                                    .arg(UpdateService.availableChannel)
+                              : qsTr("A Bloom update is available.")
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: Theme.textSecondary
+                        wrapMode: Text.WordWrap
+                    }
                 }
             }
 
-            Text {
-                text: UpdateService.applySupported
-                      ? qsTr("Bloom can download and launch the installer for you.")
-                      : qsTr("This build cannot auto-install updates, but download links are available.")
-                font.pixelSize: Theme.fontSizeSmall
-                font.family: Theme.fontPrimary
-                color: Theme.textSecondary
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
-            }
-        }
-
-        footer: Item {
-            implicitHeight: footerLayout.implicitHeight + (Theme.spacingLarge * 2)
-
-            RowLayout {
-                id: footerLayout
-                anchors.fill: parent
-                anchors.margins: Theme.spacingLarge
+            contentItem: ColumnLayout {
                 spacing: Theme.spacingMedium
 
-                Button {
-                    id: updatePrimaryButton
-                    text: UpdateService.applySupported ? qsTr("Download and Install") : qsTr("Open Download Page")
-                    enabled: !UpdateService.downloadInProgress && !UpdateService.installerLaunched
-                    onClicked: {
-                        if (UpdateService.applySupported) {
-                            updateDialog.close()
-                            UpdateService.downloadAndInstallUpdate()
-                        } else {
-                            UpdateService.openUpdateDownloadPage()
-                            updateDialog.close()
-                        }
+                ScrollView {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(updateDialogNotesText.implicitHeight + Theme.spacingMedium,
+                                                     Math.round(window.height * 0.32))
+                    Layout.maximumHeight: Math.round(window.height * 0.32)
+                    clip: true
+
+                    Text {
+                        id: updateDialogNotesText
+                        width: parent.width
+                        text: UpdateService.releaseNotes.length > 0
+                              ? UpdateService.releaseNotes
+                              : qsTr("Open Settings > Updates for full details and download options.")
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: Theme.textPrimary
+                        wrapMode: Text.WordWrap
                     }
                 }
 
-                Button {
-                    text: qsTr("Later")
-                    onClicked: {
-                        UpdateService.dismissStartupPopup()
-                        updateDialog.close()
+                Text {
+                    text: UpdateService.applySupported
+                          ? qsTr("Bloom can download and launch the installer for you.")
+                          : qsTr("This build cannot auto-install updates, but download links are available.")
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+            }
+
+            footer: Item {
+                implicitHeight: footerLayout.implicitHeight + (Theme.spacingLarge * 2)
+
+                RowLayout {
+                    id: footerLayout
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingLarge
+                    spacing: Theme.spacingMedium
+
+                    Button {
+                        id: updatePrimaryButton
+                        text: UpdateService.applySupported ? qsTr("Download and Install") : qsTr("Open Download Page")
+                        enabled: !UpdateService.downloadInProgress && !UpdateService.installerLaunched
+                        onClicked: {
+                            if (UpdateService.applySupported) {
+                                updateDialog.close()
+                                UpdateService.downloadAndInstallUpdate()
+                            } else {
+                                UpdateService.openUpdateDownloadPage()
+                                updateDialog.close()
+                            }
+                        }
+                    }
+
+                    Button {
+                        text: qsTr("Later")
+                        onClicked: {
+                            UpdateService.dismissStartupPopup()
+                            updateDialog.close()
+                        }
                     }
                 }
             }
@@ -444,72 +485,90 @@ Window {
     // Sidebar Navigation Shell
     // ========================================
     
-    Sidebar {
-        id: sidebar
+    QtObject {
+        id: sidebarStub
+        property bool expanded: false
+        property bool overlayMode: false
+        property int sidebarWidth: 0
+        property string currentNavigation: "home"
+        property string currentLibraryId: ""
+        function focusNavigation() {}
+        function focusHamburger() {}
+        function close() {}
+        function toggle() {}
+    }
+
+    Loader {
+        id: sidebarLoader
         anchors.fill: parent
-        visible: isLoggedIn && !embeddedPlaybackActive
-        overlayMode: window.width < overlayThreshold
-        currentNavigation: "home"
-        mainContent: mainContentArea  // Connect to main content for focus navigation
+        active: isLoggedIn
+        visible: active
 
-        onNavigationRequested: function(navigationId) {
-            playPointerSelectSound()
-            // Handle navigation requests
-            switch (navigationId) {
-                case "home":
-                    // Save focus state before navigating
-                    var homeScreen = stackView.find(function(item) { return item && item.navigationId === "home" })
-                    if (homeScreen) homeScreen.saveFocusState()
-                    // Pop back to home screen
-                    while (stackView.depth > 1) {
-                        stackView.pop()
-                    }
-                    break
-                case "search":
-                    // Save focus state before navigating
-                    var homeForSearch = stackView.find(function(item) { return item && item.navigationId === "home" })
-                    if (homeForSearch) homeForSearch.saveFocusState()
-                    // Navigate to search screen
-                    pushSearchScreen()
-                    break
-                case "settings":
-                    // Save focus state before navigating
-                    var homeForSettings = stackView.find(function(item) { return item && item.navigationId === "home" })
-                    if (homeForSettings) homeForSettings.saveFocusState()
-                    // Navigate to settings screen
-                    pushSettingsScreen()
-                    break
-                case "updates":
-                    // Save focus state before navigating
-                    var homeForUpdates = stackView.find(function(item) { return item && item.navigationId === "home" })
-                    if (homeForUpdates) homeForUpdates.saveFocusState()
-                    pushSettingsScreen({ focusUpdatesOnActivate: true })
-                    break
+        sourceComponent: Sidebar {
+            visible: !embeddedPlaybackActive
+            overlayMode: window.width < overlayThreshold
+            currentNavigation: "home"
+            mainContent: mainContentArea  // Connect to main content for focus navigation
+
+            onNavigationRequested: function(navigationId) {
+                playPointerSelectSound()
+                // Handle navigation requests
+                switch (navigationId) {
+                    case "home":
+                        // Save focus state before navigating
+                        var homeScreen = stackView.find(function(item) { return item && item.navigationId === "home" })
+                        if (homeScreen) homeScreen.saveFocusState()
+                        // Pop back to home screen
+                        while (stackView.depth > 1) {
+                            stackView.pop()
+                        }
+                        break
+                    case "search":
+                        // Save focus state before navigating
+                        var homeForSearch = stackView.find(function(item) { return item && item.navigationId === "home" })
+                        if (homeForSearch) homeForSearch.saveFocusState()
+                        // Navigate to search screen
+                        pushSearchScreen()
+                        break
+                    case "settings":
+                        // Save focus state before navigating
+                        var homeForSettings = stackView.find(function(item) { return item && item.navigationId === "home" })
+                        if (homeForSettings) homeForSettings.saveFocusState()
+                        // Navigate to settings screen
+                        pushSettingsScreen()
+                        break
+                    case "updates":
+                        // Save focus state before navigating
+                        var homeForUpdates = stackView.find(function(item) { return item && item.navigationId === "home" })
+                        if (homeForUpdates) homeForUpdates.saveFocusState()
+                        pushSettingsScreen({ focusUpdatesOnActivate: true })
+                        break
+                }
             }
-        }
 
-        onLibraryRequested: function(libraryId, libraryName) {
-            playPointerSelectSound()
-            if (!libraryId)
-                return
-            // Save focus state before navigating
-            var homeScreenForLibrary = stackView.find(function(item) { return item && item.navigationId === "home" })
-            if (homeScreenForLibrary) homeScreenForLibrary.saveFocusState()
-            stackView.push("LibraryScreen.qml", {
-                currentParentId: libraryId,
-                currentLibraryId: libraryId,
-                currentLibraryName: libraryName
-            })
-        }
-        
-        onSignOutRequested: {
-            // Trigger logout process
-            AuthenticationService.logout()
-        }
-        
-        onExitRequested: {
-            // Exit the application (saves config and quits)
-            ConfigManager.exitApplication()
+            onLibraryRequested: function(libraryId, libraryName) {
+                playPointerSelectSound()
+                if (!libraryId)
+                    return
+                // Save focus state before navigating
+                var homeScreenForLibrary = stackView.find(function(item) { return item && item.navigationId === "home" })
+                if (homeScreenForLibrary) homeScreenForLibrary.saveFocusState()
+                stackView.push("LibraryScreen.qml", {
+                    currentParentId: libraryId,
+                    currentLibraryId: libraryId,
+                    currentLibraryName: libraryName
+                })
+            }
+
+            onSignOutRequested: {
+                // Trigger logout process
+                AuthenticationService.logout()
+            }
+
+            onExitRequested: {
+                // Exit the application (saves config and quits)
+                ConfigManager.exitApplication()
+            }
         }
     }
     
@@ -517,11 +576,11 @@ Window {
     function updateSidebarNavigation() {
         var item = stackView.currentItem
         var navigationId = (item && item.navigationId) ? item.navigationId : "home"
-        sidebar.currentNavigation = navigationId
+        sidebarProxy.currentNavigation = navigationId
         if (navigationId && navigationId.indexOf("library:") === 0) {
-            sidebar.currentLibraryId = navigationId.substring("library:".length)
+            sidebarProxy.currentLibraryId = navigationId.substring("library:".length)
         } else {
-            sidebar.currentLibraryId = ""
+            sidebarProxy.currentLibraryId = ""
         }
     }
 
@@ -764,7 +823,7 @@ Window {
             window.isLoggedIn = false
             
             // Close sidebar if open
-            sidebar.close()
+            sidebarProxy.close()
             
             // Clear all screens and go back to login
             stackView.clear()
@@ -891,10 +950,10 @@ Window {
         sequences: ["Esc"]
         enabled: !PlayerController.isPlaybackActive
                  && stackView.depth > 1
-                 && !sidebar.expanded
+                 && !sidebarProxy.expanded
                  && !(stackView.currentItem && stackView.currentItem.handlesOwnBackNavigation === true)
         onActivated: {
-            console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "sidebar.expanded:", sidebar.expanded)
+            console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "sidebar.expanded:", sidebarProxy.expanded)
             if (stackView.depth > 1) {
                 if (InputModeManager.pointerActive) UiSoundController.playBack()
                 stackView.pop()
@@ -907,7 +966,7 @@ Window {
     Shortcut {
         sequence: "M"
         enabled: isLoggedIn
-        onActivated: sidebar.toggle()
+        onActivated: sidebarProxy.toggle()
     }
 
     Shortcut {
