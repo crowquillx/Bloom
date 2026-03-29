@@ -63,7 +63,6 @@ FocusScope {
                 Layout.preferredWidth: Theme.iconSizeLarge
                 Layout.preferredHeight: Theme.iconSizeLarge
 
-                onClicked: root.backRequested()
                 onActivated: root.backRequested()
 
                 KeyNavigation.right: refreshButton
@@ -87,7 +86,6 @@ FocusScope {
                 Layout.preferredHeight: Theme.iconSizeMedium
                 toolTipText: "Refresh"
 
-                onClicked: refresh()
                 onActivated: refresh()
 
                 KeyNavigation.left: backButton
@@ -102,11 +100,6 @@ FocusScope {
                 enabled: root.sessionService && root.sessionService.sessions.length > 1
                 opacity: enabled ? 1.0 : 0.5
 
-                onClicked: {
-                    if (root.sessionService) {
-                        root.sessionService.revokeAllOtherSessions();
-                    }
-                }
                 onActivated: {
                     if (root.sessionService) {
                         root.sessionService.revokeAllOtherSessions();
@@ -239,11 +232,6 @@ FocusScope {
                         Layout.preferredHeight: Theme.iconSizeMedium
                         toolTipText: "Revoke session"
 
-                        onClicked: {
-                            if (root.sessionService) {
-                                root.sessionService.revokeSession(model.id);
-                            }
-                        }
                         onActivated: {
                             if (root.sessionService) {
                                 root.sessionService.revokeSession(model.id);

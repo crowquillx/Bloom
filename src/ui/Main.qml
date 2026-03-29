@@ -370,7 +370,8 @@ Window {
             modal: true
             focus: true
             anchors.centerIn: parent
-            width: Math.round(720 * Theme.layoutScale)
+            width: Math.min(Math.round(720 * Theme.layoutScale),
+                            Math.max(0, window.width - (Theme.spacingLarge * 2)))
             padding: Theme.spacingLarge
 
             onRejected: UpdateService.dismissStartupPopup()
@@ -488,6 +489,13 @@ Window {
     // Sidebar Navigation Shell
     // ========================================
     
+    function saveHomeFocusState() {
+        var homeScreen = stackView.find(function(item) { return item && item["navigationId"] === "home" })
+        if (homeScreen && typeof homeScreen["saveFocusState"] === "function") {
+            homeScreen["saveFocusState"]()
+        }
+    }
+
     QtObject {
         id: sidebarStub
         property bool expanded: false
@@ -518,32 +526,24 @@ Window {
                 // Handle navigation requests
                 switch (navigationId) {
                     case "home":
-                        // Save focus state before navigating
-                        var homeScreen = stackView.find(function(item) { return item && item["navigationId"] === "home" })
-                        if (homeScreen && typeof homeScreen["saveFocusState"] === "function") homeScreen["saveFocusState"]()
+                        saveHomeFocusState()
                         // Pop back to home screen
                         while (stackView.depth > 1) {
                             stackView.pop()
                         }
                         break
                     case "search":
-                        // Save focus state before navigating
-                        var homeForSearch = stackView.find(function(item) { return item && item["navigationId"] === "home" })
-                        if (homeForSearch && typeof homeForSearch["saveFocusState"] === "function") homeForSearch["saveFocusState"]()
+                        saveHomeFocusState()
                         // Navigate to search screen
                         pushSearchScreen()
                         break
                     case "settings":
-                        // Save focus state before navigating
-                        var homeForSettings = stackView.find(function(item) { return item && item["navigationId"] === "home" })
-                        if (homeForSettings && typeof homeForSettings["saveFocusState"] === "function") homeForSettings["saveFocusState"]()
+                        saveHomeFocusState()
                         // Navigate to settings screen
                         pushSettingsScreen()
                         break
                     case "updates":
-                        // Save focus state before navigating
-                        var homeForUpdates = stackView.find(function(item) { return item && item["navigationId"] === "home" })
-                        if (homeForUpdates && typeof homeForUpdates["saveFocusState"] === "function") homeForUpdates["saveFocusState"]()
+                        saveHomeFocusState()
                         pushSettingsScreen({ focusUpdatesOnActivate: true })
                         break
                 }
@@ -553,9 +553,7 @@ Window {
                 playPointerSelectSound()
                 if (!libraryId)
                     return
-                // Save focus state before navigating
-                var homeScreenForLibrary = stackView.find(function(item) { return item && item["navigationId"] === "home" })
-                if (homeScreenForLibrary && typeof homeScreenForLibrary["saveFocusState"] === "function") homeScreenForLibrary["saveFocusState"]()
+                saveHomeFocusState()
                 stackView.push("LibraryScreen.qml", {
                     currentParentId: libraryId,
                     currentLibraryId: libraryId,
@@ -676,7 +674,7 @@ Window {
         target: UpdateService
         ignoreUnknownSignals: true
         function onStartupPopupRequested() {
-            if (!window.isLoggedIn && !AuthenticationService.authenticated) {
+            if (!window.isLoggedIn || !AuthenticationService.authenticated) {
                 pendingStartupUpdatePopup = true
                 return
             }
@@ -822,12 +820,12 @@ Window {
         function onLoggedOut() {
             console.log("Main.qml: Logged out, returning to login screen")
             
-            // Mark as logged out to hide sidebar
-            window.isLoggedIn = false
-            
             // Close sidebar if open
             sidebarProxy.close()
-            
+
+            // Mark as logged out to hide sidebar
+            window.isLoggedIn = false
+
             // Clear all screens and go back to login
             stackView.clear()
             stackView.push("LoginScreen.qml")

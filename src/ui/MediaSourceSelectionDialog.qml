@@ -155,6 +155,12 @@ FocusScope {
             }
         }
 
+        Shortcut {
+            sequences: ["Escape", "Back"]
+            enabled: dialog.visible
+            onActivated: dialog.closeWithoutSelection()
+        }
+
         background: Rectangle {
             color: Theme.cardBackground
             radius: Theme.radiusMedium
@@ -313,8 +319,15 @@ FocusScope {
             }
         }
 
-        footer: Item {
+        footer: FocusScope {
             implicitHeight: Math.round(64 * Theme.layoutScale)
+
+            Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+                    dialog.closeWithoutSelection()
+                    event.accepted = true
+                }
+            }
 
             RowLayout {
                 anchors.right: parent.right
