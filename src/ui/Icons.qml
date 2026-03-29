@@ -1,5 +1,6 @@
 pragma Singleton
 import QtQuick
+import BloomUI
 
 /**
  * Icons - Material Symbols icon codepoints
@@ -18,6 +19,8 @@ import QtQuick
  * Find codepoints at: https://github.com/AlejandroAkbal/Google-Material-Symbols-Icons-Codepoints-JSON
  */
 QtObject {
+    readonly property string materialFamily: Theme.fontIcon
+
     // Navigation - Using Unicode codepoints from Material Symbols
     readonly property string home: "\ue88a"
     readonly property string menu: "\ue5d2"

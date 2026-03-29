@@ -333,13 +333,13 @@ FocusScope {
                     background: Rectangle {
                         radius: Theme.radiusLarge
                         color: {
-                            if (!parent.enabled) return Theme.buttonSecondaryBackground
-                            if (parent.down) return Theme.buttonPrimaryBackgroundPressed
-                            if (parent.hovered) return Theme.buttonPrimaryBackgroundHover
+                            if (!playButton.enabled) return Theme.buttonSecondaryBackground
+                            if (playButton.down) return Theme.buttonPrimaryBackgroundPressed
+                            if (playButton.hovered) return Theme.buttonPrimaryBackgroundHover
                             return Theme.buttonPrimaryBackground
                         }
-                        border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                        border.color: parent.activeFocus ? Theme.buttonPrimaryBorderFocused : Theme.buttonPrimaryBorder
+                        border.width: playButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                        border.color: playButton.activeFocus ? Theme.buttonPrimaryBorderFocused : Theme.buttonPrimaryBorder
                         
                         Behavior on color { ColorAnimation { duration: Theme.durationShort } }
                         Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
@@ -360,14 +360,14 @@ FocusScope {
                     background: Rectangle {
                         radius: Theme.radiusLarge
                         color: {
-                            if (parent.down) return Theme.buttonIconBackgroundPressed
-                            if (parent.hovered) return Theme.buttonIconBackgroundHover
+                            if (bookmarkButton.down) return Theme.buttonIconBackgroundPressed
+                            if (bookmarkButton.hovered) return Theme.buttonIconBackgroundHover
                             return Theme.buttonIconBackground
                         }
-                        border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                        border.width: bookmarkButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
                         border.color: {
-                            if (parent.activeFocus) return Theme.buttonIconBorderFocused
-                            if (parent.hovered) return Theme.buttonIconBorderHover
+                            if (bookmarkButton.activeFocus) return Theme.buttonIconBorderFocused
+                            if (bookmarkButton.hovered) return Theme.buttonIconBorderHover
                             return Theme.buttonIconBorder
                         }
                         
@@ -399,14 +399,14 @@ FocusScope {
                     background: Rectangle {
                         radius: Theme.radiusLarge
                         color: {
-                            if (parent.down) return Theme.buttonIconBackgroundPressed
-                            if (parent.hovered) return Theme.buttonIconBackgroundHover
+                            if (markWatchedButton.down) return Theme.buttonIconBackgroundPressed
+                            if (markWatchedButton.hovered) return Theme.buttonIconBackgroundHover
                             return Theme.buttonIconBackground
                         }
-                        border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                        border.width: markWatchedButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
                         border.color: {
-                            if (parent.activeFocus) return Theme.buttonIconBorderFocused
-                            if (parent.hovered) return Theme.buttonIconBorderHover
+                            if (markWatchedButton.activeFocus) return Theme.buttonIconBorderFocused
+                            if (markWatchedButton.hovered) return Theme.buttonIconBorderHover
                             return Theme.buttonIconBorder
                         }
                         
@@ -451,14 +451,14 @@ FocusScope {
                     background: Rectangle {
                         radius: Theme.radiusLarge
                         color: {
-                            if (parent.down) return Theme.buttonIconBackgroundPressed
-                            if (parent.hovered) return Theme.buttonIconBackgroundHover
+                            if (favoriteButton.down) return Theme.buttonIconBackgroundPressed
+                            if (favoriteButton.hovered) return Theme.buttonIconBackgroundHover
                             return Theme.buttonIconBackground
                         }
-                        border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                        border.width: favoriteButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
                         border.color: {
-                            if (parent.activeFocus) return Theme.buttonIconBorderFocused
-                            if (parent.hovered) return Theme.buttonIconBorderHover
+                            if (favoriteButton.activeFocus) return Theme.buttonIconBorderFocused
+                            if (favoriteButton.hovered) return Theme.buttonIconBorderHover
                             return Theme.buttonIconBorder
                         }
                         
@@ -491,14 +491,14 @@ FocusScope {
                     background: Rectangle {
                         radius: Theme.radiusLarge
                         color: {
-                            if (parent.down) return Theme.buttonIconBackgroundPressed
-                            if (parent.hovered) return Theme.buttonIconBackgroundHover
+                            if (moreButton.down) return Theme.buttonIconBackgroundPressed
+                            if (moreButton.hovered) return Theme.buttonIconBackgroundHover
                             return Theme.buttonIconBackground
                         }
-                        border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                        border.width: moreButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
                         border.color: {
-                            if (parent.activeFocus) return Theme.buttonIconBorderFocused
-                            if (parent.hovered) return Theme.buttonIconBorderHover
+                            if (moreButton.activeFocus) return Theme.buttonIconBorderFocused
+                            if (moreButton.hovered) return Theme.buttonIconBorderHover
                             return Theme.buttonIconBorder
                         }
                         
@@ -507,7 +507,7 @@ FocusScope {
                     }
                     
                     contentItem: Text {
-                        text: parent.text
+                        text: moreButton.text
                         font.pixelSize: 24
                         color: Theme.textPrimary
                         horizontalAlignment: Text.AlignHCenter

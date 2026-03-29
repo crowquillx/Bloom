@@ -186,14 +186,14 @@ FocusScope {
             background: Rectangle {
                 radius: Theme.radiusSmall
                 color: {
-                    if (parent.down) return Theme.buttonSecondaryBackgroundPressed
-                    if (parent.hovered || popup.visible) return Theme.buttonSecondaryBackgroundHover
+                    if (selectorButton.down) return Theme.buttonSecondaryBackgroundPressed
+                    if (selectorButton.hovered || popup.visible) return Theme.buttonSecondaryBackgroundHover
                     return Theme.buttonSecondaryBackground
                 }
-                border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
+                border.width: selectorButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
                 border.color: {
-                    if (parent.activeFocus) return Theme.buttonSecondaryBorderFocused
-                    if (parent.hovered) return Theme.buttonSecondaryBorderHover
+                    if (selectorButton.activeFocus) return Theme.buttonSecondaryBorderFocused
+                    if (selectorButton.hovered) return Theme.buttonSecondaryBorderHover
                     return Theme.buttonSecondaryBorder
                 }
                 

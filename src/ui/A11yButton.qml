@@ -10,9 +10,36 @@ Button {
     // Accessibility properties
     property string a11yName: ""
     property string a11yDescription: ""
+    property string toolTipText: ""
+
+    signal activated()
     
     Accessible.role: Accessible.Button
     Accessible.name: a11yName || text
     Accessible.description: a11yDescription
     Accessible.focusable: true
+
+    ToolTip.visible: hovered && toolTipText.length > 0
+    ToolTip.text: toolTipText
+
+    onClicked: activated()
+
+    Keys.onReturnPressed: function(event) {
+        if (event.isAutoRepeat)
+            return
+        activated()
+        event.accepted = true
+    }
+    Keys.onEnterPressed: function(event) {
+        if (event.isAutoRepeat)
+            return
+        activated()
+        event.accepted = true
+    }
+    Keys.onSpacePressed: function(event) {
+        if (event.isAutoRepeat)
+            return
+        activated()
+        event.accepted = true
+    }
 }

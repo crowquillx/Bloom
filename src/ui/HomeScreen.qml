@@ -164,6 +164,15 @@ FocusScope {
     property int savedRecentlyAddedIndex: -1
     property string savedRecentlyAddedLibraryId: ""
 
+    function getRecentlyAddedDelegateMeta(index) {
+        var item = recentlyAddedRepeater.itemAt(index)
+        return {
+            item: item || null,
+            recentlyAddedListRef: item ? (item["recentlyAddedListRef"] || null) : null,
+            libraryId: item ? (item["libraryId"] || "") : ""
+        }
+    }
+
     Connections {
         target: ResponsiveLayoutManager
         function onBreakpointChanged() {
@@ -171,10 +180,10 @@ FocusScope {
             if (nextUpList.activeFocus) savedNextUpIndex = nextUpList.currentIndex
             // Check if a recentlyAddedList has focus and save its state
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-                var item = recentlyAddedRepeater.itemAt(i)
-                if (item && item.recentlyAddedListRef && item.recentlyAddedListRef.activeFocus) {
-                    savedRecentlyAddedLibraryId = item.libraryId
-                    savedRecentlyAddedIndex = item.recentlyAddedListRef.currentIndex
+                var meta = getRecentlyAddedDelegateMeta(i)
+                if (meta.item && meta.recentlyAddedListRef && meta.recentlyAddedListRef.activeFocus) {
+                    savedRecentlyAddedLibraryId = meta.libraryId
+                    savedRecentlyAddedIndex = meta.recentlyAddedListRef.currentIndex
                     break
                 }
             }
@@ -194,9 +203,9 @@ FocusScope {
         } else if (savedRecentlyAddedLibraryId !== "" && savedRecentlyAddedIndex >= 0) {
             // Find the matching recentlyAddedList for the saved library
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-                var item = recentlyAddedRepeater.itemAt(i)
-                if (item && item.libraryId === savedRecentlyAddedLibraryId && item.recentlyAddedListRef) {
-                    var list = item.recentlyAddedListRef
+                var savedMeta = getRecentlyAddedDelegateMeta(i)
+                if (savedMeta.item && savedMeta.libraryId === savedRecentlyAddedLibraryId && savedMeta.recentlyAddedListRef) {
+                    var list = savedMeta.recentlyAddedListRef
                     if (savedRecentlyAddedIndex < list.count) {
                         list.currentIndex = savedRecentlyAddedIndex
                         list.positionViewAtIndex(savedRecentlyAddedIndex, ListView.Contain)
@@ -227,10 +236,10 @@ FocusScope {
         } else {
             // Check recentlyAdded lists
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-                var list = recentlyAddedRepeater.itemAt(i)
-                if (list && list.recentlyAddedListRef && list.recentlyAddedListRef.activeFocus) {
-                    section = "recentlyAdded:" + list.libraryId
-                    index = list.recentlyAddedListRef.currentIndex
+                var focusMeta = getRecentlyAddedDelegateMeta(i)
+                if (focusMeta.item && focusMeta.recentlyAddedListRef && focusMeta.recentlyAddedListRef.activeFocus) {
+                    section = "recentlyAdded:" + focusMeta.libraryId
+                    index = focusMeta.recentlyAddedListRef.currentIndex
                     break
                 }
             }
@@ -261,10 +270,10 @@ FocusScope {
         } else if (lastFocusedSection.indexOf("recentlyAdded:") === 0) {
             var libraryId = lastFocusedSection.substring("recentlyAdded:".length)
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-                var list = recentlyAddedRepeater.itemAt(i)
-                if (list && list.libraryId === libraryId && list.recentlyAddedListRef) {
-                    targetList = list.recentlyAddedListRef
-                    targetSection = list
+                var restoreMeta = getRecentlyAddedDelegateMeta(i)
+                if (restoreMeta.item && restoreMeta.libraryId === libraryId && restoreMeta.recentlyAddedListRef) {
+                    targetList = restoreMeta.recentlyAddedListRef
+                    targetSection = restoreMeta.item
                     break
                 }
             }
@@ -516,7 +525,7 @@ FocusScope {
             spacing: Theme.spacingXLarge
             
             // Top spacing
-            Item { height: Theme.paddingLarge }
+            Item { Layout.preferredHeight: Theme.paddingLarge }
             
             // My Media Section
             ColumnLayout {
@@ -702,9 +711,9 @@ FocusScope {
                         } else if (recentlyAddedRepeater.count > 0) {
                             // Find first visible recently added list
                             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-                                var item = recentlyAddedRepeater.itemAt(i)
-                                if (item && item.visible) {
-                                    item.recentlyAddedListRef.forceActiveFocus()
+                                var firstVisibleMeta = getRecentlyAddedDelegateMeta(i)
+                                if (firstVisibleMeta.item && firstVisibleMeta.item.visible && firstVisibleMeta.recentlyAddedListRef) {
+                                    firstVisibleMeta.recentlyAddedListRef.forceActiveFocus()
                                     break
                                 }
                             }
@@ -969,9 +978,9 @@ FocusScope {
                     Keys.onDownPressed: {
                         if (recentlyAddedRepeater.count > 0) {
                             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-                                var item = recentlyAddedRepeater.itemAt(i)
-                                if (item && item.visible) {
-                                    item.recentlyAddedListRef.forceActiveFocus()
+                                var nextVisibleMeta = getRecentlyAddedDelegateMeta(i)
+                                if (nextVisibleMeta.item && nextVisibleMeta.item.visible && nextVisibleMeta.recentlyAddedListRef) {
+                                    nextVisibleMeta.recentlyAddedListRef.forceActiveFocus()
                                     break
                                 }
                             }
@@ -1274,9 +1283,9 @@ FocusScope {
                                     else myMediaList.forceActiveFocus()
                                 } else {
                                     for (var i = libraryIndex - 1; i >= 0; i--) {
-                                        var item = recentlyAddedRepeater.itemAt(i)
-                                        if (item && item.visible) {
-                                            item.recentlyAddedListRef.forceActiveFocus()
+                                        var previousMeta = getRecentlyAddedDelegateMeta(i)
+                                        if (previousMeta.item && previousMeta.item.visible && previousMeta.recentlyAddedListRef) {
+                                            previousMeta.recentlyAddedListRef.forceActiveFocus()
                                             break
                                         }
                                     }
@@ -1284,9 +1293,9 @@ FocusScope {
                             }
                             Keys.onDownPressed: {
                                 for (var i = libraryIndex + 1; i < recentlyAddedRepeater.count; i++) {
-                                    var item = recentlyAddedRepeater.itemAt(i)
-                                    if (item && item.visible) {
-                                        item.recentlyAddedListRef.forceActiveFocus()
+                                    var followingMeta = getRecentlyAddedDelegateMeta(i)
+                                    if (followingMeta.item && followingMeta.item.visible && followingMeta.recentlyAddedListRef) {
+                                        followingMeta.recentlyAddedListRef.forceActiveFocus()
                                         break
                                     }
                                 }
@@ -1300,7 +1309,7 @@ FocusScope {
             }
             
             // Bottom spacing
-            Item { height: Theme.paddingLarge }
+            Item { Layout.preferredHeight: Theme.paddingLarge }
         } // end mainColumn
     } // end Flickable
 

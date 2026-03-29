@@ -205,7 +205,7 @@ Dialog {
         for (var i = 0; i < seasonRepeater.count; ++i) {
             var item = seasonRepeater.itemAt(i)
             if (item) {
-                item.checked = selectedSeasons.indexOf(item.seasonNumber) >= 0
+                item.checked = selectedSeasons.indexOf(item["seasonNumber"]) >= 0
             }
         }
         syncingSeasonChecks = false
@@ -286,14 +286,14 @@ Dialog {
         var pointInContent = item.mapToItem(requestLayout, 0, 0)
         var itemTop = pointInContent.y
         var itemBottom = itemTop + item.height
-        var viewTop = flick.contentY
+        var viewTop = flick["contentY"]
         var viewBottom = viewTop + flick.height
 
         if (itemTop < viewTop) {
-            flick.contentY = Math.max(0, itemTop - Theme.spacingSmall)
+            flick["contentY"] = Math.max(0, itemTop - Theme.spacingSmall)
         } else if (itemBottom > viewBottom) {
-            var maxY = Math.max(0, flick.contentHeight - flick.height)
-            flick.contentY = Math.min(maxY, itemBottom - flick.height + Theme.spacingSmall)
+            var maxY = Math.max(0, flick["contentHeight"] - flick.height)
+            flick["contentY"] = Math.min(maxY, itemBottom - flick.height + Theme.spacingSmall)
         }
     }
 

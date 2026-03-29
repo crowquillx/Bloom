@@ -44,11 +44,9 @@ Button {
         id: buttonContent
         implicitWidth: buttonInnerRow.implicitWidth
         implicitHeight: buttonInnerRow.implicitHeight
-        anchors.centerIn: parent
 
         RowLayout {
             id: buttonInnerRow
-            anchors.centerIn: parent
             spacing: Theme.spacingSmall
 
             Text {
