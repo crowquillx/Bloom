@@ -1,0 +1,22 @@
+{
+  "build_id": "20260412220809-1420f0b",
+  "channel": "dev",
+  "installer": {
+    "filename": "Bloom-Setup-dev.exe",
+    "sha256": "74466bc70f05f3bfd0ef649d9741cd00e8190fd12a09241c93076aba407656f1",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-dev.exe"
+  },
+  "notes": "Latest development build from main branch.\n\n## Windows\nPortable ZIP (`Bloom-Windows.zip`)\nSHA256: `b7359c109a24a94ba1146990d876c291a5c4ec94c84baa2ed577e26d03c12c8d`\n\nInstaller (`Bloom-Setup-dev.exe`)\nSHA256: `74466bc70f05f3bfd0ef649d9741cd00e8190fd12a09241c93076aba407656f1`\n\n## Linux\nDebian package (`bloom_dev_amd64.deb`)\nSHA256: `4135229d4d8cf2069846b521158ac980ef4c07c8e1afca6e51e6291c9e79f502`\n\nTarball (`Bloom-Linux.tar.gz`)\nSHA256: `ae080c04856946547453357528471bd8f876f84210c9c58dad3b3ef5aa61f292`",
+  "portable": {
+    "filename": "Bloom-Windows.zip",
+    "sha256": "b7359c109a24a94ba1146990d876c291a5c4ec94c84baa2ed577e26d03c12c8d",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
+  },
+  "published_at": "2026-04-12T22:08:26Z",
+  "release_tag": "dev-latest",
+  "rollout": {
+    "enabled": true,
+    "minimum_supported_version": "0.5.2"
+  },
+  "version": "0.5.2"
+}
