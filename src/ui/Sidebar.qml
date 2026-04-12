@@ -20,7 +20,6 @@ import BloomUI
  */
 Item {
     id: root
-    
     // ========================================
     // Public API
     // ========================================
@@ -92,7 +91,10 @@ Item {
     property int reorderingIndex: -1
     property bool reorderModeActive: reorderingIndex >= 0
     readonly property int reorderHoldDuration: 500
-    
+
+    property bool _updatesReady: false
+    property bool _updatesAvailable: false
+
     /// Signal emitted when a navigation item is selected
     signal navigationRequested(string navigationId)
     /// Signal emitted when a library is selected
@@ -142,7 +144,7 @@ Item {
             syncLibraryItems()
         }
     }
-    
+
     // ========================================
     // Public Functions
     // ========================================
@@ -184,6 +186,17 @@ Item {
             mainContent.restoreFocusFromSidebar()
         } else {
             mainContent.forceActiveFocus()
+        }
+    }
+
+    function handleNavigation(navigationId) {
+        currentNavigation = navigationId
+        if (navigationId.indexOf("library:") !== 0) {
+            currentLibraryId = ""
+        }
+        navigationRequested(navigationId)
+        if (overlayMode) {
+            close()
         }
     }
     
@@ -255,47 +268,44 @@ Item {
     // Sidebar Panel
     // ========================================
     
-    // Frosted glass background - captures and blurs the content behind
     Item {
         id: sidebarPanel
-        width: root.sidebarWidth
+        width: overlayMode ? (expanded ? expandedWidth : 0) : sidebarWidth
         height: parent.height
         x: overlayMode ? (expanded ? 0 : -expandedWidth) : 0
         z: 100
         clip: true
-        
+
         Behavior on width {
             NumberAnimation { duration: root.animDuration; easing.type: Easing.OutCubic }
         }
-        
+
         Behavior on x {
             NumberAnimation { duration: root.animDuration; easing.type: Easing.OutCubic }
         }
-        
-        // Blur source - captures what's behind the sidebar
+
+        // Blur source
         ShaderEffectSource {
             id: blurSource
-            sourceItem: root.mainContent
             sourceRect: Qt.rect(sidebarPanel.x, 0, sidebarPanel.width, sidebarPanel.height)
             visible: false
+            sourceItem: root.mainContent
         }
-        
+
         // Blurred background layer
         Item {
             id: blurredBackground
             anchors.fill: parent
             visible: !SidebarSettings.reduceMotion && root.mainContent !== null
-            
-            // The captured content
+
             ShaderEffectSource {
                 id: capturedContent
                 anchors.fill: parent
-                sourceItem: root.mainContent
                 sourceRect: Qt.rect(0, 0, sidebarPanel.width, sidebarPanel.height)
                 visible: false
+                sourceItem: root.mainContent
             }
-            
-            // Apply blur effect
+
             MultiEffect {
                 anchors.fill: parent
                 source: capturedContent
@@ -306,29 +316,27 @@ Item {
                 saturation: -0.2
             }
         }
-        
+
         // Glass overlay with tint
         Rectangle {
-            id: glassOverlay
             anchors.fill: parent
             color: Qt.rgba(0.05, 0.05, 0.1, 0.75)
-            
-            // Subtle gradient for depth
+
             gradient: Gradient {
                 GradientStop { position: 0.0; color: Qt.rgba(0.08, 0.08, 0.12, 0.8) }
                 GradientStop { position: 1.0; color: Qt.rgba(0.03, 0.03, 0.06, 0.85) }
             }
         }
-        
-        // Light border effect for glass edge
+
+        // Light border effect
         Rectangle {
             anchors.fill: parent
             color: "transparent"
             border.color: Qt.rgba(1, 1, 1, 0.1)
             border.width: 1
         }
-        
-        // Right edge highlight (separator from content)
+
+        // Right edge highlight
         Rectangle {
             anchors.right: parent.right
             anchors.top: parent.top
@@ -436,58 +444,33 @@ Item {
                 clip: true
                 interactive: false
                 spacing: 4
-                
-                // Focus handling - we handle key navigation manually in delegates
                 focus: false
                 keyNavigationEnabled: false
-                
+
                 delegate: FocusScope {
                     id: navDelegateScope
                     width: navListView.width
                     height: Math.round(56 * Theme.layoutScale)
-                    
+
                     required property var modelData
                     required property int index
-                    
+
                     property bool isActive: root.currentNavigation === modelData.id
                     property bool isFocused: activeFocus
-                    
-                    // Key handling on the FocusScope level
-                    Keys.onReturnPressed: (event) => {
-                        if (event.isAutoRepeat) {
-                            event.accepted = true
-                            return
-                        }
-                        navDelegate.clicked()
-                        event.accepted = true
-                    }
-                    Keys.onEnterPressed: (event) => {
-                        if (event.isAutoRepeat) {
-                            event.accepted = true
-                            return
-                        }
-                        navDelegate.clicked()
-                        event.accepted = true
-                    }
-                    Keys.onSpacePressed: (event) => {
-                        if (event.isAutoRepeat) {
-                            event.accepted = true
-                            return
-                        }
-                        navDelegate.clicked()
-                        event.accepted = true
-                    }
-                    
+
+                    Keys.onReturnPressed: { navDelegate.clicked(); event.accepted = true }
+                    Keys.onEnterPressed: { navDelegate.clicked(); event.accepted = true }
+                    Keys.onSpacePressed: { navDelegate.clicked(); event.accepted = true }
+                    Keys.onEscapePressed: root.close()
+
                     Keys.onUpPressed: {
                         if (index > 0) {
                             navListView.currentIndex = index - 1
                             navListView.currentItem.forceActiveFocus()
                         } else {
-                            // At first item - navigate to hamburger/close button
                             if (expanded) {
                                 sidebarHamburger.forceActiveFocus()
                             } else if (!overlayMode) {
-                                // Collapsed rail mode - focus external hamburger
                                 hamburgerButton.forceActiveFocus()
                             }
                         }
@@ -497,7 +480,6 @@ Item {
                             navListView.currentIndex = index + 1
                             navListView.currentItem.forceActiveFocus()
                         } else {
-                            // Move into libraries if present, otherwise to sign out
                             if (libraryListView.count > 0) {
                                 libraryListView.currentIndex = 0
                                 libraryListView.currentItem.forceActiveFocus()
@@ -507,20 +489,15 @@ Item {
                         }
                     }
                     Keys.onRightPressed: {
-                        // Navigate to main content
-                        console.log("[FocusDebug] Nav delegate Right pressed, mainContent:", root.mainContent ? "exists" : "null")
                         if (root.mainContent) {
                             root.restoreMainContentFocus()
-                            console.log("[FocusDebug] After forceActiveFocus, mainContent.activeFocus:", root.mainContent.activeFocus)
                         }
                     }
-                    Keys.onEscapePressed: root.close()
-                    
+
                     ItemDelegate {
                         id: navDelegate
                         anchors.fill: parent
-                        
-                        // Glassmorphic background
+
                         background: Rectangle {
                             anchors.fill: parent
                             anchors.leftMargin: Theme.spacingSmall
@@ -538,23 +515,22 @@ Item {
                                 return "transparent"
                             }
                             border.width: navDelegateScope.isFocused ? 2 : (navDelegateScope.isActive ? 1 : 0)
-                            
+
                             Behavior on color { ColorAnimation { duration: 100 } }
                             Behavior on border.color { ColorAnimation { duration: 100 } }
                         }
-                        
+
                         contentItem: RowLayout {
                             anchors.fill: parent
                             anchors.leftMargin: expanded ? Theme.spacingMedium : 0
                             anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
                             spacing: expanded ? Theme.spacingSmall * 2 : 0
-                            
-                            // Icon container for proper centering
+
                             Item {
                                 Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
                                 Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
                                 Layout.alignment: Qt.AlignVCenter
-                                
+
                                 Text {
                                     anchors.centerIn: parent
                                     text: navDelegateScope.modelData.icon
@@ -562,12 +538,11 @@ Item {
                                     font.family: Theme.fontIcon
                                     color: navDelegateScope.isActive ? Theme.accentPrimary : Theme.textPrimary
                                     renderType: Text.NativeRendering
-                                    
+
                                     Behavior on color { ColorAnimation { duration: 100 } }
                                 }
                             }
-                            
-                            // Label (visible when expanded)
+
                             Text {
                                 text: navDelegateScope.modelData.label
                                 font.pixelSize: Theme.fontSizeBody
@@ -578,19 +553,16 @@ Item {
                                 opacity: expanded ? 1.0 : 0.0
                                 Layout.fillWidth: true
                                 Layout.alignment: Qt.AlignVCenter
-                                
-                                Behavior on opacity {
-                                    NumberAnimation { duration: root.animDuration }
-                                }
+
+                                Behavior on opacity { NumberAnimation { duration: root.animDuration } }
                                 Behavior on color { ColorAnimation { duration: 100 } }
                             }
                         }
-                        
-                        // Tooltip for collapsed mode
+
                         ToolTip.visible: !expanded && hovered
                         ToolTip.text: navDelegateScope.modelData.tooltip
                         ToolTip.delay: 500
-                        
+
                         onClicked: {
                             root.currentNavigation = navDelegateScope.modelData.id
                             root.navigationRequested(navDelegateScope.modelData.id)
@@ -598,7 +570,7 @@ Item {
                                 root.close()
                             }
                         }
-                        
+
                         Accessible.role: Accessible.MenuItem
                         Accessible.name: navDelegateScope.modelData.label
                         Accessible.description: navDelegateScope.modelData.tooltip
@@ -677,37 +649,32 @@ Item {
 
                     Keys.onPressed: function(event) {
                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-                            if (event.isAutoRepeat) {
-                                event.accepted = true
-                                return
-                            }
+                            if (event.isAutoRepeat) { event.accepted = true; return }
                             if (event.modifiers & Qt.ShiftModifier) {
-                                // Toggle reorder mode on this item
                                 if (root.reorderModeActive && root.reorderingIndex === index) {
                                     root.finishReorder()
                                 } else {
                                     root.reorderingIndex = index
                                 }
-                                event.accepted = true
-                                return
+                                event.accepted = true; return
                             }
-
-                            if (root.reorderModeActive) {
-                                root.finishReorder()
-                                event.accepted = true
-                                return
-                            }
-
+                            if (root.reorderModeActive) { root.finishReorder(); event.accepted = true; return }
                             activateLibrary()
-                            event.accepted = true
-                            return
+                            event.accepted = true; return
+                        }
+                        if (event.key === Qt.Key_Space) {
+                            if (root.reorderModeActive && root.reorderingIndex === index) {
+                                root.finishReorder()
+                            } else {
+                                activateLibrary()
+                            }
+                            event.accepted = true; return
                         }
                     }
 
                     Keys.onUpPressed: function(event) {
                         if (root.reorderModeActive && root.reorderingIndex === index) {
-                            var target = Math.max(0, index - 1)
-                            root.reorderLibrary(index, target)
+                            root.reorderLibrary(index, Math.max(0, index - 1))
                             event.accepted = true
                         } else if (root.reorderModeActive) {
                             event.accepted = true
@@ -726,8 +693,7 @@ Item {
 
                     Keys.onDownPressed: function(event) {
                         if (root.reorderModeActive && root.reorderingIndex === index) {
-                            var target = Math.min(libraryListView.count - 1, index + 1)
-                            root.reorderLibrary(index, target)
+                            root.reorderLibrary(index, Math.min(libraryListView.count - 1, index + 1))
                             event.accepted = true
                         } else if (root.reorderModeActive) {
                             event.accepted = true
@@ -736,8 +702,8 @@ Item {
                             libraryListView.currentItem.forceActiveFocus()
                             event.accepted = true
                         } else {
-                            if (updatesButton.visible) {
-                                updatesButton.forceActiveFocus()
+                            if (updatesButtonLoader.item && updatesButtonLoader.item.visible) {
+                                updatesButtonLoader.item.forceActiveFocus()
                             } else {
                                 settingsButton.forceActiveFocus()
                             }
@@ -747,7 +713,6 @@ Item {
 
                     Keys.onRightPressed: function(event) {
                         if (root.mainContent) {
-                            console.log("[FocusDebug] libraryListView delegate Right pressed, setting focus to mainContent")
                             root.restoreMainContentFocus()
                             event.accepted = true
                         }
@@ -762,17 +727,10 @@ Item {
                         event.accepted = true
                     }
 
-                    Keys.onSpacePressed: {
-                        if (root.reorderModeActive && root.reorderingIndex === index) {
-                            root.finishReorder()
-                        } else {
-                            activateLibrary()
-                        }
-                    }
-
                     ItemDelegate {
                         id: libraryDelegate
                         anchors.fill: parent
+
                         background: Rectangle {
                             anchors.fill: parent
                             anchors.leftMargin: Theme.spacingSmall
@@ -841,9 +799,8 @@ Item {
                                 Behavior on color { ColorAnimation { duration: 100 } }
                             }
 
-                            // Reorder indicator
                             Text {
-                                text: libraryDelegateScope.isReordering ? "↕" : ""
+                                text: libraryDelegateScope.isReordering ? "\u2195" : ""
                                 visible: expanded && libraryDelegateScope.isReordering
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
@@ -857,10 +814,6 @@ Item {
                         ToolTip.delay: 500
 
                         onClicked: {
-                            if (libraryDelegateScope.suppressClickOnce) {
-                                libraryDelegateScope.suppressClickOnce = false
-                                return
-                            }
                             if (root.reorderModeActive && root.reorderingIndex === index) {
                                 root.finishReorder()
                                 return
@@ -877,12 +830,11 @@ Item {
 
             // Spacer
             Item { Layout.fillHeight: true }
-            
-            // ========================================
-            // Settings + Sign Out + Exit (at bottom)
-            // ========================================
-            
-            // Separator above settings/sign out
+
+            // Spacer
+            Item { Layout.fillHeight: true }
+
+            // Separator
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
@@ -892,144 +844,136 @@ Item {
                 visible: expanded || !overlayMode
             }
 
-            ItemDelegate {
-                id: updatesButton
+            // Updates button — Loader defers UpdateService property access
+            // past the first layout polish to prevent infinite loop.
+            Loader {
+                id: updatesButtonLoader
                 Layout.fillWidth: true
-                Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
-                visible: (expanded || !overlayMode) && typeof UpdateService !== "undefined" && UpdateService.updateAvailable
+                Layout.preferredHeight: item && item.visible ? Math.round(56 * Theme.layoutScale) : 0
+                active: root._updatesReady
+                asynchronous: true
+                sourceComponent: ItemDelegate {
+                    id: updatesButton
+                    visible: (expanded || !overlayMode) && root._updatesAvailable
 
-                background: Rectangle {
-                    anchors.fill: parent
-                    anchors.leftMargin: Theme.spacingSmall
-                    anchors.rightMargin: Theme.spacingSmall
-                    radius: Theme.radiusMedium
-                    color: {
-                        if (updatesButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
-                        if (root.currentNavigation === "updates") return Theme.buttonTabBackgroundActive
-                        if (updatesButton.hovered) return Theme.buttonSecondaryBackgroundHover
-                        return "transparent"
+                    background: Rectangle {
+                        anchors.fill: parent
+                        anchors.leftMargin: Theme.spacingSmall
+                        anchors.rightMargin: Theme.spacingSmall
+                        radius: Theme.radiusMedium
+                        color: {
+                            if (updatesButton.activeFocus) return Theme.buttonSecondaryBackgroundPressed
+                            if (root.currentNavigation === "updates") return Theme.buttonTabBackgroundActive
+                            if (updatesButton.hovered) return Theme.buttonSecondaryBackgroundHover
+                            return "transparent"
+                        }
+                        border.color: updatesButton.activeFocus ? Theme.focusBorder : "transparent"
+                        border.width: updatesButton.activeFocus ? 2 : (root.currentNavigation === "updates" ? 1 : 0)
+
+                        Behavior on color { ColorAnimation { duration: 100 } }
+                        Behavior on border.color { ColorAnimation { duration: 100 } }
                     }
-                    border.color: updatesButton.activeFocus ? Theme.focusBorder : "transparent"
-                    border.width: updatesButton.activeFocus ? 2 : (root.currentNavigation === "updates" ? 1 : 0)
-                }
 
-                contentItem: RowLayout {
-                    anchors.fill: parent
-                    anchors.leftMargin: expanded ? Theme.spacingMedium : 0
-                    anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
-                    spacing: expanded ? Theme.spacingSmall * 2 : 0
+                    contentItem: RowLayout {
+                        anchors.fill: parent
+                        anchors.leftMargin: expanded ? Theme.spacingMedium : 0
+                        anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
+                        spacing: expanded ? Theme.spacingSmall * 2 : 0
 
-                    Item {
-                        Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
-                        Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
-                        Layout.alignment: Qt.AlignVCenter
+                        Item {
+                            Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
+                            Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
+                            Layout.alignment: Qt.AlignVCenter
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: Icons.download
+                                font.pixelSize: Theme.fontSizeIcon
+                                font.family: Theme.fontIcon
+                                color: Theme.accentPrimary
+                                renderType: Text.NativeRendering
+                            }
+
+                            Rectangle {
+                                width: Math.round(10 * Theme.layoutScale)
+                                height: width
+                                radius: width / 2
+                                anchors.right: parent.right
+                                anchors.top: parent.top
+                                color: Theme.accentPrimary
+                                border.color: Theme.backgroundPrimary
+                                border.width: 1
+                            }
+                        }
 
                         Text {
-                            anchors.centerIn: parent
-                            text: Icons.download
-                            font.pixelSize: Theme.fontSizeIcon
-                            font.family: Theme.fontIcon
-                            color: Theme.accentPrimary
-                            renderType: Text.NativeRendering
-                        }
+                            text: qsTr("Updates")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            font.weight: Font.DemiBold
+                            color: Theme.textPrimary
+                            visible: expanded
+                            opacity: expanded ? 1.0 : 0.0
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
 
-                        Rectangle {
-                            width: Math.round(10 * Theme.layoutScale)
-                            height: width
-                            radius: width / 2
-                            anchors.right: parent.right
-                            anchors.top: parent.top
-                            color: Theme.accentPrimary
-                            border.color: Theme.backgroundPrimary
-                            border.width: 1
+                            Behavior on opacity { NumberAnimation { duration: root.animDuration } }
                         }
                     }
 
-                    Text {
-                        text: qsTr("Updates")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        font.weight: Font.DemiBold
-                        color: Theme.textPrimary
-                        visible: expanded
-                        opacity: expanded ? 1.0 : 0.0
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignVCenter
+                    ToolTip.visible: !expanded && hovered
+                    ToolTip.text: qsTr("Updates Available")
+                    ToolTip.delay: 500
 
-                        Behavior on opacity {
-                            NumberAnimation { duration: root.animDuration }
+                    onClicked: root.handleNavigation("updates")
+
+                    Keys.onReturnPressed: { clicked(); event.accepted = true }
+                    Keys.onEnterPressed: { clicked(); event.accepted = true }
+                    Keys.onSpacePressed: { clicked(); event.accepted = true }
+                    Keys.onUpPressed: {
+                        if (libraryListView.count > 0) {
+                            libraryListView.currentIndex = libraryListView.count - 1
+                            libraryListView.currentItem.forceActiveFocus()
+                        } else if (navListView.count > 0) {
+                            navListView.currentIndex = navListView.count - 1
+                            navListView.currentItem.forceActiveFocus()
                         }
                     }
-                }
+                    Keys.onDownPressed: settingsButton.forceActiveFocus()
+                    Keys.onRightPressed: { if (root.mainContent) root.restoreMainContentFocus() }
+                    Keys.onEscapePressed: root.close()
 
-                ToolTip.visible: !expanded && hovered
-                ToolTip.text: qsTr("Updates Available")
-                ToolTip.delay: 500
-
-                onClicked: {
-                    root.currentNavigation = "updates"
-                    root.navigationRequested("updates")
-                    if (root.overlayMode) {
-                        root.close()
-                    }
+                    Accessible.role: Accessible.Button
+                    Accessible.name: qsTr("Updates")
                 }
-
-                Keys.onReturnPressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onEnterPressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onSpacePressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-
-                Keys.onUpPressed: {
-                    if (libraryListView.count > 0) {
-                        libraryListView.currentIndex = libraryListView.count - 1
-                        libraryListView.currentItem.forceActiveFocus()
-                    } else if (navListView.count > 0) {
-                        navListView.currentIndex = navListView.count - 1
-                        navListView.currentItem.forceActiveFocus()
-                    }
-                }
-                Keys.onDownPressed: {
-                    settingsButton.forceActiveFocus()
-                }
-                Keys.onRightPressed: {
-                    if (root.mainContent) {
-                        root.restoreMainContentFocus()
-                    }
-                }
-                Keys.onEscapePressed: root.close()
-
-                Accessible.role: Accessible.Button
-                Accessible.name: qsTr("Updates")
-                Accessible.description: qsTr("View available application updates")
             }
-            
-            // Settings button (now placed above Sign Out)
+
+            Timer {
+                interval: 500
+                repeat: false
+                running: true
+                onTriggered: {
+                    root._updatesReady = true
+                    if (typeof UpdateService !== "undefined")
+                        root._updatesAvailable = UpdateService.updateAvailable
+                }
+            }
+            Connections {
+                target: typeof UpdateService !== "undefined" ? UpdateService : null
+                enabled: root._updatesReady
+                function onUpdateAvailableChanged() {
+                    Qt.callLater(function() {
+                        root._updatesAvailable = UpdateService.updateAvailable
+                    })
+                }
+            }
+            // Settings button
             ItemDelegate {
                 id: settingsButton
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
                 visible: expanded || !overlayMode
-                
+
                 background: Rectangle {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.spacingSmall
@@ -1043,22 +987,22 @@ Item {
                     }
                     border.color: settingsButton.activeFocus ? Theme.focusBorder : "transparent"
                     border.width: settingsButton.activeFocus ? 2 : (root.currentNavigation === "settings" ? 1 : 0)
-                    
+
                     Behavior on color { ColorAnimation { duration: 100 } }
                     Behavior on border.color { ColorAnimation { duration: 100 } }
                 }
-                
+
                 contentItem: RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: expanded ? Theme.spacingMedium : 0
                     anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
                     spacing: expanded ? Theme.spacingSmall * 2 : 0
-                    
+
                     Item {
                         Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
                         Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
                         Layout.alignment: Qt.AlignVCenter
-                        
+
                         Text {
                             anchors.centerIn: parent
                             text: Icons.settings
@@ -1068,9 +1012,9 @@ Item {
                             renderType: Text.NativeRendering
                         }
                     }
-                    
+
                     Text {
-                        text: "Settings"
+                        text: qsTr("Settings")
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         font.weight: root.currentNavigation === "settings" ? Font.DemiBold : Font.Normal
@@ -1079,53 +1023,23 @@ Item {
                         opacity: expanded ? 1.0 : 0.0
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignVCenter
-                        
-                        Behavior on opacity {
-                            NumberAnimation { duration: root.animDuration }
-                        }
+
+                        Behavior on opacity { NumberAnimation { duration: root.animDuration } }
                     }
                 }
-                
+
                 ToolTip.visible: !expanded && hovered
-                ToolTip.text: "Settings"
+                ToolTip.text: qsTr("Settings")
                 ToolTip.delay: 500
-                
-                onClicked: {
-                    root.currentNavigation = "settings"
-                    root.navigationRequested("settings")
-                    if (root.overlayMode) {
-                        root.close()
-                    }
-                }
-                
-                Keys.onReturnPressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onEnterPressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onSpacePressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                
+
+                onClicked: root.handleNavigation("settings")
+
+                Keys.onReturnPressed: { clicked(); event.accepted = true }
+                Keys.onEnterPressed: { clicked(); event.accepted = true }
+                Keys.onSpacePressed: { clicked(); event.accepted = true }
                 Keys.onUpPressed: {
-                    if (updatesButton.visible) {
-                        updatesButton.forceActiveFocus()
+                    if (updatesButtonLoader.item && updatesButtonLoader.item.visible) {
+                        updatesButtonLoader.item.forceActiveFocus()
                     } else if (libraryListView.count > 0) {
                         libraryListView.currentIndex = libraryListView.count - 1
                         libraryListView.currentItem.forceActiveFocus()
@@ -1134,28 +1048,21 @@ Item {
                         navListView.currentItem.forceActiveFocus()
                     }
                 }
-                Keys.onDownPressed: {
-                    signOutButton.forceActiveFocus()
-                }
-                Keys.onRightPressed: {
-                    if (root.mainContent) {
-                        root.restoreMainContentFocus()
-                    }
-                }
+                Keys.onDownPressed: signOutButton.forceActiveFocus()
+                Keys.onRightPressed: { if (root.mainContent) root.restoreMainContentFocus() }
                 Keys.onEscapePressed: root.close()
-                
+
                 Accessible.role: Accessible.Button
-                Accessible.name: "Settings"
-                Accessible.description: "Open settings"
+                Accessible.name: qsTr("Settings")
             }
-            
+
             // Sign out button
             ItemDelegate {
                 id: signOutButton
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
                 visible: expanded || !overlayMode
-                
+
                 background: Rectangle {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.spacingSmall
@@ -1168,23 +1075,22 @@ Item {
                     }
                     border.color: signOutButton.activeFocus ? Theme.focusBorder : "transparent"
                     border.width: signOutButton.activeFocus ? 2 : 0
-                    
+
                     Behavior on color { ColorAnimation { duration: 100 } }
                     Behavior on border.color { ColorAnimation { duration: 100 } }
                 }
-                
+
                 contentItem: RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: expanded ? Theme.spacingMedium : 0
                     anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
                     spacing: expanded ? Theme.spacingSmall * 2 : 0
-                    
-                    // Icon container for proper centering
+
                     Item {
                         Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
                         Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
                         Layout.alignment: Qt.AlignVCenter
-                        
+
                         Text {
                             anchors.centerIn: parent
                             text: Icons.logout
@@ -1194,10 +1100,9 @@ Item {
                             renderType: Text.NativeRendering
                         }
                     }
-                    
-                    // Label (visible when expanded)
+
                     Text {
-                        text: "Sign Out"
+                        text: qsTr("Sign Out")
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         font.weight: Font.Normal
@@ -1206,74 +1111,30 @@ Item {
                         opacity: expanded ? 1.0 : 0.0
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignVCenter
-                        
-                        Behavior on opacity {
-                            NumberAnimation { duration: root.animDuration }
-                        }
+
+                        Behavior on opacity { NumberAnimation { duration: root.animDuration } }
                     }
                 }
-                
-                // Tooltip for collapsed mode
+
                 ToolTip.visible: !expanded && hovered
-                ToolTip.text: "Sign out"
+                ToolTip.text: qsTr("Sign out")
                 ToolTip.delay: 500
-                
-                onClicked: {
-                    root.signOutRequested()
-                    if (root.overlayMode) {
-                        root.close()
-                    }
-                }
-                
-                Keys.onReturnPressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onEnterPressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onSpacePressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                
-                // DPAD navigation
-                Keys.onUpPressed: {
-                    settingsButton.forceActiveFocus()
-                }
-                Keys.onDownPressed: {
-                    exitButton.forceActiveFocus()
-                }
-                Keys.onRightPressed: {
-                    if (root.mainContent) {
-                        root.restoreMainContentFocus()
-                    }
-                }
+
+                onClicked: root.signOutRequested()
+
+                Keys.onReturnPressed: { clicked(); event.accepted = true }
+                Keys.onEnterPressed: { clicked(); event.accepted = true }
+                Keys.onSpacePressed: { clicked(); event.accepted = true }
+                Keys.onUpPressed: settingsButton.forceActiveFocus()
+                Keys.onDownPressed: exitButton.forceActiveFocus()
+                Keys.onRightPressed: { if (root.mainContent) root.restoreMainContentFocus() }
                 Keys.onEscapePressed: root.close()
-                
+
                 Accessible.role: Accessible.Button
-                Accessible.name: "Sign out"
-                Accessible.description: "Sign out from Jellyfin server"
+                Accessible.name: qsTr("Sign out")
             }
-            
-            // ========================================
-            // Exit Button (at bottom of sidebar)
-            // ========================================
-            
-            // Separator above exit
+
+            // Separator
             Rectangle {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
@@ -1282,14 +1143,14 @@ Item {
                 color: Theme.borderLight
                 visible: expanded || !overlayMode
             }
-            
+
             // Exit button
             ItemDelegate {
                 id: exitButton
                 Layout.fillWidth: true
                 Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
                 visible: expanded || !overlayMode
-                
+
                 background: Rectangle {
                     anchors.fill: parent
                     anchors.leftMargin: Theme.spacingSmall
@@ -1302,23 +1163,22 @@ Item {
                     }
                     border.color: exitButton.activeFocus ? Theme.focusBorder : "transparent"
                     border.width: exitButton.activeFocus ? 2 : 0
-                    
+
                     Behavior on color { ColorAnimation { duration: 100 } }
                     Behavior on border.color { ColorAnimation { duration: 100 } }
                 }
-                
+
                 contentItem: RowLayout {
                     anchors.fill: parent
                     anchors.leftMargin: expanded ? Theme.spacingMedium : 0
                     anchors.rightMargin: expanded ? Theme.spacingSmall * 2 : 0
                     spacing: expanded ? Theme.spacingSmall * 2 : 0
-                    
-                    // Icon container for proper centering
+
                     Item {
                         Layout.preferredWidth: expanded ? Math.round(24 * Theme.layoutScale) : parent.width
                         Layout.preferredHeight: Math.round(24 * Theme.layoutScale)
                         Layout.alignment: Qt.AlignVCenter
-                        
+
                         Text {
                             anchors.centerIn: parent
                             text: Icons.power
@@ -1328,10 +1188,9 @@ Item {
                             renderType: Text.NativeRendering
                         }
                     }
-                    
-                    // Label (visible when expanded)
+
                     Text {
-                        text: "Exit"
+                        text: qsTr("Exit")
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         font.weight: Font.Normal
@@ -1340,114 +1199,30 @@ Item {
                         opacity: expanded ? 1.0 : 0.0
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignVCenter
-                        
-                        Behavior on opacity {
-                            NumberAnimation { duration: root.animDuration }
-                        }
+
+                        Behavior on opacity { NumberAnimation { duration: root.animDuration } }
                     }
                 }
-                
-                // Tooltip for collapsed mode
+
                 ToolTip.visible: !expanded && hovered
-                ToolTip.text: "Exit"
+                ToolTip.text: qsTr("Exit")
                 ToolTip.delay: 500
-                
-                onClicked: {
-                    root.exitRequested()
-                    if (root.overlayMode) {
-                        root.close()
-                    }
-                }
-                
-                Keys.onReturnPressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onEnterPressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                Keys.onSpacePressed: (event) => {
-                    if (event.isAutoRepeat) {
-                        event.accepted = true
-                        return
-                    }
-                    clicked()
-                    event.accepted = true
-                }
-                
-                // DPAD navigation
-                Keys.onUpPressed: {
-                    signOutButton.forceActiveFocus()
-                }
-                Keys.onRightPressed: {
-                    if (root.mainContent) {
-                        root.restoreMainContentFocus()
-                    }
-                }
+
+                onClicked: root.exitRequested()
+
+                Keys.onReturnPressed: { clicked(); event.accepted = true }
+                Keys.onEnterPressed: { clicked(); event.accepted = true }
+                Keys.onSpacePressed: { clicked(); event.accepted = true }
+                Keys.onUpPressed: signOutButton.forceActiveFocus()
+                Keys.onRightPressed: { if (root.mainContent) root.restoreMainContentFocus() }
                 Keys.onEscapePressed: root.close()
-                
+
                 Accessible.role: Accessible.Button
-                Accessible.name: "Exit"
-                Accessible.description: "Exit the application"
-            }
-            
-            // Bottom padding
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Theme.spacingSmall
-            }
-            
-            // Bottom section (collapse button in rail mode)
-            Item {
-                Layout.fillWidth: true
-                Layout.preferredHeight: Math.round(56 * Theme.layoutScale)
-                visible: !expanded && !overlayMode
-                
-                Button {
-                    id: expandButton
-                    anchors.centerIn: parent
-                    width: Math.round(40 * Theme.layoutScale)
-                    height: Math.round(40 * Theme.layoutScale)
-                    
-                    background: Rectangle {
-                        radius: Theme.radiusSmall
-                        color: expandButton.activeFocus ? Theme.buttonSecondaryBackgroundHover 
-                             : (expandButton.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
-                        border.color: expandButton.activeFocus ? Theme.focusBorder : "transparent"
-                        border.width: expandButton.activeFocus ? 2 : 0
-                    }
-                    
-                    contentItem: Text {
-                        text: Icons.menu
-                        font.pixelSize: Theme.fontSizeIcon
-                        font.family: Theme.fontIcon
-                        color: Theme.textPrimary
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    
-                    onClicked: root.open()
-                    
-                    ToolTip.visible: hovered
-                    ToolTip.text: "Expand sidebar"
-                    ToolTip.delay: 500
-                    
-                    Accessible.role: Accessible.Button
-                    Accessible.name: "Expand sidebar"
-                }
+                Accessible.name: qsTr("Exit")
             }
         }
     }
-    
+
     // ========================================
     // Hamburger Button (Fixed Top-Left, outside sidebar)
     // ========================================
@@ -1528,7 +1303,7 @@ Item {
         enabled: expanded
         onActivated: root.close()
     }
-    
+
     // Focus trap: when expanded, focus the sidebar content
     onExpandedChanged: {
         if (expanded) {
