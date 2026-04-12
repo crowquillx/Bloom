@@ -1,143 +1,159 @@
 {
-  description = "Bloom - development shell and flake for building the Qt6 Jellyfin client";
+  description = "Bloom - Nix development shell and Linux package";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"; # use unstable for latest Qt6
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
-  outputs = { self, nixpkgs, flake-utils }:
-    flake-utils.lib.eachDefaultSystem (system: let
-      pkgs = import nixpkgs { inherit system; };
-      qt = pkgs.qt6;
-      shell = pkgs.mkShell {
-        name = "bloom-devshell";
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+    }:
+    flake-utils.lib.eachSystem [ "x86_64-linux" "aarch64-linux" ] (
+      system:
+      let
+        pkgs = import nixpkgs { inherit system; };
+        lib = pkgs.lib;
+        qt = pkgs.qt6;
 
-        buildInputs = with pkgs; [
-          cmake
-          ninja
-          gcc
-          git
-          pkg-config
-          python3
-          ccache
-          gdb
+        bloomBuildInputs = with pkgs; [
+          libsecret
+          mpv
+          sqlite
+          qt.qt5compat
           qt.qtbase
           qt.qtdeclarative
-          qt.qttools
           qt.qtmultimedia
+          qt.qtshadertools
+          qt.qtsvg
+          qt.qttools
           qt.qtwayland
-          qt.qt5compat
-          sqlite
-          mpv
         ];
 
-        nativeBuildInputs = [ pkgs.cmake pkgs.ninja ];
+        bloomNativeBuildInputs = with pkgs; [
+          cmake
+          makeWrapper
+          ninja
+          pkg-config
+          qt.wrapQtAppsHook
+        ];
 
-        # Recommended to set Wayland as platform in the development shell if you are using Wayland
-        shellHook = ''
-          export QT_QPA_PLATFORM=wayland
-          export QML2_IMPORT_PATH=${qt.qtdeclarative}/lib/qt6/qml:$QML2_IMPORT_PATH
-          export CMAKE_PREFIX_PATH=${qt.qtbase}/lib/cmake:${qt.qtdeclarative}/lib/cmake:${qt.qttools}/lib/cmake:$CMAKE_PREFIX_PATH
-          export QT_PLUGIN_PATH=${qt.qtbase}/lib/qt6/plugins:$QT_PLUGIN_PATH
-          echo "Entering Bloom devShell. Use: mkdir -p build && cd build && cmake .. -G Ninja && ninja"
-        '';
-      };
-    in {
-      devShells = {
-        default = shell;
-      };
-      packages = rec {
-        # Buildable package so users can `nix build .#Bloom`
-        Bloom = pkgs.stdenv.mkDerivation {
+        bloomDevTools = with pkgs; [
+          ccache
+          gcc
+          gdb
+          git
+          python3
+        ];
+
+        bloomPackage = pkgs.stdenv.mkDerivation rec {
           pname = "bloom";
           version = "0.5.2";
-          src = ./.; # flake root
+          src = lib.cleanSource ./.;
 
-          nativeBuildInputs = [ pkgs.cmake pkgs.ninja pkgs.pkg-config qt.wrapQtAppsHook ];
-          buildInputs = [ qt.qtbase qt.qtdeclarative qt.qttools qt.qtmultimedia qt.qtwayland qt.qt5compat pkgs.sqlite ];
+          strictDeps = true;
 
-          # Patch CMakeLists.txt for Qt6 6.10+ compatibility
-          # Qt6 6.10 changed how qt_add_executable handles relative paths
-          # We need to make paths absolute and remove header files
-          postPatch = ''
-            substituteInPlace src/CMakeLists.txt \
-              --replace-fail "qt_add_executable(Bloom
-    main.cpp
-    core/ServiceLocator.h
-    core/ServiceLocator.cpp
-    player/PlayerProcessManager.cpp
-    player/PlayerController.cpp
-    network/JellyfinClient.cpp
-    utils/ConfigManager.cpp
-    utils/ConfigManager.h
-    utils/InputModeManager.cpp
-    utils/InputModeManager.h
-    viewmodels/LibraryViewModel.h
-    viewmodels/LibraryViewModel.cpp
-    viewmodels/SeriesDetailsViewModel.h
-    viewmodels/SeriesDetailsViewModel.cpp
-    ui/ImageCacheProvider.h
-    ui/ImageCacheProvider.cpp
-)" "qt_add_executable(Bloom
-    \''${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
-    \''${CMAKE_CURRENT_SOURCE_DIR}/core/ServiceLocator.cpp
-    \''${CMAKE_CURRENT_SOURCE_DIR}/player/PlayerProcessManager.cpp
-    \''${CMAKE_CURRENT_SOURCE_DIR}/player/PlayerController.cpp
-    \''${CMAKE_CURRENT_SOURCE_DIR}/network/JellyfinClient.cpp
-    \''${CMAKE_CURRENT_SOURCE_DIR}/utils/ConfigManager.cpp
-    \''${CMAKE_CURRENT_SOURCE_DIR}/utils/InputModeManager.cpp
-    \''${CMAKE_CURRENT_SOURCE_DIR}/viewmodels/LibraryViewModel.cpp
-    \''${CMAKE_CURRENT_SOURCE_DIR}/viewmodels/SeriesDetailsViewModel.cpp
-    \''${CMAKE_CURRENT_SOURCE_DIR}/ui/ImageCacheProvider.cpp
-)"
-          '';
-
-          cmakeFlags = [
-            "-DCMAKE_BUILD_TYPE=Release"
-          ];
-
-          installPhase = ''
-            runHook preInstall
-            
-            mkdir -p $out/bin
-            cp src/Bloom $out/bin/
-            
-            runHook postInstall
-          '';
+          nativeBuildInputs = bloomNativeBuildInputs;
+          buildInputs = bloomBuildInputs;
 
           qtWrapperArgs = [
-            # Don't force Wayland, let Qt auto-detect
-            # "--set QT_QPA_PLATFORM wayland"
-            "--set QML2_IMPORT_PATH ${qt.qtdeclarative}/lib/qt6/qml:${qt.qt5compat}/lib/qt6/qml"
+            "--set-default"
+            "QML_DISABLE_DISK_CACHE"
+            "1"
+            "--set-default"
+            "QT_AUDIO_BACKEND"
+            "pulseaudio"
+            "--set-default"
+            "QT_MEDIA_BACKEND"
+            "ffmpeg"
           ];
+
+          cmakeFlags = [
+            "-DBUILD_TESTING=OFF"
+          ];
+
+          postFixup = ''
+            rm -f $out/lib/bloom/libmpv.so
+            mv "$out/bin/Bloom" "$out/bin/.Bloom-qt-wrapped"
+            makeWrapper "$out/bin/.Bloom-qt-wrapped" "$out/bin/Bloom" \
+              --unset LD_LIBRARY_PATH \
+              --unset GIO_EXTRA_MODULES \
+              --unset GSETTINGS_SCHEMA_DIR \
+              --unset GSETTINGS_BACKEND \
+              --unset QT_PLUGIN_PATH \
+              --unset QML2_IMPORT_PATH \
+              --unset QML_IMPORT_PATH \
+              --unset NIXPKGS_QT6_QML_IMPORT_PATH
+          '';
+
+          meta = with lib; {
+            description = "Jellyfin HTPC client built with Qt 6/QML and mpv";
+            homepage = "https://github.com/crowquillx/Bloom";
+            license = licenses.gpl3Only;
+            mainProgram = "Bloom";
+            platforms = platforms.linux;
+          };
+        };
+      in
+      {
+        devShells.default = pkgs.mkShell {
+          name = "bloom-devshell";
+          inputsFrom = [ bloomPackage ];
+          packages = bloomDevTools;
+
+          shellHook = ''
+            unset LD_LIBRARY_PATH QT_PLUGIN_PATH QML2_IMPORT_PATH QML_IMPORT_PATH NIXPKGS_QT6_QML_IMPORT_PATH
+            export NIXPKGS_QT6_QML_IMPORT_PATH=${qt.qtdeclarative}/lib/qt-6/qml:${qt.qt5compat}/lib/qt-6/qml:${qt.qtmultimedia}/lib/qt-6/qml:${qt.qtwayland}/lib/qt-6/qml
+            export QML2_IMPORT_PATH=$NIXPKGS_QT6_QML_IMPORT_PATH
+            export QML_IMPORT_PATH=$NIXPKGS_QT6_QML_IMPORT_PATH
+            export CMAKE_PREFIX_PATH=${
+              lib.concatStringsSep ":" [
+                "${qt.qtbase}/lib/cmake"
+                "${qt.qtdeclarative}/lib/cmake"
+                "${qt.qtmultimedia}/lib/cmake"
+                "${qt.qtshadertools}/lib/cmake"
+                "${qt.qttools}/lib/cmake"
+              ]
+            }''${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}
+            export QT_PLUGIN_PATH=${qt.qtbase}/lib/qt-6/plugins:${qt.qtdeclarative}/lib/qt-6/plugins:${qt.qtmultimedia}/lib/qt-6/plugins:${qt.qtsvg}/lib/qt-6/plugins:${qt.qtwayland}/lib/qt-6/plugins
+            export QT_QUICK_CONTROLS_STYLE=''${QT_QUICK_CONTROLS_STYLE:-Basic}
+            export QML_DISABLE_DISK_CACHE=''${QML_DISABLE_DISK_CACHE:-1}
+            export QT_AUDIO_BACKEND=''${QT_AUDIO_BACKEND:-pulseaudio}
+            export QT_MEDIA_BACKEND=''${QT_MEDIA_BACKEND:-ffmpeg}
+            unset GIO_EXTRA_MODULES GSETTINGS_SCHEMA_DIR GSETTINGS_BACKEND
+
+            if [ "''${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -z "''${QT_QPA_PLATFORM:-}" ]; then
+              export QT_QPA_PLATFORM=wayland
+            fi
+
+            echo "Bloom Nix dev shell ready."
+            echo "  Check deps: ./scripts/check-deps.sh"
+            echo "  Build app:  nix build .#Bloom"
+          '';
         };
 
-        # FHS-compatible bundle for distribution
-        # This creates a self-contained binary that works on any Linux system
-        BloomBundle = pkgs.buildFHSEnv {
-          name = "bloom-bundle";
-          targetPkgs = pkgs: [
-            Bloom
-            qt.qtbase
-            qt.qtdeclarative
-            qt.qttools
-            qt.qtmultimedia
-            qt.qtwayland
-            qt.qt5compat
-            pkgs.sqlite
-            pkgs.mpv
-            # Graphics libraries for OpenGL support
-            pkgs.libGL
-            pkgs.libglvnd
-            pkgs.mesa
-            pkgs.vulkan-loader
-          ];
-          runScript = "Bloom";
-          meta.description = "Bloom Jellyfin client (portable bundle)";
+        packages = rec {
+          Bloom = bloomPackage;
+
+          BloomBundle = pkgs.buildFHSEnv {
+            name = "bloom-bundle";
+            targetPkgs = _: bloomBuildInputs ++ [ bloomPackage ];
+            runScript = "Bloom";
+
+            meta = {
+              description = "Bloom Jellyfin client (FHS runtime wrapper)";
+            };
+          };
+
+          default = Bloom;
         };
 
-        default = Bloom;
-      };
-    });
+        checks = {
+          build = bloomPackage;
+        };
+      }
+    );
 }

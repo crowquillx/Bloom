@@ -1,38 +1,60 @@
-with import <nixpkgs> {};
-
 let
-  qt = qt6;
+  pkgs = import <nixpkgs> { };
+  lib = pkgs.lib;
+  qt = pkgs.qt6;
 in
-mkShell {
+pkgs.mkShell {
   name = "bloom-devshell";
 
-  buildInputs = [
+  packages = with pkgs; [
+    ccache
     cmake
-    ninja
     gcc
+    gdb
     git
+    libsecret
+    mpv
+    ninja
     pkg-config
     python3
-    ccache
-    gdb
+    sqlite
+    qt.qt5compat
     qt.qtbase
     qt.qtdeclarative
-    # qt.qtquickcontrols2 may not exist in some nixpkgs — Quick Controls are runtime QML modules
+    qt.qtmultimedia
+    qt.qtshadertools
+    qt.qtsvg
     qt.qttools
-    qt.qtgraphicaleffects
-    sqlite
-    mpv
+    qt.qtwayland
   ];
 
-  nativeBuildInputs = [ cmake ninja ];
+  shellHook = ''
+    unset LD_LIBRARY_PATH QT_PLUGIN_PATH QML2_IMPORT_PATH QML_IMPORT_PATH NIXPKGS_QT6_QML_IMPORT_PATH
+    export NIXPKGS_QT6_QML_IMPORT_PATH=${qt.qtdeclarative}/lib/qt-6/qml:${qt.qt5compat}/lib/qt-6/qml:${qt.qtmultimedia}/lib/qt-6/qml:${qt.qtwayland}/lib/qt-6/qml
+    export QML2_IMPORT_PATH=$NIXPKGS_QT6_QML_IMPORT_PATH
+    export QML_IMPORT_PATH=$NIXPKGS_QT6_QML_IMPORT_PATH
+    export CMAKE_PREFIX_PATH=${
+      lib.concatStringsSep ":" [
+        "${qt.qtbase}/lib/cmake"
+        "${qt.qtdeclarative}/lib/cmake"
+        "${qt.qtmultimedia}/lib/cmake"
+        "${qt.qtshadertools}/lib/cmake"
+        "${qt.qttools}/lib/cmake"
+      ]
+    }''${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}
+    export QT_PLUGIN_PATH=${qt.qtbase}/lib/qt-6/plugins:${qt.qtdeclarative}/lib/qt-6/plugins:${qt.qtmultimedia}/lib/qt-6/plugins:${qt.qtsvg}/lib/qt-6/plugins:${qt.qtwayland}/lib/qt-6/plugins
+    export QT_QUICK_CONTROLS_STYLE=''${QT_QUICK_CONTROLS_STYLE:-Basic}
+    export QML_DISABLE_DISK_CACHE=''${QML_DISABLE_DISK_CACHE:-1}
+    export QT_AUDIO_BACKEND=''${QT_AUDIO_BACKEND:-pulseaudio}
+    export QT_MEDIA_BACKEND=''${QT_MEDIA_BACKEND:-ffmpeg}
+    unset GIO_EXTRA_MODULES GSETTINGS_SCHEMA_DIR GSETTINGS_BACKEND
 
-  shellHook = let
-    qmlPaths = "${qt.qtdeclarative}/lib/qt6/qml:${qt.qtgraphicaleffects}/lib/qt6/qml";
-  in ''
-    export QT_QPA_PLATFORM=wayland
-    export QML2_IMPORT_PATH=${qmlPaths}:$QML2_IMPORT_PATH
-    export CMAKE_PREFIX_PATH=${qt.qtbase}/lib/cmake:${qt.qtdeclarative}/lib/cmake:${qt.qttools}/lib/cmake:$CMAKE_PREFIX_PATH
-    export QT_PLUGIN_PATH=${qt.qtbase}/lib/qt6/plugins:$QT_PLUGIN_PATH
-    echo "To build: mkdir -p build && cd build && cmake .. -G Ninja && ninja"
+    if [ "''${XDG_SESSION_TYPE:-}" = "wayland" ] && [ -z "''${QT_QPA_PLATFORM:-}" ]; then
+      export QT_QPA_PLATFORM=wayland
+    fi
+
+    echo "Bloom Nix shell ready."
+    echo "  Check deps: ./scripts/check-deps.sh"
+    echo "  Build app:  nix build .#Bloom"
   '';
 }
