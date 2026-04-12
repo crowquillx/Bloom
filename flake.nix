@@ -18,6 +18,7 @@
         pkgs = import nixpkgs { inherit system; };
         lib = pkgs.lib;
         qt = pkgs.qt6;
+        bloomVersion = lib.strings.removeSuffix "\n" (builtins.readFile ./VERSION);
 
         bloomBuildInputs = with pkgs; [
           libsecret
@@ -51,7 +52,7 @@
 
         bloomPackage = pkgs.stdenv.mkDerivation rec {
           pname = "bloom";
-          version = "0.5.2";
+          version = bloomVersion;
           src = lib.cleanSource ./.;
 
           strictDeps = true;

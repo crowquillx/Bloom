@@ -447,7 +447,7 @@ jobs:
       - name: Determine build metadata
         id: build_meta_linux
         run: |
-          PROJECT_VERSION=$(sed -n 's/^project(Bloom VERSION \([0-9.]\+\).*/\1/p' CMakeLists.txt)
+          PROJECT_VERSION=$(tr -d '\n' < VERSION)
           if [ -z "$PROJECT_VERSION" ]; then
             echo "Could not determine Bloom project version" >&2
             exit 1
@@ -598,7 +598,7 @@ jobs:
       - name: Determine release metadata
         id: dev_meta
         run: |
-          PROJECT_VERSION=$(sed -n 's/^project(Bloom VERSION \([0-9.]\+\).*/\1/p' CMakeLists.txt)
+          PROJECT_VERSION=$(tr -d '\n' < VERSION)
           if [ -z "$PROJECT_VERSION" ]; then
             echo "Could not determine Bloom project version" >&2
             exit 1
