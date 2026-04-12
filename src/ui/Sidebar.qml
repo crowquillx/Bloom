@@ -145,6 +145,27 @@ Item {
         }
     }
 
+    Timer {
+        interval: 500
+        repeat: false
+        running: true
+        onTriggered: {
+            root._updatesReady = true
+            if (typeof UpdateService !== "undefined")
+                root._updatesAvailable = UpdateService.updateAvailable
+        }
+    }
+
+    Connections {
+        target: typeof UpdateService !== "undefined" ? UpdateService : null
+        enabled: root._updatesReady
+        function onUpdateAvailableChanged() {
+            Qt.callLater(function() {
+                root._updatesAvailable = UpdateService.updateAvailable
+            })
+        }
+    }
+
     // ========================================
     // Public Functions
     // ========================================
@@ -159,22 +180,23 @@ Item {
     function open() {
         SidebarSettings.sidebarExpanded = true
     }
+
+    function activateKeyboardNavigation() {
+        if (typeof InputModeManager === "undefined")
+            return
+        InputModeManager.setNavigationMode("keyboard")
+        InputModeManager.hideCursor(true)
+    }
     
     function close() {
         SidebarSettings.sidebarExpanded = false
         Qt.callLater(function() {
-            // Return focus to main content after the sidebar collapse settles.
-            console.log("[FocusDebug] Sidebar.close() called, attempting to restore focus to mainContent")
             if (mainContent) {
-                console.log("[FocusDebug] mainContent exists, restoring focus")
                 if (typeof mainContent.restoreFocusFromSidebar === "function") {
                     mainContent.restoreFocusFromSidebar()
                 } else {
                     mainContent.forceActiveFocus()
                 }
-                console.log("[FocusDebug] mainContent.activeFocus:", mainContent.activeFocus)
-            } else {
-                console.log("[FocusDebug] mainContent is null!")
             }
         })
     }
@@ -389,16 +411,34 @@ Item {
                     
                     onClicked: root.close()
                     
-                    Keys.onReturnPressed: root.close()
-                    Keys.onEnterPressed: root.close()
-                    Keys.onSpacePressed: root.close()
-                    Keys.onEscapePressed: root.close()
+                    Keys.onReturnPressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        root.close()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        root.close()
+                        event.accepted = true
+                    }
+                    Keys.onSpacePressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        root.close()
+                        event.accepted = true
+                    }
+                    Keys.onEscapePressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        root.close()
+                        event.accepted = true
+                    }
                     
-                    Keys.onDownPressed: {
+                    Keys.onDownPressed: function(event) {
+                        root.activateKeyboardNavigation()
                         if (navListView.count > 0) {
                             navListView.currentIndex = 0
                             navListView.currentItem.forceActiveFocus()
                         }
+                        event.accepted = true
                     }
                     
                     Accessible.role: Accessible.Button
@@ -458,12 +498,29 @@ Item {
                     property bool isActive: root.currentNavigation === modelData.id
                     property bool isFocused: activeFocus
 
-                    Keys.onReturnPressed: { navDelegate.clicked(); event.accepted = true }
-                    Keys.onEnterPressed: { navDelegate.clicked(); event.accepted = true }
-                    Keys.onSpacePressed: { navDelegate.clicked(); event.accepted = true }
-                    Keys.onEscapePressed: root.close()
+                    Keys.onReturnPressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        navDelegate.clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        navDelegate.clicked()
+                        event.accepted = true
+                    }
+                    Keys.onSpacePressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        navDelegate.clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEscapePressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        root.close()
+                        event.accepted = true
+                    }
 
-                    Keys.onUpPressed: {
+                    Keys.onUpPressed: function(event) {
+                        root.activateKeyboardNavigation()
                         if (index > 0) {
                             navListView.currentIndex = index - 1
                             navListView.currentItem.forceActiveFocus()
@@ -474,8 +531,10 @@ Item {
                                 hamburgerButton.forceActiveFocus()
                             }
                         }
+                        event.accepted = true
                     }
-                    Keys.onDownPressed: {
+                    Keys.onDownPressed: function(event) {
+                        root.activateKeyboardNavigation()
                         if (index < navListView.count - 1) {
                             navListView.currentIndex = index + 1
                             navListView.currentItem.forceActiveFocus()
@@ -487,11 +546,14 @@ Item {
                                 signOutButton.forceActiveFocus()
                             }
                         }
+                        event.accepted = true
                     }
-                    Keys.onRightPressed: {
+                    Keys.onRightPressed: function(event) {
+                        root.activateKeyboardNavigation()
                         if (root.mainContent) {
                             root.restoreMainContentFocus()
                         }
+                        event.accepted = true
                     }
 
                     ItemDelegate {
@@ -564,11 +626,7 @@ Item {
                         ToolTip.delay: 500
 
                         onClicked: {
-                            root.currentNavigation = navDelegateScope.modelData.id
-                            root.navigationRequested(navDelegateScope.modelData.id)
-                            if (root.overlayMode) {
-                                root.close()
-                            }
+                            root.handleNavigation(navDelegateScope.modelData.id)
                         }
 
                         Accessible.role: Accessible.MenuItem
@@ -650,6 +708,7 @@ Item {
                     Keys.onPressed: function(event) {
                         if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
                             if (event.isAutoRepeat) { event.accepted = true; return }
+                            root.activateKeyboardNavigation()
                             if (event.modifiers & Qt.ShiftModifier) {
                                 if (root.reorderModeActive && root.reorderingIndex === index) {
                                     root.finishReorder()
@@ -663,6 +722,7 @@ Item {
                             event.accepted = true; return
                         }
                         if (event.key === Qt.Key_Space) {
+                            root.activateKeyboardNavigation()
                             if (root.reorderModeActive && root.reorderingIndex === index) {
                                 root.finishReorder()
                             } else {
@@ -673,6 +733,7 @@ Item {
                     }
 
                     Keys.onUpPressed: function(event) {
+                        root.activateKeyboardNavigation()
                         if (root.reorderModeActive && root.reorderingIndex === index) {
                             root.reorderLibrary(index, Math.max(0, index - 1))
                             event.accepted = true
@@ -692,6 +753,7 @@ Item {
                     }
 
                     Keys.onDownPressed: function(event) {
+                        root.activateKeyboardNavigation()
                         if (root.reorderModeActive && root.reorderingIndex === index) {
                             root.reorderLibrary(index, Math.min(libraryListView.count - 1, index + 1))
                             event.accepted = true
@@ -712,6 +774,7 @@ Item {
                     }
 
                     Keys.onRightPressed: function(event) {
+                        root.activateKeyboardNavigation()
                         if (root.mainContent) {
                             root.restoreMainContentFocus()
                             event.accepted = true
@@ -719,6 +782,7 @@ Item {
                     }
 
                     Keys.onEscapePressed: function(event) {
+                        root.activateKeyboardNavigation()
                         if (root.reorderModeActive) {
                             root.finishReorder()
                         } else {
@@ -831,9 +895,6 @@ Item {
             // Spacer
             Item { Layout.fillHeight: true }
 
-            // Spacer
-            Item { Layout.fillHeight: true }
-
             // Separator
             Rectangle {
                 Layout.fillWidth: true
@@ -927,10 +988,23 @@ Item {
 
                     onClicked: root.handleNavigation("updates")
 
-                    Keys.onReturnPressed: { clicked(); event.accepted = true }
-                    Keys.onEnterPressed: { clicked(); event.accepted = true }
-                    Keys.onSpacePressed: { clicked(); event.accepted = true }
-                    Keys.onUpPressed: {
+                    Keys.onReturnPressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        clicked()
+                        event.accepted = true
+                    }
+                    Keys.onSpacePressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        clicked()
+                        event.accepted = true
+                    }
+                    Keys.onUpPressed: function(event) {
+                        root.activateKeyboardNavigation()
                         if (libraryListView.count > 0) {
                             libraryListView.currentIndex = libraryListView.count - 1
                             libraryListView.currentItem.forceActiveFocus()
@@ -938,33 +1012,27 @@ Item {
                             navListView.currentIndex = navListView.count - 1
                             navListView.currentItem.forceActiveFocus()
                         }
+                        event.accepted = true
                     }
-                    Keys.onDownPressed: settingsButton.forceActiveFocus()
-                    Keys.onRightPressed: { if (root.mainContent) root.restoreMainContentFocus() }
-                    Keys.onEscapePressed: root.close()
+                    Keys.onDownPressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        settingsButton.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onRightPressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        if (root.mainContent)
+                            root.restoreMainContentFocus()
+                        event.accepted = true
+                    }
+                    Keys.onEscapePressed: function(event) {
+                        root.activateKeyboardNavigation()
+                        root.close()
+                        event.accepted = true
+                    }
 
                     Accessible.role: Accessible.Button
                     Accessible.name: qsTr("Updates")
-                }
-            }
-
-            Timer {
-                interval: 500
-                repeat: false
-                running: true
-                onTriggered: {
-                    root._updatesReady = true
-                    if (typeof UpdateService !== "undefined")
-                        root._updatesAvailable = UpdateService.updateAvailable
-                }
-            }
-            Connections {
-                target: typeof UpdateService !== "undefined" ? UpdateService : null
-                enabled: root._updatesReady
-                function onUpdateAvailableChanged() {
-                    Qt.callLater(function() {
-                        root._updatesAvailable = UpdateService.updateAvailable
-                    })
                 }
             }
             // Settings button
@@ -1034,10 +1102,23 @@ Item {
 
                 onClicked: root.handleNavigation("settings")
 
-                Keys.onReturnPressed: { clicked(); event.accepted = true }
-                Keys.onEnterPressed: { clicked(); event.accepted = true }
-                Keys.onSpacePressed: { clicked(); event.accepted = true }
-                Keys.onUpPressed: {
+                Keys.onReturnPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onSpacePressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onUpPressed: function(event) {
+                    root.activateKeyboardNavigation()
                     if (updatesButtonLoader.item && updatesButtonLoader.item.visible) {
                         updatesButtonLoader.item.forceActiveFocus()
                     } else if (libraryListView.count > 0) {
@@ -1047,10 +1128,24 @@ Item {
                         navListView.currentIndex = navListView.count - 1
                         navListView.currentItem.forceActiveFocus()
                     }
+                    event.accepted = true
                 }
-                Keys.onDownPressed: signOutButton.forceActiveFocus()
-                Keys.onRightPressed: { if (root.mainContent) root.restoreMainContentFocus() }
-                Keys.onEscapePressed: root.close()
+                Keys.onDownPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    signOutButton.forceActiveFocus()
+                    event.accepted = true
+                }
+                Keys.onRightPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    if (root.mainContent)
+                        root.restoreMainContentFocus()
+                    event.accepted = true
+                }
+                Keys.onEscapePressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    root.close()
+                    event.accepted = true
+                }
 
                 Accessible.role: Accessible.Button
                 Accessible.name: qsTr("Settings")
@@ -1122,13 +1217,42 @@ Item {
 
                 onClicked: root.signOutRequested()
 
-                Keys.onReturnPressed: { clicked(); event.accepted = true }
-                Keys.onEnterPressed: { clicked(); event.accepted = true }
-                Keys.onSpacePressed: { clicked(); event.accepted = true }
-                Keys.onUpPressed: settingsButton.forceActiveFocus()
-                Keys.onDownPressed: exitButton.forceActiveFocus()
-                Keys.onRightPressed: { if (root.mainContent) root.restoreMainContentFocus() }
-                Keys.onEscapePressed: root.close()
+                Keys.onReturnPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onSpacePressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onUpPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    settingsButton.forceActiveFocus()
+                    event.accepted = true
+                }
+                Keys.onDownPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    exitButton.forceActiveFocus()
+                    event.accepted = true
+                }
+                Keys.onRightPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    if (root.mainContent)
+                        root.restoreMainContentFocus()
+                    event.accepted = true
+                }
+                Keys.onEscapePressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    root.close()
+                    event.accepted = true
+                }
 
                 Accessible.role: Accessible.Button
                 Accessible.name: qsTr("Sign out")
@@ -1210,12 +1334,37 @@ Item {
 
                 onClicked: root.exitRequested()
 
-                Keys.onReturnPressed: { clicked(); event.accepted = true }
-                Keys.onEnterPressed: { clicked(); event.accepted = true }
-                Keys.onSpacePressed: { clicked(); event.accepted = true }
-                Keys.onUpPressed: signOutButton.forceActiveFocus()
-                Keys.onRightPressed: { if (root.mainContent) root.restoreMainContentFocus() }
-                Keys.onEscapePressed: root.close()
+                Keys.onReturnPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onSpacePressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    clicked()
+                    event.accepted = true
+                }
+                Keys.onUpPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    signOutButton.forceActiveFocus()
+                    event.accepted = true
+                }
+                Keys.onRightPressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    if (root.mainContent)
+                        root.restoreMainContentFocus()
+                    event.accepted = true
+                }
+                Keys.onEscapePressed: function(event) {
+                    root.activateKeyboardNavigation()
+                    root.close()
+                    event.accepted = true
+                }
 
                 Accessible.role: Accessible.Button
                 Accessible.name: qsTr("Exit")
@@ -1265,23 +1414,35 @@ Item {
         
         onClicked: root.toggle()
         
-        Keys.onReturnPressed: root.toggle()
-        Keys.onEnterPressed: root.toggle()
-        Keys.onSpacePressed: root.toggle()
-        Keys.onRightPressed: {
-            // Navigate to main content
-            console.log("[FocusDebug] hamburgerButton Right pressed")
+        Keys.onReturnPressed: function(event) {
+            root.activateKeyboardNavigation()
+            root.toggle()
+            event.accepted = true
+        }
+        Keys.onEnterPressed: function(event) {
+            root.activateKeyboardNavigation()
+            root.toggle()
+            event.accepted = true
+        }
+        Keys.onSpacePressed: function(event) {
+            root.activateKeyboardNavigation()
+            root.toggle()
+            event.accepted = true
+        }
+        Keys.onRightPressed: function(event) {
+            root.activateKeyboardNavigation()
             if (root.mainContent) {
                 root.restoreMainContentFocus()
-                console.log("[FocusDebug] After forceActiveFocus on mainContent, activeFocus:", root.mainContent.activeFocus)
             }
+            event.accepted = true
         }
-        Keys.onDownPressed: {
-            // Navigate to first nav item in collapsed rail mode
+        Keys.onDownPressed: function(event) {
+            root.activateKeyboardNavigation()
             if (!expanded && !overlayMode && navListView.count > 0) {
                 navListView.currentIndex = 0
                 navListView.currentItem.forceActiveFocus()
             }
+            event.accepted = true
         }
         
         ToolTip.visible: hovered && !expanded
