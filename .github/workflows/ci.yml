@@ -41,7 +41,7 @@ jobs:
         id: build_meta
         shell: pwsh
         run: |
-          $projectVersion = (Select-String -Path CMakeLists.txt -Pattern 'project\(Bloom VERSION ([0-9]+\.[0-9]+\.[0-9]+)' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $projectVersion = (Get-Content VERSION -Raw).Trim()
           if (-not $projectVersion) {
             Write-Error "Could not determine Bloom project version"
             exit 1
