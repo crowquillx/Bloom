@@ -119,7 +119,13 @@ int main(int argc, char *argv[])
     
     // Set Qt Quick Controls style
     QQuickStyle::setStyle("Basic");
-    
+
+    // Disable system proxy resolution to prevent libproxy from blocking the
+    // main thread with synchronous D-Bus calls (GNetworkMonitor, portal
+    // backends, etc.). Bloom is a LAN client and does not need proxy
+    // auto-configuration; users can set http_proxy/https_proxy if required.
+    QNetworkProxyFactory::setUseSystemConfiguration(false);
+
     QGuiApplication app(argc, argv);
     app.setWindowIcon(QIcon(":/images/logo.ico"));
 

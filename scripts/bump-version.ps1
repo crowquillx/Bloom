@@ -3,8 +3,8 @@
     Bumps the Bloom project version across all relevant files.
 
 .DESCRIPTION
-    Updates version strings in CMakeLists.txt, PKGBUILD, flake.nix, installer.nsi,
-    and ci.yml (installer filename references). Optionally commits, tags, and pushes.
+    Updates the shared VERSION file, PKGBUILD, installer.nsi, and ci.yml
+    (installer filename references). Optionally commits, tags, and pushes.
 
 .PARAMETER Version
     The new version in X.Y.Z format (e.g. 0.4.0).
@@ -34,12 +34,10 @@ $patch = $parts[2]
 
 Write-Host "Bumping version to $Version" -ForegroundColor Cyan
 
-# --- CMakeLists.txt ---
-$cmakePath = Join-Path $repoRoot 'CMakeLists.txt'
-$cmake = Get-Content $cmakePath -Raw
-$cmake = $cmake -replace 'project\(Bloom VERSION \d+\.\d+\.\d+', "project(Bloom VERSION $Version"
-Set-Content $cmakePath $cmake -NoNewline
-Write-Host "  Updated CMakeLists.txt" -ForegroundColor Green
+# --- VERSION ---
+$versionPath = Join-Path $repoRoot 'VERSION'
+Set-Content $versionPath "$Version`n" -NoNewline
+Write-Host "  Updated VERSION" -ForegroundColor Green
 
 # --- PKGBUILD ---
 $pkgPath = Join-Path $repoRoot 'PKGBUILD'
@@ -47,13 +45,6 @@ $pkg = Get-Content $pkgPath -Raw
 $pkg = $pkg -replace 'pkgver=\d+\.\d+\.\d+', "pkgver=$Version"
 Set-Content $pkgPath $pkg -NoNewline
 Write-Host "  Updated PKGBUILD" -ForegroundColor Green
-
-# --- flake.nix ---
-$flakePath = Join-Path $repoRoot 'flake.nix'
-$flake = Get-Content $flakePath -Raw
-$flake = $flake -replace 'version = "\d+\.\d+\.\d+"', "version = `"$Version`""
-Set-Content $flakePath $flake -NoNewline
-Write-Host "  Updated flake.nix" -ForegroundColor Green
 
 # --- installer.nsi ---
 $nsiPath = Join-Path $repoRoot 'installer.nsi'

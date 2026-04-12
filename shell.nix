@@ -54,7 +54,9 @@ pkgs.mkShell {
     fi
 
     echo "Bloom Nix shell ready."
-    echo "  Check deps: ./scripts/check-deps.sh"
-    echo "  Build app:  nix build .#Bloom"
+    echo "  Check deps:    ./scripts/check-deps.sh"
+    echo "  Configure:     cmake -B build -G Ninja"
+    echo "  Build:         cmake --build build"
+    echo "  (Flake users:  nix build .#Bloom)"
   '';
 }

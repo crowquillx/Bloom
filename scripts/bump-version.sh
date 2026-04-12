@@ -44,17 +44,13 @@ IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
 
 echo -e "\033[36mBumping version to $VERSION\033[0m"
 
-# --- CMakeLists.txt ---
-sed -i "s/project(Bloom VERSION [0-9]\+\.[0-9]\+\.[0-9]\+/project(Bloom VERSION $VERSION/" "$REPO_ROOT/CMakeLists.txt"
-echo -e "  \033[32mUpdated CMakeLists.txt\033[0m"
+# --- VERSION ---
+printf '%s\n' "$VERSION" > "$REPO_ROOT/VERSION"
+echo -e "  \033[32mUpdated VERSION\033[0m"
 
 # --- PKGBUILD ---
 sed -i "s/pkgver=[0-9]\+\.[0-9]\+\.[0-9]\+/pkgver=$VERSION/" "$REPO_ROOT/PKGBUILD"
 echo -e "  \033[32mUpdated PKGBUILD\033[0m"
-
-# --- flake.nix ---
-sed -i "s/version = \"[0-9]\+\.[0-9]\+\.[0-9]\+\"/version = \"$VERSION\"/" "$REPO_ROOT/flake.nix"
-echo -e "  \033[32mUpdated flake.nix\033[0m"
 
 # --- installer.nsi ---
 sed -i "s/!define VERSIONMAJOR [0-9]\+/!define VERSIONMAJOR $MAJOR/" "$REPO_ROOT/installer.nsi"
