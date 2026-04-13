@@ -144,12 +144,21 @@ jobs:
           # Pin to the closest archived post-v0.41.0 libmpv build instead of following latest git.
           $mpvSdkVersion = "20251228-git-a58dd8a"
           $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
-          # Use SourceForge's direct project download URL. The /download page can resolve to HTML in PowerShell.
-          $downloadUrl = "https://downloads.sourceforge.net/project/mpv-player-windows/libmpv/$mpvSdkFile"
+          # Use a concrete SourceForge mirror URL and curl.exe. Invoke-WebRequest can save HTML instead of the archive.
+          $downloadUrl = "https://master.dl.sourceforge.net/project/mpv-player-windows/libmpv/$mpvSdkFile"
 
           Write-Host "Downloading pinned libmpv SDK: $mpvSdkFile"
           $downloadPath = Join-Path $PWD $mpvSdkFile
-          Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath
+          & curl.exe -fL --retry 3 --retry-all-errors --output $downloadPath $downloadUrl
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to download $mpvSdkFile from $downloadUrl"
+            exit 1
+          }
+          $downloadedFile = Get-Item $downloadPath -ErrorAction Stop
+          if ($downloadedFile.Length -lt 1048576) {
+            Write-Error "Downloaded file is unexpectedly small ($($downloadedFile.Length) bytes): $downloadPath"
+            exit 1
+          }
 
           $extractRoot = Join-Path $PWD "third_party\mpv"
           if (Test-Path $extractRoot) { Remove-Item -Recurse -Force $extractRoot }

@@ -229,13 +229,20 @@ function Fetch-MpvSdk {
 
     $mpvSdkVersion = "20251228-git-a58dd8a"
     $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
-    # Use SourceForge's direct project download URL. The /download page can resolve to HTML in PowerShell.
-    $downloadUrl = "https://downloads.sourceforge.net/project/mpv-player-windows/libmpv/$mpvSdkFile"
+    # Use a concrete SourceForge mirror URL and curl.exe. Invoke-WebRequest can save HTML instead of the archive.
+    $downloadUrl = "https://master.dl.sourceforge.net/project/mpv-player-windows/libmpv/$mpvSdkFile"
 
     Write-Host "Attempting to fetch pinned mpv-dev SDK: $mpvSdkFile" -ForegroundColor Cyan
 
     $downloadPath = Join-Path $DestinationRoot $mpvSdkFile
-    Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath
+    & curl.exe -fL --retry 3 --retry-all-errors --output $downloadPath $downloadUrl
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to download $mpvSdkFile from $downloadUrl"
+    }
+    $downloadedFile = Get-Item $downloadPath -ErrorAction Stop
+    if ($downloadedFile.Length -lt 1048576) {
+        throw "Downloaded file is unexpectedly small ($($downloadedFile.Length) bytes): $downloadPath"
+    }
 
     $extractRoot = Join-Path $DestinationRoot "mpv-sdk"
     if (Test-Path $extractRoot) {
