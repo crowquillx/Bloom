@@ -227,18 +227,14 @@ function Fetch-MpvSdk {
         New-Item -ItemType Directory -Path $DestinationRoot | Out-Null
     }
 
-    Write-Host "Attempting to fetch latest mpv-dev SDK..." -ForegroundColor Cyan
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest"
-    $asset = $release.assets |
-        Where-Object { $_.name -match '^mpv-dev-x86_64-.*\.(7z|zip)$' } |
-        Select-Object -First 1
+    $mpvSdkVersion = "20251228-git-a58dd8a"
+    $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
+    $downloadUrl = "https://sourceforge.net/projects/mpv-player-windows/files/libmpv/$mpvSdkFile/download"
 
-    if (-not $asset) {
-        throw "Could not find mpv-dev-x86_64 SDK asset in latest shinchiro/mpv-winbuild-cmake release."
-    }
+    Write-Host "Attempting to fetch pinned mpv-dev SDK: $mpvSdkFile" -ForegroundColor Cyan
 
-    $downloadPath = Join-Path $DestinationRoot $asset.name
-    Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $downloadPath
+    $downloadPath = Join-Path $DestinationRoot $mpvSdkFile
+    Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath
 
     $extractRoot = Join-Path $DestinationRoot "mpv-sdk"
     if (Test-Path $extractRoot) {
@@ -246,16 +242,12 @@ function Fetch-MpvSdk {
     }
     New-Item -ItemType Directory -Path $extractRoot | Out-Null
 
-    if ($asset.name.ToLower().EndsWith(".zip")) {
-        Expand-Archive -Path $downloadPath -DestinationPath $extractRoot -Force
-    } else {
-        if (-not (Test-CommandExists 7z)) {
-            throw "7z is required to extract mpv-dev .7z archives. Install 7-Zip or set MPV_ROOT manually."
-        }
-        & 7z x $downloadPath "-o$extractRoot" -y | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Failed to extract $($asset.name) with 7z."
-        }
+    if (-not (Test-CommandExists 7z)) {
+        throw "7z is required to extract pinned mpv-dev .7z archives. Install 7-Zip or set MPV_ROOT manually."
+    }
+    & 7z x $downloadPath "-o$extractRoot" -y | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to extract $mpvSdkFile with 7z."
     }
 
     $mpvRootCandidate = Get-ChildItem -Path $extractRoot -Directory -Recurse -ErrorAction SilentlyContinue |

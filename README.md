@@ -84,7 +84,7 @@ The SDK must include:
 - import library (`*.lib`)
 - runtime DLL (`libmpv-2.dll` or `mpv-2.dll`)
 
-CI currently uses `mpv-dev` artifacts from `shinchiro/mpv-winbuild-cmake`.
+Windows CI and `scripts/build.ps1` are pinned to `mpv-dev-x86_64-20251228-git-a58dd8a.7z` from SourceForge's `mpv-player-windows/libmpv` archive.
 
 ## Known Issues
 

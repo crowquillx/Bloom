@@ -139,51 +139,25 @@ jobs:
 
       - name: Fetch libmpv SDK
         shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          $ghHeaders = @{
-            "User-Agent" = "Bloom-CI"
-            "Accept" = "application/vnd.github+json"
-            "X-GitHub-Api-Version" = "2022-11-28"
-            "Authorization" = "Bearer $env:GITHUB_TOKEN"
-          }
-          Write-Host "Using github.token for authenticated GitHub API requests."
+          # Stable Windows libmpv SDK assets are not published for mpv v0.41.0 itself.
+          # Pin to the closest archived post-v0.41.0 libmpv build instead of following latest git.
+          $mpvSdkVersion = "20251228-git-a58dd8a"
+          $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
+          $downloadUrl = "https://sourceforge.net/projects/mpv-player-windows/files/libmpv/$mpvSdkFile/download"
 
-          $release = $null
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
-            try {
-              $release = Invoke-RestMethod -Uri "https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest" -Headers $ghHeaders
-              break
-            } catch {
-              if ($attempt -eq 3) { throw }
-              $sleepSec = 5 * $attempt
-              Write-Warning "GitHub API request failed (attempt $attempt/3). Retrying in $sleepSec seconds..."
-              Start-Sleep -Seconds $sleepSec
-            }
-          }
-
-          $asset = $release.assets | Where-Object { $_.name -match '^mpv-dev-x86_64-.*\.(7z|zip)$' } | Select-Object -First 1
-          if (-not $asset) {
-            Write-Error "Could not find mpv-dev-x86_64 SDK asset in latest shinchiro/mpv-winbuild-cmake release."
-            exit 1
-          }
-
-          $downloadPath = Join-Path $PWD $asset.name
-          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $downloadPath -Headers $ghHeaders
+          Write-Host "Downloading pinned libmpv SDK: $mpvSdkFile"
+          $downloadPath = Join-Path $PWD $mpvSdkFile
+          Invoke-WebRequest -Uri $downloadUrl -OutFile $downloadPath
 
           $extractRoot = Join-Path $PWD "third_party\mpv"
           if (Test-Path $extractRoot) { Remove-Item -Recurse -Force $extractRoot }
           New-Item -ItemType Directory -Path $extractRoot | Out-Null
 
-          if ($asset.name.ToLower().EndsWith(".zip")) {
-            Expand-Archive -Path $downloadPath -DestinationPath $extractRoot -Force
-          } else {
-            & 7z x $downloadPath "-o$extractRoot" -y | Out-Null
-            if ($LASTEXITCODE -ne 0) {
-              Write-Error "Failed to extract $($asset.name) with 7z."
-              exit 1
-            }
+          & 7z x $downloadPath "-o$extractRoot" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "Failed to extract $mpvSdkFile with 7z."
+            exit 1
           }
 
           $mpvRootCandidate = Get-ChildItem -Path $extractRoot -Directory -Recurse |
@@ -209,7 +183,7 @@ jobs:
               Select-Object -First 1
 
             if (-not $mpvDll) {
-              Write-Error "mpv-dev bundle has no import library and no runtime DLL to generate one from."
+              Write-Error "Pinned mpv-dev bundle has no import library and no runtime DLL to generate one from."
               exit 1
             }
 
