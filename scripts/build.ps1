@@ -229,7 +229,8 @@ function Fetch-MpvSdk {
 
     $mpvSdkVersion = "20251228-git-a58dd8a"
     $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
-    $downloadUrl = "https://sourceforge.net/projects/mpv-player-windows/files/libmpv/$mpvSdkFile/download"
+    # Use SourceForge's direct project download URL. The /download page can resolve to HTML in PowerShell.
+    $downloadUrl = "https://downloads.sourceforge.net/project/mpv-player-windows/libmpv/$mpvSdkFile"
 
     Write-Host "Attempting to fetch pinned mpv-dev SDK: $mpvSdkFile" -ForegroundColor Cyan
 
