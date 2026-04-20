@@ -21,6 +21,7 @@
 
 ### Other
 
+- v0.6.1
 - Fix accent bar fade-out animation in SettingsRail (#36)
 
 **Full changelog:** [v0.6.0...v0.6.1](https://github.com/crowquillx/Bloom/compare/v0.6.0...v0.6.1)
