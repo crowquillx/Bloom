@@ -82,6 +82,7 @@ class PlayerController : public QObject
     Q_PROPERTY(QString overlayTitle READ overlayTitle NOTIFY overlayMetadataChanged)
     Q_PROPERTY(QString overlaySubtitle READ overlaySubtitle NOTIFY overlayMetadataChanged)
     Q_PROPERTY(QString overlayBackdropUrl READ overlayBackdropUrl NOTIFY overlayMetadataChanged)
+    Q_PROPERTY(QString overlayLogoUrl READ overlayLogoUrl NOTIFY overlayMetadataChanged)
     
     // Track selection properties
     Q_PROPERTY(int selectedAudioTrack READ selectedAudioTrack WRITE setSelectedAudioTrack NOTIFY selectedAudioTrackChanged)
@@ -187,6 +188,7 @@ public:
     QString overlayTitle() const { return m_overlayTitle; }
     QString overlaySubtitle() const { return m_overlaySubtitle; }
     QString overlayBackdropUrl() const { return m_overlayBackdropUrl; }
+    QString overlayLogoUrl() const { return m_overlayLogoUrl; }
     Q_INVOKABLE void setAudioDelay(int ms);
     Q_INVOKABLE bool attachEmbeddedVideoTarget(QObject *target);
     Q_INVOKABLE void detachEmbeddedVideoTarget(QObject *target = nullptr);
@@ -262,7 +264,10 @@ public:
     Q_INVOKABLE void toggleMpvStats();
     Q_INVOKABLE void showMpvStatsPage(int page);
     Q_INVOKABLE void sendMpvKeypress(const QString &key);
-    Q_INVOKABLE void setOverlayMetadata(const QString &title, const QString &subtitle = QString(), const QString &backdropUrl = QString());
+    Q_INVOKABLE void setOverlayMetadata(const QString &title,
+                                        const QString &subtitle = QString(),
+                                        const QString &backdropUrl = QString(),
+                                        const QString &logoUrl = QString());
     Q_INVOKABLE void clearOverlayMetadata();
     Q_INVOKABLE void setTrickplayPreviewPositionSeconds(double seconds);
     Q_INVOKABLE void clearTrickplayPreviewPositionOverride();
@@ -612,6 +617,7 @@ private:
         QString overlayTitle;
         QString overlaySubtitle;
         QString overlayBackdropUrl;
+        QString overlayLogoUrl;
         qint64 startPositionTicks = 0;
         int preferredAudioIndex = -2;
         int preferredSubtitleIndex = -2;
@@ -766,6 +772,7 @@ private:
     QString m_overlayTitle;
     QString m_overlaySubtitle;
     QString m_overlayBackdropUrl;
+    QString m_overlayLogoUrl;
     
     // OSC and trickplay data
     QList<MediaSegmentInfo> m_currentSegments;

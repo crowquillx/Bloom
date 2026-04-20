@@ -25,6 +25,9 @@ FocusScope {
     readonly property string mediaSubtitle: (PlayerController.overlaySubtitle && PlayerController.overlaySubtitle.length > 0)
                                            ? PlayerController.overlaySubtitle
                                            : (paused ? qsTr("Paused") : qsTr("Playing"))
+    readonly property string overlayLogoSource: (PlayerController.overlayLogoUrl && PlayerController.overlayLogoUrl.length > 0)
+                                                ? PlayerController.overlayLogoUrl
+                                                : ""
     property bool controlsVisible: false
     property bool seekPreviewActive: false
     property bool seekOnlyMode: false
@@ -963,15 +966,40 @@ FocusScope {
                 font.pixelSize: Math.round(20 * Theme.layoutScale)
             }
 
-            Text {
-                text: root.mediaTitle
-                anchors.horizontalCenter: parent.horizontalCenter
+            Item {
                 width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                color: Qt.rgba(Theme.textPrimary.r, Theme.textPrimary.g, Theme.textPrimary.b, 0.82)
-                font.family: Theme.fontPrimary
-                font.pixelSize: Math.round(18 * Theme.layoutScale)
-                elide: Text.ElideRight
+                height: Math.max(bufferingTitleLogo.height, bufferingTitleText.implicitHeight)
+
+                Image {
+                    id: bufferingTitleLogo
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    height: Math.round(56 * Theme.layoutScale)
+                    width: Math.min(Math.round(300 * Theme.layoutScale), parent.width)
+                    source: root.overlayLogoSource
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: true
+                    visible: root.overlayLogoSource.length > 0 && status !== Image.Error
+                    opacity: status === Image.Ready ? 1.0 : 0.0
+                    Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
+                }
+                Text {
+                    id: bufferingTitleText
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    text: root.mediaTitle
+                    visible: root.overlayLogoSource.length === 0
+                             || bufferingTitleLogo.status === Image.Error
+                             || bufferingTitleLogo.status === Image.Loading
+                             || bufferingTitleLogo.status === Image.Null
+                    color: Qt.rgba(Theme.textPrimary.r, Theme.textPrimary.g, Theme.textPrimary.b, 0.82)
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Math.round(18 * Theme.layoutScale)
+                    elide: Text.ElideRight
+                }
             }
         }
     }
@@ -1009,14 +1037,40 @@ FocusScope {
                 anchors.verticalCenter: backButton.verticalCenter
                 width: parent.width - backButton.width - parent.spacing
 
-                Text {
-                    text: root.mediaTitle
-                    color: Theme.textPrimary
-                    font.family: Theme.fontPrimary
-                    font.pixelSize: Math.round(36 * Theme.layoutScale)
-                    font.weight: Font.DemiBold
-                    elide: Text.ElideRight
+                Item {
                     width: parent.width
+                    height: Math.max(chromeTitleLogo.height, chromeTitleText.implicitHeight)
+
+                    Image {
+                        id: chromeTitleLogo
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: Math.round(72 * Theme.layoutScale)
+                        width: Math.min(Math.round(360 * Theme.layoutScale), parent.width)
+                        source: root.overlayLogoSource
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        cache: true
+                        visible: root.overlayLogoSource.length > 0 && status !== Image.Error
+                        opacity: status === Image.Ready ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
+                    }
+                    Text {
+                        id: chromeTitleText
+                        anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width
+                        text: root.mediaTitle
+                        visible: root.overlayLogoSource.length === 0
+                                 || chromeTitleLogo.status === Image.Error
+                                 || chromeTitleLogo.status === Image.Loading
+                                 || chromeTitleLogo.status === Image.Null
+                        color: Theme.textPrimary
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Math.round(36 * Theme.layoutScale)
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                    }
                 }
 
                 Text {
