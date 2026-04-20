@@ -1,6 +1,6 @@
 # Maintainer: crowquillx
 pkgname=bloom-jellyfin
-pkgver=0.5.2
+pkgver=0.6.0
 pkgrel=1
 pkgdesc="Jellyfin HTPC client with 10-foot UI"
 arch=('x86_64')

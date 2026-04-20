@@ -1,47 +1,44 @@
-## What's Changed in v0.5.2
+## What's Changed in v0.6.0
 
 ### New Features
 
-- **season-details**: rework season details
+- **windows**: add auto-update system
 
 ### Bug Fixes
 
-- **playback**: honor specials in up next
-- refresh season episodes on explicit playback return
-- restore episode selection and watched state after playback
-- **player**: report Jellyfin stop on early playback exit
-- isolate series episode detail requests
-- **season-details**: scope episode error cleanup
-- **season-details**: tighten season restore state
-- **cache**: prefer fresh memory detail cache
-- **series-details**: recover episode detail loading
-- **ui**: harden playback detail interactions
-- **detail-cache**: respect stale cache freshness
-- **ci**: skip linuxdeploy strip during AppImage packaging
-- **scripts**: update push command to specify version tag for release
+- **ui**: refine detail actions and startup fullscreen
+- read Windows CI version from VERSION
+- unify version source across build tooling
+- address sidebar review feedback
+- **sidebar**: resolve Qt layout polish freeze on NixOS
+- **sidebar**: resolve Qt layout polish freeze on NixOS
+- **qml**: address review follow-ups
+- **qml**: defer heavyweight startup components
+- **qml**: reduce runtime warning regressions
+- **ci**: standardize notes file errors
+- **ci**: normalize manifest channel input
+- **ci**: validate manifest identifiers
+- **updater**: tighten update state handling
+- **updater**: address review nits
+- **ui**: polish updater dialog focus flow
+- **updater**: address review follow-ups
+- **ui**: improve update navigation and labels
+- **updater**: harden update checks and downloads
 
-### Refactoring
+### Documentation
 
-- remove package version pinning and update mirrorlist for build dependencies
-- enhance PlayerController to handle series details loading and caching
-- change type of target in renderFrame to QQuickItem for better clarity
-- add IMDb ID handling to SeriesDetailsViewModel; clear IMDb ID on cache clear
-- add LinguistTools module to Qt prerequisites and update CI to include qt6-tools-dev
-- consolidate rating functions into RatingMetadataChip; streamline SeriesDetailsViewModel logic and improve cleanup in tests
-- remove redundant height and width assignments in MetadataChip component
-- update CI workflow to streamline Qt installation and environment setup; remove unnecessary steps and dependencies
-- update UI components for consistency; enhance theme properties and improve cache handling
-- update CI workflow for improved Qt installation and caching; enhance detail view logo handling in theme and UI components
-- update similar items loading logic and add retry tests
-- streamline metadata extraction and similar items mapping in view models
-- integrate ExternalRatingsHelper for external rating fetch logic
+- **updates**: align updater documentation
 
-### Chores
+### Build
 
-- **ci**: remove AppImage packaging
+- fetch pinned mpv sdk with curl
+- use direct sourceforge mpv sdk urls
+- pin windows mpv sdk version
+- **nix**: add Nix package build with Qt 6.10 isolation
+- **nix**: add Nix package build with Qt 6.10 isolation
 
 ### Other
 
-- Refactor caching mechanism for detail views
+- Run qmllint in Docker build and fix update dialog footer
 
-**Full changelog:** [v0.5.1...v0.5.2](https://github.com/crowquillx/Bloom/compare/v0.5.1...v0.5.2)
+**Full changelog:** [v0.5.2...v0.6.0](https://github.com/crowquillx/Bloom/compare/v0.5.2...v0.6.0)
