@@ -53,7 +53,7 @@ Cache settings
 - `settings.cache.rounded_preprocess_enabled` toggles whether rounded thumbnails are created ahead of time; keep it true for smooth UI animations or turn it off if caching takes too much work on low-end devices.
 
 UI settings
-- `settings.ui.launch_in_fullscreen` (Q_PROPERTY `launchInFullscreen`): When true, the application starts in fullscreen mode. Default false; configurable via Settings > Display > Launch in Fullscreen.
+- `settings.ui.launch_in_fullscreen` (Q_PROPERTY `launchInFullscreen`): When true, the application starts in fullscreen mode. Default true; configurable via Settings > Display > Launch in Fullscreen.
 - `settings.ui.backdrop_rotation_interval`: Backdrop rotation interval in milliseconds. Default 30000 (30 seconds).
 - `settings.ui.ui_animations_enabled` (Q_PROPERTY `uiAnimationsEnabled`): Toggle the QML transition/animation flourishes for keyboard/remote navigation; defaults to true but can be toggled to reduce GPU load.
 

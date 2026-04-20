@@ -9,6 +9,9 @@ Button {
 
     property string iconGlyph: ""
     property color iconColor: Theme.textPrimary
+    property bool showLabel: text !== ""
+    property string accessibleLabel: ""
+    property string toolTipText: ""
 
     padding: 0
     leftPadding: 0
@@ -17,9 +20,19 @@ Button {
     bottomPadding: 0
 
     implicitHeight: Theme.buttonHeightMedium
-    implicitWidth: text === ""
+    implicitWidth: (!showLabel || text === "")
                    ? Theme.buttonHeightMedium
                    : buttonContent.implicitWidth + Math.round(34 * Theme.layoutScale)
+
+    Accessible.role: Accessible.Button
+    Accessible.name: accessibleLabel || text
+    Accessible.focusable: true
+
+    ToolTip.visible: hovered && enabled
+                     && (toolTipText.length > 0
+                         || (!showLabel && (accessibleLabel || text).length > 0))
+    ToolTip.text: toolTipText || accessibleLabel || text
+    ToolTip.delay: 500
 
     background: Rectangle {
         radius: Theme.radiusMedium
@@ -40,13 +53,14 @@ Button {
         Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
     }
 
-    contentItem: RowLayout {
+    contentItem: Item {
         id: buttonContent
         implicitWidth: buttonInnerRow.implicitWidth
         implicitHeight: buttonInnerRow.implicitHeight
 
         RowLayout {
             id: buttonInnerRow
+            anchors.centerIn: parent
             spacing: Theme.spacingSmall
 
             Text {
@@ -62,7 +76,7 @@ Button {
 
             Text {
                 text: actionButton.text
-                visible: text !== ""
+                visible: actionButton.showLabel && text !== ""
                 font.pixelSize: Theme.fontSizeBody
                 font.family: Theme.fontPrimary
                 font.weight: Font.Black

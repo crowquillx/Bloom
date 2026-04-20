@@ -8,7 +8,7 @@ Window {
     id: window
     width: 1280
     height: 720
-    visible: true
+    visible: false
     title: "Bloom"
     color: Theme.backgroundPrimary
     
@@ -17,10 +17,12 @@ Window {
         console.log("Main.qml: AuthenticationService =", AuthenticationService)
         console.log("Main.qml: AuthenticationService.authenticated =", AuthenticationService.authenticated)
 
-        // Apply fullscreen setting on startup
         if (ConfigManager.launchInFullscreen) {
             console.log("Main.qml: Launching in fullscreen mode")
             showFullScreen()
+        } else {
+            console.log("Main.qml: Launching in windowed mode")
+            showNormal()
         }
 
         startupUpdateTimer.start()

@@ -1356,7 +1356,9 @@ FocusScope {
                                 text: selectedEpisodePlaybackPosition > 0 ? qsTr("Resume Episode") : qsTr("Play Episode")
                                 enabled: selectedEpisodeId !== ""
                                 Layout.preferredHeight: Theme.buttonHeightLarge
-                                Layout.preferredWidth: Math.round(280 * Theme.layoutScale)
+                                Layout.preferredWidth: Theme.buttonHeightLarge
+
+                                Accessible.name: text
 
                                 KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
                                 KeyNavigation.right: playFromBeginningButton
@@ -1392,6 +1394,10 @@ FocusScope {
 
                                 onClicked: startPlayback(false, playResumeButton)
 
+                                ToolTip.visible: hovered && enabled
+                                ToolTip.text: text
+                                ToolTip.delay: 500
+
                                 background: Rectangle {
                                     radius: Theme.radiusMedium
                                     gradient: Gradient {
@@ -1422,41 +1428,14 @@ FocusScope {
                                     Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
                                 }
 
-                                contentItem: Item {
-                                    BusyIndicator {
-                                        visible: false
-                                        running: visible
-                                        anchors.centerIn: parent
-                                        width: Theme.fontSizeIcon
-                                        height: Theme.fontSizeIcon
-                                    }
-
-                                    RowLayout {
-                                        visible: true
-                                        anchors.centerIn: parent
-                                        spacing: Theme.spacingSmall
-
-                                        Text {
-                                            text: selectedEpisodePlaybackPosition > 0 ? Icons.fastForward : Icons.playArrow
-                                            font.family: Theme.fontIcon
-                                            font.pixelSize: Theme.fontSizeIcon
-                                            color: Theme.textPrimary
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            Layout.alignment: Qt.AlignVCenter
-                                        }
-
-                                        Text {
-                                            text: playResumeButton.text
-                                            font.pixelSize: Theme.fontSizeBody
-                                            font.family: Theme.fontPrimary
-                                            font.weight: Font.Black
-                                            color: Theme.textPrimary
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            Layout.alignment: Qt.AlignVCenter
-                                        }
-                                    }
+                                contentItem: Text {
+                                    anchors.centerIn: parent
+                                    text: selectedEpisodePlaybackPosition > 0 ? Icons.fastForward : Icons.playArrow
+                                    font.family: Theme.fontIcon
+                                    font.pixelSize: Theme.fontSizeIcon
+                                    color: Theme.textPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
                                 }
                             }
 
@@ -1464,7 +1443,9 @@ FocusScope {
                                 id: playFromBeginningButton
                                 text: qsTr("From Start")
                                 iconGlyph: Icons.replay
+                                showLabel: false
                                 Layout.preferredHeight: Theme.buttonHeightLarge
+                                Layout.preferredWidth: Theme.buttonHeightLarge
 
                                 KeyNavigation.left: playResumeButton
                                 KeyNavigation.right: watchedToggleButton
@@ -1507,8 +1488,10 @@ FocusScope {
                                 text: selectedEpisodeIsPlayed ? qsTr("Mark Unwatched") : qsTr("Mark Watched")
                                 iconGlyph: selectedEpisodeIsPlayed ? Icons.visibilityOff : Icons.visibility
                                 iconColor: selectedEpisodeIsPlayed ? Theme.accentPrimary : Theme.textPrimary
+                                showLabel: false
                                 enabled: selectedEpisodeId !== ""
                                 Layout.preferredHeight: Theme.buttonHeightLarge
+                                Layout.preferredWidth: Theme.buttonHeightLarge
 
                                 KeyNavigation.left: playFromBeginningButton
                                 KeyNavigation.right: favoriteButton
@@ -1551,8 +1534,10 @@ FocusScope {
                                 text: selectedEpisodeIsFavorite ? qsTr("Favorited") : qsTr("Favorite")
                                 iconGlyph: selectedEpisodeIsFavorite ? Icons.favorite : Icons.favoriteBorder
                                 iconColor: selectedEpisodeIsFavorite ? "#e74c3c" : Theme.textPrimary
+                                showLabel: false
                                 enabled: selectedEpisodeId !== ""
                                 Layout.preferredHeight: Theme.buttonHeightLarge
+                                Layout.preferredWidth: Theme.buttonHeightLarge
 
                                 KeyNavigation.left: watchedToggleButton
                                 KeyNavigation.right: contextMenuButton
@@ -1594,10 +1579,10 @@ FocusScope {
                                 id: contextMenuButton
                                 text: ""
                                 iconGlyph: Icons.moreVert
+                                accessibleLabel: qsTr("Audio and subtitle options")
                                 enabled: selectedEpisodeId !== ""
-                                implicitWidth: Theme.buttonIconSize
                                 Layout.preferredHeight: Theme.buttonHeightLarge
-                                Layout.preferredWidth: Theme.buttonIconSize
+                                Layout.preferredWidth: Theme.buttonHeightLarge
 
                                 KeyNavigation.left: favoriteButton
                                 KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
@@ -1620,10 +1605,6 @@ FocusScope {
                                 Keys.onReturnPressed: if (enabled) openTrackSelector()
                                 Keys.onEnterPressed: if (enabled) openTrackSelector()
                                 onClicked: openTrackSelector()
-
-                                ToolTip.visible: hovered
-                                ToolTip.text: qsTr("Audio and subtitle options")
-                                ToolTip.delay: 500
                             }
 
                             Item { Layout.fillWidth: true }

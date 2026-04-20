@@ -1523,6 +1523,7 @@ void ConfigManager::setLaunchInFullscreen(bool enabled)
         ui = settings["ui"].toObject();
     }
     ui["launch_in_fullscreen"] = enabled;
+    ui["launch_in_fullscreen_user_set"] = true;
     settings["ui"] = ui;
     m_config["settings"] = settings;
     save();
@@ -1535,12 +1536,17 @@ bool ConfigManager::getLaunchInFullscreen() const
         QJsonObject settings = m_config["settings"].toObject();
         if (settings.contains("ui") && settings["ui"].isObject()) {
             QJsonObject ui = settings["ui"].toObject();
-            if (ui.contains("launch_in_fullscreen")) {
+            const bool userSet = ui.value("launch_in_fullscreen_user_set").toBool(false);
+            if (userSet && ui.contains("launch_in_fullscreen")) {
+                return ui["launch_in_fullscreen"].toBool();
+            }
+
+            if (ui.contains("launch_in_fullscreen_user_set") && ui.contains("launch_in_fullscreen")) {
                 return ui["launch_in_fullscreen"].toBool();
             }
         }
     }
-    return false; // Default to windowed mode
+    return true; // Default to fullscreen when no explicit preference is stored
 }
 
 void ConfigManager::setEnableFramerateMatching(bool enabled)
@@ -1929,7 +1935,7 @@ public:
         QJsonObject ui = settings.value("ui").toObject();
 
         if (!ui.contains("launch_in_fullscreen")) {
-            ui["launch_in_fullscreen"] = false;
+            ui["launch_in_fullscreen"] = true;
         }
 
         settings["ui"] = ui;
@@ -2304,7 +2310,8 @@ QJsonObject ConfigManager::defaultConfig() const
     // UI Settings
     QJsonObject ui;
     ui["backdrop_rotation_interval"] = 30000;
-    ui["launch_in_fullscreen"] = false;
+    ui["launch_in_fullscreen"] = true;
+    ui["launch_in_fullscreen_user_set"] = false;
     ui["ui_animations_enabled"] = true;
     settings["ui"] = ui;
 

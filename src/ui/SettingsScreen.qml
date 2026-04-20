@@ -1795,7 +1795,7 @@ FocusScope {
                         SettingsToggleRow {
                             id: fullscreenToggle
                             label: qsTr("Launch in Fullscreen")
-                            description: qsTr("Start the application in fullscreen mode")
+                            description: qsTr("Start Bloom in fullscreen on launch. Disable this to open in a window.")
                             checked: ConfigManager.launchInFullscreen
                             Layout.fillWidth: true
 

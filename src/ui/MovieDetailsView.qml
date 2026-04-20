@@ -1072,7 +1072,9 @@ FocusScope {
                                 text: playbackPositionTicks > 0 ? qsTr("Resume") : qsTr("Play")
                                 enabled: movieId !== ""
                                 Layout.preferredHeight: Theme.buttonHeightLarge
-                                Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
+                                Layout.preferredWidth: Theme.buttonHeightLarge
+
+                                Accessible.name: text
 
                                 KeyNavigation.right: markWatchedButton
 
@@ -1102,6 +1104,10 @@ FocusScope {
                                 }
 
                                 onClicked: root.startPlaybackWithTracks()
+
+                                ToolTip.visible: hovered && enabled
+                                ToolTip.text: text
+                                ToolTip.delay: 500
 
                                 background: Rectangle {
                                     radius: Theme.radiusMedium
@@ -1133,37 +1139,14 @@ FocusScope {
                                     Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
                                 }
 
-                                contentItem: RowLayout {
-                                    implicitWidth: playInnerRow.implicitWidth
-                                    implicitHeight: playInnerRow.implicitHeight
+                                contentItem: Text {
                                     anchors.centerIn: parent
-
-                                    RowLayout {
-                                        id: playInnerRow
-                                        anchors.centerIn: parent
-                                        spacing: Theme.spacingSmall
-
-                                        Text {
-                                            text: Icons.playArrow
-                                            font.family: Theme.fontIcon
-                                            font.pixelSize: Theme.fontSizeIcon
-                                            color: Theme.textPrimary
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            Layout.alignment: Qt.AlignVCenter
-                                        }
-
-                                        Text {
-                                            text: playButton.text
-                                            font.pixelSize: Theme.fontSizeBody
-                                            font.family: Theme.fontPrimary
-                                            font.weight: Font.Black
-                                            color: Theme.textPrimary
-                                            horizontalAlignment: Text.AlignHCenter
-                                            verticalAlignment: Text.AlignVCenter
-                                            Layout.alignment: Qt.AlignVCenter
-                                        }
-                                    }
+                                    text: Icons.playArrow
+                                    font.family: Theme.fontIcon
+                                    font.pixelSize: Theme.fontSizeIcon
+                                    color: Theme.textPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
                                 }
                             }
 
@@ -1171,7 +1154,9 @@ FocusScope {
                                 id: markWatchedButton
                                 text: isPlayed ? qsTr("Mark Unwatched") : qsTr("Mark Watched")
                                 iconGlyph: isPlayed ? Icons.visibilityOff : Icons.visibility
+                                showLabel: false
                                 Layout.preferredHeight: Theme.buttonHeightLarge
+                                Layout.preferredWidth: Theme.buttonHeightLarge
 
                                 KeyNavigation.left: playButton
                                 KeyNavigation.right: contextMenuButton
@@ -1214,9 +1199,9 @@ FocusScope {
                                 id: contextMenuButton
                                 text: ""
                                 iconGlyph: Icons.moreVert
-                                implicitWidth: Theme.buttonIconSize
+                                accessibleLabel: qsTr("More options")
                                 Layout.preferredHeight: Theme.buttonHeightLarge
-                                Layout.preferredWidth: Theme.buttonIconSize
+                                Layout.preferredWidth: Theme.buttonHeightLarge
 
                                 KeyNavigation.left: markWatchedButton
 
@@ -1234,10 +1219,6 @@ FocusScope {
                                 Keys.onReturnPressed: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
                                 Keys.onEnterPressed: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
                                 onClicked: contextMenu.popup(contextMenuButton, 0, contextMenuButton.height)
-
-                                ToolTip.visible: hovered
-                                ToolTip.text: qsTr("More options")
-                                ToolTip.delay: 500
                             }
 
                             Item { Layout.fillWidth: true }
