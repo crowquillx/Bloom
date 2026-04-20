@@ -88,10 +88,10 @@ void BaseViewModel::setBusyWhile(QFutureWatcherBase &watcher)
     setLoading(true);
     connect(&watcher, &QFutureWatcherBase::finished, this, [this]() {
         setLoading(false);
-    }, Qt::UniqueConnection);
+    });
     connect(&watcher, &QFutureWatcherBase::canceled, this, [this]() {
         setLoading(false);
-    }, Qt::UniqueConnection);
+    });
 }
 
 void BaseViewModel::setBusyWhile(QFutureInterfaceBase &future)
