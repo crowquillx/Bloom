@@ -42,6 +42,7 @@ public:
 
     void stopMpv() override
     {
+        ++stopCallCount;
         if (!m_running) {
             return;
         }
@@ -92,6 +93,7 @@ private:
 
 public:
     bool emitStopStateChangeSynchronously = true;
+    int stopCallCount = 0;
     QList<QVariantList> variantCommands;
     QList<QStringList> commands;
     QStringList appendedUrls;
@@ -116,6 +118,17 @@ public:
     void emitPlaylistPosition(int index)
     {
         emit playlistPositionChanged(index);
+    }
+
+    void emitRunningState(bool running)
+    {
+        m_running = running;
+        emit stateChanged(running);
+    }
+
+    void emitPlaybackEndedSignal()
+    {
+        emit playbackEnded();
     }
 };
 
@@ -237,7 +250,8 @@ class PlayerControllerAutoplayContextTest : public QObject
 private slots:
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
-    void userStopBelowThresholdTransitionsIdleBeforeBackendExit();
+    void userStopBelowThresholdWaitsForBackendExit();
+    void playbackEndedUpgradesQueuedStopFinalization();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
     void playbackPrefetchIgnoresGenericNextEpisodeResponses();
@@ -283,7 +297,7 @@ void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectl
     controller.m_currentPosition = 95.0;
     controller.m_playbackState = PlayerController::Playing;
 
-    controller.handlePlaybackStopAndAutoplay(PlayerController::Event::PlaybackEnd);
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
 
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
     QCOMPARE(libraryService.requestedSeriesIds.first(), QStringLiteral("series-1"));
@@ -296,7 +310,7 @@ void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectl
     QCOMPARE(controller.m_pendingAutoplaySeriesId, QStringLiteral("series-1"));
 
     controller.m_hasEvaluatedCompletionForAttempt = true;
-    controller.handlePlaybackStopAndAutoplay(PlayerController::Event::PlaybackEnd);
+    controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
     QCOMPARE(libraryService.requestedExcludeIds.first(), QStringLiteral("item-1"));
 }
@@ -340,7 +354,7 @@ void PlayerControllerAutoplayContextTest::userStopPastThresholdRequestsNextEpiso
     QCOMPARE(controller.m_pendingAutoplaySeriesId, QStringLiteral("series-1"));
 }
 
-void PlayerControllerAutoplayContextTest::userStopBelowThresholdTransitionsIdleBeforeBackendExit()
+void PlayerControllerAutoplayContextTest::userStopBelowThresholdWaitsForBackendExit()
 {
     ConfigManager config;
     config.setAutoplayNextEpisode(false);
@@ -374,12 +388,61 @@ void PlayerControllerAutoplayContextTest::userStopBelowThresholdTransitionsIdleB
 
     controller.stop();
 
-    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QCOMPARE(backend.stopCallCount, 1);
+    QCOMPARE(controller.playbackState(), PlayerController::Playing);
+    QVERIFY(controller.m_terminalTransitionActive);
+    QVERIFY(!controller.m_terminalFinalizationQueued);
     QVERIFY(!controller.awaitingNextEpisodeResolution());
     QVERIFY(!controller.m_shouldAutoplay);
     QVERIFY(controller.m_pendingAutoplayItemId.isEmpty());
     QVERIFY(controller.m_pendingAutoplaySeriesId.isEmpty());
     QVERIFY(libraryService.requestedSeriesIds.isEmpty());
+
+    backend.emitRunningState(false);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QVERIFY(!controller.m_terminalTransitionActive);
+}
+
+void PlayerControllerAutoplayContextTest::playbackEndedUpgradesQueuedStopFinalization()
+{
+    ConfigManager config;
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 95.0;
+    controller.m_playbackState = PlayerController::Playing;
+
+    controller.requestTerminalTransition(PlayerController::TerminalReason::Stop);
+    QVERIFY(controller.m_terminalTransitionActive);
+    controller.queueTerminalFinalization();
+    QVERIFY(controller.m_terminalFinalizationQueued);
+
+    controller.onPlaybackEnded();
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QVERIFY(!controller.m_terminalTransitionActive);
+    QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
+    QCOMPARE(libraryService.requestedContexts.first(),
+             QStringLiteral("player:resolve:series-1:item-1"));
 }
 
 void PlayerControllerAutoplayContextTest::nextEpisodeNavigationUsesPendingTrackContext()

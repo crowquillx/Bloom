@@ -38,6 +38,9 @@ Windows embedded overlay layering model
 - Playback controls are rendered in a separate transparent QML overlay window that tracks the main window geometry and sits above video.
 - UX contract: showing/hiding controls must not resize, shift, or clip the video viewport.
 - Credits/next-up shrink mode remains a separate feature path and must continue to work independently of normal full-frame overlay behavior.
+- Terminal playback transitions are backend-first: Bloom now waits for backend stop confirmation before changing `PlayerController` into `Idle`/`Error`, so embedded host-window teardown cannot race ahead of libmpv shutdown.
+- Windows display restoration after playback stop is deferred and non-blocking. HDR-off settle and refresh-rate restore are scheduled after the UI returns to `Idle`, allowing the main scene and detached playback overlay window to repaint/hide promptly.
+- Natural playback end, explicit stop, and error-triggered shutdown now share one coordinated terminal-transition path so reporting/autoplay work runs once per playback attempt.
 
 Reference implementation notes (Plezy)
 - External reference: https://github.com/edde746/plezy

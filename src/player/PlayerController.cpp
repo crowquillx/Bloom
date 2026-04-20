@@ -311,6 +311,8 @@ PlayerController::~PlayerController()
     m_volumePersistTimer->stop();
     m_startDelayTimer->stop();
     m_autoplayPlaybackInfoTimeoutTimer->stop();
+    cancelPendingDisplayRestore();
+    resetTerminalTransitionState(true);
 }
 
 void PlayerController::connectBackendSignals(IPlayerBackend *backend)
@@ -560,50 +562,29 @@ void PlayerController::onExitErrorState()
 
 void PlayerController::onEnterIdleState()
 {
+    const bool needsHdrRestore = m_displayManager != nullptr && m_displayManager->needsHdrRestore();
+    const bool needsRefreshRestore = m_displayManager != nullptr && m_displayManager->needsRefreshRestore();
+
     qCInfo(lcPlayback) << "Entering Idle state (playback ended)";
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] enter-idle"
                             << "itemId=" << m_currentItemId
                             << "contentIsHDR=" << m_contentIsHDR
                             << "contentFramerate=" << m_contentFramerate;
-    
-    // Stop all timers
+
+    enterIdleStateImmediate();
+    startDeferredDisplayRestore(needsHdrRestore, needsRefreshRestore);
+}
+
+void PlayerController::enterIdleStateImmediate()
+{
     m_loadingTimeoutTimer->stop();
     m_bufferingTimeoutTimer->stop();
     m_progressReportTimer->stop();
     m_startDelayTimer->stop();
-    
-    // Emit playbackStopped so UI can refresh watch progress, next up, etc.
-    emit playbackStopped();
-    
-    // Restore display settings
-    if (m_displayManager) {
-        // If we enabled HDR for this content, disable it first.
-        // Some setups cannot apply higher refresh rates while HDR is active.
-        bool hdrDisabledForRestore = false;
-        if (m_config->getEnableHDR() && m_contentIsHDR) {
-            qDebug() << "PlayerController: Restoring HDR to off after HDR content playback";
-            qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                    << "] restore-display: setHDR(false) begin";
-            hdrDisabledForRestore = m_displayManager->setHDR(false);
-            qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                    << "] restore-display: setHDR(false) result=" << hdrDisabledForRestore;
-        }
 
-        if (hdrDisabledForRestore) {
-            static constexpr unsigned long kHdrOffSettleDelayMs = 300;
-            qDebug() << "PlayerController: Waiting" << kHdrOffSettleDelayMs
-                     << "ms after HDR-off before refresh restore";
-            QThread::msleep(kHdrOffSettleDelayMs);
-        }
-        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                << "] restore-display: restoreRefreshRate begin";
-        m_displayManager->restoreRefreshRate();
-        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                << "] restore-display: restoreRefreshRate done";
-    }
-    
-    // Clear playback state
+    emit playbackStopped();
+
     if (!m_currentItemId.isEmpty()) {
         m_currentItemId.clear();
         emit currentItemIdChanged();
@@ -666,8 +647,7 @@ void PlayerController::onEnterIdleState()
     emit timelineChanged();
     emit skipSegmentsChanged();
     emit trickplayStateChanged();
-    
-    // Clear trickplay processor data
+
     m_trickplayProcessor->clear();
 }
 
@@ -827,11 +807,7 @@ void PlayerController::onEnterErrorState()
     m_loadingTimeoutTimer->stop();
     m_bufferingTimeoutTimer->stop();
     m_progressReportTimer->stop();
-    
-    // Stop mpv if running
-    if (m_playerBackend->isRunning()) {
-        m_playerBackend->stopMpv();
-    }
+
     clearPendingAutoplayContext();
     clearNextEpisodePrefetchState();
 }
@@ -842,14 +818,14 @@ void PlayerController::onLoadingTimeout()
 {
     qDebug() << "PlayerController: Loading timeout";
     setErrorMessage(tr("Loading timed out. Please check your connection and try again."));
-    processEvent(Event::ErrorOccurred);
+    requestTerminalTransition(TerminalReason::Error);
 }
 
 void PlayerController::onBufferingTimeout()
 {
     qDebug() << "PlayerController: Buffering timeout";
     setErrorMessage(tr("Buffering timed out. Network may be too slow."));
-    processEvent(Event::ErrorOccurred);
+    requestTerminalTransition(TerminalReason::Error);
 }
 
 /**
@@ -875,10 +851,27 @@ void PlayerController::onProcessStateChanged(bool running)
         m_pendingPlaylistAppendUrls.clear();
     }
 
-    if (!running && m_playbackState != Idle && m_playbackState != Error) {
-        // Process stopped unexpectedly (e.g., mpv quit via 'q' or crash)
-        // Treat this like an explicit stop so we report progress and consider autoplay.
-        handlePlaybackStopAndAutoplay(Event::Stop);
+    if (!running) {
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] backend-stopped-confirmed"
+                                << "terminalActive=" << m_terminalTransitionActive
+                                << "backendStopRequested=" << m_backendStopRequested;
+
+        if (m_suppressBackendStopHandling) {
+            qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                    << "] backend-stop ignored during replacement playback";
+            return;
+        }
+
+        if (m_terminalTransitionActive) {
+            m_backendStopRequested = true;
+            queueTerminalFinalization();
+            return;
+        }
+
+        if (m_playbackState != Idle && m_playbackState != Error) {
+            requestTerminalTransition(TerminalReason::Stop);
+        }
     }
 }
 
@@ -895,7 +888,7 @@ void PlayerController::onProcessError(const QString &error)
     }
 
     setErrorMessage(error);
-    processEvent(Event::ErrorOccurred);
+    requestTerminalTransition(TerminalReason::Error);
 }
 
 /**
@@ -1032,8 +1025,8 @@ void PlayerController::onPlaybackEnded()
                             << "] playback-ended"
                             << "position=" << m_currentPosition
                             << "duration=" << m_duration;
-    
-    handlePlaybackStopAndAutoplay(Event::PlaybackEnd);
+
+    requestTerminalTransition(TerminalReason::PlaybackEnd);
 }
 
 void PlayerController::onPlaylistPositionChanged(int index)
@@ -1065,36 +1058,303 @@ void PlayerController::onPlaylistPositionChanged(int index)
  *
  * @param stopEvent Event value representing how playback ended (e.g., Stop, PlaybackEnd) to be processed.
  */
-void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
+void PlayerController::prepareTerminalTransition(TerminalReason reason)
 {
+    if (m_terminalTransitionActive) {
+        updatePendingTerminalReason(reason);
+        return;
+    }
+
+    m_terminalTransitionActive = true;
+    m_backendStopRequested = false;
+    m_terminalFinalizationQueued = false;
+    m_terminalPrefetchedReady = false;
+    ++m_terminalTransitionGeneration;
+    m_pendingTerminalReason = reason;
+
     reportPlaybackStop();
 
-    bool thresholdMet = checkCompletionThresholdAndAutoplay();
-    bool prefetchedReady = false;
-
-    // If threshold met for an episode, request next episode directly.
-    if (thresholdMet && !m_currentSeriesId.isEmpty()) {
-        m_shouldAutoplay = true;
-        m_waitingForNextEpisodeAtPlaybackEnd = true;
-        stashPendingAutoplayContext();
-        prefetchedReady = hasUsablePrefetchedNextEpisode();
-        if (!prefetchedReady) {
-            m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId,
-                                                     m_pendingAutoplayItemId,
-                                                     expectedAutoplayResolutionRequestContext());
+    if (reason != TerminalReason::Error) {
+        const bool thresholdMet = checkCompletionThresholdAndAutoplay();
+        if (thresholdMet && !m_currentSeriesId.isEmpty()) {
+            m_shouldAutoplay = true;
+            m_waitingForNextEpisodeAtPlaybackEnd = true;
+            stashPendingAutoplayContext();
+            m_terminalPrefetchedReady = hasUsablePrefetchedNextEpisode();
+            if (!m_terminalPrefetchedReady) {
+                m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId,
+                                                         m_pendingAutoplayItemId,
+                                                         expectedAutoplayResolutionRequestContext());
+            }
+            qDebug() << "PlayerController: Threshold met, requesting next episode for autoplay";
+        } else {
+            clearPendingAutoplayContext();
+            clearNextEpisodePrefetchState();
+            m_shouldAutoplay = false;
         }
-        qDebug() << "PlayerController: Threshold met, requesting next episode for autoplay";
     } else {
         clearPendingAutoplayContext();
         clearNextEpisodePrefetchState();
         m_shouldAutoplay = false;
     }
 
-    processEvent(stopEvent);
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] terminal-transition prepared"
+                            << "reason=" << static_cast<int>(m_pendingTerminalReason)
+                            << "prefetchedReady=" << m_terminalPrefetchedReady
+                            << "backendRunning=" << (m_playerBackend && m_playerBackend->isRunning());
+}
 
-    if (prefetchedReady) {
+void PlayerController::requestTerminalTransition(TerminalReason reason)
+{
+    if (reason == TerminalReason::Error && m_playbackState == Error && !m_terminalTransitionActive) {
+        return;
+    }
+
+    prepareTerminalTransition(reason);
+
+    if (m_backendStopRequested) {
+        if (!m_playerBackend || !m_playerBackend->isRunning()) {
+            queueTerminalFinalization();
+        }
+        return;
+    }
+
+    m_backendStopRequested = true;
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] backend-stop requested"
+                            << "reason=" << static_cast<int>(m_pendingTerminalReason);
+
+    if (m_playerBackend && m_playerBackend->isRunning()) {
+        m_playerBackend->stopMpv();
+        if (!m_playerBackend->isRunning()) {
+            queueTerminalFinalization();
+        }
+        return;
+    }
+
+    queueTerminalFinalization();
+}
+
+void PlayerController::queueTerminalFinalization()
+{
+    if (!m_terminalTransitionActive || m_terminalFinalizationQueued) {
+        return;
+    }
+
+    m_terminalFinalizationQueued = true;
+    const quint64 generation = m_terminalTransitionGeneration;
+    QMetaObject::invokeMethod(this,
+                              [this, generation]() {
+                                  if (!m_terminalTransitionActive
+                                      || generation != m_terminalTransitionGeneration) {
+                                      return;
+                                  }
+                                  finalizeTerminalTransition();
+                              },
+                              Qt::QueuedConnection);
+}
+
+void PlayerController::finalizeTerminalTransition()
+{
+    if (!m_terminalTransitionActive) {
+        return;
+    }
+
+    const TerminalReason reason = m_pendingTerminalReason;
+    const bool prefetchedReady = m_terminalPrefetchedReady;
+
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] terminal-transition finalized"
+                            << "reason=" << static_cast<int>(reason)
+                            << "prefetchedReady=" << prefetchedReady
+                            << "state=" << stateToString(m_playbackState);
+
+    resetTerminalTransitionState();
+    processEvent(eventForTerminalReason(reason));
+
+    if (prefetchedReady && reason != TerminalReason::Error) {
         consumePrefetchedNextEpisodeAndNavigate();
     }
+}
+
+void PlayerController::resetTerminalTransitionState(bool invalidateQueuedWork)
+{
+    if (invalidateQueuedWork) {
+        ++m_terminalTransitionGeneration;
+    }
+    m_terminalTransitionActive = false;
+    m_backendStopRequested = false;
+    m_terminalFinalizationQueued = false;
+    m_terminalPrefetchedReady = false;
+}
+
+void PlayerController::updatePendingTerminalReason(TerminalReason reason)
+{
+    if (!m_terminalTransitionActive
+        || terminalReasonPriority(reason) <= terminalReasonPriority(m_pendingTerminalReason)) {
+        return;
+    }
+
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] terminal-transition reason upgraded"
+                            << "from=" << static_cast<int>(m_pendingTerminalReason)
+                            << "to=" << static_cast<int>(reason);
+    m_pendingTerminalReason = reason;
+}
+
+PlayerController::Event PlayerController::eventForTerminalReason(TerminalReason reason) const
+{
+    switch (reason) {
+    case TerminalReason::PlaybackEnd:
+        return Event::PlaybackEnd;
+    case TerminalReason::Error:
+        return Event::ErrorOccurred;
+    case TerminalReason::Stop:
+    default:
+        return Event::Stop;
+    }
+}
+
+int PlayerController::terminalReasonPriority(TerminalReason reason)
+{
+    switch (reason) {
+    case TerminalReason::Error:
+        return 3;
+    case TerminalReason::PlaybackEnd:
+        return 2;
+    case TerminalReason::Stop:
+    default:
+        return 1;
+    }
+}
+
+void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
+{
+    TerminalReason reason = TerminalReason::Stop;
+    if (stopEvent == Event::PlaybackEnd) {
+        reason = TerminalReason::PlaybackEnd;
+    } else if (stopEvent == Event::ErrorOccurred) {
+        reason = TerminalReason::Error;
+    }
+
+    prepareTerminalTransition(reason);
+    finalizeTerminalTransition();
+}
+
+void PlayerController::startDeferredDisplayRestore(bool needsHdrRestore, bool needsRefreshRestore)
+{
+    cancelPendingDisplayRestore();
+
+    if (!needsHdrRestore && !needsRefreshRestore) {
+        return;
+    }
+
+    const quint64 generation = m_displayRestoreGeneration;
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] deferred-display-restore queued"
+                            << "generation=" << generation
+                            << "needsHdrRestore=" << needsHdrRestore
+                            << "needsRefreshRestore=" << needsRefreshRestore;
+
+    QMetaObject::invokeMethod(this,
+                              [this, generation, needsHdrRestore, needsRefreshRestore]() {
+                                  if (generation != m_displayRestoreGeneration) {
+                                      qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                                              << "] deferred-display-restore canceled before start"
+                                                              << "generation=" << generation;
+                                      return;
+                                  }
+
+                                  qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                                          << "] deferred-display-restore begin"
+                                                          << "generation=" << generation
+                                                          << "needsHdrRestore=" << needsHdrRestore
+                                                          << "needsRefreshRestore=" << needsRefreshRestore;
+
+                                  if (needsHdrRestore && m_displayManager != nullptr) {
+                                      m_hdrRestoreFinishedConnection = connect(m_displayManager,
+                                                                               &DisplayManager::hdrChangeFinished,
+                                                                               this,
+                                                                               [this, generation, needsRefreshRestore](bool enabled, bool success) {
+                                                                                   if (enabled || generation != m_displayRestoreGeneration) {
+                                                                                       return;
+                                                                                   }
+                                                                                   if (m_hdrRestoreFinishedConnection) {
+                                                                                       disconnect(m_hdrRestoreFinishedConnection);
+                                                                                       m_hdrRestoreFinishedConnection = QMetaObject::Connection();
+                                                                                   }
+
+                                                                                   qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                                                                                           << "] deferred-display-restore hdr-finished"
+                                                                                                           << "generation=" << generation
+                                                                                                           << "success=" << success;
+
+                                                                                   if (needsRefreshRestore) {
+                                                                                       scheduleDeferredRefreshRestore(generation, success ? 300 : 0);
+                                                                                   }
+                                                                               });
+                                      m_displayManager->setHDRAsync(false);
+                                      return;
+                                  }
+
+                                  if (needsRefreshRestore) {
+                                      scheduleDeferredRefreshRestore(generation, 0);
+                                  }
+                              },
+                              Qt::QueuedConnection);
+}
+
+void PlayerController::scheduleDeferredRefreshRestore(quint64 generation, int delayMs)
+{
+    if (m_displayManager == nullptr) {
+        return;
+    }
+
+    QTimer::singleShot(delayMs,
+                       this,
+                       [this, generation]() {
+                           if (generation != m_displayRestoreGeneration || m_displayManager == nullptr) {
+                               qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                                       << "] deferred-display-restore refresh canceled"
+                                                       << "generation=" << generation;
+                               return;
+                           }
+
+                           qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                                   << "] deferred-display-restore refresh begin"
+                                                   << "generation=" << generation;
+                           m_displayManager->restoreRefreshRate();
+                           qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                                   << "] deferred-display-restore refresh done"
+                                                   << "generation=" << generation;
+                       });
+}
+
+void PlayerController::cancelPendingDisplayRestore()
+{
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] deferred-display-restore cancel"
+                            << "generation=" << (m_displayRestoreGeneration + 1);
+    ++m_displayRestoreGeneration;
+    if (m_hdrRestoreFinishedConnection) {
+        disconnect(m_hdrRestoreFinishedConnection);
+        m_hdrRestoreFinishedConnection = QMetaObject::Connection();
+    }
+    if (m_displayManager != nullptr) {
+        m_displayManager->cancelPendingHdrAsync();
+    }
+}
+
+void PlayerController::cancelPendingTerminalTransition()
+{
+    if (!m_terminalTransitionActive && !m_terminalFinalizationQueued) {
+        return;
+    }
+
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] terminal-transition canceled";
+    resetTerminalTransitionState(true);
 }
 
 /**
@@ -2219,6 +2479,8 @@ void PlayerController::setEmbeddedVideoShrinkEnabled(bool enabled)
  */
 void PlayerController::playTestVideo()
 {
+    cancelPendingTerminalTransition();
+    cancelPendingDisplayRestore();
     clearPendingAutoplayContext();
     clearNextEpisodePrefetchState();
     clearPlaybackSegments();
@@ -2232,7 +2494,9 @@ void PlayerController::playTestVideo()
     
     if (m_playerBackend->isRunning()) {
         reportPlaybackStop();
+        m_suppressBackendStopHandling = true;
         m_playerBackend->stopMpv();
+        m_suppressBackendStopHandling = false;
     }
     
     processEvent(Event::Play);
@@ -2258,6 +2522,8 @@ void PlayerController::playTestVideo()
  */
 void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionTicks, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR)
 {
+    cancelPendingTerminalTransition();
+    cancelPendingDisplayRestore();
     m_playbackAttemptId = ++gPlaybackAttemptCounter;
     m_reportProgressOnNextPositionUpdate = false;
     qDebug() << "PlayerController: playUrl called with itemId:" << itemId 
@@ -2280,7 +2546,9 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     if (m_playerBackend->isRunning()) {
         reportPlaybackStop();
         // Don't check completion threshold here - we're starting new content intentionally
+        m_suppressBackendStopHandling = true;
         m_playerBackend->stopMpv();
+        m_suppressBackendStopHandling = false;
     }
 
     clearPendingAutoplayContext();
@@ -2355,13 +2623,16 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
 void PlayerController::stop()
 {
     qDebug() << "PlayerController: stop requested";
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] stop requested"
+                            << "state=" << stateToString(m_playbackState)
+                            << "terminalActive=" << m_terminalTransitionActive;
 
-    if (m_playbackState == Idle || m_playbackState == Error) {
+    if (m_playbackState == Idle || m_playbackState == Error || m_terminalTransitionActive) {
         return;
     }
 
-    handlePlaybackStopAndAutoplay(Event::Stop);
-    m_playerBackend->stopMpv();
+    requestTerminalTransition(TerminalReason::Stop);
 }
 
 void PlayerController::pause()
