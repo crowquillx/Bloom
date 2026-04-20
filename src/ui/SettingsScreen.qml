@@ -3087,11 +3087,45 @@ FocusScope {
                                 color: Theme.textPrimary
                             }
 
+                            Text {
+                                text: qsTr("Choose between stable releases and development builds.")
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.family: Theme.fontPrimary
+                                color: Theme.textSecondary
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+
                             ComboBox {
                                 id: updateChannelCombo
                                 Layout.fillWidth: true
                                 model: [qsTr("Stable"), qsTr("Development")]
-                                currentIndex: ConfigManager.updateChannel === "dev" ? 1 : 0
+                                currentIndex: 0
+                                focusPolicy: Qt.StrongFocus
+                                property bool initialized: false
+                                property bool updatingSelection: false
+
+                                function refreshSelectionFromConfig() {
+                                    var idx = ConfigManager.updateChannel === "dev" ? 1 : 0
+                                    if (currentIndex === idx) {
+                                        return
+                                    }
+                                    updatingSelection = true
+                                    currentIndex = idx
+                                    updatingSelection = false
+                                }
+
+                                Component.onCompleted: {
+                                    refreshSelectionFromConfig()
+                                    initialized = true
+                                }
+
+                                Connections {
+                                    target: ConfigManager
+                                    function onUpdateChannelChanged() {
+                                        updateChannelCombo.refreshSelectionFromConfig()
+                                    }
+                                }
 
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
@@ -3099,9 +3133,14 @@ FocusScope {
                                     }
                                 }
 
-                                onActivated: {
+                                onCurrentIndexChanged: {
+                                    if (!initialized || updatingSelection) {
+                                        return
+                                    }
                                     var channel = currentIndex === 1 ? "dev" : "stable"
-                                    UpdateService.setChannel(channel)
+                                    if (channel !== ConfigManager.updateChannel) {
+                                        UpdateService.setChannel(channel)
+                                    }
                                 }
 
                                 Keys.onUpPressed: function(event) {
@@ -3120,6 +3159,83 @@ FocusScope {
                                 }
                                 Keys.onReturnPressed: popup.open()
                                 Keys.onEnterPressed: popup.open()
+
+                                background: Rectangle {
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    radius: Theme.radiusSmall
+                                    color: Theme.inputBackground
+                                    border.color: updateChannelCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                    border.width: updateChannelCombo.activeFocus ? 2 : 1
+                                }
+
+                                contentItem: Text {
+                                    text: updateChannelCombo.displayText
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    color: Theme.textPrimary
+                                    verticalAlignment: Text.AlignVCenter
+                                    leftPadding: Theme.spacingSmall
+                                }
+
+                                delegate: ItemDelegate {
+                                    width: updateChannelCombo.width
+                                    contentItem: Text {
+                                        text: modelData
+                                        color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                                        font.pixelSize: Theme.fontSizeBody
+                                        font.family: Theme.fontPrimary
+                                        verticalAlignment: Text.AlignVCenter
+                                    }
+                                    background: Rectangle {
+                                        color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                        radius: Theme.radiusSmall
+                                    }
+                                    highlighted: ListView.isCurrentItem || updateChannelCombo.highlightedIndex === index
+                                }
+
+                                popup: Popup {
+                                    y: updateChannelCombo.height + Theme.spacingXSmall
+                                    width: updateChannelCombo.width
+                                    implicitHeight: contentItem.implicitHeight
+                                    padding: 1
+
+                                    onOpened: {
+                                        updateChannelList.currentIndex = updateChannelCombo.highlightedIndex >= 0
+                                            ? updateChannelCombo.highlightedIndex
+                                            : updateChannelCombo.currentIndex
+                                        updateChannelList.forceActiveFocus()
+                                    }
+                                    onClosed: updateChannelCombo.forceActiveFocus()
+
+                                    contentItem: ListView {
+                                        id: updateChannelList
+                                        clip: true
+                                        implicitHeight: contentHeight
+                                        model: updateChannelCombo.popup.visible ? updateChannelCombo.delegateModel : null
+                                        currentIndex: updateChannelCombo.highlightedIndex >= 0
+                                            ? updateChannelCombo.highlightedIndex
+                                            : updateChannelCombo.currentIndex
+
+                                        ScrollIndicator.vertical: ScrollIndicator { }
+
+                                        Keys.onReturnPressed: {
+                                            updateChannelCombo.currentIndex = currentIndex
+                                            updateChannelCombo.popup.close()
+                                        }
+                                        Keys.onEnterPressed: {
+                                            updateChannelCombo.currentIndex = currentIndex
+                                            updateChannelCombo.popup.close()
+                                        }
+                                        Keys.onEscapePressed: updateChannelCombo.popup.close()
+                                    }
+
+                                    background: Rectangle {
+                                        color: Theme.cardBackground
+                                        border.color: Theme.focusBorder
+                                        border.width: 1
+                                        radius: Theme.radiusSmall
+                                    }
+                                }
                             }
                         }
 
@@ -3131,6 +3247,8 @@ FocusScope {
                                 id: checkUpdatesButton
                                 text: UpdateService.checking ? qsTr("Checking...") : qsTr("Check for Updates")
                                 enabled: !UpdateService.checking && !UpdateService.downloadInProgress && !UpdateService.installerLaunched
+                                focusPolicy: Qt.StrongFocus
+
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
                                         root.activateKeyboardFocusForItem(checkUpdatesButton)
@@ -3153,6 +3271,31 @@ FocusScope {
                                     }
                                 }
                                 onClicked: UpdateService.checkForUpdates(true)
+                                Keys.onReturnPressed: UpdateService.checkForUpdates(true)
+                                Keys.onEnterPressed: UpdateService.checkForUpdates(true)
+
+                                contentItem: Text {
+                                    text: checkUpdatesButton.text
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    color: checkUpdatesButton.enabled ? Theme.textPrimary : Theme.textDisabled
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    radius: Theme.radiusSmall
+                                    color: checkUpdatesButton.activeFocus || checkUpdatesButton.hovered
+                                           ? Theme.buttonSecondaryBackgroundHover
+                                           : Theme.buttonSecondaryBackground
+                                    border.color: checkUpdatesButton.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
+                                    border.width: checkUpdatesButton.activeFocus ? 2 : Theme.buttonBorderWidth
+                                    opacity: checkUpdatesButton.enabled ? 1.0 : 0.5
+
+                                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                                }
                             }
 
                             Button {
@@ -3160,6 +3303,8 @@ FocusScope {
                                 visible: UpdateService.updateAvailable && UpdateService.applySupported
                                 text: UpdateService.downloadInProgress ? qsTr("Downloading...") : qsTr("Download and Install")
                                 enabled: !UpdateService.downloadInProgress && !UpdateService.installerLaunched
+                                focusPolicy: Qt.StrongFocus
+
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
                                         root.activateKeyboardFocusForItem(updateDownloadButton)
@@ -3168,12 +3313,39 @@ FocusScope {
                                 KeyNavigation.left: checkUpdatesButton
                                 KeyNavigation.down: openUpdateDownloadPageButton.visible ? openUpdateDownloadPageButton : aboutSection.toggleButton
                                 onClicked: UpdateService.downloadAndInstallUpdate()
+                                Keys.onReturnPressed: UpdateService.downloadAndInstallUpdate()
+                                Keys.onEnterPressed: UpdateService.downloadAndInstallUpdate()
+
+                                contentItem: Text {
+                                    text: updateDownloadButton.text
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    color: updateDownloadButton.enabled ? Theme.accentPrimary : Theme.textDisabled
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    radius: Theme.radiusSmall
+                                    color: updateDownloadButton.activeFocus || updateDownloadButton.hovered
+                                           ? Qt.rgba(0.4, 0.6, 1, 0.2)
+                                           : "transparent"
+                                    border.color: updateDownloadButton.activeFocus ? Theme.focusBorder : Theme.accentPrimary
+                                    border.width: updateDownloadButton.activeFocus ? 2 : 1
+                                    opacity: updateDownloadButton.enabled ? 1.0 : 0.5
+
+                                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                                }
                             }
 
                             Button {
                                 id: updateInstallerAssetButton
                                 visible: UpdateService.updateAvailable && !UpdateService.applySupported && UpdateService.installerUrl.length > 0
                                 text: qsTr("Open Installer")
+                                focusPolicy: Qt.StrongFocus
+
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
                                         root.activateKeyboardFocusForItem(updateInstallerAssetButton)
@@ -3183,12 +3355,38 @@ FocusScope {
                                 KeyNavigation.right: updatePortableAssetButton.visible ? updatePortableAssetButton : null
                                 KeyNavigation.down: openUpdateDownloadPageButton.visible ? openUpdateDownloadPageButton : aboutSection.toggleButton
                                 onClicked: UpdateService.openInstallerAsset()
+                                Keys.onReturnPressed: UpdateService.openInstallerAsset()
+                                Keys.onEnterPressed: UpdateService.openInstallerAsset()
+
+                                contentItem: Text {
+                                    text: updateInstallerAssetButton.text
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    color: Theme.accentPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    radius: Theme.radiusSmall
+                                    color: updateInstallerAssetButton.activeFocus || updateInstallerAssetButton.hovered
+                                           ? Qt.rgba(0.4, 0.6, 1, 0.2)
+                                           : "transparent"
+                                    border.color: updateInstallerAssetButton.activeFocus ? Theme.focusBorder : Theme.accentPrimary
+                                    border.width: updateInstallerAssetButton.activeFocus ? 2 : 1
+
+                                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                                }
                             }
 
                             Button {
                                 id: updatePortableAssetButton
                                 visible: UpdateService.updateAvailable && !UpdateService.applySupported && UpdateService.portableUrl.length > 0
                                 text: qsTr("Open Portable ZIP")
+                                focusPolicy: Qt.StrongFocus
+
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
                                         root.activateKeyboardFocusForItem(updatePortableAssetButton)
@@ -3197,6 +3395,30 @@ FocusScope {
                                 KeyNavigation.left: updateInstallerAssetButton.visible ? updateInstallerAssetButton : checkUpdatesButton
                                 KeyNavigation.down: openUpdateDownloadPageButton.visible ? openUpdateDownloadPageButton : aboutSection.toggleButton
                                 onClicked: UpdateService.openPortableAsset()
+                                Keys.onReturnPressed: UpdateService.openPortableAsset()
+                                Keys.onEnterPressed: UpdateService.openPortableAsset()
+
+                                contentItem: Text {
+                                    text: updatePortableAssetButton.text
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    color: Theme.accentPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+
+                                background: Rectangle {
+                                    implicitHeight: Theme.buttonHeightSmall
+                                    radius: Theme.radiusSmall
+                                    color: updatePortableAssetButton.activeFocus || updatePortableAssetButton.hovered
+                                           ? Qt.rgba(0.4, 0.6, 1, 0.2)
+                                           : "transparent"
+                                    border.color: updatePortableAssetButton.activeFocus ? Theme.focusBorder : Theme.accentPrimary
+                                    border.width: updatePortableAssetButton.activeFocus ? 2 : 1
+
+                                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                                }
                             }
                         }
 
@@ -3232,20 +3454,38 @@ FocusScope {
                             Layout.fillWidth: true
                         }
 
-                        Text {
+                        Rectangle {
                             visible: UpdateService.releaseNotes.length > 0
-                            text: UpdateService.releaseNotes
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
                             Layout.fillWidth: true
+                            implicitHeight: releaseNotesText.implicitHeight + Theme.spacingMedium
+                            color: Theme.inputBackground
+                            border.color: Theme.cardBorder
+                            border.width: 1
+                            radius: Theme.radiusSmall
+
+                            Text {
+                                id: releaseNotesText
+                                anchors {
+                                    left: parent.left
+                                    right: parent.right
+                                    top: parent.top
+                                    bottom: parent.bottom
+                                    margins: Theme.spacingSmall
+                                }
+                                text: UpdateService.releaseNotes
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.family: Theme.fontPrimary
+                                color: Theme.textSecondary
+                                wrapMode: Text.WordWrap
+                            }
                         }
 
                         Button {
                             id: openUpdateDownloadPageButton
                             visible: UpdateService.updateAvailable
                             text: qsTr("Open Download Page")
+                            focusPolicy: Qt.StrongFocus
+
                             onActiveFocusChanged: {
                                 if (activeFocus) {
                                     root.activateKeyboardFocusForItem(openUpdateDownloadPageButton)
@@ -3265,6 +3505,30 @@ FocusScope {
                                 event.accepted = true
                             }
                             onClicked: UpdateService.openUpdateDownloadPage()
+                            Keys.onReturnPressed: UpdateService.openUpdateDownloadPage()
+                            Keys.onEnterPressed: UpdateService.openUpdateDownloadPage()
+
+                            contentItem: Text {
+                                text: openUpdateDownloadPageButton.text
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+
+                            background: Rectangle {
+                                implicitHeight: Theme.buttonHeightSmall
+                                radius: Theme.radiusSmall
+                                color: openUpdateDownloadPageButton.activeFocus || openUpdateDownloadPageButton.hovered
+                                       ? Theme.buttonSecondaryBackgroundHover
+                                       : Theme.buttonSecondaryBackground
+                                border.color: openUpdateDownloadPageButton.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
+                                border.width: openUpdateDownloadPageButton.activeFocus ? 2 : Theme.buttonBorderWidth
+
+                                Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                                Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+                            }
                         }
                     }
                 }
@@ -3521,7 +3785,6 @@ FocusScope {
             font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
             color: Theme.textSecondary
-            Layout.preferredWidth: 120
         }
         
         Text {
