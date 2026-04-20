@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QHash>
 #include <QMap>
+#include <QMetaObject>
 #include <QSet>
 #include <QStringList>
 #include <QVariantMap>
@@ -371,6 +372,12 @@ private:
 #ifdef BLOOM_TESTING
     friend class PlayerControllerAutoplayContextTest;
 #endif
+    enum class TerminalReason {
+        Stop,
+        PlaybackEnd,
+        Error
+    };
+
     struct PendingPlaybackRequest;
     // State machine
     void setupStateMachine();
@@ -405,7 +412,14 @@ private:
     bool wouldMeetCompletionThreshold() const;
     void checkCompletionThreshold();
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)
-    void handlePlaybackStopAndAutoplay(Event stopEvent);
+    void prepareTerminalTransition(TerminalReason reason);
+    void requestTerminalTransition(TerminalReason reason);
+    void queueTerminalFinalization();
+    void finalizeTerminalTransition();
+    void resetTerminalTransitionState(bool invalidateQueuedWork = false);
+    void updatePendingTerminalReason(TerminalReason reason);
+    [[nodiscard]] Event eventForTerminalReason(TerminalReason reason) const;
+    [[nodiscard]] static int terminalReasonPriority(TerminalReason reason);
     void maybeTriggerNextEpisodePrefetch();
     /**
      * Returns whether a prefetched "next episode" payload is available and usable for navigation.
@@ -492,6 +506,13 @@ private:
      * @param backend Backend instance whose signals should be connected.
      */
     void connectBackendSignals(IPlayerBackend *backend);
+    void enterIdleStateImmediate();
+    void startDeferredDisplayRestore(bool needsHdrRestore, bool needsRefreshRestore);
+    void scheduleDeferredRefreshRestore(quint64 generation, int delayMs);
+    void cancelPendingDisplayRestore(bool applyCurrentPlaybackDisplayState = false);
+    void cancelPendingTerminalTransition();
+    void scheduleReplacementPlayback(const std::function<void()> &action);
+    void finalizeReplacementPlaybackStop();
     /**
      * Attempt to fall back from the internal player backend to an external backend for the current attempt.
      * @param reason Human-readable reason for attempting the fallback.
@@ -717,6 +738,16 @@ private:
     quint64 m_playbackAttemptId = 0;
     bool m_hasReportedStopForAttempt = false;
     bool m_hasEvaluatedCompletionForAttempt = false;
+    bool m_terminalTransitionActive = false;
+    TerminalReason m_pendingTerminalReason = TerminalReason::Stop;
+    bool m_backendStopRequested = false;
+    bool m_terminalFinalizationQueued = false;
+    bool m_terminalPrefetchedReady = false;
+    quint64 m_terminalTransitionGeneration = 0;
+    bool m_suppressBackendStopHandling = false;
+    std::function<void()> m_pendingReplacementPlaybackAction;
+    quint64 m_displayRestoreGeneration = 0;
+    QMetaObject::Connection m_hdrRestoreFinishedConnection;
     
     // Buffering detection
     QElapsedTimer m_lastPositionUpdateTime;

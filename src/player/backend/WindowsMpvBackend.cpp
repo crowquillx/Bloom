@@ -192,6 +192,9 @@ void WindowsMpvBackend::appendUrlsToPlaylist(const QStringList &mediaUrls)
 
 void WindowsMpvBackend::stopMpv()
 {
+    qCInfo(lcWindowsLibmpvBackend) << "stopMpv requested"
+                                   << "directControlActive=" << m_directControlActive
+                                   << "running=" << m_running;
     if (m_directControlActive) {
 #if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
         if (m_mpvHandle != nullptr) {
@@ -476,6 +479,9 @@ bool WindowsMpvBackend::isHdrRelatedArg(const QString &arg)
 
 void WindowsMpvBackend::clearVideoTarget()
 {
+    qCInfo(lcWindowsLibmpvBackend) << "Clearing embedded video target"
+                                   << "hadTarget=" << (m_videoTarget != nullptr)
+                                   << "hostWinId=" << static_cast<qulonglong>(m_videoHostWinId);
     if (m_videoTarget != nullptr) {
         m_videoTarget->removeEventFilter(this);
     }
@@ -1157,6 +1163,8 @@ void WindowsMpvBackend::destroyVideoHostWindow()
 
     HWND hostWindow = reinterpret_cast<HWND>(m_videoHostWinId);
     if (hostWindow != nullptr) {
+        qCInfo(lcWindowsLibmpvBackend) << "Destroying embedded mpv host window"
+                                       << static_cast<qulonglong>(m_videoHostWinId);
         DestroyWindow(hostWindow);
     }
 #endif
