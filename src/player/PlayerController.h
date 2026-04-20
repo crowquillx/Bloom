@@ -509,8 +509,10 @@ private:
     void enterIdleStateImmediate();
     void startDeferredDisplayRestore(bool needsHdrRestore, bool needsRefreshRestore);
     void scheduleDeferredRefreshRestore(quint64 generation, int delayMs);
-    void cancelPendingDisplayRestore();
+    void cancelPendingDisplayRestore(bool applyCurrentPlaybackDisplayState = false);
     void cancelPendingTerminalTransition();
+    void scheduleReplacementPlayback(const std::function<void()> &action);
+    void finalizeReplacementPlaybackStop();
     /**
      * Attempt to fall back from the internal player backend to an external backend for the current attempt.
      * @param reason Human-readable reason for attempting the fallback.
@@ -743,6 +745,7 @@ private:
     bool m_terminalPrefetchedReady = false;
     quint64 m_terminalTransitionGeneration = 0;
     bool m_suppressBackendStopHandling = false;
+    std::function<void()> m_pendingReplacementPlaybackAction;
     quint64 m_displayRestoreGeneration = 0;
     QMetaObject::Connection m_hdrRestoreFinishedConnection;
     

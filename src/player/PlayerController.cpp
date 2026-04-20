@@ -858,9 +858,9 @@ void PlayerController::onProcessStateChanged(bool running)
                                 << "backendStopRequested=" << m_backendStopRequested;
 
         if (m_suppressBackendStopHandling) {
-            m_suppressBackendStopHandling = false;
             qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                     << "] backend-stop ignored during replacement playback";
+            finalizeReplacementPlaybackStop();
             return;
         }
 
@@ -1081,12 +1081,7 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
             m_waitingForNextEpisodeAtPlaybackEnd = true;
             stashPendingAutoplayContext();
             m_terminalPrefetchedReady = hasUsablePrefetchedNextEpisode();
-            if (!m_terminalPrefetchedReady) {
-                m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId,
-                                                         m_pendingAutoplayItemId,
-                                                         expectedAutoplayResolutionRequestContext());
-            }
-            qDebug() << "PlayerController: Threshold met, requesting next episode for autoplay";
+            qDebug() << "PlayerController: Threshold met, next episode will resolve after terminal finalization";
         } else {
             clearPendingAutoplayContext();
             clearNextEpisodePrefetchState();
@@ -1175,6 +1170,18 @@ void PlayerController::finalizeTerminalTransition()
 
     if (prefetchedReady && reason != TerminalReason::Error) {
         consumePrefetchedNextEpisodeAndNavigate();
+    } else if (reason != TerminalReason::Error
+               && m_shouldAutoplay
+               && m_waitingForNextEpisodeAtPlaybackEnd
+               && !m_pendingAutoplaySeriesId.isEmpty()
+               && !m_pendingAutoplayItemId.isEmpty()) {
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] resolving-next-episode after terminal finalization"
+                                << "seriesId=" << m_pendingAutoplaySeriesId
+                                << "itemId=" << m_pendingAutoplayItemId;
+        m_libraryService->getNextUnplayedEpisode(m_pendingAutoplaySeriesId,
+                                                 m_pendingAutoplayItemId,
+                                                 expectedAutoplayResolutionRequestContext());
     }
 }
 
@@ -1322,7 +1329,7 @@ void PlayerController::scheduleDeferredRefreshRestore(quint64 generation, int de
                        });
 }
 
-void PlayerController::cancelPendingDisplayRestore()
+void PlayerController::cancelPendingDisplayRestore(bool applyCurrentPlaybackDisplayState)
 {
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] deferred-display-restore cancel"
@@ -1334,6 +1341,21 @@ void PlayerController::cancelPendingDisplayRestore()
     }
     if (m_displayManager != nullptr) {
         m_displayManager->cancelPendingHdrAsync();
+        if (applyCurrentPlaybackDisplayState) {
+            const bool shouldEnableHdr = m_config->getEnableHDR() && m_contentIsHDR;
+            const bool shouldMatchRefresh = m_config->getEnableFramerateMatching() && m_contentFramerate > 0.0;
+
+            if (!shouldEnableHdr && m_displayManager->needsHdrRestore()) {
+                qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                        << "] applying-immediate-display-sync disable-hdr";
+                m_displayManager->setHDR(false);
+            }
+            if (!shouldMatchRefresh && m_displayManager->needsRefreshRestore()) {
+                qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                        << "] applying-immediate-display-sync restore-refresh";
+                m_displayManager->restoreRefreshRate();
+            }
+        }
     }
 }
 
@@ -1346,6 +1368,50 @@ void PlayerController::cancelPendingTerminalTransition()
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] terminal-transition canceled";
     resetTerminalTransitionState(true);
+}
+
+void PlayerController::scheduleReplacementPlayback(const std::function<void()> &action)
+{
+    m_pendingReplacementPlaybackAction = action;
+
+    if (m_playerBackend && m_playerBackend->isRunning()) {
+        reportPlaybackStop();
+        m_suppressBackendStopHandling = true;
+        m_playerBackend->stopMpv();
+        if (m_playerBackend->isRunning()) {
+            return;
+        }
+    }
+
+    finalizeReplacementPlaybackStop();
+}
+
+void PlayerController::finalizeReplacementPlaybackStop()
+{
+    m_suppressBackendStopHandling = false;
+
+    if (m_playbackState != Idle) {
+        const PlaybackState oldState = m_playbackState;
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] replacement-stop finalized"
+                                << "state=" << stateToString(oldState);
+        exitState(oldState);
+        m_loadingTimeoutTimer->stop();
+        m_bufferingTimeoutTimer->stop();
+        m_progressReportTimer->stop();
+        m_startDelayTimer->stop();
+        setPlaybackState(Idle);
+        setBufferingProgress(0);
+        emit playbackStopped();
+    }
+
+    if (!m_pendingReplacementPlaybackAction) {
+        return;
+    }
+
+    const std::function<void()> action = m_pendingReplacementPlaybackAction;
+    m_pendingReplacementPlaybackAction = std::function<void()>();
+    action();
 }
 
 /**
@@ -2470,28 +2536,69 @@ void PlayerController::setEmbeddedVideoShrinkEnabled(bool enabled)
 void PlayerController::playTestVideo()
 {
     cancelPendingTerminalTransition();
-    cancelPendingDisplayRestore();
     clearPendingAutoplayContext();
     clearNextEpisodePrefetchState();
     m_shouldAutoplay = false;
-    
-    if (m_playerBackend->isRunning()) {
-        reportPlaybackStop();
-        m_suppressBackendStopHandling = true;
-        m_playerBackend->stopMpv();
-        if (!m_playerBackend->isRunning()) {
-            m_suppressBackendStopHandling = false;
-        }
-    }
 
-    clearPlaybackSegments();
-    if (!m_currentItemId.isEmpty()) {
-        m_currentItemId.clear();
-        emit currentItemIdChanged();
-    }
-    m_pendingUrl = m_testVideoUrl;
-    
-    processEvent(Event::Play);
+    scheduleReplacementPlayback([this]() {
+        m_currentSeriesId.clear();
+        m_currentSeasonId.clear();
+        m_currentLibraryId.clear();
+        m_contentFramerate = 0.0;
+        m_contentIsHDR = false;
+        m_currentPosition = 0.0;
+        m_duration = 0.0;
+        m_hasReportedStart = false;
+        m_seekTargetWhileBuffering = -1;
+        m_reportProgressOnNextPositionUpdate = false;
+        m_startPositionTicks = 0;
+        m_playMethod = inferPlayMethod(m_testVideoUrl);
+        m_hasReportedStopForAttempt = false;
+        m_hasEvaluatedCompletionForAttempt = false;
+        cancelPendingDisplayRestore(true);
+        clearPlaybackSegments();
+        if (!m_currentItemId.isEmpty()) {
+            m_currentItemId.clear();
+            emit currentItemIdChanged();
+        }
+        clearOverlayMetadata();
+        m_selectedAudioTrack = -1;
+        m_selectedSubtitleTrack = -1;
+        m_mpvAudioTrack = -1;
+        m_mpvSubtitleTrack = -1;
+        m_audioTrackMap.clear();
+        m_subtitleTrackMap.clear();
+        m_audioTrackReverseMap.clear();
+        m_subtitleTrackReverseMap.clear();
+        m_mediaSourceId.clear();
+        m_playSessionId.clear();
+        m_availableAudioTracks.clear();
+        m_availableSubtitleTracks.clear();
+        m_activeMediaSource.clear();
+        emit selectedAudioTrackChanged();
+        emit selectedSubtitleTrackChanged();
+        emit mediaSourceIdChanged();
+        emit playSessionIdChanged();
+        emit availableTracksChanged();
+        m_currentSegments.clear();
+        m_isInIntroSegment = false;
+        m_isInOutroSegment = false;
+        m_hasAutoSkippedIntroForCurrentItem = false;
+        m_hasAutoSkippedOutroForCurrentItem = false;
+        m_hasTrickplayInfo = false;
+        m_currentTrickplayInfo = TrickplayTileInfo{};
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit timelineChanged();
+        emit skipSegmentsChanged();
+        emit trickplayStateChanged();
+        m_pendingUrl = m_testVideoUrl;
+
+        processEvent(Event::Play);
+    });
 }
 
 /**
@@ -2515,7 +2622,6 @@ void PlayerController::playTestVideo()
 void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionTicks, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR)
 {
     cancelPendingTerminalTransition();
-    cancelPendingDisplayRestore();
     m_playbackAttemptId = ++gPlaybackAttemptCounter;
     m_reportProgressOnNextPositionUpdate = false;
     qDebug() << "PlayerController: playUrl called with itemId:" << itemId 
@@ -2533,73 +2639,65 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
                             << "isHDR=" << isHDR
                             << "enableHDRSetting=" << m_config->getEnableHDR()
                             << "enableFramerateMatchSetting=" << m_config->getEnableFramerateMatching();
-    
-    // If already playing, stop first
-    if (m_playerBackend->isRunning()) {
-        reportPlaybackStop();
-        // Don't check completion threshold here - we're starting new content intentionally
-        m_suppressBackendStopHandling = true;
-        m_playerBackend->stopMpv();
-        if (!m_playerBackend->isRunning()) {
-            m_suppressBackendStopHandling = false;
-        }
-    }
 
     clearPendingAutoplayContext();
     clearNextEpisodePrefetchState();
-    clearPlaybackSegments();
-    
-    // Store pending playback info before transition
-    if (m_currentItemId != itemId) {
-        m_currentItemId = itemId;
-        emit currentItemIdChanged();
-    }
-    m_currentSeriesId = seriesId;
-    m_currentSeasonId = seasonId;
-    m_currentLibraryId = libraryId;
-    m_pendingUrl = url;
-    m_currentPosition = 0;
-    m_duration = 0;
-    m_hasReportedStart = false;
-    m_startPositionTicks = startPositionTicks;
-    m_shouldAutoplay = false;
-    m_contentFramerate = framerate;
-    m_contentIsHDR = isHDR;
-    m_playMethod = inferPlayMethod(url);
-    m_hasReportedStopForAttempt = false;
-    m_hasEvaluatedCompletionForAttempt = false;
-    
-    // Clear previous OSC/trickplay state and request new data
-    m_currentSegments.clear();
-    m_isInIntroSegment = false;
-    m_isInOutroSegment = false;
-    m_hasAutoSkippedIntroForCurrentItem = false;
-    m_hasAutoSkippedOutroForCurrentItem = false;
-    m_hasTrickplayInfo = false;
-    m_currentTrickplayInfo = TrickplayTileInfo{};
-    m_trickplayBinaryPath.clear();
-    m_currentTrickplayFrameIndex = -1;
-    m_hasTrickplayPreviewPositionOverride = false;
-    m_trickplayPreviewPositionOverrideSeconds = 0.0;
-    clearTrickplayPreview();
-    emit timelineChanged();
-    emit skipSegmentsChanged();
-    emit trickplayStateChanged();
-    if (!itemId.isEmpty()) {
-        m_playbackService->getMediaSegments(itemId);
-        m_playbackService->getTrickplayInfo(itemId);
-    }
-    
-    // If we have a start position, queue it as a seek target
-    // Jellyfin ticks are 100ns units, so divide by 10,000,000 to get seconds
-    if (startPositionTicks > 0) {
-        m_seekTargetWhileBuffering = static_cast<double>(startPositionTicks) / 10000000.0;
-        qDebug() << "PlayerController: Will seek to" << m_seekTargetWhileBuffering << "seconds after buffering";
-    } else {
-        m_seekTargetWhileBuffering = -1;
-    }
-    
-    processEvent(Event::Play);
+
+    scheduleReplacementPlayback([this, url, itemId, startPositionTicks, seriesId, seasonId, libraryId, framerate, isHDR]() {
+        // Store pending playback info after the previous item has fully stopped.
+        if (m_currentItemId != itemId) {
+            m_currentItemId = itemId;
+            emit currentItemIdChanged();
+        }
+        m_currentSeriesId = seriesId;
+        m_currentSeasonId = seasonId;
+        m_currentLibraryId = libraryId;
+        m_pendingUrl = url;
+        m_currentPosition = 0;
+        m_duration = 0;
+        m_hasReportedStart = false;
+        m_startPositionTicks = startPositionTicks;
+        m_shouldAutoplay = false;
+        m_contentFramerate = framerate;
+        m_contentIsHDR = isHDR;
+        m_playMethod = inferPlayMethod(url);
+        m_hasReportedStopForAttempt = false;
+        m_hasEvaluatedCompletionForAttempt = false;
+        cancelPendingDisplayRestore(true);
+        clearPlaybackSegments();
+
+        // Clear previous OSC/trickplay state and request new data
+        m_currentSegments.clear();
+        m_isInIntroSegment = false;
+        m_isInOutroSegment = false;
+        m_hasAutoSkippedIntroForCurrentItem = false;
+        m_hasAutoSkippedOutroForCurrentItem = false;
+        m_hasTrickplayInfo = false;
+        m_currentTrickplayInfo = TrickplayTileInfo{};
+        m_trickplayBinaryPath.clear();
+        m_currentTrickplayFrameIndex = -1;
+        m_hasTrickplayPreviewPositionOverride = false;
+        m_trickplayPreviewPositionOverrideSeconds = 0.0;
+        clearTrickplayPreview();
+        emit timelineChanged();
+        emit skipSegmentsChanged();
+        emit trickplayStateChanged();
+        if (!itemId.isEmpty()) {
+            m_playbackService->getMediaSegments(itemId);
+            m_playbackService->getTrickplayInfo(itemId);
+        }
+
+        // If we have a start position, queue it as a seek target
+        // Jellyfin ticks are 100ns units, so divide by 10,000,000 to get seconds
+        if (startPositionTicks > 0) {
+            m_seekTargetWhileBuffering = static_cast<double>(startPositionTicks) / 10000000.0;
+            qDebug() << "PlayerController: Will seek to" << m_seekTargetWhileBuffering << "seconds after buffering";
+        } else {
+            m_seekTargetWhileBuffering = -1;
+        }
+
+        processEvent(Event::Play);
+    });
 }
 
 /**

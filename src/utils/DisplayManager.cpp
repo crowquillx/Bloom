@@ -33,12 +33,19 @@ bool runCommandAndWait(const QString &cmd, int *exitCode = nullptr)
 {
     QProcess process;
     process.startCommand(cmd);
-    process.waitForFinished();
-    const int code = process.exitCode();
+    const bool finished = process.waitForFinished();
+    if (!finished) {
+        qWarning() << "DisplayManager: Command timed out:" << cmd;
+        process.kill();
+        process.waitForFinished(1000);
+    }
+
+    const bool exitedNormally = finished && process.exitStatus() == QProcess::NormalExit;
+    const int code = exitedNormally ? process.exitCode() : -1;
     if (exitCode != nullptr) {
         *exitCode = code;
     }
-    return code == 0;
+    return exitedNormally && code == 0;
 }
 
 bool isCadenceCompatible(double currentHz, double targetHz)
