@@ -126,10 +126,26 @@ FocusScope {
 
                         function refreshSelection() {
                             var options = model || []
+                            if (!options || options.length === 0) {
+                                updatingSelection = true
+                                currentIndex = -1
+                                updatingSelection = false
+                                return
+                            }
                             updatingSelection = true
                             var idx = options.indexOf(ConfigManager.defaultProfileName)
+                            if (idx < 0) idx = options.indexOf("Default")
                             currentIndex = idx >= 0 ? idx : 0
                             updatingSelection = false
+                        }
+
+                        function applySelection(index) {
+                            var options = model || []
+                            if (index < 0 || index >= options.length) return
+                            var selectedName = options[index]
+                            if (selectedName && selectedName !== ConfigManager.defaultProfileName) {
+                                ConfigManager.defaultProfileName = selectedName
+                            }
                         }
 
                         Component.onCompleted: {
@@ -142,10 +158,14 @@ FocusScope {
                             refreshSelection()
                         }
 
-                        onCurrentTextChanged: {
-                            if (!initialized || updatingSelection) return
-                            if (currentText && currentText !== ConfigManager.defaultProfileName) {
-                                ConfigManager.defaultProfileName = currentText
+                        onActivated: function(index) {
+                            applySelection(index)
+                        }
+
+                        Connections {
+                            target: ConfigManager
+                            function onDefaultProfileNameChanged() {
+                                defaultProfileCombo.refreshSelection()
                             }
                         }
 
@@ -224,11 +244,11 @@ FocusScope {
                                 ScrollIndicator.vertical: ScrollIndicator { }
 
                                 Keys.onReturnPressed: {
-                                    defaultProfileCombo.currentIndex = currentIndex
+                                    defaultProfileCombo.applySelection(currentIndex)
                                     defaultProfileCombo.popup.close()
                                 }
                                 Keys.onEnterPressed: {
-                                    defaultProfileCombo.currentIndex = currentIndex
+                                    defaultProfileCombo.applySelection(currentIndex)
                                     defaultProfileCombo.popup.close()
                                 }
                                 Keys.onEscapePressed: defaultProfileCombo.popup.close()

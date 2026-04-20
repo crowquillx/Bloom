@@ -41,6 +41,7 @@ MPV profile management
 - `settings.mpv_profiles` contains the base set of profiles (`Default`, `High Quality`, plus any user-created profiles) and their structured options (hwdec, interpolation, extra args).
 - `settings.default_profile` names the profile to use when no library/series override is present.
 - `settings.library_profiles` and `settings.series_profiles` hold dictionaries keyed by Jellyfin library/series IDs when an override is required at a higher level.
+- The settings-screen rework did not change the on-disk MPV profile schema; existing `settings.mpv_profiles` and `settings.default_profile` entries continue to load as-is.
 
 When adding settings
 - Update `ConfigManager.h` (Q_PROPERTY & signals).

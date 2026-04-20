@@ -2642,7 +2642,10 @@ QString ConfigManager::getDefaultProfileName() const
     if (m_config.contains("settings") && m_config["settings"].isObject()) {
         QJsonObject settings = m_config["settings"].toObject();
         if (settings.contains("default_profile")) {
-            return settings["default_profile"].toString();
+            const QString profileName = settings["default_profile"].toString().trimmed();
+            if (!profileName.isEmpty()) {
+                return profileName;
+            }
         }
     }
     return "Default";
@@ -2650,14 +2653,25 @@ QString ConfigManager::getDefaultProfileName() const
 
 void ConfigManager::setDefaultProfileName(const QString &name)
 {
-    if (name == getDefaultProfileName()) return;
+    const QString trimmedName = name.trimmed();
+    if (trimmedName.isEmpty()) {
+        qWarning() << "ConfigManager: Ignoring empty default MPV profile name";
+        return;
+    }
+
+    if (!getMpvProfileNames().contains(trimmedName)) {
+        qWarning() << "ConfigManager: Ignoring unknown default MPV profile name:" << trimmedName;
+        return;
+    }
+
+    if (trimmedName == getDefaultProfileName()) return;
     
     QJsonObject settings;
     if (m_config.contains("settings") && m_config["settings"].isObject()) {
         settings = m_config["settings"].toObject();
     }
     
-    settings["default_profile"] = name;
+    settings["default_profile"] = trimmedName;
     m_config["settings"] = settings;
     save();
     emit defaultProfileNameChanged();
