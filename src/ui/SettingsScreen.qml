@@ -17,6 +17,8 @@ FocusScope {
     focus: true
     property string navigationId: "settings"
     property bool focusUpdatesOnActivate: false
+    property bool saveToastArmed: false
+    property string pendingSettingsToastMessage: qsTr("Settings saved")
 
     // Rotating backdrop state
     property var backdropCandidates: []
@@ -40,7 +42,39 @@ FocusScope {
     }
     Connections {
         target: ConfigManager
-        function onMpvProfilesChanged() { root.updateProfileNames() }
+        function onMpvProfilesChanged() {
+            root.updateProfileNames()
+            root.scheduleSettingsSavedToast()
+        }
+        function onDefaultProfileNameChanged() { root.scheduleSettingsSavedToast() }
+        function onLibraryProfilesChanged() { root.scheduleSettingsSavedToast() }
+        function onSeriesProfilesChanged() { root.scheduleSettingsSavedToast() }
+        function onPlaybackCompletionThresholdChanged() { root.scheduleSettingsSavedToast() }
+        function onSkipButtonAutoHideSecondsChanged() { root.scheduleSettingsSavedToast() }
+        function onAudioDelayChanged() { root.scheduleSettingsSavedToast() }
+        function onAutoplayNextEpisodeChanged() { root.scheduleSettingsSavedToast() }
+        function onAutoplayCountdownSecondsChanged() { root.scheduleSettingsSavedToast() }
+        function onAutoSkipIntroChanged() { root.scheduleSettingsSavedToast() }
+        function onAutoSkipOutroChanged() { root.scheduleSettingsSavedToast() }
+        function onBackdropRotationIntervalChanged() { root.scheduleSettingsSavedToast() }
+        function onLaunchInFullscreenChanged() { root.scheduleSettingsSavedToast() }
+        function onThemeSongVolumeChanged() { root.scheduleSettingsSavedToast() }
+        function onThemeSongLoopChanged() { root.scheduleSettingsSavedToast() }
+        function onUiSoundsEnabledChanged() { root.scheduleSettingsSavedToast() }
+        function onUiSoundsVolumeChanged() { root.scheduleSettingsSavedToast() }
+        function onEnableFramerateMatchingChanged() { root.scheduleSettingsSavedToast() }
+        function onFramerateMatchDelayChanged() { root.scheduleSettingsSavedToast() }
+        function onEnableHDRChanged() { root.scheduleSettingsSavedToast() }
+        function onLinuxRefreshRateCommandChanged() { root.scheduleSettingsSavedToast() }
+        function onLinuxHDRCommandChanged() { root.scheduleSettingsSavedToast() }
+        function onWindowsCustomHDRCommandChanged() { root.scheduleSettingsSavedToast() }
+        function onThemeChanged() { root.scheduleSettingsSavedToast() }
+        function onMdbListApiKeyChanged() { root.scheduleSettingsSavedToast() }
+        function onSeerrBaseUrlChanged() { root.scheduleSettingsSavedToast() }
+        function onSeerrApiKeyChanged() { root.scheduleSettingsSavedToast() }
+        function onManualDpiScaleOverrideChanged() { root.scheduleSettingsSavedToast() }
+        function onUpdateChannelChanged() { root.scheduleSettingsSavedToast() }
+        function onAutoUpdateCheckEnabledChanged() { root.scheduleSettingsSavedToast() }
     }
 
     signal signOutRequested()
@@ -88,6 +122,14 @@ FocusScope {
         settingsRail.focusRail()
     }
 
+    function scheduleSettingsSavedToast(message) {
+        if (!saveToastArmed || StackView.status !== StackView.Active) {
+            return
+        }
+        pendingSettingsToastMessage = message || qsTr("Settings saved")
+        settingsSavedToastTimer.restart()
+    }
+
     function currentSectionItem() {
         switch (contentStack.currentIndex) {
         case 0: return playbackSection
@@ -104,6 +146,16 @@ FocusScope {
         updateProfileNames()
         refreshBackdropCandidates()
         settingsRail.focusRail()
+        Qt.callLater(function() {
+            root.saveToastArmed = true
+        })
+    }
+
+    Timer {
+        id: settingsSavedToastTimer
+        interval: 250
+        repeat: false
+        onTriggered: settingsSavedToast.show(root.pendingSettingsToastMessage)
     }
 
     StackView.onStatusChanged: {
@@ -359,5 +411,10 @@ FocusScope {
                 onSignOutRequested: root.signOutRequested()
             }
         }
+    }
+
+    ToastNotification {
+        id: settingsSavedToast
+        z: 10
     }
 }
