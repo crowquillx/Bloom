@@ -1693,6 +1693,7 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     pending.overlayTitle = request.value(QStringLiteral("overlayTitle")).toString();
     pending.overlaySubtitle = request.value(QStringLiteral("overlaySubtitle")).toString();
     pending.overlayBackdropUrl = request.value(QStringLiteral("overlayBackdropUrl")).toString();
+    pending.overlayLogoUrl = request.value(QStringLiteral("overlayLogoUrl")).toString();
     pending.startPositionTicks = request.value(QStringLiteral("startPositionTicks")).toLongLong();
     pending.preferredAudioIndex = request.value(QStringLiteral("preferredAudioIndex"), -2).toInt();
     pending.preferredSubtitleIndex = request.value(QStringLiteral("preferredSubtitleIndex"), -2).toInt();
@@ -1861,7 +1862,10 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
             ? 0.0
             : m_pendingAutoplayFramerate;
         const bool isHdr = false;
-        setOverlayMetadata(request.overlayTitle, request.overlaySubtitle, request.overlayBackdropUrl);
+        setOverlayMetadata(request.overlayTitle,
+                           request.overlaySubtitle,
+                           request.overlayBackdropUrl,
+                           request.overlayLogoUrl);
         playUrl(m_libraryService->getStreamUrl(request.itemId),
                 request.itemId,
                 request.startPositionTicks,
@@ -1893,7 +1897,10 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
         return;
     }
 
-    setOverlayMetadata(request.overlayTitle, request.overlaySubtitle, request.overlayBackdropUrl);
+    setOverlayMetadata(request.overlayTitle,
+                       request.overlaySubtitle,
+                       request.overlayBackdropUrl,
+                       request.overlayLogoUrl);
 
     const QVariantMap firstSegment = segments.first().toMap();
     playUrlWithTracks(firstSegment.value(QStringLiteral("url")).toString(),
@@ -2361,8 +2368,14 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     if (!episodeName.isEmpty()) {
         subtitle += QStringLiteral(" - ") + episodeName;
     }
-    setOverlayMetadata(seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName, subtitle);
-    
+    const QString overlayLogoUrl = (m_libraryService && !seriesId.isEmpty())
+        ? m_libraryService->getCachedImageUrlWithWidth(seriesId, QStringLiteral("Logo"), 600)
+        : QString();
+    setOverlayMetadata(seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName,
+                       subtitle,
+                       QString(),
+                       overlayLogoUrl);
+
     emit autoplayingNextEpisode(episodeName, seriesName);
 
     QString targetSeasonId = episodeData.value(QStringLiteral("SeasonId")).toString();
@@ -2388,6 +2401,9 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     request[QStringLiteral("startPositionTicks")] = startPositionTicks;
     request[QStringLiteral("overlayTitle")] = seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName;
     request[QStringLiteral("overlaySubtitle")] = subtitle;
+    if (!overlayLogoUrl.isEmpty()) {
+        request[QStringLiteral("overlayLogoUrl")] = overlayLogoUrl;
+    }
     request[QStringLiteral("isMovie")] = false;
     request[QStringLiteral("allowVersionPrompt")] = false;
     request[QStringLiteral("useAffinityFallback")] = true;
@@ -4475,32 +4491,40 @@ void PlayerController::onScriptMessage(const QString &messageName, const QString
     // Script-driven trickplay handlers were retired with the native overlay migration.
 }
 
-void PlayerController::setOverlayMetadata(const QString &title, const QString &subtitle, const QString &backdropUrl)
+void PlayerController::setOverlayMetadata(const QString &title,
+                                          const QString &subtitle,
+                                          const QString &backdropUrl,
+                                          const QString &logoUrl)
 {
     const QString normalizedTitle = title.trimmed();
     const QString normalizedSubtitle = subtitle.trimmed();
     const QString normalizedBackdropUrl = backdropUrl.trimmed();
+    const QString normalizedLogoUrl = logoUrl.trimmed();
     if (m_overlayTitle == normalizedTitle
         && m_overlaySubtitle == normalizedSubtitle
-        && m_overlayBackdropUrl == normalizedBackdropUrl) {
+        && m_overlayBackdropUrl == normalizedBackdropUrl
+        && m_overlayLogoUrl == normalizedLogoUrl) {
         return;
     }
 
     m_overlayTitle = normalizedTitle;
     m_overlaySubtitle = normalizedSubtitle;
     m_overlayBackdropUrl = normalizedBackdropUrl;
+    m_overlayLogoUrl = normalizedLogoUrl;
     emit overlayMetadataChanged();
 }
 
 void PlayerController::clearOverlayMetadata()
 {
-    if (m_overlayTitle.isEmpty() && m_overlaySubtitle.isEmpty() && m_overlayBackdropUrl.isEmpty()) {
+    if (m_overlayTitle.isEmpty() && m_overlaySubtitle.isEmpty() && m_overlayBackdropUrl.isEmpty()
+        && m_overlayLogoUrl.isEmpty()) {
         return;
     }
 
     m_overlayTitle.clear();
     m_overlaySubtitle.clear();
     m_overlayBackdropUrl.clear();
+    m_overlayLogoUrl.clear();
     emit overlayMetadataChanged();
 }
 

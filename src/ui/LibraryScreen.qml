@@ -402,6 +402,14 @@ FocusScope {
             }
             
             onPlayNextEpisode: function(episodeId, startPositionTicks) {
+                var overlayLogoUrl = ""
+                if (SeriesDetailsViewModel.seriesId === root.currentSeriesId
+                        && SeriesDetailsViewModel.logoUrl !== "") {
+                    overlayLogoUrl = SeriesDetailsViewModel.logoUrl
+                } else if (root.currentSeriesId && root.currentSeriesData && root.currentSeriesData.ImageTags
+                           && root.currentSeriesData.ImageTags.Logo) {
+                    overlayLogoUrl = LibraryService.getCachedImageUrlWithWidth(root.currentSeriesId, "Logo", 600)
+                }
                 root.requestPlaybackWithResolvedLibrary({
                     itemId: episodeId,
                     startPositionTicks: startPositionTicks || 0,
@@ -412,6 +420,7 @@ FocusScope {
                                   : qsTr("Now Playing"),
                     overlaySubtitle: qsTr("Episode"),
                     overlayBackdropUrl: root.currentBackdropUrl,
+                    overlayLogoUrl: overlayLogoUrl,
                     preferredAudioIndex: -2,
                     preferredSubtitleIndex: -2,
                     isMovie: false,

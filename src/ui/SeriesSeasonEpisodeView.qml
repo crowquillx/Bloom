@@ -853,6 +853,7 @@ FocusScope {
             overlayTitle: overlayTitle,
             overlaySubtitle: overlaySubtitle,
             overlayBackdropUrl: SeriesDetailsViewModel.backdropUrl || SeriesDetailsViewModel.posterUrl,
+            overlayLogoUrl: displayLogoUrl,
             preferredAudioIndex: selectedAudioIndex,
             preferredSubtitleIndex: selectedSubtitleIndex,
             isMovie: false,

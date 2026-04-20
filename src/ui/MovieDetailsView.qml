@@ -325,6 +325,7 @@ FocusScope {
             overlayTitle: movieName || qsTr("Now Playing"),
             overlaySubtitle: overlaySubtitle,
             overlayBackdropUrl: backdropUrl,
+            overlayLogoUrl: logoUrl,
             preferredAudioIndex: preferredAudioIndex,
             preferredSubtitleIndex: preferredSubtitleIndex,
             isMovie: true,

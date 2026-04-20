@@ -195,7 +195,8 @@ UI Components for Track Selection
     - Optional automatic skip is controlled by `ConfigManager.autoSkipIntro` and `ConfigManager.autoSkipOutro`; each auto-skip applies at most once per playback item even if the user seeks back.
 
 Playback overlay metadata
-- `PlayerController` now exposes `overlayTitle` and `overlaySubtitle` for native overlay header text.
+- `PlayerController` exposes `overlayTitle`, `overlaySubtitle`, `overlayBackdropUrl`, and `overlayLogoUrl` for the native overlay (header, buffering card, and backdrop).
+- Optional `overlayLogoUrl` is a Jellyfin logo image URL (typically the `image://cached/...` form from `LibraryService::getCachedImageUrlWithWidth`). `EmbeddedPlaybackOverlay.qml` shows the logo when the URL is non-empty and the image reaches `Image.Ready`; on load failure (`Image.Error`) or when the URL is empty, the overlay falls back to `overlayTitle` text.
 - Detail views set metadata before playback starts:
   - Movies: title + production year.
   - Episodes: series title + `Sxx Exx - Episode Name`.
