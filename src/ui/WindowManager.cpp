@@ -106,7 +106,7 @@ void WindowManager::setup(ConfigManager* configManager)
                     << "window=" << window
                     << "error=" << static_cast<int>(error)
                     << "message=" << message;
-            }, Qt::UniqueConnection);
+            });
 
             m_gpuMemoryTrimmer->setWindow(window);
             // Also set window on ResponsiveLayoutManager for viewport tracking

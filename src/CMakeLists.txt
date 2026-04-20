@@ -158,6 +158,21 @@ qt_add_qml_module(Bloom
         ui/MovieDetailsView.qml
         ui/HomeScreen.qml
         ui/SettingsScreen.qml
+        ui/settings/SettingsRail.qml
+        ui/settings/SettingsToggleRow.qml
+        ui/settings/SettingsSliderRow.qml
+        ui/settings/SettingsTextInputRow.qml
+        ui/settings/SettingsSpinBoxRow.qml
+        ui/settings/SettingsInfoRow.qml
+        ui/settings/SettingsGroupDivider.qml
+        ui/settings/PlaybackSettings.qml
+        ui/settings/DisplaySettings.qml
+        ui/settings/VideoSettings.qml
+        ui/settings/MpvSettings.qml
+        ui/settings/IntegrationsSettings.qml
+        ui/settings/AboutAccountSettings.qml
+        ui/settings/NewProfileDialog.qml
+        ui/settings/DeleteProfileDialog.qml
         ui/SearchScreen.qml
         ui/MediaSourceSelectionDialog.qml
         ui/SeerrRequestDialog.qml
