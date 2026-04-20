@@ -420,7 +420,6 @@ private:
     void updatePendingTerminalReason(TerminalReason reason);
     [[nodiscard]] Event eventForTerminalReason(TerminalReason reason) const;
     [[nodiscard]] static int terminalReasonPriority(TerminalReason reason);
-    void handlePlaybackStopAndAutoplay(Event stopEvent);
     void maybeTriggerNextEpisodePrefetch();
     /**
      * Returns whether a prefetched "next episode" payload is available and usable for navigation.

@@ -5,9 +5,11 @@
 #include <QScreen>
 #include <QtMath>
 #include <QElapsedTimer>
+#include <QFutureWatcher>
 #include <QLoggingCategory>
 #include <QMetaObject>
 #include <QThread>
+#include <QtConcurrent/QtConcurrent>
 #include <vector>
 
 #ifdef Q_OS_WIN
@@ -20,6 +22,24 @@
 
 namespace {
 Q_LOGGING_CATEGORY(lcDisplayTrace, "bloom.playback.displaytrace")
+
+struct HdrAsyncFallbackResult
+{
+    bool success = false;
+    bool preState = false;
+};
+
+bool runCommandAndWait(const QString &cmd, int *exitCode = nullptr)
+{
+    QProcess process;
+    process.startCommand(cmd);
+    process.waitForFinished();
+    const int code = process.exitCode();
+    if (exitCode != nullptr) {
+        *exitCode = code;
+    }
+    return code == 0;
+}
 
 bool isCadenceCompatible(double currentHz, double targetHz)
 {
@@ -113,6 +133,137 @@ bool isAnyAdvancedColorEnabled()
 
     return false;
 }
+
+bool setHDRWindowsImpl(bool enabled)
+{
+    // Use undocumented API to toggle HDR.
+    UINT32 numPathArrayElements = 0;
+    UINT32 numModeInfoArrayElements = 0;
+
+    const LONG sizeRet = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, &numModeInfoArrayElements);
+    qCInfo(lcDisplayTrace) << "setHDRWindows buffer-sizes"
+                           << "requested=" << enabled
+                           << "ret=" << sizeRet
+                           << "paths=" << numPathArrayElements
+                           << "modes=" << numModeInfoArrayElements;
+    if (sizeRet != ERROR_SUCCESS) {
+        qWarning() << "DisplayManager: GetDisplayConfigBufferSizes failed";
+        return false;
+    }
+
+    std::vector<DISPLAYCONFIG_PATH_INFO> pathArray(numPathArrayElements);
+    std::vector<DISPLAYCONFIG_MODE_INFO> modeInfoArray(numModeInfoArrayElements);
+
+    const LONG queryRet = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS,
+                                             &numPathArrayElements,
+                                             pathArray.data(),
+                                             &numModeInfoArrayElements,
+                                             modeInfoArray.data(),
+                                             nullptr);
+    qCInfo(lcDisplayTrace) << "setHDRWindows query-display-config"
+                           << "requested=" << enabled
+                           << "ret=" << queryRet
+                           << "paths=" << numPathArrayElements
+                           << "modes=" << numModeInfoArrayElements;
+    if (queryRet != ERROR_SUCCESS) {
+        qWarning() << "DisplayManager: QueryDisplayConfig failed";
+        return false;
+    }
+
+    bool success = false;
+
+    for (UINT32 i = 0; i < numPathArrayElements; ++i) {
+        const AdvancedColorStateQueryResult preState = queryAdvancedColorState(pathArray[i]);
+        qCInfo(lcDisplayTrace) << "setHDRWindows pre-state"
+                               << "path=" << i
+                               << "adapter=" << formatAdapterId(pathArray[i].targetInfo.adapterId)
+                               << "targetId=" << pathArray[i].targetInfo.id
+                               << "queryRet=" << preState.ret
+                               << "enabled=" << preState.enabled;
+        if (preState.ok && preState.enabled == enabled) {
+            qCInfo(lcDisplayTrace) << "setHDRWindows no-op (already requested state)"
+                                   << "path=" << i
+                                   << "requested=" << enabled;
+            success = true;
+            continue;
+        }
+
+        DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE setAdvancedColorState = {};
+        setAdvancedColorState.header.type = DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE;
+        setAdvancedColorState.header.size = sizeof(DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE);
+        setAdvancedColorState.header.adapterId = pathArray[i].targetInfo.adapterId;
+        setAdvancedColorState.header.id = pathArray[i].targetInfo.id;
+        setAdvancedColorState.value = enabled ? 1 : 0;
+
+        const LONG ret = DisplayConfigSetDeviceInfo(&setAdvancedColorState.header);
+        qCInfo(lcDisplayTrace) << "setHDRWindows path"
+                               << i
+                               << "adapter=" << formatAdapterId(pathArray[i].targetInfo.adapterId)
+                               << "targetId=" << pathArray[i].targetInfo.id
+                               << "requested=" << enabled
+                               << "ret=" << ret;
+        if (ret == ERROR_SUCCESS) {
+            qDebug() << "DisplayManager: Successfully set HDR to" << enabled << "for path" << i;
+            static constexpr int kHdrSettleTimeoutMs = 5000;
+            static constexpr int kHdrSettlePollMs = 50;
+            const bool settled = waitForAdvancedColorState(pathArray[i], enabled, kHdrSettleTimeoutMs, kHdrSettlePollMs);
+            const AdvancedColorStateQueryResult postState = queryAdvancedColorState(pathArray[i]);
+            qCInfo(lcDisplayTrace) << "setHDRWindows post-state"
+                                   << "path=" << i
+                                   << "settled=" << settled
+                                   << "queryRet=" << postState.ret
+                                   << "enabled=" << postState.enabled;
+            if (!settled) {
+                qCWarning(lcDisplayTrace) << "setHDRWindows settle-timeout"
+                                          << "path=" << i
+                                          << "requested=" << enabled
+                                          << "timeoutMs=" << kHdrSettleTimeoutMs;
+                continue;
+            }
+            success = true;
+        } else {
+            qWarning() << "DisplayManager: Failed to set HDR for path" << i << "error:" << ret;
+        }
+    }
+
+    return success;
+}
+
+HdrAsyncFallbackResult runBlockingWindowsHdrToggle(bool enabled, const QString &customCmdTemplate)
+{
+    HdrAsyncFallbackResult result;
+    result.preState = isAnyAdvancedColorEnabled();
+
+    if (!customCmdTemplate.isEmpty()) {
+        QString cmd = customCmdTemplate;
+        cmd.replace("{STATE}", enabled ? "on" : "off");
+        qDebug() << "DisplayManager: Executing custom Windows HDR command:" << cmd;
+
+        int exitCode = -1;
+        result.success = runCommandAndWait(cmd, &exitCode);
+        qCInfo(lcDisplayTrace) << "setHDR custom-command result"
+                               << "requested=" << enabled
+                               << "exitCode=" << exitCode;
+        return result;
+    }
+
+    result.success = setHDRWindowsImpl(enabled);
+    return result;
+}
+#else
+bool setHDRLinuxImpl(const QString &cmdTemplate, bool enabled)
+{
+    if (cmdTemplate.isEmpty()) {
+        qWarning() << "DisplayManager: No Linux HDR command configured";
+        return false;
+    }
+
+    QString cmd = cmdTemplate;
+    cmd.replace("{STATE}", enabled ? "on" : "off");
+
+    qDebug() << "DisplayManager: Executing Linux HDR command:" << cmd;
+    return runCommandAndWait(cmd);
+}
 #endif
 }
 
@@ -175,10 +326,15 @@ void DisplayManager::updateHdrRestoreTracking(bool requestedState, bool preState
     }
 
     m_hdrChanged = (requestedState != m_originalHDRState);
+    if (!m_hdrChanged) {
+        m_hasCapturedOriginalHDRState = false;
+        m_originalHDRState = requestedState;
+    }
     qCInfo(lcDisplayTrace) << "updateHdrRestoreTracking"
                            << "requestedState=" << requestedState
                            << "originalState=" << m_originalHDRState
-                           << "restoreNeeded=" << m_hdrChanged;
+                           << "restoreNeeded=" << m_hdrChanged
+                           << "capturedOriginalState=" << m_hasCapturedOriginalHDRState;
 }
 
 bool DisplayManager::setRefreshRate(double hz)
@@ -271,41 +427,18 @@ bool DisplayManager::setHDR(bool enabled)
                            << "requested=" << enabled
                            << "hdrChanged=" << m_hdrChanged;
 
-#ifdef Q_OS_WIN
-    const bool preState = isAnyAdvancedColorEnabled();
-#else
+#ifndef Q_OS_WIN
     const bool preState = m_hasCapturedOriginalHDRState ? m_originalHDRState : false;
 #endif
 
 #ifdef Q_OS_WIN
-    // Check if we have a custom command override
-    QString customCmd = m_config->getWindowsCustomHDRCommand();
-    if (!customCmd.isEmpty()) {
-        QString cmd = customCmd;
-        cmd.replace("{STATE}", enabled ? "on" : "off");
-        qDebug() << "DisplayManager: Executing custom Windows HDR command:" << cmd;
-        
-        // Simple command execution
-        QProcess process;
-        process.startCommand(cmd);
-        process.waitForFinished();
-        const bool success = process.exitCode() == 0;
-        qCInfo(lcDisplayTrace) << "setHDR custom-command result"
-                               << "requested=" << enabled
-                               << "exitCode=" << process.exitCode()
-                               << "elapsedMs=" << hdrTimer.elapsed();
-        if (success) {
-            updateHdrRestoreTracking(enabled, preState);
-        }
-        return success;
-    }
-    
-    if (setHDRWindows(enabled)) {
-        updateHdrRestoreTracking(enabled, preState);
+    const HdrAsyncFallbackResult result = runBlockingWindowsHdrToggle(enabled, m_config->getWindowsCustomHDRCommand());
+    if (result.success) {
+        updateHdrRestoreTracking(enabled, result.preState);
         return true;
     }
 #else
-    if (setHDRLinux(enabled)) {
+    if (setHDRLinuxImpl(m_config->getLinuxHDRCommand(), enabled)) {
         updateHdrRestoreTracking(enabled, preState);
         return true;
     }
@@ -329,22 +462,43 @@ void DisplayManager::setHDRAsync(bool enabled)
 #endif
 
     const quint64 generation = m_hdrAsyncGeneration;
-    QMetaObject::invokeMethod(this,
-                              [this, enabled, generation]() {
-                                  if (generation != m_hdrAsyncGeneration) {
-                                      return;
-                                  }
-                                  const bool success = setHDR(enabled);
-                                  if (generation != m_hdrAsyncGeneration) {
-                                      return;
-                                  }
-                                  emit hdrChangeFinished(enabled, success);
-                              },
-                              Qt::QueuedConnection);
+    auto *watcher = new QFutureWatcher<HdrAsyncFallbackResult>(this);
+    connect(watcher, &QFutureWatcher<HdrAsyncFallbackResult>::finished, this, [this, watcher, enabled, generation]() {
+        const HdrAsyncFallbackResult result = watcher->result();
+        watcher->deleteLater();
+
+        if (generation != m_hdrAsyncGeneration) {
+            return;
+        }
+
+        if (result.success) {
+            updateHdrRestoreTracking(enabled, result.preState);
+        }
+        emit hdrChangeFinished(enabled, result.success);
+    });
+
+#ifdef Q_OS_WIN
+    const QString customCmd = m_config->getWindowsCustomHDRCommand();
+    watcher->setFuture(QtConcurrent::run([enabled, customCmd]() {
+        return runBlockingWindowsHdrToggle(enabled, customCmd);
+    }));
+#else
+    const bool preState = m_hasCapturedOriginalHDRState ? m_originalHDRState : false;
+    const QString cmdTemplate = m_config->getLinuxHDRCommand();
+    watcher->setFuture(QtConcurrent::run([enabled, cmdTemplate, preState]() {
+        HdrAsyncFallbackResult result;
+        result.preState = preState;
+        result.success = setHDRLinuxImpl(cmdTemplate, enabled);
+        return result;
+    }));
+#endif
 }
 
 void DisplayManager::cancelPendingHdrAsync()
 {
+    if (m_hdrAsyncPending) {
+        updateHdrRestoreTracking(m_hdrAsyncRequestedState, m_hdrAsyncPreState);
+    }
     ++m_hdrAsyncGeneration;
     m_hdrAsyncPending = false;
     if (m_hdrAsyncPollTimer.isActive()) {
@@ -486,102 +640,13 @@ bool DisplayManager::restoreRefreshRateWindows()
 
 bool DisplayManager::setHDRWindows(bool enabled)
 {
-    // Use undocumented API to toggle HDR
-    // Note: This targets the primary display path.
-    // A robust implementation would enumerate paths and find the active one.
-    
-    UINT32 numPathArrayElements = 0;
-    UINT32 numModeInfoArrayElements = 0;
-    
-    const LONG sizeRet = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, &numModeInfoArrayElements);
-    qCInfo(lcDisplayTrace) << "setHDRWindows buffer-sizes"
-                           << "requested=" << enabled
-                           << "ret=" << sizeRet
-                           << "paths=" << numPathArrayElements
-                           << "modes=" << numModeInfoArrayElements;
-    if (sizeRet != ERROR_SUCCESS) {
-        qWarning() << "DisplayManager: GetDisplayConfigBufferSizes failed";
-        return false;
-    }
-    
-    std::vector<DISPLAYCONFIG_PATH_INFO> pathArray(numPathArrayElements);
-    std::vector<DISPLAYCONFIG_MODE_INFO> modeInfoArray(numModeInfoArrayElements);
-    
-    const LONG queryRet = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, pathArray.data(), &numModeInfoArrayElements, modeInfoArray.data(), nullptr);
-    qCInfo(lcDisplayTrace) << "setHDRWindows query-display-config"
-                           << "requested=" << enabled
-                           << "ret=" << queryRet
-                           << "paths=" << numPathArrayElements
-                           << "modes=" << numModeInfoArrayElements;
-    if (queryRet != ERROR_SUCCESS) {
-        qWarning() << "DisplayManager: QueryDisplayConfig failed";
-        return false;
-    }
-    
-    bool success = false;
-    
-    // Try to set for all active paths (usually just one for primary)
-    for (UINT32 i = 0; i < numPathArrayElements; ++i) {
-        const AdvancedColorStateQueryResult preState = queryAdvancedColorState(pathArray[i]);
-        qCInfo(lcDisplayTrace) << "setHDRWindows pre-state"
-                               << "path=" << i
-                               << "adapter=" << formatAdapterId(pathArray[i].targetInfo.adapterId)
-                               << "targetId=" << pathArray[i].targetInfo.id
-                               << "queryRet=" << preState.ret
-                               << "enabled=" << preState.enabled;
-        if (preState.ok && preState.enabled == enabled) {
-            qCInfo(lcDisplayTrace) << "setHDRWindows no-op (already requested state)"
-                                   << "path=" << i
-                                   << "requested=" << enabled;
-            success = true;
-            continue;
-        }
-
-        DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE setAdvancedColorState = {};
-        setAdvancedColorState.header.type = DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE;
-        setAdvancedColorState.header.size = sizeof(DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE);
-        setAdvancedColorState.header.adapterId = pathArray[i].targetInfo.adapterId;
-        setAdvancedColorState.header.id = pathArray[i].targetInfo.id;
-        
-        setAdvancedColorState.value = enabled ? 1 : 0;
-        
-        LONG ret = DisplayConfigSetDeviceInfo(&setAdvancedColorState.header);
-        qCInfo(lcDisplayTrace) << "setHDRWindows path"
-                               << i
-                               << "adapter=" << formatAdapterId(pathArray[i].targetInfo.adapterId)
-                               << "targetId=" << pathArray[i].targetInfo.id
-                               << "requested=" << enabled
-                               << "ret=" << ret;
-        if (ret == ERROR_SUCCESS) {
-            qDebug() << "DisplayManager: Successfully set HDR to" << enabled << "for path" << i;
-            static constexpr int kHdrSettleTimeoutMs = 5000;
-            static constexpr int kHdrSettlePollMs = 50;
-            const bool settled = waitForAdvancedColorState(pathArray[i], enabled, kHdrSettleTimeoutMs, kHdrSettlePollMs);
-            const AdvancedColorStateQueryResult postState = queryAdvancedColorState(pathArray[i]);
-            qCInfo(lcDisplayTrace) << "setHDRWindows post-state"
-                                   << "path=" << i
-                                   << "settled=" << settled
-                                   << "queryRet=" << postState.ret
-                                   << "enabled=" << postState.enabled;
-            if (!settled) {
-                qCWarning(lcDisplayTrace) << "setHDRWindows settle-timeout"
-                                          << "path=" << i
-                                          << "requested=" << enabled
-                                          << "timeoutMs=" << kHdrSettleTimeoutMs;
-                continue;
-            }
-            success = true;
-        } else {
-            qWarning() << "DisplayManager: Failed to set HDR for path" << i << "error:" << ret;
-        }
-    }
-    
-    return success;
+    return setHDRWindowsImpl(enabled);
 }
 
 bool DisplayManager::startHDRAsyncWindows(bool enabled)
 {
     const bool preState = isAnyAdvancedColorEnabled();
+    const quint64 generation = m_hdrAsyncGeneration;
     m_hdrAsyncRequestedState = enabled;
     m_hdrAsyncPreState = preState;
 
@@ -611,7 +676,8 @@ bool DisplayManager::startHDRAsyncWindows(bool enabled)
         return false;
     }
 
-    bool success = false;
+    bool success = true;
+    bool handledAnyPath = false;
     bool issuedRequest = false;
     m_hdrAsyncPaths.clear();
     m_hdrAsyncPaths.reserve(static_cast<int>(numPathArrayElements));
@@ -619,8 +685,11 @@ bool DisplayManager::startHDRAsyncWindows(bool enabled)
     for (UINT32 i = 0; i < numPathArrayElements; ++i) {
         const DISPLAYCONFIG_PATH_INFO &pathInfo = pathArray[i];
         const AdvancedColorStateQueryResult prePathState = queryAdvancedColorState(pathInfo);
+        if (!prePathState.ok) {
+            success = false;
+        }
         if (prePathState.ok && prePathState.enabled == enabled) {
-            success = true;
+            handledAnyPath = true;
             continue;
         }
 
@@ -639,23 +708,29 @@ bool DisplayManager::startHDRAsyncWindows(bool enabled)
                                << "requested=" << enabled
                                << "ret=" << ret;
         if (ret == ERROR_SUCCESS) {
-            success = true;
+            handledAnyPath = true;
             issuedRequest = true;
             m_hdrAsyncPaths.push_back(pathInfo);
         } else {
+            success = false;
             qWarning() << "DisplayManager: Failed async HDR toggle for path" << i << "error:" << ret;
         }
     }
 
-    if (!success) {
+    if (!handledAnyPath) {
         return false;
     }
 
     if (!issuedRequest || m_hdrAsyncPaths.isEmpty()) {
-        updateHdrRestoreTracking(enabled, preState);
+        if (success) {
+            updateHdrRestoreTracking(enabled, preState);
+        }
         QMetaObject::invokeMethod(this,
-                                  [this, enabled]() {
-                                      emit hdrChangeFinished(enabled, true);
+                                  [this, enabled, success, generation]() {
+                                      if (generation != m_hdrAsyncGeneration) {
+                                          return;
+                                      }
+                                      emit hdrChangeFinished(enabled, success);
                                   },
                                   Qt::QueuedConnection);
         return true;
@@ -723,22 +798,7 @@ bool DisplayManager::restoreRefreshRateLinux()
 
 bool DisplayManager::setHDRLinux(bool enabled)
 {
-    QString cmdTemplate = m_config->getLinuxHDRCommand();
-    if (cmdTemplate.isEmpty()) {
-        qWarning() << "DisplayManager: No Linux HDR command configured";
-        return false;
-    }
-    
-    QString cmd = cmdTemplate;
-    cmd.replace("{STATE}", enabled ? "on" : "off"); // Example replacement
-    
-    qDebug() << "DisplayManager: Executing Linux HDR command:" << cmd;
-    
-    QProcess process;
-    process.startCommand(cmd);
-    process.waitForFinished();
-    
-    return process.exitCode() == 0;
+    return setHDRLinuxImpl(m_config->getLinuxHDRCommand(), enabled);
 }
 #endif
 

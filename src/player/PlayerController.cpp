@@ -833,7 +833,7 @@ void PlayerController::onBufferingTimeout()
  *
  * When the backend reports it is no longer running and the controller's
  * playback state is neither Idle nor Error, this method treats the event
- * as an unexpected stop and triggers the playback stop / autoplay handling.
+ * as an unexpected stop and requests a backend-first terminal transition.
  *
  * @param running True if the backend process is running, false otherwise.
  */
@@ -858,6 +858,7 @@ void PlayerController::onProcessStateChanged(bool running)
                                 << "backendStopRequested=" << m_backendStopRequested;
 
         if (m_suppressBackendStopHandling) {
+            m_suppressBackendStopHandling = false;
             qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                     << "] backend-stop ignored during replacement playback";
             return;
@@ -1049,14 +1050,13 @@ void PlayerController::onPlaylistPositionChanged(int index)
 }
 
 /**
- * @brief Handle end-of-playback duties and trigger autoplay or prefetched navigation when appropriate.
+ * @brief Prepare a terminal playback transition for a specific termination reason.
  *
- * Checks completion progress and, if the configured completion threshold is met for the current series,
- * marks the session for autoplay, stashes the pending autoplay context, and awaits next-episode resolution.
- * Always reports playback stop and processes the provided stop event through the state machine.
- * If a usable prefetched next episode is available, consumes that prefetched data and navigates to it.
+ * Starts terminal-transition bookkeeping unless one is already active, reports playback stop once,
+ * evaluates completion/autoplay state for non-error transitions, and kicks off next-episode resolution
+ * when needed. The matching state-machine event is finalized separately after backend stop is confirmed.
  *
- * @param stopEvent Event value representing how playback ended (e.g., Stop, PlaybackEnd) to be processed.
+ * @param reason Terminal reason that should eventually drive the state-machine transition.
  */
 void PlayerController::prepareTerminalTransition(TerminalReason reason)
 {
@@ -1229,19 +1229,6 @@ int PlayerController::terminalReasonPriority(TerminalReason reason)
     }
 }
 
-void PlayerController::handlePlaybackStopAndAutoplay(Event stopEvent)
-{
-    TerminalReason reason = TerminalReason::Stop;
-    if (stopEvent == Event::PlaybackEnd) {
-        reason = TerminalReason::PlaybackEnd;
-    } else if (stopEvent == Event::ErrorOccurred) {
-        reason = TerminalReason::Error;
-    }
-
-    prepareTerminalTransition(reason);
-    finalizeTerminalTransition();
-}
-
 void PlayerController::startDeferredDisplayRestore(bool needsHdrRestore, bool needsRefreshRestore)
 {
     cancelPendingDisplayRestore();
@@ -1278,6 +1265,10 @@ void PlayerController::startDeferredDisplayRestore(bool needsHdrRestore, bool ne
                                                                                this,
                                                                                [this, generation, needsRefreshRestore](bool enabled, bool success) {
                                                                                    if (enabled || generation != m_displayRestoreGeneration) {
+                                                                                       if (m_hdrRestoreFinishedConnection) {
+                                                                                           disconnect(m_hdrRestoreFinishedConnection);
+                                                                                           m_hdrRestoreFinishedConnection = QMetaObject::Connection();
+                                                                                       }
                                                                                        return;
                                                                                    }
                                                                                    if (m_hdrRestoreFinishedConnection) {
@@ -2473,9 +2464,8 @@ void PlayerController::setEmbeddedVideoShrinkEnabled(bool enabled)
  * @brief Start playback of the configured test video.
  *
  * Clears any pending autoplay context and next-episode prefetch state, disables autoplay,
- * clears the current item identifier, sets the pending URL to the configured test video,
- * stops any currently running backend playback, and triggers the player state machine to
- * begin loading and playing the test video.
+ * reports/stops any currently running backend playback, replaces the current item context
+ * with the configured test video, and triggers the player state machine to begin loading it.
  */
 void PlayerController::playTestVideo()
 {
@@ -2483,21 +2473,23 @@ void PlayerController::playTestVideo()
     cancelPendingDisplayRestore();
     clearPendingAutoplayContext();
     clearNextEpisodePrefetchState();
-    clearPlaybackSegments();
     m_shouldAutoplay = false;
-
-    if (!m_currentItemId.isEmpty()) {
-        m_currentItemId.clear();
-        emit currentItemIdChanged();
-    }
-    m_pendingUrl = m_testVideoUrl;
     
     if (m_playerBackend->isRunning()) {
         reportPlaybackStop();
         m_suppressBackendStopHandling = true;
         m_playerBackend->stopMpv();
-        m_suppressBackendStopHandling = false;
+        if (!m_playerBackend->isRunning()) {
+            m_suppressBackendStopHandling = false;
+        }
     }
+
+    clearPlaybackSegments();
+    if (!m_currentItemId.isEmpty()) {
+        m_currentItemId.clear();
+        emit currentItemIdChanged();
+    }
+    m_pendingUrl = m_testVideoUrl;
     
     processEvent(Event::Play);
 }
@@ -2548,7 +2540,9 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         // Don't check completion threshold here - we're starting new content intentionally
         m_suppressBackendStopHandling = true;
         m_playerBackend->stopMpv();
-        m_suppressBackendStopHandling = false;
+        if (!m_playerBackend->isRunning()) {
+            m_suppressBackendStopHandling = false;
+        }
     }
 
     clearPendingAutoplayContext();
@@ -2611,14 +2605,10 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
 /**
  * @brief Stops current playback.
  *
- * If the current playback position has reached the configured completion
- * threshold for a series episode, routes through handlePlaybackStopAndAutoplay()
- * so the Up Next flow is shown (same behavior as natural playback end).
- * Otherwise clears autoplay/prefetch state and transitions to Idle without
- * requesting next-episode navigation.
- *
- * Note: some backends may emit a synchronous state change when stopped; that
- * may already transition the controller to Idle via onProcessStateChanged.
+ * Requests a backend-first terminal transition using TerminalReason::Stop.
+ * Completion-threshold and autoplay evaluation happen inside prepareTerminalTransition(),
+ * and the state-machine transition to Idle is finalized only after backend stop is confirmed.
+ * If a terminal transition is already in flight, this method returns without duplicating it.
  */
 void PlayerController::stop()
 {
