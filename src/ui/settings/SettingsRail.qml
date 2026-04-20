@@ -134,8 +134,8 @@ FocusScope {
                     anchors.verticalCenter: parent.verticalCenter
                     radius: 2
                     color: Theme.accentPrimary
-                    visible: railDelegate.isActive
-                    opacity: visible ? 1.0 : 0.0
+                    visible: true
+                    opacity: railDelegate.isActive ? 1.0 : 0.0
                     Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
                 }
 
