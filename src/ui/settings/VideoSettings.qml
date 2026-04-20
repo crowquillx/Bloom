@@ -57,14 +57,14 @@ FocusScope {
             Layout.fillWidth: true
             Layout.fillHeight: true
             contentWidth: width
-            contentHeight: contentColumn.implicitHeight
+            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
             function ensureFocusVisible(item) {
                 if (!item) return
                 var mapped = item.mapToItem(contentColumn, 0, 0)
-                var itemY = mapped.y
+                var itemY = contentColumn.y + mapped.y
                 var itemHeight = item.height
                 var viewTop = contentY
                 var viewBottom = contentY + height
@@ -78,7 +78,9 @@ FocusScope {
 
             ColumnLayout {
                 id: contentColumn
-                width: flickable.width
+                x: Theme.spacingSmall
+                y: Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingSmall
                 spacing: Theme.spacingMedium
 
                 // --- Enable Framerate Matching ---
@@ -90,7 +92,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onToggled: function(value) { ConfigManager.enableFramerateMatching = value }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
-                    KeyNavigation.down: refreshDelaySlider
+                    KeyNavigation.down: refreshDelaySlider.enabled ? refreshDelaySlider : hdrToggle
                 }
 
                 // --- Refresh Rate Switch Delay ---
@@ -122,7 +124,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onToggled: function(value) { ConfigManager.enableHDR = value }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
-                    KeyNavigation.up: refreshDelaySlider
+                    KeyNavigation.up: refreshDelaySlider.enabled ? refreshDelaySlider : framerateToggle
                     KeyNavigation.down: advancedToggle
                 }
 

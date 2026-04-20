@@ -23,20 +23,6 @@ FocusScope {
 
     property Item _lastFocusedItem: null
 
-    onActiveFocusItemChanged: {
-        let item = activeFocusItem
-        if (item && item !== root && item.visible) {
-            // Walk up to find the direct child control of contentColumn
-            let candidate = item
-            while (candidate && candidate.parent !== contentColumn) {
-                candidate = candidate.parent
-            }
-            if (candidate && candidate.parent === contentColumn) {
-                _lastFocusedItem = candidate
-            }
-        }
-    }
-
     Keys.priority: Keys.AfterItem
     Keys.onLeftPressed: function(event) {
         root.requestReturnToRail()
@@ -63,22 +49,15 @@ FocusScope {
 
     ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.spacingLarge
+        anchors.margins: Theme.spacingMedium
         spacing: 0
 
         Text {
             text: qsTr("Playback")
-            font.pixelSize: Theme.fontSizeHeader
+            font.pixelSize: Theme.fontSizeTitle
             font.family: Theme.fontPrimary
-            font.weight: Font.Bold
+            font.weight: Font.DemiBold
             color: Theme.textPrimary
-            Layout.bottomMargin: Theme.spacingMedium
-        }
-
-        Rectangle {
-            Layout.fillWidth: true
-            height: 1
-            color: Theme.borderLight
             Layout.bottomMargin: Theme.spacingMedium
         }
 
@@ -86,14 +65,14 @@ FocusScope {
             id: flickable
             Layout.fillWidth: true
             Layout.fillHeight: true
-            contentHeight: contentColumn.implicitHeight
+            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
             function ensureFocusVisible(item) {
                 if (!item) return
                 var mapped = item.mapToItem(contentColumn, 0, 0)
-                var itemY = mapped.y
+                var itemY = contentColumn.y + mapped.y
                 var itemHeight = item.height
                 var viewTop = contentY
                 var viewBottom = contentY + height
@@ -108,8 +87,10 @@ FocusScope {
 
             ColumnLayout {
                 id: contentColumn
-                width: flickable.width
-                spacing: Theme.spacingLarge
+                x: Theme.spacingSmall
+                y: Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingSmall
+                spacing: Theme.spacingMedium
 
                 // ── Group 1: Autoplay ──
 
@@ -121,6 +102,7 @@ FocusScope {
                     Layout.fillWidth: true
                     focus: true
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.down: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : thresholdSlider
 
@@ -194,6 +176,7 @@ FocusScope {
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
+                                root._lastFocusedItem = this
                                 flickable.ensureFocusVisible(this)
                                 InputModeManager.setNavigationMode("keyboard")
                                 InputModeManager.hideCursor(true)
@@ -336,6 +319,7 @@ FocusScope {
                     unit: "%"
                     Layout.fillWidth: true
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : autoplaySwitch
                     KeyNavigation.down: audioDelaySpinBox
@@ -360,6 +344,7 @@ FocusScope {
                     unit: "ms"
                     Layout.fillWidth: true
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: thresholdSlider
                     KeyNavigation.down: skipPopupDurationSlider
@@ -384,6 +369,7 @@ FocusScope {
                     unit: "s"
                     Layout.fillWidth: true
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: audioDelaySpinBox
                     KeyNavigation.down: autoSkipIntroToggle
@@ -400,6 +386,7 @@ FocusScope {
                     checked: ConfigManager.autoSkipIntro
                     Layout.fillWidth: true
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: skipPopupDurationSlider
                     KeyNavigation.down: autoSkipOutroToggle
@@ -416,6 +403,7 @@ FocusScope {
                     checked: ConfigManager.autoSkipOutro
                     Layout.fillWidth: true
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: autoSkipIntroToggle
                     KeyNavigation.down: uiSoundsToggle
@@ -436,9 +424,10 @@ FocusScope {
                     checked: ConfigManager.uiSoundsEnabled
                     Layout.fillWidth: true
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: autoSkipOutroToggle
-                    KeyNavigation.down: uiSoundsVolumeCombo
+                    KeyNavigation.down: uiSoundsVolumeCombo.enabled ? uiSoundsVolumeCombo : themeSongVolumeCombo
 
                     onToggled: function(value) {
                         ConfigManager.uiSoundsEnabled = value
@@ -480,7 +469,10 @@ FocusScope {
                         enabled: ConfigManager.uiSoundsEnabled
 
                         onActiveFocusChanged: {
-                            if (activeFocus) flickable.ensureFocusVisible(this)
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                            }
                         }
 
                         onCurrentIndexChanged: {
@@ -624,7 +616,10 @@ FocusScope {
                         focusPolicy: Qt.StrongFocus
 
                         onActiveFocusChanged: {
-                            if (activeFocus) flickable.ensureFocusVisible(this)
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                            }
                         }
 
                         onCurrentIndexChanged: {
@@ -635,7 +630,8 @@ FocusScope {
 
                         Keys.onUpPressed: function(event) {
                             if (!popup.visible) {
-                                uiSoundsVolumeCombo.forceActiveFocus()
+                                if (uiSoundsVolumeCombo.enabled) uiSoundsVolumeCombo.forceActiveFocus()
+                                else uiSoundsToggle.forceActiveFocus()
                                 event.accepted = true
                             }
                         }
@@ -735,6 +731,7 @@ FocusScope {
                     checked: ConfigManager.themeSongLoop
                     Layout.fillWidth: true
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: themeSongVolumeCombo
 

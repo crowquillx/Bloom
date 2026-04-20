@@ -27,12 +27,8 @@ FocusScope {
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
-    implicitHeight: cardBackground.implicitHeight
-
     Rectangle {
-        id: cardBackground
         anchors.fill: parent
-        implicitHeight: outerColumn.implicitHeight + Theme.paddingLarge * 2
         radius: Theme.radiusLarge
         color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.76)
         border.color: Theme.cardBorder
@@ -44,46 +40,54 @@ FocusScope {
         }
     }
 
-    Flickable {
-        id: flickable
+    ColumnLayout {
         anchors.fill: parent
-        anchors.margins: Theme.paddingLarge
-        contentHeight: outerColumn.implicitHeight
-        boundsBehavior: Flickable.StopAtBounds
-        clip: true
+        anchors.margins: Theme.spacingMedium
+        spacing: 0
 
-        function ensureFocusVisible(item) {
-            if (!item) return
-            var mapped = item.mapToItem(outerColumn, 0, 0)
-            var itemY = mapped.y
-            var itemHeight = item.height
-            var viewTop = contentY
-            var viewBottom = contentY + height
-            var padding = 50
-            if (itemY < viewTop + padding) {
-                contentY = Math.max(0, itemY - padding)
-            } else if (itemY + itemHeight > viewBottom - padding) {
-                contentY = Math.min(contentHeight - height, itemY + itemHeight - height + padding)
-            }
+        Text {
+            text: qsTr("MPV")
+            font.pixelSize: Theme.fontSizeTitle
+            font.family: Theme.fontPrimary
+            font.weight: Font.DemiBold
+            color: Theme.textPrimary
+            Layout.fillWidth: true
+            Layout.bottomMargin: Theme.spacingMedium
         }
 
-        ColumnLayout {
-            id: outerColumn
-            width: flickable.width
-            spacing: Theme.spacingLarge
+        Flickable {
+            id: flickable
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            contentWidth: width
+            contentHeight: outerColumn.implicitHeight + 2 * Theme.spacingSmall
+            boundsBehavior: Flickable.StopAtBounds
+            clip: true
 
-            // Section Title
-            Text {
-                text: qsTr("MPV")
-                font.pixelSize: Theme.fontSizeLarge
-                font.family: Theme.fontPrimary
-                font.bold: true
-                color: Theme.textPrimary
-                Layout.fillWidth: true
+            function ensureFocusVisible(item) {
+                if (!item) return
+                var mapped = item.mapToItem(outerColumn, 0, 0)
+                var itemY = outerColumn.y + mapped.y
+                var itemHeight = item.height
+                var viewTop = contentY
+                var viewBottom = contentY + height
+                var padding = 50
+                if (itemY < viewTop + padding) {
+                    contentY = Math.max(0, itemY - padding)
+                } else if (itemY + itemHeight > viewBottom - padding) {
+                    contentY = Math.min(contentHeight - height, itemY + itemHeight - height + padding)
+                }
             }
 
-            // ========================================
-            // 1. Default Profile Selector
+            ColumnLayout {
+                id: outerColumn
+                x: Theme.spacingSmall
+                y: Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingSmall
+                spacing: Theme.spacingLarge
+
+                // ========================================
+                // 1. Default Profile Selector
             // ========================================
             RowLayout {
                 Layout.fillWidth: true
@@ -487,7 +491,7 @@ FocusScope {
 
                         contentItem: Text {
                             text: newProfileBtn.text
-                            font.pixelSize: Theme.fontSizeSmall
+                            font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: Theme.accentPrimary
                             horizontalAlignment: Text.AlignHCenter
@@ -562,7 +566,7 @@ FocusScope {
 
                         contentItem: Text {
                             text: duplicateProfileBtn.text
-                            font.pixelSize: Theme.fontSizeSmall
+                            font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: duplicateProfileBtn.enabled ? Theme.accentPrimary : Theme.textDisabled
                             horizontalAlignment: Text.AlignHCenter
@@ -620,7 +624,7 @@ FocusScope {
 
                         contentItem: Text {
                             text: deleteProfileBtn.text
-                            font.pixelSize: Theme.fontSizeSmall
+                            font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: deleteProfileBtn.enabled ? "#ff8c8c" : Theme.textDisabled
                             horizontalAlignment: Text.AlignHCenter
@@ -949,6 +953,7 @@ FocusScope {
                     font.italic: true
                 }
             }
+        }
         }
     }
 }

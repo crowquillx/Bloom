@@ -57,14 +57,14 @@ FocusScope {
             Layout.fillWidth: true
             Layout.fillHeight: true
             contentWidth: width
-            contentHeight: contentColumn.implicitHeight
+            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
             function ensureFocusVisible(item) {
                 if (!item) return
                 var mapped = item.mapToItem(contentColumn, 0, 0)
-                var itemY = mapped.y
+                var itemY = contentColumn.y + mapped.y
                 var itemHeight = item.height
                 var viewTop = contentY
                 var viewBottom = contentY + height
@@ -78,7 +78,9 @@ FocusScope {
 
             ColumnLayout {
                 id: contentColumn
-                width: flickable.width
+                x: Theme.spacingSmall
+                y: Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingSmall
                 spacing: Theme.spacingMedium
 
                 // --- MDBList Section ---

@@ -70,14 +70,14 @@ FocusScope {
             Layout.fillWidth: true
             Layout.fillHeight: true
             contentWidth: width
-            contentHeight: contentColumn.implicitHeight
+            contentHeight: contentColumn.implicitHeight + 2 * Theme.spacingSmall
             clip: true
             boundsBehavior: Flickable.StopAtBounds
 
             function ensureFocusVisible(item) {
                 if (!item) return
                 var mapped = item.mapToItem(contentColumn, 0, 0)
-                var itemY = mapped.y
+                var itemY = contentColumn.y + mapped.y
                 var itemHeight = item.height
                 var viewTop = contentY
                 var viewBottom = contentY + height
@@ -91,7 +91,9 @@ FocusScope {
 
             ColumnLayout {
                 id: contentColumn
-                width: flickable.width
+                x: Theme.spacingSmall
+                y: Theme.spacingSmall
+                width: flickable.width - 2 * Theme.spacingSmall
                 spacing: Theme.spacingMedium
 
                 // ── Group 1: About Info ──
@@ -195,7 +197,9 @@ FocusScope {
                         }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
-                                checkUpdatesBtn.forceActiveFocus()
+                                if (checkUpdatesBtn.enabled) checkUpdatesBtn.forceActiveFocus()
+                                else if (openDownloadPageBtn.visible) openDownloadPageBtn.forceActiveFocus()
+                                else serverInfoRow.forceActiveFocus()
                             }
                         }
                         Keys.onReturnPressed: popup.open()
@@ -434,7 +438,7 @@ FocusScope {
                             flickable.ensureFocusVisible(this)
                         }
                     }
-                    KeyNavigation.up: openDownloadPageBtn.visible ? openDownloadPageBtn : checkUpdatesBtn
+                    KeyNavigation.up: openDownloadPageBtn.visible ? openDownloadPageBtn : (checkUpdatesBtn.enabled ? checkUpdatesBtn : updateChannelCombo)
                     Keys.onReturnPressed: root.signOutRequested()
                     Keys.onEnterPressed: root.signOutRequested()
 
