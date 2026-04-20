@@ -982,6 +982,7 @@ FocusScope {
                     cache: true
                     visible: root.overlayLogoSource.length > 0 && status !== Image.Error
                     opacity: status === Image.Ready ? 1.0 : 0.0
+                    Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
                 }
                 Text {
                     id: bufferingTitleText
@@ -990,7 +991,10 @@ FocusScope {
                     width: parent.width
                     horizontalAlignment: Text.AlignHCenter
                     text: root.mediaTitle
-                    visible: root.overlayLogoSource.length === 0 || bufferingTitleLogo.status === Image.Error
+                    visible: root.overlayLogoSource.length === 0
+                             || bufferingTitleLogo.status === Image.Error
+                             || bufferingTitleLogo.status === Image.Loading
+                             || bufferingTitleLogo.status === Image.Null
                     color: Qt.rgba(Theme.textPrimary.r, Theme.textPrimary.g, Theme.textPrimary.b, 0.82)
                     font.family: Theme.fontPrimary
                     font.pixelSize: Math.round(18 * Theme.layoutScale)
@@ -1049,6 +1053,7 @@ FocusScope {
                         cache: true
                         visible: root.overlayLogoSource.length > 0 && status !== Image.Error
                         opacity: status === Image.Ready ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
                     }
                     Text {
                         id: chromeTitleText
@@ -1056,7 +1061,10 @@ FocusScope {
                         anchors.verticalCenter: parent.verticalCenter
                         width: parent.width
                         text: root.mediaTitle
-                        visible: root.overlayLogoSource.length === 0 || chromeTitleLogo.status === Image.Error
+                        visible: root.overlayLogoSource.length === 0
+                                 || chromeTitleLogo.status === Image.Error
+                                 || chromeTitleLogo.status === Image.Loading
+                                 || chromeTitleLogo.status === Image.Null
                         color: Theme.textPrimary
                         font.family: Theme.fontPrimary
                         font.pixelSize: Math.round(36 * Theme.layoutScale)
