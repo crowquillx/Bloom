@@ -1,22 +1,22 @@
 {
-  "build_id": "0.6.0",
+  "build_id": "0.6.1",
   "channel": "stable",
   "installer": {
-    "filename": "Bloom-Setup-0.6.0.exe",
-    "sha256": "f7b9082948c4ca1613277a3e1c6f5ca8a697795d5565556b4bef0afaf28093ad",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.0/Bloom-Setup-0.6.0.exe"
+    "filename": "Bloom-Setup-0.6.1.exe",
+    "sha256": "dc3d884b1da4ce872cc17eccf0fd4abc07bd5fbce8e478bdb701f59ab612757b",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.1/Bloom-Setup-0.6.1.exe"
   },
-  "notes": "## What's Changed in v0.6.0\n\n### New Features\n\n- **windows**: add auto-update system\n\n### Bug Fixes\n\n- **ui**: refine detail actions and startup fullscreen\n- read Windows CI version from VERSION\n- unify version source across build tooling\n- address sidebar review feedback\n- **sidebar**: resolve Qt layout polish freeze on NixOS\n- **sidebar**: resolve Qt layout polish freeze on NixOS\n- **qml**: address review follow-ups\n- **qml**: defer heavyweight startup components\n- **qml**: reduce runtime warning regressions\n- **ci**: standardize notes file errors\n- **ci**: normalize manifest channel input\n- **ci**: validate manifest identifiers\n- **updater**: tighten update state handling\n- **updater**: address review nits\n- **ui**: polish updater dialog focus flow\n- **updater**: address review follow-ups\n- **ui**: improve update navigation and labels\n- **updater**: harden update checks and downloads\n\n### Documentation\n\n- **updates**: align updater documentation\n\n### Build\n\n- fetch pinned mpv sdk with curl\n- use direct sourceforge mpv sdk urls\n- pin windows mpv sdk version\n- **nix**: add Nix package build with Qt 6.10 isolation\n- **nix**: add Nix package build with Qt 6.10 isolation\n\n### Other\n\n- Run qmllint in Docker build and fix update dialog footer\n\n**Full changelog:** [v0.5.2...v0.6.0](https://github.com/crowquillx/Bloom/compare/v0.5.2...v0.6.0)",
+  "notes": "## What's Changed in v0.6.1\n\n### New Features\n\n- **settings**: introduce rail-panel architecture with per-section pages\n\n### Bug Fixes\n\n- harden replacement playback and display restore flows\n- harden playback stop and HDR restore flow\n- **playback**: harden windows embedded stop teardown\n- harden settings rail selection sync\n- restore settings saved toast\n- preserve default mpv profile selection\n- repair mpv settings qml syntax\n- address settings review findings\n- **settings**: normalize layouts, focus rings, and keyboard navigation\n- remove Qt::UniqueConnection flag from lambda slot connections\n- **ui**: persist update channel on keyboard selection and use theme tokens\n- **ui**: restyle updates settings section for consistency and keyboard nav\n\n### Other\n\n- v0.6.1\n- Fix accent bar fade-out animation in SettingsRail (#36)\n\n**Full changelog:** [v0.6.0...v0.6.1](https://github.com/crowquillx/Bloom/compare/v0.6.0...v0.6.1)",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "8a745c46ba15fd1883eda1bec35ddfa3244495b2a47ead86c73c608c18eb336b",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.0/Bloom-Windows.zip"
+    "sha256": "ee3b3a2f6f528e9e4fa4ebb0492dd74731d1a5e93cb2229cc73d1943ff31fa56",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.1/Bloom-Windows.zip"
   },
-  "published_at": "2026-04-20T00:58:25.9692346Z",
-  "release_tag": "v0.6.0",
+  "published_at": "2026-04-20T19:27:58.6696772Z",
+  "release_tag": "v0.6.1",
   "rollout": {
     "enabled": true,
-    "minimum_supported_version": "0.6.0"
+    "minimum_supported_version": "0.6.1"
   },
-  "version": "0.6.0"
+  "version": "0.6.1"
 }
