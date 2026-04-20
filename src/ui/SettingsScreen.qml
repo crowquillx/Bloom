@@ -94,10 +94,10 @@ FocusScope {
     // Focus Management
     // ========================================
 
-    function findSectionIndex(sectionName) {
+    function findSectionIndex(sectionKey) {
         var sections = settingsRail.sectionModel || []
         for (var i = 0; i < sections.length; ++i) {
-            if (sections[i].name === sectionName) return i
+            if (sections[i].sectionKey === sectionKey) return i
         }
         return 0
     }
@@ -105,7 +105,7 @@ FocusScope {
     // Navigate to the About & Account section and focus updates controls.
     // Called by Main.qml when navigating to settings via "updates" sidebar item.
     function requestUpdateSectionFocus() {
-        settingsRail.currentSection = findSectionIndex(qsTr("About & Account"))
+        settingsRail.currentSection = findSectionIndex(settingsRail.aboutAccountSectionKey)
         Qt.callLater(function() {
             aboutAccountSection.enterFromRail()
         })

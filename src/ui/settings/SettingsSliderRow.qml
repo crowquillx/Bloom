@@ -47,6 +47,20 @@ FocusScope {
         }
     }
 
+    function displayDecimals() {
+        var step = Math.abs(stepSize)
+        var decimals = 0
+        while (decimals < 6 && Math.abs(Math.round(step) - step) > 0.000001) {
+            step *= 10
+            decimals += 1
+        }
+        return decimals
+    }
+
+    function formattedValueText() {
+        return Number(root.value).toFixed(displayDecimals()) + root.unit
+    }
+
     Rectangle {
         anchors.fill: parent
         anchors.margins: -Theme.spacingSmall
@@ -98,7 +112,7 @@ FocusScope {
 
                 Text {
                     anchors.centerIn: parent
-                    text: Math.round(root.value) + root.unit
+                    text: root.formattedValueText()
                     font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary
                     color: Theme.textPrimary

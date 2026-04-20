@@ -7,19 +7,26 @@ FocusScope {
     id: root
 
     property int currentSection: 0
+    readonly property string aboutAccountSectionKey: "about-account"
 
     signal enterContentRequested()
 
     implicitWidth: Math.round(280 * Theme.layoutScale)
 
     readonly property var sectionModel: [
-        { name: qsTr("Playback"),          icon: "\ue037" },
-        { name: qsTr("Display"),           icon: "\ue40a" },
-        { name: qsTr("Video"),             icon: "\ue04b" },
-        { name: qsTr("MPV"),               icon: "\ue429" },
-        { name: qsTr("Integrations"),      icon: "\ue2c3" },
-        { name: qsTr("About & Account"),   icon: "\ue88e" }
+        { sectionKey: "playback",        name: qsTr("Playback"),        icon: "\ue037" },
+        { sectionKey: "display",         name: qsTr("Display"),         icon: "\ue40a" },
+        { sectionKey: "video",           name: qsTr("Video"),           icon: "\ue04b" },
+        { sectionKey: "mpv",             name: qsTr("MPV"),             icon: "\ue429" },
+        { sectionKey: "integrations",    name: qsTr("Integrations"),    icon: "\ue2c3" },
+        { sectionKey: aboutAccountSectionKey, name: qsTr("About & Account"), icon: "\ue88e" }
     ]
+
+    onCurrentSectionChanged: {
+        if (railList.currentIndex !== currentSection) {
+            railList.currentIndex = currentSection
+        }
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -73,13 +80,18 @@ FocusScope {
             Layout.fillWidth: true
             Layout.fillHeight: true
             model: sectionModel
-            currentIndex: root.currentSection
             clip: true
             focus: true
             boundsBehavior: Flickable.StopAtBounds
 
             onCurrentIndexChanged: {
-                root.currentSection = currentIndex
+                if (currentIndex >= 0 && root.currentSection !== currentIndex) {
+                    root.currentSection = currentIndex
+                }
+            }
+
+            Component.onCompleted: {
+                currentIndex = root.currentSection
             }
 
             Keys.onRightPressed: root.enterContentRequested()
