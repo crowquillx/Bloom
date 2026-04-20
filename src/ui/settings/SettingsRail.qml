@@ -91,6 +91,7 @@ FocusScope {
                 width: railList.width
                 height: Math.round(56 * Theme.layoutScale)
                 focusPolicy: Qt.StrongFocus
+                leftPadding: Theme.spacingSmall
 
                 property bool isActive: railList.currentIndex === index
                 property bool hasFocus: railDelegate.activeFocus || (railList.activeFocus && isActive)
@@ -128,14 +129,12 @@ FocusScope {
 
                 contentItem: RowLayout {
                     spacing: Theme.spacingSmall
-                    anchors.leftMargin: Theme.spacingSmall
 
                     Text {
                         text: modelData.icon
                         font.family: Theme.fontIcon
                         font.pixelSize: Theme.fontSizeBody
                         color: railDelegate.isActive ? Theme.accentPrimary : Theme.textSecondary
-                        Layout.leftMargin: Theme.spacingSmall
                     }
 
                     Text {
@@ -150,7 +149,7 @@ FocusScope {
                 }
 
                 onClicked: {
-                    railList.currentIndex = index
+                    root.currentSection = index
                 }
             }
         }

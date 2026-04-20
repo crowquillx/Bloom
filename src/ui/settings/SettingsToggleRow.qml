@@ -9,7 +9,7 @@ FocusScope {
     property string label: ""
     property string description: ""
     property bool checked: false
-    property bool isHovered: hoverTracker.containsMouse
+    property bool isHovered: rowClickArea.containsMouse
     property bool hasKeyboardFocus: root.activeFocus
     property var ensureVisible: null
 
@@ -25,16 +25,16 @@ FocusScope {
     Layout.fillWidth: true
 
     onActiveFocusChanged: {
-        if (activeFocus && ensureVisible) ensureVisible(this)
+        if (activeFocus && ensureVisible) ensureVisible(root)
     }
 
-    Keys.onSpacePressed: toggle()
-    Keys.onReturnPressed: toggle()
-    Keys.onEnterPressed: toggle()
+    Keys.onSpacePressed: function(event) { toggle(); event.accepted = true }
+    Keys.onReturnPressed: function(event) { toggle(); event.accepted = true }
+    Keys.onEnterPressed: function(event) { toggle(); event.accepted = true }
 
     function toggle() {
-        checked = !checked
-        toggled(checked)
+        if (!enabled) return
+        toggled(!checked)
     }
 
     Rectangle {
@@ -64,6 +64,15 @@ FocusScope {
         opacity: visible ? 1.0 : 0.0
 
         Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
+    }
+
+    MouseArea {
+        id: rowClickArea
+        anchors.fill: parent
+        enabled: root.enabled
+        hoverEnabled: true
+        cursorShape: Qt.PointingHandCursor
+        onClicked: root.toggle()
     }
 
     RowLayout {
@@ -115,17 +124,11 @@ FocusScope {
 
             MouseArea {
                 anchors.fill: parent
+                enabled: root.enabled
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.toggle()
             }
         }
     }
 
-    MouseArea {
-        id: hoverTracker
-        anchors.fill: parent
-        acceptedButtons: Qt.NoButton
-        hoverEnabled: true
-        z: 10
-    }
 }

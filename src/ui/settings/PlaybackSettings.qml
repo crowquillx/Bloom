@@ -77,11 +77,12 @@ FocusScope {
                 var viewTop = contentY
                 var viewBottom = contentY + height
                 var padding = 50
+                var maxScroll = Math.max(0, contentHeight - height)
 
                 if (itemY < viewTop + padding) {
                     contentY = Math.max(0, itemY - padding)
                 } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(contentHeight - height, itemY + itemHeight - height + padding)
+                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
                 }
             }
 
@@ -447,14 +448,14 @@ FocusScope {
                             text: qsTr("UI Sound Volume")
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
+                            color: uiSoundsVolumeCombo.enabled ? Theme.textPrimary : Theme.textDisabled
                         }
 
                         Text {
                             text: qsTr("Click feedback for navigation and selection")
                             font.pixelSize: Theme.fontSizeSmall
                             font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
+                            color: uiSoundsVolumeCombo.enabled ? Theme.textSecondary : Theme.textDisabled
                             wrapMode: Text.WordWrap
                             Layout.fillWidth: true
                         }
@@ -463,19 +464,46 @@ FocusScope {
                     ComboBox {
                         id: uiSoundsVolumeCombo
                         model: [qsTr("Off"), qsTr("Very Low"), qsTr("Low"), qsTr("Medium"), qsTr("High")]
-                        currentIndex: ConfigManager.uiSoundsVolume
+                        currentIndex: 0
                         Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
                         enabled: ConfigManager.uiSoundsEnabled
+                        property bool initialized: false
+                        property bool updatingSelection: false
+
+                        function refreshSelectionFromConfig() {
+                            if (currentIndex === ConfigManager.uiSoundsVolume) return
+                            updatingSelection = true
+                            currentIndex = ConfigManager.uiSoundsVolume
+                            updatingSelection = false
+                        }
+
+                        Component.onCompleted: {
+                            refreshSelectionFromConfig()
+                            initialized = true
+                        }
+
+                        Connections {
+                            target: ConfigManager
+                            function onUiSoundsVolumeChanged() {
+                                uiSoundsVolumeCombo.refreshSelectionFromConfig()
+                            }
+                        }
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
                                 root._lastFocusedItem = this
                                 flickable.ensureFocusVisible(this)
+                                InputModeManager.setNavigationMode("keyboard")
+                                InputModeManager.hideCursor(true)
+                            } else if (!popup.visible) {
+                                InputModeManager.setNavigationMode("pointer")
+                                InputModeManager.hideCursor(false)
                             }
                         }
 
                         onCurrentIndexChanged: {
+                            if (!initialized || updatingSelection) return
                             if (currentIndex !== ConfigManager.uiSoundsVolume) {
                                 ConfigManager.uiSoundsVolume = currentIndex
                             }
@@ -539,12 +567,18 @@ FocusScope {
                             padding: 1
 
                             onOpened: {
+                                InputModeManager.setNavigationMode("keyboard")
+                                InputModeManager.hideCursor(true)
                                 uiSoundsVolumeList.currentIndex = uiSoundsVolumeCombo.highlightedIndex >= 0
                                     ? uiSoundsVolumeCombo.highlightedIndex
                                     : uiSoundsVolumeCombo.currentIndex
                                 uiSoundsVolumeList.forceActiveFocus()
                             }
-                            onClosed: uiSoundsVolumeCombo.forceActiveFocus()
+                            onClosed: {
+                                uiSoundsVolumeCombo.forceActiveFocus()
+                                InputModeManager.setNavigationMode("pointer")
+                                InputModeManager.hideCursor(false)
+                            }
 
                             contentItem: ListView {
                                 id: uiSoundsVolumeList
@@ -557,12 +591,23 @@ FocusScope {
 
                                 ScrollIndicator.vertical: ScrollIndicator { }
 
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        InputModeManager.setNavigationMode("keyboard")
+                                        InputModeManager.hideCursor(true)
+                                    }
+                                }
+
                                 Keys.onReturnPressed: {
-                                    uiSoundsVolumeCombo.currentIndex = currentIndex
+                                    if (currentIndex !== ConfigManager.uiSoundsVolume) {
+                                        ConfigManager.uiSoundsVolume = currentIndex
+                                    }
                                     uiSoundsVolumeCombo.popup.close()
                                 }
                                 Keys.onEnterPressed: {
-                                    uiSoundsVolumeCombo.currentIndex = currentIndex
+                                    if (currentIndex !== ConfigManager.uiSoundsVolume) {
+                                        ConfigManager.uiSoundsVolume = currentIndex
+                                    }
                                     uiSoundsVolumeCombo.popup.close()
                                 }
                                 Keys.onEscapePressed: uiSoundsVolumeCombo.popup.close()
@@ -611,18 +656,45 @@ FocusScope {
                     ComboBox {
                         id: themeSongVolumeCombo
                         model: [qsTr("Off"), qsTr("Very Low"), qsTr("Low"), qsTr("Medium"), qsTr("High")]
-                        currentIndex: ConfigManager.themeSongVolume
+                        currentIndex: 0
                         Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
+                        property bool initialized: false
+                        property bool updatingSelection: false
+
+                        function refreshSelectionFromConfig() {
+                            if (currentIndex === ConfigManager.themeSongVolume) return
+                            updatingSelection = true
+                            currentIndex = ConfigManager.themeSongVolume
+                            updatingSelection = false
+                        }
+
+                        Component.onCompleted: {
+                            refreshSelectionFromConfig()
+                            initialized = true
+                        }
+
+                        Connections {
+                            target: ConfigManager
+                            function onThemeSongVolumeChanged() {
+                                themeSongVolumeCombo.refreshSelectionFromConfig()
+                            }
+                        }
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
                                 root._lastFocusedItem = this
                                 flickable.ensureFocusVisible(this)
+                                InputModeManager.setNavigationMode("keyboard")
+                                InputModeManager.hideCursor(true)
+                            } else if (!popup.visible) {
+                                InputModeManager.setNavigationMode("pointer")
+                                InputModeManager.hideCursor(false)
                             }
                         }
 
                         onCurrentIndexChanged: {
+                            if (!initialized || updatingSelection) return
                             if (currentIndex !== ConfigManager.themeSongVolume) {
                                 ConfigManager.themeSongVolume = currentIndex
                             }
@@ -685,12 +757,18 @@ FocusScope {
                             padding: 1
 
                             onOpened: {
+                                InputModeManager.setNavigationMode("keyboard")
+                                InputModeManager.hideCursor(true)
                                 themeSongVolumeList.currentIndex = themeSongVolumeCombo.highlightedIndex >= 0
                                     ? themeSongVolumeCombo.highlightedIndex
                                     : themeSongVolumeCombo.currentIndex
                                 themeSongVolumeList.forceActiveFocus()
                             }
-                            onClosed: themeSongVolumeCombo.forceActiveFocus()
+                            onClosed: {
+                                themeSongVolumeCombo.forceActiveFocus()
+                                InputModeManager.setNavigationMode("pointer")
+                                InputModeManager.hideCursor(false)
+                            }
 
                             contentItem: ListView {
                                 id: themeSongVolumeList
@@ -703,12 +781,23 @@ FocusScope {
 
                                 ScrollIndicator.vertical: ScrollIndicator { }
 
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        InputModeManager.setNavigationMode("keyboard")
+                                        InputModeManager.hideCursor(true)
+                                    }
+                                }
+
                                 Keys.onReturnPressed: {
-                                    themeSongVolumeCombo.currentIndex = currentIndex
+                                    if (currentIndex !== ConfigManager.themeSongVolume) {
+                                        ConfigManager.themeSongVolume = currentIndex
+                                    }
                                     themeSongVolumeCombo.popup.close()
                                 }
                                 Keys.onEnterPressed: {
-                                    themeSongVolumeCombo.currentIndex = currentIndex
+                                    if (currentIndex !== ConfigManager.themeSongVolume) {
+                                        ConfigManager.themeSongVolume = currentIndex
+                                    }
                                     themeSongVolumeCombo.popup.close()
                                 }
                                 Keys.onEscapePressed: themeSongVolumeCombo.popup.close()

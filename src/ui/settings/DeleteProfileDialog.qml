@@ -97,8 +97,8 @@ Dialog {
                 Keys.onReturnPressed: root.accept()
                 Keys.onEnterPressed: root.accept()
                 onClicked: root.accept()
-                contentItem: Text { text: confirmBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: "#ff6b6b"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
-                background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: confirmBtn.hovered ? Qt.rgba(1, 0.4, 0.4, 0.2) : "transparent"; border.color: confirmBtn.activeFocus ? Theme.focusBorder : "#ff6b6b"; border.width: confirmBtn.activeFocus ? 2 : 1 }
+                contentItem: Text { text: confirmBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: Theme.colorDestructive; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: confirmBtn.hovered ? Theme.destructiveHoverBg : "transparent"; border.color: confirmBtn.activeFocus ? Theme.focusBorder : Theme.destructiveBorder; border.width: confirmBtn.activeFocus ? 2 : 1 }
             }
         }
     }

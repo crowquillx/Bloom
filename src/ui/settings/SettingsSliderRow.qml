@@ -25,7 +25,7 @@ FocusScope {
     Layout.fillWidth: true
 
     onActiveFocusChanged: {
-        if (activeFocus && ensureVisible) ensureVisible(this)
+        if (activeFocus && ensureVisible) ensureVisible(root)
     }
 
     Keys.onLeftPressed: decreaseValue()

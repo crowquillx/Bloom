@@ -131,6 +131,9 @@ QtObject {
     property color chipBorder: activeTheme.chipBorder
     property color textOnAccent: "#191724"  // Dark text for use on accent-colored backgrounds
     property color errorColor: "#ff6b6b"
+    property color colorDestructive: errorColor
+    property color destructiveBorder: colorDestructive
+    property color destructiveHoverBg: Qt.rgba(colorDestructive.r, colorDestructive.g, colorDestructive.b, 0.2)
     
     // Overlays & Gradients
     property color overlayDark: "#60000000"

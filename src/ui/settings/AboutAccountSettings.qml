@@ -18,7 +18,7 @@ FocusScope {
     property string qtVersion: ""
 
     function enterFromRail() {
-        var target = _lastFocusedItem || preferredEntryItem
+        var target = (_lastFocusedItem && _lastFocusedItem.visible) ? _lastFocusedItem : preferredEntryItem
         if (target) target.forceActiveFocus()
     }
 
@@ -33,9 +33,35 @@ FocusScope {
         return parsed.toLocaleString(Qt.locale())
     }
 
+    function visibleUpdateRowButtons() {
+        var buttons = []
+        if (downloadInstallBtn.visible) buttons.push(downloadInstallBtn)
+        if (openInstallerBtn.visible) buttons.push(openInstallerBtn)
+        if (openPortableBtn.visible) buttons.push(openPortableBtn)
+        return buttons
+    }
+
+    function lastVisibleUpdateTarget() {
+        if (openDownloadPageBtn.visible) return openDownloadPageBtn
+        var rowButtons = visibleUpdateRowButtons()
+        return rowButtons.length > 0 ? rowButtons[rowButtons.length - 1] : null
+    }
+
+    function focusAdjacentUpdateButton(currentButton, step) {
+        var buttons = [checkUpdatesBtn].concat(visibleUpdateRowButtons())
+        if (openDownloadPageBtn.visible) buttons.push(openDownloadPageBtn)
+        var index = buttons.indexOf(currentButton)
+        var nextIndex = index + step
+        if (index >= 0 && nextIndex >= 0 && nextIndex < buttons.length) {
+            buttons[nextIndex].forceActiveFocus()
+            return true
+        }
+        return false
+    }
+
     Keys.priority: Keys.AfterItem
-    Keys.onLeftPressed: requestReturnToRail()
-    Keys.onEscapePressed: requestReturnToRail()
+    Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
+    Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
     // Glass card background
     Rectangle {
@@ -82,10 +108,11 @@ FocusScope {
                 var viewTop = contentY
                 var viewBottom = contentY + height
                 var padding = 50
+                var maxScroll = Math.max(0, contentHeight - height)
                 if (itemY < viewTop + padding) {
                     contentY = Math.max(0, itemY - padding)
                 } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(contentHeight - height, itemY + itemHeight - height + padding)
+                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
                 }
             }
 
@@ -177,8 +204,9 @@ FocusScope {
                         onCurrentIndexChanged: {
                             if (!initialized || updatingSelection) return
                             var channel = currentIndex === 1 ? "dev" : "stable"
-                            ConfigManager.updateChannel = channel
-                            UpdateService.setChannel(channel)
+                            if (channel !== ConfigManager.updateChannel) {
+                                UpdateService.setChannel(channel)
+                            }
                         }
 
                         Connections {
@@ -193,13 +221,15 @@ FocusScope {
                         Keys.onUpPressed: function(event) {
                             if (!popup.visible) {
                                 autoUpdateCheckToggle.forceActiveFocus()
+                                event.accepted = true
                             }
                         }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
                                 if (checkUpdatesBtn.enabled) checkUpdatesBtn.forceActiveFocus()
                                 else if (openDownloadPageBtn.visible) openDownloadPageBtn.forceActiveFocus()
-                                else serverInfoRow.forceActiveFocus()
+                                else signOutBtn.forceActiveFocus()
+                                event.accepted = true
                             }
                         }
                         Keys.onReturnPressed: popup.open()
@@ -289,8 +319,25 @@ FocusScope {
                                 flickable.ensureFocusVisible(this)
                             }
                         }
-                        KeyNavigation.up: updateChannelCombo
-                        KeyNavigation.down: openDownloadPageBtn.visible ? openDownloadPageBtn : serverInfoRow
+                        Keys.onUpPressed: function(event) {
+                            updateChannelCombo.forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (openDownloadPageBtn.visible) {
+                                openDownloadPageBtn.forceActiveFocus()
+                            } else {
+                                signOutBtn.forceActiveFocus()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onLeftPressed: function(event) {
+                            event.accepted = true
+                        }
+                        Keys.onRightPressed: function(event) {
+                            root.focusAdjacentUpdateButton(checkUpdatesBtn, 1)
+                            event.accepted = true
+                        }
                         contentItem: Text { text: checkUpdatesBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: checkUpdatesBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                         background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: checkUpdatesBtn.activeFocus || checkUpdatesBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground; border.color: checkUpdatesBtn.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder; border.width: checkUpdatesBtn.activeFocus ? 2 : Theme.buttonBorderWidth; opacity: checkUpdatesBtn.enabled ? 1.0 : 0.5 }
                     }
@@ -306,6 +353,26 @@ FocusScope {
                                 root._lastFocusedItem = this
                                 flickable.ensureFocusVisible(this)
                             }
+                        }
+                        Keys.onUpPressed: function(event) {
+                            updateChannelCombo.forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (openDownloadPageBtn.visible) {
+                                openDownloadPageBtn.forceActiveFocus()
+                            } else {
+                                signOutBtn.forceActiveFocus()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onLeftPressed: function(event) {
+                            root.focusAdjacentUpdateButton(downloadInstallBtn, -1)
+                            event.accepted = true
+                        }
+                        Keys.onRightPressed: function(event) {
+                            root.focusAdjacentUpdateButton(downloadInstallBtn, 1)
+                            event.accepted = true
                         }
                         contentItem: Text { text: downloadInstallBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: downloadInstallBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                         background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: downloadInstallBtn.activeFocus || downloadInstallBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"; border.color: downloadInstallBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary; border.width: downloadInstallBtn.activeFocus ? 2 : 1; opacity: downloadInstallBtn.enabled ? 1.0 : 0.5 }
@@ -323,6 +390,26 @@ FocusScope {
                                 flickable.ensureFocusVisible(this)
                             }
                         }
+                        Keys.onUpPressed: function(event) {
+                            updateChannelCombo.forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (openDownloadPageBtn.visible) {
+                                openDownloadPageBtn.forceActiveFocus()
+                            } else {
+                                signOutBtn.forceActiveFocus()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onLeftPressed: function(event) {
+                            root.focusAdjacentUpdateButton(openInstallerBtn, -1)
+                            event.accepted = true
+                        }
+                        Keys.onRightPressed: function(event) {
+                            root.focusAdjacentUpdateButton(openInstallerBtn, 1)
+                            event.accepted = true
+                        }
                         contentItem: Text { text: openInstallerBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: openInstallerBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                         background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: openInstallerBtn.activeFocus || openInstallerBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"; border.color: openInstallerBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary; border.width: openInstallerBtn.activeFocus ? 2 : 1; opacity: openInstallerBtn.enabled ? 1.0 : 0.5 }
                     }
@@ -338,6 +425,26 @@ FocusScope {
                                 root._lastFocusedItem = this
                                 flickable.ensureFocusVisible(this)
                             }
+                        }
+                        Keys.onUpPressed: function(event) {
+                            updateChannelCombo.forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (openDownloadPageBtn.visible) {
+                                openDownloadPageBtn.forceActiveFocus()
+                            } else {
+                                signOutBtn.forceActiveFocus()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onLeftPressed: function(event) {
+                            root.focusAdjacentUpdateButton(openPortableBtn, -1)
+                            event.accepted = true
+                        }
+                        Keys.onRightPressed: function(event) {
+                            root.focusAdjacentUpdateButton(openPortableBtn, 1)
+                            event.accepted = true
                         }
                         contentItem: Text { text: openPortableBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: openPortableBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                         background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: openPortableBtn.activeFocus || openPortableBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"; border.color: openPortableBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary; border.width: openPortableBtn.activeFocus ? 2 : 1; opacity: openPortableBtn.enabled ? 1.0 : 0.5 }
@@ -405,8 +512,31 @@ FocusScope {
                             flickable.ensureFocusVisible(this)
                         }
                     }
-                    KeyNavigation.up: checkUpdatesBtn
-                    KeyNavigation.down: serverInfoRow
+                    Keys.onUpPressed: function(event) {
+                        var rowButtons = root.visibleUpdateRowButtons()
+                        if (rowButtons.length > 0) {
+                            rowButtons[rowButtons.length - 1].forceActiveFocus()
+                        } else {
+                            checkUpdatesBtn.forceActiveFocus()
+                        }
+                        event.accepted = true
+                    }
+                    Keys.onDownPressed: function(event) {
+                        signOutBtn.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onLeftPressed: function(event) {
+                        var rowButtons = root.visibleUpdateRowButtons()
+                        if (rowButtons.length > 0) {
+                            rowButtons[rowButtons.length - 1].forceActiveFocus()
+                        } else {
+                            checkUpdatesBtn.forceActiveFocus()
+                        }
+                        event.accepted = true
+                    }
+                    Keys.onRightPressed: function(event) {
+                        event.accepted = true
+                    }
                     contentItem: Text { text: openDownloadPageBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: openDownloadPageBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: openDownloadPageBtn.activeFocus || openDownloadPageBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground; border.color: openDownloadPageBtn.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder; border.width: openDownloadPageBtn.activeFocus ? 2 : Theme.buttonBorderWidth; opacity: openDownloadPageBtn.enabled ? 1.0 : 0.5 }
                 }
@@ -438,7 +568,17 @@ FocusScope {
                             flickable.ensureFocusVisible(this)
                         }
                     }
-                    KeyNavigation.up: openDownloadPageBtn.visible ? openDownloadPageBtn : (checkUpdatesBtn.enabled ? checkUpdatesBtn : updateChannelCombo)
+                    Keys.onUpPressed: function(event) {
+                        var target = root.lastVisibleUpdateTarget()
+                        if (target) {
+                            target.forceActiveFocus()
+                        } else if (checkUpdatesBtn.enabled) {
+                            checkUpdatesBtn.forceActiveFocus()
+                        } else {
+                            updateChannelCombo.forceActiveFocus()
+                        }
+                        event.accepted = true
+                    }
                     Keys.onReturnPressed: root.signOutRequested()
                     Keys.onEnterPressed: root.signOutRequested()
 
@@ -447,7 +587,7 @@ FocusScope {
 
                         Text {
                             text: "\uf2f5"
-                            font.family: Theme.iconFont
+                            font.family: Theme.fontIcon
                             font.pixelSize: Theme.fontSizeBody
                             color: Theme.textPrimary
                             verticalAlignment: Text.AlignVCenter

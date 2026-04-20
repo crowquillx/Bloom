@@ -60,11 +60,18 @@ FocusScope {
     // Focus Management
     // ========================================
 
-    // Navigate to the About & Account section (index 5) and focus updates controls.
+    function findSectionIndex(sectionName) {
+        var sections = settingsRail.sectionModel || []
+        for (var i = 0; i < sections.length; ++i) {
+            if (sections[i].name === sectionName) return i
+        }
+        return 0
+    }
+
+    // Navigate to the About & Account section and focus updates controls.
     // Called by Main.qml when navigating to settings via "updates" sidebar item.
     function requestUpdateSectionFocus() {
-        settingsRail.currentSection = 5
-        contentStack.currentIndex = 5
+        settingsRail.currentSection = findSectionIndex(qsTr("About & Account"))
         Qt.callLater(function() {
             aboutAccountSection.enterFromRail()
         })
@@ -270,7 +277,15 @@ FocusScope {
     NewProfileDialog {
         id: newProfileDialog
         onProfileCreated: function(name) {
-            ConfigManager.createMpvProfile(name)
+            ConfigManager.setMpvProfile(name, {
+                "hwdecEnabled": true,
+                "hwdecMethod": "auto",
+                "deinterlace": false,
+                "deinterlaceMethod": "",
+                "videoOutput": "gpu-next",
+                "interpolation": false,
+                "extraArgs": ["--fullscreen"]
+            })
         }
     }
 
@@ -296,7 +311,6 @@ FocusScope {
             Layout.fillHeight: true
             Layout.preferredWidth: implicitWidth
 
-            onCurrentSectionChanged: contentStack.currentIndex = currentSection
             onEnterContentRequested: root.enterContentPanel()
         }
 

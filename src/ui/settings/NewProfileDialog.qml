@@ -74,7 +74,7 @@ Dialog {
                 text: qsTr("A profile with this name already exists")
                 font.pixelSize: Theme.fontSizeSmall
                 font.family: Theme.fontPrimary
-                color: "#ff6b6b"
+                color: Theme.errorColor
             }
         }
     }

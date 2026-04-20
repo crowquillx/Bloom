@@ -45,7 +45,7 @@ FocusScope {
             focus: true
             font.pixelSize: Theme.fontSizeBody
             font.family: Theme.fontPrimary
-            cursorVisible: activeFocus && (typeof InputModeManager === "undefined" || InputModeManager.pointerActive)
+            cursorVisible: activeFocus
 
             color: Theme.textPrimary
             placeholderTextColor: Theme.textSecondary

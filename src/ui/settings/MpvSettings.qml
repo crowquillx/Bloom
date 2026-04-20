@@ -15,7 +15,7 @@ FocusScope {
     signal openDeleteProfileDialog(string profileName, Item returnFocusTarget)
 
     function enterFromRail() {
-        var target = _lastFocusedItem || defaultProfileCombo
+        var target = (_lastFocusedItem && _lastFocusedItem.visible) ? _lastFocusedItem : defaultProfileCombo
         if (target) target.forceActiveFocus()
     }
 
@@ -72,10 +72,11 @@ FocusScope {
                 var viewTop = contentY
                 var viewBottom = contentY + height
                 var padding = 50
+                var maxScroll = Math.max(0, contentHeight - height)
                 if (itemY < viewTop + padding) {
                     contentY = Math.max(0, itemY - padding)
                 } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(contentHeight - height, itemY + itemHeight - height + padding)
+                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
                 }
             }
 
@@ -88,160 +89,161 @@ FocusScope {
 
                 // ========================================
                 // 1. Default Profile Selector
-            // ========================================
-            RowLayout {
-                Layout.fillWidth: true
-                spacing: Theme.spacingMedium
-
-                ColumnLayout {
-                    spacing: Math.round(4 * Theme.layoutScale)
+                // ========================================
+                RowLayout {
                     Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
 
-                    Text {
-                        text: qsTr("Default Profile")
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                    }
-
-                    Text {
-                        text: qsTr("Profile used when no library or series override is set")
-                        font.pixelSize: Theme.fontSizeSmall
-                        font.family: Theme.fontPrimary
-                        color: Theme.textSecondary
-                        wrapMode: Text.WordWrap
+                    ColumnLayout {
+                        spacing: Math.round(4 * Theme.layoutScale)
                         Layout.fillWidth: true
-                    }
-                }
 
-                ComboBox {
-                    id: defaultProfileCombo
-                    model: root.profileNames
-                    Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
-                    focusPolicy: Qt.StrongFocus
-
-                    property bool initialized: false
-                    property bool updatingSelection: false
-
-                    function refreshSelection() {
-                        var options = model || []
-                        updatingSelection = true
-                        var idx = options.indexOf(ConfigManager.defaultProfileName)
-                        currentIndex = idx >= 0 ? idx : 0
-                        updatingSelection = false
-                    }
-
-                    Component.onCompleted: {
-                        refreshSelection()
-                        initialized = true
-                    }
-
-                    onModelChanged: {
-                        if (!initialized) return
-                        refreshSelection()
-                    }
-
-                    onCurrentTextChanged: {
-                        if (!initialized || updatingSelection) return
-                        if (currentText && currentText !== ConfigManager.defaultProfileName) {
-                            ConfigManager.defaultProfileName = currentText
-                        }
-                    }
-
-                    onActiveFocusChanged: {
-                        if (activeFocus) {
-                            root._lastFocusedItem = this
-                            flickable.ensureFocusVisible(this)
-                        }
-                    }
-
-                    Keys.onDownPressed: function(event) {
-                        if (!popup.visible) {
-                            profileEditorToggle.forceActiveFocus()
-                            event.accepted = true
-                        }
-                    }
-                    Keys.onReturnPressed: popup.open()
-                    Keys.onEnterPressed: popup.open()
-
-                    background: Rectangle {
-                        implicitHeight: Theme.buttonHeightSmall
-                        radius: Theme.radiusSmall
-                        color: Theme.inputBackground
-                        border.color: defaultProfileCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                        border.width: defaultProfileCombo.activeFocus ? 2 : 1
-                    }
-
-                    contentItem: Text {
-                        text: defaultProfileCombo.displayText
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        color: Theme.textPrimary
-                        verticalAlignment: Text.AlignVCenter
-                        leftPadding: Theme.spacingSmall
-                    }
-
-                    delegate: ItemDelegate {
-                        width: defaultProfileCombo.width
-                        contentItem: Text {
-                            text: modelData
-                            color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                        Text {
+                            text: qsTr("Default Profile")
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
-                            verticalAlignment: Text.AlignVCenter
+                            color: Theme.textPrimary
                         }
-                        background: Rectangle {
-                            color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
-                            radius: Theme.radiusSmall
+
+                        Text {
+                            text: qsTr("Profile used when no library or series override is set")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
                         }
-                        highlighted: ListView.isCurrentItem || defaultProfileCombo.highlightedIndex === index
                     }
 
-                    popup: Popup {
-                        y: defaultProfileCombo.height + 5
-                        width: defaultProfileCombo.width
-                        implicitHeight: contentItem.implicitHeight
-                        padding: 1
+                    ComboBox {
+                        id: defaultProfileCombo
+                        model: root.profileNames
+                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
+                        focusPolicy: Qt.StrongFocus
 
-                        onOpened: {
-                            defaultProfilePopupList.currentIndex = defaultProfileCombo.highlightedIndex >= 0
-                                ? defaultProfileCombo.highlightedIndex
-                                : defaultProfileCombo.currentIndex
-                            defaultProfilePopupList.forceActiveFocus()
+                        property bool initialized: false
+                        property bool updatingSelection: false
+
+                        function refreshSelection() {
+                            var options = model || []
+                            updatingSelection = true
+                            var idx = options.indexOf(ConfigManager.defaultProfileName)
+                            currentIndex = idx >= 0 ? idx : 0
+                            updatingSelection = false
                         }
-                        onClosed: defaultProfileCombo.forceActiveFocus()
 
-                        contentItem: ListView {
-                            id: defaultProfilePopupList
-                            clip: true
-                            implicitHeight: contentHeight
-                            model: defaultProfileCombo.popup.visible ? defaultProfileCombo.delegateModel : null
-                            currentIndex: defaultProfileCombo.highlightedIndex >= 0
-                                ? defaultProfileCombo.highlightedIndex
-                                : defaultProfileCombo.currentIndex
-
-                            ScrollIndicator.vertical: ScrollIndicator { }
-
-                            Keys.onReturnPressed: {
-                                defaultProfileCombo.currentIndex = currentIndex
-                                defaultProfileCombo.popup.close()
-                            }
-                            Keys.onEnterPressed: {
-                                defaultProfileCombo.currentIndex = currentIndex
-                                defaultProfileCombo.popup.close()
-                            }
-                            Keys.onEscapePressed: defaultProfileCombo.popup.close()
+                        Component.onCompleted: {
+                            refreshSelection()
+                            initialized = true
                         }
+
+                        onModelChanged: {
+                            if (!initialized) return
+                            refreshSelection()
+                        }
+
+                        onCurrentTextChanged: {
+                            if (!initialized || updatingSelection) return
+                            if (currentText && currentText !== ConfigManager.defaultProfileName) {
+                                ConfigManager.defaultProfileName = currentText
+                            }
+                        }
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                            }
+                        }
+
+                        Keys.onDownPressed: function(event) {
+                            if (!popup.visible) {
+                                profileEditorToggle.forceActiveFocus()
+                                event.accepted = true
+                            }
+                        }
+                        Keys.onReturnPressed: popup.open()
+                        Keys.onEnterPressed: popup.open()
 
                         background: Rectangle {
-                            color: Theme.cardBackground
-                            border.color: Theme.focusBorder
-                            border.width: 1
+                            implicitHeight: Theme.buttonHeightSmall
                             radius: Theme.radiusSmall
+                            color: Theme.inputBackground
+                            border.color: defaultProfileCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: defaultProfileCombo.activeFocus ? 2 : 1
+                        }
+
+                        contentItem: Text {
+                            text: defaultProfileCombo.displayText
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.spacingSmall
+                        }
+
+                        delegate: ItemDelegate {
+                            width: defaultProfileCombo.width
+                            contentItem: Text {
+                                text: modelData
+                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                radius: Theme.radiusSmall
+                            }
+                            highlighted: ListView.isCurrentItem || defaultProfileCombo.highlightedIndex === index
+                        }
+
+                        popup: Popup {
+                            y: defaultProfileCombo.height + 5
+                            width: defaultProfileCombo.width
+                            implicitHeight: contentItem.implicitHeight
+                            padding: 1
+
+                            onOpened: {
+                                defaultProfilePopupList.currentIndex = defaultProfileCombo.highlightedIndex >= 0
+                                    ? defaultProfileCombo.highlightedIndex
+                                    : defaultProfileCombo.currentIndex
+                                defaultProfilePopupList.forceActiveFocus()
+                            }
+                            onClosed: defaultProfileCombo.forceActiveFocus()
+
+                            contentItem: ListView {
+                                id: defaultProfilePopupList
+                                clip: true
+                                implicitHeight: contentHeight
+                                model: defaultProfileCombo.popup.visible ? defaultProfileCombo.delegateModel : null
+                                currentIndex: defaultProfileCombo.highlightedIndex >= 0
+                                    ? defaultProfileCombo.highlightedIndex
+                                    : defaultProfileCombo.currentIndex
+
+                                ScrollIndicator.vertical: ScrollIndicator { }
+
+                                Keys.onReturnPressed: {
+                                    defaultProfileCombo.currentIndex = currentIndex
+                                    defaultProfileCombo.popup.close()
+                                }
+                                Keys.onEnterPressed: {
+                                    defaultProfileCombo.currentIndex = currentIndex
+                                    defaultProfileCombo.popup.close()
+                                }
+                                Keys.onEscapePressed: defaultProfileCombo.popup.close()
+                            }
+
+                            background: Rectangle {
+                                color: Theme.cardBackground
+                                border.color: Theme.focusBorder
+                                border.width: 1
+                                radius: Theme.radiusSmall
+                            }
                         }
                     }
                 }
-            }
+                }
 
             // ========================================
             // 2. Profile Editor Toggle
@@ -718,7 +720,7 @@ FocusScope {
 
                 Keys.onDownPressed: function(event) {
                     if (libraryProfilesToggle.expanded && libraryProfilesRepeater.count > 0) {
-                        libraryProfilesRepeater.itemAt(0).children[1].forceActiveFocus()
+                        libraryProfilesRepeater.itemAt(0).profileCombo.forceActiveFocus()
                     }
                     event.accepted = true
                 }
@@ -756,6 +758,7 @@ FocusScope {
 
                         property string name: modelData.Name || ""
                         property string itemId: modelData.Id || ""
+                        property alias profileCombo: libraryProfileCombo
                         property var profileOptions: {
                             var names = root.profileNames || []
                             return [qsTr("Use Default")].concat(names)
@@ -811,7 +814,7 @@ FocusScope {
                             Keys.onUpPressed: function(event) {
                                 if (!popup.visible) {
                                     if (libraryDelegate.index > 0) {
-                                        libraryProfilesRepeater.itemAt(libraryDelegate.index - 1).children[1].forceActiveFocus()
+                                        libraryProfilesRepeater.itemAt(libraryDelegate.index - 1).profileCombo.forceActiveFocus()
                                     } else {
                                         libraryProfilesToggle.forceActiveFocus()
                                     }
@@ -821,7 +824,7 @@ FocusScope {
                             Keys.onDownPressed: function(event) {
                                 if (!popup.visible) {
                                     if (libraryDelegate.index < libraryProfilesRepeater.count - 1) {
-                                        libraryProfilesRepeater.itemAt(libraryDelegate.index + 1).children[1].forceActiveFocus()
+                                        libraryProfilesRepeater.itemAt(libraryDelegate.index + 1).profileCombo.forceActiveFocus()
                                     }
                                     event.accepted = true
                                 }

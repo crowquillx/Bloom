@@ -29,11 +29,17 @@ FocusScope {
     Layout.fillWidth: true
 
     onActiveFocusChanged: {
-        if (activeFocus && ensureVisible) ensureVisible(this)
+        if (activeFocus && ensureVisible) ensureVisible(root)
     }
 
-    Keys.onLeftPressed: spinBox.decrease()
-    Keys.onRightPressed: spinBox.increase()
+    Keys.onLeftPressed: function(event) {
+        if (spinBox.enabled) spinBox.decrease()
+        event.accepted = true
+    }
+    Keys.onRightPressed: function(event) {
+        if (spinBox.enabled) spinBox.increase()
+        event.accepted = true
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -90,9 +96,11 @@ FocusScope {
                 }
 
                 valueFromText: function(text, locale) {
-                    var cleanText = text
+                    var cleanText = text.trim()
                     if (root.unit) {
-                        cleanText = text.replace(root.unit, "").trim()
+                        if (cleanText.endsWith(root.unit)) {
+                            cleanText = cleanText.slice(0, cleanText.length - root.unit.length).trim()
+                        }
                     }
                     return Number.fromLocaleString(locale, cleanText)
                 }

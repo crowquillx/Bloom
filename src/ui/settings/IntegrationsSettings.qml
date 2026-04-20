@@ -12,7 +12,7 @@ FocusScope {
     property Item _lastFocusedItem: null
 
     function enterFromRail() {
-        var target = _lastFocusedItem || preferredEntryItem
+        var target = (_lastFocusedItem && _lastFocusedItem.visible) ? _lastFocusedItem : preferredEntryItem
         if (target) target.forceActiveFocus()
     }
 
@@ -21,8 +21,8 @@ FocusScope {
     }
 
     Keys.priority: Keys.AfterItem
-    Keys.onLeftPressed: requestReturnToRail()
-    Keys.onEscapePressed: requestReturnToRail()
+    Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
+    Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
 
     // Glass card background
     Rectangle {
@@ -69,10 +69,11 @@ FocusScope {
                 var viewTop = contentY
                 var viewBottom = contentY + height
                 var padding = 50
+                var maxScroll = Math.max(0, contentHeight - height)
                 if (itemY < viewTop + padding) {
                     contentY = Math.max(0, itemY - padding)
                 } else if (itemY + itemHeight > viewBottom - padding) {
-                    contentY = Math.min(contentHeight - height, itemY + itemHeight - height + padding)
+                    contentY = Math.min(maxScroll, itemY + itemHeight - height + padding)
                 }
             }
 
