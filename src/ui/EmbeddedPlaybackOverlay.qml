@@ -45,6 +45,8 @@ FocusScope {
                                                  && !buffering
                                                  && activeSkipSegmentType.length > 0
     property bool skipPopupVisible: false
+    /// When true, `showSkipPopupIfEligible` is a no-op (e.g. after Esc dismisses full chrome).
+    property bool suppressSkipPopupReshow: false
     property string skipPopupSegmentType: ""
     property double skipPopupWindowEndEpochMs: 0
     property int controlsAutoHideMs: 2500
@@ -84,7 +86,8 @@ FocusScope {
     }
 
     function showSkipPopupIfEligible() {
-        if (!overlayActive || controlsVisible || activeSkipSegmentType.length === 0 || skipPopupDurationMs <= 0) {
+        if (!overlayActive || controlsVisible || suppressSkipPopupReshow
+                || activeSkipSegmentType.length === 0 || skipPopupDurationMs <= 0) {
             skipPopupVisible = false
             skipPopupTimer.stop()
             return
@@ -273,14 +276,49 @@ FocusScope {
     }
 
     function closeSelectors() {
+        var focusTarget = null
+        if (audioSelectorOpen) {
+            focusTarget = audioButton
+        } else if (subtitleSelectorOpen) {
+            focusTarget = subtitleButton
+        } else if (volumeSelectorOpen) {
+            focusTarget = volumeButton
+        }
         var wasOpen = selectorOpen
         audioSelectorOpen = false
         subtitleSelectorOpen = false
         volumeSelectorOpen = false
         if (wasOpen) {
-            Qt.callLater(function() { playPauseButton.forceActiveFocus() })
+            var target = focusTarget || playPauseButton
+            Qt.callLater(function() { target.forceActiveFocus() })
         }
         return wasOpen
+    }
+
+    /// Returns true if a dismissal occurred (caller should not stop playback).
+    function tryDismissPlaybackOverlayBeforeStop() {
+        if (!overlayActive) {
+            return false
+        }
+        if (closeSelectors()) {
+            return true
+        }
+        if (skipPopupVisible) {
+            skipPopupVisible = false
+            skipPopupTimer.stop()
+            return true
+        }
+        if (seekPreviewActive || controlsVisible) {
+            suppressSkipPopupReshow = true
+            seekPreviewTimer.stop()
+            hideTimer.stop()
+            seekPreviewActive = false
+            controlsVisible = false
+            seekOnlyMode = false
+            Qt.callLater(function() { root.suppressSkipPopupReshow = false })
+            return true
+        }
+        return false
     }
 
     function openVolumeSelector() {
@@ -449,6 +487,7 @@ FocusScope {
             skipPopupVisible = false
             skipPopupSegmentType = ""
             skipPopupWindowEndEpochMs = 0
+            suppressSkipPopupReshow = false
         }
     }
 
