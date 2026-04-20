@@ -1,44 +1,26 @@
-## What's Changed in v0.6.0
+## What's Changed in v0.6.1
 
 ### New Features
 
-- **windows**: add auto-update system
+- **settings**: introduce rail-panel architecture with per-section pages
 
 ### Bug Fixes
 
-- **ui**: refine detail actions and startup fullscreen
-- read Windows CI version from VERSION
-- unify version source across build tooling
-- address sidebar review feedback
-- **sidebar**: resolve Qt layout polish freeze on NixOS
-- **sidebar**: resolve Qt layout polish freeze on NixOS
-- **qml**: address review follow-ups
-- **qml**: defer heavyweight startup components
-- **qml**: reduce runtime warning regressions
-- **ci**: standardize notes file errors
-- **ci**: normalize manifest channel input
-- **ci**: validate manifest identifiers
-- **updater**: tighten update state handling
-- **updater**: address review nits
-- **ui**: polish updater dialog focus flow
-- **updater**: address review follow-ups
-- **ui**: improve update navigation and labels
-- **updater**: harden update checks and downloads
-
-### Documentation
-
-- **updates**: align updater documentation
-
-### Build
-
-- fetch pinned mpv sdk with curl
-- use direct sourceforge mpv sdk urls
-- pin windows mpv sdk version
-- **nix**: add Nix package build with Qt 6.10 isolation
-- **nix**: add Nix package build with Qt 6.10 isolation
+- harden replacement playback and display restore flows
+- harden playback stop and HDR restore flow
+- **playback**: harden windows embedded stop teardown
+- harden settings rail selection sync
+- restore settings saved toast
+- preserve default mpv profile selection
+- repair mpv settings qml syntax
+- address settings review findings
+- **settings**: normalize layouts, focus rings, and keyboard navigation
+- remove Qt::UniqueConnection flag from lambda slot connections
+- **ui**: persist update channel on keyboard selection and use theme tokens
+- **ui**: restyle updates settings section for consistency and keyboard nav
 
 ### Other
 
-- Run qmllint in Docker build and fix update dialog footer
+- Fix accent bar fade-out animation in SettingsRail (#36)
 
-**Full changelog:** [v0.5.2...v0.6.0](https://github.com/crowquillx/Bloom/compare/v0.5.2...v0.6.0)
+**Full changelog:** [v0.6.0...v0.6.1](https://github.com/crowquillx/Bloom/compare/v0.6.0...v0.6.1)
