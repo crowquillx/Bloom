@@ -1013,7 +1013,7 @@ Window {
         sequence: "Esc"
         enabled: PlayerController.isPlaybackActive
         onActivated: {
-            if (activeEmbeddedPlaybackOverlay.closeSelectors()) {
+            if (activeEmbeddedPlaybackOverlay.tryDismissPlaybackOverlayBeforeStop()) {
                 return
             }
             PlayerController.stop()

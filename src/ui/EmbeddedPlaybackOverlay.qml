@@ -283,6 +283,30 @@ FocusScope {
         return wasOpen
     }
 
+    /// Returns true if playback should continue (chrome/popup/selector was dismissed).
+    function tryDismissPlaybackOverlayBeforeStop() {
+        if (!overlayActive) {
+            return false
+        }
+        if (closeSelectors()) {
+            return true
+        }
+        if (skipPopupVisible) {
+            skipPopupVisible = false
+            skipPopupTimer.stop()
+            return true
+        }
+        if (seekPreviewActive || controlsVisible) {
+            seekPreviewTimer.stop()
+            hideTimer.stop()
+            seekPreviewActive = false
+            controlsVisible = false
+            seekOnlyMode = false
+            return true
+        }
+        return false
+    }
+
     function openVolumeSelector() {
         if (volumeSelectorOpen) {
             volumeSelectorOpen = false
@@ -960,7 +984,11 @@ FocusScope {
                 diameter: Math.round(56 * Theme.layoutScale)
                 iconSize: Math.round(28 * Theme.layoutScale)
                 text: Icons.arrowBack
-                onClicked: PlayerController.stop()
+                onClicked: {
+                    if (!root.tryDismissPlaybackOverlayBeforeStop()) {
+                        PlayerController.stop()
+                    }
+                }
                 KeyNavigation.down: progressFocus
                 KeyNavigation.right: progressFocus
             }

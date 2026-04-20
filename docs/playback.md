@@ -188,6 +188,7 @@ UI Components for Track Selection
   - Center group: skip back 10s, previous chapter, play/pause, next chapter, skip forward 10s.
   - Right group: volume icon button opens a native volume panel (slider + muted state) with left/right keyboard/gamepad adjustment and Enter/Space mute toggle.
   - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
+  - Escape (and the header back affordance) first dismisses visible playback chrome (full controls, seek preview, skip-intro popup, or open track/volume panels); a second Escape stops playback when the overlay is already hidden.
   - Trickplay preview bubble: renders processed Jellyfin trickplay thumbnails from `PlayerController` and is hidden entirely when trickplay images are unavailable.
   - Intro/outro skip UX: transient "Skip Intro"/"Skip Credits" pop-up button auto-focuses when a segment window starts, then a compact persistent skip button remains available until that segment ends.
     - Popup timing is controlled by `ConfigManager.skipButtonAutoHideSeconds` (`settings.playback.skip_button_auto_hide_seconds`, range 0-15; 0 disables popup only).
