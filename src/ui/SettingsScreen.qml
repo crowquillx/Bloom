@@ -3100,8 +3100,32 @@ FocusScope {
                                 id: updateChannelCombo
                                 Layout.fillWidth: true
                                 model: [qsTr("Stable"), qsTr("Development")]
-                                currentIndex: ConfigManager.updateChannel === "dev" ? 1 : 0
+                                currentIndex: 0
                                 focusPolicy: Qt.StrongFocus
+                                property bool initialized: false
+                                property bool updatingSelection: false
+
+                                function refreshSelectionFromConfig() {
+                                    var idx = ConfigManager.updateChannel === "dev" ? 1 : 0
+                                    if (currentIndex === idx) {
+                                        return
+                                    }
+                                    updatingSelection = true
+                                    currentIndex = idx
+                                    updatingSelection = false
+                                }
+
+                                Component.onCompleted: {
+                                    refreshSelectionFromConfig()
+                                    initialized = true
+                                }
+
+                                Connections {
+                                    target: ConfigManager
+                                    function onUpdateChannelChanged() {
+                                        updateChannelCombo.refreshSelectionFromConfig()
+                                    }
+                                }
 
                                 onActiveFocusChanged: {
                                     if (activeFocus) {
@@ -3109,9 +3133,14 @@ FocusScope {
                                     }
                                 }
 
-                                onActivated: {
+                                onCurrentIndexChanged: {
+                                    if (!initialized || updatingSelection) {
+                                        return
+                                    }
                                     var channel = currentIndex === 1 ? "dev" : "stable"
-                                    UpdateService.setChannel(channel)
+                                    if (channel !== ConfigManager.updateChannel) {
+                                        UpdateService.setChannel(channel)
+                                    }
                                 }
 
                                 Keys.onUpPressed: function(event) {
@@ -3165,7 +3194,7 @@ FocusScope {
                                 }
 
                                 popup: Popup {
-                                    y: updateChannelCombo.height + 5
+                                    y: updateChannelCombo.height + Theme.spacingXSmall
                                     width: updateChannelCombo.width
                                     implicitHeight: contentItem.implicitHeight
                                     padding: 1
@@ -3429,7 +3458,7 @@ FocusScope {
                             visible: UpdateService.releaseNotes.length > 0
                             Layout.fillWidth: true
                             implicitHeight: releaseNotesText.implicitHeight + Theme.spacingMedium
-                            color: Qt.rgba(1, 1, 1, 0.04)
+                            color: Theme.inputBackground
                             border.color: Theme.cardBorder
                             border.width: 1
                             radius: Theme.radiusSmall
@@ -3440,6 +3469,7 @@ FocusScope {
                                     left: parent.left
                                     right: parent.right
                                     top: parent.top
+                                    bottom: parent.bottom
                                     margins: Theme.spacingSmall
                                 }
                                 text: UpdateService.releaseNotes
