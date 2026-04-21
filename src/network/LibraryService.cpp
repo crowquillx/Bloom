@@ -627,7 +627,7 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
     
     const QStringList fields = {
         "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
-        "Genres", "Studios", "People", "ChildCount", "UserData",
+        "Genres", "Studios", "People", "ChildCount", "ParentId", "UserData",
         "ProductionYear", "PremiereDate", "EndDate", "ProviderIds"
     };
     

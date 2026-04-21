@@ -262,6 +262,8 @@ private slots:
     void embeddedVideoShrinkToggleEmitsAndPersists();
     void requestPlaybackPromptsForVersionSelection();
     void requestPlaybackRecoversLibraryProfileFromSeriesDetails();
+    void requestPlaybackWaitsForSeriesDetailsParentIdBeforeStarting();
+    void requestPlaybackFallsBackWithoutRecoveredLibraryProfileWhenParentIdMissing();
     void requestPlaybackKeepsSeriesProfilePriorityOverRecoveredLibrary();
     void multipartIntermediateEndIsIgnoredUntilFinalSegment();
     void versionAffinityPrefersMatchingParentPath();
@@ -1018,6 +1020,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackRecoversLibraryProfileF
     emit playbackService.additionalPartsLoaded(QStringLiteral("episode-1"), QJsonArray{});
 
     QVERIFY(backend.lastStartArgs.isEmpty());
+    QVERIFY(backend.lastStartUrl.isEmpty());
 
     emit libraryService.seriesDetailsLoaded(QStringLiteral("series-1"),
                                             QJsonObject{{QStringLiteral("Id"), QStringLiteral("series-1")},
@@ -1025,6 +1028,160 @@ void PlayerControllerAutoplayContextTest::requestPlaybackRecoversLibraryProfileF
 
     QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--test-library-profile=yes")));
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
+}
+
+void PlayerControllerAutoplayContextTest::requestPlaybackWaitsForSeriesDetailsParentIdBeforeStarting()
+{
+    ConfigManager config;
+    config.setMpvProfile(QStringLiteral("Library Preferred"), QVariantMap{
+        {QStringLiteral("hwdecEnabled"), false},
+        {QStringLiteral("hwdecMethod"), QStringLiteral("")},
+        {QStringLiteral("deinterlace"), false},
+        {QStringLiteral("deinterlaceMethod"), QStringLiteral("")},
+        {QStringLiteral("videoOutput"), QStringLiteral("gpu")},
+        {QStringLiteral("interpolation"), false},
+        {QStringLiteral("extraArgs"), QVariantList{QStringLiteral("--test-library-profile=yes")}}
+    });
+    config.setLibraryProfile(QStringLiteral("library-1"), QStringLiteral("Library Preferred"));
+
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("seriesId"), QStringLiteral("series-1")},
+        {QStringLiteral("seasonId"), QStringLiteral("season-1")},
+        {QStringLiteral("allowVersionPrompt"), false}
+    });
+
+    const MediaSourceInfo mediaSource = buildMediaSourceInfo(
+        QStringLiteral("source-1"),
+        QStringLiteral("Default"),
+        QStringLiteral("/library/show/episode-1.mkv"),
+        {QVariantMap{
+            {QStringLiteral("type"), QStringLiteral("Video")},
+            {QStringLiteral("width"), 1920},
+            {QStringLiteral("height"), 1080},
+            {QStringLiteral("codec"), QStringLiteral("h264")},
+            {QStringLiteral("profile"), QStringLiteral("High")},
+            {QStringLiteral("videoRange"), QStringLiteral("SDR")}
+        }},
+        -1,
+        -1,
+        QStringLiteral("mkv"),
+        8000000,
+        1200000000);
+
+    emit playbackService.playbackInfoLoaded(QStringLiteral("episode-1"),
+                                            buildPlaybackInfo({mediaSource}));
+    emit playbackService.additionalPartsLoaded(QStringLiteral("episode-1"), QJsonArray{});
+
+    QVERIFY(backend.lastStartUrl.isEmpty());
+    QVERIFY(backend.lastStartArgs.isEmpty());
+
+    emit libraryService.seriesDetailsLoaded(QStringLiteral("other-series"),
+                                            QJsonObject{{QStringLiteral("Id"), QStringLiteral("other-series")},
+                                                        {QStringLiteral("ParentId"), QStringLiteral("library-1")}});
+
+    QVERIFY(backend.lastStartUrl.isEmpty());
+    QVERIFY(backend.lastStartArgs.isEmpty());
+
+    emit libraryService.seriesDetailsLoaded(QStringLiteral("series-1"),
+                                            QJsonObject{{QStringLiteral("Id"), QStringLiteral("series-1")},
+                                                        {QStringLiteral("ParentId"), QStringLiteral("library-1")}});
+
+    QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--test-library-profile=yes")));
+}
+
+void PlayerControllerAutoplayContextTest::requestPlaybackFallsBackWithoutRecoveredLibraryProfileWhenParentIdMissing()
+{
+    ConfigManager config;
+    config.setMpvProfile(QStringLiteral("Library Preferred"), QVariantMap{
+        {QStringLiteral("hwdecEnabled"), false},
+        {QStringLiteral("hwdecMethod"), QStringLiteral("")},
+        {QStringLiteral("deinterlace"), false},
+        {QStringLiteral("deinterlaceMethod"), QStringLiteral("")},
+        {QStringLiteral("videoOutput"), QStringLiteral("gpu")},
+        {QStringLiteral("interpolation"), false},
+        {QStringLiteral("extraArgs"), QVariantList{QStringLiteral("--test-library-profile=yes")}}
+    });
+    config.setMpvProfile(QStringLiteral("Default Preferred"), QVariantMap{
+        {QStringLiteral("hwdecEnabled"), false},
+        {QStringLiteral("hwdecMethod"), QStringLiteral("")},
+        {QStringLiteral("deinterlace"), false},
+        {QStringLiteral("deinterlaceMethod"), QStringLiteral("")},
+        {QStringLiteral("videoOutput"), QStringLiteral("gpu")},
+        {QStringLiteral("interpolation"), false},
+        {QStringLiteral("extraArgs"), QVariantList{QStringLiteral("--test-default-profile=yes")}}
+    });
+    config.setDefaultProfileName(QStringLiteral("Default Preferred"));
+    config.setLibraryProfile(QStringLiteral("library-1"), QStringLiteral("Library Preferred"));
+
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("seriesId"), QStringLiteral("series-1")},
+        {QStringLiteral("seasonId"), QStringLiteral("season-1")},
+        {QStringLiteral("allowVersionPrompt"), false}
+    });
+
+    const MediaSourceInfo mediaSource = buildMediaSourceInfo(
+        QStringLiteral("source-1"),
+        QStringLiteral("Default"),
+        QStringLiteral("/library/show/episode-1.mkv"),
+        {QVariantMap{
+            {QStringLiteral("type"), QStringLiteral("Video")},
+            {QStringLiteral("width"), 1920},
+            {QStringLiteral("height"), 1080},
+            {QStringLiteral("codec"), QStringLiteral("h264")},
+            {QStringLiteral("profile"), QStringLiteral("High")},
+            {QStringLiteral("videoRange"), QStringLiteral("SDR")}
+        }},
+        -1,
+        -1,
+        QStringLiteral("mkv"),
+        8000000,
+        1200000000);
+
+    emit playbackService.playbackInfoLoaded(QStringLiteral("episode-1"),
+                                            buildPlaybackInfo({mediaSource}));
+    emit playbackService.additionalPartsLoaded(QStringLiteral("episode-1"), QJsonArray{});
+
+    QVERIFY(backend.lastStartUrl.isEmpty());
+
+    emit libraryService.seriesDetailsLoaded(QStringLiteral("series-1"),
+                                            QJsonObject{{QStringLiteral("Id"), QStringLiteral("series-1")}});
+
+    QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--test-default-profile=yes")));
+    QVERIFY(!backend.lastStartArgs.contains(QStringLiteral("--test-library-profile=yes")));
 }
 
 void PlayerControllerAutoplayContextTest::requestPlaybackKeepsSeriesProfilePriorityOverRecoveredLibrary()
