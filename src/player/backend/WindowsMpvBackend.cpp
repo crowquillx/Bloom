@@ -21,6 +21,10 @@ extern "C" {
 }
 #endif
 
+namespace {
+std::atomic<quint64> gWindowsMpvReplyUserdataCounter{0};
+}
+
 Q_LOGGING_CATEGORY(lcWindowsLibmpvBackend, "bloom.playback.backend.windows.libmpv")
 
 class WindowsMpvBackend::WindowsNativeGeometryFilter : public QAbstractNativeEventFilter
@@ -147,6 +151,7 @@ void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args,
     m_playlistPosition = -1;
     m_playlistCount = 0;
     m_stopRequested = false;
+    m_pendingStopReplyUserdata = 0;
 
 #if defined(Q_OS_WIN)
     if (m_videoTarget != nullptr) {
@@ -202,13 +207,17 @@ void WindowsMpvBackend::stopMpv()
         if (m_mpvHandle != nullptr) {
             mpv_handle *handle = static_cast<mpv_handle *>(m_mpvHandle);
             const char *command[] = {"stop", nullptr};
-            const int status = mpv_command_async(handle, 0, command);
+            const quint64 replyUserdata = ++gWindowsMpvReplyUserdataCounter;
+            const int status = mpv_command_async(handle,
+                                                 static_cast<uint64_t>(replyUserdata),
+                                                 command);
             if (status < 0) {
                 qCWarning(lcWindowsLibmpvBackend) << "Direct libmpv stop command failed; falling back to immediate teardown";
                 teardownMpv();
                 syncContainerGeometry();
                 return;
             }
+            m_pendingStopReplyUserdata = replyUserdata;
         }
 #endif
         // Do not synchronously destroy libmpv here. A blocking terminate can hold the UI
@@ -638,6 +647,7 @@ void WindowsMpvBackend::teardownMpv()
     m_playlistPosition = -1;
     m_playlistCount = 0;
     m_stopRequested = false;
+    m_pendingStopReplyUserdata = 0;
     setDirectRunning(false);
     m_directControlActive = false;
 }
@@ -720,6 +730,19 @@ void WindowsMpvBackend::processMpvEvents()
             break;
         }
         case MPV_EVENT_COMMAND_REPLY:
+            if (m_pendingStopReplyUserdata != 0
+                && static_cast<quint64>(event->reply_userdata) == m_pendingStopReplyUserdata) {
+                const bool stopFailed = event->error < 0;
+                m_pendingStopReplyUserdata = 0;
+                if (stopFailed) {
+                    qCWarning(lcWindowsLibmpvBackend)
+                        << "Direct libmpv stop command reply failed; falling back to immediate teardown:"
+                        << QString::fromUtf8(mpv_error_string(event->error));
+                    teardownMpv();
+                    syncContainerGeometry();
+                }
+                break;
+            }
             if (event->error < 0) {
                 const QString errorMessage = QStringLiteral("libmpv command failed (id=%1): %2")
                                                  .arg(static_cast<qulonglong>(event->reply_userdata))
@@ -729,19 +752,21 @@ void WindowsMpvBackend::processMpvEvents()
             }
             break;
         case MPV_EVENT_IDLE:
-            m_stopRequested = false;
             setDirectRunning(false);
             break;
         case MPV_EVENT_START_FILE:
             m_stopRequested = false;
+            m_pendingStopReplyUserdata = 0;
             setDirectRunning(true);
             break;
         case MPV_EVENT_PLAYBACK_RESTART:
             m_stopRequested = false;
+            m_pendingStopReplyUserdata = 0;
             setDirectRunning(true);
             break;
         case MPV_EVENT_FILE_LOADED:
             m_stopRequested = false;
+            m_pendingStopReplyUserdata = 0;
             setDirectRunning(true);
             break;
         case MPV_EVENT_SEEK:

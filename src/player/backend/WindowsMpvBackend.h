@@ -78,6 +78,7 @@ private:
     bool m_running = false;
     bool m_directControlActive = false;
     bool m_stopRequested = false;
+    quint64 m_pendingStopReplyUserdata = 0;
     void *m_mpvHandle = nullptr;
     std::atomic_bool m_eventDispatchQueued{false};
     QList<QByteArray> m_commandScratch;
