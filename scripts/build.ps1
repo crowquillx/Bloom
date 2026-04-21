@@ -227,7 +227,7 @@ function Fetch-MpvSdk {
         New-Item -ItemType Directory -Path $DestinationRoot | Out-Null
     }
 
-    $mpvSdkVersion = "20251228-git-a58dd8a"
+    $mpvSdkVersion = "20260419-git-06f4ce7"
     $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
     # Use a concrete SourceForge mirror URL and curl.exe. Invoke-WebRequest can save HTML instead of the archive.
     $downloadUrl = "https://master.dl.sourceforge.net/project/mpv-player-windows/libmpv/$mpvSdkFile"

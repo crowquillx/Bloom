@@ -140,9 +140,9 @@ jobs:
       - name: Fetch libmpv SDK
         shell: pwsh
         run: |
-          # Stable Windows libmpv SDK assets are not published for mpv v0.41.0 itself.
-          # Pin to the closest archived post-v0.41.0 libmpv build instead of following latest git.
-          $mpvSdkVersion = "20251228-git-a58dd8a"
+          # Windows libmpv SDK assets are archived separately from the tagged GitHub releases.
+          # Pin to the latest archived x86_64 libmpv build we've validated instead of following latest git dynamically.
+          $mpvSdkVersion = "20260419-git-06f4ce7"
           $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
           # Use a concrete SourceForge mirror URL and curl.exe. Invoke-WebRequest can save HTML instead of the archive.
           $downloadUrl = "https://master.dl.sourceforge.net/project/mpv-player-windows/libmpv/$mpvSdkFile"

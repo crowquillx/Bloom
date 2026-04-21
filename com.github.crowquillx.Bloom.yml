@@ -27,8 +27,8 @@ modules:
       - -Dmanpage-build=disabled
     sources:
       - type: archive
-        url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.39.0.tar.gz
-        sha256: 2ca92437affb62c2b559b4419ea4571c2c532f1a3b4bc5c0a9b2e3ddf2c98413
+        url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz
+        sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
 
   - name: bloom
     buildsystem: cmake-ninja
