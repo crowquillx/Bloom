@@ -740,6 +740,7 @@ void WindowsMpvBackend::processMpvEvents()
                         << QString::fromUtf8(mpv_error_string(event->error));
                     teardownMpv();
                     syncContainerGeometry();
+                    return;
                 }
                 break;
             }
