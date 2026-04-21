@@ -28,6 +28,9 @@ FocusScope {
     readonly property string overlayLogoSource: (PlayerController.overlayLogoUrl && PlayerController.overlayLogoUrl.length > 0)
                                                 ? PlayerController.overlayLogoUrl
                                                 : ""
+    readonly property string overlayMetadataFontFamily: Qt.platform.os === "windows" ? "Corbel" : "Noto Sans"
+    readonly property int overlaySubtitlePixelSize: Math.round(30 * Theme.layoutScale)
+    readonly property int bufferingSubtitlePixelSize: Math.round(26 * Theme.layoutScale)
     property bool controlsVisible: false
     property bool seekPreviewActive: false
     property bool seekOnlyMode: false
@@ -875,7 +878,7 @@ FocusScope {
             id: loadingCard
             anchors.centerIn: parent
             width: Math.round(Math.min(parent.width * 0.56, 640 * Theme.layoutScale))
-            height: Math.round(300 * Theme.layoutScale)
+            height: Math.round(360 * Theme.layoutScale)
             radius: Theme.radiusXLarge
             color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.82)
             border.width: 1
@@ -953,52 +956,93 @@ FocusScope {
                 text: qsTr("Buffering...")
                 anchors.horizontalCenter: parent.horizontalCenter
                 color: Theme.textPrimary
-                font.family: Theme.fontPrimary
+                font.family: root.overlayMetadataFontFamily
                 font.pixelSize: Math.round(32 * Theme.layoutScale)
-                font.weight: Font.DemiBold
+                font.weight: Font.Bold
+                font.letterSpacing: 0.2
             }
 
             Text {
                 text: qsTr("Connecting to server")
                 anchors.horizontalCenter: parent.horizontalCenter
                 color: Theme.textSecondary
-                font.family: Theme.fontPrimary
+                font.family: root.overlayMetadataFontFamily
                 font.pixelSize: Math.round(20 * Theme.layoutScale)
+                font.weight: Font.DemiBold
+                font.letterSpacing: 0.15
             }
 
-            Item {
+            Column {
                 width: parent.width
-                height: Math.max(bufferingTitleLogo.height, bufferingTitleText.implicitHeight)
+                spacing: Math.round(8 * Theme.layoutScale)
 
-                Image {
-                    id: bufferingTitleLogo
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.verticalCenter: parent.verticalCenter
-                    height: Math.round(56 * Theme.layoutScale)
-                    width: Math.min(Math.round(300 * Theme.layoutScale), parent.width)
-                    source: root.overlayLogoSource
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                    cache: true
-                    visible: root.overlayLogoSource.length > 0 && status !== Image.Error
-                    opacity: status === Image.Ready ? 1.0 : 0.0
-                    Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
-                }
-                Text {
-                    id: bufferingTitleText
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.verticalCenter: parent.verticalCenter
+                Item {
                     width: parent.width
-                    horizontalAlignment: Text.AlignHCenter
-                    text: root.mediaTitle
-                    visible: root.overlayLogoSource.length === 0
-                             || bufferingTitleLogo.status === Image.Error
-                             || bufferingTitleLogo.status === Image.Loading
-                             || bufferingTitleLogo.status === Image.Null
-                    color: Qt.rgba(Theme.textPrimary.r, Theme.textPrimary.g, Theme.textPrimary.b, 0.82)
-                    font.family: Theme.fontPrimary
-                    font.pixelSize: Math.round(18 * Theme.layoutScale)
-                    elide: Text.ElideRight
+                    height: Math.max(bufferingTitleLogo.height, bufferingTitleText.implicitHeight)
+
+                    Image {
+                        id: bufferingTitleLogo
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                        height: Math.round(92 * Theme.layoutScale)
+                        width: Math.min(Math.round(500 * Theme.layoutScale), parent.width)
+                        source: root.overlayLogoSource
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        cache: true
+                        visible: root.overlayLogoSource.length > 0 && status !== Image.Error
+                        opacity: status === Image.Ready ? 1.0 : 0.0
+                        Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
+                    }
+
+                    Text {
+                        id: bufferingTitleText
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        text: root.mediaTitle
+                        visible: root.overlayLogoSource.length === 0
+                                 || bufferingTitleLogo.status === Image.Error
+                                 || bufferingTitleLogo.status === Image.Loading
+                                 || bufferingTitleLogo.status === Image.Null
+                        color: Qt.rgba(Theme.textPrimary.r, Theme.textPrimary.g, Theme.textPrimary.b, 0.82)
+                        font.family: root.overlayMetadataFontFamily
+                        font.pixelSize: Math.round(18 * Theme.layoutScale)
+                        font.weight: Font.Bold
+                        font.letterSpacing: 0.2
+                        style: Text.Outline
+                        styleColor: Qt.rgba(0, 0, 0, 0.9)
+                        elide: Text.ElideRight
+                    }
+                }
+
+                Item {
+                    readonly property bool subtitleUnderLogo: bufferingTitleLogo.visible
+                    readonly property real preferredWidth: Math.round(560 * Theme.layoutScale)
+                    readonly property real logoWidth: bufferingTitleLogo.paintedWidth > 0 ? bufferingTitleLogo.paintedWidth : bufferingTitleLogo.width
+                    readonly property real subtitleRailWidth: subtitleUnderLogo
+                                                               ? Math.min(parent.width,
+                                                                          Math.max(preferredWidth,
+                                                                                   logoWidth + Math.round(120 * Theme.layoutScale)))
+                                                               : parent.width
+                    width: parent.width
+                    height: bufferingSubtitleLabel.implicitHeight
+
+                    ScrollingCardLabel {
+                        id: bufferingSubtitleLabel
+                        x: parent.subtitleUnderLogo ? (parent.width - width) / 2 : 0
+                        width: parent.subtitleRailWidth
+                        text: root.mediaSubtitle
+                        textColor: Qt.rgba(Theme.textPrimary.r, Theme.textPrimary.g, Theme.textPrimary.b, 0.9)
+                        fontFamily: root.overlayMetadataFontFamily
+                        fontPixelSize: root.bufferingSubtitlePixelSize
+                        fontWeight: Font.Bold
+                        fontLetterSpacing: 0.15
+                        textStyle: Text.Outline
+                        textStyleColor: Qt.rgba(0, 0, 0, 0.9)
+                        active: bufferingOverlay.visible
+                    }
                 }
             }
         }
@@ -1013,7 +1057,7 @@ FocusScope {
             anchors.top: parent.top
             anchors.left: parent.left
             anchors.right: parent.right
-            anchors.topMargin: Math.round(48 * Theme.layoutScale) + root.topControlsOffset
+            anchors.topMargin: Math.round(56 * Theme.layoutScale) + root.topControlsOffset
             anchors.leftMargin: Math.round(64 * Theme.layoutScale)
             spacing: Math.round(32 * Theme.layoutScale)
             opacity: root.fullControlsVisible ? 1.0 : 0.0
@@ -1024,8 +1068,8 @@ FocusScope {
 
             GlassCircleButton {
                 id: backButton
-                diameter: Math.round(56 * Theme.layoutScale)
-                iconSize: Math.round(28 * Theme.layoutScale)
+                diameter: Math.round(64 * Theme.layoutScale)
+                iconSize: Math.round(32 * Theme.layoutScale)
                 text: Icons.arrowBack
                 onClicked: PlayerController.stop()
                 KeyNavigation.down: progressFocus
@@ -1033,7 +1077,7 @@ FocusScope {
             }
 
             Column {
-                spacing: Math.round(4 * Theme.layoutScale)
+                spacing: Math.round(8 * Theme.layoutScale)
                 anchors.verticalCenter: backButton.verticalCenter
                 width: parent.width - backButton.width - parent.spacing
 
@@ -1045,8 +1089,8 @@ FocusScope {
                         id: chromeTitleLogo
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
-                        height: Math.round(72 * Theme.layoutScale)
-                        width: Math.min(Math.round(360 * Theme.layoutScale), parent.width)
+                        height: Math.round(120 * Theme.layoutScale)
+                        width: Math.min(Math.round(640 * Theme.layoutScale), parent.width)
                         source: root.overlayLogoSource
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
@@ -1066,20 +1110,46 @@ FocusScope {
                                  || chromeTitleLogo.status === Image.Loading
                                  || chromeTitleLogo.status === Image.Null
                         color: Theme.textPrimary
-                        font.family: Theme.fontPrimary
+                        font.family: root.overlayMetadataFontFamily
                         font.pixelSize: Math.round(36 * Theme.layoutScale)
-                        font.weight: Font.DemiBold
+                        font.weight: Font.Bold
+                        style: Text.Outline
+                        styleColor: Qt.rgba(0, 0, 0, 0.92)
                         elide: Text.ElideRight
                     }
                 }
 
-                Text {
-                    text: root.mediaSubtitle
-                    color: Qt.rgba(1, 1, 1, 0.8)
-                    font.family: Theme.fontPrimary
-                    font.pixelSize: Math.round(24 * Theme.layoutScale)
-                    elide: Text.ElideRight
+                Item {
+                    readonly property bool subtitleUnderLogo: chromeTitleLogo.visible
+                    readonly property real preferredWidth: Math.round(620 * Theme.layoutScale)
+                    readonly property real logoWidth: chromeTitleLogo.paintedWidth > 0 ? chromeTitleLogo.paintedWidth : chromeTitleLogo.width
+                    readonly property real subtitleRailWidth: subtitleUnderLogo
+                                                               ? Math.min(parent.width,
+                                                                          Math.max(preferredWidth,
+                                                                                   logoWidth + Math.round(160 * Theme.layoutScale)))
+                                                               : parent.width
+                    readonly property real subtitleRailX: subtitleUnderLogo
+                                                          ? Math.max(0,
+                                                                     Math.min(parent.width - subtitleRailWidth,
+                                                                              chromeTitleLogo.x + (logoWidth / 2) - (subtitleRailWidth / 2)))
+                                                          : 0
                     width: parent.width
+                    height: chromeSubtitleLabel.implicitHeight
+
+                    ScrollingCardLabel {
+                        id: chromeSubtitleLabel
+                        x: parent.subtitleRailX
+                        width: parent.subtitleRailWidth
+                        text: root.mediaSubtitle
+                        textColor: Qt.rgba(1, 1, 1, 0.8)
+                        fontFamily: root.overlayMetadataFontFamily
+                        fontPixelSize: root.overlaySubtitlePixelSize
+                        fontWeight: Font.Bold
+                        fontLetterSpacing: 0.15
+                        textStyle: Text.Outline
+                        textStyleColor: Qt.rgba(0, 0, 0, 0.92)
+                        active: root.fullControlsVisible
+                    }
                 }
             }
         }

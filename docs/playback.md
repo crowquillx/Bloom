@@ -197,6 +197,7 @@ UI Components for Track Selection
 Playback overlay metadata
 - `PlayerController` exposes `overlayTitle`, `overlaySubtitle`, `overlayBackdropUrl`, and `overlayLogoUrl` for the native overlay (header, buffering card, and backdrop).
 - Optional `overlayLogoUrl` is a Jellyfin logo image URL (typically the `image://cached/...` form from `LibraryService::getCachedImageUrlWithWidth`). `EmbeddedPlaybackOverlay.qml` shows the logo when the URL is non-empty and the image reaches `Image.Ready`; on load failure (`Image.Error`) or when the URL is empty, the overlay falls back to `overlayTitle` text.
+- When a logo is present, the overlay metadata block keeps `overlaySubtitle` visually centered beneath it in both the buffering card and the active playback header; text fallbacks use a heavier weight for readability.
 - Detail views set metadata before playback starts:
   - Movies: title + production year.
   - Episodes: series title + `Sxx Exx - Episode Name`.
