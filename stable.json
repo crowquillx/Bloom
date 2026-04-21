@@ -1,22 +1,22 @@
 {
-  "build_id": "0.6.1",
+  "build_id": "0.6.2",
   "channel": "stable",
   "installer": {
-    "filename": "Bloom-Setup-0.6.1.exe",
-    "sha256": "dc3d884b1da4ce872cc17eccf0fd4abc07bd5fbce8e478bdb701f59ab612757b",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.1/Bloom-Setup-0.6.1.exe"
+    "filename": "Bloom-Setup-0.6.2.exe",
+    "sha256": "37697ff28a959455acb572ce3996ba19e1c3f3035af9137ec2c187d14f8e8db9",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.2/Bloom-Setup-0.6.2.exe"
   },
-  "notes": "## What's Changed in v0.6.1\n\n### New Features\n\n- **settings**: introduce rail-panel architecture with per-section pages\n\n### Bug Fixes\n\n- harden replacement playback and display restore flows\n- harden playback stop and HDR restore flow\n- **playback**: harden windows embedded stop teardown\n- harden settings rail selection sync\n- restore settings saved toast\n- preserve default mpv profile selection\n- repair mpv settings qml syntax\n- address settings review findings\n- **settings**: normalize layouts, focus rings, and keyboard navigation\n- remove Qt::UniqueConnection flag from lambda slot connections\n- **ui**: persist update channel on keyboard selection and use theme tokens\n- **ui**: restyle updates settings section for consistency and keyboard nav\n\n### Other\n\n- v0.6.1\n- Fix accent bar fade-out animation in SettingsRail (#36)\n\n**Full changelog:** [v0.6.0...v0.6.1](https://github.com/crowquillx/Bloom/compare/v0.6.0...v0.6.1)",
+  "notes": "## What's Changed in v0.6.2\n\n### New Features\n\n- **playback**: show series and movie logos in embedded overlay\n- **ui**: dismiss playback overlay before stop on Esc\n\n### Bug Fixes\n\n- **playback**: refine overlay logo metadata layout\n- restore library context for home playback profiles\n- **player**: exit mpv event loop after teardown failure\n- **playback**: track windows stop reply handling\n- **playback**: harden windows embedded stop teardown\n- code review fixes\n- **ui**: address playback overlay dismiss review feedback\n\n### Chores\n\n- **deps**: update mpv pins\n\n**Full changelog:** [v0.6.1...v0.6.2](https://github.com/crowquillx/Bloom/compare/v0.6.1...v0.6.2)",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "ee3b3a2f6f528e9e4fa4ebb0492dd74731d1a5e93cb2229cc73d1943ff31fa56",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.1/Bloom-Windows.zip"
+    "sha256": "8cc60627462856064b902815c5b39853495ac25525ed7686d1a8b9e1608c538d",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.2/Bloom-Windows.zip"
   },
-  "published_at": "2026-04-20T19:27:58.6696772Z",
-  "release_tag": "v0.6.1",
+  "published_at": "2026-04-21T02:33:59.8091586Z",
+  "release_tag": "v0.6.2",
   "rollout": {
     "enabled": true,
-    "minimum_supported_version": "0.6.1"
+    "minimum_supported_version": "0.6.2"
   },
-  "version": "0.6.1"
+  "version": "0.6.2"
 }
