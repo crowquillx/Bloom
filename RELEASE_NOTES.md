@@ -1,27 +1,22 @@
-## What's Changed in v0.6.1
+## What's Changed in v0.6.2
 
 ### New Features
 
-- **settings**: introduce rail-panel architecture with per-section pages
+- **playback**: show series and movie logos in embedded overlay
+- **ui**: dismiss playback overlay before stop on Esc
 
 ### Bug Fixes
 
-- harden replacement playback and display restore flows
-- harden playback stop and HDR restore flow
+- **playback**: refine overlay logo metadata layout
+- restore library context for home playback profiles
+- **player**: exit mpv event loop after teardown failure
+- **playback**: track windows stop reply handling
 - **playback**: harden windows embedded stop teardown
-- harden settings rail selection sync
-- restore settings saved toast
-- preserve default mpv profile selection
-- repair mpv settings qml syntax
-- address settings review findings
-- **settings**: normalize layouts, focus rings, and keyboard navigation
-- remove Qt::UniqueConnection flag from lambda slot connections
-- **ui**: persist update channel on keyboard selection and use theme tokens
-- **ui**: restyle updates settings section for consistency and keyboard nav
+- code review fixes
+- **ui**: address playback overlay dismiss review feedback
 
-### Other
+### Chores
 
-- v0.6.1
-- Fix accent bar fade-out animation in SettingsRail (#36)
+- **deps**: update mpv pins
 
-**Full changelog:** [v0.6.0...v0.6.1](https://github.com/crowquillx/Bloom/compare/v0.6.0...v0.6.1)
+**Full changelog:** [v0.6.1...v0.6.2](https://github.com/crowquillx/Bloom/compare/v0.6.1...v0.6.2)
