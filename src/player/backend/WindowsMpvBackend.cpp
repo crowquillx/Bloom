@@ -146,6 +146,7 @@ void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args,
     const QStringList finalArgs = sanitizeStartupArgs(args);
     m_playlistPosition = -1;
     m_playlistCount = 0;
+    m_stopRequested = false;
 
 #if defined(Q_OS_WIN)
     if (m_videoTarget != nullptr) {
@@ -196,14 +197,23 @@ void WindowsMpvBackend::stopMpv()
                                    << "directControlActive=" << m_directControlActive
                                    << "running=" << m_running;
     if (m_directControlActive) {
+        m_stopRequested = true;
 #if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
         if (m_mpvHandle != nullptr) {
             mpv_handle *handle = static_cast<mpv_handle *>(m_mpvHandle);
             const char *command[] = {"stop", nullptr};
-            mpv_command_async(handle, 0, command);
+            const int status = mpv_command_async(handle, 0, command);
+            if (status < 0) {
+                qCWarning(lcWindowsLibmpvBackend) << "Direct libmpv stop command failed; falling back to immediate teardown";
+                teardownMpv();
+                syncContainerGeometry();
+                return;
+            }
         }
 #endif
-        teardownMpv();
+        // Do not synchronously destroy libmpv here. A blocking terminate can hold the UI
+        // in playback mode long enough to leave a black window behind the hidden shell.
+        setDirectRunning(false);
         syncContainerGeometry();
         return;
     }
@@ -315,16 +325,29 @@ bool WindowsMpvBackend::eventFilter(QObject *watched, QEvent *event)
 void WindowsMpvBackend::syncContainerGeometry()
 {
 #if defined(Q_OS_WIN)
+    const auto hideHostWindow = [this]() {
+        if (m_videoHostWinId == 0) {
+            return;
+        }
+
+        if (HWND hostWindow = reinterpret_cast<HWND>(m_videoHostWinId)) {
+            ShowWindow(hostWindow, SW_HIDE);
+        }
+    };
+
     if (m_videoTarget == nullptr) {
+        hideHostWindow();
         return;
     }
 
     if (!resolveContainerHandle(m_videoTarget)) {
         qCDebug(lcWindowsLibmpvBackend) << "Container handle unavailable; postponing geometry sync";
+        hideHostWindow();
         return;
     }
 
     if (!m_lastViewport.isValid() || m_lastViewport.isEmpty()) {
+        hideHostWindow();
         return;
     }
 
@@ -544,6 +567,7 @@ bool WindowsMpvBackend::tryStartDirectMpv(const QStringList &args, const QString
     return false;
 #else
     teardownMpv();
+    m_stopRequested = false;
 
     if (!initializeMpv(args)) {
         qCWarning(lcWindowsLibmpvBackend) << "Direct libmpv initialize failed";
@@ -613,6 +637,7 @@ void WindowsMpvBackend::teardownMpv()
     m_eventDispatchQueued.store(false, std::memory_order_release);
     m_playlistPosition = -1;
     m_playlistCount = 0;
+    m_stopRequested = false;
     setDirectRunning(false);
     m_directControlActive = false;
 }
@@ -653,6 +678,7 @@ void WindowsMpvBackend::processMpvEvents()
 
         switch (event->event_id) {
         case MPV_EVENT_SHUTDOWN:
+            m_stopRequested = false;
             teardownMpv();
             return;
         case MPV_EVENT_END_FILE: {
@@ -679,7 +705,12 @@ void WindowsMpvBackend::processMpvEvents()
                 && (m_playlistPosition + 1) < m_playlistCount;
             const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
 
+            if (m_stopRequested && reachedTerminalPlaybackState) {
+                shouldEmitPlaybackEnded = false;
+            }
+
             if (reachedTerminalPlaybackState) {
+                m_stopRequested = false;
                 setDirectRunning(false);
             }
 
@@ -698,18 +729,23 @@ void WindowsMpvBackend::processMpvEvents()
             }
             break;
         case MPV_EVENT_IDLE:
+            m_stopRequested = false;
             setDirectRunning(false);
             break;
         case MPV_EVENT_START_FILE:
+            m_stopRequested = false;
             setDirectRunning(true);
             break;
         case MPV_EVENT_PLAYBACK_RESTART:
+            m_stopRequested = false;
             setDirectRunning(true);
             break;
         case MPV_EVENT_FILE_LOADED:
+            m_stopRequested = false;
             setDirectRunning(true);
             break;
         case MPV_EVENT_SEEK:
+            m_stopRequested = false;
             setDirectRunning(true);
             break;
         case MPV_EVENT_CLIENT_MESSAGE: {
