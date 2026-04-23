@@ -715,6 +715,12 @@ void WindowsMpvBackend::processMpvEvents()
                 && (m_playlistPosition + 1) < m_playlistCount;
             const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
 
+            if (m_stopRequested) {
+                // Keep the host window hidden while a stop transition is in flight, even when
+                // playlist bookkeeping has not yet converged on a terminal state.
+                setDirectRunning(false);
+            }
+
             if (m_stopRequested && reachedTerminalPlaybackState) {
                 shouldEmitPlaybackEnded = false;
             }
@@ -756,21 +762,41 @@ void WindowsMpvBackend::processMpvEvents()
             setDirectRunning(false);
             break;
         case MPV_EVENT_START_FILE:
+            if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
+                qCDebug(lcWindowsLibmpvBackend)
+                    << "Ignoring START_FILE while stop is pending";
+                break;
+            }
             m_stopRequested = false;
             m_pendingStopReplyUserdata = 0;
             setDirectRunning(true);
             break;
         case MPV_EVENT_PLAYBACK_RESTART:
+            if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
+                qCDebug(lcWindowsLibmpvBackend)
+                    << "Ignoring PLAYBACK_RESTART while stop is pending";
+                break;
+            }
             m_stopRequested = false;
             m_pendingStopReplyUserdata = 0;
             setDirectRunning(true);
             break;
         case MPV_EVENT_FILE_LOADED:
+            if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
+                qCDebug(lcWindowsLibmpvBackend)
+                    << "Ignoring FILE_LOADED while stop is pending";
+                break;
+            }
             m_stopRequested = false;
             m_pendingStopReplyUserdata = 0;
             setDirectRunning(true);
             break;
         case MPV_EVENT_SEEK:
+            if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
+                qCDebug(lcWindowsLibmpvBackend)
+                    << "Ignoring SEEK while stop is pending";
+                break;
+            }
             m_stopRequested = false;
             setDirectRunning(true);
             break;

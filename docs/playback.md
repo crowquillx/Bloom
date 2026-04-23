@@ -41,6 +41,7 @@ Windows embedded overlay layering model
 - Terminal playback transitions are backend-first: Bloom now waits for backend stop confirmation before changing `PlayerController` into `Idle`/`Error`, so embedded host-window teardown cannot race ahead of libmpv shutdown.
 - Windows display restoration after playback stop is deferred and non-blocking. HDR-off settle and refresh-rate restore are scheduled after the UI returns to `Idle`, allowing the main scene and detached playback overlay window to repaint/hide promptly.
 - Natural playback end, explicit stop, and error-triggered shutdown now share one coordinated terminal-transition path so reporting/autoplay work runs once per playback attempt.
+- Windows direct-libmpv event handling now suppresses playback reactivation events (`START_FILE`/`FILE_LOADED`/`PLAYBACK_RESTART`/`SEEK`) while a stop command is pending, preventing stale wakeup events from re-showing the embedded host window as a black frame during teardown.
 
 Reference implementation notes (Plezy)
 - External reference: https://github.com/edde746/plezy
