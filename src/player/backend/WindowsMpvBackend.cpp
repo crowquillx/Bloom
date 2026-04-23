@@ -715,17 +715,11 @@ void WindowsMpvBackend::processMpvEvents()
                 && (m_playlistPosition + 1) < m_playlistCount;
             const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
 
-            if (m_stopRequested) {
-                // Keep the host window hidden while a stop transition is in flight, even when
-                // playlist bookkeeping has not yet converged on a terminal state.
-                setDirectRunning(false);
-            }
-
             if (m_stopRequested && reachedTerminalPlaybackState) {
                 shouldEmitPlaybackEnded = false;
             }
 
-            if (reachedTerminalPlaybackState) {
+            if (reachedTerminalPlaybackState && m_pendingStopReplyUserdata == 0) {
                 m_stopRequested = false;
                 setDirectRunning(false);
             }
@@ -748,6 +742,8 @@ void WindowsMpvBackend::processMpvEvents()
                     syncContainerGeometry();
                     return;
                 }
+                m_stopRequested = false;
+                setDirectRunning(false);
                 break;
             }
             if (event->error < 0) {
@@ -767,8 +763,6 @@ void WindowsMpvBackend::processMpvEvents()
                     << "Ignoring START_FILE while stop is pending";
                 break;
             }
-            m_stopRequested = false;
-            m_pendingStopReplyUserdata = 0;
             setDirectRunning(true);
             break;
         case MPV_EVENT_PLAYBACK_RESTART:
@@ -777,8 +771,6 @@ void WindowsMpvBackend::processMpvEvents()
                     << "Ignoring PLAYBACK_RESTART while stop is pending";
                 break;
             }
-            m_stopRequested = false;
-            m_pendingStopReplyUserdata = 0;
             setDirectRunning(true);
             break;
         case MPV_EVENT_FILE_LOADED:
@@ -787,8 +779,6 @@ void WindowsMpvBackend::processMpvEvents()
                     << "Ignoring FILE_LOADED while stop is pending";
                 break;
             }
-            m_stopRequested = false;
-            m_pendingStopReplyUserdata = 0;
             setDirectRunning(true);
             break;
         case MPV_EVENT_SEEK:
