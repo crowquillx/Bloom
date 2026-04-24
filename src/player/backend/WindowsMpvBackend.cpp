@@ -719,7 +719,7 @@ void WindowsMpvBackend::processMpvEvents()
                 shouldEmitPlaybackEnded = false;
             }
 
-            if (reachedTerminalPlaybackState) {
+            if (reachedTerminalPlaybackState && m_pendingStopReplyUserdata == 0) {
                 m_stopRequested = false;
                 setDirectRunning(false);
             }
@@ -742,6 +742,8 @@ void WindowsMpvBackend::processMpvEvents()
                     syncContainerGeometry();
                     return;
                 }
+                m_stopRequested = false;
+                setDirectRunning(false);
                 break;
             }
             if (event->error < 0) {
@@ -756,21 +758,35 @@ void WindowsMpvBackend::processMpvEvents()
             setDirectRunning(false);
             break;
         case MPV_EVENT_START_FILE:
-            m_stopRequested = false;
-            m_pendingStopReplyUserdata = 0;
+            if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
+                qCDebug(lcWindowsLibmpvBackend)
+                    << "Ignoring START_FILE while stop is pending";
+                break;
+            }
             setDirectRunning(true);
             break;
         case MPV_EVENT_PLAYBACK_RESTART:
-            m_stopRequested = false;
-            m_pendingStopReplyUserdata = 0;
+            if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
+                qCDebug(lcWindowsLibmpvBackend)
+                    << "Ignoring PLAYBACK_RESTART while stop is pending";
+                break;
+            }
             setDirectRunning(true);
             break;
         case MPV_EVENT_FILE_LOADED:
-            m_stopRequested = false;
-            m_pendingStopReplyUserdata = 0;
+            if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
+                qCDebug(lcWindowsLibmpvBackend)
+                    << "Ignoring FILE_LOADED while stop is pending";
+                break;
+            }
             setDirectRunning(true);
             break;
         case MPV_EVENT_SEEK:
+            if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
+                qCDebug(lcWindowsLibmpvBackend)
+                    << "Ignoring SEEK while stop is pending";
+                break;
+            }
             m_stopRequested = false;
             setDirectRunning(true);
             break;
