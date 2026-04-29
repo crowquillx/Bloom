@@ -218,11 +218,16 @@ void WindowsMpvBackend::stopMpv()
                 return;
             }
             m_pendingStopReplyUserdata = replyUserdata;
+            scheduleStopTeardownWatchdog(replyUserdata);
+        } else {
+            teardownMpv();
+            syncContainerGeometry();
+            return;
         }
 #endif
-        // Do not synchronously destroy libmpv here. A blocking terminate can hold the UI
-        // in playback mode long enough to leave a black window behind the hidden shell.
-        setDirectRunning(false);
+        // Keep the backend running until libmpv has released its WID. Emitting
+        // stopped first lets QML destroy the child host window while mpv is
+        // still rendering into it, which can crash on some Windows drivers.
         syncContainerGeometry();
         return;
     }
@@ -525,7 +530,17 @@ void WindowsMpvBackend::clearVideoTarget()
 
     m_videoTarget = nullptr;
     m_containerWinId = 0;
-    destroyVideoHostWindow();
+    if (m_mpvHandle != nullptr) {
+        m_videoHostDestroyDeferred = true;
+#if defined(Q_OS_WIN)
+        if (m_videoHostWinId != 0) {
+            ShowWindow(reinterpret_cast<HWND>(m_videoHostWinId), SW_HIDE);
+        }
+#endif
+    } else {
+        m_videoHostDestroyDeferred = false;
+        destroyVideoHostWindow();
+    }
 #if defined(Q_OS_WIN)
     if (m_nativeGeometryFilter != nullptr) {
         m_nativeGeometryFilter->setWatchedWinId(0);
@@ -644,12 +659,35 @@ void WindowsMpvBackend::teardownMpv()
 
     m_mpvHandle = nullptr;
     m_eventDispatchQueued.store(false, std::memory_order_release);
+    ++m_stopTeardownGeneration;
     m_playlistPosition = -1;
     m_playlistCount = 0;
     m_stopRequested = false;
     m_pendingStopReplyUserdata = 0;
     setDirectRunning(false);
     m_directControlActive = false;
+
+    if (m_videoHostDestroyDeferred && m_videoTarget == nullptr) {
+        m_videoHostDestroyDeferred = false;
+        destroyVideoHostWindow();
+    }
+}
+
+void WindowsMpvBackend::scheduleStopTeardownWatchdog(quint64 replyUserdata)
+{
+    const quint64 generation = m_stopTeardownGeneration;
+    QTimer::singleShot(1500, this, [this, generation, replyUserdata]() {
+        if (generation != m_stopTeardownGeneration
+            || m_pendingStopReplyUserdata != replyUserdata
+            || m_mpvHandle == nullptr) {
+            return;
+        }
+
+        qCWarning(lcWindowsLibmpvBackend)
+            << "Timed out waiting for direct libmpv stop reply; forcing teardown";
+        teardownMpv();
+        syncContainerGeometry();
+    });
 }
 
 bool WindowsMpvBackend::queueLoadFile(const QString &mediaUrl)
@@ -719,13 +757,17 @@ void WindowsMpvBackend::processMpvEvents()
                 shouldEmitPlaybackEnded = false;
             }
 
-            if (reachedTerminalPlaybackState && m_pendingStopReplyUserdata == 0) {
-                m_stopRequested = false;
-                setDirectRunning(false);
+            if (shouldEmitPlaybackEnded && reachedTerminalPlaybackState) {
+                teardownMpv();
+                syncContainerGeometry();
+                emit playbackEnded();
+                return;
             }
 
-            if (shouldEmitPlaybackEnded && reachedTerminalPlaybackState) {
-                emit playbackEnded();
+            if (reachedTerminalPlaybackState && m_pendingStopReplyUserdata == 0) {
+                teardownMpv();
+                syncContainerGeometry();
+                return;
             }
             break;
         }
@@ -742,9 +784,9 @@ void WindowsMpvBackend::processMpvEvents()
                     syncContainerGeometry();
                     return;
                 }
-                m_stopRequested = false;
-                setDirectRunning(false);
-                break;
+                teardownMpv();
+                syncContainerGeometry();
+                return;
             }
             if (event->error < 0) {
                 const QString errorMessage = QStringLiteral("libmpv command failed (id=%1): %2")
@@ -755,6 +797,11 @@ void WindowsMpvBackend::processMpvEvents()
             }
             break;
         case MPV_EVENT_IDLE:
+            if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
+                teardownMpv();
+                syncContainerGeometry();
+                return;
+            }
             setDirectRunning(false);
             break;
         case MPV_EVENT_START_FILE:

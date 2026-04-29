@@ -62,6 +62,7 @@ private:
     void destroyVideoHostWindow();
     void clearVideoTarget();
     bool resolveContainerHandle(QObject *target);
+    void scheduleStopTeardownWatchdog(quint64 replyUserdata);
 
     class WindowsNativeGeometryFilter;
 
@@ -78,7 +79,9 @@ private:
     bool m_running = false;
     bool m_directControlActive = false;
     bool m_stopRequested = false;
+    bool m_videoHostDestroyDeferred = false;
     quint64 m_pendingStopReplyUserdata = 0;
+    quint64 m_stopTeardownGeneration = 0;
     void *m_mpvHandle = nullptr;
     std::atomic_bool m_eventDispatchQueued{false};
     QList<QByteArray> m_commandScratch;
