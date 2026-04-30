@@ -78,6 +78,7 @@ class ConfigManager : public QObject
     
     // Video Settings
     Q_PROPERTY(bool enableFramerateMatching READ getEnableFramerateMatching WRITE setEnableFramerateMatching NOTIFY enableFramerateMatchingChanged)
+    Q_PROPERTY(bool skipRefreshRateOnCompatibleMultiple READ getSkipRefreshRateOnCompatibleMultiple WRITE setSkipRefreshRateOnCompatibleMultiple NOTIFY skipRefreshRateOnCompatibleMultipleChanged)
     Q_PROPERTY(int framerateMatchDelay READ getFramerateMatchDelay WRITE setFramerateMatchDelay NOTIFY framerateMatchDelayChanged)
     Q_PROPERTY(bool enableHDR READ getEnableHDR WRITE setEnableHDR NOTIFY enableHDRChanged)
     Q_PROPERTY(QString linuxRefreshRateCommand READ getLinuxRefreshRateCommand WRITE setLinuxRefreshRateCommand NOTIFY linuxRefreshRateCommandChanged)
@@ -230,6 +231,9 @@ public:
     void setEnableFramerateMatching(bool enabled);
     bool getEnableFramerateMatching() const;
     
+    void setSkipRefreshRateOnCompatibleMultiple(bool enabled);
+    bool getSkipRefreshRateOnCompatibleMultiple() const;
+    
     void setFramerateMatchDelay(int seconds);
     int getFramerateMatchDelay() const;
     
@@ -380,6 +384,7 @@ signals:
     void backdropRotationIntervalChanged();
     void launchInFullscreenChanged();
     void enableFramerateMatchingChanged();
+    void skipRefreshRateOnCompatibleMultipleChanged();
     void framerateMatchDelayChanged();
     void enableHDRChanged();
     void linuxRefreshRateCommandChanged();
@@ -427,6 +432,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 15;
+    static constexpr int kCurrentConfigVersion = 16;
     QJsonObject defaultConfig() const;
 };

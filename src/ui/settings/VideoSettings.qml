@@ -93,6 +93,20 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onToggled: function(value) { ConfigManager.enableFramerateMatching = value }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.down: skipCompatibleToggle.enabled ? skipCompatibleToggle : refreshDelaySlider.enabled ? refreshDelaySlider : hdrToggle
+                }
+
+                // --- Skip Compatible Multiple ---
+                SettingsToggleRow {
+                    id: skipCompatibleToggle
+                    label: qsTr("Skip switch when refresh rate is already a multiple")
+                    description: qsTr("Avoid changing refresh rate when the display is already running at a compatible multiple (e.g. 120Hz for 24fps content)")
+                    checked: ConfigManager.skipRefreshRateOnCompatibleMultiple
+                    enabled: ConfigManager.enableFramerateMatching
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onToggled: function(value) { ConfigManager.skipRefreshRateOnCompatibleMultiple = value }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.up: framerateToggle
                     KeyNavigation.down: refreshDelaySlider.enabled ? refreshDelaySlider : hdrToggle
                 }
 
@@ -110,7 +124,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onSliderValueChanged: function(newValue) { ConfigManager.framerateMatchDelay = newValue }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
-                    KeyNavigation.up: framerateToggle
+                    KeyNavigation.up: skipCompatibleToggle.enabled ? skipCompatibleToggle : framerateToggle
                     KeyNavigation.down: hdrToggle
                 }
 
@@ -125,7 +139,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onToggled: function(value) { ConfigManager.enableHDR = value }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
-                    KeyNavigation.up: refreshDelaySlider.enabled ? refreshDelaySlider : framerateToggle
+                    KeyNavigation.up: refreshDelaySlider.enabled ? refreshDelaySlider : skipCompatibleToggle.enabled ? skipCompatibleToggle : framerateToggle
                     KeyNavigation.down: advancedToggle
                 }
 
