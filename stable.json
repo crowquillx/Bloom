@@ -1,22 +1,22 @@
 {
-  "build_id": "0.6.2",
+  "build_id": "0.6.3",
   "channel": "stable",
   "installer": {
-    "filename": "Bloom-Setup-0.6.2.exe",
-    "sha256": "37697ff28a959455acb572ce3996ba19e1c3f3035af9137ec2c187d14f8e8db9",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.2/Bloom-Setup-0.6.2.exe"
+    "filename": "Bloom-Setup-0.6.3.exe",
+    "sha256": "a507496d78fab53381f06ff001e6230d6b86b868783c5f0ce642686d0667b543",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.3/Bloom-Setup-0.6.3.exe"
   },
-  "notes": "## What's Changed in v0.6.2\n\n### New Features\n\n- **playback**: show series and movie logos in embedded overlay\n- **ui**: dismiss playback overlay before stop on Esc\n\n### Bug Fixes\n\n- **playback**: refine overlay logo metadata layout\n- restore library context for home playback profiles\n- **player**: exit mpv event loop after teardown failure\n- **playback**: track windows stop reply handling\n- **playback**: harden windows embedded stop teardown\n- code review fixes\n- **ui**: address playback overlay dismiss review feedback\n\n### Chores\n\n- **deps**: update mpv pins\n\n**Full changelog:** [v0.6.1...v0.6.2](https://github.com/crowquillx/Bloom/compare/v0.6.1...v0.6.2)",
+  "notes": "## What's Changed in v0.6.3\n\n### New Features\n\n- **playback**: add toggle to skip refresh rate switch on compatible multiples\n\n### Bug Fixes\n\n- **playback**: simplify pending request lookup\n- **playback**: resolve home library profiles in controller\n- **config**: preserve cadence-skip behavior for existing users on migration\n- **playback**: defer Windows host-window teardown until libmpv releases WID\n- **playback**: align windows stop guards with async reply lifecycle\n- **playback**: prevent windows stop race from reviving black host window\n\n**Full changelog:** [v0.6.2...v0.6.3](https://github.com/crowquillx/Bloom/compare/v0.6.2...v0.6.3)",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "8cc60627462856064b902815c5b39853495ac25525ed7686d1a8b9e1608c538d",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.2/Bloom-Windows.zip"
+    "sha256": "c55b6e7f7c6dfd69fe52d218cbfbf05640ea071fc500615b6da0b7f4011237b7",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.3/Bloom-Windows.zip"
   },
-  "published_at": "2026-04-21T02:33:59.8091586Z",
-  "release_tag": "v0.6.2",
+  "published_at": "2026-04-30T02:57:00.2775987Z",
+  "release_tag": "v0.6.3",
   "rollout": {
     "enabled": true,
-    "minimum_supported_version": "0.6.2"
+    "minimum_supported_version": "0.6.3"
   },
-  "version": "0.6.2"
+  "version": "0.6.3"
 }
