@@ -43,7 +43,7 @@ echo "Running build inside container..."
 if [ -n "$CLEAN_BUILD" ]; then
     echo "Clean build requested..."
 fi
-$RUNTIME run --rm -v "$(pwd):/workspace" bloom-build build-bloom.sh $CLEAN_BUILD $WINDOWS_TARGET
+$RUNTIME run --rm --network=host -v "$(pwd):/workspace" bloom-build build-bloom.sh $CLEAN_BUILD $WINDOWS_TARGET
 
 echo ""
 echo "Build complete! Test with:"

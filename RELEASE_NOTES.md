@@ -1,22 +1,16 @@
-## What's Changed in v0.6.2
+## What's Changed in v0.6.3
 
 ### New Features
 
-- **playback**: show series and movie logos in embedded overlay
-- **ui**: dismiss playback overlay before stop on Esc
+- **playback**: add toggle to skip refresh rate switch on compatible multiples
 
 ### Bug Fixes
 
-- **playback**: refine overlay logo metadata layout
-- restore library context for home playback profiles
-- **player**: exit mpv event loop after teardown failure
-- **playback**: track windows stop reply handling
-- **playback**: harden windows embedded stop teardown
-- code review fixes
-- **ui**: address playback overlay dismiss review feedback
+- **playback**: simplify pending request lookup
+- **playback**: resolve home library profiles in controller
+- **config**: preserve cadence-skip behavior for existing users on migration
+- **playback**: defer Windows host-window teardown until libmpv releases WID
+- **playback**: align windows stop guards with async reply lifecycle
+- **playback**: prevent windows stop race from reviving black host window
 
-### Chores
-
-- **deps**: update mpv pins
-
-**Full changelog:** [v0.6.1...v0.6.2](https://github.com/crowquillx/Bloom/compare/v0.6.1...v0.6.2)
+**Full changelog:** [v0.6.2...v0.6.3](https://github.com/crowquillx/Bloom/compare/v0.6.2...v0.6.3)
