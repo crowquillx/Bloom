@@ -1582,6 +1582,39 @@ bool ConfigManager::getEnableFramerateMatching() const
     return false;
 }
 
+void ConfigManager::setSkipRefreshRateOnCompatibleMultiple(bool enabled)
+{
+    if (enabled == getSkipRefreshRateOnCompatibleMultiple()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject video;
+    if (settings.contains("video") && settings["video"].isObject()) {
+        video = settings["video"].toObject();
+    }
+    video["skip_refresh_rate_on_compatible_multiple"] = enabled;
+    settings["video"] = video;
+    m_config["settings"] = settings;
+    save();
+    emit skipRefreshRateOnCompatibleMultipleChanged();
+}
+
+bool ConfigManager::getSkipRefreshRateOnCompatibleMultiple() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("video") && settings["video"].isObject()) {
+            QJsonObject video = settings["video"].toObject();
+            if (video.contains("skip_refresh_rate_on_compatible_multiple")) {
+                return video["skip_refresh_rate_on_compatible_multiple"].toBool();
+            }
+        }
+    }
+    return false;
+}
+
 void ConfigManager::setFramerateMatchDelay(int seconds)
 {
     // Clamp to valid range 0-5 seconds
@@ -2094,6 +2127,22 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV15ToV16(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 16;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject video = settings.value("video").toObject();
+        if (!video.contains("skip_refresh_rate_on_compatible_multiple")) {
+            video["skip_refresh_rate_on_compatible_multiple"] = false;
+        }
+
+        settings["video"] = video;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -2234,6 +2283,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 15) {
+            m_config = ConfigMigrator::migrateV15ToV16(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -2297,6 +2354,7 @@ QJsonObject ConfigManager::defaultConfig() const
     
     QJsonObject video;
     video["enable_framerate_matching"] = false;
+    video["skip_refresh_rate_on_compatible_multiple"] = false;
     video["framerate_match_delay"] = 1;  // Default 1 second delay after refresh rate switch
     video["enable_hdr"] = false;
     settings["video"] = video;

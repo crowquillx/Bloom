@@ -362,7 +362,7 @@ bool DisplayManager::setRefreshRate(double hz)
         return true;
     }
 
-    if (isCadenceCompatible(current, hz)) {
+    if (m_config->getSkipRefreshRateOnCompatibleMultiple() && isCadenceCompatible(current, hz)) {
         const double ratio = current / hz;
         qDebug() << "DisplayManager: Current refresh rate" << current
                  << "Hz is cadence-compatible with target" << hz
