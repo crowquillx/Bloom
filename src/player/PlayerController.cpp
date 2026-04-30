@@ -1704,10 +1704,7 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     pending.awaitedPlaybackInfoIds.insert(itemId);
 
     m_pendingPlaybackRequests.insert(pending.requestId, pending);
-    auto pendingIt = m_pendingPlaybackRequests.find(pending.requestId);
-    if (pendingIt != m_pendingPlaybackRequests.end()) {
-        maybeResolvePendingRequestLibraryId(pendingIt.value());
-    }
+    maybeResolvePendingRequestLibraryId(m_pendingPlaybackRequests[pending.requestId]);
 
     m_playbackService->getPlaybackInfo(itemId);
     m_playbackService->getAdditionalParts(itemId);
