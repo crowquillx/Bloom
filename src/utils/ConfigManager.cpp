@@ -2136,7 +2136,7 @@ public:
         QJsonObject settings = newConfig["settings"].toObject();
         QJsonObject video = settings.value("video").toObject();
         if (!video.contains("skip_refresh_rate_on_compatible_multiple")) {
-            video["skip_refresh_rate_on_compatible_multiple"] = false;
+            video["skip_refresh_rate_on_compatible_multiple"] = true;
         }
 
         settings["video"] = video;
