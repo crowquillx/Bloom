@@ -64,7 +64,6 @@ FocusScope {
     property bool showMovieDetails: false
     property var currentMovieData: null
     
-    property var pendingPlaybackRequest: null
     property var pendingEpisodeData: null
     property bool restoringFocusFromSidebar: false
     property bool restoringFocusFromSeriesDetailsReturn: false
@@ -1937,45 +1936,8 @@ FocusScope {
         PlayerController.requestPlayback(normalizedRequest)
     }
 
-    function flushPendingPlaybackRequestIfReady() {
-        if (!pendingPlaybackRequest) {
-            return
-        }
-
-        if (pendingPlaybackRequest.seriesId
-                && currentSeriesId
-                && pendingPlaybackRequest.seriesId !== currentSeriesId) {
-            console.log("[Library] Dropping stale deferred playback request for series:",
-                        pendingPlaybackRequest.seriesId,
-                        "current:", currentSeriesId)
-            pendingPlaybackRequest = null
-            return
-        }
-
-        var playbackLibraryId = resolveLibraryIdForPlayback()
-        if (!playbackLibraryId) {
-            return
-        }
-
-        var request = pendingPlaybackRequest
-        pendingPlaybackRequest = null
-        console.log("[Library] Resolved library ID, starting deferred playback:", request.itemId)
-        dispatchPlaybackRequest(request, playbackLibraryId)
-    }
-
     function requestPlaybackWithResolvedLibrary(request) {
         var playbackLibraryId = resolveLibraryIdForPlayback()
-
-        // Direct navigation can start with no library context (e.g., Home -> Next Up).
-        // Defer playback until series details provide ParentId (library id).
-        if (!playbackLibraryId && directNavigationMode && request.seriesId) {
-            pendingPlaybackRequest = request
-            console.log("[Library] Deferring playback until library ID resolves for series:", request.seriesId)
-            currentSeriesId = request.seriesId
-            LibraryService.getSeriesDetails(request.seriesId)
-            return
-        }
-
         dispatchPlaybackRequest(request, playbackLibraryId)
     }
 
@@ -2087,8 +2049,6 @@ FocusScope {
                     console.log("[Library] Backfilled library ID from series details:", currentLibraryId)
                 }
 
-                flushPendingPlaybackRequestIfReady()
-                
                 // If we came from direct navigation (Home screen), update backdrop now
                 // that we have the series data
                 if (directNavigationMode && showSeriesDetails) {

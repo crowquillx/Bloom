@@ -41,6 +41,7 @@ MPV profile management
 - `settings.mpv_profiles` contains the base set of profiles (`Default`, `High Quality`, plus any user-created profiles) and their structured options (hwdec, interpolation, extra args).
 - `settings.default_profile` names the profile to use when no library/series override is present.
 - `settings.library_profiles` and `settings.series_profiles` hold dictionaries keyed by Jellyfin library/series IDs when an override is required at a higher level.
+- Playback requests may omit `libraryId` in direct-navigation contexts such as Home > Continue Watching / Next Up. QML should pass any known context but must not block playback waiting for a library id; `PlayerController` recovers episodic library context from the series `ParentId` before starting mpv and falls back to the default profile if no mapping is available.
 - The settings-screen rework did not change the on-disk MPV profile schema; existing `settings.mpv_profiles` and `settings.default_profile` entries continue to load as-is.
 
 When adding settings

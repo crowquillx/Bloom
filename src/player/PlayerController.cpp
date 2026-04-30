@@ -1702,9 +1702,12 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     pending.useAffinityFallback = request.value(QStringLiteral("useAffinityFallback"), false).toBool();
     pending.restoreFocusTarget = qobject_cast<QObject *>(request.value(QStringLiteral("restoreFocusTarget")).value<QObject *>());
     pending.awaitedPlaybackInfoIds.insert(itemId);
-    maybeResolvePendingRequestLibraryId(pending);
 
     m_pendingPlaybackRequests.insert(pending.requestId, pending);
+    auto pendingIt = m_pendingPlaybackRequests.find(pending.requestId);
+    if (pendingIt != m_pendingPlaybackRequests.end()) {
+        maybeResolvePendingRequestLibraryId(pendingIt.value());
+    }
 
     m_playbackService->getPlaybackInfo(itemId);
     m_playbackService->getAdditionalParts(itemId);
