@@ -60,6 +60,7 @@ public:
     Q_INVOKABLE virtual void getItem(const QString &itemId);
     virtual void getItem(const QString &itemId, const QString &requestContext);
     virtual void clearItemCacheValidation(const QString &itemId);
+    Q_INVOKABLE virtual void resolveLibraryForItem(const QString &itemId);
 
     // Series details and episodes
     Q_INVOKABLE virtual void getSeriesDetails(const QString &seriesId);
@@ -98,6 +99,8 @@ signals:
     // Generic Item Signals
     void itemLoaded(const QString &itemId, const QJsonObject &data);
     void itemLoaded(const QString &itemId, const QJsonObject &data, const QString &requestContext);
+    void itemLibraryResolved(const QString &itemId, const QString &libraryId);
+    void itemLibraryResolutionFailed(const QString &itemId, const QString &error);
     void itemNotModified(const QString &itemId);
     void itemNotModified(const QString &itemId, const QString &requestContext);
     void itemFailed(const QString &itemId, const QString &error, const QString &requestContext);

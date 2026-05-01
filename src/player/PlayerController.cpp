@@ -236,6 +236,10 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             this, &PlayerController::onSeriesDetailsLoaded);
     connect(m_libraryService, &LibraryService::seriesDetailsNotModified,
             this, &PlayerController::onSeriesDetailsNotModified);
+    connect(m_libraryService, &LibraryService::itemLibraryResolved,
+            this, &PlayerController::onItemLibraryResolved);
+    connect(m_libraryService, &LibraryService::itemLibraryResolutionFailed,
+            this, &PlayerController::onItemLibraryResolutionFailed);
     
     // Connect to PlaybackService for media segments and trickplay info signals
     connect(m_playbackService, &PlaybackService::playbackInfoLoaded,
@@ -1712,26 +1716,31 @@ void PlayerController::requestPlayback(const QVariantMap &request)
 
 void PlayerController::onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData)
 {
-    m_seriesLibraryResolutionInFlight.remove(seriesId);
+    Q_UNUSED(seriesId);
+    Q_UNUSED(seriesData);
+}
 
-    const QString libraryId = seriesData.value(QStringLiteral("ParentId")).toString();
-    if (!libraryId.isEmpty()) {
-        m_seriesLibraryIdCache.insert(seriesId, libraryId);
+void PlayerController::onSeriesDetailsNotModified(const QString &seriesId)
+{
+    Q_UNUSED(seriesId);
+}
+
+void PlayerController::onItemLibraryResolved(const QString &itemId, const QString &libraryId)
+{
+    if (itemId.isEmpty() || libraryId.isEmpty()) {
+        return;
     }
+
+    m_seriesLibraryResolutionInFlight.remove(itemId);
+    m_seriesLibraryIdCache.insert(itemId, libraryId);
 
     QStringList requestIdsToFinalize;
     for (auto it = m_pendingPlaybackRequests.begin(); it != m_pendingPlaybackRequests.end(); ++it) {
-        if (it->seriesId != seriesId || !it->awaitingLibraryResolution) {
+        if (it->seriesId != itemId || !it->awaitingLibraryResolution) {
             continue;
         }
 
-        if (!libraryId.isEmpty()) {
-            it->libraryId = libraryId;
-        } else {
-            qCWarning(lcPlayback) << "Series details loaded without ParentId for playback request"
-                                  << "seriesId=" << seriesId
-                                  << "itemId=" << it->itemId;
-        }
+        it->libraryId = libraryId;
         it->awaitingLibraryResolution = false;
         requestIdsToFinalize.append(it.key());
     }
@@ -1741,23 +1750,21 @@ void PlayerController::onSeriesDetailsLoaded(const QString &seriesId, const QJso
     }
 }
 
-void PlayerController::onSeriesDetailsNotModified(const QString &seriesId)
+void PlayerController::onItemLibraryResolutionFailed(const QString &itemId, const QString &error)
 {
-    m_seriesLibraryResolutionInFlight.remove(seriesId);
+    if (itemId.isEmpty()) {
+        return;
+    }
 
-    const QString cachedLibraryId = m_seriesLibraryIdCache.value(seriesId);
+    qCWarning(lcPlayback) << "Failed to resolve library for series"
+                          << "seriesId=" << itemId
+                          << "error=" << error;
+    m_seriesLibraryResolutionInFlight.remove(itemId);
+
     QStringList requestIdsToFinalize;
     for (auto it = m_pendingPlaybackRequests.begin(); it != m_pendingPlaybackRequests.end(); ++it) {
-        if (it->seriesId != seriesId || !it->awaitingLibraryResolution) {
+        if (it->seriesId != itemId || !it->awaitingLibraryResolution) {
             continue;
-        }
-
-        if (!cachedLibraryId.isEmpty()) {
-            it->libraryId = cachedLibraryId;
-        } else {
-            qCWarning(lcPlayback) << "Series details unchanged but no cached library mapping for playback request"
-                                  << "seriesId=" << seriesId
-                                  << "itemId=" << it->itemId;
         }
         it->awaitingLibraryResolution = false;
         requestIdsToFinalize.append(it.key());
@@ -2443,7 +2450,7 @@ void PlayerController::maybeResolvePendingRequestLibraryId(PlayerController::Pen
     pending.awaitingLibraryResolution = true;
     if (!m_seriesLibraryResolutionInFlight.contains(pending.seriesId)) {
         m_seriesLibraryResolutionInFlight.insert(pending.seriesId);
-        m_libraryService->getSeriesDetails(pending.seriesId);
+        m_libraryService->resolveLibraryForItem(pending.seriesId);
     }
 }
 

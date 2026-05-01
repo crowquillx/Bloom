@@ -1908,15 +1908,6 @@ FocusScope {
         if (currentLibraryId && currentLibraryId !== "") {
             return currentLibraryId
         }
-
-        if (currentSeriesData && currentSeriesData.ParentId) {
-            return currentSeriesData.ParentId
-        }
-
-        if (currentMovieData && currentMovieData.ParentId) {
-            return currentMovieData.ParentId
-        }
-
         return ""
     }
 
@@ -2041,13 +2032,6 @@ FocusScope {
             if (seriesId === currentSeriesId) {
                 currentSeriesData = seriesData
                 console.log("[Library] Series details loaded:", seriesData.Name)
-
-                // In direct-navigation contexts (search/home/post-playback), currentLibraryId can
-                // start empty. Backfill from series ParentId so playback profile resolution works.
-                if (!currentLibraryId && seriesData.ParentId) {
-                    currentLibraryId = seriesData.ParentId
-                    console.log("[Library] Backfilled library ID from series details:", currentLibraryId)
-                }
 
                 // If we came from direct navigation (Home screen), update backdrop now
                 // that we have the series data

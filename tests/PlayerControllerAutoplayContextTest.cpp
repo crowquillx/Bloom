@@ -155,6 +155,11 @@ public:
     {
         requestedSeriesDetailsIds.append(seriesId);
     }
+    
+    void resolveLibraryForItem(const QString &itemId) override
+    {
+        requestedLibraryResolutionIds.append(itemId);
+    }
 
     QString getStreamUrl(const QString &itemId) override
     {
@@ -174,6 +179,7 @@ public:
     QStringList requestedExcludeIds;
     QStringList requestedContexts;
     QStringList requestedSeriesDetailsIds;
+    QStringList requestedLibraryResolutionIds;
 };
 
 static MediaSourceInfo buildMediaSourceInfo(const QString &id,
@@ -302,11 +308,7 @@ void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectl
 
     controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
 
-    QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
-    QCOMPARE(libraryService.requestedSeriesIds.first(), QStringLiteral("series-1"));
-    QCOMPARE(libraryService.requestedExcludeIds.first(), QStringLiteral("item-1"));
-    QCOMPARE(libraryService.requestedContexts.first(),
-             QStringLiteral("player:resolve:series-1:item-1"));
+    QCOMPARE(libraryService.requestedSeriesIds.size(), 0);
     QVERIFY(controller.m_shouldAutoplay);
     QVERIFY(controller.m_waitingForNextEpisodeAtPlaybackEnd);
     QCOMPARE(controller.m_pendingAutoplayItemId, QStringLiteral("item-1"));
@@ -314,8 +316,7 @@ void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectl
 
     controller.m_hasEvaluatedCompletionForAttempt = true;
     controller.prepareTerminalTransition(PlayerController::TerminalReason::PlaybackEnd);
-    QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
-    QCOMPARE(libraryService.requestedExcludeIds.first(), QStringLiteral("item-1"));
+    QCOMPARE(libraryService.requestedSeriesIds.size(), 0);
 }
 
 void PlayerControllerAutoplayContextTest::userStopPastThresholdRequestsNextEpisode()
@@ -345,6 +346,7 @@ void PlayerControllerAutoplayContextTest::userStopPastThresholdRequestsNextEpiso
     controller.m_playbackState = PlayerController::Playing;
 
     controller.stop();
+    QCoreApplication::processEvents();
 
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
     QCOMPARE(libraryService.requestedSeriesIds.first(), QStringLiteral("series-1"));
@@ -394,7 +396,7 @@ void PlayerControllerAutoplayContextTest::userStopBelowThresholdWaitsForBackendE
     QCOMPARE(backend.stopCallCount, 1);
     QCOMPARE(controller.playbackState(), PlayerController::Playing);
     QVERIFY(controller.m_terminalTransitionActive);
-    QVERIFY(!controller.m_terminalFinalizationQueued);
+    QVERIFY(controller.m_terminalFinalizationQueued);
     QVERIFY(!controller.awaitingNextEpisodeResolution());
     QVERIFY(!controller.m_shouldAutoplay);
     QVERIFY(controller.m_pendingAutoplayItemId.isEmpty());
@@ -909,6 +911,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackPromptsForVersionSelect
         {QStringLiteral("seasonId"), QStringLiteral("season-1")},
         {QStringLiteral("allowVersionPrompt"), true}
     });
+    emit libraryService.itemLibraryResolved(QStringLiteral("series-1"), QStringLiteral("library-1"));
 
     const MediaSourceInfo versionA = buildMediaSourceInfo(
         QStringLiteral("source-1080p"),
@@ -996,7 +999,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackRecoversLibraryProfileF
         {QStringLiteral("allowVersionPrompt"), false}
     });
 
-    QCOMPARE(libraryService.requestedSeriesDetailsIds, QStringList{QStringLiteral("series-1")});
+    QCOMPARE(libraryService.requestedLibraryResolutionIds, QStringList{QStringLiteral("series-1")});
 
     const MediaSourceInfo mediaSource = buildMediaSourceInfo(
         QStringLiteral("source-1"),
@@ -1023,9 +1026,8 @@ void PlayerControllerAutoplayContextTest::requestPlaybackRecoversLibraryProfileF
     QVERIFY(backend.lastStartArgs.isEmpty());
     QVERIFY(backend.lastStartUrl.isEmpty());
 
-    emit libraryService.seriesDetailsLoaded(QStringLiteral("series-1"),
-                                            QJsonObject{{QStringLiteral("Id"), QStringLiteral("series-1")},
-                                                        {QStringLiteral("ParentId"), QStringLiteral("library-1")}});
+    emit libraryService.itemLibraryResolved(QStringLiteral("series-1"),
+                                            QStringLiteral("library-1"));
 
     QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--test-library-profile=yes")));
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
@@ -1092,16 +1094,14 @@ void PlayerControllerAutoplayContextTest::requestPlaybackWaitsForSeriesDetailsPa
     QVERIFY(backend.lastStartUrl.isEmpty());
     QVERIFY(backend.lastStartArgs.isEmpty());
 
-    emit libraryService.seriesDetailsLoaded(QStringLiteral("other-series"),
-                                            QJsonObject{{QStringLiteral("Id"), QStringLiteral("other-series")},
-                                                        {QStringLiteral("ParentId"), QStringLiteral("library-1")}});
+    emit libraryService.itemLibraryResolved(QStringLiteral("other-series"),
+                                            QStringLiteral("library-1"));
 
     QVERIFY(backend.lastStartUrl.isEmpty());
     QVERIFY(backend.lastStartArgs.isEmpty());
 
-    emit libraryService.seriesDetailsLoaded(QStringLiteral("series-1"),
-                                            QJsonObject{{QStringLiteral("Id"), QStringLiteral("series-1")},
-                                                        {QStringLiteral("ParentId"), QStringLiteral("library-1")}});
+    emit libraryService.itemLibraryResolved(QStringLiteral("series-1"),
+                                            QStringLiteral("library-1"));
 
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
     QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--test-library-profile=yes")));
@@ -1143,11 +1143,10 @@ void PlayerControllerAutoplayContextTest::requestPlaybackUsesRecoveredLibraryWhe
         {QStringLiteral("allowVersionPrompt"), false}
     });
 
-    QCOMPARE(libraryService.requestedSeriesDetailsIds, QStringList{QStringLiteral("series-1")});
+    QCOMPARE(libraryService.requestedLibraryResolutionIds, QStringList{QStringLiteral("series-1")});
 
-    emit libraryService.seriesDetailsLoaded(QStringLiteral("series-1"),
-                                            QJsonObject{{QStringLiteral("Id"), QStringLiteral("series-1")},
-                                                        {QStringLiteral("ParentId"), QStringLiteral("library-1")}});
+    emit libraryService.itemLibraryResolved(QStringLiteral("series-1"),
+                                            QStringLiteral("library-1"));
 
     QVERIFY(backend.lastStartUrl.isEmpty());
     QVERIFY(backend.lastStartArgs.isEmpty());
@@ -1248,8 +1247,8 @@ void PlayerControllerAutoplayContextTest::requestPlaybackFallsBackWithoutRecover
 
     QVERIFY(backend.lastStartUrl.isEmpty());
 
-    emit libraryService.seriesDetailsLoaded(QStringLiteral("series-1"),
-                                            QJsonObject{{QStringLiteral("Id"), QStringLiteral("series-1")}});
+    emit libraryService.itemLibraryResolutionFailed(QStringLiteral("series-1"),
+                                                    QStringLiteral("missing"));
 
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
     QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--test-default-profile=yes")));
@@ -1323,9 +1322,8 @@ void PlayerControllerAutoplayContextTest::requestPlaybackKeepsSeriesProfilePrior
     emit playbackService.playbackInfoLoaded(QStringLiteral("episode-1"),
                                             buildPlaybackInfo({mediaSource}));
     emit playbackService.additionalPartsLoaded(QStringLiteral("episode-1"), QJsonArray{});
-    emit libraryService.seriesDetailsLoaded(QStringLiteral("series-1"),
-                                            QJsonObject{{QStringLiteral("Id"), QStringLiteral("series-1")},
-                                                        {QStringLiteral("ParentId"), QStringLiteral("library-1")}});
+    emit libraryService.itemLibraryResolved(QStringLiteral("series-1"),
+                                            QStringLiteral("library-1"));
 
     QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--test-series-profile=yes")));
     QVERIFY(!backend.lastStartArgs.contains(QStringLiteral("--test-library-profile=yes")));

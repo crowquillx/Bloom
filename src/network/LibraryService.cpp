@@ -601,6 +601,58 @@ void LibraryService::clearItemCacheValidation(const QString &itemId)
     m_lastModified.remove(endpoint);
 }
 
+void LibraryService::resolveLibraryForItem(const QString &itemId)
+{
+    if (!m_authService->isAuthenticated()) {
+        emit itemLibraryResolutionFailed(itemId, tr("Not authenticated"));
+        return;
+    }
+    if (itemId.isEmpty()) {
+        emit itemLibraryResolutionFailed(itemId, tr("Item ID is empty"));
+        return;
+    }
+
+    const QString endpoint = QString("/Items/%1/Ancestors?UserId=%2")
+        .arg(itemId, m_authService->getUserId());
+
+    sendRequestWithRetry(endpoint,
+        [this, endpoint]() {
+            QNetworkRequest request = m_authService->createRequest(endpoint);
+            return m_authService->networkManager()->get(request);
+        },
+        [this, itemId](QNetworkReply *reply) {
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (!doc.isArray()) {
+                emit itemLibraryResolutionFailed(itemId, tr("Invalid ancestors response"));
+                return;
+            }
+
+            const QJsonArray ancestors = doc.array();
+            QString libraryId;
+
+            for (const QJsonValue &value : ancestors) {
+                const QJsonObject ancestor = value.toObject();
+                const QString type = ancestor.value(QStringLiteral("Type")).toString();
+                const QString collectionType = ancestor.value(QStringLiteral("CollectionType")).toString();
+                if (type == QStringLiteral("CollectionFolder") || !collectionType.isEmpty()) {
+                    libraryId = ancestor.value(QStringLiteral("Id")).toString();
+                    break;
+                }
+            }
+
+            if (libraryId.isEmpty() && !ancestors.isEmpty()) {
+                libraryId = ancestors.last().toObject().value(QStringLiteral("Id")).toString();
+            }
+
+            if (libraryId.isEmpty()) {
+                emit itemLibraryResolutionFailed(itemId, tr("Library ancestor not found"));
+                return;
+            }
+
+            emit itemLibraryResolved(itemId, libraryId);
+        });
+}
+
 // ============================================================================
 // Series Details
 /**

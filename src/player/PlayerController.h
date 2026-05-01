@@ -358,6 +358,8 @@ private slots:
     void onPlaybackServiceErrorOccurred(const QString &endpoint, const QString &error);
     void onPlaybackServiceNetworkError(const NetworkError &error);
     void onAutoplayPlaybackInfoTimeout();
+    void onItemLibraryResolved(const QString &itemId, const QString &libraryId);
+    void onItemLibraryResolutionFailed(const QString &itemId, const QString &error);
     
     // Timeout handlers
     void onLoadingTimeout();
