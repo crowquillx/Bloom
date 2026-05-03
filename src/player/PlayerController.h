@@ -63,6 +63,8 @@ class PlayerController : public QObject
     Q_PROPERTY(bool isPaused READ isPaused NOTIFY playbackStateChanged)
     Q_PROPERTY(bool hasError READ hasError NOTIFY hasErrorChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
+    Q_PROPERTY(bool isRecovering READ isRecovering NOTIFY isRecoveringChanged)
+    Q_PROPERTY(int recoveryAttemptCount READ recoveryAttemptCount NOTIFY recoveryAttemptCountChanged)
     Q_PROPERTY(int bufferingProgress READ bufferingProgress NOTIFY bufferingProgressChanged)
     Q_PROPERTY(int audioDelay READ audioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
     Q_PROPERTY(bool supportsEmbeddedVideo READ supportsEmbeddedVideo NOTIFY supportsEmbeddedVideoChanged)
@@ -159,6 +161,8 @@ public:
     bool isPaused() const { return m_playbackState == Paused; }
     bool hasError() const;
     QString errorMessage() const;
+    bool isRecovering() const { return m_isRecovering; }
+    int recoveryAttemptCount() const { return m_recoveryAttemptCount; }
     int bufferingProgress() const;
     
     // Track selection getters
@@ -298,6 +302,8 @@ signals:
     void isLoadingChanged();
     void hasErrorChanged();
     void errorMessageChanged();
+    void isRecoveringChanged();
+    void recoveryAttemptCountChanged();
     void bufferingProgressChanged();
     void audioDelayChanged();
     void isPlaybackActiveChanged();
@@ -360,6 +366,9 @@ private slots:
     void onAutoplayPlaybackInfoTimeout();
     void onItemLibraryResolved(const QString &itemId, const QString &libraryId);
     void onItemLibraryResolutionFailed(const QString &itemId, const QString &error);
+    void onServerPingSucceeded();
+    void onServerPingFailed(const QString &reason);
+    void onRecoveryTick();
     
     // Timeout handlers
     void onLoadingTimeout();
@@ -412,6 +421,8 @@ private:
     void setPlaybackState(PlaybackState state);
     void setErrorMessage(const QString &message);
     void setBufferingProgress(int progress);
+    void beginRecovery();
+    void cancelRecovery();
     void reportPlaybackStart();
     void reportPlaybackProgress();
     void reportPlaybackProgressNow();
@@ -666,6 +677,31 @@ private:
     static constexpr int kVolumePersistDebounceMs = 250;
     static constexpr int kAutoplayPlaybackInfoTimeoutMs = 8000;
     static constexpr double kNextEpisodePrefetchTriggerPercent = 70.0;
+
+    // Recovery from transient server loss
+    struct RecoveryContext {
+        QString url;
+        QString itemId;
+        qint64 startPositionTicks = 0;
+        QString seriesId;
+        QString seasonId;
+        QString libraryId;
+        QString mediaSourceId;
+        QString playSessionId;
+        QVariantMap mediaSource;
+        int audioStreamIndex = -1;
+        int subtitleStreamIndex = -1;
+        QVariantList availableAudioTracks;
+        QVariantList availableSubtitleTracks;
+        double framerate = 0.0;
+        bool isHDR = false;
+        bool valid = false;
+    };
+    RecoveryContext m_recoveryContext;
+    QTimer *m_recoveryTimer;
+    int m_recoveryAttemptCount = 0;
+    bool m_isRecovering = false;
+    static constexpr int kRecoveryPingIntervalMs = 5000;
     
     // State
     PlaybackState m_playbackState = Idle;

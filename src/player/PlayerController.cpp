@@ -227,6 +227,7 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     , m_volumePersistTimer(new QTimer(this))
     , m_startDelayTimer(new QTimer(this))
     , m_autoplayPlaybackInfoTimeoutTimer(new QTimer(this))
+    , m_recoveryTimer(new QTimer(this))
 {
     if (!m_playerBackend) {
         qCWarning(lcPlayback) << "PlayerController initialized without backend; falling back to null backend";
@@ -296,6 +297,16 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     m_autoplayPlaybackInfoTimeoutTimer->setInterval(kAutoplayPlaybackInfoTimeoutMs);
     connect(m_autoplayPlaybackInfoTimeoutTimer, &QTimer::timeout,
             this, &PlayerController::onAutoplayPlaybackInfoTimeout);
+
+    // Recovery timer for transient server loss
+    m_recoveryTimer->setSingleShot(true);
+    m_recoveryTimer->setInterval(kRecoveryPingIntervalMs);
+    connect(m_recoveryTimer, &QTimer::timeout,
+            this, &PlayerController::onRecoveryTick);
+    connect(m_libraryService, &LibraryService::serverPingSucceeded,
+            this, &PlayerController::onServerPingSucceeded);
+    connect(m_libraryService, &LibraryService::serverPingFailed,
+            this, &PlayerController::onServerPingFailed);
             
     // Connect to ConfigManager audio delay signal
     connect(m_config, &ConfigManager::audioDelayChanged,
@@ -325,6 +336,7 @@ PlayerController::~PlayerController()
     m_volumePersistTimer->stop();
     m_startDelayTimer->stop();
     m_autoplayPlaybackInfoTimeoutTimer->stop();
+    m_recoveryTimer->stop();
     cancelPendingDisplayRestore();
     resetTerminalTransitionState(true);
 }
@@ -570,6 +582,7 @@ void PlayerController::onExitPausedState()
 void PlayerController::onExitErrorState()
 {
     setErrorMessage(QString());
+    cancelRecovery();
 }
 
 // === STATE ENTRY HANDLERS ===
@@ -607,6 +620,7 @@ void PlayerController::enterIdleStateImmediate()
     m_currentSeasonId.clear();
     m_currentLibraryId.clear();
     m_pendingUrl.clear();
+    m_recoveryContext = RecoveryContext{};
     m_currentPosition = 0;
     m_duration = 0;
     m_hasReportedStart = false;
@@ -824,6 +838,10 @@ void PlayerController::onEnterErrorState()
 
     clearPendingAutoplayContext();
     clearNextEpisodePrefetchState();
+
+    if (m_recoveryContext.valid) {
+        beginRecovery();
+    }
 }
 
 // === TIMEOUT HANDLERS ===
@@ -1105,6 +1123,26 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
         clearPendingAutoplayContext();
         clearNextEpisodePrefetchState();
         m_shouldAutoplay = false;
+
+        // Stash recovery context so we can resume if the server comes back
+        if (m_config && m_config->getAutoRecoverPlayback() && !m_currentItemId.isEmpty()) {
+            m_recoveryContext.url = m_pendingUrl;
+            m_recoveryContext.itemId = m_currentItemId;
+            m_recoveryContext.startPositionTicks = static_cast<qint64>(m_currentPosition * 10000000.0);
+            m_recoveryContext.seriesId = m_currentSeriesId;
+            m_recoveryContext.seasonId = m_currentSeasonId;
+            m_recoveryContext.libraryId = m_currentLibraryId;
+            m_recoveryContext.mediaSourceId = m_mediaSourceId;
+            m_recoveryContext.playSessionId = m_playSessionId;
+            m_recoveryContext.mediaSource = m_activeMediaSource;
+            m_recoveryContext.audioStreamIndex = m_selectedAudioTrack;
+            m_recoveryContext.subtitleStreamIndex = m_selectedSubtitleTrack;
+            m_recoveryContext.availableAudioTracks = m_availableAudioTracks;
+            m_recoveryContext.availableSubtitleTracks = m_availableSubtitleTracks;
+            m_recoveryContext.framerate = m_contentFramerate;
+            m_recoveryContext.isHDR = m_contentIsHDR;
+            m_recoveryContext.valid = true;
+        }
     }
 
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
@@ -2837,6 +2875,28 @@ void PlayerController::retry()
     
     if (m_playbackState == Error && !m_pendingUrl.isEmpty()) {
         m_reportProgressOnNextPositionUpdate = false;
+
+        if (m_recoveryContext.valid) {
+            cancelRecovery();
+            playUrlWithTracks(m_recoveryContext.url,
+                              m_recoveryContext.itemId,
+                              m_recoveryContext.startPositionTicks,
+                              m_recoveryContext.seriesId,
+                              m_recoveryContext.seasonId,
+                              m_recoveryContext.libraryId,
+                              m_recoveryContext.mediaSourceId,
+                              m_recoveryContext.playSessionId,
+                              m_recoveryContext.mediaSource,
+                              m_recoveryContext.audioStreamIndex,
+                              m_recoveryContext.subtitleStreamIndex,
+                              m_recoveryContext.availableAudioTracks,
+                              m_recoveryContext.availableSubtitleTracks,
+                              m_recoveryContext.framerate,
+                              m_recoveryContext.isHDR);
+            m_recoveryContext = RecoveryContext{};
+            return;
+        }
+
         processEvent(Event::Play);
     }
 }
@@ -2848,6 +2908,82 @@ void PlayerController::clearError()
     if (m_playbackState == Error) {
         processEvent(Event::Recover);
     }
+}
+
+void PlayerController::beginRecovery()
+{
+    if (m_isRecovering) {
+        return;
+    }
+    m_isRecovering = true;
+    m_recoveryAttemptCount = 0;
+    emit isRecoveringChanged();
+    emit recoveryAttemptCountChanged();
+    setErrorMessage(tr("Connection lost. Attempting to reconnect..."));
+    onRecoveryTick();
+}
+
+void PlayerController::cancelRecovery()
+{
+    if (!m_isRecovering) {
+        return;
+    }
+    m_recoveryTimer->stop();
+    m_isRecovering = false;
+    m_recoveryAttemptCount = 0;
+    emit isRecoveringChanged();
+    emit recoveryAttemptCountChanged();
+}
+
+void PlayerController::onRecoveryTick()
+{
+    if (!m_isRecovering) {
+        return;
+    }
+    ++m_recoveryAttemptCount;
+    emit recoveryAttemptCountChanged();
+    qDebug() << "PlayerController: Recovery ping attempt" << m_recoveryAttemptCount;
+    m_libraryService->pingServer();
+}
+
+void PlayerController::onServerPingSucceeded()
+{
+    qDebug() << "PlayerController: Server ping succeeded, resuming playback";
+    if (!m_isRecovering || m_playbackState != Error) {
+        return;
+    }
+
+    cancelRecovery();
+
+    if (!m_recoveryContext.valid) {
+        return;
+    }
+
+    playUrlWithTracks(m_recoveryContext.url,
+                      m_recoveryContext.itemId,
+                      m_recoveryContext.startPositionTicks,
+                      m_recoveryContext.seriesId,
+                      m_recoveryContext.seasonId,
+                      m_recoveryContext.libraryId,
+                      m_recoveryContext.mediaSourceId,
+                      m_recoveryContext.playSessionId,
+                      m_recoveryContext.mediaSource,
+                      m_recoveryContext.audioStreamIndex,
+                      m_recoveryContext.subtitleStreamIndex,
+                      m_recoveryContext.availableAudioTracks,
+                      m_recoveryContext.availableSubtitleTracks,
+                      m_recoveryContext.framerate,
+                      m_recoveryContext.isHDR);
+    m_recoveryContext = RecoveryContext{};
+}
+
+void PlayerController::onServerPingFailed(const QString &reason)
+{
+    qDebug() << "PlayerController: Server ping failed:" << reason;
+    if (!m_isRecovering) {
+        return;
+    }
+    m_recoveryTimer->start(kRecoveryPingIntervalMs);
 }
 
 // === TRACK SELECTION ===
@@ -4236,7 +4372,7 @@ void PlayerController::initiateMpvStart()
     
     // Build final args: Bloom config args + profile args
     QStringList finalArgs;
-    finalArgs << ConfigManager::getMpvConfigArgs();  // mpv.conf, input.conf, scripts
+    finalArgs << m_config->getMpvConfigArgs();  // mpv.conf, input.conf, scripts
     finalArgs << profileArgs;                        // Profile-specific args
 
     if (m_mpvDisplayFpsOverride > 0.0) {
