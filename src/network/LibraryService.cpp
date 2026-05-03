@@ -1166,3 +1166,9 @@ QString LibraryService::getCachedImageUrlWithWidth(const QString &itemId, const 
     QString originalUrl = getImageUrlWithWidth(itemId, imageType, width);
     return QString("image://cached/%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(originalUrl)));
 }
+
+QNetworkReply* LibraryService::pingServer()
+{
+    QNetworkRequest request = m_authService->createRequest("/System/Info");
+    return m_authService->networkManager()->get(request);
+}

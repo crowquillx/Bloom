@@ -147,7 +147,7 @@ QString ConfigManager::getMpvScriptsDir()
     return QString();
 }
 
-QStringList ConfigManager::getMpvConfigArgs()
+QStringList ConfigManager::getMpvConfigArgs() const
 {
     QStringList args;
     
@@ -212,6 +212,15 @@ QStringList ConfigManager::getMpvConfigArgs()
 
             args << "--script=" + canonicalPath;
         }
+    }
+
+    // Global playback cache and network reconnect settings
+    int cacheSizeMB = getPlaybackCacheSizeMB();
+    if (cacheSizeMB >= 50) {
+        args << "--cache=yes";
+        args << QString("--demuxer-max-bytes=%1").arg(static_cast<qint64>(cacheSizeMB) * 1024 * 1024);
+        args << QString("--demuxer-max-back-bytes=%1").arg(static_cast<qint64>(cacheSizeMB / 4) * 1024 * 1024);
+        args << "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=30";
     }
     
     return args;
@@ -441,6 +450,78 @@ int ConfigManager::getImageCacheSizeMB() const
         }
     }
     return 500; // Default 500MB
+}
+
+void ConfigManager::setPlaybackCacheSizeMB(int mb)
+{
+    int clamped = std::clamp(mb, 50, 2048);
+    if (clamped == getPlaybackCacheSizeMB()) {
+        return;
+    }
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["playback_cache_size_mb"] = clamped;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit playbackCacheSizeMBChanged();
+}
+
+int ConfigManager::getPlaybackCacheSizeMB() const
+{
+    int value = 500;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("playback_cache_size_mb")) {
+                value = playback["playback_cache_size_mb"].toInt();
+            }
+        }
+    }
+    return std::clamp(value, 50, 2048);
+}
+
+void ConfigManager::setAutoRecoverPlayback(bool enabled)
+{
+    if (enabled == getAutoRecoverPlayback()) {
+        return;
+    }
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["auto_recover_playback"] = enabled;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit autoRecoverPlaybackChanged();
+}
+
+bool ConfigManager::getAutoRecoverPlayback() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("auto_recover_playback")) {
+                return playback["auto_recover_playback"].toBool();
+            }
+        }
+    }
+    return true; // Default enabled
 }
 
 void ConfigManager::setRoundedImageMode(const QString &mode)
@@ -2143,6 +2224,25 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV16ToV17(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 17;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject playback = settings.value("playback").toObject();
+        if (!playback.contains("playback_cache_size_mb")) {
+            playback["playback_cache_size_mb"] = 500;
+        }
+        if (!playback.contains("auto_recover_playback")) {
+            playback["auto_recover_playback"] = true;
+        }
+
+        settings["playback"] = playback;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -2291,6 +2391,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 16) {
+            m_config = ConfigMigrator::migrateV16ToV17(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -2350,6 +2458,8 @@ QJsonObject ConfigManager::defaultConfig() const
     playback["ui_sounds_enabled"] = true;
     playback["ui_sounds_volume"] = 3;
     playback["performance_mode_enabled"] = false;
+    playback["playback_cache_size_mb"] = 500;
+    playback["auto_recover_playback"] = true;
     settings["playback"] = playback;
     
     QJsonObject video;

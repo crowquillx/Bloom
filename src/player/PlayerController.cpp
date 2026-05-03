@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QBuffer>
+#include <QNetworkReply>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -227,6 +228,7 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     , m_volumePersistTimer(new QTimer(this))
     , m_startDelayTimer(new QTimer(this))
     , m_autoplayPlaybackInfoTimeoutTimer(new QTimer(this))
+    , m_recoveryTimer(new QTimer(this))
 {
     if (!m_playerBackend) {
         qCWarning(lcPlayback) << "PlayerController initialized without backend; falling back to null backend";
@@ -296,7 +298,13 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     m_autoplayPlaybackInfoTimeoutTimer->setInterval(kAutoplayPlaybackInfoTimeoutMs);
     connect(m_autoplayPlaybackInfoTimeoutTimer, &QTimer::timeout,
             this, &PlayerController::onAutoplayPlaybackInfoTimeout);
-            
+
+    // Recovery timer for transient server loss
+    m_recoveryTimer->setSingleShot(true);
+    m_recoveryTimer->setInterval(kRecoveryPingIntervalMs);
+    connect(m_recoveryTimer, &QTimer::timeout,
+            this, &PlayerController::onRecoveryTick);
+
     // Connect to ConfigManager audio delay signal
     connect(m_config, &ConfigManager::audioDelayChanged,
             this, [this]() {
@@ -325,6 +333,13 @@ PlayerController::~PlayerController()
     m_volumePersistTimer->stop();
     m_startDelayTimer->stop();
     m_autoplayPlaybackInfoTimeoutTimer->stop();
+    m_isRecovering = false;
+    m_recoveryTimer->stop();
+    if (m_recoveryReply) {
+        QObject::disconnect(m_recoveryReply, nullptr, this, nullptr);
+        m_recoveryReply->abort();
+        m_recoveryReply.clear();
+    }
     cancelPendingDisplayRestore();
     resetTerminalTransitionState(true);
 }
@@ -570,6 +585,8 @@ void PlayerController::onExitPausedState()
 void PlayerController::onExitErrorState()
 {
     setErrorMessage(QString());
+    m_lastErrorWasNetworkRecoverable = false;
+    cancelRecovery();
 }
 
 // === STATE ENTRY HANDLERS ===
@@ -607,6 +624,8 @@ void PlayerController::enterIdleStateImmediate()
     m_currentSeasonId.clear();
     m_currentLibraryId.clear();
     m_pendingUrl.clear();
+    m_recoveryContext = RecoveryContext{};
+    m_lastErrorWasNetworkRecoverable = false;
     m_currentPosition = 0;
     m_duration = 0;
     m_hasReportedStart = false;
@@ -824,6 +843,10 @@ void PlayerController::onEnterErrorState()
 
     clearPendingAutoplayContext();
     clearNextEpisodePrefetchState();
+
+    if (m_recoveryContext.valid) {
+        beginRecovery();
+    }
 }
 
 // === TIMEOUT HANDLERS ===
@@ -831,6 +854,7 @@ void PlayerController::onEnterErrorState()
 void PlayerController::onLoadingTimeout()
 {
     qDebug() << "PlayerController: Loading timeout";
+    m_lastErrorWasNetworkRecoverable = true;
     setErrorMessage(tr("Loading timed out. Please check your connection and try again."));
     requestTerminalTransition(TerminalReason::Error);
 }
@@ -838,6 +862,7 @@ void PlayerController::onLoadingTimeout()
 void PlayerController::onBufferingTimeout()
 {
     qDebug() << "PlayerController: Buffering timeout";
+    m_lastErrorWasNetworkRecoverable = true;
     setErrorMessage(tr("Buffering timed out. Network may be too slow."));
     requestTerminalTransition(TerminalReason::Error);
 }
@@ -902,6 +927,7 @@ void PlayerController::onProcessError(const QString &error)
         return;
     }
 
+    m_lastErrorWasNetworkRecoverable = false;
     setErrorMessage(error);
     requestTerminalTransition(TerminalReason::Error);
 }
@@ -1105,6 +1131,44 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
         clearPendingAutoplayContext();
         clearNextEpisodePrefetchState();
         m_shouldAutoplay = false;
+
+        // Stash recovery context so we can resume if the server comes back
+        if (m_config && m_config->getAutoRecoverPlayback()
+            && m_lastErrorWasNetworkRecoverable
+            && !m_currentItemId.isEmpty()
+            && !m_pendingUrl.isEmpty()) {
+            QString segmentUrl = m_pendingUrl;
+            if (m_activePlaybackSegmentIndex >= 0
+                && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
+                const QString segUrl = m_playbackSegments[m_activePlaybackSegmentIndex]
+                                           .value(QStringLiteral("url")).toString();
+                if (!segUrl.isEmpty()) {
+                    segmentUrl = segUrl;
+                }
+            }
+            m_recoveryContext.url = segmentUrl;
+            m_recoveryContext.itemId = m_currentItemId;
+            m_recoveryContext.startPositionTicks = static_cast<qint64>(m_segmentRelativePosition * 10000000.0);
+            m_recoveryContext.seriesId = m_currentSeriesId;
+            m_recoveryContext.seasonId = m_currentSeasonId;
+            m_recoveryContext.libraryId = m_currentLibraryId;
+            m_recoveryContext.mediaSourceId = m_mediaSourceId;
+            m_recoveryContext.playSessionId = QString(); // avoid stale session
+            m_recoveryContext.mediaSource = m_activeMediaSource;
+            m_recoveryContext.audioStreamIndex = m_selectedAudioTrack;
+            m_recoveryContext.subtitleStreamIndex = m_selectedSubtitleTrack;
+            m_recoveryContext.availableAudioTracks = m_availableAudioTracks;
+            m_recoveryContext.availableSubtitleTracks = m_availableSubtitleTracks;
+            m_recoveryContext.framerate = m_contentFramerate;
+            m_recoveryContext.isHDR = m_contentIsHDR;
+            m_recoveryContext.playbackSegments = m_playbackSegments;
+            m_recoveryContext.activePlaybackSegmentIndex = m_activePlaybackSegmentIndex;
+            m_recoveryContext.activePlaybackSegmentOffsetTicks = m_activePlaybackSegmentOffsetTicks;
+            m_recoveryContext.segmentRelativePosition = m_segmentRelativePosition;
+            m_recoveryContext.valid = true;
+        } else {
+            m_recoveryContext = RecoveryContext{};
+        }
     }
 
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
@@ -2837,6 +2901,13 @@ void PlayerController::retry()
     
     if (m_playbackState == Error && !m_pendingUrl.isEmpty()) {
         m_reportProgressOnNextPositionUpdate = false;
+
+        if (m_recoveryContext.valid) {
+            cancelRecovery();
+            resumeFromRecoveryContext();
+            return;
+        }
+
         processEvent(Event::Play);
     }
 }
@@ -2848,6 +2919,135 @@ void PlayerController::clearError()
     if (m_playbackState == Error) {
         processEvent(Event::Recover);
     }
+}
+
+void PlayerController::beginRecovery()
+{
+    if (m_isRecovering) {
+        return;
+    }
+    m_isRecovering = true;
+    m_recoveryAttemptCount = 0;
+    emit isRecoveringChanged();
+    emit recoveryAttemptCountChanged();
+    setErrorMessage(tr("Connection lost. Attempting to reconnect..."));
+    onRecoveryTick();
+}
+
+void PlayerController::cancelRecovery()
+{
+    if (!m_isRecovering) {
+        return;
+    }
+    m_recoveryTimer->stop();
+    m_isRecovering = false;
+    m_recoveryAttemptCount = 0;
+    emit isRecoveringChanged();
+    emit recoveryAttemptCountChanged();
+    if (m_recoveryReply) {
+        m_recoveryReply->abort();
+        m_recoveryReply.clear();
+    }
+}
+
+void PlayerController::onRecoveryTick()
+{
+    if (!m_isRecovering) {
+        return;
+    }
+    ++m_recoveryAttemptCount;
+    emit recoveryAttemptCountChanged();
+    qDebug() << "PlayerController: Recovery ping attempt" << m_recoveryAttemptCount;
+
+    QNetworkReply *reply = m_libraryService->pingServer();
+    if (!reply) {
+        m_recoveryTimer->start(kRecoveryPingIntervalMs);
+        return;
+    }
+    m_recoveryReply = reply;
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        if (m_recoveryReply == reply) {
+            m_recoveryReply.clear();
+        }
+        reply->deleteLater();
+        int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply->error() == QNetworkReply::NoError) {
+            qDebug() << "PlayerController: Recovery ping succeeded";
+            if (m_isRecovering && m_playbackState == Error && !m_terminalTransitionActive) {
+                cancelRecovery();
+                resumeFromRecoveryContext();
+            }
+        } else if (httpStatus == 401) {
+            qDebug() << "PlayerController: Recovery ping got 401, auth expired";
+            if (m_isRecovering) {
+                cancelRecovery();
+                setErrorMessage(tr("Session expired. Please log in again."));
+                m_recoveryContext = RecoveryContext{};
+            }
+        } else {
+            qDebug() << "PlayerController: Recovery ping failed:" << reply->errorString();
+            if (m_isRecovering) {
+                m_recoveryTimer->start(kRecoveryPingIntervalMs);
+            }
+        }
+    });
+}
+
+void PlayerController::resumeFromRecoveryContext()
+{
+    if (!m_recoveryContext.valid) {
+        return;
+    }
+
+    playUrlWithTracks(m_recoveryContext.url,
+                      m_recoveryContext.itemId,
+                      m_recoveryContext.startPositionTicks,
+                      m_recoveryContext.seriesId,
+                      m_recoveryContext.seasonId,
+                      m_recoveryContext.libraryId,
+                      m_recoveryContext.mediaSourceId,
+                      m_recoveryContext.playSessionId,
+                      m_recoveryContext.mediaSource,
+                      m_recoveryContext.audioStreamIndex,
+                      m_recoveryContext.subtitleStreamIndex,
+                      m_recoveryContext.availableAudioTracks,
+                      m_recoveryContext.availableSubtitleTracks,
+                      m_recoveryContext.framerate,
+                      m_recoveryContext.isHDR);
+
+    // Restore multipart segment state so aggregate position and reporting are correct.
+    // This must be queued because playUrlWithTracks -> playUrl -> scheduleReplacementPlayback
+    // defers clearPlaybackSegments() into a lambda that may fire after we return.
+    if (!m_recoveryContext.playbackSegments.isEmpty()
+        && m_recoveryContext.activePlaybackSegmentIndex >= 0) {
+        const RecoveryContext ctx = m_recoveryContext;
+        QMetaObject::invokeMethod(this, [this, ctx]() {
+            m_playbackSegments = ctx.playbackSegments;
+            m_activePlaybackSegmentIndex = ctx.activePlaybackSegmentIndex;
+            m_activePlaybackSegmentOffsetTicks = ctx.activePlaybackSegmentOffsetTicks;
+            m_segmentRelativePosition = ctx.segmentRelativePosition;
+            m_aggregatePlaybackDuration = 0.0;
+            for (const QVariantMap &seg : m_playbackSegments) {
+                m_aggregatePlaybackDuration += static_cast<double>(seg.value(QStringLiteral("runTimeTicks")).toLongLong()) / 10000000.0;
+            }
+
+            // Queue remaining segments for mpv playlist so playback continues across segments
+            m_pendingPlaylistAppendUrls.clear();
+            for (int index = m_activePlaybackSegmentIndex + 1; index < m_playbackSegments.size(); ++index) {
+                const QString url = m_playbackSegments.at(index).value(QStringLiteral("url")).toString();
+                if (!url.isEmpty()) {
+                    m_pendingPlaylistAppendUrls.append(url);
+                }
+            }
+            if (!m_pendingPlaylistAppendUrls.isEmpty() && m_playerBackend && m_playerBackend->isRunning()) {
+                m_playerBackend->appendUrlsToPlaylist(m_pendingPlaylistAppendUrls);
+                m_pendingPlaylistAppendUrls.clear();
+            }
+        }, Qt::QueuedConnection);
+    }
+
+    m_recoveryContext = RecoveryContext{};
 }
 
 // === TRACK SELECTION ===
@@ -4236,7 +4436,7 @@ void PlayerController::initiateMpvStart()
     
     // Build final args: Bloom config args + profile args
     QStringList finalArgs;
-    finalArgs << ConfigManager::getMpvConfigArgs();  // mpv.conf, input.conf, scripts
+    finalArgs << m_config->getMpvConfigArgs();  // mpv.conf, input.conf, scripts
     finalArgs << profileArgs;                        // Profile-specific args
 
     if (m_mpvDisplayFpsOverride > 0.0) {

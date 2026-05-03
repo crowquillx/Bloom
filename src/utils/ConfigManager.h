@@ -68,6 +68,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool autoSkipIntro READ getAutoSkipIntro WRITE setAutoSkipIntro NOTIFY autoSkipIntroChanged)
     Q_PROPERTY(bool autoSkipOutro READ getAutoSkipOutro WRITE setAutoSkipOutro NOTIFY autoSkipOutroChanged)
     Q_PROPERTY(QString playerBackend READ getPlayerBackend WRITE setPlayerBackend NOTIFY playerBackendChanged)
+    Q_PROPERTY(int playbackCacheSizeMB READ getPlaybackCacheSizeMB WRITE setPlaybackCacheSizeMB NOTIFY playbackCacheSizeMBChanged)
     Q_PROPERTY(int backdropRotationInterval READ getBackdropRotationInterval WRITE setBackdropRotationInterval NOTIFY backdropRotationIntervalChanged)
     Q_PROPERTY(bool launchInFullscreen READ getLaunchInFullscreen WRITE setLaunchInFullscreen NOTIFY launchInFullscreenChanged)
     Q_PROPERTY(int themeSongVolume READ getThemeSongVolume WRITE setThemeSongVolume NOTIFY themeSongVolumeChanged)
@@ -201,6 +202,12 @@ public:
 
     void setPlayerBackend(const QString &backendName);
     QString getPlayerBackend() const;
+
+    // Playback Cache Settings
+    void setPlaybackCacheSizeMB(int mb);
+    int getPlaybackCacheSizeMB() const;
+    void setAutoRecoverPlayback(bool enabled);
+    bool getAutoRecoverPlayback() const;
     
     // Theme Song Settings
     void setThemeSongVolume(int level);
@@ -326,7 +333,7 @@ public:
     
     /// Returns mpv command-line arguments for config files (--config-dir, --config, --input-conf, --script)
     /// Only includes arguments for files/directories that actually exist
-    static QStringList getMpvConfigArgs();
+    QStringList getMpvConfigArgs() const;
     
     /// Ensures the config directory structure exists
     static bool ensureConfigDirExists();
@@ -400,6 +407,8 @@ signals:
     void autoSkipIntroChanged();
     void autoSkipOutroChanged();
     void playerBackendChanged();
+    void playbackCacheSizeMBChanged();
+    void autoRecoverPlaybackChanged();
     void themeSongVolumeChanged();
     void themeSongLoopChanged();
     void uiSoundsEnabledChanged();
@@ -432,6 +441,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 16;
+    static constexpr int kCurrentConfigVersion = 17;
     QJsonObject defaultConfig() const;
 };
