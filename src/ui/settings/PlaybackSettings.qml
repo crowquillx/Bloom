@@ -823,9 +823,34 @@ FocusScope {
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: themeSongVolumeCombo
+                    KeyNavigation.down: cacheSizeSpinBox
 
                     onToggled: function(value) {
                         ConfigManager.themeSongLoop = value
+                    }
+                }
+
+                // ── Group 7: Playback cache size ──
+
+                SettingsGroupDivider { Layout.fillWidth: true }
+
+                SettingsSpinBoxRow {
+                    id: cacheSizeSpinBox
+                    label: qsTr("Playback Cache Size")
+                    description: qsTr("Amount of memory to use for buffering video during playback")
+                    value: ConfigManager.playbackCacheSizeMB
+                    from: 50
+                    to: 2048
+                    stepSize: 50
+                    unit: "MB"
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+
+                    KeyNavigation.up: themeSongLoopToggle
+
+                    onSpinBoxValueChanged: function(newValue) {
+                        ConfigManager.playbackCacheSizeMB = newValue
                     }
                 }
             }
