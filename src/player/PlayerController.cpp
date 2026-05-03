@@ -56,6 +56,16 @@ bool embeddedLinuxTrickplayAllowed(const IPlayerBackend *backend)
     return qEnvironmentVariableIntValue("BLOOM_LINUX_LIBMPV_ENABLE_TRICKPLAY") == 1;
 }
 
+static QString formatMpvDisplayFps(double fps)
+{
+    QString value = QString::number(fps, 'f', 6);
+    while (value.contains(QLatin1Char('.'))
+           && (value.endsWith(QLatin1Char('0')) || value.endsWith(QLatin1Char('.')))) {
+        value.chop(1);
+    }
+    return value;
+}
+
 QString buildNextEpisodeRequestContext(const QString &mode,
                                        const QString &seriesId,
                                        const QString &itemId)
@@ -2682,6 +2692,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_startPositionTicks = startPositionTicks;
         m_shouldAutoplay = false;
         m_contentFramerate = framerate;
+        m_mpvDisplayFpsOverride = 0.0;
         m_contentIsHDR = isHDR;
         m_playMethod = inferPlayMethod(url);
         m_hasReportedStopForAttempt = false;
@@ -4130,6 +4141,8 @@ void PlayerController::applyFramerateMatchingAndStart()
                             << "enableHDRSetting=" << m_config->getEnableHDR()
                             << "contentIsHDR=" << m_contentIsHDR;
 
+    m_mpvDisplayFpsOverride = 0.0;
+
     // Handle Display Settings - Framerate Matching
     if (m_config->getEnableFramerateMatching() && m_contentFramerate > 0) {
         // Pass the exact framerate to DisplayManager for precise matching
@@ -4142,7 +4155,17 @@ void PlayerController::applyFramerateMatchingAndStart()
             qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                     << "] refresh-rate switch success";
 
-            if (m_displayManager->hasActiveRefreshRateOverride()) {
+            const double effectiveRefreshRate = m_displayManager->lastRefreshRateSwitchEffectiveRate();
+            if (!m_displayManager->lastRefreshRateSwitchSkippedCompatibleMultiple()
+                && qAbs(effectiveRefreshRate - m_contentFramerate) < 0.01) {
+                m_mpvDisplayFpsOverride = m_contentFramerate;
+                qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                        << "] mpv display-fps override"
+                                        << "fps=" << m_mpvDisplayFpsOverride
+                                        << "effectiveRefreshRate=" << effectiveRefreshRate;
+            }
+
+            if (m_displayManager->lastRefreshRateSwitchChanged()) {
                 // Wait for display to stabilize after an actual refresh rate change.
                 int delaySeconds = m_config->getFramerateMatchDelay();
                 if (delaySeconds > 0) {
@@ -4215,6 +4238,14 @@ void PlayerController::initiateMpvStart()
     QStringList finalArgs;
     finalArgs << ConfigManager::getMpvConfigArgs();  // mpv.conf, input.conf, scripts
     finalArgs << profileArgs;                        // Profile-specific args
+
+    if (m_mpvDisplayFpsOverride > 0.0) {
+        // Windows reports fractional modes such as 23.976/29.97/59.94 as
+        // integer 23/29/59 Hz. Give mpv the target clock explicitly so its
+        // display-sync path does not pace 23.976 fps content against 23.000 Hz.
+        finalArgs << "--video-sync=display-resample";
+        finalArgs << "--display-fps=" + formatMpvDisplayFps(m_mpvDisplayFpsOverride);
+    }
 
 #if defined(Q_OS_LINUX)
     if (m_playerBackend->backendName() == QStringLiteral("linux-libmpv-opengl")) {
