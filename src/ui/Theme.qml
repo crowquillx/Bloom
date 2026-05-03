@@ -151,6 +151,7 @@ QtObject {
     property color playbackControlGlassBorderStrong: Qt.rgba(1, 1, 1, 0.40)
     property color playbackProgressTrack: Qt.rgba(1, 1, 1, 0.20)
     property color playbackProgressFill: Qt.rgba(1, 1, 1, 0.90)
+    property color playbackProgressCacheFill: Qt.rgba(1, 1, 1, 0.35)
     property color playbackTimePrimary: Qt.rgba(1, 1, 1, 0.90)
     property color playbackTimeSecondary: Qt.rgba(1, 1, 1, 0.70)
     property color playbackIconColor: accentPrimary

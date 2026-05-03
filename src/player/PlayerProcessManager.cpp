@@ -279,6 +279,7 @@ void PlayerProcessManager::onSocketConnected()
     sendVariantCommand(QVariantList{"observe_property", 8, "mute"});
     sendVariantCommand(QVariantList{"observe_property", 9, "playlist-pos"});
     sendVariantCommand(QVariantList{"observe_property", 10, "playlist-count"});
+    sendVariantCommand(QVariantList{"observe_property", 11, "demuxer-cache-time"});
     
     // Flush any commands that were queued while connecting
     flushPendingCommands();
@@ -342,6 +343,10 @@ void PlayerProcessManager::onSocketReadyRead()
             } else if (name == "playlist-count") {
                 if (!obj["data"].isNull()) {
                     m_playlistCount = obj["data"].toInt(0);
+                }
+            } else if (name == "demuxer-cache-time") {
+                if (!obj["data"].isNull()) {
+                    emit cacheEndChanged(obj["data"].toDouble());
                 }
             }
         } else if (obj["event"].toString() == "end-file") {

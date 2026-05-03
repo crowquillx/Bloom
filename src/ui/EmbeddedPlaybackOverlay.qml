@@ -1218,6 +1218,20 @@ FocusScope {
                         blur: 0.30
                     }
 
+                    // Cache progress fill (secondary bar behind playback fill)
+                    Rectangle {
+                        id: cacheFill
+                        width: parent.width * PlayerController.cacheProgressRatio
+                        height: parent.height
+                        radius: parent.radius
+                        color: Theme.playbackProgressCacheFill
+                        visible: width > progressFill.width
+
+                        Behavior on width {
+                            NumberAnimation { duration: 500; easing.type: Easing.OutCubic }
+                        }
+                    }
+
                     Rectangle {
                         id: progressFill
                         width: parent.width * PlayerController.progressRatio

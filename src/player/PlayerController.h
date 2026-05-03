@@ -76,6 +76,8 @@ class PlayerController : public QObject
     Q_PROPERTY(double currentPositionSeconds READ currentPositionSeconds NOTIFY timelineChanged)
     Q_PROPERTY(double durationSeconds READ durationSeconds NOTIFY timelineChanged)
     Q_PROPERTY(double progressRatio READ progressRatio NOTIFY timelineChanged)
+    Q_PROPERTY(double cacheEndSeconds READ cacheEndSeconds NOTIFY cacheEndChanged)
+    Q_PROPERTY(double cacheProgressRatio READ cacheProgressRatio NOTIFY cacheEndChanged)
     Q_PROPERTY(bool isInIntroSegment READ isInIntroSegment NOTIFY skipSegmentsChanged)
     Q_PROPERTY(bool isInOutroSegment READ isInOutroSegment NOTIFY skipSegmentsChanged)
     Q_PROPERTY(bool hasActiveSkipSegment READ hasActiveSkipSegment NOTIFY skipSegmentsChanged)
@@ -184,6 +186,8 @@ public:
     double currentPositionSeconds() const { return m_currentPosition; }
     double durationSeconds() const { return m_duration; }
     double progressRatio() const { return m_duration > 0.0 ? qBound(0.0, m_currentPosition / m_duration, 1.0) : 0.0; }
+    double cacheEndSeconds() const { return m_cacheEndSeconds; }
+    double cacheProgressRatio() const { return m_duration > 0.0 ? qBound(0.0, m_cacheEndSeconds / m_duration, 1.0) : 0.0; }
     bool isInIntroSegment() const { return m_isInIntroSegment; }
     bool isInOutroSegment() const { return m_isInOutroSegment; }
     bool hasActiveSkipSegment() const { return m_isInIntroSegment || m_isInOutroSegment; }
@@ -315,6 +319,7 @@ signals:
     void volumeChanged();
     void mutedChanged();
     void timelineChanged();
+    void cacheEndChanged();
     void skipSegmentsChanged();
     void trickplayStateChanged();
     void trickplayPreviewChanged();
@@ -354,6 +359,7 @@ private slots:
     void onDurationChanged(double seconds);
     void onPauseChanged(bool paused);
     void onPausedForCacheChanged(bool pausedForCache);
+    void onCacheEndChanged(double seconds);
     void onPlaybackEnded();
     void onPlaylistPositionChanged(int index);
     void onNextEpisodeLoaded(const QString &seriesId,
@@ -723,6 +729,7 @@ private:
     QString m_pendingUrl;
     double m_currentPosition = 0;
     double m_duration = 0;
+    double m_cacheEndSeconds = 0;
     bool m_hasReportedStart = false;
     double m_seekTargetWhileBuffering = -1;
     bool m_reportProgressOnNextPositionUpdate = false;

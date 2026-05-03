@@ -940,6 +940,7 @@ void WindowsMpvBackend::observeMpvProperties(void *handlePtr)
     mpv_observe_property(handle, 0, "mute", MPV_FORMAT_FLAG);
     mpv_observe_property(handle, 0, "playlist-pos", MPV_FORMAT_INT64);
     mpv_observe_property(handle, 0, "playlist-count", MPV_FORMAT_INT64);
+    mpv_observe_property(handle, 0, "demuxer-cache-time", MPV_FORMAT_DOUBLE);
 #else
     Q_UNUSED(handlePtr);
 #endif
@@ -1044,6 +1045,11 @@ void WindowsMpvBackend::handlePropertyChange(const QString &name, const QVariant
 
     if (name == QStringLiteral("playlist-count")) {
         m_playlistCount = value.isValid() ? value.toInt() : 0;
+        return;
+    }
+
+    if (name == QStringLiteral("demuxer-cache-time")) {
+        emit cacheEndChanged(value.toDouble());
     }
 }
 

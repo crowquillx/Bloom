@@ -24,6 +24,8 @@ ExternalMpvBackend::ExternalMpvBackend(QObject *parent)
             this, &ExternalMpvBackend::playlistPositionChanged);
     connect(m_processManager, &PlayerProcessManager::playbackEnded,
             this, &ExternalMpvBackend::playbackEnded);
+    connect(m_processManager, &PlayerProcessManager::cacheEndChanged,
+            this, &ExternalMpvBackend::cacheEndChanged);
     connect(m_processManager, &PlayerProcessManager::audioTrackChanged,
             this, &ExternalMpvBackend::audioTrackChanged);
     connect(m_processManager, &PlayerProcessManager::subtitleTrackChanged,

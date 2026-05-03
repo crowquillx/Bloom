@@ -399,6 +399,8 @@ void PlayerController::connectBackendSignals(IPlayerBackend *backend)
 
     connect(backend, &IPlayerBackend::scriptMessage,
             this, &PlayerController::onScriptMessage);
+    connect(backend, &IPlayerBackend::cacheEndChanged,
+            this, &PlayerController::onCacheEndChanged);
 }
 
 bool PlayerController::tryFallbackToExternalBackend(const QString &reason)
@@ -628,6 +630,7 @@ void PlayerController::enterIdleStateImmediate()
     m_lastErrorWasNetworkRecoverable = false;
     m_currentPosition = 0;
     m_duration = 0;
+    m_cacheEndSeconds = 0;
     m_hasReportedStart = false;
     m_seekTargetWhileBuffering = -1;
     m_reportProgressOnNextPositionUpdate = false;
@@ -1018,6 +1021,14 @@ void PlayerController::onPausedForCacheChanged(bool pausedForCache)
         // mpv finished buffering - transition back to Playing
         qDebug() << "PlayerController: mpv finished buffering";
         processEvent(Event::BufferComplete);
+    }
+}
+
+void PlayerController::onCacheEndChanged(double seconds)
+{
+    if (seconds != m_cacheEndSeconds) {
+        m_cacheEndSeconds = seconds;
+        emit cacheEndChanged();
     }
 }
 

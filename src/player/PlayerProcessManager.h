@@ -31,6 +31,7 @@ signals:
     void pauseChanged(bool paused);
     void pausedForCacheChanged(bool paused);
     void playbackEnded();
+    void cacheEndChanged(double seconds);
     void volumeChanged(int volume);
     void muteChanged(bool muted);
     void playlistPositionChanged(int index);
