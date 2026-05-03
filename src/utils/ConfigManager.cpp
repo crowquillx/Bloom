@@ -453,7 +453,7 @@ int ConfigManager::getImageCacheSizeMB() const
 
 void ConfigManager::setPlaybackCacheSizeMB(int mb)
 {
-    int clamped = std::max(50, mb);
+    int clamped = std::clamp(mb, 50, 2048);
     if (clamped == getPlaybackCacheSizeMB()) {
         return;
     }
@@ -475,16 +475,17 @@ void ConfigManager::setPlaybackCacheSizeMB(int mb)
 
 int ConfigManager::getPlaybackCacheSizeMB() const
 {
+    int value = 500;
     if (m_config.contains("settings") && m_config["settings"].isObject()) {
         QJsonObject settings = m_config["settings"].toObject();
         if (settings.contains("playback") && settings["playback"].isObject()) {
             QJsonObject playback = settings["playback"].toObject();
             if (playback.contains("playback_cache_size_mb")) {
-                return playback["playback_cache_size_mb"].toInt();
+                value = playback["playback_cache_size_mb"].toInt();
             }
         }
     }
-    return 500; // Default 500MB
+    return std::clamp(value, 50, 2048);
 }
 
 void ConfigManager::setAutoRecoverPlayback(bool enabled)
