@@ -64,7 +64,7 @@ bool isCadenceCompatible(double currentHz, double targetHz)
     return qAbs(ratio - static_cast<double>(nearestIntegerMultiple)) <= 0.01;
 }
 
-bool isFractionalRateFamily(double targetHz, int reportedHz)
+static bool isFractionalRateFamily(double targetHz, int reportedHz)
 {
     if (targetHz > 23.0 && targetHz < 24.0) {
         return reportedHz == 23;
@@ -78,14 +78,16 @@ bool isFractionalRateFamily(double targetHz, int reportedHz)
     return false;
 }
 
-bool isCommonFractionalTarget(double targetHz)
+static bool isCommonFractionalTarget(double targetHz)
 {
+    // Extend this table if refresh matching gains support for additional
+    // integer-reported fractional families such as 47.952 or 119.88.
     return (targetHz > 23.0 && targetHz < 24.0)
         || (targetHz > 29.0 && targetHz < 30.0)
         || (targetHz > 59.0 && targetHz < 60.0);
 }
 
-bool isCurrentRefreshAlreadyTarget(double currentHz, double targetHz)
+static bool isCurrentRefreshAlreadyTarget(double currentHz, double targetHz)
 {
     if (currentHz <= 0.0 || targetHz <= 0.0) {
         return false;
@@ -393,6 +395,7 @@ bool DisplayManager::setRefreshRate(double hz)
     qDebug() << "DisplayManager::setRefreshRate called with hz:" << hz;
     m_lastRefreshRateSwitchChanged = false;
     m_lastRefreshRateSwitchSkippedCompatibleMultiple = false;
+    m_lastRefreshRateSwitchEffectiveRate = 0.0;
     
     if (hz <= 0) {
         qDebug() << "DisplayManager: Invalid refresh rate" << hz << ", skipping";
@@ -406,6 +409,7 @@ bool DisplayManager::setRefreshRate(double hz)
     
     if (isCurrentRefreshAlreadyTarget(current, hz)) {
         qDebug() << "DisplayManager: Already at target refresh rate" << current << "Hz";
+        m_lastRefreshRateSwitchEffectiveRate = hz;
         return true;
     }
 
@@ -415,6 +419,7 @@ bool DisplayManager::setRefreshRate(double hz)
                  << "Hz is cadence-compatible with target" << hz
                  << "Hz (ratio" << ratio << "), skipping mode switch";
         m_lastRefreshRateSwitchSkippedCompatibleMultiple = true;
+        m_lastRefreshRateSwitchEffectiveRate = current;
         return true;
     }
 
@@ -433,12 +438,20 @@ bool DisplayManager::setRefreshRate(double hz)
     if (setRefreshRateWindows(hz)) {
         m_refreshRateChanged = true;
         m_lastRefreshRateSwitchChanged = true;
+        const double postSwitchRefresh = getCurrentRefreshRate();
+        m_lastRefreshRateSwitchEffectiveRate = isCurrentRefreshAlreadyTarget(postSwitchRefresh, hz)
+            ? hz
+            : postSwitchRefresh;
         return true;
     }
 #else
     if (setRefreshRateLinux(hz)) {
         m_refreshRateChanged = true;
         m_lastRefreshRateSwitchChanged = true;
+        const double postSwitchRefresh = getCurrentRefreshRate();
+        m_lastRefreshRateSwitchEffectiveRate = isCurrentRefreshAlreadyTarget(postSwitchRefresh, hz)
+            ? hz
+            : postSwitchRefresh;
         return true;
     }
 #endif

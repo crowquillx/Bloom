@@ -56,7 +56,7 @@ bool embeddedLinuxTrickplayAllowed(const IPlayerBackend *backend)
     return qEnvironmentVariableIntValue("BLOOM_LINUX_LIBMPV_ENABLE_TRICKPLAY") == 1;
 }
 
-QString formatMpvDisplayFps(double fps)
+static QString formatMpvDisplayFps(double fps)
 {
     QString value = QString::number(fps, 'f', 6);
     while (value.contains(QLatin1Char('.'))
@@ -4155,11 +4155,14 @@ void PlayerController::applyFramerateMatchingAndStart()
             qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                     << "] refresh-rate switch success";
 
-            if (!m_displayManager->lastRefreshRateSwitchSkippedCompatibleMultiple()) {
+            const double effectiveRefreshRate = m_displayManager->lastRefreshRateSwitchEffectiveRate();
+            if (!m_displayManager->lastRefreshRateSwitchSkippedCompatibleMultiple()
+                && qAbs(effectiveRefreshRate - m_contentFramerate) < 0.01) {
                 m_mpvDisplayFpsOverride = m_contentFramerate;
                 qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                         << "] mpv display-fps override"
-                                        << "fps=" << m_mpvDisplayFpsOverride;
+                                        << "fps=" << m_mpvDisplayFpsOverride
+                                        << "effectiveRefreshRate=" << effectiveRefreshRate;
             }
 
             if (m_displayManager->lastRefreshRateSwitchChanged()) {

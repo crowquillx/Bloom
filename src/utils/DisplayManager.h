@@ -75,8 +75,21 @@ public slots:
      * @brief Whether playback is currently using a temporary refresh-rate override.
      */
     bool hasActiveRefreshRateOverride() const { return m_refreshRateChanged; }
+    /**
+     * @brief Whether the most recent setRefreshRate() call performed a real mode switch.
+     */
     bool lastRefreshRateSwitchChanged() const { return m_lastRefreshRateSwitchChanged; }
+    /**
+     * @brief Whether the most recent setRefreshRate() call skipped because the current mode was a compatible multiple.
+     */
     bool lastRefreshRateSwitchSkippedCompatibleMultiple() const { return m_lastRefreshRateSwitchSkippedCompatibleMultiple; }
+    /**
+     * @brief Effective refresh rate from the most recent setRefreshRate() call.
+     *
+     * For integer-reported fractional Windows modes, this is normalized to the requested
+     * fractional rate only when the current mode belongs to that exact fractional family.
+     */
+    double lastRefreshRateSwitchEffectiveRate() const { return m_lastRefreshRateSwitchEffectiveRate; }
     bool needsRefreshRestore() const { return m_refreshRateChanged || (m_hasCapturedOriginalRefreshRate && m_originalRefreshRate > 0.0); }
     bool needsHdrRestore() const { return m_hdrChanged; }
 
@@ -87,6 +100,7 @@ private:
     bool m_refreshRateChanged = false;
     bool m_lastRefreshRateSwitchChanged = false;
     bool m_lastRefreshRateSwitchSkippedCompatibleMultiple = false;
+    double m_lastRefreshRateSwitchEffectiveRate = 0.0;
     double m_originalRefreshRate = 0.0;
     double m_baselineRefreshRate = 0.0;
     bool m_hasCapturedOriginalRefreshRate = false;
