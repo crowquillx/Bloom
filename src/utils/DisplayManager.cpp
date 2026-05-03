@@ -64,6 +64,50 @@ bool isCadenceCompatible(double currentHz, double targetHz)
     return qAbs(ratio - static_cast<double>(nearestIntegerMultiple)) <= 0.01;
 }
 
+bool isFractionalRateFamily(double targetHz, int reportedHz)
+{
+    if (targetHz > 23.0 && targetHz < 24.0) {
+        return reportedHz == 23;
+    }
+    if (targetHz > 29.0 && targetHz < 30.0) {
+        return reportedHz == 29;
+    }
+    if (targetHz > 59.0 && targetHz < 60.0) {
+        return reportedHz == 59;
+    }
+    return false;
+}
+
+bool isCommonFractionalTarget(double targetHz)
+{
+    return (targetHz > 23.0 && targetHz < 24.0)
+        || (targetHz > 29.0 && targetHz < 30.0)
+        || (targetHz > 59.0 && targetHz < 60.0);
+}
+
+bool isCurrentRefreshAlreadyTarget(double currentHz, double targetHz)
+{
+    if (currentHz <= 0.0 || targetHz <= 0.0) {
+        return false;
+    }
+
+#ifdef Q_OS_WIN
+    // Windows reports common fractional modes as integer 23/29/59 Hz. Treat only
+    // those integer families as equivalent to 23.976/29.97/59.94. A broad 0.5 Hz
+    // tolerance can otherwise mistake true 24/30/60 Hz modes for fractional modes.
+    const int reportedHz = qRound(currentHz);
+    if (isFractionalRateFamily(targetHz, reportedHz)) {
+        return true;
+    }
+#endif
+
+    if (isCommonFractionalTarget(targetHz)) {
+        return qAbs(currentHz - targetHz) < 0.01;
+    }
+
+    return qAbs(currentHz - targetHz) < 0.1;
+}
+
 #ifdef Q_OS_WIN
 QString formatAdapterId(const LUID &adapterId)
 {
@@ -347,17 +391,20 @@ void DisplayManager::updateHdrRestoreTracking(bool requestedState, bool preState
 bool DisplayManager::setRefreshRate(double hz)
 {
     qDebug() << "DisplayManager::setRefreshRate called with hz:" << hz;
+    m_lastRefreshRateSwitchChanged = false;
+    m_lastRefreshRateSwitchSkippedCompatibleMultiple = false;
     
     if (hz <= 0) {
         qDebug() << "DisplayManager: Invalid refresh rate" << hz << ", skipping";
         return false;
     }
     
-    // Don't switch if already at target (approximate check - within 0.5Hz)
+    // Don't switch if already at target. Keep the tolerance tight so fractional
+    // film modes are not confused with their neighboring integer modes.
     double current = getCurrentRefreshRate();
     qDebug() << "DisplayManager: Current refresh rate:" << current << "Hz, target:" << hz << "Hz";
     
-    if (qAbs(current - hz) < 0.5) {
+    if (isCurrentRefreshAlreadyTarget(current, hz)) {
         qDebug() << "DisplayManager: Already at target refresh rate" << current << "Hz";
         return true;
     }
@@ -367,6 +414,7 @@ bool DisplayManager::setRefreshRate(double hz)
         qDebug() << "DisplayManager: Current refresh rate" << current
                  << "Hz is cadence-compatible with target" << hz
                  << "Hz (ratio" << ratio << "), skipping mode switch";
+        m_lastRefreshRateSwitchSkippedCompatibleMultiple = true;
         return true;
     }
 
@@ -384,11 +432,13 @@ bool DisplayManager::setRefreshRate(double hz)
 #ifdef Q_OS_WIN
     if (setRefreshRateWindows(hz)) {
         m_refreshRateChanged = true;
+        m_lastRefreshRateSwitchChanged = true;
         return true;
     }
 #else
     if (setRefreshRateLinux(hz)) {
         m_refreshRateChanged = true;
+        m_lastRefreshRateSwitchChanged = true;
         return true;
     }
 #endif

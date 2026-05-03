@@ -75,6 +75,8 @@ public slots:
      * @brief Whether playback is currently using a temporary refresh-rate override.
      */
     bool hasActiveRefreshRateOverride() const { return m_refreshRateChanged; }
+    bool lastRefreshRateSwitchChanged() const { return m_lastRefreshRateSwitchChanged; }
+    bool lastRefreshRateSwitchSkippedCompatibleMultiple() const { return m_lastRefreshRateSwitchSkippedCompatibleMultiple; }
     bool needsRefreshRestore() const { return m_refreshRateChanged || (m_hasCapturedOriginalRefreshRate && m_originalRefreshRate > 0.0); }
     bool needsHdrRestore() const { return m_hdrChanged; }
 
@@ -83,6 +85,8 @@ private:
     
     // State tracking
     bool m_refreshRateChanged = false;
+    bool m_lastRefreshRateSwitchChanged = false;
+    bool m_lastRefreshRateSwitchSkippedCompatibleMultiple = false;
     double m_originalRefreshRate = 0.0;
     double m_baselineRefreshRate = 0.0;
     bool m_hasCapturedOriginalRefreshRate = false;

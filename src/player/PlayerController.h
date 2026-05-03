@@ -740,6 +740,7 @@ private:
     
     // Content framerate for display refresh rate matching
     double m_contentFramerate = 0.0;
+    double m_mpvDisplayFpsOverride = 0.0;
     
     // Content HDR flag for display HDR switching
     bool m_contentIsHDR = false;
