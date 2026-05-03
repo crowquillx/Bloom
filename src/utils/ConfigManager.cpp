@@ -219,6 +219,7 @@ QStringList ConfigManager::getMpvConfigArgs() const
     if (cacheSizeMB >= 50) {
         args << "--cache=yes";
         args << QString("--demuxer-max-bytes=%1").arg(static_cast<qint64>(cacheSizeMB) * 1024 * 1024);
+        args << QString("--demuxer-max-back-bytes=%1").arg(static_cast<qint64>(cacheSizeMB / 4) * 1024 * 1024);
         args << "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=30";
     }
     

@@ -334,6 +334,9 @@ PlayerController::~PlayerController()
     m_startDelayTimer->stop();
     m_autoplayPlaybackInfoTimeoutTimer->stop();
     m_recoveryTimer->stop();
+    if (m_recoveryReply) {
+        m_recoveryReply->abort();
+    }
     cancelPendingDisplayRestore();
     resetTerminalTransitionState(true);
 }
@@ -2803,7 +2806,7 @@ void PlayerController::stop()
                             << "state=" << stateToString(m_playbackState)
                             << "terminalActive=" << m_terminalTransitionActive;
 
-    if (m_playbackState == Idle || m_terminalTransitionActive) {
+    if (m_playbackState == Idle || m_playbackState == Error || m_terminalTransitionActive) {
         return;
     }
 
@@ -2929,6 +2932,10 @@ void PlayerController::cancelRecovery()
         return;
     }
     m_recoveryTimer->stop();
+    if (m_recoveryReply) {
+        m_recoveryReply->abort();
+        m_recoveryReply.clear();
+    }
     m_isRecovering = false;
     m_recoveryAttemptCount = 0;
     emit isRecoveringChanged();
@@ -2949,8 +2956,12 @@ void PlayerController::onRecoveryTick()
         m_recoveryTimer->start(kRecoveryPingIntervalMs);
         return;
     }
+    m_recoveryReply = reply;
 
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        if (m_recoveryReply == reply) {
+            m_recoveryReply.clear();
+        }
         reply->deleteLater();
         int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() == QNetworkReply::NoError) {
@@ -3006,6 +3017,19 @@ void PlayerController::resumeFromRecoveryContext()
         m_aggregatePlaybackDuration = 0.0;
         for (const QVariantMap &seg : m_playbackSegments) {
             m_aggregatePlaybackDuration += static_cast<double>(seg.value(QStringLiteral("runTimeTicks")).toLongLong()) / 10000000.0;
+        }
+
+        // Queue remaining segments for mpv playlist so playback continues across segments
+        m_pendingPlaylistAppendUrls.clear();
+        for (int index = m_activePlaybackSegmentIndex + 1; index < m_playbackSegments.size(); ++index) {
+            const QString url = m_playbackSegments.at(index).value(QStringLiteral("url")).toString();
+            if (!url.isEmpty()) {
+                m_pendingPlaylistAppendUrls.append(url);
+            }
+        }
+        if (!m_pendingPlaylistAppendUrls.isEmpty() && m_playerBackend && m_playerBackend->isRunning()) {
+            m_playerBackend->appendUrlsToPlaylist(m_pendingPlaylistAppendUrls);
+            m_pendingPlaylistAppendUrls.clear();
         }
     }
 

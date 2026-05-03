@@ -10,6 +10,7 @@
 #include <QStringList>
 #include <QVariantMap>
 #include <QVariantList>
+#include <QPointer>
 #include <QtGlobal>
 #include <functional>
 #include <memory>
@@ -23,6 +24,7 @@
 class PlaybackService;
 class LibraryService;
 class AuthenticationService;
+class QNetworkReply;
 
 /**
  * @class PlayerController
@@ -702,6 +704,7 @@ private:
     };
     RecoveryContext m_recoveryContext;
     QTimer *m_recoveryTimer;
+    QPointer<QNetworkReply> m_recoveryReply;
     int m_recoveryAttemptCount = 0;
     bool m_isRecovering = false;
     bool m_lastErrorWasNetworkRecoverable = false;
