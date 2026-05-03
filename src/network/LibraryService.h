@@ -90,6 +90,8 @@ public:
     Q_INVOKABLE virtual QString getCachedImageUrl(const QString &itemId, const QString &imageType);
     Q_INVOKABLE virtual QString getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
 
+    Q_INVOKABLE void pingServer();
+
 signals:
     void viewsLoaded(const QJsonArray &views);
     void itemsLoaded(const QString &parentId, const QJsonArray &items);
@@ -129,6 +131,10 @@ signals:
     // Error signals
     void errorOccurred(const QString &endpoint, const QString &error);
     void networkError(const NetworkError &error);
+
+    // Server reachability signals
+    void serverPingSucceeded();
+    void serverPingFailed(const QString &reason);
     
     // Progress signals for long-running operations
     void parsingStarted(const QString &operation);
