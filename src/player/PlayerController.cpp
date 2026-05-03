@@ -333,9 +333,12 @@ PlayerController::~PlayerController()
     m_volumePersistTimer->stop();
     m_startDelayTimer->stop();
     m_autoplayPlaybackInfoTimeoutTimer->stop();
+    m_isRecovering = false;
     m_recoveryTimer->stop();
     if (m_recoveryReply) {
+        QObject::disconnect(m_recoveryReply, nullptr, this, nullptr);
         m_recoveryReply->abort();
+        m_recoveryReply.clear();
     }
     cancelPendingDisplayRestore();
     resetTerminalTransitionState(true);
@@ -1137,8 +1140,11 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
             QString segmentUrl = m_pendingUrl;
             if (m_activePlaybackSegmentIndex >= 0
                 && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
-                segmentUrl = m_playbackSegments[m_activePlaybackSegmentIndex]
-                                 .value(QStringLiteral("url")).toString();
+                const QString segUrl = m_playbackSegments[m_activePlaybackSegmentIndex]
+                                           .value(QStringLiteral("url")).toString();
+                if (!segUrl.isEmpty()) {
+                    segmentUrl = segUrl;
+                }
             }
             m_recoveryContext.url = segmentUrl;
             m_recoveryContext.itemId = m_currentItemId;
@@ -2934,14 +2940,14 @@ void PlayerController::cancelRecovery()
         return;
     }
     m_recoveryTimer->stop();
-    if (m_recoveryReply) {
-        m_recoveryReply->abort();
-        m_recoveryReply.clear();
-    }
     m_isRecovering = false;
     m_recoveryAttemptCount = 0;
     emit isRecoveringChanged();
     emit recoveryAttemptCountChanged();
+    if (m_recoveryReply) {
+        m_recoveryReply->abort();
+        m_recoveryReply.clear();
+    }
 }
 
 void PlayerController::onRecoveryTick()
