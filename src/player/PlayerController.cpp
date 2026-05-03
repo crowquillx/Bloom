@@ -2983,6 +2983,7 @@ void PlayerController::onRecoveryTick()
             if (m_isRecovering) {
                 cancelRecovery();
                 setErrorMessage(tr("Session expired. Please log in again."));
+                m_recoveryContext = RecoveryContext{};
             }
         } else {
             qDebug() << "PlayerController: Recovery ping failed:" << reply->errorString();
