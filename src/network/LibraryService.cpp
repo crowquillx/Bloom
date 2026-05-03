@@ -1167,16 +1167,8 @@ QString LibraryService::getCachedImageUrlWithWidth(const QString &itemId, const 
     return QString("image://cached/%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(originalUrl)));
 }
 
-void LibraryService::pingServer()
+QNetworkReply* LibraryService::pingServer()
 {
     QNetworkRequest request = m_authService->createRequest("/System/Info");
-    QNetworkReply *reply = m_authService->networkManager()->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        reply->deleteLater();
-        if (reply->error() == QNetworkReply::NoError) {
-            emit serverPingSucceeded();
-        } else {
-            emit serverPingFailed(reply->errorString());
-        }
-    });
+    return m_authService->networkManager()->get(request);
 }
