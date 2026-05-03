@@ -366,9 +366,8 @@ private slots:
     void onAutoplayPlaybackInfoTimeout();
     void onItemLibraryResolved(const QString &itemId, const QString &libraryId);
     void onItemLibraryResolutionFailed(const QString &itemId, const QString &error);
-    void onServerPingSucceeded();
-    void onServerPingFailed(const QString &reason);
     void onRecoveryTick();
+    void resumeFromRecoveryContext();
     
     // Timeout handlers
     void onLoadingTimeout();
@@ -695,12 +694,17 @@ private:
         QVariantList availableSubtitleTracks;
         double framerate = 0.0;
         bool isHDR = false;
+        QList<QVariantMap> playbackSegments;
+        int activePlaybackSegmentIndex = -1;
+        qint64 activePlaybackSegmentOffsetTicks = 0;
+        double segmentRelativePosition = 0.0;
         bool valid = false;
     };
     RecoveryContext m_recoveryContext;
     QTimer *m_recoveryTimer;
     int m_recoveryAttemptCount = 0;
     bool m_isRecovering = false;
+    bool m_lastErrorWasNetworkRecoverable = false;
     static constexpr int kRecoveryPingIntervalMs = 5000;
     
     // State

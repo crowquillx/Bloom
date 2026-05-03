@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QBuffer>
+#include <QNetworkReply>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -303,11 +304,7 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     m_recoveryTimer->setInterval(kRecoveryPingIntervalMs);
     connect(m_recoveryTimer, &QTimer::timeout,
             this, &PlayerController::onRecoveryTick);
-    connect(m_libraryService, &LibraryService::serverPingSucceeded,
-            this, &PlayerController::onServerPingSucceeded);
-    connect(m_libraryService, &LibraryService::serverPingFailed,
-            this, &PlayerController::onServerPingFailed);
-            
+
     // Connect to ConfigManager audio delay signal
     connect(m_config, &ConfigManager::audioDelayChanged,
             this, [this]() {
@@ -582,6 +579,7 @@ void PlayerController::onExitPausedState()
 void PlayerController::onExitErrorState()
 {
     setErrorMessage(QString());
+    m_lastErrorWasNetworkRecoverable = false;
     cancelRecovery();
 }
 
@@ -621,6 +619,7 @@ void PlayerController::enterIdleStateImmediate()
     m_currentLibraryId.clear();
     m_pendingUrl.clear();
     m_recoveryContext = RecoveryContext{};
+    m_lastErrorWasNetworkRecoverable = false;
     m_currentPosition = 0;
     m_duration = 0;
     m_hasReportedStart = false;
@@ -849,6 +848,7 @@ void PlayerController::onEnterErrorState()
 void PlayerController::onLoadingTimeout()
 {
     qDebug() << "PlayerController: Loading timeout";
+    m_lastErrorWasNetworkRecoverable = true;
     setErrorMessage(tr("Loading timed out. Please check your connection and try again."));
     requestTerminalTransition(TerminalReason::Error);
 }
@@ -856,6 +856,7 @@ void PlayerController::onLoadingTimeout()
 void PlayerController::onBufferingTimeout()
 {
     qDebug() << "PlayerController: Buffering timeout";
+    m_lastErrorWasNetworkRecoverable = true;
     setErrorMessage(tr("Buffering timed out. Network may be too slow."));
     requestTerminalTransition(TerminalReason::Error);
 }
@@ -920,6 +921,7 @@ void PlayerController::onProcessError(const QString &error)
         return;
     }
 
+    m_lastErrorWasNetworkRecoverable = false;
     setErrorMessage(error);
     requestTerminalTransition(TerminalReason::Error);
 }
@@ -1125,15 +1127,24 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
         m_shouldAutoplay = false;
 
         // Stash recovery context so we can resume if the server comes back
-        if (m_config && m_config->getAutoRecoverPlayback() && !m_currentItemId.isEmpty()) {
-            m_recoveryContext.url = m_pendingUrl;
+        if (m_config && m_config->getAutoRecoverPlayback()
+            && m_lastErrorWasNetworkRecoverable
+            && !m_currentItemId.isEmpty()
+            && !m_pendingUrl.isEmpty()) {
+            QString segmentUrl = m_pendingUrl;
+            if (m_activePlaybackSegmentIndex >= 0
+                && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
+                segmentUrl = m_playbackSegments[m_activePlaybackSegmentIndex]
+                                 .value(QStringLiteral("url")).toString();
+            }
+            m_recoveryContext.url = segmentUrl;
             m_recoveryContext.itemId = m_currentItemId;
-            m_recoveryContext.startPositionTicks = static_cast<qint64>(m_currentPosition * 10000000.0);
+            m_recoveryContext.startPositionTicks = static_cast<qint64>(m_segmentRelativePosition * 10000000.0);
             m_recoveryContext.seriesId = m_currentSeriesId;
             m_recoveryContext.seasonId = m_currentSeasonId;
             m_recoveryContext.libraryId = m_currentLibraryId;
             m_recoveryContext.mediaSourceId = m_mediaSourceId;
-            m_recoveryContext.playSessionId = m_playSessionId;
+            m_recoveryContext.playSessionId = QString(); // avoid stale session
             m_recoveryContext.mediaSource = m_activeMediaSource;
             m_recoveryContext.audioStreamIndex = m_selectedAudioTrack;
             m_recoveryContext.subtitleStreamIndex = m_selectedSubtitleTrack;
@@ -1141,6 +1152,10 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
             m_recoveryContext.availableSubtitleTracks = m_availableSubtitleTracks;
             m_recoveryContext.framerate = m_contentFramerate;
             m_recoveryContext.isHDR = m_contentIsHDR;
+            m_recoveryContext.playbackSegments = m_playbackSegments;
+            m_recoveryContext.activePlaybackSegmentIndex = m_activePlaybackSegmentIndex;
+            m_recoveryContext.activePlaybackSegmentOffsetTicks = m_activePlaybackSegmentOffsetTicks;
+            m_recoveryContext.segmentRelativePosition = m_segmentRelativePosition;
             m_recoveryContext.valid = true;
         }
     }
@@ -2788,7 +2803,7 @@ void PlayerController::stop()
                             << "state=" << stateToString(m_playbackState)
                             << "terminalActive=" << m_terminalTransitionActive;
 
-    if (m_playbackState == Idle || m_playbackState == Error || m_terminalTransitionActive) {
+    if (m_playbackState == Idle || m_terminalTransitionActive) {
         return;
     }
 
@@ -2878,22 +2893,7 @@ void PlayerController::retry()
 
         if (m_recoveryContext.valid) {
             cancelRecovery();
-            playUrlWithTracks(m_recoveryContext.url,
-                              m_recoveryContext.itemId,
-                              m_recoveryContext.startPositionTicks,
-                              m_recoveryContext.seriesId,
-                              m_recoveryContext.seasonId,
-                              m_recoveryContext.libraryId,
-                              m_recoveryContext.mediaSourceId,
-                              m_recoveryContext.playSessionId,
-                              m_recoveryContext.mediaSource,
-                              m_recoveryContext.audioStreamIndex,
-                              m_recoveryContext.subtitleStreamIndex,
-                              m_recoveryContext.availableAudioTracks,
-                              m_recoveryContext.availableSubtitleTracks,
-                              m_recoveryContext.framerate,
-                              m_recoveryContext.isHDR);
-            m_recoveryContext = RecoveryContext{};
+            resumeFromRecoveryContext();
             return;
         }
 
@@ -2943,18 +2943,39 @@ void PlayerController::onRecoveryTick()
     ++m_recoveryAttemptCount;
     emit recoveryAttemptCountChanged();
     qDebug() << "PlayerController: Recovery ping attempt" << m_recoveryAttemptCount;
-    m_libraryService->pingServer();
-}
 
-void PlayerController::onServerPingSucceeded()
-{
-    qDebug() << "PlayerController: Server ping succeeded, resuming playback";
-    if (!m_isRecovering || m_playbackState != Error) {
+    QNetworkReply *reply = m_libraryService->pingServer();
+    if (!reply) {
+        m_recoveryTimer->start(kRecoveryPingIntervalMs);
         return;
     }
 
-    cancelRecovery();
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        reply->deleteLater();
+        int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (reply->error() == QNetworkReply::NoError) {
+            qDebug() << "PlayerController: Recovery ping succeeded";
+            if (m_isRecovering && m_playbackState == Error) {
+                cancelRecovery();
+                resumeFromRecoveryContext();
+            }
+        } else if (httpStatus == 401) {
+            qDebug() << "PlayerController: Recovery ping got 401, auth expired";
+            if (m_isRecovering) {
+                cancelRecovery();
+                setErrorMessage(tr("Session expired. Please log in again."));
+            }
+        } else {
+            qDebug() << "PlayerController: Recovery ping failed:" << reply->errorString();
+            if (m_isRecovering) {
+                m_recoveryTimer->start(kRecoveryPingIntervalMs);
+            }
+        }
+    });
+}
 
+void PlayerController::resumeFromRecoveryContext()
+{
     if (!m_recoveryContext.valid) {
         return;
     }
@@ -2974,16 +2995,21 @@ void PlayerController::onServerPingSucceeded()
                       m_recoveryContext.availableSubtitleTracks,
                       m_recoveryContext.framerate,
                       m_recoveryContext.isHDR);
-    m_recoveryContext = RecoveryContext{};
-}
 
-void PlayerController::onServerPingFailed(const QString &reason)
-{
-    qDebug() << "PlayerController: Server ping failed:" << reason;
-    if (!m_isRecovering) {
-        return;
+    // Restore multipart segment state so aggregate position and reporting are correct
+    if (!m_recoveryContext.playbackSegments.isEmpty()
+        && m_recoveryContext.activePlaybackSegmentIndex >= 0) {
+        m_playbackSegments = m_recoveryContext.playbackSegments;
+        m_activePlaybackSegmentIndex = m_recoveryContext.activePlaybackSegmentIndex;
+        m_activePlaybackSegmentOffsetTicks = m_recoveryContext.activePlaybackSegmentOffsetTicks;
+        m_segmentRelativePosition = m_recoveryContext.segmentRelativePosition;
+        m_aggregatePlaybackDuration = 0.0;
+        for (const QVariantMap &seg : m_playbackSegments) {
+            m_aggregatePlaybackDuration += static_cast<double>(seg.value(QStringLiteral("runTimeTicks")).toLongLong()) / 10000000.0;
+        }
     }
-    m_recoveryTimer->start(kRecoveryPingIntervalMs);
+
+    m_recoveryContext = RecoveryContext{};
 }
 
 // === TRACK SELECTION ===
