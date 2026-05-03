@@ -1,22 +1,22 @@
 {
-  "build_id": "0.6.3",
+  "build_id": "0.6.4",
   "channel": "stable",
   "installer": {
-    "filename": "Bloom-Setup-0.6.3.exe",
-    "sha256": "a507496d78fab53381f06ff001e6230d6b86b868783c5f0ce642686d0667b543",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.3/Bloom-Setup-0.6.3.exe"
+    "filename": "Bloom-Setup-0.6.4.exe",
+    "sha256": "c88616ac9e6a124664817fa25d447656c5ef15b3c44a63b966379e038658e1c9",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.4/Bloom-Setup-0.6.4.exe"
   },
-  "notes": "## What's Changed in v0.6.3\n\n### New Features\n\n- **playback**: add toggle to skip refresh rate switch on compatible multiples\n\n### Bug Fixes\n\n- **playback**: simplify pending request lookup\n- **playback**: resolve home library profiles in controller\n- **config**: preserve cadence-skip behavior for existing users on migration\n- **playback**: defer Windows host-window teardown until libmpv releases WID\n- **playback**: align windows stop guards with async reply lifecycle\n- **playback**: prevent windows stop race from reviving black host window\n\n**Full changelog:** [v0.6.2...v0.6.3](https://github.com/crowquillx/Bloom/compare/v0.6.2...v0.6.3)",
+  "notes": "## What's Changed in v0.6.4\n\n### New Features\n\n- aggressive playback caching and auto-recovery on server outage (#47)\n- **ui**: add playback cache size control to settings\n- **player**: add auto-recovery mechanism for server outages\n- **network**: add server ping health check to LibraryService\n- **config**: add playback cache size and auto-recovery settings\n\n### Bug Fixes\n\n- **config**: pass demuxer cache sizes with unit suffix to avoid int overflow\n- **player**: clear recovery context on 401 auth expiry\n- **player**: prevent recovery reply abort from restarting timer and guard segment URL\n- **player**: clear stale recovery context on non-recoverable errors and queue segment restoration\n- **player, config**: address recovery review feedback\n- **player**: guard recovery resume against in-flight terminal Stop transition\n- **player**: recovery only for network errors, multipart support, stop from Error\n- **network**: isolate ping reply and handle 401 auth expiry\n- **config**: clamp playback cache size to [50, 2048] on read and write\n- **playback**: verify exact refresh before fps override\n- **playback**: improve refresh-rate frame pacing\n- **playback**: resolve library profile via ancestors for home autoplay\n\n### Documentation\n\n- **playback**: document cache and recovery behavior\n\n**Full changelog:** [v0.6.3...v0.6.4](https://github.com/crowquillx/Bloom/compare/v0.6.3...v0.6.4)",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "c55b6e7f7c6dfd69fe52d218cbfbf05640ea071fc500615b6da0b7f4011237b7",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.3/Bloom-Windows.zip"
+    "sha256": "e1f1d097c9389505ed44f81714e27d211e02c28b803cd8c4515ee7a52f2bde9f",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.4/Bloom-Windows.zip"
   },
-  "published_at": "2026-04-30T02:57:00.2775987Z",
-  "release_tag": "v0.6.3",
+  "published_at": "2026-05-03T18:48:42.8137111Z",
+  "release_tag": "v0.6.4",
   "rollout": {
     "enabled": true,
-    "minimum_supported_version": "0.6.3"
+    "minimum_supported_version": "0.6.4"
   },
-  "version": "0.6.3"
+  "version": "0.6.4"
 }
