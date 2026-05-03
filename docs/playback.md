@@ -234,6 +234,21 @@ Important design notes
 - Use PlayerController as a single source for playback state; it should be responsible for reporting state and keeping user-level playback logic (resume, next episode/autoplay, track selection).
 - PlayerProcessManager should accept an mpv config dir and script directory (e.g., `~/.config/Bloom/mpv`) and allow adding `extra_flags` via `app.json`.
 
+Playback caching and network resilience
+- Bloom injects global mpv cache and reconnect flags automatically via `ConfigManager::getMpvConfigArgs()`:
+  - `--cache=yes`
+  - `--demuxer-max-bytes=<playbackCacheSizeMB * 1024 * 1024>`
+  - `--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=30`
+- `playbackCacheSizeMB` is exposed in Settings -> Playback as "Playback Cache Size" (range 50–2048 MB, default 500 MB).
+- This allows mpv to buffer aggressively in RAM so brief server outages do not stall playback.
+- For longer server outages, `PlayerController` supports automatic recovery:
+  - When playback hits `Error` because of a network/timeout failure, the controller stashes a `RecoveryContext` with the current item, stream URL, track selections, and last known position.
+  - If `autoRecoverPlayback` is enabled (default `true`, stored in `settings.playback.auto_recover_playback`), the controller enters recovery mode and pings the server every 5 seconds via `LibraryService::pingServer()`.
+  - When the ping succeeds, playback resumes automatically at the last known position using the same stream URL and track state.
+  - Recovery retries indefinitely until the server returns or the user explicitly stops/retries/clears the error.
+  - Manual retry (`retry()` / `Event::Play`) while recovering will resume from the stashed position instead of restarting from the beginning.
+- `autoRecoverPlayback` is not exposed in the settings UI; it can be toggled by editing `app.json` directly.
+
 mpv config hints
 - Create `mpv.conf` and `input.conf` when you need custom behavior (e.g., enable vo, hardware settings) in `~/.config/Bloom/mpv/`.
 - Always pass mpv arguments from `ConfigManager` so users can override behavior at runtime.
