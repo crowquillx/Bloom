@@ -218,9 +218,10 @@ QStringList ConfigManager::getMpvConfigArgs() const
     int cacheSizeMB = getPlaybackCacheSizeMB();
     if (cacheSizeMB >= 50) {
         args << "--cache=yes";
-        args << QString("--demuxer-max-bytes=%1").arg(static_cast<qint64>(cacheSizeMB) * 1024 * 1024);
-        args << QString("--demuxer-max-back-bytes=%1").arg(static_cast<qint64>(cacheSizeMB / 4) * 1024 * 1024);
+        args << QString("--demuxer-max-bytes=%1M").arg(cacheSizeMB);
+        args << QString("--demuxer-max-back-bytes=%1M").arg(qMax(1, cacheSizeMB / 4));
         args << "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=30";
+        qDebug() << "ConfigManager: mpv cache args: demuxer-max-bytes=" << cacheSizeMB << "MB back-bytes=" << qMax(1, cacheSizeMB / 4) << "MB";
     }
     
     return args;
