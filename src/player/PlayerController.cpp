@@ -1160,6 +1160,8 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
             m_recoveryContext.activePlaybackSegmentOffsetTicks = m_activePlaybackSegmentOffsetTicks;
             m_recoveryContext.segmentRelativePosition = m_segmentRelativePosition;
             m_recoveryContext.valid = true;
+        } else {
+            m_recoveryContext = RecoveryContext{};
         }
     }
 
@@ -3007,30 +3009,35 @@ void PlayerController::resumeFromRecoveryContext()
                       m_recoveryContext.framerate,
                       m_recoveryContext.isHDR);
 
-    // Restore multipart segment state so aggregate position and reporting are correct
+    // Restore multipart segment state so aggregate position and reporting are correct.
+    // This must be queued because playUrlWithTracks -> playUrl -> scheduleReplacementPlayback
+    // defers clearPlaybackSegments() into a lambda that may fire after we return.
     if (!m_recoveryContext.playbackSegments.isEmpty()
         && m_recoveryContext.activePlaybackSegmentIndex >= 0) {
-        m_playbackSegments = m_recoveryContext.playbackSegments;
-        m_activePlaybackSegmentIndex = m_recoveryContext.activePlaybackSegmentIndex;
-        m_activePlaybackSegmentOffsetTicks = m_recoveryContext.activePlaybackSegmentOffsetTicks;
-        m_segmentRelativePosition = m_recoveryContext.segmentRelativePosition;
-        m_aggregatePlaybackDuration = 0.0;
-        for (const QVariantMap &seg : m_playbackSegments) {
-            m_aggregatePlaybackDuration += static_cast<double>(seg.value(QStringLiteral("runTimeTicks")).toLongLong()) / 10000000.0;
-        }
-
-        // Queue remaining segments for mpv playlist so playback continues across segments
-        m_pendingPlaylistAppendUrls.clear();
-        for (int index = m_activePlaybackSegmentIndex + 1; index < m_playbackSegments.size(); ++index) {
-            const QString url = m_playbackSegments.at(index).value(QStringLiteral("url")).toString();
-            if (!url.isEmpty()) {
-                m_pendingPlaylistAppendUrls.append(url);
+        const RecoveryContext ctx = m_recoveryContext;
+        QMetaObject::invokeMethod(this, [this, ctx]() {
+            m_playbackSegments = ctx.playbackSegments;
+            m_activePlaybackSegmentIndex = ctx.activePlaybackSegmentIndex;
+            m_activePlaybackSegmentOffsetTicks = ctx.activePlaybackSegmentOffsetTicks;
+            m_segmentRelativePosition = ctx.segmentRelativePosition;
+            m_aggregatePlaybackDuration = 0.0;
+            for (const QVariantMap &seg : m_playbackSegments) {
+                m_aggregatePlaybackDuration += static_cast<double>(seg.value(QStringLiteral("runTimeTicks")).toLongLong()) / 10000000.0;
             }
-        }
-        if (!m_pendingPlaylistAppendUrls.isEmpty() && m_playerBackend && m_playerBackend->isRunning()) {
-            m_playerBackend->appendUrlsToPlaylist(m_pendingPlaylistAppendUrls);
+
+            // Queue remaining segments for mpv playlist so playback continues across segments
             m_pendingPlaylistAppendUrls.clear();
-        }
+            for (int index = m_activePlaybackSegmentIndex + 1; index < m_playbackSegments.size(); ++index) {
+                const QString url = m_playbackSegments.at(index).value(QStringLiteral("url")).toString();
+                if (!url.isEmpty()) {
+                    m_pendingPlaylistAppendUrls.append(url);
+                }
+            }
+            if (!m_pendingPlaylistAppendUrls.isEmpty() && m_playerBackend && m_playerBackend->isRunning()) {
+                m_playerBackend->appendUrlsToPlaylist(m_pendingPlaylistAppendUrls);
+                m_pendingPlaylistAppendUrls.clear();
+            }
+        }, Qt::QueuedConnection);
     }
 
     m_recoveryContext = RecoveryContext{};
