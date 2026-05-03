@@ -2955,7 +2955,7 @@ void PlayerController::onRecoveryTick()
         int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() == QNetworkReply::NoError) {
             qDebug() << "PlayerController: Recovery ping succeeded";
-            if (m_isRecovering && m_playbackState == Error) {
+            if (m_isRecovering && m_playbackState == Error && !m_terminalTransitionActive) {
                 cancelRecovery();
                 resumeFromRecoveryContext();
             }
