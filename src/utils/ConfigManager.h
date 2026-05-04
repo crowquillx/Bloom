@@ -67,6 +67,8 @@ class ConfigManager : public QObject
     Q_PROPERTY(int autoplayCountdownSeconds READ getAutoplayCountdownSeconds WRITE setAutoplayCountdownSeconds NOTIFY autoplayCountdownSecondsChanged)
     Q_PROPERTY(bool autoSkipIntro READ getAutoSkipIntro WRITE setAutoSkipIntro NOTIFY autoSkipIntroChanged)
     Q_PROPERTY(bool autoSkipOutro READ getAutoSkipOutro WRITE setAutoSkipOutro NOTIFY autoSkipOutroChanged)
+    Q_PROPERTY(QString defaultAudioTrackSelection READ getDefaultAudioTrackSelection WRITE setDefaultAudioTrackSelection NOTIFY defaultAudioTrackSelectionChanged)
+    Q_PROPERTY(QString defaultSubtitleTrackSelection READ getDefaultSubtitleTrackSelection WRITE setDefaultSubtitleTrackSelection NOTIFY defaultSubtitleTrackSelectionChanged)
     Q_PROPERTY(QString playerBackend READ getPlayerBackend WRITE setPlayerBackend NOTIFY playerBackendChanged)
     Q_PROPERTY(int playbackCacheSizeMB READ getPlaybackCacheSizeMB WRITE setPlaybackCacheSizeMB NOTIFY playbackCacheSizeMBChanged)
     Q_PROPERTY(int backdropRotationInterval READ getBackdropRotationInterval WRITE setBackdropRotationInterval NOTIFY backdropRotationIntervalChanged)
@@ -122,6 +124,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool autoUpdateCheckEnabled READ getAutoUpdateCheckEnabled WRITE setAutoUpdateCheckEnabled NOTIFY autoUpdateCheckEnabledChanged)
     Q_PROPERTY(QString lastUpdateCheckAt READ getLastUpdateCheckAt WRITE setLastUpdateCheckAt NOTIFY lastUpdateCheckAtChanged)
     Q_PROPERTY(QString skippedUpdateVersion READ getSkippedUpdateVersion WRITE setSkippedUpdateVersion NOTIFY skippedUpdateVersionChanged)
+    Q_PROPERTY(QVariantList supportedTrackLanguages READ getSupportedTrackLanguages CONSTANT)
     
 public:
     explicit ConfigManager(QObject *parent = nullptr);
@@ -199,6 +202,11 @@ public:
     bool getAutoSkipIntro() const;
     void setAutoSkipOutro(bool enabled);
     bool getAutoSkipOutro() const;
+    void setDefaultAudioTrackSelection(const QString &selection);
+    QString getDefaultAudioTrackSelection() const;
+    void setDefaultSubtitleTrackSelection(const QString &selection);
+    QString getDefaultSubtitleTrackSelection() const;
+    QVariantList getSupportedTrackLanguages() const;
 
     void setPlayerBackend(const QString &backendName);
     QString getPlayerBackend() const;
@@ -406,6 +414,8 @@ signals:
     void autoplayCountdownSecondsChanged();
     void autoSkipIntroChanged();
     void autoSkipOutroChanged();
+    void defaultAudioTrackSelectionChanged();
+    void defaultSubtitleTrackSelectionChanged();
     void playerBackendChanged();
     void playbackCacheSizeMBChanged();
     void autoRecoverPlaybackChanged();
@@ -441,6 +451,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 17;
+    static constexpr int kCurrentConfigVersion = 18;
     QJsonObject defaultConfig() const;
 };

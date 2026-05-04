@@ -25,6 +25,15 @@ FocusScope {
         return value + (root.unit ? " " + root.unit : "")
     }
 
+    function stepSpinBox(delta) {
+        if (!spinBox.enabled) return
+        var nextValue = Math.max(spinBox.from, Math.min(spinBox.to, spinBox.value + (delta * spinBox.stepSize)))
+        if (nextValue !== spinBox.value) {
+            spinBox.value = nextValue
+            root.spinBoxValueChanged(nextValue)
+        }
+    }
+
     implicitHeight: content.implicitHeight
     Layout.fillWidth: true
 
@@ -33,11 +42,11 @@ FocusScope {
     }
 
     Keys.onLeftPressed: function(event) {
-        if (spinBox.enabled) spinBox.decrease()
+        stepSpinBox(-1)
         event.accepted = true
     }
     Keys.onRightPressed: function(event) {
-        if (spinBox.enabled) spinBox.increase()
+        stepSpinBox(1)
         event.accepted = true
     }
 
