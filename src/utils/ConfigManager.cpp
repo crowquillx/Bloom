@@ -456,6 +456,7 @@ int ConfigManager::getImageCacheSizeMB() const
 void ConfigManager::setPlaybackCacheSizeMB(int mb)
 {
     int clamped = std::clamp(mb, 50, 2048);
+    qDebug() << "ConfigManager: setPlaybackCacheSizeMB called with" << mb << "clamped to" << clamped << "current" << getPlaybackCacheSizeMB();
     if (clamped == getPlaybackCacheSizeMB()) {
         return;
     }
@@ -473,6 +474,7 @@ void ConfigManager::setPlaybackCacheSizeMB(int mb)
     m_config["settings"] = settings;
     save();
     emit playbackCacheSizeMBChanged();
+    qDebug() << "ConfigManager: playbackCacheSizeMB saved as" << clamped;
 }
 
 int ConfigManager::getPlaybackCacheSizeMB() const
@@ -487,7 +489,9 @@ int ConfigManager::getPlaybackCacheSizeMB() const
             }
         }
     }
-    return std::clamp(value, 50, 2048);
+    int result = std::clamp(value, 50, 2048);
+    qDebug() << "ConfigManager: getPlaybackCacheSizeMB returning" << result << "(raw" << value << ")";
+    return result;
 }
 
 void ConfigManager::setAutoRecoverPlayback(bool enabled)

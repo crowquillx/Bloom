@@ -91,8 +91,17 @@ FocusScope {
                 editable: true
 
                 onValueModified: {
-                    root.value = value
                     root.spinBoxValueChanged(value)
+                }
+
+                Component.onDestruction: {
+                    var currentText = spinBoxTextInput.text
+                    if (currentText !== "" && currentText !== root.formatSpinBoxValue(spinBox.value)) {
+                        var parsed = spinBox.valueFromText(currentText, spinBox.locale)
+                        if (!isNaN(parsed) && parsed >= spinBox.from && parsed <= spinBox.to) {
+                            root.spinBoxValueChanged(parsed)
+                        }
+                    }
                 }
 
                 valueFromText: function(text, locale) {
@@ -106,6 +115,7 @@ FocusScope {
                 }
 
                 contentItem: TextInput {
+                    id: spinBoxTextInput
                     z: 2
                     text: root.formatSpinBoxValue(spinBox.value)
                     font.pixelSize: Theme.fontSizeBody
