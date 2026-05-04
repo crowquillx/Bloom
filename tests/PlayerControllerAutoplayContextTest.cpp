@@ -1,6 +1,7 @@
 #include <QtTest/QtTest>
 #include <QtTest/QSignalSpy>
 #include <QCoreApplication>
+#include <QDir>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 
@@ -295,18 +296,35 @@ private slots:
 
 private:
     QTemporaryDir m_configHome;
+#ifdef Q_OS_LINUX
     QByteArray m_previousConfigHome;
     bool m_hadPreviousConfigHome = false;
+#elif defined(Q_OS_WIN)
+    QByteArray m_previousAppData;
+    bool m_hadPreviousAppData = false;
+#elif defined(Q_OS_MACOS)
+    QByteArray m_previousHome;
+    bool m_hadPreviousHome = false;
+#endif
 };
 
 void PlayerControllerAutoplayContextTest::initTestCase()
 {
+    QVERIFY(m_configHome.isValid());
     QStandardPaths::setTestModeEnabled(true);
 #ifdef Q_OS_LINUX
-    QVERIFY(m_configHome.isValid());
     m_previousConfigHome = qgetenv("XDG_CONFIG_HOME");
     m_hadPreviousConfigHome = !m_previousConfigHome.isNull();
     qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+#elif defined(Q_OS_WIN)
+    m_previousAppData = qgetenv("APPDATA");
+    m_hadPreviousAppData = !m_previousAppData.isNull();
+    qputenv("APPDATA", m_configHome.path().toUtf8());
+#elif defined(Q_OS_MACOS)
+    m_previousHome = qgetenv("HOME");
+    m_hadPreviousHome = !m_previousHome.isNull();
+    qputenv("HOME", m_configHome.path().toUtf8());
+    QVERIFY(QDir().mkpath(m_configHome.path() + QStringLiteral("/Library/Preferences")));
 #endif
 }
 
@@ -317,6 +335,18 @@ void PlayerControllerAutoplayContextTest::cleanupTestCase()
         qputenv("XDG_CONFIG_HOME", m_previousConfigHome);
     } else {
         qunsetenv("XDG_CONFIG_HOME");
+    }
+#elif defined(Q_OS_WIN)
+    if (m_hadPreviousAppData) {
+        qputenv("APPDATA", m_previousAppData);
+    } else {
+        qunsetenv("APPDATA");
+    }
+#elif defined(Q_OS_MACOS)
+    if (m_hadPreviousHome) {
+        qputenv("HOME", m_previousHome);
+    } else {
+        qunsetenv("HOME");
     }
 #endif
     QStandardPaths::setTestModeEnabled(false);

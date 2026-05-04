@@ -100,7 +100,7 @@ Audio/Subtitle Track Selection
   - built-in safety fallback
 - Built-in audio fallback uses Jellyfin `defaultAudioStreamIndex`, then file-level `isDefault`, then the first audio stream.
 - Built-in subtitle fallback uses Jellyfin `defaultSubtitleStreamIndex`, then file-level `isDefault`, then forced subtitles, then subtitles off.
-- Global subtitle `Forced` chooses the first forced subtitle track, then uses the built-in subtitle fallback when no forced track exists.
+- Global subtitle `Forced` chooses the first forced subtitle track; when no forced track exists, subtitles stay off (`global-forced-off`) rather than falling through to Jellyfin/file defaults (which could enable full dialogue subtitles).
 - Global language fallbacks match normalized common language aliases (for example `en`/`eng`, `fr`/`fre`/`fra`, `zh`/`chi`/`zho`). Audio prefers matching default streams, then stream order. Subtitles prefer matching default streams, then regular subtitles, then forced, then SDH/hearing-impaired, then stream order.
 - Canonical track mapping contract:
   - UI and reporting state use Jellyfin `MediaStream.index`.
