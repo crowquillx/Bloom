@@ -1,6 +1,8 @@
 #include <QtTest/QtTest>
 #include <QtTest/QSignalSpy>
 #include <QCoreApplication>
+#include <QStandardPaths>
+#include <QTemporaryDir>
 
 #include "player/PlayerController.h"
 
@@ -254,6 +256,8 @@ class PlayerControllerAutoplayContextTest : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase();
+    void cleanupTestCase();
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
     void userStopBelowThresholdWaitsForBackendExit();
@@ -263,6 +267,16 @@ private slots:
     void playbackPrefetchIgnoresGenericNextEpisodeResponses();
     void autoplayPlaybackInfoErrorFallsBackToBasicPlayback();
     void autoplayPlaybackInfoUsesStoredSubtitlePreferenceWhenOverrideUnset();
+    void explicitSeasonPreferencesBeatGlobalTrackDefaults();
+    void globalAudioLanguageSelectsMatchingStream();
+    void configTrackLanguageSelectionCanonicalizesAliases();
+    void globalSubtitleLanguageSelectsMatchingStream();
+    void globalFileDefaultPrefersFileFlagOverJellyfinDefault();
+    void globalSubtitleOffDisablesSubtitles();
+    void globalSubtitleForcedSelectsForcedTrack();
+    void globalSubtitleForcedFallsBackToOffWhenNoForcedTrackExists();
+    void unavailableGlobalLanguageFallsBackToJellyfinDefault();
+    void autoplayPlaybackInfoUsesGlobalSubtitlePreferenceWhenOverrideAndSeasonUnset();
     void staleAutoplayPlaybackInfoResponseFallsBackAfterTimeout();
     void playUrlWithTracksKeepsNewSessionMetadataWhenReplacingPlayback();
     void embeddedVideoShrinkToggleEmitsAndPersists();
@@ -278,7 +292,35 @@ private slots:
     void startupTrackSelectionRespectsPinnedUrlUnlessUserOverride();
     void runtimeTrackSelectionUsesCanonicalMapAndSubtitleNone();
     void backendTrackSyncUsesReverseMap();
+
+private:
+    QTemporaryDir m_configHome;
+    QByteArray m_previousConfigHome;
+    bool m_hadPreviousConfigHome = false;
 };
+
+void PlayerControllerAutoplayContextTest::initTestCase()
+{
+    QStandardPaths::setTestModeEnabled(true);
+#ifdef Q_OS_LINUX
+    QVERIFY(m_configHome.isValid());
+    m_previousConfigHome = qgetenv("XDG_CONFIG_HOME");
+    m_hadPreviousConfigHome = !m_previousConfigHome.isNull();
+    qputenv("XDG_CONFIG_HOME", m_configHome.path().toUtf8());
+#endif
+}
+
+void PlayerControllerAutoplayContextTest::cleanupTestCase()
+{
+#ifdef Q_OS_LINUX
+    if (m_hadPreviousConfigHome) {
+        qputenv("XDG_CONFIG_HOME", m_previousConfigHome);
+    } else {
+        qunsetenv("XDG_CONFIG_HOME");
+    }
+#endif
+    QStandardPaths::setTestModeEnabled(false);
+}
 
 void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectly()
 {
@@ -745,6 +787,293 @@ void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoUsesStoredSubtitle
     QCOMPARE(controller.selectedSubtitleTrack(), 12);
     QCOMPARE(controller.m_mediaSourceId, QStringLiteral("media-source-11"));
     QCOMPARE(controller.m_playSessionId, QStringLiteral("play-session-11"));
+}
+
+void PlayerControllerAutoplayContextTest::explicitSeasonPreferencesBeatGlobalTrackDefaults()
+{
+    ConfigManager config;
+    config.setDefaultAudioTrackSelection(QStringLiteral("jpn"));
+    config.setDefaultSubtitleTrackSelection(QStringLiteral("spa"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    ScopedTrackPreferences preferences;
+    preferences.audio.mode = TrackPreferenceMode::ExplicitStream;
+    preferences.audio.streamIndex = 2;
+    preferences.subtitle.mode = TrackPreferenceMode::ExplicitStream;
+    preferences.subtitle.streamIndex = 12;
+    trackPrefs.setSeasonPreferences(QStringLiteral("season-override"), preferences);
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    const QVariantMap resolved = controller.resolveTrackSelectionForMediaSource(
+        buildMediaSource({
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 2}, {QStringLiteral("language"), QStringLiteral("eng")}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 4}, {QStringLiteral("language"), QStringLiteral("jpn")}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 12}, {QStringLiteral("language"), QStringLiteral("eng")}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 14}, {QStringLiteral("language"), QStringLiteral("spa")}}
+        }),
+        QStringLiteral("season-override"),
+        false);
+
+    QCOMPARE(resolved.value(QStringLiteral("audioIndex")).toInt(), 2);
+    QCOMPARE(resolved.value(QStringLiteral("subtitleIndex")).toInt(), 12);
+    QCOMPARE(resolved.value(QStringLiteral("audioSource")).toString(), QStringLiteral("explicit"));
+    QCOMPARE(resolved.value(QStringLiteral("subtitleSource")).toString(), QStringLiteral("explicit"));
+}
+
+void PlayerControllerAutoplayContextTest::globalAudioLanguageSelectsMatchingStream()
+{
+    ConfigManager config;
+    config.setDefaultAudioTrackSelection(QStringLiteral("jpn"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager, &playbackService, &libraryService, &authService);
+
+    const QVariantMap resolved = controller.resolveTrackSelectionForMediaSource(
+        buildMediaSource({
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 1}, {QStringLiteral("language"), QStringLiteral("eng")}, {QStringLiteral("isDefault"), true}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 2}, {QStringLiteral("language"), QStringLiteral("jpn")}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 3}, {QStringLiteral("language"), QStringLiteral("ja")}, {QStringLiteral("isDefault"), true}}
+        }, 1),
+        QStringLiteral("season-global"),
+        false);
+
+    QCOMPARE(resolved.value(QStringLiteral("audioIndex")).toInt(), 3);
+    QCOMPARE(resolved.value(QStringLiteral("audioSource")).toString(), QStringLiteral("global-language"));
+}
+
+void PlayerControllerAutoplayContextTest::configTrackLanguageSelectionCanonicalizesAliases()
+{
+    ConfigManager config;
+
+    config.setDefaultAudioTrackSelection(QStringLiteral("en"));
+    config.setDefaultSubtitleTrackSelection(QStringLiteral("es"));
+
+    QCOMPARE(config.getDefaultAudioTrackSelection(), QStringLiteral("eng"));
+    QCOMPARE(config.getDefaultSubtitleTrackSelection(), QStringLiteral("spa"));
+}
+
+void PlayerControllerAutoplayContextTest::globalSubtitleLanguageSelectsMatchingStream()
+{
+    ConfigManager config;
+    config.setDefaultSubtitleTrackSelection(QStringLiteral("spa"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager, &playbackService, &libraryService, &authService);
+
+    const QVariantMap resolved = controller.resolveTrackSelectionForMediaSource(
+        buildMediaSource({
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 1}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 5}, {QStringLiteral("language"), QStringLiteral("eng")}, {QStringLiteral("isDefault"), true}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 6}, {QStringLiteral("language"), QStringLiteral("spa")}, {QStringLiteral("isForced"), true}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 7}, {QStringLiteral("language"), QStringLiteral("es")}}
+        }, 1, 5),
+        QStringLiteral("season-global"),
+        false);
+
+    QCOMPARE(resolved.value(QStringLiteral("subtitleIndex")).toInt(), 7);
+    QCOMPARE(resolved.value(QStringLiteral("subtitleSource")).toString(), QStringLiteral("global-language"));
+}
+
+void PlayerControllerAutoplayContextTest::globalFileDefaultPrefersFileFlagOverJellyfinDefault()
+{
+    ConfigManager config;
+    config.setDefaultAudioTrackSelection(QStringLiteral("file-default"));
+    config.setDefaultSubtitleTrackSelection(QStringLiteral("file-default"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager, &playbackService, &libraryService, &authService);
+
+    const QVariantMap resolved = controller.resolveTrackSelectionForMediaSource(
+        buildMediaSource({
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 1}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 2}, {QStringLiteral("isDefault"), true}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 10}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 11}, {QStringLiteral("isDefault"), true}}
+        }, 1, 10),
+        QStringLiteral("season-global"),
+        false);
+
+    QCOMPARE(resolved.value(QStringLiteral("audioIndex")).toInt(), 2);
+    QCOMPARE(resolved.value(QStringLiteral("subtitleIndex")).toInt(), 11);
+    QCOMPARE(resolved.value(QStringLiteral("audioSource")).toString(), QStringLiteral("file-default"));
+    QCOMPARE(resolved.value(QStringLiteral("subtitleSource")).toString(), QStringLiteral("file-default"));
+}
+
+void PlayerControllerAutoplayContextTest::globalSubtitleOffDisablesSubtitles()
+{
+    ConfigManager config;
+    config.setDefaultSubtitleTrackSelection(QStringLiteral("off"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager, &playbackService, &libraryService, &authService);
+
+    const QVariantMap resolved = controller.resolveTrackSelectionForMediaSource(
+        buildMediaSource({
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 1}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 10}, {QStringLiteral("isDefault"), true}}
+        }, 1, 10),
+        QStringLiteral("season-global"),
+        false);
+
+    QCOMPARE(resolved.value(QStringLiteral("subtitleIndex")).toInt(), -1);
+    QCOMPARE(resolved.value(QStringLiteral("subtitleSource")).toString(), QStringLiteral("global-off"));
+}
+
+void PlayerControllerAutoplayContextTest::globalSubtitleForcedSelectsForcedTrack()
+{
+    ConfigManager config;
+    config.setDefaultSubtitleTrackSelection(QStringLiteral("forced"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager, &playbackService, &libraryService, &authService);
+
+    const QVariantMap resolved = controller.resolveTrackSelectionForMediaSource(
+        buildMediaSource({
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 1}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 10}, {QStringLiteral("isDefault"), true}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 11}, {QStringLiteral("isForced"), true}}
+        }, 1, 10),
+        QStringLiteral("season-global"),
+        false);
+
+    QCOMPARE(resolved.value(QStringLiteral("subtitleIndex")).toInt(), 11);
+    QCOMPARE(resolved.value(QStringLiteral("subtitleSource")).toString(), QStringLiteral("global-forced"));
+}
+
+void PlayerControllerAutoplayContextTest::globalSubtitleForcedFallsBackToOffWhenNoForcedTrackExists()
+{
+    ConfigManager config;
+    config.setDefaultSubtitleTrackSelection(QStringLiteral("forced"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager, &playbackService, &libraryService, &authService);
+
+    const QVariantMap resolved = controller.resolveTrackSelectionForMediaSource(
+        buildMediaSource({
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 1}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 10}, {QStringLiteral("isDefault"), true}}
+        }, 1, 10),
+        QStringLiteral("season-global"),
+        false);
+
+    QCOMPARE(resolved.value(QStringLiteral("subtitleIndex")).toInt(), -1);
+    QCOMPARE(resolved.value(QStringLiteral("subtitleSource")).toString(), QStringLiteral("global-forced-off"));
+}
+
+void PlayerControllerAutoplayContextTest::unavailableGlobalLanguageFallsBackToJellyfinDefault()
+{
+    ConfigManager config;
+    config.setDefaultAudioTrackSelection(QStringLiteral("jpn"));
+    config.setDefaultSubtitleTrackSelection(QStringLiteral("spa"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager, &playbackService, &libraryService, &authService);
+
+    const QVariantMap resolved = controller.resolveTrackSelectionForMediaSource(
+        buildMediaSource({
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 1}, {QStringLiteral("language"), QStringLiteral("eng")}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Subtitle")}, {QStringLiteral("index"), 10}, {QStringLiteral("language"), QStringLiteral("eng")}}
+        }, 1, 10),
+        QStringLiteral("season-global"),
+        false);
+
+    QCOMPARE(resolved.value(QStringLiteral("audioIndex")).toInt(), 1);
+    QCOMPARE(resolved.value(QStringLiteral("subtitleIndex")).toInt(), 10);
+    QCOMPARE(resolved.value(QStringLiteral("audioSource")).toString(), QStringLiteral("jellyfin-default"));
+    QCOMPARE(resolved.value(QStringLiteral("subtitleSource")).toString(), QStringLiteral("jellyfin-default"));
+}
+
+void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoUsesGlobalSubtitlePreferenceWhenOverrideAndSeasonUnset()
+{
+    ConfigManager config;
+    config.setDefaultSubtitleTrackSelection(QStringLiteral("spa"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-12");
+    controller.m_pendingAutoplaySeasonId = QStringLiteral("season-global");
+    controller.m_pendingAutoplayLibraryId = QStringLiteral("library-12");
+    controller.m_pendingAutoplayAudioTrack = 1;
+    controller.m_pendingAutoplaySubtitleTrack = -1;
+    controller.m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
+    controller.m_pendingAutoplayEpisodeData = QJsonObject{
+        {QStringLiteral("Id"), QStringLiteral("episode-12")},
+        {QStringLiteral("SeasonId"), QStringLiteral("season-global")}
+    };
+    controller.m_waitingForAutoplayPlaybackInfo = true;
+
+    PlaybackInfoResponse playbackInfo;
+    playbackInfo.playSessionId = QStringLiteral("play-session-12");
+    MediaSourceInfo mediaSource;
+    mediaSource.id = QStringLiteral("media-source-12");
+    mediaSource.mediaStreams = {
+        MediaStreamInfo{.index = 1, .type = QStringLiteral("Audio")},
+        MediaStreamInfo{.index = 20, .type = QStringLiteral("Subtitle"), .language = QStringLiteral("eng")},
+        MediaStreamInfo{.index = 21, .type = QStringLiteral("Subtitle"), .language = QStringLiteral("spa")}
+    };
+    playbackInfo.mediaSources.append(mediaSource);
+
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onPlaybackInfoLoaded",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("episode-12")),
+                                      Q_ARG(PlaybackInfoResponse, playbackInfo)));
+
+    QCOMPARE(controller.selectedSubtitleTrack(), 21);
+    QCOMPARE(controller.m_mediaSourceId, QStringLiteral("media-source-12"));
+    QCOMPARE(controller.m_playSessionId, QStringLiteral("play-session-12"));
 }
 
 void PlayerControllerAutoplayContextTest::staleAutoplayPlaybackInfoResponseFallsBackAfterTimeout()

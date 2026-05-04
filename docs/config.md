@@ -31,6 +31,7 @@ Config API sample (high level)
 - `playbackCompletionThreshold` is a Q_PROPERTY (default 90) and `autoplayNextEpisode` default true.
 - `skipButtonAutoHideSeconds` is a Q_PROPERTY (default 6; range 0-15) for skip intro/credits popup visibility timing.
 - `autoSkipIntro` and `autoSkipOutro` are Q_PROPERTY booleans (both default false) for one-time-per-playback intro/credits auto-skip.
+- `defaultAudioTrackSelection` and `defaultSubtitleTrackSelection` are Q_PROPERTY strings stored at `settings.playback.default_audio_track_selection` and `settings.playback.default_subtitle_track_selection`. Defaults are `jellyfin-default`. Valid values are `jellyfin-default`, `file-default`, supported language codes such as `eng`/`jpn`/`spa`, and subtitle-only `off` or `forced`.
 - `playbackVolume` and `playbackMuted` persist the last playback volume/mute state across app restarts (`settings.playback.playback_volume`, `settings.playback.playback_muted`).
 - `autoplayCountdownSeconds` drives the countdown shown before autoplay launches the next episode; the default is 10 seconds and disabling autoplay simply skips the timer.
 - `uiSoundsEnabled` / `uiSoundsVolume` keep the remote/keyboard navigation sounds available (default on at level 3) or let you mute them without touching the media volume slider.

@@ -35,7 +35,6 @@ Q_LOGGING_CATEGORY(lcPlaybackTrace, "bloom.playback.trace")
 
 namespace {
 std::atomic<quint64> gPlaybackAttemptCounter{0};
-
 bool isLinuxEmbeddedLibmpvBackend(const IPlayerBackend *backend)
 {
     return backend && backend->backendName() == QStringLiteral("linux-libmpv-opengl");
@@ -135,6 +134,86 @@ int firstMatchingStreamIndex(const QVariantList &streams, const std::function<bo
         }
     }
     return -1;
+}
+
+QString normalizedLanguageCode(const QString &language)
+{
+    const QString normalized = language.trimmed().toLower();
+    static const QHash<QString, QString> aliases = {
+        {QStringLiteral("en"), QStringLiteral("eng")}, {QStringLiteral("eng"), QStringLiteral("eng")},
+        {QStringLiteral("ja"), QStringLiteral("jpn")}, {QStringLiteral("jpn"), QStringLiteral("jpn")},
+        {QStringLiteral("es"), QStringLiteral("spa")}, {QStringLiteral("spa"), QStringLiteral("spa")},
+        {QStringLiteral("fr"), QStringLiteral("fre")}, {QStringLiteral("fre"), QStringLiteral("fre")},
+        {QStringLiteral("fra"), QStringLiteral("fre")},
+        {QStringLiteral("de"), QStringLiteral("ger")}, {QStringLiteral("ger"), QStringLiteral("ger")},
+        {QStringLiteral("deu"), QStringLiteral("ger")},
+        {QStringLiteral("it"), QStringLiteral("ita")}, {QStringLiteral("ita"), QStringLiteral("ita")},
+        {QStringLiteral("pt"), QStringLiteral("por")}, {QStringLiteral("por"), QStringLiteral("por")},
+        {QStringLiteral("ru"), QStringLiteral("rus")}, {QStringLiteral("rus"), QStringLiteral("rus")},
+        {QStringLiteral("zh"), QStringLiteral("chi")}, {QStringLiteral("chi"), QStringLiteral("chi")},
+        {QStringLiteral("zho"), QStringLiteral("chi")},
+        {QStringLiteral("ko"), QStringLiteral("kor")}, {QStringLiteral("kor"), QStringLiteral("kor")},
+        {QStringLiteral("ar"), QStringLiteral("ara")}, {QStringLiteral("ara"), QStringLiteral("ara")},
+        {QStringLiteral("hi"), QStringLiteral("hin")}, {QStringLiteral("hin"), QStringLiteral("hin")},
+        {QStringLiteral("nl"), QStringLiteral("dut")}, {QStringLiteral("dut"), QStringLiteral("dut")},
+        {QStringLiteral("nld"), QStringLiteral("dut")},
+        {QStringLiteral("sv"), QStringLiteral("swe")}, {QStringLiteral("swe"), QStringLiteral("swe")},
+        {QStringLiteral("no"), QStringLiteral("nor")}, {QStringLiteral("nor"), QStringLiteral("nor")},
+        {QStringLiteral("da"), QStringLiteral("dan")}, {QStringLiteral("dan"), QStringLiteral("dan")},
+        {QStringLiteral("fi"), QStringLiteral("fin")}, {QStringLiteral("fin"), QStringLiteral("fin")},
+        {QStringLiteral("pl"), QStringLiteral("pol")}, {QStringLiteral("pol"), QStringLiteral("pol")},
+        {QStringLiteral("tr"), QStringLiteral("tur")}, {QStringLiteral("tur"), QStringLiteral("tur")},
+        {QStringLiteral("cs"), QStringLiteral("cze")}, {QStringLiteral("cze"), QStringLiteral("cze")},
+        {QStringLiteral("ces"), QStringLiteral("cze")},
+        {QStringLiteral("el"), QStringLiteral("gre")}, {QStringLiteral("gre"), QStringLiteral("gre")},
+        {QStringLiteral("ell"), QStringLiteral("gre")},
+        {QStringLiteral("he"), QStringLiteral("heb")}, {QStringLiteral("heb"), QStringLiteral("heb")},
+        {QStringLiteral("id"), QStringLiteral("ind")}, {QStringLiteral("ind"), QStringLiteral("ind")},
+        {QStringLiteral("tha"), QStringLiteral("tha")}, {QStringLiteral("th"), QStringLiteral("tha")},
+        {QStringLiteral("vi"), QStringLiteral("vie")}, {QStringLiteral("vie"), QStringLiteral("vie")}
+    };
+    return aliases.value(normalized, normalized);
+}
+
+int bestLanguageStreamIndex(const QVariantList &streams, const QString &language, bool subtitle)
+{
+    const QString normalizedPreference = normalizedLanguageCode(language);
+    if (normalizedPreference.isEmpty()) {
+        return -1;
+    }
+
+    int bestIndex = -1;
+    int bestScore = -1;
+    int ordinal = 0;
+    for (const QVariant &streamVariant : streams) {
+        const QVariantMap stream = streamVariant.toMap();
+        if (normalizedLanguageCode(stream.value(QStringLiteral("language")).toString()) != normalizedPreference) {
+            ++ordinal;
+            continue;
+        }
+
+        int score = 10000 - ordinal;
+        if (stream.value(QStringLiteral("isDefault"), false).toBool()) {
+            score += 100000;
+        } else if (subtitle) {
+            const bool forced = stream.value(QStringLiteral("isForced"), false).toBool();
+            const bool hearingImpaired = stream.value(QStringLiteral("isHearingImpaired"), false).toBool();
+            if (!forced && !hearingImpaired) {
+                score += 50000;
+            } else if (forced) {
+                score += 30000;
+            } else if (hearingImpaired) {
+                score += 10000;
+            }
+        }
+
+        if (score > bestScore) {
+            bestScore = score;
+            bestIndex = stream.value(QStringLiteral("index"), -1).toInt();
+        }
+        ++ordinal;
+    }
+    return bestIndex;
 }
 
 QString trackTitleForStream(const QVariantMap &stream)
@@ -3587,6 +3666,128 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
     const QVariantList audioStreams = mediaStreamsForType(mediaSource, QStringLiteral("Audio"));
     const QVariantList subtitleStreams = mediaStreamsForType(mediaSource, QStringLiteral("Subtitle"));
 
+    const auto resolveJellyfinAudioDefault = [&]() -> std::pair<int, QString> {
+        const int jellyfinDefault = mediaSource.value(QStringLiteral("defaultAudioStreamIndex"), -1).toInt();
+        if (jellyfinDefault >= 0 && hasStreamIndex(audioStreams, jellyfinDefault)) {
+            return {jellyfinDefault, QStringLiteral("jellyfin-default")};
+        }
+        return {-1, {}};
+    };
+
+    const auto resolveFileAudioDefault = [&]() -> std::pair<int, QString> {
+        const int fileDefault = firstMatchingStreamIndex(audioStreams, [](const QVariantMap &stream) {
+            return stream.value(QStringLiteral("isDefault"), false).toBool();
+        });
+        if (fileDefault >= 0) {
+            return {fileDefault, QStringLiteral("file-default")};
+        }
+        return {-1, {}};
+    };
+
+    const auto resolveBuiltInAudioFallback = [&]() -> std::pair<int, QString> {
+        const auto [jellyfinDefault, jellyfinSource] = resolveJellyfinAudioDefault();
+        if (jellyfinDefault >= 0) {
+            return {jellyfinDefault, jellyfinSource};
+        }
+
+        const auto [fileDefault, fileSource] = resolveFileAudioDefault();
+        if (fileDefault >= 0) {
+            return {fileDefault, fileSource};
+        }
+
+        const int fallback = firstMatchingStreamIndex(audioStreams, [](const QVariantMap &) {
+            return true;
+        });
+        return {fallback, fallback >= 0 ? QStringLiteral("fallback") : QStringLiteral("none")};
+    };
+
+    const auto resolveJellyfinSubtitleDefault = [&]() -> std::pair<int, QString> {
+        const int jellyfinDefault = mediaSource.value(QStringLiteral("defaultSubtitleStreamIndex"), -1).toInt();
+        if (jellyfinDefault >= 0 && hasStreamIndex(subtitleStreams, jellyfinDefault)) {
+            return {jellyfinDefault, QStringLiteral("jellyfin-default")};
+        }
+        return {-1, {}};
+    };
+
+    const auto resolveFileSubtitleDefault = [&]() -> std::pair<int, QString> {
+        const int fileDefault = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
+            return stream.value(QStringLiteral("isDefault"), false).toBool();
+        });
+        if (fileDefault >= 0) {
+            return {fileDefault, QStringLiteral("file-default")};
+        }
+        return {-1, {}};
+    };
+
+    const auto resolveBuiltInSubtitleFallback = [&]() -> std::pair<int, QString> {
+        const auto [jellyfinDefault, jellyfinSource] = resolveJellyfinSubtitleDefault();
+        if (jellyfinDefault >= 0) {
+            return {jellyfinDefault, jellyfinSource};
+        }
+
+        const auto [fileDefault, fileSource] = resolveFileSubtitleDefault();
+        if (fileDefault >= 0) {
+            return {fileDefault, fileSource};
+        }
+
+        const int forcedDefault = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
+            return stream.value(QStringLiteral("isForced"), false).toBool();
+        });
+        if (forcedDefault >= 0) {
+            return {forcedDefault, QStringLiteral("forced-default")};
+        }
+
+        return {-1, QStringLiteral("fallback-off")};
+    };
+
+    const auto resolveGlobalAudioDefault = [&]() -> std::pair<int, QString> {
+        const QString selection = m_config ? m_config->getDefaultAudioTrackSelection() : QStringLiteral("jellyfin-default");
+        if (selection == QStringLiteral("file-default")) {
+            const auto [fileDefault, fileSource] = resolveFileAudioDefault();
+            if (fileDefault >= 0) {
+                return {fileDefault, fileSource};
+            }
+            return resolveBuiltInAudioFallback();
+        }
+        if (selection != QStringLiteral("jellyfin-default")) {
+            const int languageDefault = bestLanguageStreamIndex(audioStreams, selection, false);
+            if (languageDefault >= 0) {
+                return {languageDefault, QStringLiteral("global-language")};
+            }
+        }
+        return resolveBuiltInAudioFallback();
+    };
+
+    const auto resolveGlobalSubtitleDefault = [&]() -> std::pair<int, QString> {
+        const QString selection = m_config ? m_config->getDefaultSubtitleTrackSelection() : QStringLiteral("jellyfin-default");
+        if (selection == QStringLiteral("off")) {
+            return {-1, QStringLiteral("global-off")};
+        }
+        if (selection == QStringLiteral("forced")) {
+            const int forcedDefault = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
+                return stream.value(QStringLiteral("isForced"), false).toBool();
+            });
+            if (forcedDefault >= 0) {
+                return {forcedDefault, QStringLiteral("global-forced")};
+            }
+            return {-1, QStringLiteral("global-forced-off")};
+        }
+        if (selection == QStringLiteral("file-default")) {
+            const auto [fileDefault, fileSource] = resolveFileSubtitleDefault();
+            if (fileDefault >= 0) {
+                return {fileDefault, fileSource};
+            }
+            return resolveBuiltInSubtitleFallback();
+        }
+        if (selection != QStringLiteral("jellyfin-default")) {
+            const int languageDefault = bestLanguageStreamIndex(subtitleStreams, selection, true);
+            if (languageDefault >= 0) {
+                return {languageDefault, QStringLiteral("global-language")};
+            }
+        }
+        return resolveBuiltInSubtitleFallback();
+    };
+
     const auto resolveAudio = [&]() -> std::pair<int, QString> {
         if (preferredAudioIndex >= 0 && hasStreamIndex(audioStreams, preferredAudioIndex)) {
             return {preferredAudioIndex, QStringLiteral("override")};
@@ -3595,23 +3796,7 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
             && hasStreamIndex(audioStreams, preferences.audio.streamIndex)) {
             return {preferences.audio.streamIndex, QStringLiteral("explicit")};
         }
-
-        const int jellyfinDefault = mediaSource.value(QStringLiteral("defaultAudioStreamIndex"), -1).toInt();
-        if (jellyfinDefault >= 0 && hasStreamIndex(audioStreams, jellyfinDefault)) {
-            return {jellyfinDefault, QStringLiteral("jellyfin-default")};
-        }
-
-        const int fileDefault = firstMatchingStreamIndex(audioStreams, [](const QVariantMap &stream) {
-            return stream.value(QStringLiteral("isDefault"), false).toBool();
-        });
-        if (fileDefault >= 0) {
-            return {fileDefault, QStringLiteral("file-default")};
-        }
-
-        const int fallback = firstMatchingStreamIndex(audioStreams, [](const QVariantMap &) {
-            return true;
-        });
-        return {fallback, fallback >= 0 ? QStringLiteral("fallback") : QStringLiteral("none")};
+        return resolveGlobalAudioDefault();
     };
 
     const auto resolveSubtitle = [&]() -> std::pair<int, QString> {
@@ -3628,27 +3813,7 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
             && hasStreamIndex(subtitleStreams, preferences.subtitle.streamIndex)) {
             return {preferences.subtitle.streamIndex, QStringLiteral("explicit")};
         }
-
-        const int jellyfinDefault = mediaSource.value(QStringLiteral("defaultSubtitleStreamIndex"), -1).toInt();
-        if (jellyfinDefault >= 0 && hasStreamIndex(subtitleStreams, jellyfinDefault)) {
-            return {jellyfinDefault, QStringLiteral("jellyfin-default")};
-        }
-
-        const int fileDefault = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
-            return stream.value(QStringLiteral("isDefault"), false).toBool();
-        });
-        if (fileDefault >= 0) {
-            return {fileDefault, QStringLiteral("file-default")};
-        }
-
-        const int forcedDefault = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
-            return stream.value(QStringLiteral("isForced"), false).toBool();
-        });
-        if (forcedDefault >= 0) {
-            return {forcedDefault, QStringLiteral("forced-default")};
-        }
-
-        return {-1, QStringLiteral("fallback-off")};
+        return resolveGlobalSubtitleDefault();
     };
 
     const auto [audioIndex, audioSource] = resolveAudio();

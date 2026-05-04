@@ -22,6 +22,24 @@ FocusScope {
     }
 
     property Item _lastFocusedItem: null
+    function defaultTrackOptions(includeOff) {
+        var options = [
+            { label: qsTr("Jellyfin Default"), value: "jellyfin-default" },
+            { label: qsTr("File Default"), value: "file-default" }
+        ]
+        if (includeOff) {
+            options.push({ label: qsTr("Off"), value: "off" })
+            options.push({ label: qsTr("Forced"), value: "forced" })
+        }
+        return options.concat(ConfigManager.supportedTrackLanguages)
+    }
+
+    function optionIndexForValue(options, value) {
+        for (var i = 0; i < options.length; ++i) {
+            if (options[i].value === value) return i
+        }
+        return 0
+    }
 
     Keys.priority: Keys.AfterItem
     Keys.onLeftPressed: function(event) {
@@ -348,14 +366,418 @@ FocusScope {
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: thresholdSlider
-                    KeyNavigation.down: skipPopupDurationSlider
+                    KeyNavigation.down: defaultAudioTrackCombo
 
                     onSpinBoxValueChanged: function(newValue) {
                         ConfigManager.audioDelay = newValue
                     }
                 }
 
-                // ── Group 4: Skip popup + auto-skip toggles ──
+                // ── Group 4: Default audio/subtitle fallback tracks ──
+
+                SettingsGroupDivider { Layout.fillWidth: true }
+
+                RowLayout {
+                    id: defaultAudioTrackRow
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        spacing: Math.round(4 * Theme.layoutScale)
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: qsTr("Audio Language")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+
+                        Text {
+                            text: qsTr("Fallback used when no season or movie audio preference is saved")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    ComboBox {
+                        id: defaultAudioTrackCombo
+                        readonly property var options: root.defaultTrackOptions(false)
+                        model: options
+                        textRole: "label"
+                        valueRole: "value"
+                        currentIndex: root.optionIndexForValue(options, ConfigManager.defaultAudioTrackSelection)
+                        Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
+                        focusPolicy: Qt.StrongFocus
+                        property bool initialized: false
+                        property bool updatingSelection: false
+
+                        function refreshSelectionFromConfig() {
+                            var idx = root.optionIndexForValue(options, ConfigManager.defaultAudioTrackSelection)
+                            if (currentIndex === idx) return
+                            updatingSelection = true
+                            currentIndex = idx
+                            updatingSelection = false
+                        }
+
+                        Component.onCompleted: {
+                            refreshSelectionFromConfig()
+                            initialized = true
+                        }
+
+                        Connections {
+                            target: ConfigManager
+                            function onDefaultAudioTrackSelectionChanged() {
+                                defaultAudioTrackCombo.refreshSelectionFromConfig()
+                            }
+                        }
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                                InputModeManager.setNavigationMode("keyboard")
+                                InputModeManager.hideCursor(true)
+                            } else if (!popup.visible) {
+                                InputModeManager.setNavigationMode("pointer")
+                                InputModeManager.hideCursor(false)
+                            }
+                        }
+
+                        onCurrentIndexChanged: {
+                            if (!initialized || updatingSelection || currentIndex < 0) return
+                            var value = options[currentIndex].value
+                            if (value !== ConfigManager.defaultAudioTrackSelection) {
+                                ConfigManager.defaultAudioTrackSelection = value
+                            }
+                        }
+
+                        Keys.onUpPressed: function(event) {
+                            if (!popup.visible) {
+                                audioDelaySpinBox.forceActiveFocus()
+                                event.accepted = true
+                            }
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (!popup.visible) {
+                                defaultSubtitleTrackCombo.forceActiveFocus()
+                                event.accepted = true
+                            }
+                        }
+                        Keys.onReturnPressed: function(event) {
+                            popup.open()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: function(event) {
+                            popup.open()
+                            event.accepted = true
+                        }
+
+                        background: Rectangle {
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: Theme.inputBackground
+                            border.color: defaultAudioTrackCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: defaultAudioTrackCombo.activeFocus ? 2 : 1
+                        }
+
+                        contentItem: Text {
+                            text: defaultAudioTrackCombo.displayText
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.spacingSmall
+                            elide: Text.ElideRight
+                        }
+
+                        delegate: ItemDelegate {
+                            width: defaultAudioTrackCombo.width
+                            contentItem: Text {
+                                text: modelData.label
+                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
+                            background: Rectangle {
+                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                radius: Theme.radiusSmall
+                            }
+                            highlighted: ListView.isCurrentItem || defaultAudioTrackCombo.highlightedIndex === index
+                        }
+
+                        popup: Popup {
+                            y: defaultAudioTrackCombo.height + 5
+                            width: defaultAudioTrackCombo.width
+                            implicitHeight: Math.min(contentItem.implicitHeight, Math.round(360 * Theme.layoutScale))
+                            padding: 1
+
+                            onOpened: {
+                                InputModeManager.setNavigationMode("keyboard")
+                                InputModeManager.hideCursor(true)
+                                defaultAudioTrackList.currentIndex = defaultAudioTrackCombo.highlightedIndex >= 0
+                                    ? defaultAudioTrackCombo.highlightedIndex
+                                    : defaultAudioTrackCombo.currentIndex
+                                defaultAudioTrackList.forceActiveFocus()
+                            }
+                            onClosed: {
+                                Qt.callLater(function() {
+                                    defaultAudioTrackCombo.forceActiveFocus()
+                                })
+                                InputModeManager.setNavigationMode("pointer")
+                                InputModeManager.hideCursor(false)
+                            }
+
+                            contentItem: ListView {
+                                id: defaultAudioTrackList
+                                clip: true
+                                implicitHeight: contentHeight
+                                model: defaultAudioTrackCombo.popup.visible ? defaultAudioTrackCombo.delegateModel : null
+                                currentIndex: defaultAudioTrackCombo.highlightedIndex >= 0
+                                    ? defaultAudioTrackCombo.highlightedIndex
+                                    : defaultAudioTrackCombo.currentIndex
+
+                                ScrollIndicator.vertical: ScrollIndicator { }
+
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        InputModeManager.setNavigationMode("keyboard")
+                                        InputModeManager.hideCursor(true)
+                                    }
+                                }
+
+                                Keys.onReturnPressed: function(event) {
+                                    defaultAudioTrackCombo.currentIndex = currentIndex
+                                    defaultAudioTrackCombo.popup.close()
+                                    event.accepted = true
+                                }
+                                Keys.onEnterPressed: function(event) {
+                                    defaultAudioTrackCombo.currentIndex = currentIndex
+                                    defaultAudioTrackCombo.popup.close()
+                                    event.accepted = true
+                                }
+                                Keys.onEscapePressed: function(event) {
+                                    defaultAudioTrackCombo.popup.close()
+                                    event.accepted = true
+                                }
+                            }
+
+                            background: Rectangle {
+                                color: Theme.cardBackground
+                                border.color: Theme.focusBorder
+                                border.width: 1
+                                radius: Theme.radiusSmall
+                            }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    id: defaultSubtitleTrackRow
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        spacing: Math.round(4 * Theme.layoutScale)
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: qsTr("Subtitle Language")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+
+                        Text {
+                            text: qsTr("Fallback used when no season or movie subtitle preference is saved")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    ComboBox {
+                        id: defaultSubtitleTrackCombo
+                        readonly property var options: root.defaultTrackOptions(true)
+                        model: options
+                        textRole: "label"
+                        valueRole: "value"
+                        currentIndex: root.optionIndexForValue(options, ConfigManager.defaultSubtitleTrackSelection)
+                        Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
+                        focusPolicy: Qt.StrongFocus
+                        property bool initialized: false
+                        property bool updatingSelection: false
+
+                        function refreshSelectionFromConfig() {
+                            var idx = root.optionIndexForValue(options, ConfigManager.defaultSubtitleTrackSelection)
+                            if (currentIndex === idx) return
+                            updatingSelection = true
+                            currentIndex = idx
+                            updatingSelection = false
+                        }
+
+                        Component.onCompleted: {
+                            refreshSelectionFromConfig()
+                            initialized = true
+                        }
+
+                        Connections {
+                            target: ConfigManager
+                            function onDefaultSubtitleTrackSelectionChanged() {
+                                defaultSubtitleTrackCombo.refreshSelectionFromConfig()
+                            }
+                        }
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                                InputModeManager.setNavigationMode("keyboard")
+                                InputModeManager.hideCursor(true)
+                            } else if (!popup.visible) {
+                                InputModeManager.setNavigationMode("pointer")
+                                InputModeManager.hideCursor(false)
+                            }
+                        }
+
+                        onCurrentIndexChanged: {
+                            if (!initialized || updatingSelection || currentIndex < 0) return
+                            var value = options[currentIndex].value
+                            if (value !== ConfigManager.defaultSubtitleTrackSelection) {
+                                ConfigManager.defaultSubtitleTrackSelection = value
+                            }
+                        }
+
+                        Keys.onUpPressed: function(event) {
+                            if (!popup.visible) {
+                                defaultAudioTrackCombo.forceActiveFocus()
+                                event.accepted = true
+                            }
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (!popup.visible) {
+                                skipPopupDurationSlider.forceActiveFocus()
+                                event.accepted = true
+                            }
+                        }
+                        Keys.onReturnPressed: function(event) {
+                            popup.open()
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: function(event) {
+                            popup.open()
+                            event.accepted = true
+                        }
+
+                        background: Rectangle {
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: Theme.inputBackground
+                            border.color: defaultSubtitleTrackCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: defaultSubtitleTrackCombo.activeFocus ? 2 : 1
+                        }
+
+                        contentItem: Text {
+                            text: defaultSubtitleTrackCombo.displayText
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.spacingSmall
+                            elide: Text.ElideRight
+                        }
+
+                        delegate: ItemDelegate {
+                            width: defaultSubtitleTrackCombo.width
+                            contentItem: Text {
+                                text: modelData.label
+                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                            }
+                            background: Rectangle {
+                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                radius: Theme.radiusSmall
+                            }
+                            highlighted: ListView.isCurrentItem || defaultSubtitleTrackCombo.highlightedIndex === index
+                        }
+
+                        popup: Popup {
+                            y: defaultSubtitleTrackCombo.height + 5
+                            width: defaultSubtitleTrackCombo.width
+                            implicitHeight: Math.min(contentItem.implicitHeight, Math.round(360 * Theme.layoutScale))
+                            padding: 1
+
+                            onOpened: {
+                                InputModeManager.setNavigationMode("keyboard")
+                                InputModeManager.hideCursor(true)
+                                defaultSubtitleTrackList.currentIndex = defaultSubtitleTrackCombo.highlightedIndex >= 0
+                                    ? defaultSubtitleTrackCombo.highlightedIndex
+                                    : defaultSubtitleTrackCombo.currentIndex
+                                defaultSubtitleTrackList.forceActiveFocus()
+                            }
+                            onClosed: {
+                                Qt.callLater(function() {
+                                    defaultSubtitleTrackCombo.forceActiveFocus()
+                                })
+                                InputModeManager.setNavigationMode("pointer")
+                                InputModeManager.hideCursor(false)
+                            }
+
+                            contentItem: ListView {
+                                id: defaultSubtitleTrackList
+                                clip: true
+                                implicitHeight: contentHeight
+                                model: defaultSubtitleTrackCombo.popup.visible ? defaultSubtitleTrackCombo.delegateModel : null
+                                currentIndex: defaultSubtitleTrackCombo.highlightedIndex >= 0
+                                    ? defaultSubtitleTrackCombo.highlightedIndex
+                                    : defaultSubtitleTrackCombo.currentIndex
+
+                                ScrollIndicator.vertical: ScrollIndicator { }
+
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        InputModeManager.setNavigationMode("keyboard")
+                                        InputModeManager.hideCursor(true)
+                                    }
+                                }
+
+                                Keys.onReturnPressed: function(event) {
+                                    defaultSubtitleTrackCombo.currentIndex = currentIndex
+                                    defaultSubtitleTrackCombo.popup.close()
+                                    event.accepted = true
+                                }
+                                Keys.onEnterPressed: function(event) {
+                                    defaultSubtitleTrackCombo.currentIndex = currentIndex
+                                    defaultSubtitleTrackCombo.popup.close()
+                                    event.accepted = true
+                                }
+                                Keys.onEscapePressed: function(event) {
+                                    defaultSubtitleTrackCombo.popup.close()
+                                    event.accepted = true
+                                }
+                            }
+
+                            background: Rectangle {
+                                color: Theme.cardBackground
+                                border.color: Theme.focusBorder
+                                border.width: 1
+                                radius: Theme.radiusSmall
+                            }
+                        }
+                    }
+                }
+
+                // ── Group 5: Skip popup + auto-skip toggles ──
 
                 SettingsGroupDivider { Layout.fillWidth: true }
 
@@ -372,7 +794,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
-                    KeyNavigation.up: audioDelaySpinBox
+                    KeyNavigation.up: defaultSubtitleTrackCombo
                     KeyNavigation.down: autoSkipIntroToggle
 
                     onSliderValueChanged: function(newValue) {

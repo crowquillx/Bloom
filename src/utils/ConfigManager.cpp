@@ -12,6 +12,8 @@
 #include <QRegularExpression>
 #include <QByteArray>
 #include <QMetaType>
+#include <QHash>
+#include <QSet>
 #include <algorithm>
 
 namespace {
@@ -21,6 +23,106 @@ QString normalizeUpdateChannelValue(const QString &channel)
     return channel.trimmed().compare(QStringLiteral("dev"), Qt::CaseInsensitive) == 0
         ? QStringLiteral("dev")
         : QStringLiteral("stable");
+}
+
+QVariantList supportedTrackLanguageOptions()
+{
+    return {
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("English")}, {QStringLiteral("value"), QStringLiteral("eng")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Japanese")}, {QStringLiteral("value"), QStringLiteral("jpn")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Spanish")}, {QStringLiteral("value"), QStringLiteral("spa")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("French")}, {QStringLiteral("value"), QStringLiteral("fre")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("German")}, {QStringLiteral("value"), QStringLiteral("ger")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Italian")}, {QStringLiteral("value"), QStringLiteral("ita")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Portuguese")}, {QStringLiteral("value"), QStringLiteral("por")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Russian")}, {QStringLiteral("value"), QStringLiteral("rus")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Chinese")}, {QStringLiteral("value"), QStringLiteral("chi")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Korean")}, {QStringLiteral("value"), QStringLiteral("kor")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Arabic")}, {QStringLiteral("value"), QStringLiteral("ara")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Hindi")}, {QStringLiteral("value"), QStringLiteral("hin")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Dutch")}, {QStringLiteral("value"), QStringLiteral("dut")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Swedish")}, {QStringLiteral("value"), QStringLiteral("swe")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Norwegian")}, {QStringLiteral("value"), QStringLiteral("nor")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Danish")}, {QStringLiteral("value"), QStringLiteral("dan")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Finnish")}, {QStringLiteral("value"), QStringLiteral("fin")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Polish")}, {QStringLiteral("value"), QStringLiteral("pol")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Turkish")}, {QStringLiteral("value"), QStringLiteral("tur")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Czech")}, {QStringLiteral("value"), QStringLiteral("cze")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Greek")}, {QStringLiteral("value"), QStringLiteral("gre")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Hebrew")}, {QStringLiteral("value"), QStringLiteral("heb")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Indonesian")}, {QStringLiteral("value"), QStringLiteral("ind")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Thai")}, {QStringLiteral("value"), QStringLiteral("tha")}},
+        QVariantMap{{QStringLiteral("label"), QStringLiteral("Vietnamese")}, {QStringLiteral("value"), QStringLiteral("vie")}}
+    };
+}
+
+QSet<QString> supportedTrackLanguageCodes()
+{
+    QSet<QString> result;
+    for (const QVariant &optionVariant : supportedTrackLanguageOptions()) {
+        result.insert(optionVariant.toMap().value(QStringLiteral("value")).toString());
+    }
+    return result;
+}
+
+QString canonicalTrackLanguageCode(const QString &language)
+{
+    const QString normalized = language.trimmed().toLower();
+    static const QHash<QString, QString> langAliases = {
+        {QStringLiteral("en"), QStringLiteral("eng")}, {QStringLiteral("ja"), QStringLiteral("jpn")},
+        {QStringLiteral("es"), QStringLiteral("spa")}, {QStringLiteral("fr"), QStringLiteral("fre")},
+        {QStringLiteral("fra"), QStringLiteral("fre")}, {QStringLiteral("de"), QStringLiteral("ger")},
+        {QStringLiteral("deu"), QStringLiteral("ger")}, {QStringLiteral("it"), QStringLiteral("ita")},
+        {QStringLiteral("pt"), QStringLiteral("por")}, {QStringLiteral("ru"), QStringLiteral("rus")},
+        {QStringLiteral("zh"), QStringLiteral("chi")}, {QStringLiteral("zho"), QStringLiteral("chi")},
+        {QStringLiteral("ko"), QStringLiteral("kor")}, {QStringLiteral("ar"), QStringLiteral("ara")},
+        {QStringLiteral("hi"), QStringLiteral("hin")}, {QStringLiteral("nl"), QStringLiteral("dut")},
+        {QStringLiteral("nld"), QStringLiteral("dut")}, {QStringLiteral("sv"), QStringLiteral("swe")},
+        {QStringLiteral("no"), QStringLiteral("nor")}, {QStringLiteral("da"), QStringLiteral("dan")},
+        {QStringLiteral("fi"), QStringLiteral("fin")}, {QStringLiteral("pl"), QStringLiteral("pol")},
+        {QStringLiteral("tr"), QStringLiteral("tur")}, {QStringLiteral("cs"), QStringLiteral("cze")},
+        {QStringLiteral("ces"), QStringLiteral("cze")}, {QStringLiteral("el"), QStringLiteral("gre")},
+        {QStringLiteral("ell"), QStringLiteral("gre")}, {QStringLiteral("he"), QStringLiteral("heb")},
+        {QStringLiteral("id"), QStringLiteral("ind")}, {QStringLiteral("th"), QStringLiteral("tha")},
+        {QStringLiteral("vi"), QStringLiteral("vie")}
+    };
+    return langAliases.value(normalized, normalized);
+}
+
+QString normalizeDefaultTrackSelectionValue(const QString &selection, bool allowOff)
+{
+    const QString normalized = selection.trimmed().toLower();
+    if (normalized == QStringLiteral("file-default")) {
+        return QStringLiteral("file-default");
+    }
+    if (allowOff && normalized == QStringLiteral("off")) {
+        return QStringLiteral("off");
+    }
+    if (allowOff && normalized == QStringLiteral("forced")) {
+        return QStringLiteral("forced");
+    }
+
+    const QString canonical = canonicalTrackLanguageCode(normalized);
+    if (supportedTrackLanguageCodes().contains(canonical)) {
+        return canonical;
+    }
+
+    return QStringLiteral("jellyfin-default");
+}
+
+QJsonObject playbackSettingsObject(const QJsonObject &config)
+{
+    const QJsonObject settings = config.value(QStringLiteral("settings")).toObject();
+    return settings.value(QStringLiteral("playback")).toObject();
+}
+
+void setPlaybackSetting(QJsonObject &config, const QString &key, const QJsonValue &value)
+{
+    QJsonObject settings = config.value(QStringLiteral("settings")).toObject();
+    QJsonObject playback = settings.value(QStringLiteral("playback")).toObject();
+    playback[key] = value;
+    settings[QStringLiteral("playback")] = playback;
+    config[QStringLiteral("settings")] = settings;
 }
 
 QString preferredConfigDir()
@@ -1049,6 +1151,51 @@ bool ConfigManager::getAutoSkipOutro() const
         }
     }
     return false; // Default off
+}
+
+void ConfigManager::setDefaultAudioTrackSelection(const QString &selection)
+{
+    const QString normalized = normalizeDefaultTrackSelectionValue(selection, false);
+    if (normalized == getDefaultAudioTrackSelection()) {
+        return;
+    }
+
+    setPlaybackSetting(m_config, QStringLiteral("default_audio_track_selection"), normalized);
+    save();
+    emit defaultAudioTrackSelectionChanged();
+}
+
+QString ConfigManager::getDefaultAudioTrackSelection() const
+{
+    const QJsonObject playback = playbackSettingsObject(m_config);
+    return normalizeDefaultTrackSelectionValue(
+        playback.value(QStringLiteral("default_audio_track_selection")).toString(),
+        false);
+}
+
+void ConfigManager::setDefaultSubtitleTrackSelection(const QString &selection)
+{
+    const QString normalized = normalizeDefaultTrackSelectionValue(selection, true);
+    if (normalized == getDefaultSubtitleTrackSelection()) {
+        return;
+    }
+
+    setPlaybackSetting(m_config, QStringLiteral("default_subtitle_track_selection"), normalized);
+    save();
+    emit defaultSubtitleTrackSelectionChanged();
+}
+
+QString ConfigManager::getDefaultSubtitleTrackSelection() const
+{
+    const QJsonObject playback = playbackSettingsObject(m_config);
+    return normalizeDefaultTrackSelectionValue(
+        playback.value(QStringLiteral("default_subtitle_track_selection")).toString(),
+        true);
+}
+
+QVariantList ConfigManager::getSupportedTrackLanguages() const
+{
+    return supportedTrackLanguageOptions();
 }
 
 void ConfigManager::setPlayerBackend(const QString &backendName)
@@ -2248,6 +2395,25 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV17ToV18(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 18;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject playback = settings.value("playback").toObject();
+        if (!playback.contains("default_audio_track_selection")) {
+            playback["default_audio_track_selection"] = QStringLiteral("jellyfin-default");
+        }
+        if (!playback.contains("default_subtitle_track_selection")) {
+            playback["default_subtitle_track_selection"] = QStringLiteral("jellyfin-default");
+        }
+
+        settings["playback"] = playback;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -2404,6 +2570,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 17) {
+            m_config = ConfigMigrator::migrateV17ToV18(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -2465,6 +2639,8 @@ QJsonObject ConfigManager::defaultConfig() const
     playback["performance_mode_enabled"] = false;
     playback["playback_cache_size_mb"] = 500;
     playback["auto_recover_playback"] = true;
+    playback["default_audio_track_selection"] = QStringLiteral("jellyfin-default");
+    playback["default_subtitle_track_selection"] = QStringLiteral("jellyfin-default");
     settings["playback"] = playback;
     
     QJsonObject video;

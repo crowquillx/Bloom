@@ -94,10 +94,14 @@ Audio/Subtitle Track Selection
 - The server provides `defaultAudioStreamIndex` and `defaultSubtitleStreamIndex` which reflect the user's preferences set on the Jellyfin server.
 - Use `PlayerController::setSelectedAudioTrack(index)` and `setSelectedSubtitleTrack(index)` to change tracks during playback via mpv IPC (`aid`, `sid` properties).
 - Initial selection resolution order:
+  - request-time override from the playback request/autoplay context, if valid
   - explicit saved preference for the current season/movie scope, if still valid
-  - Jellyfin `defaultAudioStreamIndex` / `defaultSubtitleStreamIndex`
-  - file-level defaults from stream metadata (`isDefault`, then forced subtitles when applicable)
-  - fallback to first audio track / subtitles off
+  - global app fallback from Settings > Playback (`Jellyfin Default`, `File Default`, common language, or subtitle `Off`/`Forced`)
+  - built-in safety fallback
+- Built-in audio fallback uses Jellyfin `defaultAudioStreamIndex`, then file-level `isDefault`, then the first audio stream.
+- Built-in subtitle fallback uses Jellyfin `defaultSubtitleStreamIndex`, then file-level `isDefault`, then forced subtitles, then subtitles off.
+- Global subtitle `Forced` chooses the first forced subtitle track, then uses the built-in subtitle fallback when no forced track exists.
+- Global language fallbacks match normalized common language aliases (for example `en`/`eng`, `fr`/`fre`/`fra`, `zh`/`chi`/`zho`). Audio prefers matching default streams, then stream order. Subtitles prefer matching default streams, then regular subtitles, then forced, then SDH/hearing-impaired, then stream order.
 - Canonical track mapping contract:
   - UI and reporting state use Jellyfin `MediaStream.index`.
   - Runtime mpv switching uses mapped mpv track IDs (1-based per media type order).
@@ -110,6 +114,7 @@ Audio/Subtitle Track Selection
 Track Preference Persistence
 - Track preferences are stored separately from the main config in `~/.config/Bloom/track_preferences.json`.
 - The file stores only explicit user intent. Unset preferences fall back to Jellyfin/file defaults and are not written.
+- Global app-level audio/subtitle fallback defaults are stored in the main config, not in `track_preferences.json`.
 - Preferences are loaded at startup and saved with a 1-second delay to batch multiple changes.
 - Schema is versioned. Legacy/unversioned files are intentionally discarded and replaced on the next save.
 
