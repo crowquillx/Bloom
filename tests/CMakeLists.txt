@@ -37,7 +37,7 @@ add_executable(SeriesDetailsCacheTest
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
 )
 
-target_include_directories(SeriesDetailsCacheTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(SeriesDetailsCacheTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/src)
 
 target_link_libraries(SeriesDetailsCacheTest
     PRIVATE
@@ -117,7 +117,7 @@ add_executable(PlayerControllerAutoplayContextTest
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
 )
 
-target_include_directories(PlayerControllerAutoplayContextTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(PlayerControllerAutoplayContextTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/src)
 
 target_compile_definitions(PlayerControllerAutoplayContextTest PRIVATE BLOOM_TESTING=1)
 
@@ -206,7 +206,7 @@ add_executable(SimilarItemsRetryTest
     ${CMAKE_SOURCE_DIR}/src/test/TestModeController.cpp
 )
 
-target_include_directories(SimilarItemsRetryTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(SimilarItemsRetryTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/src)
 
 target_link_libraries(SimilarItemsRetryTest
     PRIVATE
