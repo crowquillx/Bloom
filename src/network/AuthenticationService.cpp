@@ -1,6 +1,7 @@
 #include "AuthenticationService.h"
 #include "../security/ISecretStore.h"
 #include "../utils/ConfigManager.h"
+#include "config/version.h"
 #include <QNetworkRequest>
 #include <QUrl>
 #include <QJsonDocument>
@@ -147,7 +148,7 @@ QNetworkRequest AuthenticationService::createRequest(const QString &endpoint) co
     
     // Build authorization header with unique device ID
     QString deviceId = m_configManager ? m_configManager->getDeviceId() : "bloom-desktop-fallback";
-    QString authHeader = QString("MediaBrowser Client=\"Bloom\", Device=\"Desktop\", DeviceId=\"%1\", Version=\"1.0.0\"").arg(deviceId);
+    QString authHeader = QString("MediaBrowser Client=\"Bloom\", Device=\"Desktop\", DeviceId=\"%1\", Version=\"%2\"").arg(deviceId, QString::fromUtf8(BLOOM_VERSION));
     if (!m_accessToken.isEmpty()) {
         authHeader += QString(", Token=\"%1\"").arg(m_accessToken);
     }
