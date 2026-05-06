@@ -34,6 +34,7 @@ FocusScope {
     signal playRequested()
     signal moreEpisodesRequested()
     signal backToHomeRequested()
+    signal recommendationSelected(var itemData)
 
     // ---- Derived episode metadata ----
     readonly property string episodeName: episodeData.Name || ""
@@ -44,6 +45,9 @@ FocusScope {
     readonly property var runtimeTicks: episodeData.RunTimeTicks || 0
     readonly property double communityRating: episodeData.CommunityRating || 0
     readonly property string premiereDate: episodeData.PremiereDate || ""
+    readonly property var recommendationItems: (typeof UpNextRecommendationsViewModel !== "undefined")
+        ? UpNextRecommendationsViewModel.items : []
+    readonly property bool hasRecommendations: !root.hasNextEpisode && recommendationItems.length > 0
 
     // ---- Thumbnail URL construction ----
     readonly property string episodeId: episodeData.Id || ""
@@ -118,6 +122,27 @@ FocusScope {
         })
     }
 
+    function loadRecommendationsIfNeeded() {
+        if (root.hasNextEpisode || !root.seriesId
+                || typeof UpNextRecommendationsViewModel === "undefined") {
+            if (typeof UpNextRecommendationsViewModel !== "undefined") {
+                UpNextRecommendationsViewModel.clear()
+            }
+            return
+        }
+
+        UpNextRecommendationsViewModel.loadForSeries(root.seriesId, 6)
+    }
+
+    function activateRecommendation(itemData, focusTarget) {
+        cancelCountdown()
+        if (itemData && itemData.Source === "Seerr") {
+            seerrRequestDialog.openForItem(itemData, focusTarget)
+            return
+        }
+        recommendationSelected(itemData)
+    }
+
     onActiveFocusChanged: {
         if (activeFocus) {
             focusPrimaryAction()
@@ -126,9 +151,16 @@ FocusScope {
 
     StackView.onStatusChanged: {
         if (StackView.status === StackView.Active) {
+            loadRecommendationsIfNeeded()
             focusPrimaryAction()
+        } else if (StackView.status === StackView.Deactivating
+                   && typeof UpNextRecommendationsViewModel !== "undefined") {
+            UpNextRecommendationsViewModel.clear()
         }
     }
+
+    onSeriesIdChanged: loadRecommendationsIfNeeded()
+    onHasNextEpisodeChanged: loadRecommendationsIfNeeded()
 
     // ---- Background ----
     Rectangle {
@@ -490,6 +522,7 @@ FocusScope {
 
                 KeyNavigation.up: root.hasNextEpisode ? thumbnailFocus : moreEpisodesBtn
                 KeyNavigation.right: moreEpisodesBtn
+                KeyNavigation.down: root.hasRecommendations ? recommendationsList : null
 
                 Keys.onReturnPressed: function(event) {
                     if (event.isAutoRepeat) { event.accepted = true; return }
@@ -502,6 +535,13 @@ FocusScope {
                     root.cancelCountdown()
                     root.backToHomeRequested()
                     event.accepted = true
+                }
+                Keys.onDownPressed: function(event) {
+                    if (root.hasRecommendations) {
+                        recommendationsList.forceActiveFocus()
+                        recommendationsList.currentIndex = Math.max(0, recommendationsList.currentIndex)
+                        event.accepted = true
+                    }
                 }
 
                 onClicked: {
@@ -547,6 +587,7 @@ FocusScope {
 
                 KeyNavigation.up: root.hasNextEpisode ? thumbnailFocus : backToHomeBtn
                 KeyNavigation.left: backToHomeBtn
+                KeyNavigation.down: root.hasRecommendations ? recommendationsList : null
 
                 Keys.onReturnPressed: function(event) {
                     if (event.isAutoRepeat) { event.accepted = true; return }
@@ -559,6 +600,13 @@ FocusScope {
                     root.cancelCountdown()
                     root.moreEpisodesRequested()
                     event.accepted = true
+                }
+                Keys.onDownPressed: function(event) {
+                    if (root.hasRecommendations) {
+                        recommendationsList.forceActiveFocus()
+                        recommendationsList.currentIndex = Math.max(0, recommendationsList.currentIndex)
+                        event.accepted = true
+                    }
                 }
 
                 onClicked: {
@@ -597,6 +645,106 @@ FocusScope {
 
             Item { Layout.fillWidth: true }
         }
+
+        ColumnLayout {
+            id: recommendationsSection
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.hasRecommendations ? Math.round(300 * Theme.layoutScale) : 0
+            spacing: Theme.spacingSmall
+            visible: root.hasRecommendations
+
+            Text {
+                text: qsTr("Recommended Next")
+                font.pixelSize: Theme.fontSizeTitle
+                font.family: Theme.fontPrimary
+                font.weight: Font.DemiBold
+                color: Theme.textPrimary
+                Layout.fillWidth: true
+            }
+
+            ListView {
+                id: recommendationsList
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                orientation: ListView.Horizontal
+                spacing: Theme.spacingMedium
+                clip: false
+                focus: false
+                currentIndex: 0
+                model: root.recommendationItems
+                boundsBehavior: Flickable.StopAtBounds
+
+                delegate: FocusScope {
+                    id: recommendationDelegateScope
+                    width: Math.round(150 * Theme.layoutScale)
+                    height: recommendationsList.height
+
+                    required property var modelData
+                    required property int index
+
+                    SearchResultCard {
+                        id: recommendationCard
+                        anchors.fill: parent
+                        anchors.margins: Theme.spacingSmall
+                        itemData: recommendationDelegateScope.modelData
+                        isFocused: recommendationDelegateScope.activeFocus
+
+                        onClicked: root.activateRecommendation(recommendationDelegateScope.modelData,
+                                                               recommendationDelegateScope)
+                    }
+
+                    Keys.onReturnPressed: function(event) {
+                        if (event.isAutoRepeat) { event.accepted = true; return }
+                        recommendationCard.clicked()
+                        event.accepted = true
+                    }
+                    Keys.onEnterPressed: function(event) {
+                        if (event.isAutoRepeat) { event.accepted = true; return }
+                        recommendationCard.clicked()
+                        event.accepted = true
+                    }
+                    Keys.onSpacePressed: function(event) {
+                        if (event.isAutoRepeat) { event.accepted = true; return }
+                        recommendationCard.clicked()
+                        event.accepted = true
+                    }
+                    Keys.onUpPressed: function(event) {
+                        moreEpisodesBtn.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onLeftPressed: function(event) {
+                        if (recommendationsList.currentIndex > 0) {
+                            recommendationsList.currentIndex--
+                            event.accepted = true
+                        }
+                    }
+                    Keys.onRightPressed: function(event) {
+                        if (recommendationsList.currentIndex + 1 < recommendationsList.count) {
+                            recommendationsList.currentIndex++
+                            event.accepted = true
+                        }
+                    }
+
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            recommendationsList.currentIndex = index
+                        }
+                    }
+                }
+
+                onActiveFocusChanged: {
+                    if (activeFocus && currentItem) {
+                        currentItem.forceActiveFocus()
+                    }
+                }
+
+                onCurrentIndexChanged: {
+                    if (activeFocus && currentItem) {
+                        currentItem.forceActiveFocus()
+                    }
+                }
+            }
+        }
     }
 
     // ESC/Back cancels countdown and navigates to episode list or series.
@@ -611,6 +759,12 @@ FocusScope {
 
     // Initial focus
     Component.onCompleted: {
+        loadRecommendationsIfNeeded()
         focusPrimaryAction()
+    }
+
+    SeerrRequestDialog {
+        id: seerrRequestDialog
+        parent: Overlay.overlay
     }
 }

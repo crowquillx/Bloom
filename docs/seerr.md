@@ -7,6 +7,7 @@ Overview
   - Selecting a Seerr result opens a request dialog.
   - Request dialog supports server/profile/root-folder selection and TV season selection.
   - Series details can render a Seerr recommendations shelf when the current series has a TMDB id and Seerr is configured.
+  - The post-playback no-next screen can append Seerr TV recommendations to local Jellyfin recommendations.
 - Future scope:
   - Similar-title provider hook is now rendered in series details; movie details can reuse the same service later.
 
@@ -23,6 +24,7 @@ Runtime behavior
   - Jellyfin results render first.
   - Seerr search runs independently and appears later when available.
 - Seerr cards include source/status metadata and open the Seerr request dialog.
+- On the post-playback no-next screen, Seerr similar-title failures are ignored and the screen remains focused on Back to Series/Home actions.
 
 API endpoints used
 - Validation:
@@ -52,9 +54,10 @@ Code map
 - `src/ui/SeerrRequestDialog.qml`: keyboard-first request dialog.
 - `src/ui/SearchResultCard.qml`: Seerr-aware card rendering (TMDB posters/source-status badge).
 - `src/ui/SeriesDetailsView.qml`: Seerr recommendations shelf for series details, reusing the request dialog.
+- `src/viewmodels/UpNextRecommendationsViewModel.{h,cpp}` and `src/ui/UpNextScreen.qml`: no-next recommendation shelf that merges Jellyfin similar series with Seerr TV results.
 
 Similar Titles
-- `SeerrService::getSimilar(mediaType, tmdbId, page)` and `similarResultsLoaded(...)` drive the recommendations shelf in series details.
+- `SeerrService::getSimilar(mediaType, tmdbId, page)` and `similarResultsLoaded(...)` drive recommendations in series details and the no-next Up Next screen.
 - Endpoints:
   - `GET /api/v1/movie/{movieId}/similar`
   - `GET /api/v1/tv/{tvId}/similar`

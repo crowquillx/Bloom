@@ -183,6 +183,7 @@ Track Preference Persistence
 - Tie-breakers when play dates are missing or equal prefer later canonical position, then larger `PlaybackPositionTicks`.
 - `excludeItemId` is used by autoplay/prefetch so the player can advance from the current item even before Jellyfin has updated watch state on the server.
 - If no next episode is available, post-playback navigation still opens `UpNextScreen.qml` in an empty state. The screen must keep keyboard focus and offer actions back to Home or the series.
+- The no-next empty state may show up to six TV-series recommendations via `UpNextRecommendationsViewModel`. Jellyfin similar series are listed first; Seerr TV recommendations are appended when the source series has a TMDB id and Seerr is configured. Recommendation provider failures are silent on this screen.
 - Leaving the Up Next interstitial keeps the exact resolved episode context, including season-0 specials, by carrying the resolved episode id plus its `ParentId`/`SeasonId` back into `SeriesSeasonEpisodeView`.
 
 UI Components for Track Selection

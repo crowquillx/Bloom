@@ -965,6 +965,31 @@ Window {
                     PlayerController.clearPendingAutoplayContext()
                     stackView.pop(null, StackView.Immediate)
                 })
+
+                upNextScreen.recommendationSelected.connect(function(itemData) {
+                    var recommendedSeriesId = itemData ? (itemData.Id || itemData.itemId || "") : ""
+                    if (!recommendedSeriesId || recommendedSeriesId.indexOf("seerr:") === 0) {
+                        console.warn("[Main] Up Next: Ignoring invalid Jellyfin recommendation selection")
+                        return
+                    }
+
+                    console.log("[Main] Up Next: Recommendation selected", recommendedSeriesId)
+                    PlayerController.clearPendingAutoplayContext()
+                    stackView.pop(null, StackView.Immediate)
+                    stackView.push("LibraryScreen.qml", {
+                        currentParentId: "",
+                        currentLibraryId: "",
+                        currentLibraryName: "",
+                        currentSeriesId: recommendedSeriesId,
+                        currentSeriesData: itemData,
+                        showSeriesDetails: true,
+                        directNavigationMode: true,
+                        preferStackPopOnDirectBack: true
+                    }, StackView.Immediate)
+                    LibraryService.getSeriesDetails(recommendedSeriesId)
+                    LibraryService.getItems(recommendedSeriesId, 0, 0)
+                    LibraryService.getNextUnplayedEpisode(recommendedSeriesId)
+                })
             } else {
                 console.warn("[Main] Failed to create Up Next screen, clearing pending autoplay context")
                 PlayerController.clearPendingAutoplayContext()
