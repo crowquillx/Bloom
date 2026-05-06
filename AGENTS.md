@@ -66,3 +66,40 @@ See also:
 - docs/conventional-commits.md — commit messages must follow the Conventional Commits spec so tooling and changelogs stay accurate
 
 License: See `LICENSE`.
+
+## Cursor Cloud specific instructions
+
+### Building
+- Docker must be running before building. Start the daemon with `dockerd &` and wait a few seconds.
+- Run `xhost +local:` before launching the app inside a Docker container so it can access the X display.
+- The canonical build command is `./scripts/build-docker.sh`. For development iteration where you only need the main binary (no tests), you can build faster inside the container with `-DBUILD_TESTING=OFF`:
+  ```
+  docker run --rm --network=host -v "$(pwd):/workspace" bloom-build bash -c \
+    'cd /workspace && mkdir -p build-docker && cd build-docker && cmake .. -G Ninja -DBUILD_TESTING=OFF && ninja'
+  ```
+- A full build with tests uses the same command without `-DBUILD_TESTING=OFF` (or simply `./scripts/build-docker.sh`).
+
+### Running tests
+- Tests must be run inside the Docker container since the binary is linked against the container's Qt6/mpv libraries.
+- Set `QT_QPA_PLATFORM=offscreen` when running tests in a headless environment:
+  ```
+  docker run --rm --network=host -e QT_QPA_PLATFORM=offscreen -v "$(pwd):/workspace" bloom-build \
+    bash -c 'cd /workspace/build-docker && ctest --output-on-failure'
+  ```
+- `VisualRegressionTest` golden image mismatches are expected in different environments (pixel-perfect comparisons).
+- `SeriesDetailsCacheTest` has two known pre-existing failures (`seriesCacheRespectsFreshness`, `itemsCacheRespectsFreshness`).
+
+### Running the application
+- Launch inside the container with display forwarding:
+  ```
+  docker run --rm --network=host -e DISPLAY=:1 -e QT_QPA_PLATFORM=xcb -e XDG_RUNTIME_DIR=/tmp \
+    -v /tmp/.X11-unix:/tmp/.X11-unix -v "$(pwd):/workspace" bloom-build /workspace/build-docker/src/Bloom
+  ```
+- The app requires a Jellyfin server to be fully functional beyond the login screen.
+
+### QML lint
+- QML lint runs as part of `./scripts/build-docker.sh` automatically. To run it manually:
+  ```
+  docker run --rm -v "$(pwd):/workspace" bloom-build bash -c \
+    'qmllint -I /workspace/build-docker/src -I /usr/lib/qt6/qml $(find /workspace/build-docker/src/BloomUI/ui -name "*.qml" | sort)'
+  ```
