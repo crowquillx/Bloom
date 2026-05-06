@@ -182,6 +182,7 @@ Track Preference Persistence
   - If no anchor exists, fall back to the first unplayed regular episode, then to the first unplayed special.
 - Tie-breakers when play dates are missing or equal prefer later canonical position, then larger `PlaybackPositionTicks`.
 - `excludeItemId` is used by autoplay/prefetch so the player can advance from the current item even before Jellyfin has updated watch state on the server.
+- If no next episode is available, post-playback navigation still opens `UpNextScreen.qml` in an empty state. The screen must keep keyboard focus and offer actions back to Home or the series.
 - Leaving the Up Next interstitial keeps the exact resolved episode context, including season-0 specials, by carrying the resolved episode id plus its `ParentId`/`SeasonId` back into `SeriesSeasonEpisodeView`.
 
 UI Components for Track Selection

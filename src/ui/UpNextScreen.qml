@@ -25,6 +25,7 @@ FocusScope {
     property int lastAudioIndex: -1
     property int lastSubtitleIndex: -1
     property bool autoplay: false
+    readonly property bool hasNextEpisode: episodeId !== "" && !episodeData.NoNextEpisode
     
     // Tell Main.qml's global ESC shortcut to skip this screen
     readonly property bool handlesOwnBackNavigation: true
@@ -63,10 +64,10 @@ FocusScope {
     }
 
     // ---- Countdown timer ----
-    property int countdown: autoplay
+    property int countdown: hasNextEpisode && autoplay
         ? Math.max(1, (typeof ConfigManager !== 'undefined' ? ConfigManager.autoplayCountdownSeconds : 10))
         : -1
-    readonly property bool countdownActive: autoplay && countdown > 0
+    readonly property bool countdownActive: hasNextEpisode && autoplay && countdown > 0
 
     Timer {
         id: countdownTimer
@@ -102,9 +103,18 @@ FocusScope {
         root.countdown = -1
     }
 
+    function returnToSeries() {
+        cancelCountdown()
+        moreEpisodesRequested()
+    }
+
     function focusPrimaryAction() {
         Qt.callLater(function() {
-            thumbnailFocus.forceActiveFocus()
+            if (root.hasNextEpisode) {
+                thumbnailFocus.forceActiveFocus()
+            } else {
+                moreEpisodesBtn.forceActiveFocus()
+            }
         })
     }
 
@@ -169,7 +179,7 @@ FocusScope {
             Text {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                visible: root.autoplay && root.countdown > 0
+                visible: root.hasNextEpisode && root.autoplay && root.countdown > 0
                 text: qsTr("Next episode in %1").arg(root.countdown)
                 font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
@@ -180,7 +190,7 @@ FocusScope {
             Text {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                visible: root.autoplay && root.countdown <= 0 && root.countdown !== -1
+                visible: root.hasNextEpisode && root.autoplay && root.countdown <= 0 && root.countdown !== -1
                 text: qsTr("Starting…")
                 font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
@@ -191,8 +201,8 @@ FocusScope {
             Text {
                 anchors.left: parent.left
                 anchors.verticalCenter: parent.verticalCenter
-                visible: !root.autoplay || root.countdown === -1
-                text: qsTr("Up Next")
+                visible: !root.hasNextEpisode || !root.autoplay || root.countdown === -1
+                text: root.hasNextEpisode ? qsTr("Up Next") : qsTr("No Next Episode")
                 font.pixelSize: Theme.fontSizeHeader
                 font.family: Theme.fontPrimary
                 font.weight: Font.Bold
@@ -209,6 +219,7 @@ FocusScope {
             // Episode thumbnail card (focusable – acts as Play button)
             FocusScope {
                 id: thumbnailFocus
+                visible: root.hasNextEpisode
                 Layout.preferredWidth: Math.min(root.width * 0.45, Math.round(800 * Theme.layoutScale))
                 Layout.preferredHeight: Layout.preferredWidth * 9 / 16
                 Layout.alignment: Qt.AlignVCenter
@@ -359,7 +370,7 @@ FocusScope {
 
                 // Series name
                 Text {
-                    visible: root.seriesName !== ""
+                    visible: root.hasNextEpisode && root.seriesName !== ""
                     text: root.seriesName
                     font.pixelSize: Theme.fontSizeMedium
                     font.family: Theme.fontPrimary
@@ -371,6 +382,7 @@ FocusScope {
 
                 // Episode identifier
                 Text {
+                    visible: root.hasNextEpisode
                     text: {
                         var prefix = "S" + root.seasonNumber + " E" + root.episodeNumber
                         if (root.episodeNumber === 0) prefix = "Special"
@@ -389,6 +401,7 @@ FocusScope {
 
                 // Metadata row: runtime, rating, year
                 RowLayout {
+                    visible: root.hasNextEpisode
                     spacing: Theme.spacingMedium
 
                     Text {
@@ -422,7 +435,7 @@ FocusScope {
 
                 // Overview
                 Text {
-                    visible: root.overview !== ""
+                    visible: root.hasNextEpisode && root.overview !== ""
                     text: root.overview
                     font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary
@@ -433,6 +446,29 @@ FocusScope {
                     elide: Text.ElideRight
                     lineHeight: 1.2
                     Layout.topMargin: Theme.spacingSmall
+                }
+
+                Text {
+                    visible: !root.hasNextEpisode
+                    text: qsTr("There isn't another unwatched episode available right now.")
+                    font.pixelSize: Theme.fontSizeTitle
+                    font.family: Theme.fontPrimary
+                    font.bold: true
+                    color: Theme.textPrimary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    maximumLineCount: 3
+                }
+
+                Text {
+                    visible: !root.hasNextEpisode
+                    text: qsTr("You can return to the series or head back home.")
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                    maximumLineCount: 2
                 }
 
                 Item { Layout.fillHeight: true }
@@ -452,7 +488,7 @@ FocusScope {
                 Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
                 focusPolicy: Qt.StrongFocus
 
-                KeyNavigation.up: thumbnailFocus
+                KeyNavigation.up: root.hasNextEpisode ? thumbnailFocus : moreEpisodesBtn
                 KeyNavigation.right: moreEpisodesBtn
 
                 Keys.onReturnPressed: function(event) {
@@ -509,7 +545,7 @@ FocusScope {
                 Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
                 focusPolicy: Qt.StrongFocus
 
-                KeyNavigation.up: thumbnailFocus
+                KeyNavigation.up: root.hasNextEpisode ? thumbnailFocus : backToHomeBtn
                 KeyNavigation.left: backToHomeBtn
 
                 Keys.onReturnPressed: function(event) {
@@ -551,7 +587,7 @@ FocusScope {
                         color: Theme.textPrimary
                     }
                     Text {
-                        text: qsTr("More Episodes")
+                        text: root.hasNextEpisode ? qsTr("More Episodes") : qsTr("Back to Series")
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         color: Theme.textPrimary
@@ -563,10 +599,13 @@ FocusScope {
         }
     }
 
-    // ESC cancels countdown and navigates to episode list
+    // ESC/Back cancels countdown and navigates to episode list or series.
     Keys.onEscapePressed: function(event) {
-        cancelCountdown()
-        moreEpisodesRequested()
+        returnToSeries()
+        event.accepted = true
+    }
+    Keys.onBackPressed: function(event) {
+        returnToSeries()
         event.accepted = true
     }
 
