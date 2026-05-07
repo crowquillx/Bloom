@@ -47,13 +47,18 @@ UpNextRecommendationsViewModel::UpNextRecommendationsViewModel(QObject *parent)
 
 QVariantList UpNextRecommendationsViewModel::items() const
 {
-    QVariantList list;
-    list.reserve(m_jellyfinItems.size() + m_seerrItems.size());
+    if (!m_itemsDirty) {
+        return m_cachedItems;
+    }
+
+    m_cachedItems.clear();
+    m_cachedItems.reserve(m_limit);
     const QJsonArray merged = mergeRecommendations(m_jellyfinItems, m_seerrItems, m_limit);
     for (const QJsonValue &value : merged) {
-        list.append(value.toObject().toVariantMap());
+        m_cachedItems.append(value.toObject().toVariantMap());
     }
-    return list;
+    m_itemsDirty = false;
+    return m_cachedItems;
 }
 
 void UpNextRecommendationsViewModel::loadForSeries(const QString &seriesId, int limit)
@@ -89,6 +94,8 @@ void UpNextRecommendationsViewModel::clear()
     m_waitingForJellyfin = false;
     m_waitingForSeriesDetails = false;
     m_waitingForSeerr = false;
+    m_itemsDirty = true;
+    m_cachedItems.clear();
     setLoading(false);
     if (hadItems) {
         emit itemsChanged();
@@ -168,8 +175,9 @@ QString UpNextRecommendationsViewModel::dedupeKey(const QJsonObject &item)
 
 QString UpNextRecommendationsViewModel::normalizedTitle(const QString &title)
 {
+    static const QRegularExpression kNonAlnumRegex(QStringLiteral("[^\\p{L}\\p{N}]+"));
     QString normalized = title.toLower().trimmed();
-    normalized.replace(QRegularExpression(QStringLiteral("[^\\p{L}\\p{N}]+")), QStringLiteral(" "));
+    normalized.replace(kNonAlnumRegex, QStringLiteral(" "));
     normalized = normalized.simplified();
     return normalized;
 }
@@ -206,6 +214,7 @@ void UpNextRecommendationsViewModel::finishProviderIfComplete()
 
 void UpNextRecommendationsViewModel::notifyItemsChanged()
 {
+    m_itemsDirty = true;
     emit itemsChanged();
 }
 
@@ -220,6 +229,8 @@ void UpNextRecommendationsViewModel::resetRequestState(const QString &seriesId, 
     m_waitingForJellyfin = false;
     m_waitingForSeriesDetails = false;
     m_waitingForSeerr = false;
+    m_itemsDirty = true;
+    m_cachedItems.clear();
     emit itemsChanged();
 }
 

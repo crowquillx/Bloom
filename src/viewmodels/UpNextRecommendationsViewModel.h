@@ -76,6 +76,8 @@ private:
     QJsonArray m_seerrItems;
     QString m_seriesId;
     QString m_seriesDetailsFallbackContext;
+    mutable QVariantList m_cachedItems;
+    mutable bool m_itemsDirty = true;
     int m_limit = 6;
     int m_pendingSeerrTmdbId = -1;
     bool m_loading = false;
