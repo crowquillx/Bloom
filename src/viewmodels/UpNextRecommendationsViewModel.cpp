@@ -23,6 +23,14 @@ UpNextRecommendationsViewModel::UpNextRecommendationsViewModel(QObject *parent)
                 this, &UpNextRecommendationsViewModel::onSeriesDetailsLoaded);
         connect(m_libraryService, &LibraryService::seriesDetailsNotModified,
                 this, &UpNextRecommendationsViewModel::onSeriesDetailsNotModified);
+        connect(m_libraryService,
+                qOverload<const QString &, const QJsonObject &, const QString &>(&LibraryService::itemLoaded),
+                this, &UpNextRecommendationsViewModel::onSeriesDetailsFallbackLoaded);
+        connect(m_libraryService,
+                qOverload<const QString &, const QString &>(&LibraryService::itemNotModified),
+                this, &UpNextRecommendationsViewModel::onSeriesDetailsFallbackNotModified);
+        connect(m_libraryService, &LibraryService::itemFailed,
+                this, &UpNextRecommendationsViewModel::onSeriesDetailsFallbackFailed);
         connect(m_libraryService, &LibraryService::errorOccurred,
                 this, &UpNextRecommendationsViewModel::onLibraryErrorOccurred);
     } else {
@@ -75,6 +83,7 @@ void UpNextRecommendationsViewModel::clear()
     m_seriesId.clear();
     m_limit = 6;
     m_pendingSeerrTmdbId = -1;
+    m_seriesDetailsFallbackContext.clear();
     m_jellyfinItems = {};
     m_seerrItems = {};
     m_waitingForJellyfin = false;
@@ -189,8 +198,8 @@ void UpNextRecommendationsViewModel::setLoading(bool loading)
 
 void UpNextRecommendationsViewModel::finishProviderIfComplete()
 {
-    notifyItemsChanged();
     if (!m_waitingForJellyfin && !m_waitingForSeriesDetails && !m_waitingForSeerr) {
+        notifyItemsChanged();
         setLoading(false);
     }
 }
@@ -205,6 +214,7 @@ void UpNextRecommendationsViewModel::resetRequestState(const QString &seriesId, 
     m_seriesId = seriesId;
     m_limit = qBound(1, limit, 24);
     m_pendingSeerrTmdbId = -1;
+    m_seriesDetailsFallbackContext.clear();
     m_jellyfinItems = {};
     m_seerrItems = {};
     m_waitingForJellyfin = false;
@@ -233,7 +243,28 @@ void UpNextRecommendationsViewModel::requestSeerrSimilarIfPossible(const QJsonOb
     m_pendingSeerrTmdbId = tmdbId;
     m_waitingForSeerr = true;
     m_seerrService->getSimilar(QStringLiteral("tv"), tmdbId, 1);
-    finishProviderIfComplete();
+}
+
+void UpNextRecommendationsViewModel::requestSeriesDetailsFallback()
+{
+    if (!m_libraryService || m_seriesId.isEmpty()) {
+        m_waitingForSeriesDetails = false;
+        finishProviderIfComplete();
+        return;
+    }
+
+    m_seriesDetailsFallbackContext = QStringLiteral("UpNextRecommendations:%1").arg(m_seriesId);
+    m_libraryService->clearItemCacheValidation(m_seriesId);
+    m_libraryService->getItem(m_seriesId, m_seriesDetailsFallbackContext);
+}
+
+bool UpNextRecommendationsViewModel::matchesSeriesDetailsFallback(const QString &itemId,
+                                                                  const QString &requestContext) const
+{
+    return m_waitingForSeriesDetails
+        && itemId == m_seriesId
+        && requestContext == m_seriesDetailsFallbackContext
+        && !m_seriesDetailsFallbackContext.isEmpty();
 }
 
 void UpNextRecommendationsViewModel::onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items)
@@ -274,6 +305,44 @@ void UpNextRecommendationsViewModel::onSeriesDetailsNotModified(const QString &s
         return;
     }
 
+    requestSeriesDetailsFallback();
+}
+
+void UpNextRecommendationsViewModel::onSeriesDetailsFallbackLoaded(const QString &itemId,
+                                                                   const QJsonObject &itemData,
+                                                                   const QString &requestContext)
+{
+    if (!matchesSeriesDetailsFallback(itemId, requestContext)) {
+        return;
+    }
+
+    m_seriesDetailsFallbackContext.clear();
+    requestSeerrSimilarIfPossible(itemData);
+}
+
+void UpNextRecommendationsViewModel::onSeriesDetailsFallbackNotModified(const QString &itemId,
+                                                                        const QString &requestContext)
+{
+    if (!matchesSeriesDetailsFallback(itemId, requestContext)) {
+        return;
+    }
+
+    qWarning() << "UpNextRecommendationsViewModel series details fallback returned not modified";
+    m_seriesDetailsFallbackContext.clear();
+    m_waitingForSeriesDetails = false;
+    finishProviderIfComplete();
+}
+
+void UpNextRecommendationsViewModel::onSeriesDetailsFallbackFailed(const QString &itemId,
+                                                                   const QString &error,
+                                                                   const QString &requestContext)
+{
+    if (!matchesSeriesDetailsFallback(itemId, requestContext)) {
+        return;
+    }
+
+    qWarning() << "UpNextRecommendationsViewModel series details fallback failed:" << error;
+    m_seriesDetailsFallbackContext.clear();
     m_waitingForSeriesDetails = false;
     finishProviderIfComplete();
 }
@@ -311,7 +380,13 @@ void UpNextRecommendationsViewModel::onSeerrSimilarResultsFailed(const QString &
 
 void UpNextRecommendationsViewModel::onLibraryErrorOccurred(const QString &endpoint, const QString &error)
 {
-    if (endpoint != QStringLiteral("getSeriesDetails") || !m_waitingForSeriesDetails) {
+    if (!m_waitingForSeriesDetails || !m_seriesDetailsFallbackContext.isEmpty()) {
+        return;
+    }
+
+    const bool isSeriesDetailsError = endpoint == QStringLiteral("getSeriesDetails")
+        || endpoint.contains(QStringLiteral("/Items/%1").arg(m_seriesId));
+    if (!isSeriesDetailsError) {
         return;
     }
 

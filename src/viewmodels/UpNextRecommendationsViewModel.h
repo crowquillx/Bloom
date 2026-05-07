@@ -45,6 +45,13 @@ private slots:
     void onSimilarItemsFailed(const QString &itemId, const QString &error);
     void onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void onSeriesDetailsNotModified(const QString &seriesId);
+    void onSeriesDetailsFallbackLoaded(const QString &itemId,
+                                       const QJsonObject &itemData,
+                                       const QString &requestContext);
+    void onSeriesDetailsFallbackNotModified(const QString &itemId, const QString &requestContext);
+    void onSeriesDetailsFallbackFailed(const QString &itemId,
+                                       const QString &error,
+                                       const QString &requestContext);
     void onSeerrSimilarResultsLoaded(const QString &mediaType, int tmdbId, const QJsonArray &results);
     void onSeerrSimilarResultsFailed(const QString &mediaType, int tmdbId, const QString &error);
     void onLibraryErrorOccurred(const QString &endpoint, const QString &error);
@@ -60,12 +67,15 @@ private:
     void finishProviderIfComplete();
     void resetRequestState(const QString &seriesId, int limit);
     void requestSeerrSimilarIfPossible(const QJsonObject &seriesData);
+    void requestSeriesDetailsFallback();
+    bool matchesSeriesDetailsFallback(const QString &itemId, const QString &requestContext) const;
 
     LibraryService *m_libraryService = nullptr;
     SeerrService *m_seerrService = nullptr;
     QJsonArray m_jellyfinItems;
     QJsonArray m_seerrItems;
     QString m_seriesId;
+    QString m_seriesDetailsFallbackContext;
     int m_limit = 6;
     int m_pendingSeerrTmdbId = -1;
     bool m_loading = false;

@@ -2,6 +2,63 @@
 
 #include "../src/viewmodels/UpNextRecommendationsViewModel.h"
 #include "../src/core/ServiceLocator.h"
+#include "../src/network/LibraryService.h"
+
+class UpNextTestLibraryService : public LibraryService
+{
+    Q_OBJECT
+
+public:
+    explicit UpNextTestLibraryService(QObject *parent = nullptr)
+        : LibraryService(nullptr, parent)
+    {
+    }
+
+    void getSimilarItems(const QString &itemId, int limit = 12) override
+    {
+        Q_UNUSED(limit)
+        similarRequests.append(itemId);
+        emit similarItemsLoaded(itemId, similarItems);
+    }
+
+    void getSeriesDetails(const QString &seriesId) override
+    {
+        seriesDetailsRequests.append(seriesId);
+        if (emitNotModifiedForSeriesDetails) {
+            emit seriesDetailsNotModified(seriesId);
+            return;
+        }
+        if (emitPathErrorForSeriesDetails) {
+            emit errorOccurred(QStringLiteral("/Users/user-1/Items/%1?Fields=ProviderIds").arg(seriesId),
+                               QStringLiteral("timeout"));
+            return;
+        }
+        emit seriesDetailsLoaded(seriesId, seriesDetails);
+    }
+
+    void getItem(const QString &itemId, const QString &requestContext) override
+    {
+        itemRequests.append(itemId);
+        itemRequestContexts.append(requestContext);
+        emit itemLoaded(itemId, fallbackItem, requestContext);
+    }
+
+    void clearItemCacheValidation(const QString &itemId) override
+    {
+        clearedItemCacheIds.append(itemId);
+    }
+
+    QJsonArray similarItems;
+    QJsonObject seriesDetails;
+    QJsonObject fallbackItem;
+    QStringList similarRequests;
+    QStringList seriesDetailsRequests;
+    QStringList itemRequests;
+    QStringList itemRequestContexts;
+    QStringList clearedItemCacheIds;
+    bool emitNotModifiedForSeriesDetails = false;
+    bool emitPathErrorForSeriesDetails = false;
+};
 
 class UpNextRecommendationsViewModelTest : public QObject
 {
@@ -14,6 +71,8 @@ private slots:
     void duplicateTitlesCollapseToJellyfinItem();
     void resultCountIsCapped();
     void unavailableProvidersLeaveEmptyNotLoading();
+    void seriesDetailsNotModifiedUsesFallbackItem();
+    void seriesDetailsPathErrorClearsLoading();
 };
 
 void UpNextRecommendationsViewModelTest::cleanup()
@@ -95,6 +154,38 @@ void UpNextRecommendationsViewModelTest::unavailableProvidersLeaveEmptyNotLoadin
     vm.loadForSeries(QStringLiteral("series-1"), 6);
 
     QVERIFY(vm.items().isEmpty());
+    QVERIFY(!vm.loading());
+}
+
+void UpNextRecommendationsViewModelTest::seriesDetailsNotModifiedUsesFallbackItem()
+{
+    auto *libraryService = new UpNextTestLibraryService(this);
+    libraryService->emitNotModifiedForSeriesDetails = true;
+    libraryService->fallbackItem = QJsonObject{
+        {"Id", "series-1"},
+        {"Type", "Series"},
+        {"ProviderIds", QJsonObject{{"Tmdb", "1234"}}}
+    };
+    ServiceLocator::registerService<LibraryService>(libraryService);
+
+    UpNextRecommendationsViewModel vm;
+    vm.loadForSeries(QStringLiteral("series-1"), 6);
+
+    QCOMPARE(libraryService->clearedItemCacheIds, QStringList{QStringLiteral("series-1")});
+    QCOMPARE(libraryService->itemRequests, QStringList{QStringLiteral("series-1")});
+    QVERIFY(libraryService->itemRequestContexts.first().startsWith(QStringLiteral("UpNextRecommendations:")));
+    QVERIFY(!vm.loading());
+}
+
+void UpNextRecommendationsViewModelTest::seriesDetailsPathErrorClearsLoading()
+{
+    auto *libraryService = new UpNextTestLibraryService(this);
+    libraryService->emitPathErrorForSeriesDetails = true;
+    ServiceLocator::registerService<LibraryService>(libraryService);
+
+    UpNextRecommendationsViewModel vm;
+    vm.loadForSeries(QStringLiteral("series-1"), 6);
+
     QVERIFY(!vm.loading());
 }
 

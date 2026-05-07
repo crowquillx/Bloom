@@ -897,6 +897,8 @@ Window {
                             preferStackPopOnDirectBack: true
                         }, StackView.Immediate)
                         LibraryService.getSeriesDetails(seriesId)
+                        LibraryService.getItems(seriesId, 0, 0)
+                        LibraryService.getNextUnplayedEpisode(seriesId)
                         if (seriesScreen) {
                             Qt.callLater(function() {
                                 if (seriesScreen && seriesScreen.forceActiveFocus) {
@@ -968,8 +970,12 @@ Window {
 
                 upNextScreen.recommendationSelected.connect(function(itemData) {
                     var recommendedSeriesId = itemData ? (itemData.Id || itemData.itemId || "") : ""
-                    if (!recommendedSeriesId || recommendedSeriesId.indexOf("seerr:") === 0) {
-                        console.warn("[Main] Up Next: Ignoring invalid Jellyfin recommendation selection")
+                    if (!recommendedSeriesId) {
+                        console.warn("[Main] Up Next: Ignoring recommendation with missing id")
+                        return
+                    }
+                    if (recommendedSeriesId.indexOf("seerr:") === 0) {
+                        console.warn("[Main] Up Next: Ignoring Seerr recommendation that bypassed dialog")
                         return
                     }
 
