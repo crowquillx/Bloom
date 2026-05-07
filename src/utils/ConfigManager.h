@@ -64,6 +64,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(int playbackVolume READ getPlaybackVolume WRITE setPlaybackVolume NOTIFY playbackVolumeChanged)
     Q_PROPERTY(bool playbackMuted READ getPlaybackMuted WRITE setPlaybackMuted NOTIFY playbackMutedChanged)
     Q_PROPERTY(bool autoplayNextEpisode READ getAutoplayNextEpisode WRITE setAutoplayNextEpisode NOTIFY autoplayNextEpisodeChanged)
+    Q_PROPERTY(bool mergeContinueWatchingWithNextUp READ getMergeContinueWatchingWithNextUp WRITE setMergeContinueWatchingWithNextUp NOTIFY mergeContinueWatchingWithNextUpChanged)
     Q_PROPERTY(int autoplayCountdownSeconds READ getAutoplayCountdownSeconds WRITE setAutoplayCountdownSeconds NOTIFY autoplayCountdownSecondsChanged)
     Q_PROPERTY(bool autoSkipIntro READ getAutoSkipIntro WRITE setAutoSkipIntro NOTIFY autoSkipIntroChanged)
     Q_PROPERTY(bool autoSkipOutro READ getAutoSkipOutro WRITE setAutoSkipOutro NOTIFY autoSkipOutroChanged)
@@ -196,6 +197,8 @@ public:
     
     void setAutoplayNextEpisode(bool enabled);
     bool getAutoplayNextEpisode() const;
+    void setMergeContinueWatchingWithNextUp(bool enabled);
+    bool getMergeContinueWatchingWithNextUp() const;
     void setAutoplayCountdownSeconds(int seconds);
     int getAutoplayCountdownSeconds() const;
     void setAutoSkipIntro(bool enabled);
@@ -411,6 +414,7 @@ signals:
     void playbackVolumeChanged();
     void playbackMutedChanged();
     void autoplayNextEpisodeChanged();
+    void mergeContinueWatchingWithNextUpChanged();
     void autoplayCountdownSecondsChanged();
     void autoSkipIntroChanged();
     void autoSkipOutroChanged();

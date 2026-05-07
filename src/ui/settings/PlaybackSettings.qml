@@ -123,10 +123,27 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
-                    KeyNavigation.down: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : thresholdSlider
+                    KeyNavigation.down: mergeHomeRowsSwitch
 
                     onToggled: function(value) {
                         ConfigManager.autoplayNextEpisode = value
+                    }
+                }
+
+                SettingsToggleRow {
+                    id: mergeHomeRowsSwitch
+                    label: qsTr("Merge Continue Watching with Next Up")
+                    description: qsTr("When enabled, in-progress episodes appear in the Next Up row instead of a separate Continue Watching section on Home")
+                    checked: ConfigManager.mergeContinueWatchingWithNextUp
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+
+                    KeyNavigation.up: autoplaySwitch
+                    KeyNavigation.down: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : thresholdSlider
+
+                    onToggled: function(value) {
+                        ConfigManager.mergeContinueWatchingWithNextUp = value
                     }
                 }
 

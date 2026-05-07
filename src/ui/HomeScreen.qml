@@ -13,6 +13,8 @@ FocusScope {
 
     property var librariesModel: []
     property var nextUpModel: []
+    property var continueWatchingModel: []
+    property var displayedNextUpModel: []
     property var recentlyAddedMap: ({}) // Map of libraryId -> items array
     // Home card sizing — dynamically fills row based on visible-items breakpoint
     property int homeCardWidth: Math.round((parent.width - Theme.paddingLarge * 2 - Theme.spacingMedium * (Theme.homeRowVisibleItems - 1)) / Theme.homeRowVisibleItems)
@@ -75,13 +77,16 @@ FocusScope {
     }
 
     function hydrateBackdropFallbackFromSections() {
-        for (var i = 0; i < nextUpModel.length; i++) {
-            addBackdropCandidate(nextUpModel[i])
+        for (var i = 0; i < continueWatchingModel.length; i++) {
+            addBackdropCandidate(continueWatchingModel[i])
+        }
+        for (var j = 0; j < displayedNextUpModel.length; j++) {
+            addBackdropCandidate(displayedNextUpModel[j])
         }
         for (var key in recentlyAddedMap) {
             var items = recentlyAddedMap[key] || []
-            for (var j = 0; j < items.length; j++) {
-                addBackdropCandidate(items[j])
+            for (var k = 0; k < items.length; k++) {
+                addBackdropCandidate(items[k])
             }
         }
         if (backdropCandidates.length > 0) {
@@ -160,6 +165,7 @@ FocusScope {
 
     // Breakpoint focus restoration state
     property int savedMyMediaIndex: -1
+    property int savedContinueWatchingIndex: -1
     property int savedNextUpIndex: -1
     property int savedRecentlyAddedIndex: -1
     property string savedRecentlyAddedLibraryId: ""
@@ -177,6 +183,7 @@ FocusScope {
         target: ResponsiveLayoutManager
         function onBreakpointChanged() {
             if (myMediaList.activeFocus) savedMyMediaIndex = myMediaList.currentIndex
+            if (continueWatchingList.activeFocus) savedContinueWatchingIndex = continueWatchingList.currentIndex
             if (nextUpList.activeFocus) savedNextUpIndex = nextUpList.currentIndex
             // Check if a recentlyAddedList has focus and save its state
             for (var i = 0; i < recentlyAddedRepeater.count; i++) {
@@ -196,6 +203,10 @@ FocusScope {
             myMediaList.currentIndex = savedMyMediaIndex
             myMediaList.positionViewAtIndex(savedMyMediaIndex, ListView.Contain)
             myMediaList.forceActiveFocus()
+        } else if (savedContinueWatchingIndex >= 0 && savedContinueWatchingIndex < continueWatchingList.count) {
+            continueWatchingList.currentIndex = savedContinueWatchingIndex
+            continueWatchingList.positionViewAtIndex(savedContinueWatchingIndex, ListView.Contain)
+            continueWatchingList.forceActiveFocus()
         } else if (savedNextUpIndex >= 0 && savedNextUpIndex < nextUpList.count) {
             nextUpList.currentIndex = savedNextUpIndex
             nextUpList.positionViewAtIndex(savedNextUpIndex, ListView.Contain)
@@ -216,6 +227,7 @@ FocusScope {
             }
         }
         savedMyMediaIndex = -1
+        savedContinueWatchingIndex = -1
         savedNextUpIndex = -1
         savedRecentlyAddedIndex = -1
         savedRecentlyAddedLibraryId = ""
@@ -230,6 +242,9 @@ FocusScope {
         if (myMediaList.activeFocus) {
             section = "myMedia"
             index = myMediaList.currentIndex
+        } else if (continueWatchingList.activeFocus) {
+            section = "continueWatching"
+            index = continueWatchingList.currentIndex
         } else if (nextUpList.activeFocus) {
             section = "nextUp"
             index = nextUpList.currentIndex
@@ -264,6 +279,9 @@ FocusScope {
         if (lastFocusedSection === "myMedia") {
             targetList = myMediaList
             targetSection = myMediaSection
+        } else if (lastFocusedSection === "continueWatching") {
+            targetList = continueWatchingList
+            targetSection = continueWatchingSection
         } else if (lastFocusedSection === "nextUp") {
             targetList = nextUpList
             targetSection = nextUpSection
@@ -705,7 +723,10 @@ FocusScope {
                         }
                     }
                     Keys.onDownPressed: {
-                        if (nextUpModel.length > 0) {
+                        if (continueWatchingModel.length > 0) {
+                            console.log("[FocusDebug] myMediaList Down -> continueWatchingList")
+                            continueWatchingList.forceActiveFocus()
+                        } else if (displayedNextUpModel.length > 0) {
                             console.log("[FocusDebug] myMediaList Down -> nextUpList")
                             nextUpList.forceActiveFocus()
                         } else if (recentlyAddedRepeater.count > 0) {
@@ -725,12 +746,46 @@ FocusScope {
                 }
             }
             
+            ColumnLayout {
+                id: continueWatchingSection
+                Layout.fillWidth: true
+                spacing: Theme.spacingMedium
+                visible: continueWatchingModel.length > 0 && !ConfigManager.mergeContinueWatchingWithNextUp
+
+                Text {
+                    text: "Continue Watching"
+                    font.pixelSize: Theme.fontSizeHeader
+                    font.family: Theme.fontPrimary
+                    font.bold: true
+                    color: Theme.textPrimary
+                    leftPadding: Theme.paddingLarge
+                }
+
+                ListView {
+                    id: continueWatchingList
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: homeCardHeight + Theme.spacingLarge * 2
+                    orientation: ListView.Horizontal
+                    spacing: Theme.spacingMedium
+                    leftMargin: Theme.paddingLarge
+                    rightMargin: Theme.paddingLarge
+                    model: continueWatchingModel
+                    delegate: nextUpList.delegate
+                    Keys.onUpPressed: myMediaList.forceActiveFocus()
+                    Keys.onDownPressed: {
+                        if (displayedNextUpModel.length > 0) nextUpList.forceActiveFocus()
+                    }
+                    onCurrentIndexChanged: root.ensureListItemVisible(continueWatchingList)
+                    onActiveFocusChanged: if (activeFocus) root.ensureSectionVisible(continueWatchingSection)
+                }
+            }
+
             // Next Up Section
             ColumnLayout {
                 id: nextUpSection
                 Layout.fillWidth: true
                 spacing: Theme.spacingMedium
-                visible: nextUpModel.length > 0
+                visible: displayedNextUpModel.length > 0
                 
                 Text {
                     text: "Next Up"
@@ -789,13 +844,13 @@ FocusScope {
                         NumberAnimation { properties: "x,y"; duration: Theme.uiAnimationsEnabled ? Theme.durationNormal : 0; easing.type: Easing.OutCubic }
                     }
                     
-                    model: nextUpModel
+                    model: displayedNextUpModel
                     
                     delegate: Item {
                         id: nextUpDelegate
                         width: homeCardWidth
                         height: homeCardHeight + 60
-                        property bool isFocused: nextUpList.currentIndex === index && nextUpList.activeFocus
+                        property bool isFocused: ListView.view.currentIndex === index && ListView.view.activeFocus
                         property bool isHovered: InputModeManager.pointerActive && nextUpMouseArea.containsMouse
                         scale: isFocused ? 1.02 : (isHovered ? 1.01 : 1.0)
                         z: isFocused ? 1 : 0
@@ -951,8 +1006,8 @@ FocusScope {
                             anchors.fill: parent
                             hoverEnabled: true
                             onClicked: {
-                                nextUpList.currentIndex = index
-                                nextUpList.forceActiveFocus()
+                                ListView.view.currentIndex = index
+                                ListView.view.forceActiveFocus()
                                 handleNextUpSelection(modelData)
                             }
                         }
@@ -963,17 +1018,18 @@ FocusScope {
                     }
                     
                     Keys.onReturnPressed: {
-                        if (currentIndex >= 0 && currentIndex < nextUpModel.length) {
-                            handleNextUpSelection(nextUpModel[currentIndex])
+                        if (currentIndex >= 0 && currentIndex < displayedNextUpModel.length) {
+                            handleNextUpSelection(displayedNextUpModel[currentIndex])
                         }
                     }
                     Keys.onEnterPressed: {
-                        if (currentIndex >= 0 && currentIndex < nextUpModel.length) {
-                            handleNextUpSelection(nextUpModel[currentIndex])
+                        if (currentIndex >= 0 && currentIndex < displayedNextUpModel.length) {
+                            handleNextUpSelection(displayedNextUpModel[currentIndex])
                         }
                     }
                     Keys.onUpPressed: {
-                        myMediaList.forceActiveFocus()
+                        if (continueWatchingSection.visible) continueWatchingList.forceActiveFocus()
+                        else myMediaList.forceActiveFocus()
                     }
                     Keys.onDownPressed: {
                         if (recentlyAddedRepeater.count > 0) {
@@ -1279,7 +1335,7 @@ FocusScope {
                             }
                             Keys.onUpPressed: {
                                 if (libraryIndex === 0) {
-                                    if (nextUpModel.length > 0) nextUpList.forceActiveFocus()
+                                    if (nextUpModel.length > 0) ListView.view.forceActiveFocus()
                                     else myMediaList.forceActiveFocus()
                                 } else {
                                     for (var i = libraryIndex - 1; i >= 0; i--) {
@@ -1539,6 +1595,16 @@ FocusScope {
         
         function onNextUpLoaded(items) {
             nextUpModel = items
+            var inProgress = []
+            var nextItems = []
+            for (var i = 0; i < items.length; i++) {
+                var episode = items[i]
+                var pos = episode && episode.UserData ? (episode.UserData.PlaybackPositionTicks || 0) : 0
+                if (pos > 0) inProgress.push(episode)
+                else nextItems.push(episode)
+            }
+            continueWatchingModel = inProgress
+            displayedNextUpModel = ConfigManager.mergeContinueWatchingWithNextUp ? items : nextItems
             
             // Use section fallback only if global pool is unavailable.
             if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
@@ -1549,7 +1615,7 @@ FocusScope {
             
             // Restore focus if we had focus in Next Up section AND we're still the active screen
             Qt.callLater(function() {
-                if (lastFocusedSection === "nextUp" && root.StackView.status === StackView.Active) {
+                if ((lastFocusedSection === "nextUp" || lastFocusedSection === "continueWatching") && root.StackView.status === StackView.Active) {
                     restoreFocusState()
                 }
             })

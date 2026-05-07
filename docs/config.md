@@ -34,6 +34,7 @@ Config API sample (high level)
 - `defaultAudioTrackSelection` and `defaultSubtitleTrackSelection` are Q_PROPERTY strings stored at `settings.playback.default_audio_track_selection` and `settings.playback.default_subtitle_track_selection`. Defaults are `jellyfin-default`. Valid values are `jellyfin-default`, `file-default`, supported language codes such as `eng`/`jpn`/`spa`, and subtitle-only `off` or `forced`.
 - `playbackVolume` and `playbackMuted` persist the last playback volume/mute state across app restarts (`settings.playback.playback_volume`, `settings.playback.playback_muted`).
 - `autoplayCountdownSeconds` drives the countdown shown before autoplay launches the next episode; the default is 10 seconds and disabling autoplay simply skips the timer.
+- `mergeContinueWatchingWithNextUp` controls Home row grouping (default false): when false, in-progress episodes render in a separate **Continue Watching** row above **Next Up**; when true they are merged back into **Next Up**.
 - `uiSoundsEnabled` / `uiSoundsVolume` keep the remote/keyboard navigation sounds available (default on at level 3) or let you mute them without touching the media volume slider.
 - `performanceModeEnabled` allows the player backend to trim VRAM more aggressively when true (default false).
 - `seerrBaseUrl` and `seerrApiKey` persist Seerr/Jellyseerr connection details (`settings.seerr.base_url`, `settings.seerr.api_key`).
