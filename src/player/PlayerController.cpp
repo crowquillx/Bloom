@@ -1640,9 +1640,22 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
     
     m_shouldAutoplay = false;
     m_waitingForNextEpisodeAtPlaybackEnd = false;
+
+    const int lastAudioIndex = m_pendingAutoplayAudioTrack;
+    const int lastSubtitleIndex = pendingAutoplaySubtitleOverrideIndex();
     
     if (episodeData.isEmpty()) {
         qDebug() << "PlayerController: No next episode available";
+        QJsonObject noNextEpisodeData;
+        noNextEpisodeData.insert(QStringLiteral("SeriesId"), seriesId);
+        noNextEpisodeData.insert(QStringLiteral("SeasonId"), m_pendingAutoplaySeasonId);
+        noNextEpisodeData.insert(QStringLiteral("NoNextEpisode"), true);
+        setAwaitingNextEpisodeResolution(false);
+        emitNavigateToNextEpisodeQueued(noNextEpisodeData,
+                                        seriesId,
+                                        lastAudioIndex,
+                                        lastSubtitleIndex,
+                                        false);
         clearPendingAutoplayContext();
         clearNextEpisodePrefetchState();
         return;
@@ -1669,8 +1682,6 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
     // Always emit navigateToNextEpisode to show the Up Next screen
     // The QML screen will handle autoplay countdown vs manual play
     bool autoplay = m_config->getAutoplayNextEpisode();
-    int lastAudioIndex = m_pendingAutoplayAudioTrack;
-    int lastSubtitleIndex = pendingAutoplaySubtitleOverrideIndex();
     
     qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with autoplay:" 
              << autoplay << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;

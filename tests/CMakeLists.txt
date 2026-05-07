@@ -37,7 +37,10 @@ add_executable(SeriesDetailsCacheTest
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
 )
 
-target_include_directories(SeriesDetailsCacheTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/src)
+target_include_directories(SeriesDetailsCacheTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
 
 target_link_libraries(SeriesDetailsCacheTest
     PRIVATE
@@ -117,7 +120,10 @@ add_executable(PlayerControllerAutoplayContextTest
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
 )
 
-target_include_directories(PlayerControllerAutoplayContextTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/src)
+target_include_directories(PlayerControllerAutoplayContextTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
 
 target_compile_definitions(PlayerControllerAutoplayContextTest PRIVATE BLOOM_TESTING=1)
 
@@ -206,7 +212,10 @@ add_executable(SimilarItemsRetryTest
     ${CMAKE_SOURCE_DIR}/src/test/TestModeController.cpp
 )
 
-target_include_directories(SimilarItemsRetryTest PRIVATE ${CMAKE_SOURCE_DIR}/src ${CMAKE_BINARY_DIR}/src)
+target_include_directories(SimilarItemsRetryTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
 
 target_link_libraries(SimilarItemsRetryTest
     PRIVATE
@@ -217,6 +226,33 @@ target_link_libraries(SimilarItemsRetryTest
 )
 
 add_test(NAME SimilarItemsRetryTest COMMAND SimilarItemsRetryTest)
+
+add_executable(UpNextRecommendationsViewModelTest
+    UpNextRecommendationsViewModelTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/UpNextRecommendationsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/ServiceLocator.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+)
+
+target_include_directories(UpNextRecommendationsViewModelTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(UpNextRecommendationsViewModelTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME UpNextRecommendationsViewModelTest COMMAND UpNextRecommendationsViewModelTest)
 
 add_executable(UpdateServiceTest
     UpdateServiceTest.cpp
@@ -327,6 +363,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/viewmodels/LibraryViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/MovieDetailsViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/UpNextRecommendationsViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
     # Test mode sources
     ${CMAKE_SOURCE_DIR}/src/test/TestModeController.cpp

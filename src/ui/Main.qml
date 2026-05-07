@@ -841,8 +841,12 @@ Window {
         target: PlayerController
         
         function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay) {
-            console.log("[Main] Up Next screen for:", 
-                        episodeData.SeriesName, "S" + episodeData.ParentIndexNumber + "E" + episodeData.IndexNumber,
+            var normalizedSeriesId = seriesId
+                || (episodeData ? (episodeData.SeriesId || episodeData.ParentId || "") : "")
+            var hasNextEpisode = episodeData && episodeData.Id && !episodeData.NoNextEpisode
+            console.log("[Main] Up Next screen for:",
+                        hasNextEpisode ? episodeData.SeriesName : "(no next episode)",
+                        hasNextEpisode ? ("S" + episodeData.ParentIndexNumber + "E" + episodeData.IndexNumber) : "",
                         "Autoplay:", autoplay)
             
             // Pop back to the root level (home screen) first
@@ -853,7 +857,7 @@ Window {
             // Push the Up Next interstitial screen
             var upNextScreen = stackView.push("UpNextScreen.qml", {
                 episodeData: episodeData,
-                seriesId: seriesId,
+                seriesId: normalizedSeriesId,
                 lastAudioIndex: lastAudioIndex,
                 lastSubtitleIndex: lastSubtitleIndex,
                 autoplay: autoplay
@@ -867,9 +871,13 @@ Window {
                 })
                 // Play the next episode
                 upNextScreen.playRequested.connect(function() {
+                    if (!hasNextEpisode) {
+                        console.warn("[Main] Up Next: Ignoring play request without a next episode")
+                        return
+                    }
                     console.log("[Main] Up Next: Play requested")
                     stackView.pop(null, StackView.Immediate)
-                    PlayerController.playNextEpisode(episodeData, seriesId)
+                    PlayerController.playNextEpisode(episodeData, normalizedSeriesId)
                 })
                 
                 // Navigate to the episode list (same as ESC)
@@ -877,6 +885,31 @@ Window {
                     console.log("[Main] Up Next: More episodes requested")
                     stackView.pop(null, StackView.Immediate)
                     PlayerController.clearPendingAutoplayContext()
+
+                    if (!hasNextEpisode) {
+                        var seasonId = episodeData ? (episodeData.SeasonId || episodeData.ParentId || "") : ""
+                        var seriesScreen = stackView.push("LibraryScreen.qml", {
+                            currentParentId: "",
+                            currentLibraryId: "",
+                            currentLibraryName: "",
+                            currentSeriesId: normalizedSeriesId,
+                            currentSeasonId: seasonId,
+                            showSeriesDetails: true,
+                            directNavigationMode: true,
+                            preferStackPopOnDirectBack: true
+                        }, StackView.Immediate)
+                        LibraryService.getSeriesDetails(normalizedSeriesId)
+                        LibraryService.getItems(normalizedSeriesId, 0, 0)
+                        LibraryService.getNextUnplayedEpisode(normalizedSeriesId)
+                        if (seriesScreen) {
+                            Qt.callLater(function() {
+                                if (seriesScreen && seriesScreen.forceActiveFocus) {
+                                    seriesScreen.forceActiveFocus()
+                                }
+                            })
+                        }
+                        return
+                    }
 
                     var targetEpisodeData = Object.assign({}, episodeData || {})
                     if (!targetEpisodeData.itemId && targetEpisodeData.Id) {
@@ -895,8 +928,8 @@ Window {
                         console.log("[Main] Up Next: Reusing existing LibraryScreen for episode navigation")
                         destinationScreen.pendingAudioTrackIndex = lastAudioIndex
                         destinationScreen.pendingSubtitleTrackIndex = lastSubtitleIndex
-                        if (seriesId) {
-                            destinationScreen.currentSeriesId = seriesId
+                        if (normalizedSeriesId) {
+                            destinationScreen.currentSeriesId = normalizedSeriesId
                         }
                         if (targetSeasonId) {
                             destinationScreen.currentSeasonId = targetSeasonId
@@ -913,7 +946,7 @@ Window {
                         currentParentId: "",
                         currentLibraryId: "",
                         currentLibraryName: "",
-                        currentSeriesId: seriesId,
+                        currentSeriesId: normalizedSeriesId,
                         currentSeasonId: targetSeasonId,
                         showSeasonView: true,
                         directNavigationMode: true,
@@ -922,7 +955,7 @@ Window {
                         pendingSubtitleTrackIndex: lastSubtitleIndex
                     })
 
-                    LibraryService.getSeriesDetails(seriesId)
+                    LibraryService.getSeriesDetails(normalizedSeriesId)
                     if (libraryScreen) {
                         libraryScreen.pendingEpisodeData = targetEpisodeData
                     } else {
@@ -935,6 +968,35 @@ Window {
                     console.log("[Main] Up Next: Back to home requested")
                     PlayerController.clearPendingAutoplayContext()
                     stackView.pop(null, StackView.Immediate)
+                })
+
+                upNextScreen.recommendationSelected.connect(function(itemData) {
+                    var recommendedSeriesId = itemData ? (itemData.Id || itemData.itemId || "") : ""
+                    if (!recommendedSeriesId) {
+                        console.warn("[Main] Up Next: Ignoring recommendation with missing id")
+                        return
+                    }
+                    if (recommendedSeriesId.indexOf("seerr:") === 0) {
+                        console.warn("[Main] Up Next: Ignoring Seerr recommendation that bypassed dialog")
+                        return
+                    }
+
+                    console.log("[Main] Up Next: Recommendation selected", recommendedSeriesId)
+                    PlayerController.clearPendingAutoplayContext()
+                    stackView.pop(null, StackView.Immediate)
+                    stackView.push("LibraryScreen.qml", {
+                        currentParentId: "",
+                        currentLibraryId: "",
+                        currentLibraryName: "",
+                        currentSeriesId: recommendedSeriesId,
+                        currentSeriesData: itemData,
+                        showSeriesDetails: true,
+                        directNavigationMode: true,
+                        preferStackPopOnDirectBack: true
+                    }, StackView.Immediate)
+                    LibraryService.getSeriesDetails(recommendedSeriesId)
+                    LibraryService.getItems(recommendedSeriesId, 0, 0)
+                    LibraryService.getNextUnplayedEpisode(recommendedSeriesId)
                 })
             } else {
                 console.warn("[Main] Failed to create Up Next screen, clearing pending autoplay context")

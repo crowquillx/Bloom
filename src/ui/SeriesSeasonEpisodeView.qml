@@ -493,13 +493,13 @@ FocusScope {
     Connections {
         target: PlayerController
         function onPlaybackStopped() {
-            if (PlayerController.awaitingNextEpisodeResolution) {
-                return
-            }
             if (SeriesDetailsViewModel.selectedSeasonId) {
                 playbackSelectionRestorePending = true
                 playbackAnchorEpisodeId = selectedEpisodeId
                 pendingPlaybackSelectionEpisodeId = ""
+                if (PlayerController.awaitingNextEpisodeResolution) {
+                    return
+                }
                 refreshEpisodesTimer.start()
             }
         }
@@ -2314,8 +2314,15 @@ FocusScope {
         }
 
         function onAwaitingNextEpisodeResolutionChanged() {
-            if (PlayerController.awaitingNextEpisodeResolution) {
-                root.resetPlaybackReturnFocusState()
+            if (!PlayerController.awaitingNextEpisodeResolution) {
+                if (root.playbackSelectionRestorePending && SeriesDetailsViewModel.selectedSeasonId) {
+                    refreshEpisodesTimer.start()
+                }
+                if (root.playbackReturnFocusPending
+                        && root.playbackReturnFocusActivated
+                        && !PlayerController.isPlaybackActive) {
+                    Qt.callLater(root.restoreFocusAfterPlaybackExit)
+                }
             }
         }
     }
