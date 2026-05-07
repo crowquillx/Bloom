@@ -841,6 +841,8 @@ Window {
         target: PlayerController
         
         function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay) {
+            var normalizedSeriesId = seriesId
+                || (episodeData ? (episodeData.SeriesId || episodeData.ParentId || "") : "")
             var hasNextEpisode = episodeData && episodeData.Id && !episodeData.NoNextEpisode
             console.log("[Main] Up Next screen for:",
                         hasNextEpisode ? episodeData.SeriesName : "(no next episode)",
@@ -855,7 +857,7 @@ Window {
             // Push the Up Next interstitial screen
             var upNextScreen = stackView.push("UpNextScreen.qml", {
                 episodeData: episodeData,
-                seriesId: seriesId,
+                seriesId: normalizedSeriesId,
                 lastAudioIndex: lastAudioIndex,
                 lastSubtitleIndex: lastSubtitleIndex,
                 autoplay: autoplay
@@ -875,7 +877,7 @@ Window {
                     }
                     console.log("[Main] Up Next: Play requested")
                     stackView.pop(null, StackView.Immediate)
-                    PlayerController.playNextEpisode(episodeData, seriesId)
+                    PlayerController.playNextEpisode(episodeData, normalizedSeriesId)
                 })
                 
                 // Navigate to the episode list (same as ESC)
@@ -890,15 +892,15 @@ Window {
                             currentParentId: "",
                             currentLibraryId: "",
                             currentLibraryName: "",
-                            currentSeriesId: seriesId,
+                            currentSeriesId: normalizedSeriesId,
                             currentSeasonId: seasonId,
                             showSeriesDetails: true,
                             directNavigationMode: true,
                             preferStackPopOnDirectBack: true
                         }, StackView.Immediate)
-                        LibraryService.getSeriesDetails(seriesId)
-                        LibraryService.getItems(seriesId, 0, 0)
-                        LibraryService.getNextUnplayedEpisode(seriesId)
+                        LibraryService.getSeriesDetails(normalizedSeriesId)
+                        LibraryService.getItems(normalizedSeriesId, 0, 0)
+                        LibraryService.getNextUnplayedEpisode(normalizedSeriesId)
                         if (seriesScreen) {
                             Qt.callLater(function() {
                                 if (seriesScreen && seriesScreen.forceActiveFocus) {
@@ -926,8 +928,8 @@ Window {
                         console.log("[Main] Up Next: Reusing existing LibraryScreen for episode navigation")
                         destinationScreen.pendingAudioTrackIndex = lastAudioIndex
                         destinationScreen.pendingSubtitleTrackIndex = lastSubtitleIndex
-                        if (seriesId) {
-                            destinationScreen.currentSeriesId = seriesId
+                        if (normalizedSeriesId) {
+                            destinationScreen.currentSeriesId = normalizedSeriesId
                         }
                         if (targetSeasonId) {
                             destinationScreen.currentSeasonId = targetSeasonId
@@ -944,7 +946,7 @@ Window {
                         currentParentId: "",
                         currentLibraryId: "",
                         currentLibraryName: "",
-                        currentSeriesId: seriesId,
+                        currentSeriesId: normalizedSeriesId,
                         currentSeasonId: targetSeasonId,
                         showSeasonView: true,
                         directNavigationMode: true,
@@ -953,7 +955,7 @@ Window {
                         pendingSubtitleTrackIndex: lastSubtitleIndex
                     })
 
-                    LibraryService.getSeriesDetails(seriesId)
+                    LibraryService.getSeriesDetails(normalizedSeriesId)
                     if (libraryScreen) {
                         libraryScreen.pendingEpisodeData = targetEpisodeData
                     } else {

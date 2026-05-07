@@ -105,7 +105,7 @@ QJsonArray UpNextRecommendationsViewModel::mergeRecommendations(const QJsonArray
 
     const auto appendSeries = [&merged, &seen, cappedLimit](const QJsonArray &items) {
         for (const QJsonValue &value : items) {
-            if (cappedLimit > 0 && merged.size() >= cappedLimit) {
+            if (merged.size() >= cappedLimit) {
                 return;
             }
 
@@ -384,8 +384,10 @@ void UpNextRecommendationsViewModel::onLibraryErrorOccurred(const QString &endpo
         return;
     }
 
+    const QRegularExpression seriesIdRegex(
+        QStringLiteral("/Items/%1(?:\\D|$)").arg(QRegularExpression::escape(m_seriesId)));
     const bool isSeriesDetailsError = endpoint == QStringLiteral("getSeriesDetails")
-        || endpoint.contains(QStringLiteral("/Items/%1").arg(m_seriesId));
+        || seriesIdRegex.match(endpoint).hasMatch();
     if (!isSeriesDetailsError) {
         return;
     }
