@@ -232,7 +232,7 @@ FocusScope {
 
                         Keys.onUpPressed: function(event) {
                             if (!popup.visible) {
-                                autoplaySwitch.forceActiveFocus()
+                                mergeHomeRowsSwitch.forceActiveFocus()
                                 event.accepted = true
                             }
                         }
@@ -357,7 +357,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
-                    KeyNavigation.up: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : autoplaySwitch
+                    KeyNavigation.up: autoplayCountdownCombo.enabled ? autoplayCountdownCombo : mergeHomeRowsSwitch
                     KeyNavigation.down: audioDelaySpinBox
 
                     onSliderValueChanged: function(newValue) {

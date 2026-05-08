@@ -179,6 +179,30 @@ FocusScope {
         }
     }
 
+    function focusFirstVisibleRecentlyAddedList() {
+        for (var i = 0; i < recentlyAddedRepeater.count; i++) {
+            var meta = getRecentlyAddedDelegateMeta(i)
+            if (meta.item && meta.item.visible && meta.recentlyAddedListRef) {
+                meta.recentlyAddedListRef.forceActiveFocus()
+                return true
+            }
+        }
+        return false
+    }
+
+    function updateDisplayedNextUpModel() {
+        var inProgress = []
+        var nextItems = []
+        for (var i = 0; i < nextUpModel.length; i++) {
+            var episode = nextUpModel[i]
+            var pos = episode && episode.UserData ? (episode.UserData.PlaybackPositionTicks || 0) : 0
+            if (pos > 0) inProgress.push(episode)
+            else nextItems.push(episode)
+        }
+        continueWatchingModel = inProgress
+        displayedNextUpModel = ConfigManager.mergeContinueWatchingWithNextUp ? nextUpModel : nextItems
+    }
+
     Connections {
         target: ResponsiveLayoutManager
         function onBreakpointChanged() {
@@ -723,21 +747,14 @@ FocusScope {
                         }
                     }
                     Keys.onDownPressed: {
-                        if (continueWatchingModel.length > 0) {
+                        if (continueWatchingSection.visible) {
                             console.log("[FocusDebug] myMediaList Down -> continueWatchingList")
                             continueWatchingList.forceActiveFocus()
                         } else if (displayedNextUpModel.length > 0) {
                             console.log("[FocusDebug] myMediaList Down -> nextUpList")
                             nextUpList.forceActiveFocus()
                         } else if (recentlyAddedRepeater.count > 0) {
-                            // Find first visible recently added list
-                            for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-                                var firstVisibleMeta = getRecentlyAddedDelegateMeta(i)
-                                if (firstVisibleMeta.item && firstVisibleMeta.item.visible && firstVisibleMeta.recentlyAddedListRef) {
-                                    firstVisibleMeta.recentlyAddedListRef.forceActiveFocus()
-                                    break
-                                }
-                            }
+                            focusFirstVisibleRecentlyAddedList()
                         }
                     }
 
@@ -774,6 +791,17 @@ FocusScope {
                     Keys.onUpPressed: myMediaList.forceActiveFocus()
                     Keys.onDownPressed: {
                         if (displayedNextUpModel.length > 0) nextUpList.forceActiveFocus()
+                        else focusFirstVisibleRecentlyAddedList()
+                    }
+                    Keys.onReturnPressed: {
+                        if (currentIndex >= 0 && currentIndex < continueWatchingModel.length) {
+                            handleNextUpSelection(continueWatchingModel[currentIndex])
+                        }
+                    }
+                    Keys.onEnterPressed: {
+                        if (currentIndex >= 0 && currentIndex < continueWatchingModel.length) {
+                            handleNextUpSelection(continueWatchingModel[currentIndex])
+                        }
                     }
                     onCurrentIndexChanged: root.ensureListItemVisible(continueWatchingList)
                     onActiveFocusChanged: if (activeFocus) root.ensureSectionVisible(continueWatchingSection)
@@ -1033,13 +1061,7 @@ FocusScope {
                     }
                     Keys.onDownPressed: {
                         if (recentlyAddedRepeater.count > 0) {
-                            for (var i = 0; i < recentlyAddedRepeater.count; i++) {
-                                var nextVisibleMeta = getRecentlyAddedDelegateMeta(i)
-                                if (nextVisibleMeta.item && nextVisibleMeta.item.visible && nextVisibleMeta.recentlyAddedListRef) {
-                                    nextVisibleMeta.recentlyAddedListRef.forceActiveFocus()
-                                    break
-                                }
-                            }
+                            focusFirstVisibleRecentlyAddedList()
                         }
                     }
 
@@ -1335,7 +1357,8 @@ FocusScope {
                             }
                             Keys.onUpPressed: {
                                 if (libraryIndex === 0) {
-                                    if (nextUpModel.length > 0) ListView.view.forceActiveFocus()
+                                    if (displayedNextUpModel.length > 0) nextUpList.forceActiveFocus()
+                                    else if (continueWatchingSection.visible) continueWatchingList.forceActiveFocus()
                                     else myMediaList.forceActiveFocus()
                                 } else {
                                     for (var i = libraryIndex - 1; i >= 0; i--) {
@@ -1595,16 +1618,7 @@ FocusScope {
         
         function onNextUpLoaded(items) {
             nextUpModel = items
-            var inProgress = []
-            var nextItems = []
-            for (var i = 0; i < items.length; i++) {
-                var episode = items[i]
-                var pos = episode && episode.UserData ? (episode.UserData.PlaybackPositionTicks || 0) : 0
-                if (pos > 0) inProgress.push(episode)
-                else nextItems.push(episode)
-            }
-            continueWatchingModel = inProgress
-            displayedNextUpModel = ConfigManager.mergeContinueWatchingWithNextUp ? items : nextItems
+            updateDisplayedNextUpModel()
             
             // Use section fallback only if global pool is unavailable.
             if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
@@ -1668,6 +1682,13 @@ FocusScope {
                 useSectionBackdropFallback = true
                 root.hydrateBackdropFallbackFromSections()
             }
+        }
+    }
+
+    Connections {
+        target: ConfigManager
+        function onMergeContinueWatchingWithNextUpChanged() {
+            updateDisplayedNextUpModel()
         }
     }
 
