@@ -29,6 +29,7 @@
 #include <QStringList>
 #include <QThread>
 #include <atomic>
+#include <algorithm>
 
 Q_LOGGING_CATEGORY(lcPlayback, "bloom.playback")
 Q_LOGGING_CATEGORY(lcPlaybackTrace, "bloom.playback.trace")
@@ -727,6 +728,7 @@ void PlayerController::enterIdleStateImmediate()
     m_mpvSubtitleTrack = -1;
     m_audioTrackMap.clear();
     m_subtitleTrackMap.clear();
+    m_externalSubtitleTrackMap.clear();
     m_audioTrackReverseMap.clear();
     m_subtitleTrackReverseMap.clear();
     m_mediaSourceId.clear();
@@ -3207,8 +3209,8 @@ void PlayerController::setSelectedSubtitleTrack(int index)
                         << "previousJellyfinIndex=" << previousSubtitleTrack;
 
     if (m_playbackState == Playing || m_playbackState == Paused) {
-        if (index >= 0) {
-            const int mpvTrackId = mpvSubtitleTrackForJellyfinIndex(index);
+        if (index >= 0 || m_externalSubtitleTrackMap.contains(index)) {
+            const int mpvTrackId = m_externalSubtitleTrackMap.value(index, mpvSubtitleTrackForJellyfinIndex(index));
             if (mpvTrackId > 0) {
                 m_mpvSubtitleTrack = mpvTrackId;
                 qCDebug(lcPlayback) << "Applying subtitle track switch via sid:" << mpvTrackId;
@@ -3223,11 +3225,56 @@ void PlayerController::setSelectedSubtitleTrack(int index)
         }
     }
 
-    persistSubtitlePreferenceForCurrentScope(index);
+    if (index >= 0) {
+        persistSubtitlePreferenceForCurrentScope(index);
+    }
     if (m_activePlaybackSegmentIndex >= 0 && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
         m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("subtitleIndex")] = index;
     }
     emit selectedSubtitleTrackChanged();
+}
+
+void PlayerController::addExternalSubtitleTrack(const QString &subtitleUrl,
+                                                const QString &displayTitle,
+                                                const QString &language)
+{
+    const QString normalizedSubtitleUrl = subtitleUrl.trimmed();
+    if (normalizedSubtitleUrl.isEmpty()) {
+        qCWarning(lcPlayback) << "Cannot add external subtitle: empty URL/path";
+        return;
+    }
+
+    if (!(m_playbackState == Loading || m_playbackState == Buffering
+          || m_playbackState == Playing || m_playbackState == Paused)) {
+        qCWarning(lcPlayback) << "Cannot add external subtitle outside active playback state";
+        return;
+    }
+
+    const int syntheticIndex = -1000 - m_externalSubtitleTrackMap.size();
+    QVariantMap option;
+    option[QStringLiteral("index")] = syntheticIndex;
+    option[QStringLiteral("displayTitle")] = displayTitle.trimmed().isEmpty()
+        ? QStringLiteral("External subtitle")
+        : displayTitle.trimmed();
+    option[QStringLiteral("language")] = language.trimmed();
+    option[QStringLiteral("codec")] = QString();
+    option[QStringLiteral("channels")] = 0;
+    option[QStringLiteral("channelLayout")] = QString();
+    option[QStringLiteral("isDefault")] = false;
+    option[QStringLiteral("isForced")] = false;
+    option[QStringLiteral("isHearingImpaired")] = false;
+    option[QStringLiteral("isExternal")] = true;
+    m_availableSubtitleTracks.append(option);
+    m_externalSubtitleTrackMap.insert(syntheticIndex, -1);
+    emit availableTracksChanged();
+
+    m_playerBackend->sendVariantCommand({
+        QStringLiteral("sub-add"),
+        normalizedSubtitleUrl,
+        QStringLiteral("select"),
+        option.value(QStringLiteral("displayTitle")).toString(),
+        language.trimmed()
+    });
 }
 
 void PlayerController::cycleAudioTrack()
@@ -3877,6 +3924,28 @@ void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
     }
 
     m_mpvSubtitleTrack = mpvTrackId;
+    if (mpvTrackId >= 0) {
+        auto externalTrackIt = std::find_if(m_externalSubtitleTrackMap.begin(),
+                                            m_externalSubtitleTrackMap.end(),
+                                            [mpvTrackId](int mappedTrackId) { return mappedTrackId == mpvTrackId; });
+        if (externalTrackIt == m_externalSubtitleTrackMap.end()) {
+            externalTrackIt = std::find_if(m_externalSubtitleTrackMap.begin(),
+                                           m_externalSubtitleTrackMap.end(),
+                                           [](int mappedTrackId) { return mappedTrackId < 0; });
+            if (externalTrackIt != m_externalSubtitleTrackMap.end()) {
+                externalTrackIt.value() = mpvTrackId;
+            }
+        }
+        if (externalTrackIt != m_externalSubtitleTrackMap.end()) {
+            const int externalIndex = externalTrackIt.key();
+            if (m_selectedSubtitleTrack != externalIndex) {
+                m_selectedSubtitleTrack = externalIndex;
+                emit selectedSubtitleTrackChanged();
+            }
+            m_pendingSubtitleTrackPersistenceFromBackend = false;
+            return;
+        }
+    }
     const int jellyfinIndex = mpvTrackId < 0 ? -1 : jellyfinSubtitleTrackForMpvTrack(mpvTrackId);
     if (mpvTrackId >= 0 && jellyfinIndex < 0) {
         m_pendingSubtitleTrackPersistenceFromBackend = false;

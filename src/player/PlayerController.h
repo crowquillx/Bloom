@@ -262,6 +262,9 @@ public:
     // Track selection methods - change tracks during playback via mpv
     Q_INVOKABLE void setSelectedAudioTrack(int index);
     Q_INVOKABLE void setSelectedSubtitleTrack(int index);
+    Q_INVOKABLE void addExternalSubtitleTrack(const QString &subtitleUrl,
+                                              const QString &displayTitle = QString(),
+                                              const QString &language = QString());
     Q_INVOKABLE void cycleAudioTrack();
     Q_INVOKABLE void cycleSubtitleTrack();
     Q_INVOKABLE void previousChapter();
@@ -763,6 +766,7 @@ private:
     int m_mpvSubtitleTrack = -1;        // mpv subtitle track number (1-based, -1 = disabled)
     QHash<int, int> m_audioTrackMap;    // Jellyfin stream index -> mpv aid track ID (1-based)
     QHash<int, int> m_subtitleTrackMap; // Jellyfin stream index -> mpv sid track ID (1-based)
+    QHash<int, int> m_externalSubtitleTrackMap; // Synthetic external index -> mpv sid track ID (1-based)
     QHash<int, int> m_audioTrackReverseMap;    // mpv aid track ID (1-based) -> Jellyfin stream index
     QHash<int, int> m_subtitleTrackReverseMap; // mpv sid track ID (1-based) -> Jellyfin stream index
     QString m_mediaSourceId;            // Current media source ID
