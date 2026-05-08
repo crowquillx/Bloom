@@ -768,6 +768,7 @@ private:
     QHash<int, int> m_audioTrackMap;    // Jellyfin stream index -> mpv aid track ID (1-based)
     QHash<int, int> m_subtitleTrackMap; // Jellyfin stream index -> mpv sid track ID (1-based)
     QHash<int, int> m_externalSubtitleTrackMap; // Synthetic external index -> mpv sid track ID (1-based)
+    int m_pendingExternalSubtitleIndex = -1;     // Synthetic index awaiting sid resolution from mpv
     QHash<int, int> m_audioTrackReverseMap;    // mpv aid track ID (1-based) -> Jellyfin stream index
     QHash<int, int> m_subtitleTrackReverseMap; // mpv sid track ID (1-based) -> Jellyfin stream index
     QString m_mediaSourceId;            // Current media source ID
