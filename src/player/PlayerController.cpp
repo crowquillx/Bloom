@@ -2771,8 +2771,10 @@ void PlayerController::playTestVideo()
         m_mpvSubtitleTrack = -1;
         m_audioTrackMap.clear();
         m_subtitleTrackMap.clear();
+        m_externalSubtitleTrackMap.clear();
         m_audioTrackReverseMap.clear();
         m_subtitleTrackReverseMap.clear();
+        m_pendingExternalSubtitleIndex = -1;
         m_mediaSourceId.clear();
         m_playSessionId.clear();
         m_availableAudioTracks.clear();
@@ -3254,8 +3256,7 @@ void PlayerController::addExternalSubtitleTrack(const QString &subtitleUrl,
         return;
     }
 
-    if (!(m_playbackState == Loading || m_playbackState == Buffering
-          || m_playbackState == Playing || m_playbackState == Paused)) {
+    if (!(m_playbackState == Playing || m_playbackState == Paused)) {
         qCWarning(lcPlayback) << "Cannot add external subtitle outside active playback state";
         return;
     }
@@ -3270,7 +3271,11 @@ void PlayerController::addExternalSubtitleTrack(const QString &subtitleUrl,
                                                           return trackVariant.toMap().value(QStringLiteral("index")).toInt() == syntheticIndex;
                                                       });
     if (trackIndexAlreadyPresent) {
-        qCDebug(lcPlayback) << "Skipping external subtitle option append; index already present:" << syntheticIndex;
+        if (m_externalSubtitleTrackMap.value(syntheticIndex, -2) != -1) {
+            qCDebug(lcPlayback) << "Skipping external subtitle; index already present and resolved:" << syntheticIndex;
+            return;
+        }
+        qCDebug(lcPlayback) << "Retrying external subtitle sub-add for unresolved index:" << syntheticIndex;
     }
     QVariantMap option;
     option[QStringLiteral("index")] = syntheticIndex;
@@ -3289,15 +3294,16 @@ void PlayerController::addExternalSubtitleTrack(const QString &subtitleUrl,
         m_availableSubtitleTracks.append(option);
         emit availableTracksChanged();
         m_externalSubtitleTrackMap.insert(syntheticIndex, -1);
-
-        m_playerBackend->sendVariantCommand({
-            QStringLiteral("sub-add"),
-            normalizedSubtitleUrl,
-            QStringLiteral("select"),
-            option.value(QStringLiteral("displayTitle")).toString(),
-            language.trimmed()
-        });
     }
+    m_pendingExternalSubtitleIndex = syntheticIndex;
+
+    m_playerBackend->sendVariantCommand({
+        QStringLiteral("sub-add"),
+        normalizedSubtitleUrl,
+        QStringLiteral("select"),
+        option.value(QStringLiteral("displayTitle")).toString(),
+        language.trimmed()
+    });
 }
 
 void PlayerController::cycleAudioTrack()
@@ -3952,10 +3958,16 @@ void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
                                             m_externalSubtitleTrackMap.end(),
                                             [mpvTrackId](int mappedTrackId) { return mappedTrackId == mpvTrackId; });
         if (externalTrackIt == m_externalSubtitleTrackMap.end()) {
-            auto selectedIt = m_externalSubtitleTrackMap.find(m_selectedSubtitleTrack);
-            if (selectedIt != m_externalSubtitleTrackMap.end() && selectedIt.value() < 0) {
-                selectedIt.value() = mpvTrackId;
-                externalTrackIt = selectedIt;
+            auto pendingIt = m_externalSubtitleTrackMap.find(m_pendingExternalSubtitleIndex);
+            if (pendingIt != m_externalSubtitleTrackMap.end() && pendingIt.value() < 0) {
+                pendingIt.value() = mpvTrackId;
+                externalTrackIt = pendingIt;
+            } else {
+                auto selectedIt = m_externalSubtitleTrackMap.find(m_selectedSubtitleTrack);
+                if (selectedIt != m_externalSubtitleTrackMap.end() && selectedIt.value() < 0) {
+                    selectedIt.value() = mpvTrackId;
+                    externalTrackIt = selectedIt;
+                }
             }
         }
         if (externalTrackIt != m_externalSubtitleTrackMap.end()) {
