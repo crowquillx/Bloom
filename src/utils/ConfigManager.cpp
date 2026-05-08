@@ -1025,6 +1025,39 @@ bool ConfigManager::getAutoplayNextEpisode() const
     return true; // Default to enabled
 }
 
+void ConfigManager::setMergeContinueWatchingWithNextUp(bool enabled)
+{
+    if (enabled == getMergeContinueWatchingWithNextUp()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["merge_continue_watching_with_next_up"] = enabled;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit mergeContinueWatchingWithNextUpChanged();
+}
+
+bool ConfigManager::getMergeContinueWatchingWithNextUp() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("merge_continue_watching_with_next_up")) {
+                return playback["merge_continue_watching_with_next_up"].toBool();
+            }
+        }
+    }
+    return false; // Default to separated sections
+}
+
 /**
  * @brief Set the autoplay countdown duration used before automatically playing the next episode.
  *
