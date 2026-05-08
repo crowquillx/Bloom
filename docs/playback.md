@@ -102,8 +102,8 @@ Audio/Subtitle Track Selection
 - Built-in subtitle fallback uses Jellyfin `defaultSubtitleStreamIndex`, then file-level `isDefault`, then forced subtitles, then subtitles off.
 - Global subtitle `Forced` chooses the first forced subtitle track; when no forced track exists, subtitles stay off (`global-forced-off`) rather than falling through to Jellyfin/file defaults (which could enable full dialogue subtitles).
 - Global language fallbacks match normalized common language aliases (for example `en`/`eng`, `fr`/`fre`/`fra`, `zh`/`chi`/`zho`). Audio prefers matching default streams, then stream order. Subtitles prefer matching default streams, then regular subtitles, then forced, then SDH/hearing-impaired, then stream order.
-- Runtime external subtitles can be injected with `PlayerController::addExternalSubtitleTrack(subtitleUrl, displayTitle, language)`, which issues mpv `sub-add` and appends a synthetic subtitle option for selection/state sync.
-- External subtitle entries use synthetic negative track indices (separate from Jellyfin stream indexes), so they are selectable in-session but intentionally not persisted as season/movie Jellyfin preferences.
+- Runtime external subtitles can be injected with `PlayerController::addExternalSubtitleTrack(subtitleUrl, displayTitle, language, jellyfinStreamIndexHint)`, which issues mpv `sub-add` and appends/selects a subtitle option for state sync.
+- If the subtitle is known to Jellyfin (for example a freshly downloaded subtitle now exposed by `PlaybackInfo`), pass its real stream index via `jellyfinStreamIndexHint` so Bloom tracks it with the canonical Jellyfin index. If not known to Jellyfin yet, Bloom uses a temporary synthetic negative index for in-session selection only.
 - Canonical track mapping contract:
   - UI and reporting state use Jellyfin `MediaStream.index`.
   - Runtime mpv switching uses mapped mpv track IDs (1-based per media type order).

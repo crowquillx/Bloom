@@ -264,7 +264,8 @@ public:
     Q_INVOKABLE void setSelectedSubtitleTrack(int index);
     Q_INVOKABLE void addExternalSubtitleTrack(const QString &subtitleUrl,
                                               const QString &displayTitle = QString(),
-                                              const QString &language = QString());
+                                              const QString &language = QString(),
+                                              int jellyfinStreamIndexHint = -1);
     Q_INVOKABLE void cycleAudioTrack();
     Q_INVOKABLE void cycleSubtitleTrack();
     Q_INVOKABLE void previousChapter();

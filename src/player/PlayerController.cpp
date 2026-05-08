@@ -3236,7 +3236,8 @@ void PlayerController::setSelectedSubtitleTrack(int index)
 
 void PlayerController::addExternalSubtitleTrack(const QString &subtitleUrl,
                                                 const QString &displayTitle,
-                                                const QString &language)
+                                                const QString &language,
+                                                int jellyfinStreamIndexHint)
 {
     const QString normalizedSubtitleUrl = subtitleUrl.trimmed();
     if (normalizedSubtitleUrl.isEmpty()) {
@@ -3250,7 +3251,18 @@ void PlayerController::addExternalSubtitleTrack(const QString &subtitleUrl,
         return;
     }
 
-    const int syntheticIndex = -1000 - m_externalSubtitleTrackMap.size();
+    int syntheticIndex = -1000 - m_externalSubtitleTrackMap.size();
+    if (jellyfinStreamIndexHint >= 0) {
+        syntheticIndex = jellyfinStreamIndexHint;
+    }
+    const bool trackIndexAlreadyPresent = std::any_of(m_availableSubtitleTracks.cbegin(),
+                                                      m_availableSubtitleTracks.cend(),
+                                                      [syntheticIndex](const QVariant &trackVariant) {
+                                                          return trackVariant.toMap().value(QStringLiteral("index")).toInt() == syntheticIndex;
+                                                      });
+    if (trackIndexAlreadyPresent) {
+        qCDebug(lcPlayback) << "Skipping external subtitle option append; index already present:" << syntheticIndex;
+    }
     QVariantMap option;
     option[QStringLiteral("index")] = syntheticIndex;
     option[QStringLiteral("displayTitle")] = displayTitle.trimmed().isEmpty()
@@ -3264,9 +3276,11 @@ void PlayerController::addExternalSubtitleTrack(const QString &subtitleUrl,
     option[QStringLiteral("isForced")] = false;
     option[QStringLiteral("isHearingImpaired")] = false;
     option[QStringLiteral("isExternal")] = true;
-    m_availableSubtitleTracks.append(option);
+    if (!trackIndexAlreadyPresent) {
+        m_availableSubtitleTracks.append(option);
+        emit availableTracksChanged();
+    }
     m_externalSubtitleTrackMap.insert(syntheticIndex, -1);
-    emit availableTracksChanged();
 
     m_playerBackend->sendVariantCommand({
         QStringLiteral("sub-add"),
