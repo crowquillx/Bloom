@@ -1,5 +1,5 @@
 {
-    "version": 14,
+    "version": 19,
     "settings": {
         "mpv": {
             "path": "mpv",
@@ -81,6 +81,15 @@
         "seerr": {
             "base_url": "",
             "api_key": ""
+        },
+        "media_segments": {
+            "external_providers_enabled": true,
+            "provider_order": [
+                "theintrodb",
+                "introdb"
+            ],
+            "theintrodb_api_key": "",
+            "introdb_api_key": ""
         }
     }
 }

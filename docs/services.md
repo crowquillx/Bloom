@@ -13,6 +13,7 @@ Key services
 - `AuthenticationService` — Login, logout, session persistence, token validation; owns shared `QNetworkAccessManager`.
 - `LibraryService` — Library views/items, series details, search, image/theme-song URLs.
 - `PlaybackService` — Playback reporting, stream info, media segments, trickplay URLs and info.
+- `MediaSegmentProviderService` — Fetches and normalizes external intro/recap/credits/preview markers from configured providers; used by `PlaybackService` after server segment lookup.
 - `SeerrService` — Seerr/Jellyseerr search integration, request-option loading, request submission, and similar-title provider endpoints.
 - `PlayerController` — Orchestrates playback using `IPlayerBackend` and services; owns `TrickplayProcessor`.
 - `TrickplayProcessor` — Uses `AuthenticationService` (network) + `PlaybackService` (tile URLs) to build trickplay binaries.
@@ -25,18 +26,19 @@ Initialization order (recommended)
 2. IPlayerBackend — created by `PlayerBackendFactory` (`win-libmpv` on Windows; platform-selected backend elsewhere).
 3. AuthenticationService — handles session management; provides shared `QNetworkAccessManager`.
 4. LibraryService — depends on AuthenticationService.
-5. PlaybackService — depends on AuthenticationService.
-6. SeerrService — depends on AuthenticationService + ConfigManager.
-7. TrackPreferencesManager — no service dependencies; loads versioned track preference state.
-8. PlayerController — depends on IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, PlaybackService, LibraryService, AuthenticationService.
-9. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService.
-10. ThemeSongManager — depends on LibraryService, ConfigManager, PlayerController.
-11. InputModeManager — depends on QGuiApplication.
-12. ViewModels — e.g., LibraryViewModel, SeriesDetailsViewModel (depend on LibraryService).
-13. SidebarSettings — UI preference persistence for the shell/sidebar state.
-14. UiSoundController — depends on ConfigManager for UI sound settings.
-15. SessionManager — shared session reporting/coordination service.
-16. UpdateService — depends on ConfigManager and PlayerController, and owns the current update provider/applier wiring.
+5. MediaSegmentProviderService — depends on AuthenticationService + ConfigManager.
+6. PlaybackService — depends on AuthenticationService + ConfigManager + MediaSegmentProviderService.
+7. SeerrService — depends on AuthenticationService + ConfigManager.
+8. TrackPreferencesManager — no service dependencies; loads versioned track preference state.
+9. PlayerController — depends on IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, PlaybackService, LibraryService, AuthenticationService.
+10. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService.
+11. ThemeSongManager — depends on LibraryService, ConfigManager, PlayerController.
+12. InputModeManager — depends on QGuiApplication.
+13. ViewModels — e.g., LibraryViewModel, SeriesDetailsViewModel (depend on LibraryService).
+14. SidebarSettings — UI preference persistence for the shell/sidebar state.
+15. UiSoundController — depends on ConfigManager for UI sound settings.
+16. SessionManager — shared session reporting/coordination service.
+17. UpdateService — depends on ConfigManager and PlayerController, and owns the current update provider/applier wiring.
 
 Usage
 - Register services at main startup using `ServiceLocator::registerService<T>(&instance);`.

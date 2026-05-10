@@ -1480,6 +1480,108 @@ QString ConfigManager::getSeerrApiKey() const
     return QString();
 }
 
+void ConfigManager::setExternalSegmentProvidersEnabled(bool enabled)
+{
+    if (enabled == getExternalSegmentProvidersEnabled()) return;
+
+    QJsonObject settings = m_config.value("settings").toObject();
+    QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    mediaSegments["external_providers_enabled"] = enabled;
+    settings["media_segments"] = mediaSegments;
+    m_config["settings"] = settings;
+    save();
+    emit externalSegmentProvidersEnabledChanged();
+}
+
+bool ConfigManager::getExternalSegmentProvidersEnabled() const
+{
+    const QJsonObject settings = m_config.value("settings").toObject();
+    const QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    if (mediaSegments.contains("external_providers_enabled")) {
+        return mediaSegments.value("external_providers_enabled").toBool(true);
+    }
+    return true;
+}
+
+void ConfigManager::setTheIntroDbApiKey(const QString &key)
+{
+    const QString normalized = key.trimmed();
+    if (normalized == getTheIntroDbApiKey()) return;
+
+    QJsonObject settings = m_config.value("settings").toObject();
+    QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    mediaSegments["theintrodb_api_key"] = normalized;
+    settings["media_segments"] = mediaSegments;
+    m_config["settings"] = settings;
+    save();
+    emit theIntroDbApiKeyChanged();
+}
+
+QString ConfigManager::getTheIntroDbApiKey() const
+{
+    const QJsonObject settings = m_config.value("settings").toObject();
+    const QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    return mediaSegments.value("theintrodb_api_key").toString();
+}
+
+void ConfigManager::setIntroDbApiKey(const QString &key)
+{
+    const QString normalized = key.trimmed();
+    if (normalized == getIntroDbApiKey()) return;
+
+    QJsonObject settings = m_config.value("settings").toObject();
+    QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    mediaSegments["introdb_api_key"] = normalized;
+    settings["media_segments"] = mediaSegments;
+    m_config["settings"] = settings;
+    save();
+    emit introDbApiKeyChanged();
+}
+
+QString ConfigManager::getIntroDbApiKey() const
+{
+    const QJsonObject settings = m_config.value("settings").toObject();
+    const QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    return mediaSegments.value("introdb_api_key").toString();
+}
+
+void ConfigManager::setMediaSegmentProviderOrder(const QStringList &order)
+{
+    if (order == getMediaSegmentProviderOrder()) return;
+
+    QJsonArray array;
+    for (const QString &provider : order) {
+        const QString normalized = provider.trimmed().toLower();
+        if (!normalized.isEmpty()) {
+            array.append(normalized);
+        }
+    }
+
+    QJsonObject settings = m_config.value("settings").toObject();
+    QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    mediaSegments["provider_order"] = array;
+    settings["media_segments"] = mediaSegments;
+    m_config["settings"] = settings;
+    save();
+    emit mediaSegmentProviderOrderChanged();
+}
+
+QStringList ConfigManager::getMediaSegmentProviderOrder() const
+{
+    const QJsonObject settings = m_config.value("settings").toObject();
+    const QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    const QJsonArray order = mediaSegments.value("provider_order").toArray();
+    QStringList providers;
+    for (const QJsonValue &value : order) {
+        const QString provider = value.toString().trimmed().toLower();
+        if (!provider.isEmpty()) providers.append(provider);
+    }
+    if (providers.isEmpty()) {
+        return {QStringLiteral("theintrodb"), QStringLiteral("introdb")};
+    }
+    return providers;
+}
+
 void ConfigManager::setManualDpiScaleOverride(qreal scale)
 {
     // Clamp to reasonable range (0.5 to 2.0)
@@ -2447,6 +2549,34 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV18ToV19(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 19;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject mediaSegments = settings.value("media_segments").toObject();
+        if (!mediaSegments.contains("external_providers_enabled")) {
+            mediaSegments["external_providers_enabled"] = true;
+        }
+        if (!mediaSegments.contains("provider_order")) {
+            mediaSegments["provider_order"] = QJsonArray{
+                QStringLiteral("theintrodb"),
+                QStringLiteral("introdb")
+            };
+        }
+        if (!mediaSegments.contains("theintrodb_api_key")) {
+            mediaSegments["theintrodb_api_key"] = QString();
+        }
+        if (!mediaSegments.contains("introdb_api_key")) {
+            mediaSegments["introdb_api_key"] = QString();
+        }
+
+        settings["media_segments"] = mediaSegments;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -2611,6 +2741,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 18) {
+            m_config = ConfigMigrator::migrateV18ToV19(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -2711,6 +2849,16 @@ QJsonObject ConfigManager::defaultConfig() const
     seerr["base_url"] = "";
     seerr["api_key"] = "";
     settings["seerr"] = seerr;
+
+    QJsonObject mediaSegments;
+    mediaSegments["external_providers_enabled"] = true;
+    mediaSegments["provider_order"] = QJsonArray{
+        QStringLiteral("theintrodb"),
+        QStringLiteral("introdb")
+    };
+    mediaSegments["theintrodb_api_key"] = QString();
+    mediaSegments["introdb_api_key"] = QString();
+    settings["media_segments"] = mediaSegments;
 
     QJsonObject updates;
     updates["channel"] = QStringLiteral("stable");

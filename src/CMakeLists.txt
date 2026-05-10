@@ -34,6 +34,8 @@ qt_add_executable(Bloom
     network/NextEpisodeResolver.cpp
     network/PlaybackService.h
     network/PlaybackService.cpp
+    network/MediaSegmentProviderService.h
+    network/MediaSegmentProviderService.cpp
     network/SeerrService.h
     network/SeerrService.cpp
     network/Types.h
