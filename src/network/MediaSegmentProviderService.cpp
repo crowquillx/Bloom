@@ -32,6 +32,63 @@ bool isSupportedFillType(MediaSegmentType type)
     return kSupportedFillTypes.contains(type);
 }
 
+double parseClockOrNumberSeconds(const QString &raw, bool *ok)
+{
+    const QString value = raw.trimmed();
+    if (value.isEmpty()) {
+        *ok = false;
+        return 0.0;
+    }
+
+    const QStringList parts = value.split(QLatin1Char(':'));
+    if (parts.size() == 2 || parts.size() == 3) {
+        double totalSeconds = 0.0;
+        for (const QString &part : parts) {
+            bool partOk = false;
+            const double parsed = part.toDouble(&partOk);
+            if (!partOk || parsed < 0.0) {
+                *ok = false;
+                return 0.0;
+            }
+            totalSeconds = (totalSeconds * 60.0) + parsed;
+        }
+        *ok = true;
+        return totalSeconds;
+    }
+
+    bool numberOk = false;
+    const double seconds = value.toDouble(&numberOk);
+    *ok = numberOk;
+    return numberOk ? seconds : 0.0;
+}
+
+double secondsFromValue(const QJsonValue &value, bool milliseconds, bool *ok)
+{
+    if (value.isNull() || value.isUndefined()) {
+        *ok = false;
+        return 0.0;
+    }
+
+    if (value.isDouble()) {
+        *ok = true;
+        const double parsed = value.toDouble();
+        return milliseconds ? parsed / 1000.0 : parsed;
+    }
+
+    if (value.isString()) {
+        bool stringOk = false;
+        const double parsed = parseClockOrNumberSeconds(value.toString(), &stringOk);
+        *ok = stringOk;
+        if (!stringOk) return 0.0;
+        return milliseconds && !value.toString().contains(QLatin1Char(':'))
+            ? parsed / 1000.0
+            : parsed;
+    }
+
+    *ok = false;
+    return 0.0;
+}
+
 QString normalizeProviderId(const QString &providerId)
 {
     return providerId.trimmed().toLower().remove(QLatin1Char('-')).remove(QLatin1Char('_'));
@@ -39,20 +96,14 @@ QString normalizeProviderId(const QString &providerId)
 
 double secondsFromMillisecondsValue(const QJsonValue &value, bool *ok)
 {
-    if (value.isNull() || value.isUndefined()) {
-        *ok = false;
-        return 0.0;
-    }
-    *ok = true;
-    return value.toDouble() / 1000.0;
+    return secondsFromValue(value, true, ok);
 }
 
 double secondsFromProviderObject(const QJsonObject &segment, const QString &secondsKey,
                                  const QString &millisecondsKey, bool *ok)
 {
     if (segment.contains(secondsKey) && !segment.value(secondsKey).isNull()) {
-        *ok = true;
-        return segment.value(secondsKey).toDouble();
+        return secondsFromValue(segment.value(secondsKey), false, ok);
     }
     return secondsFromMillisecondsValue(segment.value(millisecondsKey), ok);
 }

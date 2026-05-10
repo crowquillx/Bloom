@@ -13,6 +13,8 @@ private slots:
     void handlesNullStartAndDurationEnd();
     void dropsOpenEndedSegmentsWithoutDuration();
     void parsesIntroDbSegments();
+    void parsesIntroDbClockStringSegments();
+    void dropsIntroDbInvalidStringSegments();
     void mergeKeepsServerSegmentAndFillsMissingType();
     void emptyProviderIdsProduceNoSegments();
 };
@@ -140,6 +142,37 @@ void MediaSegmentProviderServiceTest::parsesIntroDbSegments()
     QCOMPARE(segments.at(0).source, QStringLiteral("introdb"));
     QCOMPARE(segments.at(0).startSeconds(), 5.5);
     QCOMPARE(segments.at(0).submissionCount, 8);
+}
+
+void MediaSegmentProviderServiceTest::parsesIntroDbClockStringSegments()
+{
+    const MediaSegmentLookupContext context = episodeContext();
+    const QJsonObject payload{
+        {QStringLiteral("intro"), QJsonObject{
+            {QStringLiteral("start_sec"), QStringLiteral("1:05")},
+            {QStringLiteral("end_sec"), QStringLiteral("0:02:15")}
+        }}
+    };
+
+    const QList<MediaSegmentInfo> segments = MediaSegmentProviderService::parseIntroDbSegments(payload, context);
+    QCOMPARE(segments.size(), 1);
+    QCOMPARE(segments.first().type, MediaSegmentType::Intro);
+    QCOMPARE(segments.first().startSeconds(), 65.0);
+    QCOMPARE(segments.first().endSeconds(), 135.0);
+}
+
+void MediaSegmentProviderServiceTest::dropsIntroDbInvalidStringSegments()
+{
+    const MediaSegmentLookupContext context = episodeContext();
+    const QJsonObject payload{
+        {QStringLiteral("intro"), QJsonObject{
+            {QStringLiteral("start_sec"), QStringLiteral("not-a-time")},
+            {QStringLiteral("end_sec"), QStringLiteral("1:00")}
+        }}
+    };
+
+    const QList<MediaSegmentInfo> segments = MediaSegmentProviderService::parseIntroDbSegments(payload, context);
+    QVERIFY(segments.isEmpty());
 }
 
 void MediaSegmentProviderServiceTest::mergeKeepsServerSegmentAndFillsMissingType()

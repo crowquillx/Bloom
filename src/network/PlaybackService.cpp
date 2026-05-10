@@ -93,9 +93,10 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
     }
     
     int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    
+
     if (httpStatus == 401) {
         qCWarning(playbackService) << "Session expired (401) for endpoint:" << endpoint;
+        m_authService->checkForSessionExpiry(reply, true);
         if (failureHandler) failureHandler();
         return;
     }
