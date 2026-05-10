@@ -1,0 +1,22 @@
+{
+  "build_id": "0.6.5",
+  "channel": "stable",
+  "installer": {
+    "filename": "Bloom-Setup-0.6.5.exe",
+    "sha256": "1b1d1949a77889006d333bd0aa2b94d2c07de91938bd23212285e5bb71cc45b4",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.5/Bloom-Setup-0.6.5.exe"
+  },
+  "notes": "## What's Changed in v0.6.5\n\n### New Features\n\n- add media segment providers in app and support on server (#53)\n- extend skip popup duration setting\n- **playback**: runtime external subtitle injection (PlayerController::addExternalSubtitleTrack) (#52)\n- **home**: split Continue Watching from Next Up with merge setting (#51)\n- **playback**: add global track language defaults (#48)\n- add buffered cache progress indicator to playback overlay\n\n### Bug Fixes\n\n- **playback**: handle missing next episode (#50)\n- **tests**: add missing include paths + docs: Cursor Cloud setup instructions (#49)\n- **network**: use BLOOM_VERSION in Jellyfin auth header instead of hardcoded 1.0.0\n- **ui, config**: ensure spinbox value is committed on destruction and trace cache size\n\n**Full changelog:** [v0.6.4...v0.6.5](https://github.com/crowquillx/Bloom/compare/v0.6.4...v0.6.5)",
+  "portable": {
+    "filename": "Bloom-Windows.zip",
+    "sha256": "6d0bd68cee6b8b9b0381f3cb63d6be73074a0fb573c0d0db1e0ff9ae1388390a",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.5/Bloom-Windows.zip"
+  },
+  "published_at": "2026-05-10T04:55:57.1211116Z",
+  "release_tag": "v0.6.5",
+  "rollout": {
+    "enabled": true,
+    "minimum_supported_version": "0.6.5"
+  },
+  "version": "0.6.5"
+}
