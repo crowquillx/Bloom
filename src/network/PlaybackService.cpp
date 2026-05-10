@@ -306,6 +306,10 @@ void PlaybackService::maybeLoadExternalMediaSegments(const QString &itemId, cons
         return;
     }
 
+    if (!serverSegments.isEmpty()) {
+        finishMediaSegments(itemId, serverSegments);
+    }
+
     loadMediaSegmentLookupContext(itemId, serverSegments);
 }
 
@@ -342,9 +346,9 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
             if (!needsSeriesProviderIds) {
                 QPointer<PlaybackService> self(this);
                 m_mediaSegmentProviderService->fetchExternalSegments(context, serverSegments,
-                    [self, itemId](const QList<MediaSegmentInfo> &segments) {
+                    [self, itemId, serverSegments](const QList<MediaSegmentInfo> &segments) {
                         if (!self) return;
-                        self->finishMediaSegments(itemId, segments);
+                        self->finishExternalMediaSegments(itemId, serverSegments, segments);
                     });
                 return;
             }
@@ -365,9 +369,9 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
 
                     QPointer<PlaybackService> self(this);
                     m_mediaSegmentProviderService->fetchExternalSegments(context, serverSegments,
-                        [self, itemId](const QList<MediaSegmentInfo> &segments) {
+                        [self, itemId, serverSegments](const QList<MediaSegmentInfo> &segments) {
                             if (!self) return;
-                            self->finishMediaSegments(itemId, segments);
+                            self->finishExternalMediaSegments(itemId, serverSegments, segments);
                         });
                 },
                 [this, context, serverSegments, itemId]() mutable {
@@ -375,15 +379,26 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
                                              << "- external segment lookup may be incomplete";
                     QPointer<PlaybackService> self(this);
                     m_mediaSegmentProviderService->fetchExternalSegments(context, serverSegments,
-                        [self, itemId](const QList<MediaSegmentInfo> &segments) {
+                        [self, itemId, serverSegments](const QList<MediaSegmentInfo> &segments) {
                             if (!self) return;
-                            self->finishMediaSegments(itemId, segments);
+                            self->finishExternalMediaSegments(itemId, serverSegments, segments);
                         });
                 });
         },
         [this, itemId, serverSegments]() {
-            finishMediaSegments(itemId, serverSegments);
+            if (serverSegments.isEmpty()) {
+                finishMediaSegments(itemId, serverSegments);
+            }
         });
+}
+
+void PlaybackService::finishExternalMediaSegments(const QString &itemId,
+                                                  const QList<MediaSegmentInfo> &serverSegments,
+                                                  const QList<MediaSegmentInfo> &mergedSegments)
+{
+    if (mergedSegments.size() > serverSegments.size() || serverSegments.isEmpty()) {
+        finishMediaSegments(itemId, mergedSegments);
+    }
 }
 
 void PlaybackService::finishMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &segments)

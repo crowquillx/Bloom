@@ -131,5 +131,8 @@ private:
     QList<MediaSegmentInfo> parseIntroSkipperSegments(const QString &itemId, const QJsonObject &obj) const;
     void maybeLoadExternalMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &serverSegments);
     void loadMediaSegmentLookupContext(const QString &itemId, const QList<MediaSegmentInfo> &serverSegments);
+    void finishExternalMediaSegments(const QString &itemId,
+                                     const QList<MediaSegmentInfo> &serverSegments,
+                                     const QList<MediaSegmentInfo> &mergedSegments);
     void finishMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &segments);
 };
