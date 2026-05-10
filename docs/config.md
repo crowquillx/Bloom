@@ -38,7 +38,7 @@ Config API sample (high level)
 - `uiSoundsEnabled` / `uiSoundsVolume` keep the remote/keyboard navigation sounds available (default on at level 3) or let you mute them without touching the media volume slider.
 - `performanceModeEnabled` allows the player backend to trim VRAM more aggressively when true (default false).
 - `seerrBaseUrl` and `seerrApiKey` persist Seerr/Jellyseerr connection details (`settings.seerr.base_url`, `settings.seerr.api_key`).
-- `externalSegmentProvidersEnabled`, `theIntroDbApiKey`, `introDbApiKey`, and `mediaSegmentProviderOrder` persist external intro/recap/credits provider settings under `settings.media_segments`. Defaults: enabled, provider order `["theintrodb", "introdb"]`, empty API keys.
+- `externalSegmentProvidersEnabled` and `mediaSegmentProviderOrder` persist external intro/recap/credits provider settings under `settings.media_segments`. Defaults: enabled, provider order `["theintrodb", "introdb"]`. External provider reads are anonymous.
 
 MPV profile management
 - `settings.mpv_profiles` contains the base set of profiles (`Default`, `High Quality`, plus any user-created profiles) and their structured options (hwdec, interpolation, extra args).

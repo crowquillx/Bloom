@@ -87,9 +87,7 @@
             "provider_order": [
                 "theintrodb",
                 "introdb"
-            ],
-            "theintrodb_api_key": "",
-            "introdb_api_key": ""
+            ]
         }
     }
 }

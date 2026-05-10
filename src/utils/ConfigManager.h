@@ -118,8 +118,6 @@ class ConfigManager : public QObject
 
     // Media Segment Providers
     Q_PROPERTY(bool externalSegmentProvidersEnabled READ getExternalSegmentProvidersEnabled WRITE setExternalSegmentProvidersEnabled NOTIFY externalSegmentProvidersEnabledChanged)
-    Q_PROPERTY(QString theIntroDbApiKey READ getTheIntroDbApiKey WRITE setTheIntroDbApiKey NOTIFY theIntroDbApiKeyChanged)
-    Q_PROPERTY(QString introDbApiKey READ getIntroDbApiKey WRITE setIntroDbApiKey NOTIFY introDbApiKeyChanged)
     Q_PROPERTY(QStringList mediaSegmentProviderOrder READ getMediaSegmentProviderOrder WRITE setMediaSegmentProviderOrder NOTIFY mediaSegmentProviderOrderChanged)
     
     // Manual DPI Scale Override
@@ -389,10 +387,6 @@ public:
     // Media Segment Providers
     void setExternalSegmentProvidersEnabled(bool enabled);
     bool getExternalSegmentProvidersEnabled() const;
-    void setTheIntroDbApiKey(const QString &key);
-    QString getTheIntroDbApiKey() const;
-    void setIntroDbApiKey(const QString &key);
-    QString getIntroDbApiKey() const;
     void setMediaSegmentProviderOrder(const QStringList &order);
     QStringList getMediaSegmentProviderOrder() const;
     
@@ -458,8 +452,6 @@ signals:
     void seerrBaseUrlChanged();
     void seerrApiKeyChanged();
     void externalSegmentProvidersEnabledChanged();
-    void theIntroDbApiKeyChanged();
-    void introDbApiKeyChanged();
     void mediaSegmentProviderOrderChanged();
     void manualDpiScaleOverrideChanged();
     void uiAnimationsEnabledChanged();

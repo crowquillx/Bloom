@@ -1503,48 +1503,6 @@ bool ConfigManager::getExternalSegmentProvidersEnabled() const
     return true;
 }
 
-void ConfigManager::setTheIntroDbApiKey(const QString &key)
-{
-    const QString normalized = key.trimmed();
-    if (normalized == getTheIntroDbApiKey()) return;
-
-    QJsonObject settings = m_config.value("settings").toObject();
-    QJsonObject mediaSegments = settings.value("media_segments").toObject();
-    mediaSegments["theintrodb_api_key"] = normalized;
-    settings["media_segments"] = mediaSegments;
-    m_config["settings"] = settings;
-    save();
-    emit theIntroDbApiKeyChanged();
-}
-
-QString ConfigManager::getTheIntroDbApiKey() const
-{
-    const QJsonObject settings = m_config.value("settings").toObject();
-    const QJsonObject mediaSegments = settings.value("media_segments").toObject();
-    return mediaSegments.value("theintrodb_api_key").toString();
-}
-
-void ConfigManager::setIntroDbApiKey(const QString &key)
-{
-    const QString normalized = key.trimmed();
-    if (normalized == getIntroDbApiKey()) return;
-
-    QJsonObject settings = m_config.value("settings").toObject();
-    QJsonObject mediaSegments = settings.value("media_segments").toObject();
-    mediaSegments["introdb_api_key"] = normalized;
-    settings["media_segments"] = mediaSegments;
-    m_config["settings"] = settings;
-    save();
-    emit introDbApiKeyChanged();
-}
-
-QString ConfigManager::getIntroDbApiKey() const
-{
-    const QJsonObject settings = m_config.value("settings").toObject();
-    const QJsonObject mediaSegments = settings.value("media_segments").toObject();
-    return mediaSegments.value("introdb_api_key").toString();
-}
-
 void ConfigManager::setMediaSegmentProviderOrder(const QStringList &order)
 {
     QStringList normalizedProviders;
@@ -2570,12 +2528,6 @@ public:
                 QStringLiteral("introdb")
             };
         }
-        if (!mediaSegments.contains("theintrodb_api_key")) {
-            mediaSegments["theintrodb_api_key"] = QString();
-        }
-        if (!mediaSegments.contains("introdb_api_key")) {
-            mediaSegments["introdb_api_key"] = QString();
-        }
 
         settings["media_segments"] = mediaSegments;
         newConfig["settings"] = settings;
@@ -2860,8 +2812,6 @@ QJsonObject ConfigManager::defaultConfig() const
         QStringLiteral("theintrodb"),
         QStringLiteral("introdb")
     };
-    mediaSegments["theintrodb_api_key"] = QString();
-    mediaSegments["introdb_api_key"] = QString();
     settings["media_segments"] = mediaSegments;
 
     QJsonObject updates;

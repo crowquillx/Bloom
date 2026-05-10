@@ -171,13 +171,6 @@ void MediaSegmentProviderService::fetchTheIntroDbSegments(const MediaSegmentLook
         return;
     }
 
-    const QString apiKey = m_configManager ? m_configManager->getTheIntroDbApiKey().trimmed() : QString();
-    if (apiKey.isEmpty()) {
-        qCDebug(mediaSegmentProviders) << "Skipping TheIntroDB media segments: API key is not configured";
-        callback(result);
-        return;
-    }
-
     QUrl url(QStringLiteral("https://api.theintrodb.org/v2/media"));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("tmdb_id"), context.tmdbId.trimmed());
@@ -190,7 +183,6 @@ void MediaSegmentProviderService::fetchTheIntroDbSegments(const MediaSegmentLook
 
     QNetworkRequest request(url);
     request.setTransferTimeout(kProviderTransferTimeoutMs);
-    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey).toUtf8());
 
     QNetworkReply *reply = m_authService->networkManager()->get(request);
     connect(reply, &QNetworkReply::finished, this, [reply, context, callback, result]() mutable {
@@ -230,10 +222,6 @@ void MediaSegmentProviderService::fetchIntroDbSegments(const MediaSegmentLookupC
 
     QNetworkRequest request(url);
     request.setTransferTimeout(kProviderTransferTimeoutMs);
-    const QString apiKey = m_configManager ? m_configManager->getIntroDbApiKey().trimmed() : QString();
-    if (!apiKey.isEmpty()) {
-        request.setRawHeader("X-API-Key", apiKey.toUtf8());
-    }
 
     QNetworkReply *reply = m_authService->networkManager()->get(request);
     connect(reply, &QNetworkReply::finished, this, [reply, context, callback, result]() mutable {

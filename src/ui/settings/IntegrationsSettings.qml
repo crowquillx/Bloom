@@ -184,34 +184,8 @@ FocusScope {
                     checked: ConfigManager.externalSegmentProvidersEnabled
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     KeyNavigation.up: seerrApiKeyInput.input
-                    KeyNavigation.down: theIntroDbApiKeyInput.input
+                    KeyNavigation.down: null
                     onToggled: function(value) { ConfigManager.externalSegmentProvidersEnabled = value }
-                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
-                }
-
-                SettingsTextInputRow {
-                    id: theIntroDbApiKeyInput
-                    label: qsTr("TheIntroDB API Key")
-                    placeholderText: qsTr("API Key")
-                    echoMode: TextInput.Password
-                    text: ConfigManager.theIntroDbApiKey
-                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
-                    keyUpTarget: externalSegmentsToggle
-                    keyDownTarget: introDbApiKeyInput.input
-                    onEditingFinished: ConfigManager.theIntroDbApiKey = text
-                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
-                }
-
-                SettingsTextInputRow {
-                    id: introDbApiKeyInput
-                    label: qsTr("IntroDB API Key")
-                    placeholderText: qsTr("Optional")
-                    echoMode: TextInput.Password
-                    text: ConfigManager.introDbApiKey
-                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
-                    keyUpTarget: theIntroDbApiKeyInput.input
-                    keyDownTarget: null
-                    onEditingFinished: ConfigManager.introDbApiKey = text
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
                 }
             }
