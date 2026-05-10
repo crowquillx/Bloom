@@ -1,22 +1,22 @@
 {
-  "build_id": "20260510045255-7e19088",
+  "build_id": "20260510045559-6774b65",
   "channel": "dev",
   "installer": {
     "filename": "Bloom-Setup-dev.exe",
-    "sha256": "9a6eadcb1c7c73f0746546ec7d7a9577396b32dca0dacb8bfe8a1e150c2b1115",
+    "sha256": "165e9bd03505feb8e8152252b793b45e97bd59752fb7367c8665894925462228",
     "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-dev.exe"
   },
-  "notes": "Latest development build from main branch.\n\n## Windows\nPortable ZIP (`Bloom-Windows.zip`)\nSHA256: `5c7005e0ce5bbe2640072e3afaec4184ad690138588687a98d625ae2450a2ea4`\n\nInstaller (`Bloom-Setup-dev.exe`)\nSHA256: `9a6eadcb1c7c73f0746546ec7d7a9577396b32dca0dacb8bfe8a1e150c2b1115`\n\n## Linux\nDebian package (`bloom_dev_amd64.deb`)\nSHA256: `0777b3a11ac407def510d038c38b22499b9df524dfa4233dbb4e6a68559d724e`\n\nTarball (`Bloom-Linux.tar.gz`)\nSHA256: `5557b923b97b3c1c2d4bad84198e54bc5af55be19fb93a07756732cd545821cc`",
+  "notes": "Latest development build from main branch.\n\n## Windows\nPortable ZIP (`Bloom-Windows.zip`)\nSHA256: `749c2f8c0ac4bef064a431020e537b8ecaa6a4f710f5588dccd08d16a306667d`\n\nInstaller (`Bloom-Setup-dev.exe`)\nSHA256: `165e9bd03505feb8e8152252b793b45e97bd59752fb7367c8665894925462228`\n\n## Linux\nDebian package (`bloom_dev_amd64.deb`)\nSHA256: `ff281049b03ac3c5a8b0d98585578a77972d784f2d06ed07b4e5a3899b58d972`\n\nTarball (`Bloom-Linux.tar.gz`)\nSHA256: `a6b99901c59b78f9f41d6ebfe1d644db1ae1addab0e3e58a1e79fd7a8c24f91f`",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "5c7005e0ce5bbe2640072e3afaec4184ad690138588687a98d625ae2450a2ea4",
+    "sha256": "749c2f8c0ac4bef064a431020e537b8ecaa6a4f710f5588dccd08d16a306667d",
     "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
   },
-  "published_at": "2026-05-10T04:53:14Z",
+  "published_at": "2026-05-10T04:56:22Z",
   "release_tag": "dev-latest",
   "rollout": {
     "enabled": true,
-    "minimum_supported_version": "0.6.4"
+    "minimum_supported_version": "0.6.5"
   },
-  "version": "0.6.4"
+  "version": "0.6.5"
 }
