@@ -18,13 +18,18 @@ Q_LOGGING_CATEGORY(mediaSegmentProviders, "bloom.mediaSegments")
 
 namespace {
 constexpr double kTicksPerSecond = 10000000.0;
+constexpr int kProviderTransferTimeoutMs = 30000;
+
+const QSet<MediaSegmentType> kSupportedFillTypes = {
+    MediaSegmentType::Intro,
+    MediaSegmentType::Outro,
+    MediaSegmentType::Recap,
+    MediaSegmentType::Preview
+};
 
 bool isSupportedFillType(MediaSegmentType type)
 {
-    return type == MediaSegmentType::Intro
-        || type == MediaSegmentType::Outro
-        || type == MediaSegmentType::Recap
-        || type == MediaSegmentType::Preview;
+    return kSupportedFillTypes.contains(type);
 }
 
 QString normalizeProviderId(const QString &providerId)
@@ -133,6 +138,7 @@ void MediaSegmentProviderService::fetchTheIntroDbSegments(const MediaSegmentLook
     url.setQuery(query);
 
     QNetworkRequest request(url);
+    request.setTransferTimeout(kProviderTransferTimeoutMs);
     request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey).toUtf8());
 
     QNetworkReply *reply = m_authService->networkManager()->get(request);
@@ -171,7 +177,14 @@ void MediaSegmentProviderService::fetchIntroDbSegments(const MediaSegmentLookupC
     query.addQueryItem(QStringLiteral("episode"), QString::number(context.episodeNumber));
     url.setQuery(query);
 
-    QNetworkReply *reply = m_authService->networkManager()->get(QNetworkRequest(url));
+    QNetworkRequest request(url);
+    request.setTransferTimeout(kProviderTransferTimeoutMs);
+    const QString apiKey = m_configManager ? m_configManager->getIntroDbApiKey().trimmed() : QString();
+    if (!apiKey.isEmpty()) {
+        request.setRawHeader("X-API-Key", apiKey.toUtf8());
+    }
+
+    QNetworkReply *reply = m_authService->networkManager()->get(request);
     connect(reply, &QNetworkReply::finished, this, [reply, context, callback, result]() mutable {
         reply->deleteLater();
         result.networkOk = reply->error() == QNetworkReply::NoError;
@@ -216,6 +229,7 @@ QList<MediaSegmentInfo> MediaSegmentProviderService::parseTheIntroDbSegments(con
             bool hasEnd = false;
             double startSeconds = secondsFromMillisecondsValue(segment.value(QStringLiteral("start_ms")), &hasStart);
             double endSeconds = secondsFromMillisecondsValue(segment.value(QStringLiteral("end_ms")), &hasEnd);
+            if (!hasStart && !hasEnd) continue;
             if (!hasStart) startSeconds = 0.0;
             if (!hasEnd && durationSeconds > 0.0) endSeconds = durationSeconds;
             if (!hasEnd && durationSeconds <= 0.0) continue;
@@ -283,7 +297,7 @@ bool MediaSegmentProviderService::hasMissingSupportedSegmentTypes(const QList<Me
     for (const MediaSegmentInfo &segment : segments) {
         if (isSupportedFillType(segment.type)) presentTypes.insert(segment.type);
     }
-    return presentTypes.size() < 4;
+    return presentTypes.size() < kSupportedFillTypes.size();
 }
 
 MediaSegmentInfo MediaSegmentProviderService::buildSegment(const MediaSegmentLookupContext &context,

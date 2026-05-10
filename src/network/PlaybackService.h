@@ -112,16 +112,19 @@ private:
     // Retry mechanism types  
     using ResponseHandler = std::function<void(QNetworkReply*)>;
     using RequestFactory = std::function<QNetworkReply*()>;
+    using FailureHandler = std::function<void()>;
     
     void sendRequestWithRetry(const QString &endpoint,
                                RequestFactory requestFactory,
                                ResponseHandler responseHandler,
+                               FailureHandler failureHandler = FailureHandler(),
                                int attemptNumber = 0);
     
     void handleReplyWithRetry(QNetworkReply *reply,
                                const QString &endpoint,
                                RequestFactory requestFactory,
                                ResponseHandler responseHandler,
+                               FailureHandler failureHandler,
                                int attemptNumber);
     
     void emitError(const NetworkError &error);

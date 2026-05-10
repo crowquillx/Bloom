@@ -1547,14 +1547,18 @@ QString ConfigManager::getIntroDbApiKey() const
 
 void ConfigManager::setMediaSegmentProviderOrder(const QStringList &order)
 {
-    if (order == getMediaSegmentProviderOrder()) return;
-
-    QJsonArray array;
+    QStringList normalizedProviders;
     for (const QString &provider : order) {
         const QString normalized = provider.trimmed().toLower();
         if (!normalized.isEmpty()) {
-            array.append(normalized);
+            normalizedProviders.append(normalized);
         }
+    }
+    if (normalizedProviders == getMediaSegmentProviderOrder()) return;
+
+    QJsonArray array;
+    for (const QString &provider : normalizedProviders) {
+        array.append(provider);
     }
 
     QJsonObject settings = m_config.value("settings").toObject();

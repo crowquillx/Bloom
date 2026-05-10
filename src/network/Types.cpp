@@ -303,6 +303,13 @@ MediaSegmentInfo MediaSegmentInfo::fromJson(const QJsonObject &json)
     info.itemId = json["ItemId"].toString();
     info.startTicks = static_cast<qint64>(json["StartTicks"].toDouble());
     info.endTicks = static_cast<qint64>(json["EndTicks"].toDouble());
+    info.source = json.value("Source").toString(json.value("source").toString());
+    info.confidence = json.value("Confidence").toDouble(json.value("confidence").toDouble());
+    if (json.contains("SubmissionCount")) {
+        info.submissionCount = json.value("SubmissionCount").toInt();
+    } else {
+        info.submissionCount = json.value("submission_count").toInt();
+    }
     
     QString typeStr = json["Type"].toString();
     info.typeString = typeStr;

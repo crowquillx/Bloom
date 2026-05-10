@@ -56,43 +56,63 @@ void MediaSegmentProviderServiceTest::parsesTheIntroDbV2Arrays()
 
     const QList<MediaSegmentInfo> segments = MediaSegmentProviderService::parseTheIntroDbSegments(payload, context);
     QCOMPARE(segments.size(), 4);
-    QCOMPARE(segments.at(0).type, MediaSegmentType::Intro);
-    QCOMPARE(segments.at(1).type, MediaSegmentType::Recap);
-    QCOMPARE(segments.at(2).type, MediaSegmentType::Outro);
-    QCOMPARE(segments.at(3).type, MediaSegmentType::Preview);
-    QCOMPARE(segments.at(0).source, QStringLiteral("theintrodb"));
-    QCOMPARE(segments.at(0).startSeconds(), 30.0);
-    QCOMPARE(segments.at(0).endSeconds(), 90.0);
+
+    const auto findSegment = [&segments](MediaSegmentType type) -> MediaSegmentInfo {
+        for (const MediaSegmentInfo &segment : segments) {
+            if (segment.type == type) return segment;
+        }
+        return {};
+    };
+
+    const MediaSegmentInfo intro = findSegment(MediaSegmentType::Intro);
+    const MediaSegmentInfo recap = findSegment(MediaSegmentType::Recap);
+    const MediaSegmentInfo outro = findSegment(MediaSegmentType::Outro);
+    const MediaSegmentInfo preview = findSegment(MediaSegmentType::Preview);
+    QCOMPARE(intro.type, MediaSegmentType::Intro);
+    QCOMPARE(recap.type, MediaSegmentType::Recap);
+    QCOMPARE(outro.type, MediaSegmentType::Outro);
+    QCOMPARE(preview.type, MediaSegmentType::Preview);
+    QCOMPARE(intro.source, QStringLiteral("theintrodb"));
+    QCOMPARE(intro.startSeconds(), 30.0);
+    QCOMPARE(intro.endSeconds(), 90.0);
 }
 
 void MediaSegmentProviderServiceTest::handlesNullStartAndDurationEnd()
 {
     const MediaSegmentLookupContext context = episodeContext();
     const QJsonObject payload{
-        {QStringLiteral("credits"), QJsonArray{QJsonObject{
+        {QStringLiteral("recap"), QJsonArray{QJsonObject{
             {QStringLiteral("start_ms"), QJsonValue::Null},
+            {QStringLiteral("end_ms"), 10000}
+        }}},
+        {QStringLiteral("credits"), QJsonArray{QJsonObject{
+            {QStringLiteral("start_ms"), 3300000},
             {QStringLiteral("end_ms"), QJsonValue::Null}
         }}}
     };
 
     const QList<MediaSegmentInfo> segments = MediaSegmentProviderService::parseTheIntroDbSegments(payload, context);
-    QCOMPARE(segments.size(), 1);
-    QCOMPARE(segments.first().type, MediaSegmentType::Outro);
-    QCOMPARE(segments.first().startSeconds(), 0.0);
-    QCOMPARE(segments.first().endSeconds(), 3600.0);
+    QCOMPARE(segments.size(), 2);
+    QCOMPARE(segments.at(0).type, MediaSegmentType::Recap);
+    QCOMPARE(segments.at(0).startSeconds(), 0.0);
+    QCOMPARE(segments.at(0).endSeconds(), 10.0);
+    QCOMPARE(segments.at(1).type, MediaSegmentType::Outro);
+    QCOMPARE(segments.at(1).startSeconds(), 3300.0);
+    QCOMPARE(segments.at(1).endSeconds(), 3600.0);
 }
 
 void MediaSegmentProviderServiceTest::dropsOpenEndedSegmentsWithoutDuration()
 {
     MediaSegmentLookupContext context = episodeContext();
-    context.durationTicks = 0;
     const QJsonObject payload{
+        {QStringLiteral("intro"), QJsonArray{QJsonObject{}}},
         {QStringLiteral("credits"), QJsonArray{QJsonObject{
             {QStringLiteral("start_ms"), 1000},
             {QStringLiteral("end_ms"), QJsonValue::Null}
         }}}
     };
 
+    context.durationTicks = 0;
     const QList<MediaSegmentInfo> segments = MediaSegmentProviderService::parseTheIntroDbSegments(payload, context);
     QVERIFY(segments.isEmpty());
 }
