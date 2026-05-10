@@ -13,6 +13,7 @@
 #include "network/AuthenticationService.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
+#include "network/MediaSegmentProviderService.h"
 #include "network/SeerrService.h"
 #include "utils/InputModeManager.h"
 #include "viewmodels/LibraryViewModel.h"
@@ -164,7 +165,11 @@ void ApplicationInitializer::registerServices()
         ServiceLocator::registerService<LibraryService>(m_mockLibraryService.get());
         
         // 3.2 PlaybackService - Still use real service but with mock auth
-        m_playbackService = std::make_unique<PlaybackService>(m_mockAuthService.get());
+        m_mediaSegmentProviderService = std::make_unique<MediaSegmentProviderService>(m_mockAuthService.get(), m_configManager.get());
+        ServiceLocator::registerService<MediaSegmentProviderService>(m_mediaSegmentProviderService.get());
+        m_playbackService = std::make_unique<PlaybackService>(m_mockAuthService.get(),
+                                                              m_configManager.get(),
+                                                              m_mediaSegmentProviderService.get());
         ServiceLocator::registerService<PlaybackService>(m_playbackService.get());
         
         // 3.3 SeerrService - Third-party search/request integration
@@ -205,7 +210,11 @@ void ApplicationInitializer::registerServices()
         ServiceLocator::registerService<LibraryService>(m_libraryService.get());
         
         // 3.2 PlaybackService - Depends on AuthenticationService
-        m_playbackService = std::make_unique<PlaybackService>(m_authService.get());
+        m_mediaSegmentProviderService = std::make_unique<MediaSegmentProviderService>(m_authService.get(), m_configManager.get());
+        ServiceLocator::registerService<MediaSegmentProviderService>(m_mediaSegmentProviderService.get());
+        m_playbackService = std::make_unique<PlaybackService>(m_authService.get(),
+                                                              m_configManager.get(),
+                                                              m_mediaSegmentProviderService.get());
         ServiceLocator::registerService<PlaybackService>(m_playbackService.get());
         
         // 3.3 SeerrService - Depends on AuthenticationService + ConfigManager

@@ -7,6 +7,8 @@
 #include "Types.h"  // For data structs (PlaybackInfoResponse, MediaSegmentInfo, TrickplayTileInfo, etc.)
 
 class AuthenticationService;
+class ConfigManager;
+class MediaSegmentProviderService;
 
 /**
  * @brief Handles playback reporting and playback-related metadata.
@@ -25,7 +27,10 @@ class PlaybackService : public QObject
     Q_OBJECT
 
 public:
-    explicit PlaybackService(AuthenticationService *authService, QObject *parent = nullptr);
+    explicit PlaybackService(AuthenticationService *authService,
+                             ConfigManager *configManager = nullptr,
+                             MediaSegmentProviderService *mediaSegmentProviderService = nullptr,
+                             QObject *parent = nullptr);
     
     // Playback Info - Get media streams and track information
     Q_INVOKABLE void getPlaybackInfo(const QString &itemId);
@@ -100,22 +105,34 @@ signals:
 
 private:
     AuthenticationService *m_authService;
+    ConfigManager *m_configManager = nullptr;
+    MediaSegmentProviderService *m_mediaSegmentProviderService = nullptr;
     RetryPolicy m_retryPolicy;
     
     // Retry mechanism types  
     using ResponseHandler = std::function<void(QNetworkReply*)>;
     using RequestFactory = std::function<QNetworkReply*()>;
+    using FailureHandler = std::function<void()>;
     
     void sendRequestWithRetry(const QString &endpoint,
                                RequestFactory requestFactory,
                                ResponseHandler responseHandler,
+                               FailureHandler failureHandler = FailureHandler(),
                                int attemptNumber = 0);
     
     void handleReplyWithRetry(QNetworkReply *reply,
                                const QString &endpoint,
                                RequestFactory requestFactory,
                                ResponseHandler responseHandler,
+                               FailureHandler failureHandler,
                                int attemptNumber);
     
     void emitError(const NetworkError &error);
+    QList<MediaSegmentInfo> parseIntroSkipperSegments(const QString &itemId, const QJsonObject &obj) const;
+    void maybeLoadExternalMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &serverSegments);
+    void loadMediaSegmentLookupContext(const QString &itemId, const QList<MediaSegmentInfo> &serverSegments);
+    void finishExternalMediaSegments(const QString &itemId,
+                                     const QList<MediaSegmentInfo> &serverSegments,
+                                     const QList<MediaSegmentInfo> &mergedSegments);
+    void finishMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &segments);
 };

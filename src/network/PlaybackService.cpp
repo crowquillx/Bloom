@@ -1,9 +1,14 @@
 #include "PlaybackService.h"
 #include "AuthenticationService.h"
+#include "MediaSegmentProviderService.h"
+#include "../utils/ConfigManager.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QPointer>
 #include <QTimer>
+#include <QUrl>
+#include <QUrlQuery>
 #include <QLoggingCategory>
 #include <cmath>
 
@@ -40,9 +45,14 @@ QJsonObject buildPlaybackPayload(const QString &itemId, qint64 positionTicks,
 }
 }
 
-PlaybackService::PlaybackService(AuthenticationService *authService, QObject *parent)
+PlaybackService::PlaybackService(AuthenticationService *authService,
+                                 ConfigManager *configManager,
+                                 MediaSegmentProviderService *mediaSegmentProviderService,
+                                 QObject *parent)
     : QObject(parent)
     , m_authService(authService)
+    , m_configManager(configManager)
+    , m_mediaSegmentProviderService(mediaSegmentProviderService)
     , m_retryPolicy{3, 1000, true}
 {
 }
@@ -54,6 +64,7 @@ PlaybackService::PlaybackService(AuthenticationService *authService, QObject *pa
 void PlaybackService::sendRequestWithRetry(const QString &endpoint,
                                             RequestFactory requestFactory,
                                             ResponseHandler responseHandler,
+                                            FailureHandler failureHandler,
                                             int attemptNumber)
 {
     qCDebug(playbackService) << "Sending request to:" << endpoint 
@@ -61,8 +72,8 @@ void PlaybackService::sendRequestWithRetry(const QString &endpoint,
     
     QNetworkReply *reply = requestFactory();
     
-    connect(reply, &QNetworkReply::finished, this, [this, reply, endpoint, requestFactory, responseHandler, attemptNumber]() {
-        handleReplyWithRetry(reply, endpoint, requestFactory, responseHandler, attemptNumber);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
+        handleReplyWithRetry(reply, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber);
     });
 }
 
@@ -70,6 +81,7 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
                                             const QString &endpoint,
                                             RequestFactory requestFactory,
                                             ResponseHandler responseHandler,
+                                            FailureHandler failureHandler,
                                             int attemptNumber)
 {
     reply->deleteLater();
@@ -81,9 +93,11 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
     }
     
     int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    
+
     if (httpStatus == 401) {
         qCWarning(playbackService) << "Session expired (401) for endpoint:" << endpoint;
+        m_authService->checkForSessionExpiry(reply, true);
+        if (failureHandler) failureHandler();
         return;
     }
     
@@ -103,11 +117,12 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
         int delayMs = ErrorHandler::calculateBackoffDelay(attemptNumber, m_retryPolicy);
         qCInfo(playbackService) << "Retrying request to:" << endpoint << "in" << delayMs << "ms";
         
-        QTimer::singleShot(delayMs, this, [this, endpoint, requestFactory, responseHandler, attemptNumber]() {
-            sendRequestWithRetry(endpoint, requestFactory, responseHandler, attemptNumber + 1);
+        QTimer::singleShot(delayMs, this, [this, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
+            sendRequestWithRetry(endpoint, requestFactory, responseHandler, failureHandler, attemptNumber + 1);
         });
     } else {
         emitError(netError);
+        if (failureHandler) failureHandler();
     }
 }
 
@@ -208,7 +223,7 @@ void PlaybackService::getMediaSegments(const QString &itemId)
         if (httpStatus == 401) {
             qCWarning(playbackService) << "Session expired while fetching media segments for" << itemId;
             m_authService->checkForSessionExpiry(reply, true);
-            emit mediaSegmentsLoaded(itemId, QList<MediaSegmentInfo>());
+            finishMediaSegments(itemId, QList<MediaSegmentInfo>());
             return;
         }
         
@@ -216,14 +231,14 @@ void PlaybackService::getMediaSegments(const QString &itemId)
         // Just emit empty segments silently
         if (httpStatus == 404) {
             qCDebug(playbackService) << "Intro Skipper plugin not available for" << itemId;
-            emit mediaSegmentsLoaded(itemId, QList<MediaSegmentInfo>());
+            maybeLoadExternalMediaSegments(itemId, QList<MediaSegmentInfo>());
             return;
         }
         
         if (reply->error() != QNetworkReply::NoError) {
             qCWarning(playbackService) << "Failed to get media segments for" << itemId
                                        << "Error:" << reply->errorString();
-            emit mediaSegmentsLoaded(itemId, QList<MediaSegmentInfo>());
+            maybeLoadExternalMediaSegments(itemId, QList<MediaSegmentInfo>());
             return;
         }
         
@@ -231,64 +246,174 @@ void PlaybackService::getMediaSegments(const QString &itemId)
         QJsonDocument doc = QJsonDocument::fromJson(data);
         QJsonObject obj = doc.object();
         
-        QList<MediaSegmentInfo> segments;
-        
-        // Intro Skipper returns a dictionary with segment type names as keys:
-        // { "Introduction": { "EpisodeId": "...", "Start": 114.114, "End": 204.204, "Valid": true },
-        //   "Credits": { "EpisodeId": "...", "Start": 1329.328, "End": 1427.426, "Valid": true } }
-        // Note: Start/End are in seconds, not ticks
-        
-        // Map of Intro Skipper type names to our types
-        static const QMap<QString, QPair<MediaSegmentType, QString>> typeMapping = {
-            {"Introduction", {MediaSegmentType::Intro, "Intro"}},
-            {"Credits", {MediaSegmentType::Outro, "Outro"}},
-            {"Recap", {MediaSegmentType::Recap, "Recap"}},
-            {"Preview", {MediaSegmentType::Preview, "Preview"}},
-            {"Commercial", {MediaSegmentType::Commercial, "Commercial"}}
-        };
-        
-        for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
-            QString typeName = it.key();
-            QJsonObject segmentObj = it.value().toObject();
-            
-            // Only process valid segments
-            if (!segmentObj["Valid"].toBool(false)) {
-                continue;
-            }
-            
-            MediaSegmentInfo info;
-            info.itemId = segmentObj["EpisodeId"].toString();
-            
-            // Convert seconds to ticks (1 tick = 100 nanoseconds = 0.0000001 seconds)
-            double startSeconds = segmentObj["Start"].toDouble();
-            double endSeconds = segmentObj["End"].toDouble();
-            info.startTicks = static_cast<qint64>(startSeconds * 10000000.0);
-            info.endTicks = static_cast<qint64>(endSeconds * 10000000.0);
-            
-            // Map the type
-            if (typeMapping.contains(typeName)) {
-                auto mapping = typeMapping[typeName];
-                info.type = mapping.first;
-                info.typeString = mapping.second;
-            } else {
-                info.type = MediaSegmentType::Unknown;
-                info.typeString = typeName;
-            }
-            
-            segments.append(info);
-        }
-        
-        qCDebug(playbackService) << "Media segments loaded for" << itemId 
-                                  << "- Count:" << segments.size();
-        
-        for (const auto &segment : segments) {
-            qCDebug(playbackService) << "  Segment:" << segment.typeString
-                                      << "Start:" << segment.startSeconds() << "s"
-                                      << "End:" << segment.endSeconds() << "s";
-        }
-        
-        emit mediaSegmentsLoaded(itemId, segments);
+        maybeLoadExternalMediaSegments(itemId, parseIntroSkipperSegments(itemId, obj));
     });
+}
+
+QList<MediaSegmentInfo> PlaybackService::parseIntroSkipperSegments(const QString &itemId, const QJsonObject &obj) const
+{
+    QList<MediaSegmentInfo> segments;
+
+    static const QMap<QString, QPair<MediaSegmentType, QString>> typeMapping = {
+        {"Introduction", {MediaSegmentType::Intro, "Intro"}},
+        {"Credits", {MediaSegmentType::Outro, "Outro"}},
+        {"Recap", {MediaSegmentType::Recap, "Recap"}},
+        {"Preview", {MediaSegmentType::Preview, "Preview"}},
+        {"Commercial", {MediaSegmentType::Commercial, "Commercial"}}
+    };
+
+    for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
+        const QString typeName = it.key();
+        const QJsonObject segmentObj = it.value().toObject();
+
+        if (!segmentObj["Valid"].toBool(false)) {
+            continue;
+        }
+
+        MediaSegmentInfo info;
+        info.itemId = segmentObj["EpisodeId"].toString(itemId);
+        info.source = QStringLiteral("jellyfin");
+
+        const double startSeconds = segmentObj["Start"].toDouble();
+        const double endSeconds = segmentObj["End"].toDouble();
+        if (startSeconds < 0.0 || endSeconds <= startSeconds) {
+            continue;
+        }
+        info.startTicks = static_cast<qint64>(startSeconds * 10000000.0);
+        info.endTicks = static_cast<qint64>(endSeconds * 10000000.0);
+
+        if (typeMapping.contains(typeName)) {
+            const auto mapping = typeMapping[typeName];
+            info.type = mapping.first;
+            info.typeString = mapping.second;
+        } else {
+            info.type = MediaSegmentType::Unknown;
+            info.typeString = typeName;
+        }
+
+        segments.append(info);
+    }
+
+    return segments;
+}
+
+void PlaybackService::maybeLoadExternalMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &serverSegments)
+{
+    if (!m_mediaSegmentProviderService || !m_configManager
+        || !m_configManager->getExternalSegmentProvidersEnabled()
+        || !MediaSegmentProviderService::hasMissingSupportedSegmentTypes(serverSegments)) {
+        finishMediaSegments(itemId, serverSegments);
+        return;
+    }
+
+    if (!serverSegments.isEmpty()) {
+        finishMediaSegments(itemId, serverSegments);
+    }
+
+    loadMediaSegmentLookupContext(itemId, serverSegments);
+}
+
+void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const QList<MediaSegmentInfo> &serverSegments)
+{
+    const QString fields = QStringLiteral("ProviderIds,ParentIndexNumber,IndexNumber,SeriesId,RunTimeTicks,Type");
+    const QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
+        .arg(m_authService->getUserId(), itemId, fields);
+
+    sendRequestWithRetry(endpoint,
+        [this, endpoint]() {
+            QNetworkRequest request = m_authService->createRequest(endpoint);
+            return m_authService->networkManager()->get(request);
+        },
+        [this, itemId, serverSegments](QNetworkReply *reply) {
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            const QJsonObject item = doc.object();
+            MediaSegmentLookupContext context;
+            context.itemId = itemId;
+            context.type = item.value(QStringLiteral("Type")).toString();
+            context.seriesId = item.value(QStringLiteral("SeriesId")).toString();
+            context.seasonNumber = item.value(QStringLiteral("ParentIndexNumber")).toInt(-1);
+            context.episodeNumber = item.value(QStringLiteral("IndexNumber")).toInt(-1);
+            context.durationTicks = static_cast<qint64>(item.value(QStringLiteral("RunTimeTicks")).toDouble());
+
+            const QJsonObject providerIds = item.value(QStringLiteral("ProviderIds")).toObject();
+            context.imdbId = providerIds.value(QStringLiteral("Imdb")).toString();
+            context.tmdbId = providerIds.value(QStringLiteral("Tmdb")).toString();
+            context.tvdbId = providerIds.value(QStringLiteral("Tvdb")).toString();
+
+            const bool needsSeriesProviderIds = context.type.compare(QStringLiteral("Episode"), Qt::CaseInsensitive) == 0
+                && !context.seriesId.isEmpty()
+                && (context.imdbId.isEmpty() || context.tmdbId.isEmpty());
+            if (!needsSeriesProviderIds) {
+                QPointer<PlaybackService> self(this);
+                m_mediaSegmentProviderService->fetchExternalSegments(context, serverSegments,
+                    [self, itemId, serverSegments](const QList<MediaSegmentInfo> &segments) {
+                        if (!self) return;
+                        self->finishExternalMediaSegments(itemId, serverSegments, segments);
+                    });
+                return;
+            }
+
+            const QString seriesEndpoint = QString("/Users/%1/Items/%2?Fields=ProviderIds")
+                .arg(m_authService->getUserId(), context.seriesId);
+            sendRequestWithRetry(seriesEndpoint,
+                [this, seriesEndpoint]() {
+                    QNetworkRequest request = m_authService->createRequest(seriesEndpoint);
+                    return m_authService->networkManager()->get(request);
+                },
+                [this, context, serverSegments, itemId](QNetworkReply *seriesReply) mutable {
+                    const QJsonDocument seriesDoc = QJsonDocument::fromJson(seriesReply->readAll());
+                    const QJsonObject seriesProviderIds = seriesDoc.object().value(QStringLiteral("ProviderIds")).toObject();
+                    if (context.imdbId.isEmpty()) context.imdbId = seriesProviderIds.value(QStringLiteral("Imdb")).toString();
+                    if (context.tmdbId.isEmpty()) context.tmdbId = seriesProviderIds.value(QStringLiteral("Tmdb")).toString();
+                    if (context.tvdbId.isEmpty()) context.tvdbId = seriesProviderIds.value(QStringLiteral("Tvdb")).toString();
+
+                    QPointer<PlaybackService> self(this);
+                    m_mediaSegmentProviderService->fetchExternalSegments(context, serverSegments,
+                        [self, itemId, serverSegments](const QList<MediaSegmentInfo> &segments) {
+                            if (!self) return;
+                            self->finishExternalMediaSegments(itemId, serverSegments, segments);
+                        });
+                },
+                [this, context, serverSegments, itemId]() mutable {
+                    qCDebug(playbackService) << "Failed to fetch series provider IDs for" << context.seriesId
+                                             << "- external segment lookup may be incomplete";
+                    QPointer<PlaybackService> self(this);
+                    m_mediaSegmentProviderService->fetchExternalSegments(context, serverSegments,
+                        [self, itemId, serverSegments](const QList<MediaSegmentInfo> &segments) {
+                            if (!self) return;
+                            self->finishExternalMediaSegments(itemId, serverSegments, segments);
+                        });
+                });
+        },
+        [this, itemId, serverSegments]() {
+            if (serverSegments.isEmpty()) {
+                finishMediaSegments(itemId, serverSegments);
+            }
+        });
+}
+
+void PlaybackService::finishExternalMediaSegments(const QString &itemId,
+                                                  const QList<MediaSegmentInfo> &serverSegments,
+                                                  const QList<MediaSegmentInfo> &mergedSegments)
+{
+    if (mergedSegments.size() > serverSegments.size() || serverSegments.isEmpty()) {
+        finishMediaSegments(itemId, mergedSegments);
+    }
+}
+
+void PlaybackService::finishMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &segments)
+{
+    qCDebug(playbackService) << "Media segments loaded for" << itemId
+                             << "- Count:" << segments.size();
+
+    for (const auto &segment : segments) {
+        qCDebug(playbackService) << "  Segment:" << segment.typeString
+                                 << "Source:" << segment.source
+                                 << "Start:" << segment.startSeconds() << "s"
+                                 << "End:" << segment.endSeconds() << "s";
+    }
+
+    emit mediaSegmentsLoaded(itemId, segments);
 }
 
 void PlaybackService::getTrickplayInfo(const QString &itemId)

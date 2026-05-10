@@ -146,6 +146,9 @@ public:
     QString typeString;
     qint64 startTicks = 0;
     qint64 endTicks = 0;
+    QString source;
+    double confidence = 0.0;
+    int submissionCount = 0;
 
     [[nodiscard]] static MediaSegmentInfo fromJson(const QJsonObject &json);
     [[nodiscard]] constexpr double startSeconds() const { return static_cast<double>(startTicks) / 10000000.0; }

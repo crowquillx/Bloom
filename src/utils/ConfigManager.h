@@ -115,6 +115,10 @@ class ConfigManager : public QObject
     // Seerr Integration
     Q_PROPERTY(QString seerrBaseUrl READ getSeerrBaseUrl WRITE setSeerrBaseUrl NOTIFY seerrBaseUrlChanged)
     Q_PROPERTY(QString seerrApiKey READ getSeerrApiKey WRITE setSeerrApiKey NOTIFY seerrApiKeyChanged)
+
+    // Media Segment Providers
+    Q_PROPERTY(bool externalSegmentProvidersEnabled READ getExternalSegmentProvidersEnabled WRITE setExternalSegmentProvidersEnabled NOTIFY externalSegmentProvidersEnabledChanged)
+    Q_PROPERTY(QStringList mediaSegmentProviderOrder READ getMediaSegmentProviderOrder WRITE setMediaSegmentProviderOrder NOTIFY mediaSegmentProviderOrderChanged)
     
     // Manual DPI Scale Override
     Q_PROPERTY(qreal manualDpiScaleOverride READ getManualDpiScaleOverride WRITE setManualDpiScaleOverride NOTIFY manualDpiScaleOverrideChanged)
@@ -379,6 +383,12 @@ public:
     void setSeerrApiKey(const QString &key);
     /// @brief Returns the configured Seerr API key, or an empty string if unset.
     QString getSeerrApiKey() const;
+
+    // Media Segment Providers
+    void setExternalSegmentProvidersEnabled(bool enabled);
+    bool getExternalSegmentProvidersEnabled() const;
+    void setMediaSegmentProviderOrder(const QStringList &order);
+    QStringList getMediaSegmentProviderOrder() const;
     
     // Manual DPI Scale Override
     void setManualDpiScaleOverride(qreal scale);
@@ -441,6 +451,8 @@ signals:
     void mdbListApiKeyChanged();
     void seerrBaseUrlChanged();
     void seerrApiKeyChanged();
+    void externalSegmentProvidersEnabledChanged();
+    void mediaSegmentProviderOrderChanged();
     void manualDpiScaleOverrideChanged();
     void uiAnimationsEnabledChanged();
     void updateChannelChanged();
@@ -455,6 +467,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 18;
+    static constexpr int kCurrentConfigVersion = 19;
     QJsonObject defaultConfig() const;
 };

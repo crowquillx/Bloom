@@ -1480,6 +1480,70 @@ QString ConfigManager::getSeerrApiKey() const
     return QString();
 }
 
+void ConfigManager::setExternalSegmentProvidersEnabled(bool enabled)
+{
+    if (enabled == getExternalSegmentProvidersEnabled()) return;
+
+    QJsonObject settings = m_config.value("settings").toObject();
+    QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    mediaSegments["external_providers_enabled"] = enabled;
+    settings["media_segments"] = mediaSegments;
+    m_config["settings"] = settings;
+    save();
+    emit externalSegmentProvidersEnabledChanged();
+}
+
+bool ConfigManager::getExternalSegmentProvidersEnabled() const
+{
+    const QJsonObject settings = m_config.value("settings").toObject();
+    const QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    if (mediaSegments.contains("external_providers_enabled")) {
+        return mediaSegments.value("external_providers_enabled").toBool(true);
+    }
+    return true;
+}
+
+void ConfigManager::setMediaSegmentProviderOrder(const QStringList &order)
+{
+    QStringList normalizedProviders;
+    for (const QString &provider : order) {
+        const QString normalized = provider.trimmed().toLower();
+        if (!normalized.isEmpty()) {
+            normalizedProviders.append(normalized);
+        }
+    }
+    if (normalizedProviders == getMediaSegmentProviderOrder()) return;
+
+    QJsonArray array;
+    for (const QString &provider : normalizedProviders) {
+        array.append(provider);
+    }
+
+    QJsonObject settings = m_config.value("settings").toObject();
+    QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    mediaSegments["provider_order"] = array;
+    settings["media_segments"] = mediaSegments;
+    m_config["settings"] = settings;
+    save();
+    emit mediaSegmentProviderOrderChanged();
+}
+
+QStringList ConfigManager::getMediaSegmentProviderOrder() const
+{
+    const QJsonObject settings = m_config.value("settings").toObject();
+    const QJsonObject mediaSegments = settings.value("media_segments").toObject();
+    const QJsonArray order = mediaSegments.value("provider_order").toArray();
+    QStringList providers;
+    for (const QJsonValue &value : order) {
+        const QString provider = value.toString().trimmed().toLower();
+        if (!provider.isEmpty()) providers.append(provider);
+    }
+    if (providers.isEmpty()) {
+        return {QStringLiteral("theintrodb"), QStringLiteral("introdb")};
+    }
+    return providers;
+}
+
 void ConfigManager::setManualDpiScaleOverride(qreal scale)
 {
     // Clamp to reasonable range (0.5 to 2.0)
@@ -2447,6 +2511,28 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV18ToV19(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 19;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject mediaSegments = settings.value("media_segments").toObject();
+        if (!mediaSegments.contains("external_providers_enabled")) {
+            mediaSegments["external_providers_enabled"] = true;
+        }
+        if (!mediaSegments.contains("provider_order")) {
+            mediaSegments["provider_order"] = QJsonArray{
+                QStringLiteral("theintrodb"),
+                QStringLiteral("introdb")
+            };
+        }
+
+        settings["media_segments"] = mediaSegments;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -2611,6 +2697,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 18) {
+            m_config = ConfigMigrator::migrateV18ToV19(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -2711,6 +2805,14 @@ QJsonObject ConfigManager::defaultConfig() const
     seerr["base_url"] = "";
     seerr["api_key"] = "";
     settings["seerr"] = seerr;
+
+    QJsonObject mediaSegments;
+    mediaSegments["external_providers_enabled"] = true;
+    mediaSegments["provider_order"] = QJsonArray{
+        QStringLiteral("theintrodb"),
+        QStringLiteral("introdb")
+    };
+    settings["media_segments"] = mediaSegments;
 
     QJsonObject updates;
     updates["channel"] = QStringLiteral("stable");

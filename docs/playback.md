@@ -205,6 +205,8 @@ UI Components for Track Selection
   - Intro/outro skip UX: transient "Skip Intro"/"Skip Credits" pop-up button auto-focuses when a segment window starts, then a compact persistent skip button remains available until that segment ends.
     - Popup timing is controlled by `ConfigManager.skipButtonAutoHideSeconds` (`settings.playback.skip_button_auto_hide_seconds`, range 0-120; 0 disables popup only). The popup is still dismissed as soon as the active intro/outro segment ends.
     - Optional automatic skip is controlled by `ConfigManager.autoSkipIntro` and `ConfigManager.autoSkipOutro`; each auto-skip applies at most once per playback item even if the user seeks back.
+    - Segment source precedence is Jellyfin server data first, then configured external providers. Server segments win per segment type; external providers may fill missing types such as recap, intro, credits, or preview.
+    - External provider order defaults to TheIntroDB then IntroDB. Reads are anonymous. TheIntroDB requires TMDB metadata; IntroDB requires series IMDb metadata plus season/episode numbers.
 
 Playback overlay metadata
 - `PlayerController` exposes `overlayTitle`, `overlaySubtitle`, `overlayBackdropUrl`, and `overlayLogoUrl` for the native overlay (header, buffering card, and backdrop).

@@ -111,6 +111,7 @@ add_executable(PlayerControllerAutoplayContextTest
     ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp
     ${CMAKE_SOURCE_DIR}/src/player/TrickplayProcessor.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
@@ -137,6 +138,29 @@ target_link_libraries(PlayerControllerAutoplayContextTest
 )
 
 add_test(NAME PlayerControllerAutoplayContextTest COMMAND PlayerControllerAutoplayContextTest)
+
+add_executable(MediaSegmentProviderServiceTest
+    MediaSegmentProviderServiceTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+)
+
+target_include_directories(MediaSegmentProviderServiceTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(MediaSegmentProviderServiceTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME MediaSegmentProviderServiceTest COMMAND MediaSegmentProviderServiceTest)
 
 add_executable(NextEpisodeResolverTest
     NextEpisodeResolverTest.cpp
@@ -336,6 +360,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp

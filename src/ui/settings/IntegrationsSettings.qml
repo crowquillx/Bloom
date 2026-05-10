@@ -153,8 +153,39 @@ FocusScope {
                     text: ConfigManager.seerrApiKey
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     keyUpTarget: seerrUrlInput.input
-                    keyDownTarget: null
+                    keyDownTarget: externalSegmentsToggle
                     onEditingFinished: ConfigManager.seerrApiKey = text
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                }
+
+                SettingsGroupDivider { Layout.fillWidth: true }
+
+                // --- Media Segments Section ---
+                Text {
+                    text: qsTr("Media Segments")
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+                }
+
+                Text {
+                    text: qsTr("Use external segment providers to fill missing intro, recap, and credits markers when Jellyfin does not provide them.")
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    color: Theme.textSecondary
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+
+                SettingsToggleRow {
+                    id: externalSegmentsToggle
+                    label: qsTr("Use External Segment Providers")
+                    description: qsTr("Jellyfin server segments are always preferred; providers only fill missing segment types.")
+                    checked: ConfigManager.externalSegmentProvidersEnabled
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    KeyNavigation.up: seerrApiKeyInput.input
+                    KeyNavigation.down: null
+                    onToggled: function(value) { ConfigManager.externalSegmentProvidersEnabled = value }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
                 }
             }
