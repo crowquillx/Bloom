@@ -852,7 +852,7 @@ int ConfigManager::getPlaybackCompletionThreshold() const
 
 void ConfigManager::setSkipButtonAutoHideSeconds(int seconds)
 {
-    const int clampedSeconds = std::max(0, std::min(seconds, 15));
+    const int clampedSeconds = std::max(0, std::min(seconds, 120));
     if (clampedSeconds == getSkipButtonAutoHideSeconds()) return;
 
     QJsonObject settings;
@@ -878,7 +878,7 @@ int ConfigManager::getSkipButtonAutoHideSeconds() const
             const QJsonObject playback = settings["playback"].toObject();
             if (playback.contains("skip_button_auto_hide_seconds")) {
                 const int value = playback["skip_button_auto_hide_seconds"].toInt();
-                return std::max(0, std::min(value, 15));
+                return std::max(0, std::min(value, 120));
             }
         }
     }

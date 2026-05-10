@@ -804,7 +804,7 @@ FocusScope {
                     description: qsTr("How long the playback skip popup stays visible (0 disables popup)")
                     value: ConfigManager.skipButtonAutoHideSeconds
                     from: 0
-                    to: 15
+                    to: 120
                     stepSize: 1
                     unit: "s"
                     Layout.fillWidth: true

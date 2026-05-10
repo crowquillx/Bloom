@@ -704,10 +704,10 @@ FocusScope {
         property bool showIcon: true
         focusPolicy: Qt.StrongFocus
         activeFocusOnTab: true
-        implicitHeight: Math.round((compact ? 46 : 56) * Theme.layoutScale)
-        implicitWidth: Math.round((compact ? 170 : 230) * Theme.layoutScale)
-        leftPadding: Math.round((compact ? 16 : 20) * Theme.layoutScale)
-        rightPadding: Math.round((compact ? 16 : 20) * Theme.layoutScale)
+        implicitHeight: Math.round((compact ? 46 : 74) * Theme.layoutScale)
+        implicitWidth: Math.round((compact ? 170 : 306) * Theme.layoutScale)
+        leftPadding: Math.round((compact ? 16 : 27) * Theme.layoutScale)
+        rightPadding: Math.round((compact ? 16 : 27) * Theme.layoutScale)
         onPressed: root.showControls()
         Keys.onReturnPressed: function(event) { event.accepted = true; skipButton.animateClick() }
         Keys.onEnterPressed: function(event) { event.accepted = true; skipButton.animateClick() }
@@ -751,12 +751,12 @@ FocusScope {
             implicitHeight: skipContentRow.implicitHeight
             Row {
                 id: skipContentRow
-                spacing: Math.round(8 * Theme.layoutScale)
+                spacing: Math.round((compact ? 8 : 11) * Theme.layoutScale)
                 anchors.centerIn: parent
                 Text {
                     text: Icons.fastForward
                     font.family: Theme.fontIcon
-                    font.pixelSize: Math.round((compact ? 20 : 22) * Theme.layoutScale)
+                    font.pixelSize: Math.round((compact ? 20 : 29) * Theme.layoutScale)
                     color: Theme.playbackIconColor
                     anchors.verticalCenter: parent.verticalCenter
                     visible: skipButton.showIcon
@@ -764,7 +764,7 @@ FocusScope {
                 Text {
                     text: skipButton.labelText
                     font.family: Theme.fontPrimary
-                    font.pixelSize: Math.round((compact ? 18 : 21) * Theme.layoutScale)
+                    font.pixelSize: Math.round((compact ? 18 : 28) * Theme.layoutScale)
                     font.weight: Font.DemiBold
                     color: Theme.textPrimary
                     horizontalAlignment: Text.AlignHCenter
