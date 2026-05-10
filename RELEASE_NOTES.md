@@ -1,30 +1,19 @@
-## What's Changed in v0.6.4
+## What's Changed in v0.6.5
 
 ### New Features
 
-- aggressive playback caching and auto-recovery on server outage (#47)
-- **ui**: add playback cache size control to settings
-- **player**: add auto-recovery mechanism for server outages
-- **network**: add server ping health check to LibraryService
-- **config**: add playback cache size and auto-recovery settings
+- add media segment providers in app and support on server (#53)
+- extend skip popup duration setting
+- **playback**: runtime external subtitle injection (PlayerController::addExternalSubtitleTrack) (#52)
+- **home**: split Continue Watching from Next Up with merge setting (#51)
+- **playback**: add global track language defaults (#48)
+- add buffered cache progress indicator to playback overlay
 
 ### Bug Fixes
 
-- **config**: pass demuxer cache sizes with unit suffix to avoid int overflow
-- **player**: clear recovery context on 401 auth expiry
-- **player**: prevent recovery reply abort from restarting timer and guard segment URL
-- **player**: clear stale recovery context on non-recoverable errors and queue segment restoration
-- **player, config**: address recovery review feedback
-- **player**: guard recovery resume against in-flight terminal Stop transition
-- **player**: recovery only for network errors, multipart support, stop from Error
-- **network**: isolate ping reply and handle 401 auth expiry
-- **config**: clamp playback cache size to [50, 2048] on read and write
-- **playback**: verify exact refresh before fps override
-- **playback**: improve refresh-rate frame pacing
-- **playback**: resolve library profile via ancestors for home autoplay
+- **playback**: handle missing next episode (#50)
+- **tests**: add missing include paths + docs: Cursor Cloud setup instructions (#49)
+- **network**: use BLOOM_VERSION in Jellyfin auth header instead of hardcoded 1.0.0
+- **ui, config**: ensure spinbox value is committed on destruction and trace cache size
 
-### Documentation
-
-- **playback**: document cache and recovery behavior
-
-**Full changelog:** [v0.6.3...v0.6.4](https://github.com/crowquillx/Bloom/compare/v0.6.3...v0.6.4)
+**Full changelog:** [v0.6.4...v0.6.5](https://github.com/crowquillx/Bloom/compare/v0.6.4...v0.6.5)
