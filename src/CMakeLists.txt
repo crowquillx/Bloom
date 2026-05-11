@@ -343,8 +343,8 @@ if(UNIX AND NOT APPLE)
     target_include_directories(Bloom PRIVATE ${LIBSECRET_INCLUDE_DIRS})
     target_link_libraries(Bloom PRIVATE ${LIBSECRET_LIBRARIES})
 elseif(WIN32)
-    # Windows: link advapi32 for Credential Manager API
-    target_link_libraries(Bloom PRIVATE advapi32)
+    # Windows: link advapi32 for Credential Manager API and shell32 for elevated updater launch.
+    target_link_libraries(Bloom PRIVATE advapi32 shell32)
 endif()
 
 

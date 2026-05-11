@@ -64,7 +64,7 @@ UI settings
 
 Update settings
 - `settings.updates.channel` (Q_PROPERTY `updateChannel`): Update track to query. Valid values are `stable` and `dev`. Default `stable`.
-- `settings.updates.auto_check_enabled` (Q_PROPERTY `autoUpdateCheckEnabled`): Whether Bloom checks for updates automatically at startup. Default true.
+- `settings.updates.auto_check_enabled` (Q_PROPERTY `autoUpdateCheckEnabled`): Whether Bloom checks for updates automatically at startup. Default false; manual checks remain available from Settings > Updates.
 - `settings.updates.last_check_at` (Q_PROPERTY `lastUpdateCheckAt`): UTC ISO-8601 timestamp of the last successful manifest check. Empty means Bloom has never checked.
 - `settings.updates.skipped_update_version` (Q_PROPERTY `skippedUpdateVersion`): Stores the last dismissed startup-popup marker so the same update is not re-prompted on every launch.
 

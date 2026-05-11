@@ -5,10 +5,14 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QNetworkReply>
-#include <QProcess>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QUrl>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <shellapi.h>
+#endif
 
 namespace {
 
@@ -67,6 +71,35 @@ QString sanitizedInstallerFilename(const QString &filename)
 
     return sanitized;
 }
+
+#ifdef Q_OS_WIN
+QString windowsErrorMessage(DWORD errorCode)
+{
+    LPWSTR buffer = nullptr;
+    const DWORD length = FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER
+                                            | FORMAT_MESSAGE_FROM_SYSTEM
+                                            | FORMAT_MESSAGE_IGNORE_INSERTS,
+                                        nullptr,
+                                        errorCode,
+                                        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                                        reinterpret_cast<LPWSTR>(&buffer),
+                                        0,
+                                        nullptr);
+    QString message;
+    if (length > 0 && buffer) {
+        message = QString::fromWCharArray(buffer, static_cast<int>(length)).trimmed();
+    }
+    if (buffer) {
+        LocalFree(buffer);
+    }
+    if (message.isEmpty()) {
+        message = QStringLiteral("Windows error %1").arg(errorCode);
+    } else {
+        message = QStringLiteral("%1 (Windows error %2)").arg(message).arg(errorCode);
+    }
+    return message;
+}
+#endif
 
 } // namespace
 
@@ -233,9 +266,37 @@ void WindowsNsisUpdateApplier::downloadAndInstall(const UpdateManifest &manifest
         }
 
 #ifdef Q_OS_WIN
-        const bool launched = QProcess::startDetached(m_pendingFilePath, {QStringLiteral("/S")});
+        const QString installLocation = registryInstallLocation();
+        const QString currentDir = normalizedPath(bloomExeDirectory());
+        const QString registeredDir = normalizedPath(installLocation);
+        const QString uninstallerPath = QDir(registeredDir).filePath(QStringLiteral("Uninstall.exe"));
+        if (installLocation.isEmpty() || currentDir != registeredDir || !QFileInfo::exists(uninstallerPath)) {
+            finishWithError(tr("Bloom downloaded the update, but this build is no longer eligible for automatic install."));
+            return;
+        }
+
+        const QString parameters = QStringLiteral("/S /D=%1").arg(QDir::toNativeSeparators(installLocation));
+        const std::wstring installerPath = QDir::toNativeSeparators(m_pendingFilePath).toStdWString();
+        const std::wstring parameterString = parameters.toStdWString();
+
+        SHELLEXECUTEINFOW executeInfo{};
+        executeInfo.cbSize = sizeof(SHELLEXECUTEINFOW);
+        executeInfo.fMask = SEE_MASK_NOCLOSEPROCESS;
+        executeInfo.hwnd = nullptr;
+        executeInfo.lpVerb = L"runas";
+        executeInfo.lpFile = installerPath.c_str();
+        executeInfo.lpParameters = parameterString.c_str();
+        executeInfo.nShow = SW_SHOWNORMAL;
+
+        SetLastError(ERROR_SUCCESS);
+        const bool launched = ShellExecuteExW(&executeInfo) != FALSE;
+        const DWORD launchError = launched ? ERROR_SUCCESS : GetLastError();
+        if (executeInfo.hProcess) {
+            CloseHandle(executeInfo.hProcess);
+        }
         if (!launched) {
-            finishWithError(tr("Bloom downloaded the update but could not launch the installer."));
+            finishWithError(tr("Bloom downloaded the update but could not launch the elevated installer: %1")
+                                .arg(windowsErrorMessage(launchError)));
             return;
         }
 

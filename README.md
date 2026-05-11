@@ -13,21 +13,21 @@ Bloom connects to a Jellyfin server and provides a TV-friendly interface for bro
 
 **Current state:**
 - Trickplay
-- Skip intro/outro
-- Subtitle selection UI with track selection memory
+- Skip intro/outro (including TheIntroDB and IntroDB support)
+- Sub and Audio selection UI with track selection memory
 - Playback progress reporting to Jellyfin
-- Keyboard navigation
-- Linux (Wayland) and Windows support
+- 10-Foot Keyboard navigation
 - On-screen playback controls
+- MDBList ratings
+- Seerr integration
+- Auto HDR and Refresh Rate switching
 
 **Not yet working or incomplete:**
 - Search (barebones implementation exists)
-- AutoPlay is a bit cringe.
 - Playlists
 - Filtering library/search
 - Gamepad support
 - Many edge cases
-- Build systems are very tailored towards my local setup
 
 ## Requirements
 

@@ -10,7 +10,7 @@
 - `dev`: rolling `dev-latest` release built from `main`.
 
 ## Runtime behavior
-- Bloom can check for updates automatically at startup when `settings.updates.auto_check_enabled` is true.
+- Bloom can check for updates automatically at startup when `settings.updates.auto_check_enabled` is true. This is opt-in for now and defaults to false.
 - The startup popup is startup-only; after dismissal the update remains visible through the sidebar update entry and Settings > Updates.
 - Manual `Check for updates` is always available from Settings, even on notify-only builds.
 
@@ -50,7 +50,8 @@ Example shape:
 Windows apply flow
 - Bloom downloads the official installer to `%LOCALAPPDATA%/Bloom/updates/<channel>/`.
 - The download is SHA-256 checked against the manifest before launch.
-- Bloom then starts the installer in silent mode and exits.
+- NSIS-installed Windows builds running from their registered install location can launch the installer in elevated silent mode, targeting that same install directory, and then Bloom exits.
+- Portable Windows builds and non-Windows builds stay in notify-only mode.
 
 Future AppImage support
 - The update logic is split into provider and applier layers so an AppImage applier can be added later without redesigning the UI, config keys, or manifest format.

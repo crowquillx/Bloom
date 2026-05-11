@@ -376,7 +376,80 @@ Window {
                             Math.max(0, window.width - (Theme.spacingLarge * 2)))
             padding: Theme.spacingLarge
 
-            onRejected: UpdateService.dismissStartupPopup()
+            property string previousNavigationMode: "pointer"
+
+            function setKeyboardNavigationMode() {
+                if (typeof InputModeManager !== "undefined") {
+                    previousNavigationMode = InputModeManager.pointerActive ? "pointer" : "keyboard"
+                    InputModeManager.setNavigationMode("keyboard")
+                    InputModeManager.hideCursor(true)
+                }
+            }
+
+            function restorePreviousNavigationMode() {
+                if (typeof InputModeManager !== "undefined") {
+                    InputModeManager.setNavigationMode(previousNavigationMode)
+                    InputModeManager.hideCursor(previousNavigationMode !== "pointer")
+                }
+            }
+
+            function focusInitialControl() {
+                if (!visible) {
+                    return
+                }
+                forceActiveFocus()
+                if (updatePrimaryButton.enabled) {
+                    updatePrimaryButton.forceActiveFocus()
+                } else {
+                    updateLaterButton.forceActiveFocus()
+                }
+            }
+
+            function restoreAppFocus() {
+                Qt.callLater(function() {
+                    var item = stackView.currentItem
+                    if (item && item.visible && typeof item["forceActiveFocus"] === "function") {
+                        item.forceActiveFocus()
+                    } else if (mainContentArea.visible) {
+                        mainContentArea.forceActiveFocus()
+                    } else {
+                        window.requestActivate()
+                    }
+                })
+            }
+
+            function dismissAndClose() {
+                UpdateService.dismissStartupPopup()
+                close()
+            }
+
+            onOpened: {
+                setKeyboardNavigationMode()
+                Qt.callLater(focusInitialControl)
+            }
+
+            onClosed: {
+                restorePreviousNavigationMode()
+                restoreAppFocus()
+            }
+
+            onRejected: dismissAndClose()
+
+            Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+                    dismissAndClose()
+                    event.accepted = true
+                } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                    if (updatePrimaryButton.activeFocus && updateLaterButton.enabled) {
+                        updateLaterButton.forceActiveFocus()
+                    } else if (updatePrimaryButton.enabled) {
+                        updatePrimaryButton.forceActiveFocus()
+                    } else {
+                        updateLaterButton.forceActiveFocus()
+                    }
+                    event.accepted = true
+                }
+            }
 
             background: Rectangle {
                 color: Theme.cardBackground
@@ -462,8 +535,41 @@ Window {
 
                     Button {
                         id: updatePrimaryButton
+                        focusPolicy: Qt.StrongFocus
+                        activeFocusOnTab: true
                         text: UpdateService.applySupported ? qsTr("Download and Install") : qsTr("Open Download Page")
                         enabled: !UpdateService.downloadInProgress && !UpdateService.installerLaunched
+                        Layout.preferredHeight: Theme.buttonHeightSmall
+                        Layout.preferredWidth: Math.max(Math.round(220 * Theme.layoutScale),
+                                                        updatePrimaryButtonText.implicitWidth + Theme.spacingLarge * 2)
+                        KeyNavigation.right: updateLaterButton
+                        KeyNavigation.left: updateLaterButton
+                        Keys.onReturnPressed: function(event) {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: function(event) {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onSpacePressed: function(event) {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onRightPressed: function(event) {
+                            updateLaterButton.forceActiveFocus()
+                            event.accepted = true
+                        }
+                        Keys.onLeftPressed: function(event) {
+                            updateLaterButton.forceActiveFocus()
+                            event.accepted = true
+                        }
                         onClicked: {
                             if (UpdateService.applySupported) {
                                 updateDialog.close()
@@ -473,13 +579,104 @@ Window {
                                 updateDialog.close()
                             }
                         }
+
+                        background: Rectangle {
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: {
+                                if (!updatePrimaryButton.enabled) return Theme.buttonSecondaryBackgroundDisabled
+                                if (updatePrimaryButton.down) return Theme.buttonPrimaryBackgroundPressed
+                                if (updatePrimaryButton.hovered || updatePrimaryButton.activeFocus) return Theme.buttonPrimaryBackgroundHover
+                                return Theme.buttonPrimaryBackground
+                            }
+                            border.color: updatePrimaryButton.activeFocus
+                                          ? Theme.buttonPrimaryBorderFocused
+                                          : Theme.buttonPrimaryBorder
+                            border.width: updatePrimaryButton.activeFocus
+                                          ? Theme.buttonFocusBorderWidth
+                                          : Theme.buttonBorderWidth
+                            opacity: updatePrimaryButton.enabled ? 1.0 : 0.5
+                        }
+
+                        contentItem: Text {
+                            id: updatePrimaryButtonText
+                            text: updatePrimaryButton.text
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            font.bold: true
+                            color: updatePrimaryButton.enabled ? Theme.textPrimary : Theme.textDisabled
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
                     }
 
                     Button {
+                        id: updateLaterButton
+                        focusPolicy: Qt.StrongFocus
+                        activeFocusOnTab: true
                         text: qsTr("Later")
-                        onClicked: {
-                            UpdateService.dismissStartupPopup()
-                            updateDialog.close()
+                        Layout.preferredHeight: Theme.buttonHeightSmall
+                        Layout.preferredWidth: Math.max(Math.round(140 * Theme.layoutScale),
+                                                        updateLaterButtonText.implicitWidth + Theme.spacingLarge * 2)
+                        KeyNavigation.left: updatePrimaryButton.enabled ? updatePrimaryButton : null
+                        KeyNavigation.right: updatePrimaryButton.enabled ? updatePrimaryButton : null
+                        Keys.onReturnPressed: function(event) {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onEnterPressed: function(event) {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onSpacePressed: function(event) {
+                            if (!event.isAutoRepeat) {
+                                clicked()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onRightPressed: function(event) {
+                            if (updatePrimaryButton.enabled) {
+                                updatePrimaryButton.forceActiveFocus()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onLeftPressed: function(event) {
+                            if (updatePrimaryButton.enabled) {
+                                updatePrimaryButton.forceActiveFocus()
+                            }
+                            event.accepted = true
+                        }
+                        onClicked: updateDialog.dismissAndClose()
+
+                        background: Rectangle {
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: {
+                                if (updateLaterButton.down) return Theme.buttonSecondaryBackgroundPressed
+                                if (updateLaterButton.hovered || updateLaterButton.activeFocus) return Theme.buttonSecondaryBackgroundHover
+                                return Theme.buttonSecondaryBackground
+                            }
+                            border.color: updateLaterButton.activeFocus
+                                          ? Theme.buttonSecondaryBorderFocused
+                                          : (updateLaterButton.hovered ? Theme.buttonSecondaryBorderHover : Theme.buttonSecondaryBorder)
+                            border.width: updateLaterButton.activeFocus
+                                          ? Theme.buttonFocusBorderWidth
+                                          : Theme.buttonBorderWidth
+                        }
+
+                        contentItem: Text {
+                            id: updateLaterButtonText
+                            text: updateLaterButton.text
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            font.bold: true
+                            color: Theme.textPrimary
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
                     }
                 }

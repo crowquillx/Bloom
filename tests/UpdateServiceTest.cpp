@@ -129,6 +129,8 @@ private slots:
     void init();
     void parseManifestBytes_acceptsValidJson();
     void parseManifestBytes_rejectsInvalidJson();
+    void autoUpdateCheckDefaultsOff();
+    void startupCheck_skipsWhenAutoCheckDefaultOff();
     void startupCheck_showsPopupForNewUpdate();
     void startupCheck_throttlesRecentCheck();
     void manualCheck_bypassesThrottle();
@@ -189,6 +191,35 @@ void UpdateServiceTest::parseManifestBytes_rejectsInvalidJson()
         QJsonDocument(incompleteRoot).toJson(QJsonDocument::Compact), &error);
     QVERIFY(!incompleteManifest.has_value());
     QVERIFY(!error.trimmed().isEmpty());
+}
+
+void UpdateServiceTest::autoUpdateCheckDefaultsOff()
+{
+    ConfigManager configManager;
+    configManager.load();
+
+    QVERIFY(!configManager.getAutoUpdateCheckEnabled());
+
+    configManager.setAutoUpdateCheckEnabled(true);
+    QVERIFY(configManager.getAutoUpdateCheckEnabled());
+}
+
+void UpdateServiceTest::startupCheck_skipsWhenAutoCheckDefaultOff()
+{
+    ConfigManager configManager;
+    configManager.load();
+    configManager.setLastUpdateCheckAt(QString());
+
+    auto *provider = new FakeUpdateProvider;
+    provider->nextManifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
+    auto *applier = new FakeUpdateApplier(UpdateApplySupport::Supported);
+
+    UpdateService service(&configManager, nullptr, provider, applier);
+    service.performStartupCheck();
+
+    QVERIFY(provider->lastChannel.isEmpty());
+    QVERIFY(!service.updateAvailable());
+    QVERIFY(!service.shouldShowStartupPopup());
 }
 
 void UpdateServiceTest::startupCheck_showsPopupForNewUpdate()

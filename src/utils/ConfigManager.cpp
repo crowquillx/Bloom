@@ -1670,11 +1670,11 @@ bool ConfigManager::getAutoUpdateCheckEnabled() const
         if (settings.contains("updates") && settings["updates"].isObject()) {
             const QJsonObject updates = settings["updates"].toObject();
             if (updates.contains("auto_check_enabled")) {
-                return updates["auto_check_enabled"].toBool(true);
+                return updates["auto_check_enabled"].toBool(false);
             }
         }
     }
-    return true;
+    return false;
 }
 
 void ConfigManager::setLastUpdateCheckAt(const QString &timestamp)
@@ -2444,7 +2444,7 @@ public:
             updates["channel"] = QStringLiteral("stable");
         }
         if (!updates.contains("auto_check_enabled")) {
-            updates["auto_check_enabled"] = true;
+            updates["auto_check_enabled"] = false;
         }
         if (!updates.contains("last_check_at")) {
             updates["last_check_at"] = QString();
@@ -2816,7 +2816,7 @@ QJsonObject ConfigManager::defaultConfig() const
 
     QJsonObject updates;
     updates["channel"] = QStringLiteral("stable");
-    updates["auto_check_enabled"] = true;
+    updates["auto_check_enabled"] = false;
     updates["last_check_at"] = QString();
     updates["skipped_update_version"] = QString();
     settings["updates"] = updates;

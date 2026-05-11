@@ -298,6 +298,10 @@ target_link_libraries(UpdateServiceTest
         Qt6::Test
 )
 
+if(WIN32)
+    target_link_libraries(UpdateServiceTest PRIVATE shell32)
+endif()
+
 add_test(NAME UpdateServiceTest COMMAND UpdateServiceTest)
 
 # ============================================================================
