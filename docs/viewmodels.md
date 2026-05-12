@@ -41,6 +41,7 @@ Column {
 ## Current migrations
 - `LibraryViewModel` now inherits `BaseViewModel`; loading/error wiring is centralized while pagination, caching, and signals (`loadComplete`, `loadMoreComplete`) remain intact.
 - `SeriesDetailsViewModel` inherits `BaseViewModel` for standardized loading/error properties; nested `SeasonsModel`/`EpisodesModel` keep their role-focused implementations.
+- `SeriesDetailsViewModel` also owns focused-episode chapter shelf state for the season view. It normalizes `LibraryService::getChapters(...)` results into QML-ready chapter maps with cached thumbnail URLs, hides stale episode responses, and keeps a small in-memory per-episode cache for quick return navigation.
 
 ## Async work and setBusyWhile
 Use `setBusyWhile` to keep loading flags accurate for Qt Concurrent tasks:

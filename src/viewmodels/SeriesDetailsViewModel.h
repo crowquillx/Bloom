@@ -1,6 +1,7 @@
 #pragma once
 
 #include "BaseViewModel.h"
+#include "network/Types.h"
 #include <QAbstractListModel>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -179,6 +180,8 @@ class SeriesDetailsViewModel : public BaseViewModel
     Q_PROPERTY(QVariantList focusedEpisodePeople READ focusedEpisodePeople NOTIFY focusedEpisodeDetailsChanged)
     Q_PROPERTY(QString focusedEpisodeDetailId READ focusedEpisodeDetailId NOTIFY focusedEpisodeDetailsChanged)
     Q_PROPERTY(bool focusedEpisodeDetailsLoading READ focusedEpisodeDetailsLoading NOTIFY focusedEpisodeDetailsLoadingChanged)
+    Q_PROPERTY(QVariantList focusedEpisodeChapters READ focusedEpisodeChapters NOTIFY focusedEpisodeChaptersChanged)
+    Q_PROPERTY(bool focusedEpisodeChaptersLoading READ focusedEpisodeChaptersLoading NOTIFY focusedEpisodeChaptersLoadingChanged)
 
     // Models
     Q_PROPERTY(SeasonsModel* seasonsModel READ seasonsModel CONSTANT)
@@ -230,6 +233,8 @@ public:
     QVariantList focusedEpisodePeople() const { return m_focusedEpisodePeople; }
     QString focusedEpisodeDetailId() const { return m_focusedEpisodeDetailId; }
     bool focusedEpisodeDetailsLoading() const { return m_focusedEpisodeDetailsLoading; }
+    QVariantList focusedEpisodeChapters() const { return m_focusedEpisodeChapters; }
+    bool focusedEpisodeChaptersLoading() const { return m_focusedEpisodeChaptersLoading; }
 
     // Property accessors - State
     // Property accessors - Models
@@ -290,6 +295,8 @@ public:
     Q_INVOKABLE void toggleFavorite();
     Q_INVOKABLE void loadFocusedEpisodeDetails(const QString &episodeId);
     Q_INVOKABLE void clearFocusedEpisodeDetails();
+    Q_INVOKABLE void loadFocusedEpisodeChapters(const QString &episodeId);
+    Q_INVOKABLE void clearFocusedEpisodeChapters();
 
     /**
      * @brief Clear all data and reset state.
@@ -357,6 +364,8 @@ signals:
     void nextEpisodeChanged();
     void focusedEpisodeDetailsChanged();
     void focusedEpisodeDetailsLoadingChanged();
+    void focusedEpisodeChaptersChanged();
+    void focusedEpisodeChaptersLoadingChanged();
 
     // Selected season signals
     void selectedSeasonIndexChanged();
@@ -388,6 +397,8 @@ private slots:
     void onEpisodeDetailsLoaded(const QString &itemId, const QJsonObject &data, const QString &requestContext);
     void onEpisodeDetailsNotModified(const QString &itemId, const QString &requestContext);
     void onEpisodeDetailsFailed(const QString &itemId, const QString &error, const QString &requestContext);
+    void onFocusedEpisodeChaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
+    void onFocusedEpisodeChaptersFailed(const QString &itemId, const QString &error);
 
 private:
     void updateSeriesMetadata(const QJsonObject &data);
@@ -399,6 +410,8 @@ private:
     void finishEpisodeDetailsRequest(const QString &itemId);
     void stopFocusedEpisodeDetailsLoadingFor(const QString &itemId);
     void setFocusedEpisodeDetailsLoading(bool loading);
+    void applyFocusedEpisodeChapters(const QString &episodeId, const QVariantList &chapters);
+    void setFocusedEpisodeChaptersLoading(bool loading);
 
 private:
     LibraryService *m_libraryService = nullptr;
@@ -449,11 +462,16 @@ private:
     QJsonObject m_focusedEpisodeDetails;
     QVariantList m_focusedEpisodePeople;
     bool m_focusedEpisodeDetailsLoading = false;
+    QString m_focusedEpisodeChapterId;
+    QVariantList m_focusedEpisodeChapters;
+    bool m_focusedEpisodeChaptersLoading = false;
     QHash<QString, QJsonObject> m_episodeDetailsCache;
     QSet<QString> m_pendingEpisodeDetailIds;
     QHash<QString, QString> m_episodeDetailRequestTokens;
     QSet<QString> m_episodeDetailRetried;
     quint64 m_episodeDetailRequestSequence = 0;
+    QHash<QString, QVariantList> m_episodeChapterCache;
+    QSet<QString> m_pendingEpisodeChapterIds;
 
     // State
     bool m_loadingSeries = false;

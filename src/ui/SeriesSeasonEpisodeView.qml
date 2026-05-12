@@ -31,6 +31,8 @@ FocusScope {
     readonly property int peopleCardHeight: Math.round(320 * Theme.layoutScale)
     readonly property var focusedEpisodePeople: SeriesDetailsViewModel.focusedEpisodePeople || []
     readonly property bool focusedEpisodeDetailsLoading: SeriesDetailsViewModel.focusedEpisodeDetailsLoading
+    readonly property var focusedEpisodeChapters: SeriesDetailsViewModel.focusedEpisodeChapters || []
+    readonly property bool focusedEpisodeChaptersLoading: SeriesDetailsViewModel.focusedEpisodeChaptersLoading
     readonly property string selectedEpisodeImageUrl: selectedEpisodeData
                                                      ? (selectedEpisodeData.imageUrl || selectedEpisodeData.ImageUrl || "")
                                                      : ""
@@ -119,6 +121,9 @@ FocusScope {
     onSelectedEpisodeIdChanged: {
         overviewExpanded = false
         clearEpisodePlaybackState()
+        chapterPreloadTimer.stop()
+        SeriesDetailsViewModel.clearFocusedEpisodeChapters()
+        chapterPreloadTimer.start()
     }
 
     // Guard initial episode focusing/selection so async reloads do not override user input.
@@ -154,6 +159,19 @@ FocusScope {
         pendingPlaybackRestoreFocusTarget = null
         waitingForContextInfo = false
         lastLoadedPlaybackInfo = null
+    }
+
+    Timer {
+        id: chapterPreloadTimer
+        interval: 300
+        repeat: false
+        onTriggered: {
+            if (selectedEpisodeId) {
+                SeriesDetailsViewModel.loadFocusedEpisodeChapters(selectedEpisodeId)
+            } else {
+                SeriesDetailsViewModel.clearFocusedEpisodeChapters()
+            }
+        }
     }
     
     // Playback info storage - keeps the last loaded playback info
@@ -486,6 +504,7 @@ FocusScope {
         } else {
             selectedEpisodeData = null
             SeriesDetailsViewModel.clearFocusedEpisodeDetails()
+            SeriesDetailsViewModel.clearFocusedEpisodeChapters()
         }
     }
     
@@ -580,6 +599,16 @@ FocusScope {
         var runtimeMs = runtimeTicks / 10000
         var endTime = new Date(now.getTime() + runtimeMs)
         return "Ends at " + endTime.toLocaleTimeString(Qt.locale(), "h:mm AP")
+    }
+
+    function formatChapterTime(seconds) {
+        var total = Math.max(0, Math.floor(seconds || 0))
+        var hours = Math.floor(total / 3600)
+        var minutes = Math.floor((total % 3600) / 60)
+        var remainder = total % 60
+        function pad(value) { return value < 10 ? "0" + value : "" + value }
+        return hours > 0 ? hours + ":" + pad(minutes) + ":" + pad(remainder)
+                         : minutes + ":" + pad(remainder)
     }
     
     // Debounce timer for preloading playback info on episode selection
@@ -795,7 +824,7 @@ FocusScope {
     }
     
     // Playback actions
-    function startPlayback(fromBeginning, restoreFocusTarget) {
+    function startPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks) {
         if (!selectedEpisodeId) return
         
         console.log("[SeriesSeasonEpisodeView] startPlayback - Episode:", selectedEpisodeName,
@@ -812,13 +841,14 @@ FocusScope {
         }
         
         // Playback info is ready, proceed with playback
-        performPlayback(fromBeginning, restoreFocusTarget)
+        performPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks)
     }
     
-    function performPlayback(fromBeginning, restoreFocusTarget) {
+    function performPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks) {
         if (!selectedEpisodeId) return
         
-        var startPos = fromBeginning ? 0 : selectedEpisodePlaybackPosition
+        var hasChapterStart = chapterStartTicks !== undefined && chapterStartTicks !== null
+        var startPos = hasChapterStart ? chapterStartTicks : (fromBeginning ? 0 : selectedEpisodePlaybackPosition)
         var framerate = getVideoFramerate()
         var isHDR = isVideoHDR()
         
@@ -1639,7 +1669,9 @@ FocusScope {
                     highlightMoveVelocity: -1
                     model: SeriesDetailsViewModel.episodesModel
                     KeyNavigation.up: playResumeButton
-                    KeyNavigation.down: castSection.visible && castList.count > 0 ? castList : null
+                    KeyNavigation.down: chapterSection.visible && chapterList.count > 0
+                                        ? chapterList
+                                        : (castSection.visible && castList.count > 0 ? castList : null)
 
                     onActiveFocusChanged: {
                         if (activeFocus) {
@@ -1658,6 +1690,11 @@ FocusScope {
                     }
 
                     Keys.onDownPressed: (event) => {
+                        if (chapterSection.visible && chapterList.count > 0) {
+                            chapterSection.focusCurrentOrFirst()
+                            event.accepted = true
+                            return
+                        }
                         if (castSection.visible && castList.count > 0) {
                             castSection.focusCurrentOrFirst()
                             event.accepted = true
@@ -1822,6 +1859,229 @@ FocusScope {
             }
 
             FocusScope {
+                id: chapterSection
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                visible: focusedEpisodeChaptersLoading || focusedEpisodeChapters.length > 0
+                implicitHeight: chapterSectionContent.implicitHeight
+
+                function focusCurrentOrFirst() {
+                    if (chapterList.count <= 0) {
+                        if (castSection.visible && castList.count > 0) {
+                            castSection.focusCurrentOrFirst()
+                        } else {
+                            episodesList.forceActiveFocus()
+                        }
+                        return
+                    }
+                    chapterList.currentIndex = Math.max(0, chapterList.currentIndex)
+                    chapterList.forceActiveFocus()
+                    Qt.callLater(function() {
+                        if (chapterList.currentItem) {
+                            chapterList.currentItem.forceActiveFocus()
+                        }
+                    })
+                }
+
+                ColumnLayout {
+                    id: chapterSectionContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    spacing: Theme.spacingMedium
+
+                    Text {
+                        text: qsTr("Chapters")
+                        font.pixelSize: Theme.fontSizeHeader
+                        font.family: Theme.fontPrimary
+                        font.weight: Font.Black
+                        color: Theme.textPrimary
+                    }
+
+                    RowLayout {
+                        visible: focusedEpisodeChaptersLoading && focusedEpisodeChapters.length === 0
+                        spacing: Theme.spacingSmall
+
+                        BusyIndicator {
+                            Layout.preferredWidth: Math.round(32 * Theme.layoutScale)
+                            Layout.preferredHeight: Math.round(32 * Theme.layoutScale)
+                            running: parent.visible
+                        }
+
+                        Text {
+                            text: qsTr("Loading chapters…")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                        }
+                    }
+
+                    ListView {
+                        id: chapterList
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
+                        orientation: ListView.Horizontal
+                        spacing: Theme.spacingMedium
+                        model: focusedEpisodeChapters
+                        visible: focusedEpisodeChapters.length > 0
+                        clip: true
+                        interactive: false
+                        boundsBehavior: Flickable.StopAtBounds
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                mainContentFlickable.ensureVisible(chapterSection)
+                            }
+                        }
+
+                        onCurrentIndexChanged: {
+                            if (activeFocus && currentIndex >= 0) {
+                                positionViewAtIndex(currentIndex, ListView.Contain)
+                            }
+                        }
+
+                        Keys.onUpPressed: (event) => {
+                            episodesList.forceActiveFocus()
+                            event.accepted = true
+                        }
+
+                        Keys.onDownPressed: (event) => {
+                            if (castSection.visible && castList.count > 0) {
+                                castSection.focusCurrentOrFirst()
+                                event.accepted = true
+                            } else {
+                                event.accepted = false
+                            }
+                        }
+
+                        delegate: FocusScope {
+                            id: chapterDelegate
+                            required property int index
+                            required property var modelData
+                            width: Math.round(248 * Theme.layoutScale)
+                            height: chapterList.height
+                            focus: chapterList.activeFocus && chapterList.currentIndex === index
+
+                            Keys.onLeftPressed: (event) => {
+                                if (index > 0) {
+                                    chapterList.currentIndex = index - 1
+                                    Qt.callLater(function() {
+                                        if (chapterList.currentItem) chapterList.currentItem.forceActiveFocus()
+                                    })
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
+                                }
+                            }
+
+                            Keys.onRightPressed: (event) => {
+                                if (index + 1 < chapterList.count) {
+                                    chapterList.currentIndex = index + 1
+                                    Qt.callLater(function() {
+                                        if (chapterList.currentItem) chapterList.currentItem.forceActiveFocus()
+                                    })
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
+                                }
+                            }
+
+                            Keys.onUpPressed: (event) => {
+                                episodesList.forceActiveFocus()
+                                event.accepted = true
+                            }
+
+                            Keys.onDownPressed: (event) => {
+                                if (castSection.visible && castList.count > 0) {
+                                    castSection.focusCurrentOrFirst()
+                                    event.accepted = true
+                                } else {
+                                    event.accepted = false
+                                }
+                            }
+
+                            Keys.onReturnPressed: (event) => {
+                                if (!event.isAutoRepeat) {
+                                    startPlayback(false, chapterDelegate, modelData.startPositionTicks || 0)
+                                }
+                                event.accepted = true
+                            }
+                            Keys.onEnterPressed: (event) => {
+                                if (!event.isAutoRepeat) {
+                                    startPlayback(false, chapterDelegate, modelData.startPositionTicks || 0)
+                                }
+                                event.accepted = true
+                            }
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: Theme.radiusMedium
+                                color: Theme.cardBackground
+                                border.width: chapterDelegate.activeFocus ? Theme.buttonFocusBorderWidth : 0
+                                border.color: Theme.accentPrimary
+
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.spacingSmall
+                                    spacing: Theme.spacingSmall
+
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: Math.round(132 * Theme.layoutScale)
+                                        radius: Theme.radiusMedium
+                                        color: Theme.cardBackgroundHover
+                                        clip: true
+
+                                        Image {
+                                            id: chapterThumbnail
+                                            anchors.fill: parent
+                                            source: modelData.thumbnailUrl || ""
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
+                                            visible: source.toString().length > 0 && status === Image.Ready
+                                        }
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            visible: chapterThumbnail.status !== Image.Ready
+                                            text: Icons.movie
+                                            font.family: Theme.fontIcon
+                                            font.pixelSize: Math.round(32 * Theme.layoutScale)
+                                            color: Theme.textSecondary
+                                        }
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: modelData.title || qsTr("Chapter")
+                                        font.pixelSize: Theme.fontSizeBody
+                                        font.family: Theme.fontPrimary
+                                        font.bold: true
+                                        color: Theme.textPrimary
+                                        elide: Text.ElideRight
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: formatChapterTime(modelData.startSeconds || 0)
+                                        font.pixelSize: Theme.fontSizeCaption
+                                        font.family: Theme.fontPrimary
+                                        color: Theme.textSecondary
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                WheelStepScroller {
+                    anchors.fill: parent
+                    target: chapterList
+                    orientation: Qt.Horizontal
+                    stepPx: Math.round(248 * Theme.layoutScale) + Theme.spacingMedium
+                }
+            }
+
+            FocusScope {
                 id: castSection
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
@@ -1920,7 +2180,11 @@ FocusScope {
                             }
 
                             Keys.onUpPressed: {
-                                episodesList.forceActiveFocus()
+                                if (chapterSection.visible && chapterList.count > 0) {
+                                    chapterSection.focusCurrentOrFirst()
+                                } else {
+                                    episodesList.forceActiveFocus()
+                                }
                             }
 
                             Keys.onReturnPressed: (event) => {

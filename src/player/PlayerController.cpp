@@ -332,6 +332,10 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             this, &PlayerController::onItemLibraryResolved);
     connect(m_libraryService, &LibraryService::itemLibraryResolutionFailed,
             this, &PlayerController::onItemLibraryResolutionFailed);
+    connect(m_libraryService, &LibraryService::chaptersLoaded,
+            this, &PlayerController::onChaptersLoaded);
+    connect(m_libraryService, &LibraryService::chaptersFailed,
+            this, &PlayerController::onChaptersFailed);
     
     // Connect to PlaybackService for media segments and trickplay info signals
     connect(m_playbackService, &PlaybackService::playbackInfoLoaded,
@@ -719,6 +723,7 @@ void PlayerController::enterIdleStateImmediate()
     m_contentIsHDR = false;
     m_playMethod = QStringLiteral("DirectPlay");
     clearOverlayMetadata();
+    clearPlaybackChapters();
     setBufferingProgress(0);
     
     // Clear track selection state (but keep m_seriesTrackPreferences)
@@ -1040,6 +1045,7 @@ void PlayerController::onPositionChanged(double seconds)
         m_reportProgressOnNextPositionUpdate = false;
     }
     updateSkipSegmentState();
+    updateCurrentPlaybackChapterIndex();
     if (!qFuzzyCompare(previousPosition + 1.0, aggregatePosition + 1.0)) {
         emit timelineChanged();
     }
@@ -2760,6 +2766,7 @@ void PlayerController::playTestVideo()
         m_hasEvaluatedCompletionForAttempt = false;
         cancelPendingDisplayRestore(true);
         clearPlaybackSegments();
+        clearPlaybackChapters();
         if (!m_currentItemId.isEmpty()) {
             m_currentItemId.clear();
             emit currentItemIdChanged();
@@ -2889,6 +2896,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         emit skipSegmentsChanged();
         emit trickplayStateChanged();
         if (!itemId.isEmpty()) {
+            m_libraryService->getChapters(itemId);
             m_playbackService->getMediaSegments(itemId);
             m_playbackService->getTrickplayInfo(itemId);
         }
@@ -3336,6 +3344,16 @@ void PlayerController::nextChapter()
     if (m_playbackState == Playing || m_playbackState == Paused) {
         m_playerBackend->sendCommand({"add", "chapter", "1"});
     }
+}
+
+void PlayerController::seekToPlaybackChapter(int index)
+{
+    if (index < 0 || index >= m_playbackChapters.size()) {
+        return;
+    }
+    const QVariantMap chapter = m_playbackChapters.at(index).toMap();
+    const double startSeconds = chapter.value(QStringLiteral("startSeconds")).toDouble();
+    seek(startSeconds);
 }
 
 void PlayerController::toggleMute()
@@ -5061,6 +5079,70 @@ void PlayerController::clearOverlayMetadata()
     m_overlayBackdropUrl.clear();
     m_overlayLogoUrl.clear();
     emit overlayMetadataChanged();
+}
+
+void PlayerController::clearPlaybackChapters()
+{
+    const bool hadChapters = !m_playbackChapters.isEmpty();
+    const bool hadCurrentIndex = m_currentPlaybackChapterIndex != -1;
+    m_playbackChapters.clear();
+    m_currentPlaybackChapterIndex = -1;
+    if (hadChapters) {
+        emit playbackChaptersChanged();
+    }
+    if (hadCurrentIndex) {
+        emit currentPlaybackChapterIndexChanged();
+    }
+}
+
+void PlayerController::updateCurrentPlaybackChapterIndex()
+{
+    int nextIndex = -1;
+    for (int index = 0; index < m_playbackChapters.size(); ++index) {
+        const QVariantMap chapter = m_playbackChapters.at(index).toMap();
+        if (chapter.value(QStringLiteral("startSeconds")).toDouble() <= m_currentPosition) {
+            nextIndex = index;
+        } else {
+            break;
+        }
+    }
+    if (nextIndex != m_currentPlaybackChapterIndex) {
+        m_currentPlaybackChapterIndex = nextIndex;
+        emit currentPlaybackChapterIndexChanged();
+    }
+}
+
+void PlayerController::onChaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters)
+{
+    if (itemId != m_currentItemId) {
+        return;
+    }
+
+    QVariantList chapterModels;
+    chapterModels.reserve(chapters.size());
+    qInfo() << "PlayerController: Normalizing playback chapters for item" << itemId
+            << "count" << chapters.size();
+    for (const ChapterInfo &chapter : chapters) {
+        const QString thumbnailUrl = m_libraryService->getCachedChapterThumbnailUrl(
+            itemId, chapter.index, chapter.imageTag, chapter.imagePath);
+        qInfo() << "PlayerController: Playback chapter thumbnail"
+                << "item" << itemId
+                << "index" << chapter.index
+                << "hasThumbnailUrl" << !thumbnailUrl.isEmpty();
+        chapterModels.append(chapter.toVariantMap(thumbnailUrl));
+    }
+
+    m_playbackChapters = chapterModels;
+    updateCurrentPlaybackChapterIndex();
+    emit playbackChaptersChanged();
+}
+
+void PlayerController::onChaptersFailed(const QString &itemId, const QString &error)
+{
+    if (itemId == m_currentItemId) {
+        qDebug() << "PlayerController: Chapter metadata unavailable for item" << itemId << error;
+        clearPlaybackChapters();
+    }
 }
 
 void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<MediaSegmentInfo> &segments)

@@ -11,7 +11,7 @@ Key services
 - `ExternalMpvBackend` — External mpv process/IPC backend adapter (primary rollback path on Linux/non-Windows).
 - `PlayerProcessManager` — Manages external mpv process & IPC (used by `ExternalMpvBackend`).
 - `AuthenticationService` — Login, logout, session persistence, token validation; owns shared `QNetworkAccessManager`.
-- `LibraryService` — Library views/items, series details, search, image/theme-song URLs.
+- `LibraryService` — Library views/items, series details, search, reusable chapter metadata, image/theme-song URLs.
 - `PlaybackService` — Playback reporting, stream info, media segments, trickplay URLs and info.
 - `MediaSegmentProviderService` — Fetches and normalizes external intro/recap/credits/preview markers from configured providers; used by `PlaybackService` after server segment lookup.
 - `SeerrService` — Seerr/Jellyseerr search integration, request-option loading, request submission, and similar-title provider endpoints.
@@ -63,5 +63,6 @@ Note: Avoid tightly coupling multiple services. Prefer small, single-purpose ser
 
 Series/Season detail caching (December 2025)
 - `LibraryService::getSeriesDetails` and `getItems` honor `ETag/If-None-Match` and `If-Modified-Since` when `useCacheValidation=true` (SeriesDetailsViewModel uses this for series + season episode lists). 304 responses are surfaced via `seriesDetailsNotModified` / `itemsNotModified`.
+- `LibraryService::getChapters(itemId)` fetches Jellyfin item `Chapters`, requests chapter image metadata, normalizes missing titles to `Chapter N`, and emits typed chapter data reusable outside playback. `getCachedChapterThumbnailUrl(...)` mirrors the Jellyfin client pattern of requesting `/Items/{itemId}/Images/Chapter/{chapterIndex}` with the chapter image tag when present; the UI keeps a neutral placeholder visible until the image provider reports a ready frame.
 - Series details and season/episode lists are cached in-memory (≈5 min TTL) and on disk under `cache/series` (≈1 hour TTL). Cache is served immediately (SWR) and revalidated in the background; stale data stays visible until refresh completes.
 - Prefetch: when navigating seasons, the view model prefetches the next two seasons' episodes (bounded, cancelable) to reduce focus-to-episodes latency.

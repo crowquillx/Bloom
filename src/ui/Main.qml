@@ -63,7 +63,8 @@ Window {
     readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
     readonly property bool useDetachedPlaybackOverlayWindow: Qt.platform.os === "windows"
     readonly property bool playbackOverlayNavigationActive: embeddedPlaybackActive
-                                                         && activeEmbeddedPlaybackOverlay.fullControlsVisible
+                                                         && (activeEmbeddedPlaybackOverlay.fullControlsVisible
+                                                             || activeEmbeddedPlaybackOverlay.chapterMode)
     readonly property bool playbackSelectorOpen: embeddedPlaybackActive
                                               && activeEmbeddedPlaybackOverlay.selectorOpen
     readonly property bool awaitingUpNextTransition: PlayerController.awaitingNextEpisodeResolution
