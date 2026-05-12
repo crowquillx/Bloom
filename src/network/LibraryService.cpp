@@ -637,11 +637,12 @@ void LibraryService::getChapters(const QString &itemId)
             qInfo() << "LibraryService: Loaded raw chapter array for item" << itemId
                     << "count" << array.size();
             chapters.reserve(array.size());
-            for (const QJsonValue &value : array) {
+            for (qsizetype i = 0; i < array.size(); ++i) {
+                const QJsonValue value = array.at(i);
                 if (!value.isObject()) {
                     continue;
                 }
-                ChapterInfo chapter = ChapterInfo::fromJson(value.toObject(), chapters.size());
+                ChapterInfo chapter = ChapterInfo::fromJson(value.toObject(), i);
                 if (chapter.startPositionTicks < 0) {
                     chapter.startPositionTicks = 0;
                 }
@@ -1253,8 +1254,7 @@ QString LibraryService::getCachedChapterThumbnailUrl(const QString &itemId, int 
             << "item" << itemId
             << "index" << chapterIndex
             << "imageTagEmpty" << imageTag.trimmed().isEmpty()
-            << "imagePathEmpty" << imagePath.trimmed().isEmpty()
-            << "url" << originalUrl;
+            << "imagePathEmpty" << imagePath.trimmed().isEmpty();
     return cachedUrl;
 }
 

@@ -5133,8 +5133,8 @@ void PlayerController::onChaptersLoaded(const QString &itemId, const QList<Chapt
     }
 
     m_playbackChapters = chapterModels;
-    emit playbackChaptersChanged();
     updateCurrentPlaybackChapterIndex();
+    emit playbackChaptersChanged();
 }
 
 void PlayerController::onChaptersFailed(const QString &itemId, const QString &error)

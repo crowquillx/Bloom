@@ -409,6 +409,10 @@ FocusScope {
                 return true
             }
             if (direction === "left") {
+                var leftChapters = PlayerController.playbackChapters
+                if (!leftChapters || !leftChapters.length) {
+                    return true
+                }
                 if (focusedChapterIndex > 0) {
                     focusedChapterIndex--
                     chapterList.currentIndex = focusedChapterIndex
@@ -418,7 +422,11 @@ FocusScope {
                 return true
             }
             if (direction === "right") {
-                if (focusedChapterIndex < PlayerController.playbackChapters.length - 1) {
+                var rightChapters = PlayerController.playbackChapters
+                if (!rightChapters || !rightChapters.length) {
+                    return true
+                }
+                if (focusedChapterIndex < rightChapters.length - 1) {
                     focusedChapterIndex++
                     chapterList.currentIndex = focusedChapterIndex
                     chapterList.positionViewAtIndex(focusedChapterIndex, ListView.Contain)
