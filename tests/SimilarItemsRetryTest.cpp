@@ -77,6 +77,35 @@ public:
     QStringList clearItemCacheValidationCalls;
 };
 
+class EpisodeChaptersLibraryService : public LibraryService
+{
+    Q_OBJECT
+
+public:
+    explicit EpisodeChaptersLibraryService(QObject *parent = nullptr)
+        : LibraryService(nullptr, parent)
+    {
+    }
+
+    void getChapters(const QString &itemId) override
+    {
+        requests.append(itemId);
+    }
+
+    QString getCachedChapterThumbnailUrl(const QString &itemId,
+                                         int chapterIndex,
+                                         const QString &imageTag,
+                                         const QString &imagePath,
+                                         int width) override
+    {
+        Q_UNUSED(imageTag)
+        Q_UNUSED(imagePath)
+        return QStringLiteral("chapter://%1/%2/%3").arg(itemId).arg(chapterIndex).arg(width);
+    }
+
+    QStringList requests;
+};
+
 class SimilarItemsRetryTest : public QObject
 {
     Q_OBJECT
@@ -89,6 +118,8 @@ private slots:
     void seriesEpisodeDetailsFailureIsTargeted();
     void seriesEpisodeDetailsNotModifiedRetriesOnce();
     void seriesEpisodeDetailsIgnoreForeignTokens();
+    void seriesEpisodeChaptersLoadNormalizeCacheAndIgnoreStale();
+    void seriesEpisodeChaptersFailureClearsVisibleState();
     void mockLibraryServiceTracksItemCacheInvalidation();
 
 private:
@@ -210,6 +241,63 @@ void SimilarItemsRetryTest::seriesEpisodeDetailsIgnoreForeignTokens()
     QVERIFY(secondVm.focusedEpisodeDetails().isEmpty());
     QVERIFY(secondVm.focusedEpisodeDetailsLoading());
     QVERIFY(secondVm.m_pendingEpisodeDetailIds.contains(QStringLiteral("shared-episode")));
+}
+
+void SimilarItemsRetryTest::seriesEpisodeChaptersLoadNormalizeCacheAndIgnoreStale()
+{
+    ServiceLocator::clear();
+    auto *service = new EpisodeChaptersLibraryService(this);
+    ServiceLocator::registerService<LibraryService>(service);
+
+    SeriesDetailsViewModel vm;
+    vm.loadFocusedEpisodeChapters(QStringLiteral("ep-1"));
+    QCOMPARE(service->requests, QStringList{QStringLiteral("ep-1")});
+    QVERIFY(vm.focusedEpisodeChaptersLoading());
+
+    vm.loadFocusedEpisodeChapters(QStringLiteral("ep-2"));
+    QCOMPARE(service->requests, QStringList({QStringLiteral("ep-1"), QStringLiteral("ep-2")}));
+
+    ChapterInfo first;
+    first.index = 0;
+    first.title = QStringLiteral("Cold Open");
+    first.startPositionTicks = 1234;
+    first.imageTag = QStringLiteral("tag");
+    emit service->chaptersLoaded(QStringLiteral("ep-1"), QList<ChapterInfo>{first});
+    QVERIFY(vm.focusedEpisodeChapters().isEmpty());
+
+    ChapterInfo second;
+    second.index = 1;
+    second.title = QStringLiteral("Act One");
+    second.startPositionTicks = 9876;
+    second.imagePath = QStringLiteral("/Images/Chapter/1");
+    emit service->chaptersLoaded(QStringLiteral("ep-2"), QList<ChapterInfo>{second});
+
+    QCOMPARE(vm.focusedEpisodeChapters().size(), 1);
+    const QVariantMap chapter = vm.focusedEpisodeChapters().first().toMap();
+    QCOMPARE(chapter.value(QStringLiteral("title")).toString(), QStringLiteral("Act One"));
+    QCOMPARE(chapter.value(QStringLiteral("startPositionTicks")).toLongLong(), 9876LL);
+    QCOMPARE(chapter.value(QStringLiteral("thumbnailUrl")).toString(),
+             QStringLiteral("chapter://ep-2/1/480"));
+    QVERIFY(!vm.focusedEpisodeChaptersLoading());
+
+    vm.loadFocusedEpisodeChapters(QStringLiteral("ep-1"));
+    QCOMPARE(service->requests.size(), 2);
+    QCOMPARE(vm.focusedEpisodeChapters().first().toMap().value(QStringLiteral("title")).toString(),
+             QStringLiteral("Cold Open"));
+}
+
+void SimilarItemsRetryTest::seriesEpisodeChaptersFailureClearsVisibleState()
+{
+    ServiceLocator::clear();
+    auto *service = new EpisodeChaptersLibraryService(this);
+    ServiceLocator::registerService<LibraryService>(service);
+
+    SeriesDetailsViewModel vm;
+    vm.loadFocusedEpisodeChapters(QStringLiteral("ep-9"));
+    emit service->chaptersFailed(QStringLiteral("ep-9"), QStringLiteral("network"));
+
+    QVERIFY(vm.focusedEpisodeChapters().isEmpty());
+    QVERIFY(!vm.focusedEpisodeChaptersLoading());
 }
 
 void SimilarItemsRetryTest::mockLibraryServiceTracksItemCacheInvalidation()

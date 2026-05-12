@@ -441,7 +441,7 @@ A `Connections` block on `ResponsiveLayoutManager.onBreakpointChanged` saves the
 
 ## SeriesSeasonEpisodeView Responsive Layout
 
-[`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) uses the responsive layout system for the episode browsing experience with seasons tabs, episode thumbnails, metadata, action buttons, and audio/subtitle track selection.
+[`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) uses the responsive layout system for the episode browsing experience with seasons tabs, episode thumbnails, the selected-episode `Chapters` shelf, cast metadata, action buttons, and audio/subtitle track selection.
 
 ### Token usage
 
@@ -452,6 +452,7 @@ A `Connections` block on `ResponsiveLayoutManager.onBreakpointChanged` saves the
 | Series logo / name | Max height uses `Math.round(180 * Theme.layoutScale)` with viewport-relative capping |
 | Episode metadata typography | `Theme.fontSizeHeader`, `Theme.fontSizeBody`, `Theme.fontSizeCaption` |
 | Episode thumbnail delegate | Margins/spacing via `Theme.spacingSmall`, `Math.round(2 * Theme.layoutScale)` |
+| Chapter rail cards | Existing card/background/radius tokens, `Theme.spacingSmall`/`Theme.spacingMedium`, and focus border tokens |
 | Focus border width | `Theme.buttonFocusBorderWidth` |
 | Played indicator icon | `Theme.fontSizeIcon` |
 | Read More button | Height/width via `Math.round(N * Theme.layoutScale)` |

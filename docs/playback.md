@@ -129,6 +129,8 @@ Track Preference Persistence
 - When navigating to a new episode in the same season, explicit preferences are restored. If they are missing or invalid for the new source, Bloom falls back through the standard resolution order.
 - Use `PlayerController.getLastAudioTrackForSeason(seasonId)` and `getLastSubtitleTrackForSeason(seasonId)` to retrieve.
 - Use `PlayerController.setExplicitSeasonAudioPreference(seasonId, index)` and `setExplicitSeasonSubtitlePreference(seasonId, index)` to save.
+- `SeriesSeasonEpisodeView` preloads Jellyfin chapter metadata for the highlighted episode and inserts a contextual `Chapters` rail between `Episodes` and `Cast & Crew` when chapter data exists.
+- Activating a chapter card reuses the normal episode playback request, including track preference/version-prompt handling, but sets `startPositionTicks` to that chapter’s start tick so playback begins at the selected chapter.
 
 ### Movies (Per-Movie)
 - Preferences are stored by movie ID for rewatches.
