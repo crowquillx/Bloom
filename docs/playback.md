@@ -202,6 +202,9 @@ UI Components for Track Selection
   - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
   - Escape first dismisses visible playback chrome (full controls, seek preview, skip-intro popup, or open track/volume panels); a second Escape stops playback when the overlay is already hidden. The header back control exits playback immediately while controls are visible.
   - Trickplay preview bubble: renders processed Jellyfin trickplay thumbnails from `PlayerController` and is hidden entirely when trickplay images are unavailable.
+  - Chapter mode: `Down` enters a Jellyfin-backed horizontal chapter rail when the active item exposes `Chapters`; `Up` returns to transport controls and `Escape`/`Back` hides the overlay. `Left`/`Right` browse chapter cards, while `Enter`/`Space` seeks to the focused chapter and keeps the rail open until normal inactivity dismissal.
+  - Chapter cards use the item chapter thumbnail when Jellyfin provides usable chapter image metadata. Missing chapter artwork renders a neutral themed placeholder tile instead of reusing episode/poster artwork.
+  - Chapter thumbnail diagnostics are logged during playback chapter normalization: loaded chapter metadata, generated Jellyfin chapter-image URLs, and image-cache transport/decode failures. These logs are intended for server/client compatibility debugging when the rail falls back to placeholders.
   - Intro/outro skip UX: transient "Skip Intro"/"Skip Credits" pop-up button auto-focuses when a segment window starts, then a compact persistent skip button remains available until that segment ends.
     - Popup timing is controlled by `ConfigManager.skipButtonAutoHideSeconds` (`settings.playback.skip_button_auto_hide_seconds`, range 0-120; 0 disables popup only). The popup is still dismissed as soon as the active intro/outro segment ends.
     - Optional automatic skip is controlled by `ConfigManager.autoSkipIntro` and `ConfigManager.autoSkipOutro`; each auto-skip applies at most once per playback item even if the user seeks back.
@@ -212,6 +215,7 @@ Playback overlay metadata
 - `PlayerController` exposes `overlayTitle`, `overlaySubtitle`, `overlayBackdropUrl`, and `overlayLogoUrl` for the native overlay (header, buffering card, and backdrop).
 - Optional `overlayLogoUrl` is a Jellyfin logo image URL (typically the `image://cached/...` form from `LibraryService::getCachedImageUrlWithWidth`). `EmbeddedPlaybackOverlay.qml` shows the logo when the URL is non-empty and the image reaches `Image.Ready`; on load failure (`Image.Error`) or when the URL is empty, the overlay falls back to `overlayTitle` text.
 - When a logo is present, the overlay metadata block keeps `overlaySubtitle` visually centered beneath it in both the buffering card and the active playback header; text fallbacks use a heavier weight for readability.
+- `PlayerController` also exposes normalized playback chapters, the currently playing chapter index derived from live playback position, and a seek-by-chapter action. Focused rail selection remains local UI state so playback progress never steals navigation focus while browsing.
 - Detail views set metadata before playback starts:
   - Movies: title + production year.
   - Episodes: series title + `Sxx Exx - Episode Name`.

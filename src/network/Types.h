@@ -114,6 +114,35 @@ public:
 };
 
 // ============================================================================
+// Chapters
+// ============================================================================
+
+struct ChapterInfo
+{
+    Q_GADGET
+    Q_PROPERTY(QString title MEMBER title)
+    Q_PROPERTY(qint64 startPositionTicks MEMBER startPositionTicks)
+    Q_PROPERTY(QString imageTag MEMBER imageTag)
+    Q_PROPERTY(QString imagePath MEMBER imagePath)
+    Q_PROPERTY(int index MEMBER index)
+
+public:
+    QString title;
+    qint64 startPositionTicks = 0;
+    QString imageTag;
+    QString imagePath;
+    int index = -1;
+
+    [[nodiscard]] static ChapterInfo fromJson(const QJsonObject &json, int chapterIndex);
+    [[nodiscard]] QVariantMap toVariantMap(const QString &thumbnailUrl = QString()) const;
+    [[nodiscard]] constexpr double startSeconds() const
+    {
+        return static_cast<double>(startPositionTicks) / 10000000.0;
+    }
+    [[nodiscard]] bool hasUsableImage() const { return !imageTag.trimmed().isEmpty() || !imagePath.trimmed().isEmpty(); }
+};
+
+// ============================================================================
 // Media Segments / Trickplay
 // ============================================================================
 
@@ -262,7 +291,9 @@ using TrickplayTileInfoMap = QMap<int, TrickplayTileInfo>;
 Q_DECLARE_METATYPE(MediaStreamInfo)
 Q_DECLARE_METATYPE(MediaSourceInfo)
 Q_DECLARE_METATYPE(PlaybackInfoResponse)
+Q_DECLARE_METATYPE(ChapterInfo)
 Q_DECLARE_METATYPE(MediaSegmentInfo)
 Q_DECLARE_METATYPE(TrickplayTileInfo)
 Q_DECLARE_METATYPE(QList<MediaSegmentInfo>)
+Q_DECLARE_METATYPE(QList<ChapterInfo>)
 Q_DECLARE_METATYPE(TrickplayTileInfoMap)

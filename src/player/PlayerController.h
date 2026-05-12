@@ -89,6 +89,9 @@ class PlayerController : public QObject
     Q_PROPERTY(QString overlaySubtitle READ overlaySubtitle NOTIFY overlayMetadataChanged)
     Q_PROPERTY(QString overlayBackdropUrl READ overlayBackdropUrl NOTIFY overlayMetadataChanged)
     Q_PROPERTY(QString overlayLogoUrl READ overlayLogoUrl NOTIFY overlayMetadataChanged)
+    Q_PROPERTY(QVariantList playbackChapters READ playbackChapters NOTIFY playbackChaptersChanged)
+    Q_PROPERTY(bool hasPlaybackChapters READ hasPlaybackChapters NOTIFY playbackChaptersChanged)
+    Q_PROPERTY(int currentPlaybackChapterIndex READ currentPlaybackChapterIndex NOTIFY currentPlaybackChapterIndexChanged)
     
     // Track selection properties
     Q_PROPERTY(int selectedAudioTrack READ selectedAudioTrack WRITE setSelectedAudioTrack NOTIFY selectedAudioTrackChanged)
@@ -199,6 +202,9 @@ public:
     QString overlaySubtitle() const { return m_overlaySubtitle; }
     QString overlayBackdropUrl() const { return m_overlayBackdropUrl; }
     QString overlayLogoUrl() const { return m_overlayLogoUrl; }
+    QVariantList playbackChapters() const { return m_playbackChapters; }
+    bool hasPlaybackChapters() const { return !m_playbackChapters.isEmpty(); }
+    int currentPlaybackChapterIndex() const { return m_currentPlaybackChapterIndex; }
     Q_INVOKABLE void setAudioDelay(int ms);
     Q_INVOKABLE bool attachEmbeddedVideoTarget(QObject *target);
     Q_INVOKABLE void detachEmbeddedVideoTarget(QObject *target = nullptr);
@@ -270,6 +276,7 @@ public:
     Q_INVOKABLE void cycleSubtitleTrack();
     Q_INVOKABLE void previousChapter();
     Q_INVOKABLE void nextChapter();
+    Q_INVOKABLE void seekToPlaybackChapter(int index);
     Q_INVOKABLE void toggleMute();
     Q_INVOKABLE void setMuted(bool muted);
     Q_INVOKABLE void setVolume(int volume);
@@ -329,6 +336,8 @@ signals:
     void trickplayPreviewChanged();
     void currentItemIdChanged();
     void overlayMetadataChanged();
+    void playbackChaptersChanged();
+    void currentPlaybackChapterIndexChanged();
     
     // Track selection signals
     void selectedAudioTrackChanged();
@@ -389,6 +398,8 @@ private slots:
     void onScriptMessage(const QString &messageName, const QStringList &args);
     void onMediaSegmentsLoaded(const QString &itemId, const QList<MediaSegmentInfo> &segments);
     void onTrickplayInfoLoaded(const QString &itemId, const QMap<int, TrickplayTileInfo> &trickplayInfo);
+    void onChaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
+    void onChaptersFailed(const QString &itemId, const QString &error);
     
     // TrickplayProcessor handlers
     void onTrickplayProcessingComplete(const QString &itemId, int count, int intervalMs,
@@ -507,6 +518,8 @@ private:
      * Re-evaluate and update flags that indicate whether the player is currently inside intro/outro or other skip segments.
      */
     void updateSkipSegmentState();
+    void updateCurrentPlaybackChapterIndex();
+    void clearPlaybackChapters();
     /**
      * Seek to the end boundary of the specified media segment type (e.g., intro or outro).
      * @param segmentType Type of media segment whose end should be sought.
@@ -832,6 +845,8 @@ private:
     QString m_overlaySubtitle;
     QString m_overlayBackdropUrl;
     QString m_overlayLogoUrl;
+    QVariantList m_playbackChapters;
+    int m_currentPlaybackChapterIndex = -1;
     
     // OSC and trickplay data
     QList<MediaSegmentInfo> m_currentSegments;

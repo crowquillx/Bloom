@@ -25,6 +25,12 @@ QString buildItemEndpoint(const QString &userId, const QString &itemId)
         .arg(userId, itemId, kItemFields.join(","));
 }
 
+QString buildChaptersEndpoint(const QString &userId, const QString &itemId)
+{
+    return QString("/Users/%1/Items/%2?Fields=Chapters&EnableImages=true&EnableImageTypes=Chapter&ImageTypeLimit=100")
+        .arg(userId, itemId);
+}
+
 }
 
 LibraryService::LibraryService(AuthenticationService *authService, QObject *parent)
@@ -601,6 +607,60 @@ void LibraryService::clearItemCacheValidation(const QString &itemId)
     m_lastModified.remove(endpoint);
 }
 
+void LibraryService::getChapters(const QString &itemId)
+{
+    if (!m_authService->isAuthenticated()) {
+        emit chaptersFailed(itemId, tr("Not authenticated"));
+        return;
+    }
+    if (itemId.isEmpty()) {
+        emit chaptersFailed(itemId, tr("Item ID is empty"));
+        return;
+    }
+
+    const QString endpoint = buildChaptersEndpoint(m_authService->getUserId(), itemId);
+    sendRequestWithRetry(endpoint,
+        [this, endpoint]() {
+            QNetworkRequest request = m_authService->createRequest(endpoint);
+            return m_authService->networkManager()->get(request);
+        },
+        [this, itemId](QNetworkReply *reply) {
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (!doc.isObject()) {
+                qWarning() << "LibraryService: Invalid chapter response for item" << itemId;
+                emit chaptersFailed(itemId, tr("Invalid chapter response"));
+                return;
+            }
+
+            QList<ChapterInfo> chapters;
+            const QJsonArray array = doc.object().value(QStringLiteral("Chapters")).toArray();
+            qInfo() << "LibraryService: Loaded raw chapter array for item" << itemId
+                    << "count" << array.size();
+            chapters.reserve(array.size());
+            for (const QJsonValue &value : array) {
+                if (!value.isObject()) {
+                    continue;
+                }
+                ChapterInfo chapter = ChapterInfo::fromJson(value.toObject(), chapters.size());
+                if (chapter.startPositionTicks < 0) {
+                    chapter.startPositionTicks = 0;
+                }
+                qInfo() << "LibraryService: Chapter metadata"
+                        << "item" << itemId
+                        << "index" << chapter.index
+                        << "title" << chapter.title
+                        << "ticks" << chapter.startPositionTicks
+                        << "imageTagEmpty" << chapter.imageTag.isEmpty()
+                        << "imagePathEmpty" << chapter.imagePath.isEmpty();
+                chapters.append(chapter);
+            }
+            emit chaptersLoaded(itemId, chapters);
+        },
+        [this, itemId](const NetworkError &error) {
+            emit chaptersFailed(itemId, error.userMessage);
+        });
+}
+
 void LibraryService::resolveLibraryForItem(const QString &itemId)
 {
     if (!m_authService->isAuthenticated()) {
@@ -1165,6 +1225,37 @@ QString LibraryService::getCachedImageUrlWithWidth(const QString &itemId, const 
 {
     QString originalUrl = getImageUrlWithWidth(itemId, imageType, width);
     return QString("image://cached/%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(originalUrl)));
+}
+
+QString LibraryService::getCachedChapterThumbnailUrl(const QString &itemId, int chapterIndex, const QString &imageTag, const QString &imagePath, int width)
+{
+    if (itemId.isEmpty() || chapterIndex < 0) {
+        qWarning() << "LibraryService: Refusing chapter thumbnail URL"
+                   << "item" << itemId
+                   << "index" << chapterIndex;
+        return QString();
+    }
+    if (width <= 0) {
+        width = 480;
+    }
+
+    QString originalUrl = QString("%1/Items/%2/Images/Chapter/%3?maxWidth=%4&api_key=%5")
+        .arg(m_authService->getServerUrl(),
+             itemId,
+             QString::number(chapterIndex),
+             QString::number(width),
+             m_authService->getAccessToken());
+    if (!imageTag.trimmed().isEmpty()) {
+        originalUrl += QString("&tag=%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(imageTag)));
+    }
+    const QString cachedUrl = QString("image://cached/%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(originalUrl)));
+    qInfo() << "LibraryService: Chapter thumbnail request"
+            << "item" << itemId
+            << "index" << chapterIndex
+            << "imageTagEmpty" << imageTag.trimmed().isEmpty()
+            << "imagePathEmpty" << imagePath.trimmed().isEmpty()
+            << "url" << originalUrl;
+    return cachedUrl;
 }
 
 QNetworkReply* LibraryService::pingServer()

@@ -59,6 +59,7 @@ public:
     // Generic Item Details
     Q_INVOKABLE virtual void getItem(const QString &itemId);
     virtual void getItem(const QString &itemId, const QString &requestContext);
+    Q_INVOKABLE virtual void getChapters(const QString &itemId);
     virtual void clearItemCacheValidation(const QString &itemId);
     Q_INVOKABLE virtual void resolveLibraryForItem(const QString &itemId);
 
@@ -89,6 +90,7 @@ public:
     Q_INVOKABLE virtual QString getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
     Q_INVOKABLE virtual QString getCachedImageUrl(const QString &itemId, const QString &imageType);
     Q_INVOKABLE virtual QString getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
+    Q_INVOKABLE virtual QString getCachedChapterThumbnailUrl(const QString &itemId, int chapterIndex, const QString &imageTag, const QString &imagePath = QString(), int width = 480);
 
     QNetworkReply* pingServer();
 
@@ -107,6 +109,8 @@ signals:
     void itemNotModified(const QString &itemId, const QString &requestContext);
     void itemFailed(const QString &itemId, const QString &error, const QString &requestContext);
     void itemUserDataChanged(const QString &itemId, const QJsonObject &userData);
+    void chaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
+    void chaptersFailed(const QString &itemId, const QString &error);
 
     void nextUpLoaded(const QJsonArray &items);
     void latestMediaLoaded(const QString &parentId, const QJsonArray &items);

@@ -34,11 +34,13 @@ FocusScope {
     property bool controlsVisible: false
     property bool seekPreviewActive: false
     property bool seekOnlyMode: false
+    property bool chapterMode: false
+    property int focusedChapterIndex: -1
     property bool audioSelectorOpen: false
     property bool subtitleSelectorOpen: false
     property bool volumeSelectorOpen: false
     readonly property bool selectorOpen: audioSelectorOpen || subtitleSelectorOpen || volumeSelectorOpen
-    readonly property bool fullControlsVisible: controlsVisible && !seekOnlyMode
+    readonly property bool fullControlsVisible: controlsVisible && !seekOnlyMode && !chapterMode
     property bool hasPrimedPointerPosition: false
     property real lastPointerY: -1
     readonly property bool introSegmentActive: PlayerController.isInIntroSegment
@@ -60,7 +62,7 @@ FocusScope {
     property int seekPreviewHoldMs: 1800
     property int sideRailWidth: Math.round(300 * Theme.layoutScale)
     property real controlsSlideDistance: Math.round(28 * Theme.layoutScale)
-    property real topControlsOffset: fullControlsVisible ? 0 : -controlsSlideDistance
+    property real topControlsOffset: controlsVisible && !seekOnlyMode ? 0 : -controlsSlideDistance
     property real bottomControlsOffset: controlsVisible ? 0 : controlsSlideDistance
     default property alias overlayContent: overlayRoot.data
 
@@ -129,11 +131,34 @@ FocusScope {
         }
         controlsVisible = true
         seekOnlyMode = false
+        chapterMode = false
         if (paused || seekPreviewActive || selectorOpen) {
             hideTimer.stop()
         } else {
             hideTimer.restart()
         }
+    }
+
+    function enterChapterMode() {
+        if (!overlayActive || !PlayerController.hasPlaybackChapters) {
+            return false
+        }
+        controlsVisible = true
+        seekOnlyMode = false
+        chapterMode = true
+        focusedChapterIndex = PlayerController.currentPlaybackChapterIndex >= 0
+                            ? PlayerController.currentPlaybackChapterIndex
+                            : 0
+        hideTimer.restart()
+        Qt.callLater(function() {
+            chapterList.currentIndex = focusedChapterIndex
+            chapterList.positionViewAtIndex(focusedChapterIndex, ListView.Contain)
+            chapterList.forceActiveFocus(Qt.ShortcutFocusReason)
+            if (chapterList.currentItem) {
+                chapterList.currentItem.forceActiveFocus(Qt.ShortcutFocusReason)
+            }
+        })
+        return true
     }
 
     function activateOverlayFocus() {
@@ -321,6 +346,7 @@ FocusScope {
             seekPreviewActive = false
             controlsVisible = false
             seekOnlyMode = false
+            chapterMode = false
             Qt.callLater(function() { root.suppressSkipPopupReshow = false })
             return true
         }
@@ -373,7 +399,39 @@ FocusScope {
             }
         }
 
+        if (chapterMode) {
+            if (direction === "up") {
+                showControls()
+                focusControl(playPauseButton)
+                return true
+            }
+            if (direction === "down") {
+                return true
+            }
+            if (direction === "left") {
+                if (focusedChapterIndex > 0) {
+                    focusedChapterIndex--
+                    chapterList.currentIndex = focusedChapterIndex
+                    chapterList.positionViewAtIndex(focusedChapterIndex, ListView.Contain)
+                    hideTimer.restart()
+                }
+                return true
+            }
+            if (direction === "right") {
+                if (focusedChapterIndex < PlayerController.playbackChapters.length - 1) {
+                    focusedChapterIndex++
+                    chapterList.currentIndex = focusedChapterIndex
+                    chapterList.positionViewAtIndex(focusedChapterIndex, ListView.Contain)
+                    hideTimer.restart()
+                }
+                return true
+            }
+        }
+
         if (!fullControlsVisible) {
+            if (direction === "down" && PlayerController.hasPlaybackChapters) {
+                return enterChapterMode()
+            }
             showControls()
             focusControl(playPauseButton)
             return true
@@ -401,6 +459,9 @@ FocusScope {
         }
 
         if (direction === "down") {
+            if (PlayerController.hasPlaybackChapters) {
+                return enterChapterMode()
+            }
             if (active === backButton || active === progressFocus) {
                 focusControl(playPauseButton)
             }
@@ -469,6 +530,7 @@ FocusScope {
         }
         controlsVisible = false
         seekOnlyMode = false
+        chapterMode = false
     }
 
     onOverlayActiveChanged: {
@@ -477,6 +539,7 @@ FocusScope {
             seekPreviewTimer.stop()
             controlsVisible = false
             seekOnlyMode = false
+            chapterMode = false
             hasPrimedPointerPosition = false
             lastPointerY = -1
             showSkipPopupIfEligible()
@@ -490,6 +553,7 @@ FocusScope {
             controlsVisible = false
             seekPreviewActive = false
             seekOnlyMode = false
+            chapterMode = false
             skipPopupVisible = false
             skipPopupSegmentType = ""
             skipPopupWindowEndEpochMs = 0
@@ -780,7 +844,7 @@ FocusScope {
         anchors.right: parent.right
         height: Math.round(150 * Theme.layoutScale)
         visible: !root.buffering
-        opacity: root.fullControlsVisible ? 1.0 : 0.0
+        opacity: root.controlsVisible && !root.seekOnlyMode ? 1.0 : 0.0
         gradient: Gradient {
             GradientStop { position: 0.0; color: Qt.rgba(Theme.playbackOverlayTopTint.r, Theme.playbackOverlayTopTint.g, Theme.playbackOverlayTopTint.b, 0.70) }
             GradientStop { position: 1.0; color: "transparent" }
@@ -796,10 +860,10 @@ FocusScope {
         anchors.right: parent.right
         height: Math.round(300 * Theme.layoutScale)
         visible: !root.buffering
-        opacity: root.fullControlsVisible ? 1.0 : 0.0
+        opacity: root.controlsVisible && !root.seekOnlyMode ? 1.0 : 0.0
         gradient: Gradient {
             GradientStop { position: 0.0; color: "transparent" }
-            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.60) }
+            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, root.chapterMode ? 0.68 : 0.60) }
         }
         Behavior on opacity {
             NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
@@ -1060,8 +1124,8 @@ FocusScope {
             anchors.topMargin: Math.round(56 * Theme.layoutScale) + root.topControlsOffset
             anchors.leftMargin: Math.round(64 * Theme.layoutScale)
             spacing: Math.round(32 * Theme.layoutScale)
-            opacity: root.fullControlsVisible ? 1.0 : 0.0
-            enabled: root.fullControlsVisible
+            opacity: root.controlsVisible && !root.seekOnlyMode ? 1.0 : 0.0
+            enabled: root.controlsVisible && !root.seekOnlyMode
             Behavior on opacity {
                 NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
             }
@@ -1148,7 +1212,205 @@ FocusScope {
                         fontLetterSpacing: 0.15
                         textStyle: Text.Outline
                         textStyleColor: Qt.rgba(0, 0, 0, 0.92)
-                        active: root.fullControlsVisible
+                        active: root.controlsVisible && !root.seekOnlyMode
+                    }
+                }
+            }
+        }
+
+        Item {
+            id: chapterRailPanel
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: Math.round(64 * Theme.layoutScale)
+            anchors.rightMargin: Math.round(64 * Theme.layoutScale)
+            anchors.bottomMargin: Math.round(64 * Theme.layoutScale) - root.bottomControlsOffset
+            height: Math.round(292 * Theme.layoutScale)
+            visible: root.controlsVisible && root.chapterMode
+            opacity: visible ? 1.0 : 0.0
+
+            ListView {
+                id: chapterList
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Math.round(10 * Theme.layoutScale)
+                height: Math.round(268 * Theme.layoutScale)
+                orientation: ListView.Horizontal
+                spacing: Math.round(16 * Theme.layoutScale)
+                clip: true
+                model: PlayerController.playbackChapters
+                currentIndex: root.focusedChapterIndex
+                activeFocusOnTab: true
+                focus: root.chapterMode
+                Keys.onUpPressed: function(event) {
+                    event.accepted = true
+                    root.handleDirectionalKey("up")
+                }
+                Keys.onDownPressed: function(event) {
+                    event.accepted = true
+                    root.handleDirectionalKey("down")
+                }
+                Keys.onReturnPressed: function(event) { event.accepted = true; PlayerController.seekToPlaybackChapter(root.focusedChapterIndex); hideTimer.restart() }
+                Keys.onEnterPressed: function(event) { event.accepted = true; PlayerController.seekToPlaybackChapter(root.focusedChapterIndex); hideTimer.restart() }
+                Keys.onSpacePressed: function(event) { event.accepted = true; PlayerController.seekToPlaybackChapter(root.focusedChapterIndex); hideTimer.restart() }
+                onCurrentIndexChanged: {
+                    if (activeFocus && currentIndex >= 0) {
+                        root.focusedChapterIndex = currentIndex
+                        positionViewAtIndex(currentIndex, ListView.Contain)
+                    }
+                }
+
+                delegate: FocusScope {
+                    id: chapterDelegate
+                    required property var modelData
+                    required property int index
+                    width: Math.round(292 * Theme.layoutScale)
+                    height: chapterList.height
+                    focus: chapterList.activeFocus && chapterList.currentIndex === index
+
+                    Keys.onLeftPressed: function(event) {
+                        if (index > 0) {
+                            chapterList.currentIndex = index - 1
+                            root.focusedChapterIndex = chapterList.currentIndex
+                            Qt.callLater(function() {
+                                if (chapterList.currentItem) {
+                                    chapterList.currentItem.forceActiveFocus(Qt.ShortcutFocusReason)
+                                }
+                            })
+                            event.accepted = true
+                        } else {
+                            event.accepted = false
+                        }
+                    }
+
+                    Keys.onRightPressed: function(event) {
+                        if (index + 1 < chapterList.count) {
+                            chapterList.currentIndex = index + 1
+                            root.focusedChapterIndex = chapterList.currentIndex
+                            Qt.callLater(function() {
+                                if (chapterList.currentItem) {
+                                    chapterList.currentItem.forceActiveFocus(Qt.ShortcutFocusReason)
+                                }
+                            })
+                            event.accepted = true
+                        } else {
+                            event.accepted = false
+                        }
+                    }
+
+                    Keys.onUpPressed: function(event) {
+                        event.accepted = true
+                        root.handleDirectionalKey("up")
+                    }
+
+                    Keys.onDownPressed: function(event) {
+                        event.accepted = true
+                    }
+
+                    Keys.onReturnPressed: function(event) {
+                        event.accepted = true
+                        PlayerController.seekToPlaybackChapter(index)
+                        hideTimer.restart()
+                    }
+
+                    Keys.onEnterPressed: function(event) {
+                        event.accepted = true
+                        PlayerController.seekToPlaybackChapter(index)
+                        hideTimer.restart()
+                    }
+
+                    Keys.onSpacePressed: function(event) {
+                        event.accepted = true
+                        PlayerController.seekToPlaybackChapter(index)
+                        hideTimer.restart()
+                    }
+
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            chapterList.currentIndex = index
+                            root.focusedChapterIndex = index
+                        }
+                    }
+
+                    Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: Math.round(248 * Theme.layoutScale)
+                        radius: Theme.radiusLarge
+                        color: index === root.focusedChapterIndex
+                               ? Theme.playbackControlGlassBackgroundHover
+                               : Theme.playbackControlGlassBackground
+                        border.width: index === root.focusedChapterIndex ? Theme.buttonFocusBorderWidth : 1
+                        border.color: index === root.focusedChapterIndex ? Theme.focusBorder : Theme.playbackControlGlassBorder
+                        layer.enabled: true
+                        layer.effect: MultiEffect {
+                            blurEnabled: true
+                            blurMax: 24
+                            blur: 0.24
+                        }
+
+                        Column {
+                            anchors.fill: parent
+                            anchors.margins: Math.round(12 * Theme.layoutScale)
+                            spacing: Math.round(8 * Theme.layoutScale)
+
+                            Rectangle {
+                                width: parent.width
+                                height: Math.round(148 * Theme.layoutScale)
+                                radius: Theme.radiusMedium
+                                color: Qt.rgba(0, 0, 0, 0.30)
+                                border.width: 1
+                                border.color: Qt.rgba(1, 1, 1, 0.10)
+                                clip: true
+
+                                Image {
+                                    id: chapterThumbnail
+                                    anchors.fill: parent
+                                    source: modelData.thumbnailUrl || ""
+                                    fillMode: Image.PreserveAspectCrop
+                                    asynchronous: true
+                                    visible: source.toString().length > 0 && status === Image.Ready
+                                }
+                                Text {
+                                    anchors.centerIn: parent
+                                    visible: chapterThumbnail.status !== Image.Ready
+                                    text: Icons.movie
+                                    font.family: Theme.fontIcon
+                                    font.pixelSize: Math.round(40 * Theme.layoutScale)
+                                    color: Theme.playbackTimeSecondary
+                                }
+                                Rectangle {
+                                    anchors.top: parent.top
+                                    anchors.right: parent.right
+                                    anchors.margins: Math.round(10 * Theme.layoutScale)
+                                    width: Math.round(14 * Theme.layoutScale)
+                                    height: width
+                                    radius: width / 2
+                                    color: Theme.playbackProgressFill
+                                    visible: index === PlayerController.currentPlaybackChapterIndex
+                                }
+                            }
+
+                            Text {
+                                width: parent.width
+                                text: modelData.title
+                                color: Theme.playbackTimePrimary
+                                font.family: Theme.fontPrimary
+                                font.pixelSize: Math.round(19 * Theme.layoutScale)
+                                font.weight: Font.DemiBold
+                                elide: Text.ElideRight
+                            }
+                            Text {
+                                width: parent.width
+                                text: root.formatTime(modelData.startSeconds)
+                                color: Theme.playbackTimeSecondary
+                                font.family: Theme.fontPrimary
+                                font.pixelSize: Math.round(16 * Theme.layoutScale)
+                            }
+                        }
                     }
                 }
             }
@@ -1162,8 +1424,8 @@ FocusScope {
             anchors.rightMargin: Math.round(64 * Theme.layoutScale)
             anchors.bottomMargin: Math.round(64 * Theme.layoutScale) - root.bottomControlsOffset
             spacing: Math.round(32 * Theme.layoutScale)
-            opacity: root.controlsVisible ? 1.0 : 0.0
-            enabled: root.controlsVisible
+            opacity: root.controlsVisible && !root.chapterMode ? 1.0 : 0.0
+            enabled: root.controlsVisible && !root.chapterMode
             Behavior on opacity {
                 NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
             }

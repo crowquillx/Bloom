@@ -23,9 +23,11 @@ void registerNetworkMetaTypes()
     qRegisterMetaType<MediaStreamInfo>("MediaStreamInfo");
     qRegisterMetaType<MediaSourceInfo>("MediaSourceInfo");
     qRegisterMetaType<PlaybackInfoResponse>("PlaybackInfoResponse");
+    qRegisterMetaType<ChapterInfo>("ChapterInfo");
     qRegisterMetaType<MediaSegmentInfo>("MediaSegmentInfo");
     qRegisterMetaType<TrickplayTileInfo>("TrickplayTileInfo");
     qRegisterMetaType<QList<MediaSegmentInfo>>("QList<MediaSegmentInfo>");
+    qRegisterMetaType<QList<ChapterInfo>>("QList<ChapterInfo>");
     qRegisterMetaType<TrickplayTileInfoMap>("QMap<int,TrickplayTileInfo>");
 }
 
@@ -271,6 +273,37 @@ QVariantList PlaybackInfoResponse::getMediaSourcesVariant() const
         result.append(sourceMap);
     }
     return result;
+}
+
+// ============================================================================
+// ChapterInfo Implementation
+// ============================================================================
+
+ChapterInfo ChapterInfo::fromJson(const QJsonObject &json, int chapterIndex)
+{
+    ChapterInfo info;
+    info.index = chapterIndex;
+    info.startPositionTicks = static_cast<qint64>(json.value(QStringLiteral("StartPositionTicks")).toDouble());
+    info.imageTag = json.value(QStringLiteral("ImageTag")).toString().trimmed();
+    info.imagePath = json.value(QStringLiteral("ImagePath")).toString().trimmed();
+    info.title = json.value(QStringLiteral("Name")).toString().trimmed();
+    if (info.title.isEmpty()) {
+        info.title = QStringLiteral("Chapter %1").arg(chapterIndex + 1);
+    }
+    return info;
+}
+
+QVariantMap ChapterInfo::toVariantMap(const QString &thumbnailUrl) const
+{
+    QVariantMap chapterMap;
+    chapterMap[QStringLiteral("title")] = title;
+    chapterMap[QStringLiteral("startPositionTicks")] = startPositionTicks;
+    chapterMap[QStringLiteral("startSeconds")] = startSeconds();
+    chapterMap[QStringLiteral("imageTag")] = imageTag;
+    chapterMap[QStringLiteral("imagePath")] = imagePath;
+    chapterMap[QStringLiteral("thumbnailUrl")] = thumbnailUrl;
+    chapterMap[QStringLiteral("index")] = index;
+    return chapterMap;
 }
 
 // ============================================================================
