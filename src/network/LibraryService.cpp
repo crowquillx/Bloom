@@ -618,6 +618,12 @@ void LibraryService::getChapters(const QString &itemId)
         return;
     }
 
+    if (m_inFlightChapterRequests.contains(itemId)) {
+        qDebug() << "LibraryService: Skipping duplicate chapter request for item" << itemId;
+        return;
+    }
+    m_inFlightChapterRequests.insert(itemId);
+
     const QString endpoint = buildChaptersEndpoint(m_authService->getUserId(), itemId);
     sendRequestWithRetry(endpoint,
         [this, endpoint]() {
@@ -625,6 +631,7 @@ void LibraryService::getChapters(const QString &itemId)
             return m_authService->networkManager()->get(request);
         },
         [this, itemId](QNetworkReply *reply) {
+            m_inFlightChapterRequests.remove(itemId);
             const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             if (!doc.isObject()) {
                 qWarning() << "LibraryService: Invalid chapter response for item" << itemId;
@@ -658,6 +665,7 @@ void LibraryService::getChapters(const QString &itemId)
             emit chaptersLoaded(itemId, chapters);
         },
         [this, itemId](const NetworkError &error) {
+            m_inFlightChapterRequests.remove(itemId);
             emit chaptersFailed(itemId, error.userMessage);
         });
 }
@@ -1236,6 +1244,10 @@ QString LibraryService::getCachedChapterThumbnailUrl(const QString &itemId, int 
                    << "index" << chapterIndex;
         return QString();
     }
+    if (imageTag.trimmed().isEmpty() && imagePath.trimmed().isEmpty()) {
+        return QString();
+    }
+
     if (width <= 0) {
         width = 480;
     }

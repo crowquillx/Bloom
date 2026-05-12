@@ -9,6 +9,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrent>
 #include <QHash>
+#include <QSet>
 #include <functional>
 #include "Types.h"  // Shared data structs and error helpers
 
@@ -164,6 +165,9 @@ private:
                                int attemptNumber);
     
     void emitError(const NetworkError &error);
+
+    // In-flight deduplication for chapter requests
+    QSet<QString> m_inFlightChapterRequests;
 
     // Cache validation state (per endpoint/parent)
     QHash<QString, QString> m_etags;

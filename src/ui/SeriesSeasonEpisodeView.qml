@@ -121,7 +121,9 @@ FocusScope {
     onSelectedEpisodeIdChanged: {
         overviewExpanded = false
         clearEpisodePlaybackState()
-        chapterPreloadTimer.restart()
+        chapterPreloadTimer.stop()
+        SeriesDetailsViewModel.clearFocusedEpisodeChapters()
+        chapterPreloadTimer.start()
     }
 
     // Guard initial episode focusing/selection so async reloads do not override user input.
