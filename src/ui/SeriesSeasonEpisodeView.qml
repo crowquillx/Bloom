@@ -2072,6 +2072,13 @@ FocusScope {
                         }
                     }
                 }
+
+                WheelStepScroller {
+                    anchors.fill: parent
+                    target: chapterList
+                    orientation: Qt.Horizontal
+                    stepPx: Math.round(248 * Theme.layoutScale) + Theme.spacingMedium
+                }
             }
 
             FocusScope {
