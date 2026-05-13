@@ -47,6 +47,10 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
                 this, &MovieDetailsViewModel::onSimilarItemsLoaded);
         connect(m_libraryService, &LibraryService::similarItemsFailed,
                 this, &MovieDetailsViewModel::onSimilarItemsFailed);
+        connect(m_libraryService, &LibraryService::chaptersLoaded,
+                this, &MovieDetailsViewModel::onMovieChaptersLoaded);
+        connect(m_libraryService, &LibraryService::chaptersFailed,
+                this, &MovieDetailsViewModel::onMovieChaptersFailed);
         connect(m_libraryService, &LibraryService::errorOccurred,
                 this, &MovieDetailsViewModel::onErrorOccurred);
         // Map generic itemPlayedStatusChanged to internal logic if needed,
@@ -206,6 +210,7 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
     // Fetch from server
     // Request typical fields for details view
     m_libraryService->getItem(movieId);
+    loadMovieChapters(movieId);
 }
 
 void MovieDetailsViewModel::reload()
@@ -244,6 +249,10 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     m_runtimeTicks = 0;
     m_communityRating = 0.0;
     m_people.clear();
+    m_chapters.clear();
+    m_movieChapterId.clear();
+    m_pendingMovieChapterIds.clear();
+    m_chaptersLoading = false;
     m_genres.clear();
     m_similarItems.clear();
     m_similarItemsAttempted = false;
@@ -281,6 +290,8 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     emit runtimeTicksChanged();
     emit communityRatingChanged();
     emit peopleChanged();
+    emit chaptersChanged();
+    emit chaptersLoadingChanged();
     emit genresChanged();
     emit similarItemsChanged();
     emit similarItemsLoadingChanged();
@@ -288,6 +299,43 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     emit playbackPositionTicksChanged();
     if (!preserveArtwork) {
         emit mdbListRatingsChanged();
+    }
+}
+
+void MovieDetailsViewModel::loadMovieChapters(const QString &movieId)
+{
+    if (!m_libraryService || movieId.isEmpty()) {
+        clearMovieChapters();
+        return;
+    }
+
+    m_movieChapterId = movieId;
+    if (m_movieChapterCache.contains(movieId)) {
+        applyMovieChapters(movieId, m_movieChapterCache.value(movieId));
+        return;
+    }
+
+    m_chapters.clear();
+    emit chaptersChanged();
+    setMovieChaptersLoading(true);
+
+    if (m_pendingMovieChapterIds.contains(movieId)) {
+        return;
+    }
+
+    m_pendingMovieChapterIds.insert(movieId);
+    m_libraryService->getChapters(movieId);
+}
+
+void MovieDetailsViewModel::clearMovieChapters()
+{
+    const bool hadState = !m_movieChapterId.isEmpty() || !m_chapters.isEmpty() || m_chaptersLoading;
+    m_movieChapterId.clear();
+    m_chapters.clear();
+    m_pendingMovieChapterIds.clear();
+    setMovieChaptersLoading(false);
+    if (hadState) {
+        emit chaptersChanged();
     }
 }
 
@@ -360,6 +408,47 @@ void MovieDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const QS
     }
 
     qWarning() << "MovieDetailsViewModel similar items error:" << error;
+}
+
+void MovieDetailsViewModel::onMovieChaptersLoaded(const QString &itemId,
+                                                  const QList<ChapterInfo> &chapters)
+{
+    if (!m_pendingMovieChapterIds.contains(itemId)) {
+        return;
+    }
+
+    m_pendingMovieChapterIds.remove(itemId);
+    QVariantList normalized;
+    normalized.reserve(chapters.size());
+    for (const ChapterInfo &chapter : chapters) {
+        const QString thumbnailUrl = m_libraryService
+            ? m_libraryService->getCachedChapterThumbnailUrl(
+                  itemId, chapter.index, chapter.imageTag, chapter.imagePath)
+            : QString();
+        normalized.append(chapter.toVariantMap(thumbnailUrl));
+    }
+    m_movieChapterCache.insert(itemId, normalized);
+
+    if (itemId == m_movieChapterId) {
+        applyMovieChapters(itemId, normalized);
+    }
+}
+
+void MovieDetailsViewModel::onMovieChaptersFailed(const QString &itemId, const QString &error)
+{
+    if (!m_pendingMovieChapterIds.contains(itemId)) {
+        return;
+    }
+
+    m_pendingMovieChapterIds.remove(itemId);
+    qWarning() << "MovieDetailsViewModel movie chapters error for" << itemId << ":" << error;
+    m_movieChapterCache.insert(itemId, {});
+
+    if (itemId == m_movieChapterId) {
+        m_chapters.clear();
+        setMovieChaptersLoading(false);
+        emit chaptersChanged();
+    }
 }
 
 void MovieDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
@@ -524,4 +613,25 @@ void MovieDetailsViewModel::compileRatings()
         m_mdbListRatings = combined;
         emit mdbListRatingsChanged();
     }
+}
+
+void MovieDetailsViewModel::applyMovieChapters(const QString &movieId,
+                                               const QVariantList &chapters)
+{
+    if (movieId != m_movieChapterId) {
+        return;
+    }
+
+    m_chapters = chapters;
+    setMovieChaptersLoading(false);
+    emit chaptersChanged();
+}
+
+void MovieDetailsViewModel::setMovieChaptersLoading(bool loading)
+{
+    if (m_chaptersLoading == loading) {
+        return;
+    }
+    m_chaptersLoading = loading;
+    emit chaptersLoadingChanged();
 }

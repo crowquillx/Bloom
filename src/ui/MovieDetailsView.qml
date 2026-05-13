@@ -28,6 +28,8 @@ FocusScope {
     readonly property string officialRating: MovieDetailsViewModel.officialRating
     readonly property var genres: MovieDetailsViewModel.genres
     readonly property var castAndCrew: MovieDetailsViewModel.people || []
+    readonly property var chapters: MovieDetailsViewModel.chapters || []
+    readonly property bool chaptersLoading: MovieDetailsViewModel.chaptersLoading
     readonly property var libraryRecommendations: MovieDetailsViewModel.similarItems || []
     readonly property bool libraryRecommendationsLoading: MovieDetailsViewModel.similarItemsLoading
     readonly property bool isLoading: MovieDetailsViewModel.isLoading
@@ -310,7 +312,7 @@ FocusScope {
         return tracks.length > 0 ? shortTrackLabel(tracks[0], qsTr("Auto")) : qsTr("Unavailable")
     }
 
-    function buildPlaybackRequest() {
+    function buildPlaybackRequest(startPositionOverride, restoreFocusTarget) {
         var framerate = getVideoFramerate()
         var hdr = isVideoHDR()
         var overlaySubtitle = productionYear > 0 ? String(productionYear) : ""
@@ -319,7 +321,9 @@ FocusScope {
 
         return {
             itemId: movieId,
-            startPositionTicks: playbackPositionTicks || 0,
+            startPositionTicks: startPositionOverride !== undefined && startPositionOverride !== null
+                                ? startPositionOverride
+                                : (playbackPositionTicks || 0),
             seriesId: "",
             seasonId: "",
             overlayTitle: movieName || qsTr("Now Playing"),
@@ -332,11 +336,15 @@ FocusScope {
             allowVersionPrompt: true,
             framerateHint: framerate,
             isHDRHint: hdr,
-            restoreFocusTarget: playButton
+            restoreFocusTarget: restoreFocusTarget || playButton
         }
     }
 
     function startPlaybackWithTracks() {
+        startPlaybackWithTracksAt(undefined, playButton)
+    }
+
+    function startPlaybackWithTracksAt(startPositionTicks, restoreFocusTarget) {
         resetPlaybackReturnFocusState()
 
         if (playbackInfoLoading || !playbackInfo || !currentMediaSource) {
@@ -348,10 +356,10 @@ FocusScope {
             return
         }
 
-        lastPlaybackRestoreFocusTarget = playButton
+        lastPlaybackRestoreFocusTarget = restoreFocusTarget || playButton
         playbackReturnFocusPending = true
         playbackReturnFocusActivated = false
-        root.playRequested(buildPlaybackRequest())
+        root.playRequested(buildPlaybackRequest(startPositionTicks, lastPlaybackRestoreFocusTarget))
     }
 
     function formatRuntime(ticks) {
@@ -363,6 +371,16 @@ FocusScope {
             return qsTr("%1h %2m").arg(hours).arg(minutes)
         }
         return qsTr("%1m").arg(minutes)
+    }
+
+    function formatChapterTime(seconds) {
+        var total = Math.max(0, Math.floor(seconds || 0))
+        var hours = Math.floor(total / 3600)
+        var minutes = Math.floor((total % 3600) / 60)
+        var remainder = total % 60
+        function pad(value) { return value < 10 ? "0" + value : "" + value }
+        return hours > 0 ? hours + ":" + pad(minutes) + ":" + pad(remainder)
+                         : minutes + ":" + pad(remainder)
     }
 
     function calculateEndTime(ticks) {
@@ -439,6 +457,9 @@ FocusScope {
         if (itemIsDescendant(activeItem, castList)) {
             return "cast"
         }
+        if (itemIsDescendant(activeItem, chapterList)) {
+            return "chapters"
+        }
         if (itemIsDescendant(activeItem, libraryRecommendationsList)) {
             return "libraryRecommendations"
         }
@@ -455,6 +476,7 @@ FocusScope {
             return 0
         }
         if (area === "cast") return Math.max(0, castList.currentIndex)
+        if (area === "chapters") return Math.max(0, chapterList.currentIndex)
         if (area === "libraryRecommendations") return Math.max(0, libraryRecommendationsList.currentIndex)
         return 0
     }
@@ -504,6 +526,13 @@ FocusScope {
             return focusCurrentViewItem(castList)
         }
 
+        if (area === "chapters" && chapterSection.visible && chapterList.count > 0) {
+            chapterList.currentIndex = Math.min(targetIndex, chapterList.count - 1)
+            chapterList.positionViewAtIndex(chapterList.currentIndex, ListView.Contain)
+            ensureItemVisible(chapterSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+            return focusCurrentViewItem(chapterList)
+        }
+
         if (area === "libraryRecommendations" && libraryRecommendationsSection.visible && libraryRecommendationsList.count > 0) {
             libraryRecommendationsList.currentIndex = Math.min(targetIndex, libraryRecommendationsList.count - 1)
             libraryRecommendationsList.positionViewAtIndex(libraryRecommendationsList.currentIndex, ListView.Contain)
@@ -546,6 +575,9 @@ FocusScope {
         }
 
         if (restoreFocusToArea("cast", state.focusIndex || 0)) {
+            return true
+        }
+        if (restoreFocusToArea("chapters", state.focusIndex || 0)) {
             return true
         }
 
@@ -617,7 +649,9 @@ FocusScope {
     }
 
     function focusFirstLowerSection() {
-        if (castSection.visible) {
+        if (chapterSection.visible && chapterList.count > 0) {
+            chapterSection.focusCurrentOrFirst()
+        } else if (castSection.visible && castList.count > 0) {
             castSection.focusCurrentOrFirst()
         } else if (libraryRecommendationsSection.visible) {
             libraryRecommendationsSection.focusCurrentOrFirst()
@@ -731,6 +765,10 @@ FocusScope {
     }
 
     onLibraryRecommendationsChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
+    onChaptersChanged: {
         Qt.callLater(root.tryRestorePendingReturnState)
     }
 
@@ -1141,6 +1179,7 @@ FocusScope {
                                 }
 
                                 contentItem: Text {
+                                    visible: !playbackInfoLoading
                                     anchors.centerIn: parent
                                     text: Icons.playArrow
                                     font.family: Theme.fontIcon
@@ -1148,6 +1187,14 @@ FocusScope {
                                     color: Theme.textPrimary
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
+                                }
+
+                                BusyIndicator {
+                                    anchors.centerIn: parent
+                                    width: Math.round(28 * Theme.layoutScale)
+                                    height: Math.round(28 * Theme.layoutScale)
+                                    running: visible
+                                    visible: playbackInfoLoading
                                 }
                             }
 
@@ -1271,10 +1318,158 @@ FocusScope {
             }
 
             FocusScope {
+                id: chapterSection
+                Layout.fillWidth: true
+                Layout.preferredHeight: implicitHeight
+                visible: movieId !== ""
+                implicitHeight: chapterSectionContent.implicitHeight
+
+                function focusCurrentOrFirst() {
+                    if (chapterList.count <= 0) {
+                        if (castList.count > 0) castSection.focusCurrentOrFirst()
+                        return
+                    }
+                    chapterList.currentIndex = Math.max(0, chapterList.currentIndex)
+                    chapterList.forceActiveFocus()
+                    Qt.callLater(function() {
+                        if (chapterList.currentItem) chapterList.currentItem.forceActiveFocus()
+                    })
+                }
+
+                ColumnLayout {
+                    id: chapterSectionContent
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    spacing: Theme.spacingMedium
+
+                    Text {
+                        text: qsTr("Chapters")
+                        font.pixelSize: Theme.fontSizeHeader
+                        font.family: Theme.fontPrimary
+                        font.weight: Font.Black
+                        color: Theme.textPrimary
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
+                        visible: chaptersLoading && chapters.length === 0
+                        radius: Theme.radiusMedium
+                        color: Qt.rgba(1, 1, 1, 0.04)
+                        border.width: 1
+                        border.color: Theme.cardBorder
+                        Row {
+                            anchors.fill: parent
+                            anchors.margins: Theme.spacingMedium
+                            spacing: Theme.spacingMedium
+                            Repeater {
+                                model: 3
+                                Rectangle {
+                                    width: Math.round(248 * Theme.layoutScale)
+                                    height: parent.height
+                                    radius: Theme.radiusMedium
+                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    opacity: 0.72
+                                    SequentialAnimation on opacity {
+                                        running: Theme.uiAnimationsEnabled && parent.visible
+                                        loops: Animation.Infinite
+                                        NumberAnimation { to: 0.42; duration: Theme.durationNormal }
+                                        NumberAnimation { to: 0.72; duration: Theme.durationNormal }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ListView {
+                        id: chapterList
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
+                        orientation: ListView.Horizontal
+                        spacing: Theme.spacingMedium
+                        model: chapters
+                        visible: chapters.length > 0
+                        clip: true
+                        interactive: false
+                        boundsBehavior: Flickable.StopAtBounds
+
+                        onActiveFocusChanged: if (activeFocus) root.ensureItemVisible(chapterSection, Math.round(80 * Theme.layoutScale), Math.round(160 * Theme.layoutScale))
+                        onCurrentIndexChanged: if (activeFocus && currentIndex >= 0) positionViewAtIndex(currentIndex, ListView.Contain)
+
+                        delegate: FocusScope {
+                            id: chapterDelegate
+                            required property int index
+                            required property var modelData
+                            width: Math.round(248 * Theme.layoutScale)
+                            height: chapterList.height
+                            focus: chapterList.activeFocus && chapterList.currentIndex === index
+                            Keys.onLeftPressed: (event) => { if (index > 0) { chapterList.currentIndex = index - 1; event.accepted = true } else event.accepted = false }
+                            Keys.onRightPressed: (event) => { if (index + 1 < chapterList.count) { chapterList.currentIndex = index + 1; event.accepted = true } else event.accepted = false }
+                            Keys.onUpPressed: { playButton.forceActiveFocus() }
+                            Keys.onDownPressed: { if (castList.count > 0) castSection.focusCurrentOrFirst(); else root.focusTarget(root.nextSectionAfterCast()) }
+                            Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) root.startPlaybackWithTracksAt(modelData.startPositionTicks || 0, chapterDelegate); event.accepted = true }
+                            Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) root.startPlaybackWithTracksAt(modelData.startPositionTicks || 0, chapterDelegate); event.accepted = true }
+
+                            Rectangle {
+                                anchors.fill: parent
+                                radius: Theme.radiusMedium
+                                color: Theme.cardBackground
+                                border.width: chapterDelegate.activeFocus ? Theme.buttonFocusBorderWidth : 0
+                                border.color: Theme.accentPrimary
+                                ColumnLayout {
+                                    anchors.fill: parent
+                                    anchors.margins: Theme.spacingSmall
+                                    spacing: Theme.spacingSmall
+                                    Rectangle {
+                                        Layout.fillWidth: true
+                                        Layout.preferredHeight: Math.round(132 * Theme.layoutScale)
+                                        radius: Theme.radiusMedium
+                                        color: Theme.cardBackgroundHover
+                                        clip: true
+                                        Image {
+                                            id: movieChapterThumbnail
+                                            anchors.fill: parent
+                                            source: modelData.thumbnailUrl || ""
+                                            fillMode: Image.PreserveAspectCrop
+                                            asynchronous: true
+                                            visible: source.toString().length > 0 && status === Image.Ready
+                                        }
+                                        Text {
+                                            anchors.centerIn: parent
+                                            visible: movieChapterThumbnail.status !== Image.Ready
+                                            text: Icons.movie
+                                            font.family: Theme.fontIcon
+                                            font.pixelSize: Math.round(32 * Theme.layoutScale)
+                                            color: Theme.textSecondary
+                                        }
+                                    }
+                                    Text { Layout.fillWidth: true; text: modelData.title || qsTr("Chapter"); font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; font.bold: true; color: Theme.textPrimary; elide: Text.ElideRight }
+                                    Text { Layout.fillWidth: true; text: formatChapterTime(modelData.startSeconds || 0); font.pixelSize: Theme.fontSizeCaption; font.family: Theme.fontPrimary; color: Theme.textSecondary }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
+                        visible: !chaptersLoading && chapters.length === 0
+                        radius: Theme.radiusMedium
+                        color: Qt.rgba(1, 1, 1, 0.04)
+                        border.width: 1
+                        border.color: Theme.cardBorder
+                        Text { anchors.centerIn: parent; text: qsTr("No chapters available."); font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: Theme.textSecondary }
+                    }
+                }
+
+                WheelStepScroller { anchors.fill: parent; target: chapterList; orientation: Qt.Horizontal; stepPx: Math.round(248 * Theme.layoutScale) + Theme.spacingMedium }
+            }
+
+            FocusScope {
                 id: castSection
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
-                visible: castAndCrew.length > 0
+                visible: movieId !== ""
                 implicitHeight: castSectionContent.implicitHeight
 
                 function focusCurrentOrFirst() {
@@ -1297,6 +1492,37 @@ FocusScope {
                         font.family: Theme.fontPrimary
                         font.weight: Font.Black
                         color: Theme.textPrimary
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
+                        visible: isLoading && castAndCrew.length === 0
+                        radius: Theme.radiusMedium
+                        color: Qt.rgba(1, 1, 1, 0.04)
+                        border.width: 1
+                        border.color: Theme.cardBorder
+                        Row {
+                            anchors.fill: parent
+                            anchors.margins: Theme.spacingMedium
+                            spacing: Theme.spacingMedium
+                            Repeater {
+                                model: 4
+                                Rectangle {
+                                    width: root.peopleCardWidth
+                                    height: root.peopleCardHeight
+                                    radius: Theme.radiusMedium
+                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    opacity: 0.72
+                                    SequentialAnimation on opacity {
+                                        running: Theme.uiAnimationsEnabled && parent.visible
+                                        loops: Animation.Infinite
+                                        NumberAnimation { to: 0.42; duration: Theme.durationNormal }
+                                        NumberAnimation { to: 0.72; duration: Theme.durationNormal }
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     ListView {
@@ -1351,7 +1577,8 @@ FocusScope {
                             }
 
                             Keys.onUpPressed: {
-                                playButton.forceActiveFocus()
+                                if (chapterList.count > 0) chapterSection.focusCurrentOrFirst()
+                                else playButton.forceActiveFocus()
                             }
 
                             Keys.onDownPressed: {
@@ -1385,6 +1612,17 @@ FocusScope {
                             orientation: Qt.Horizontal
                             stepPx: root.peopleCardWidth + Theme.spacingMedium
                         }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
+                        visible: !isLoading && castAndCrew.length === 0
+                        radius: Theme.radiusMedium
+                        color: Qt.rgba(1, 1, 1, 0.04)
+                        border.width: 1
+                        border.color: Theme.cardBorder
+                        Text { anchors.centerIn: parent; text: qsTr("No cast or crew listed."); font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: Theme.textSecondary }
                     }
                 }
             }

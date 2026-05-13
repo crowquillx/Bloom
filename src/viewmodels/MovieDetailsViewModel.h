@@ -5,10 +5,13 @@
 #include <QJsonObject>
 #include <QString>
 #include <QList>
+#include <QSet>
+#include <QHash>
 #include <QNetworkAccessManager>
 #include <functional>
 
 class LibraryService;
+struct ChapterInfo;
 
 /**
  * @brief ViewModel for movie details display in MovieDetailsView.
@@ -36,6 +39,8 @@ class MovieDetailsViewModel : public BaseViewModel
     Q_PROPERTY(qint64 runtimeTicks READ runtimeTicks NOTIFY runtimeTicksChanged)
     Q_PROPERTY(double communityRating READ communityRating NOTIFY communityRatingChanged)
     Q_PROPERTY(QVariantList people READ people NOTIFY peopleChanged)
+    Q_PROPERTY(QVariantList chapters READ chapters NOTIFY chaptersChanged)
+    Q_PROPERTY(bool chaptersLoading READ chaptersLoading NOTIFY chaptersLoadingChanged)
     Q_PROPERTY(QStringList genres READ genres NOTIFY genresChanged)
     Q_PROPERTY(QVariantList similarItems READ similarItems NOTIFY similarItemsChanged)
     Q_PROPERTY(bool similarItemsLoading READ similarItemsLoading NOTIFY similarItemsLoadingChanged)
@@ -63,6 +68,8 @@ public:
     qint64 runtimeTicks() const { return m_runtimeTicks; }
     double communityRating() const { return m_communityRating; }
     QVariantList people() const { return m_people; }
+    QVariantList chapters() const { return m_chapters; }
+    bool chaptersLoading() const { return m_chaptersLoading; }
     QStringList genres() const { return m_genres; }
     QVariantList similarItems() const { return m_similarItems; }
     bool similarItemsLoading() const { return m_similarItemsLoading; }
@@ -98,6 +105,8 @@ public:
      * @param preserveArtwork If true, keep existing logo/poster/backdrop URLs until new data arrives.
      */
     Q_INVOKABLE void clear(bool preserveArtwork = false);
+    Q_INVOKABLE void loadMovieChapters(const QString &movieId);
+    Q_INVOKABLE void clearMovieChapters();
 
     /**
      * @brief Get full movie data as a QVariantMap.
@@ -135,6 +144,8 @@ signals:
     void runtimeTicksChanged();
     void communityRatingChanged();
     void peopleChanged();
+    void chaptersChanged();
+    void chaptersLoadingChanged();
     void genresChanged();
     void similarItemsChanged();
     void similarItemsLoadingChanged();
@@ -150,11 +161,15 @@ private slots:
     void onMovieDetailsNotModified(const QString &itemId);
     void onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items);
     void onSimilarItemsFailed(const QString &itemId, const QString &error);
+    void onMovieChaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
+    void onMovieChaptersFailed(const QString &itemId, const QString &error);
     void onErrorOccurred(const QString &endpoint, const QString &error);
 
 private:
     void updateMovieMetadata(const QJsonObject &data);
     void compileRatings();
+    void applyMovieChapters(const QString &movieId, const QVariantList &chapters);
+    void setMovieChaptersLoading(bool loading);
 
     LibraryService *m_libraryService = nullptr;
     QNetworkAccessManager *m_networkManager = nullptr;
@@ -173,6 +188,8 @@ private:
     qint64 m_runtimeTicks = 0;
     double m_communityRating = 0.0;
     QVariantList m_people;
+    QVariantList m_chapters;
+    bool m_chaptersLoading = false;
     QStringList m_genres;
     QVariantList m_similarItems;
     bool m_similarItemsAttempted = false;
@@ -190,4 +207,7 @@ private:
     
     // State
     bool m_loadingMovie = false;
+    QString m_movieChapterId;
+    QHash<QString, QVariantList> m_movieChapterCache;
+    QSet<QString> m_pendingMovieChapterIds;
 };
