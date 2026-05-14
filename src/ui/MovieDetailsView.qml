@@ -555,11 +555,16 @@ FocusScope {
 
         const desiredArea = state.focusArea || "hero"
         const castReady = castList.count > 0
+        const chaptersReady = chapterList.count > 0
         const recsReady = libraryRecommendationsList.count > 0
         const castPending = isLoading
+        const chaptersPending = chaptersLoading
         const recsPending = libraryRecommendationsLoading
 
         if (desiredArea === "cast" && !castReady && !recsReady && (castPending || recsPending)) {
+            return false
+        }
+        if (desiredArea === "chapters" && !chaptersReady && chaptersPending) {
             return false
         }
         if (desiredArea === "libraryRecommendations" && !recsReady && !castReady && (recsPending || castPending)) {
