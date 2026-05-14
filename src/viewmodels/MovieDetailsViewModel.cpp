@@ -316,8 +316,8 @@ void MovieDetailsViewModel::loadMovieChapters(const QString &movieId)
     }
 
     m_chapters.clear();
-    emit chaptersChanged();
     setMovieChaptersLoading(true);
+    emit chaptersChanged();
 
     if (m_pendingMovieChapterIds.contains(movieId)) {
         return;
@@ -442,7 +442,6 @@ void MovieDetailsViewModel::onMovieChaptersFailed(const QString &itemId, const Q
 
     m_pendingMovieChapterIds.remove(itemId);
     qWarning() << "MovieDetailsViewModel movie chapters error for" << itemId << ":" << error;
-    m_movieChapterCache.insert(itemId, {});
 
     if (itemId == m_movieChapterId) {
         m_chapters.clear();

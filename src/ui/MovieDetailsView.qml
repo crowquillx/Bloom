@@ -777,6 +777,10 @@ FocusScope {
         Qt.callLater(root.tryRestorePendingReturnState)
     }
 
+    onChaptersLoadingChanged: {
+        Qt.callLater(root.tryRestorePendingReturnState)
+    }
+
     Rectangle {
         anchors.fill: parent
         color: "transparent"

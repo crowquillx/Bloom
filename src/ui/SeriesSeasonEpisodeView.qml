@@ -1907,7 +1907,7 @@ FocusScope {
                     }
 
                     Rectangle {
-                        visible: focusedEpisodeChaptersLoading && focusedEpisodeChapters.length === 0
+                        visible: (focusedEpisodeChaptersLoading || chapterPreloadTimer.running) && focusedEpisodeChapters.length === 0
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
                         radius: Theme.radiusMedium
@@ -2098,7 +2098,7 @@ FocusScope {
                     Rectangle {
                         Layout.fillWidth: true
                         Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
-                        visible: !focusedEpisodeChaptersLoading && focusedEpisodeChapters.length === 0
+                        visible: !focusedEpisodeChaptersLoading && !chapterPreloadTimer.running && focusedEpisodeChapters.length === 0
                         radius: Theme.radiusMedium
                         color: Qt.rgba(1, 1, 1, 0.04)
                         border.width: 1

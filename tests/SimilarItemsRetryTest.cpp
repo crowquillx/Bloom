@@ -232,7 +232,7 @@ void SimilarItemsRetryTest::movieChaptersFailureClearsVisibleState()
     QVERIFY(vm.chapters().isEmpty());
 
     vm.loadMovieChapters(QStringLiteral("movie-1"));
-    QCOMPARE(service->requests.size(), 1);
+    QCOMPARE(service->requests.size(), 2);
 }
 
 void SimilarItemsRetryTest::seriesEpisodeDetailsFailureIsTargeted()
