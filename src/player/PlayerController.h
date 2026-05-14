@@ -449,6 +449,23 @@ private:
     void reportPlaybackProgress();
     void reportPlaybackProgressNow();
     void reportPlaybackStop();
+    struct PlaybackStopReportSnapshot
+    {
+        QString itemId;
+        QString mediaSourceId;
+        QString playSessionId;
+        int audioStreamIndex = -1;
+        int subtitleStreamIndex = -1;
+        qint64 positionTicks = 0;
+        bool canSeek = false;
+        bool isPaused = false;
+        bool isMuted = false;
+        QString playMethod;
+        double aggregatePositionSeconds = 0.0;
+        double durationSeconds = 0.0;
+        bool valid = false;
+    };
+    PlaybackStopReportSnapshot capturePlaybackStopReportSnapshot() const;
     bool wouldMeetCompletionThreshold() const;
     void checkCompletionThreshold();
     bool checkCompletionThresholdAndAutoplay();  // Returns true if threshold was met (for autoplay)

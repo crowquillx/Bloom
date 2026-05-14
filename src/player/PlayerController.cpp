@@ -4221,6 +4221,38 @@ void PlayerController::reportPlaybackProgressNow()
     }
 }
 
+PlayerController::PlaybackStopReportSnapshot PlayerController::capturePlaybackStopReportSnapshot() const
+{
+    PlaybackStopReportSnapshot snapshot;
+    const QVariantMap segment = activePlaybackSegment();
+
+    snapshot.itemId = segment.isEmpty()
+        ? m_currentItemId
+        : segment.value(QStringLiteral("itemId")).toString();
+    snapshot.mediaSourceId = segment.isEmpty()
+        ? m_mediaSourceId
+        : segment.value(QStringLiteral("mediaSourceId")).toString();
+    snapshot.audioStreamIndex = segment.isEmpty()
+        ? m_selectedAudioTrack
+        : segment.value(QStringLiteral("audioIndex"), -1).toInt();
+    snapshot.subtitleStreamIndex = segment.isEmpty()
+        ? m_selectedSubtitleTrack
+        : segment.value(QStringLiteral("subtitleIndex"), -1).toInt();
+    snapshot.playSessionId = segment.isEmpty()
+        ? m_playSessionId
+        : segment.value(QStringLiteral("playSessionId")).toString();
+    snapshot.positionTicks = currentReportingPositionTicks();
+    snapshot.canSeek = m_duration > 0.0;
+    snapshot.isPaused = m_playbackState == Paused;
+    snapshot.isMuted = m_muted;
+    snapshot.playMethod = m_playMethod;
+    snapshot.aggregatePositionSeconds = m_currentPosition;
+    snapshot.durationSeconds = m_duration;
+    snapshot.valid = !snapshot.itemId.isEmpty() && m_playbackService;
+
+    return snapshot;
+}
+
 void PlayerController::reportPlaybackStop()
 {
     if (m_hasReportedStopForAttempt) {
@@ -4228,26 +4260,40 @@ void PlayerController::reportPlaybackStop()
         return;
     }
 
-    const QVariantMap segment = activePlaybackSegment();
-    const QString reportItemId = segment.isEmpty()
-        ? m_currentItemId
-        : segment.value(QStringLiteral("itemId")).toString();
-    if (!reportItemId.isEmpty() && m_playbackService) {
-        double percentage = m_duration > 0 ? (m_currentPosition / m_duration) * 100.0 : 0;
-        qCInfo(lcPlayback) << "Playback stopped: itemId=" << reportItemId
-                           << "position=" << m_currentPosition << "s /" << m_duration << "s"
+    const PlaybackStopReportSnapshot snapshot = capturePlaybackStopReportSnapshot();
+    if (snapshot.valid) {
+        double percentage = snapshot.durationSeconds > 0
+            ? (snapshot.aggregatePositionSeconds / snapshot.durationSeconds) * 100.0
+            : 0;
+        qCInfo(lcPlayback) << "Playback stopped: itemId=" << snapshot.itemId
+                           << "position=" << snapshot.aggregatePositionSeconds << "s /" << snapshot.durationSeconds << "s"
                            << "(" << percentage << "%)";
-        const qint64 ticks = currentReportingPositionTicks();
-        reportPlaybackProgressNow();
-        m_playbackService->reportPlaybackStopped(reportItemId, ticks,
-                                                 segment.isEmpty() ? m_mediaSourceId : segment.value(QStringLiteral("mediaSourceId")).toString(),
-                                                 segment.isEmpty() ? m_selectedAudioTrack : segment.value(QStringLiteral("audioIndex")).toInt(),
-                                                 segment.isEmpty() ? m_selectedSubtitleTrack : segment.value(QStringLiteral("subtitleIndex")).toInt(),
-                                                 segment.isEmpty() ? m_playSessionId : segment.value(QStringLiteral("playSessionId")).toString(),
-                                                 m_duration > 0.0,
-                                                 m_playbackState == Paused, m_muted,
-                                                 m_playMethod);
+        m_playbackService->reportPlaybackProgress(snapshot.itemId,
+                                                  snapshot.positionTicks,
+                                                  snapshot.mediaSourceId,
+                                                  snapshot.audioStreamIndex,
+                                                  snapshot.subtitleStreamIndex,
+                                                  snapshot.playSessionId,
+                                                  snapshot.canSeek,
+                                                  snapshot.isPaused,
+                                                  snapshot.isMuted,
+                                                  snapshot.playMethod);
+        m_playbackService->reportPlaybackStopped(snapshot.itemId,
+                                                 snapshot.positionTicks,
+                                                 snapshot.mediaSourceId,
+                                                 snapshot.audioStreamIndex,
+                                                 snapshot.subtitleStreamIndex,
+                                                 snapshot.playSessionId,
+                                                 snapshot.canSeek,
+                                                 snapshot.isPaused,
+                                                 snapshot.isMuted,
+                                                 snapshot.playMethod);
         m_hasReportedStopForAttempt = true;
+    } else {
+        qCWarning(lcPlayback) << "Skipping playback stop report due to missing item or playback service context"
+                              << "attempt=" << m_playbackAttemptId
+                              << "itemId=" << snapshot.itemId
+                              << "hasPlaybackService=" << (m_playbackService != nullptr);
     }
 }
 

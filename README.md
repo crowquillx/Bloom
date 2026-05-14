@@ -5,6 +5,8 @@
 
 > **⚠️ WARNING: This is pre-alpha software under active development. It is NOT production ready. Expect bugs, breaking changes, and missing features. Use at your own risk.**
 
+This project is highly opinionated and may not suit everyone's needs, it is made specifically to solve the problems I had with other clients and doesn't really take into consideration what other people may want. For that reason, it's not something I plan on advertising anytime soon, if at all.
+
 A Jellyfin HTPC client for 10-foot TV interfaces, built with Qt 6/QML and mpv/libmpv.
 
 ## What it does

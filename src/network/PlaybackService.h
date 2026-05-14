@@ -44,45 +44,45 @@ public:
     Q_INVOKABLE QString getTrickplayTileUrl(const QString &itemId, int width, int tileIndex);
     
     // Playback Reporting (with track selection support)
-    Q_INVOKABLE void reportPlaybackStart(const QString &itemId, const QString &mediaSourceId = QString(),
-                                         int audioStreamIndex = -1, int subtitleStreamIndex = -1,
-                                         const QString &playSessionId = QString(),
-                                         bool canSeek = true, bool isPaused = false, bool isMuted = false,
-                                         const QString &playMethod = QStringLiteral("DirectPlay"),
-                                         const QString &repeatMode = QStringLiteral("RepeatNone"),
-                                         const QString &playbackOrder = QStringLiteral("Default"));
-    Q_INVOKABLE void reportPlaybackProgress(const QString &itemId, qint64 positionTicks,
-                                            const QString &mediaSourceId = QString(),
-                                            int audioStreamIndex = -1, int subtitleStreamIndex = -1,
-                                            const QString &playSessionId = QString(),
-                                            bool canSeek = true, bool isPaused = false, bool isMuted = false,
-                                            const QString &playMethod = QStringLiteral("DirectPlay"),
-                                            const QString &repeatMode = QStringLiteral("RepeatNone"),
-                                            const QString &playbackOrder = QStringLiteral("Default"));
-    Q_INVOKABLE void reportPlaybackPaused(const QString &itemId, qint64 positionTicks,
-                                          const QString &mediaSourceId = QString(),
-                                          int audioStreamIndex = -1, int subtitleStreamIndex = -1,
-                                          const QString &playSessionId = QString(),
-                                          bool canSeek = true, bool isMuted = false,
-                                          const QString &playMethod = QStringLiteral("DirectPlay"),
-                                          const QString &repeatMode = QStringLiteral("RepeatNone"),
-                                          const QString &playbackOrder = QStringLiteral("Default"));
-    Q_INVOKABLE void reportPlaybackResumed(const QString &itemId, qint64 positionTicks,
-                                           const QString &mediaSourceId = QString(),
-                                           int audioStreamIndex = -1, int subtitleStreamIndex = -1,
-                                           const QString &playSessionId = QString(),
-                                           bool canSeek = true, bool isMuted = false,
-                                           const QString &playMethod = QStringLiteral("DirectPlay"),
-                                           const QString &repeatMode = QStringLiteral("RepeatNone"),
-                                           const QString &playbackOrder = QStringLiteral("Default"));
-    Q_INVOKABLE void reportPlaybackStopped(const QString &itemId, qint64 positionTicks,
-                                           const QString &mediaSourceId = QString(),
-                                           int audioStreamIndex = -1, int subtitleStreamIndex = -1,
-                                           const QString &playSessionId = QString(),
-                                           bool canSeek = true, bool isPaused = false, bool isMuted = false,
-                                           const QString &playMethod = QStringLiteral("DirectPlay"),
-                                           const QString &repeatMode = QStringLiteral("RepeatNone"),
-                                           const QString &playbackOrder = QStringLiteral("Default"));
+    Q_INVOKABLE virtual void reportPlaybackStart(const QString &itemId, const QString &mediaSourceId = QString(),
+                                                 int audioStreamIndex = -1, int subtitleStreamIndex = -1,
+                                                 const QString &playSessionId = QString(),
+                                                 bool canSeek = true, bool isPaused = false, bool isMuted = false,
+                                                 const QString &playMethod = QStringLiteral("DirectPlay"),
+                                                 const QString &repeatMode = QStringLiteral("RepeatNone"),
+                                                 const QString &playbackOrder = QStringLiteral("Default"));
+    Q_INVOKABLE virtual void reportPlaybackProgress(const QString &itemId, qint64 positionTicks,
+                                                    const QString &mediaSourceId = QString(),
+                                                    int audioStreamIndex = -1, int subtitleStreamIndex = -1,
+                                                    const QString &playSessionId = QString(),
+                                                    bool canSeek = true, bool isPaused = false, bool isMuted = false,
+                                                    const QString &playMethod = QStringLiteral("DirectPlay"),
+                                                    const QString &repeatMode = QStringLiteral("RepeatNone"),
+                                                    const QString &playbackOrder = QStringLiteral("Default"));
+    Q_INVOKABLE virtual void reportPlaybackPaused(const QString &itemId, qint64 positionTicks,
+                                                  const QString &mediaSourceId = QString(),
+                                                  int audioStreamIndex = -1, int subtitleStreamIndex = -1,
+                                                  const QString &playSessionId = QString(),
+                                                  bool canSeek = true, bool isMuted = false,
+                                                  const QString &playMethod = QStringLiteral("DirectPlay"),
+                                                  const QString &repeatMode = QStringLiteral("RepeatNone"),
+                                                  const QString &playbackOrder = QStringLiteral("Default"));
+    Q_INVOKABLE virtual void reportPlaybackResumed(const QString &itemId, qint64 positionTicks,
+                                                   const QString &mediaSourceId = QString(),
+                                                   int audioStreamIndex = -1, int subtitleStreamIndex = -1,
+                                                   const QString &playSessionId = QString(),
+                                                   bool canSeek = true, bool isMuted = false,
+                                                   const QString &playMethod = QStringLiteral("DirectPlay"),
+                                                   const QString &repeatMode = QStringLiteral("RepeatNone"),
+                                                   const QString &playbackOrder = QStringLiteral("Default"));
+    Q_INVOKABLE virtual void reportPlaybackStopped(const QString &itemId, qint64 positionTicks,
+                                                   const QString &mediaSourceId = QString(),
+                                                   int audioStreamIndex = -1, int subtitleStreamIndex = -1,
+                                                   const QString &playSessionId = QString(),
+                                                   bool canSeek = true, bool isPaused = false, bool isMuted = false,
+                                                   const QString &playMethod = QStringLiteral("DirectPlay"),
+                                                   const QString &repeatMode = QStringLiteral("RepeatNone"),
+                                                   const QString &playbackOrder = QStringLiteral("Default"));
     Q_INVOKABLE void markItemPlayed(const QString &itemId);
 
 signals:

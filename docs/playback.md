@@ -247,6 +247,7 @@ Playback Reporting
 - Use `POST /Sessions/Playing` when playback begins (includes track selection).
 - Periodic progress: `POST /Sessions/Playing/Progress` (throttled, e.g., every 10s) to update resume position and track state.
 - Stop: `POST /Sessions/Playing/Stopped` when playback ends.
+- Explicit stops send a final unthrottled progress report, then one stopped report, before playback context cleanup or backend teardown can clear reporting metadata.
 - Completion threshold (default 90%) is used for client-side autoplay/next-up decisions only; Bloom no longer auto-calls the watch/mark endpoint at threshold.
 
 Important design notes

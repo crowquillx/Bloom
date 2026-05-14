@@ -185,6 +185,66 @@ public:
     QStringList requestedLibraryResolutionIds;
 };
 
+class FakePlaybackService final : public PlaybackService
+{
+    Q_OBJECT
+
+public:
+    struct Report
+    {
+        QString itemId;
+        qint64 positionTicks = 0;
+        QString mediaSourceId;
+        int audioStreamIndex = -1;
+        int subtitleStreamIndex = -1;
+        QString playSessionId;
+        bool canSeek = false;
+        bool isPaused = false;
+        bool isMuted = false;
+        QString playMethod;
+    };
+
+    explicit FakePlaybackService(AuthenticationService *authService, QObject *parent = nullptr)
+        : PlaybackService(authService, nullptr, nullptr, parent)
+    {
+    }
+
+    void reportPlaybackProgress(const QString &itemId, qint64 positionTicks,
+                                const QString &mediaSourceId,
+                                int audioStreamIndex, int subtitleStreamIndex,
+                                const QString &playSessionId,
+                                bool canSeek, bool isPaused, bool isMuted,
+                                const QString &playMethod,
+                                const QString &repeatMode,
+                                const QString &playbackOrder) override
+    {
+        Q_UNUSED(repeatMode);
+        Q_UNUSED(playbackOrder);
+        progressReports.append({itemId, positionTicks, mediaSourceId, audioStreamIndex,
+                                subtitleStreamIndex, playSessionId, canSeek, isPaused,
+                                isMuted, playMethod});
+    }
+
+    void reportPlaybackStopped(const QString &itemId, qint64 positionTicks,
+                               const QString &mediaSourceId,
+                               int audioStreamIndex, int subtitleStreamIndex,
+                               const QString &playSessionId,
+                               bool canSeek, bool isPaused, bool isMuted,
+                               const QString &playMethod,
+                               const QString &repeatMode,
+                               const QString &playbackOrder) override
+    {
+        Q_UNUSED(repeatMode);
+        Q_UNUSED(playbackOrder);
+        stoppedReports.append({itemId, positionTicks, mediaSourceId, audioStreamIndex,
+                               subtitleStreamIndex, playSessionId, canSeek, isPaused,
+                               isMuted, playMethod});
+    }
+
+    QList<Report> progressReports;
+    QList<Report> stoppedReports;
+};
+
 static MediaSourceInfo buildMediaSourceInfo(const QString &id,
                                             const QString &name,
                                             const QString &path,
@@ -262,6 +322,9 @@ private slots:
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
     void userStopBelowThresholdWaitsForBackendExit();
+    void explicitStopReportsFinalProgressAndStoppedOnce();
+    void explicitPausedStopReportsPausedState();
+    void explicitMultipartStopReportsActiveSegmentContext();
     void playbackEndedUpgradesQueuedStopFinalization();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
@@ -480,6 +543,162 @@ void PlayerControllerAutoplayContextTest::userStopBelowThresholdWaitsForBackendE
 
     QCOMPARE(controller.playbackState(), PlayerController::Idle);
     QVERIFY(!controller.m_terminalTransitionActive);
+}
+
+void PlayerControllerAutoplayContextTest::explicitStopReportsFinalProgressAndStoppedOnce()
+{
+    ConfigManager config;
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    backend.emitStopStateChangeSynchronously = false;
+    backend.setRunning(true);
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_mediaSourceId = QStringLiteral("media-source-1");
+    controller.m_playSessionId = QStringLiteral("play-session-1");
+    controller.m_selectedAudioTrack = 2;
+    controller.m_selectedSubtitleTrack = 5;
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 42.5;
+    controller.m_playbackState = PlayerController::Playing;
+
+    controller.stop();
+
+    QCOMPARE(playbackService.progressReports.size(), 1);
+    QCOMPARE(playbackService.stoppedReports.size(), 1);
+    const FakePlaybackService::Report progress = playbackService.progressReports.first();
+    const FakePlaybackService::Report stopped = playbackService.stoppedReports.first();
+    QCOMPARE(progress.itemId, QStringLiteral("item-1"));
+    QCOMPARE(progress.positionTicks, 425000000LL);
+    QCOMPARE(progress.mediaSourceId, QStringLiteral("media-source-1"));
+    QCOMPARE(progress.audioStreamIndex, 2);
+    QCOMPARE(progress.subtitleStreamIndex, 5);
+    QCOMPARE(progress.playSessionId, QStringLiteral("play-session-1"));
+    QVERIFY(progress.canSeek);
+    QVERIFY(!progress.isPaused);
+    QCOMPARE(stopped.itemId, progress.itemId);
+    QCOMPARE(stopped.positionTicks, progress.positionTicks);
+    QCOMPARE(stopped.mediaSourceId, progress.mediaSourceId);
+    QCOMPARE(stopped.audioStreamIndex, progress.audioStreamIndex);
+    QCOMPARE(stopped.subtitleStreamIndex, progress.subtitleStreamIndex);
+    QCOMPARE(stopped.playSessionId, progress.playSessionId);
+    QVERIFY(!stopped.isPaused);
+
+    backend.emitRunningState(false);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(playbackService.progressReports.size(), 1);
+    QCOMPARE(playbackService.stoppedReports.size(), 1);
+    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+}
+
+void PlayerControllerAutoplayContextTest::explicitPausedStopReportsPausedState()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_mediaSourceId = QStringLiteral("media-source-1");
+    controller.m_playSessionId = QStringLiteral("play-session-1");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 12.0;
+    controller.m_playbackState = PlayerController::Paused;
+
+    controller.stop();
+    QCoreApplication::processEvents();
+
+    QCOMPARE(playbackService.progressReports.size(), 1);
+    QCOMPARE(playbackService.stoppedReports.size(), 1);
+    QVERIFY(playbackService.progressReports.first().isPaused);
+    QVERIFY(playbackService.stoppedReports.first().isPaused);
+}
+
+void PlayerControllerAutoplayContextTest::explicitMultipartStopReportsActiveSegmentContext()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("logical-item");
+    controller.m_duration = 120.0;
+    controller.m_currentPosition = 70.0;
+    controller.m_segmentRelativePosition = 10.0;
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_activePlaybackSegmentIndex = 1;
+    controller.m_playbackSegments = {
+        QVariantMap{
+            {QStringLiteral("itemId"), QStringLiteral("part-1")},
+            {QStringLiteral("mediaSourceId"), QStringLiteral("part-1-source")},
+            {QStringLiteral("playSessionId"), QStringLiteral("session-1")},
+            {QStringLiteral("audioIndex"), 2},
+            {QStringLiteral("subtitleIndex"), -1},
+            {QStringLiteral("runTimeTicks"), 600000000LL}
+        },
+        QVariantMap{
+            {QStringLiteral("itemId"), QStringLiteral("part-2")},
+            {QStringLiteral("mediaSourceId"), QStringLiteral("part-2-source")},
+            {QStringLiteral("playSessionId"), QStringLiteral("session-2")},
+            {QStringLiteral("audioIndex"), 3},
+            {QStringLiteral("subtitleIndex"), 7},
+            {QStringLiteral("runTimeTicks"), 600000000LL}
+        }
+    };
+
+    controller.stop();
+    QCoreApplication::processEvents();
+
+    QCOMPARE(playbackService.progressReports.size(), 1);
+    QCOMPARE(playbackService.stoppedReports.size(), 1);
+    const FakePlaybackService::Report progress = playbackService.progressReports.first();
+    const FakePlaybackService::Report stopped = playbackService.stoppedReports.first();
+    QCOMPARE(progress.itemId, QStringLiteral("part-2"));
+    QCOMPARE(progress.positionTicks, 100000000LL);
+    QCOMPARE(progress.mediaSourceId, QStringLiteral("part-2-source"));
+    QCOMPARE(progress.playSessionId, QStringLiteral("session-2"));
+    QCOMPARE(stopped.itemId, QStringLiteral("part-2"));
+    QCOMPARE(stopped.positionTicks, 100000000LL);
+    QCOMPARE(stopped.mediaSourceId, QStringLiteral("part-2-source"));
+    QCOMPARE(stopped.playSessionId, QStringLiteral("session-2"));
+    QCOMPARE(stopped.audioStreamIndex, 3);
+    QCOMPARE(stopped.subtitleStreamIndex, 7);
 }
 
 void PlayerControllerAutoplayContextTest::playbackEndedUpgradesQueuedStopFinalization()
