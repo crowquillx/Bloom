@@ -1460,6 +1460,7 @@ FocusScope {
                                 }
 
                                 contentItem: Text {
+                                    visible: playbackInfoLoadingItemId !== selectedEpisodeId
                                     anchors.centerIn: parent
                                     text: selectedEpisodePlaybackPosition > 0 ? Icons.fastForward : Icons.playArrow
                                     font.family: Theme.fontIcon
@@ -1467,6 +1468,14 @@ FocusScope {
                                     color: Theme.textPrimary
                                     horizontalAlignment: Text.AlignHCenter
                                     verticalAlignment: Text.AlignVCenter
+                                }
+
+                                BusyIndicator {
+                                    anchors.centerIn: parent
+                                    width: Math.round(28 * Theme.layoutScale)
+                                    height: Math.round(28 * Theme.layoutScale)
+                                    running: visible
+                                    visible: playbackInfoLoadingItemId === selectedEpisodeId
                                 }
                             }
 
@@ -1862,7 +1871,7 @@ FocusScope {
                 id: chapterSection
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
-                visible: focusedEpisodeChaptersLoading || focusedEpisodeChapters.length > 0
+                visible: selectedEpisodeId !== ""
                 implicitHeight: chapterSectionContent.implicitHeight
 
                 function focusCurrentOrFirst() {
@@ -1897,21 +1906,35 @@ FocusScope {
                         color: Theme.textPrimary
                     }
 
-                    RowLayout {
-                        visible: focusedEpisodeChaptersLoading && focusedEpisodeChapters.length === 0
-                        spacing: Theme.spacingSmall
+                    Rectangle {
+                        visible: (focusedEpisodeChaptersLoading || chapterPreloadTimer.running) && focusedEpisodeChapters.length === 0
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
+                        radius: Theme.radiusMedium
+                        color: Qt.rgba(1, 1, 1, 0.04)
+                        border.width: 1
+                        border.color: Theme.cardBorder
 
-                        BusyIndicator {
-                            Layout.preferredWidth: Math.round(32 * Theme.layoutScale)
-                            Layout.preferredHeight: Math.round(32 * Theme.layoutScale)
-                            running: parent.visible
-                        }
-
-                        Text {
-                            text: qsTr("Loading chapters…")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
+                        Row {
+                            anchors.fill: parent
+                            anchors.margins: Theme.spacingMedium
+                            spacing: Theme.spacingMedium
+                            Repeater {
+                                model: 3
+                                Rectangle {
+                                    width: Math.round(248 * Theme.layoutScale)
+                                    height: parent.height
+                                    radius: Theme.radiusMedium
+                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    opacity: 0.72
+                                    SequentialAnimation on opacity {
+                                        running: Theme.uiAnimationsEnabled && parent.visible
+                                        loops: Animation.Infinite
+                                        NumberAnimation { to: 0.42; duration: Theme.durationNormal }
+                                        NumberAnimation { to: 0.72; duration: Theme.durationNormal }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -2071,6 +2094,23 @@ FocusScope {
                             }
                         }
                     }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: Math.round(224 * Theme.layoutScale)
+                        visible: !focusedEpisodeChaptersLoading && !chapterPreloadTimer.running && focusedEpisodeChapters.length === 0
+                        radius: Theme.radiusMedium
+                        color: Qt.rgba(1, 1, 1, 0.04)
+                        border.width: 1
+                        border.color: Theme.cardBorder
+                        Text {
+                            anchors.centerIn: parent
+                            text: qsTr("No chapters available.")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                        }
+                    }
                 }
 
                 WheelStepScroller {
@@ -2085,7 +2125,7 @@ FocusScope {
                 id: castSection
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
-                visible: focusedEpisodeDetailsLoading || focusedEpisodePeople.length > 0
+                visible: selectedEpisodeId !== ""
                 implicitHeight: castSectionContent.implicitHeight
 
                 function focusCurrentOrFirst() {
@@ -2111,21 +2151,34 @@ FocusScope {
                         color: Theme.textPrimary
                     }
 
-                    RowLayout {
+                    Rectangle {
                         visible: focusedEpisodeDetailsLoading && focusedEpisodePeople.length === 0
-                        spacing: Theme.spacingSmall
-
-                        BusyIndicator {
-                            Layout.preferredWidth: Math.round(32 * Theme.layoutScale)
-                            Layout.preferredHeight: Math.round(32 * Theme.layoutScale)
-                            running: parent.visible
-                        }
-
-                        Text {
-                            text: qsTr("Loading cast and crew…")
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
+                        radius: Theme.radiusMedium
+                        color: Qt.rgba(1, 1, 1, 0.04)
+                        border.width: 1
+                        border.color: Theme.cardBorder
+                        Row {
+                            anchors.fill: parent
+                            anchors.margins: Theme.spacingMedium
+                            spacing: Theme.spacingMedium
+                            Repeater {
+                                model: 4
+                                Rectangle {
+                                    width: root.peopleCardWidth
+                                    height: root.peopleCardHeight
+                                    radius: Theme.radiusMedium
+                                    color: Qt.rgba(1, 1, 1, 0.06)
+                                    opacity: 0.72
+                                    SequentialAnimation on opacity {
+                                        running: Theme.uiAnimationsEnabled && parent.visible
+                                        loops: Animation.Infinite
+                                        NumberAnimation { to: 0.42; duration: Theme.durationNormal }
+                                        NumberAnimation { to: 0.72; duration: Theme.durationNormal }
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -2213,6 +2266,23 @@ FocusScope {
                             target: castList
                             orientation: Qt.Horizontal
                             stepPx: root.peopleCardWidth + Theme.spacingMedium
+                        }
+                    }
+
+                    Rectangle {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: root.peopleCardHeight + Math.round(16 * Theme.layoutScale)
+                        visible: !focusedEpisodeDetailsLoading && focusedEpisodePeople.length === 0
+                        radius: Theme.radiusMedium
+                        color: Qt.rgba(1, 1, 1, 0.04)
+                        border.width: 1
+                        border.color: Theme.cardBorder
+                        Text {
+                            anchors.centerIn: parent
+                            text: qsTr("No cast or crew listed.")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
                         }
                     }
                 }

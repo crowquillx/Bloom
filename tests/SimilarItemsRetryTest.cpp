@@ -120,6 +120,8 @@ private slots:
     void seriesEpisodeDetailsIgnoreForeignTokens();
     void seriesEpisodeChaptersLoadNormalizeCacheAndIgnoreStale();
     void seriesEpisodeChaptersFailureClearsVisibleState();
+    void movieChaptersLoadNormalizeCacheAndIgnoreStale();
+    void movieChaptersFailureClearsVisibleState();
     void mockLibraryServiceTracksItemCacheInvalidation();
 
 private:
@@ -172,6 +174,65 @@ void SimilarItemsRetryTest::seriesSimilarItemsFailureAllowsRetry()
     vm.onSeriesDetailsLoaded(QStringLiteral("series-1"), QJsonObject{{"Id", "series-1"}, {"UserData", QJsonObject{}}});
     QCOMPARE(m_libraryService->requestedIds.size(), 1);
     QCOMPARE(m_libraryService->requestedIds.first(), QStringLiteral("series-1"));
+}
+
+void SimilarItemsRetryTest::movieChaptersLoadNormalizeCacheAndIgnoreStale()
+{
+    ServiceLocator::clear();
+    auto *service = new EpisodeChaptersLibraryService(this);
+    ServiceLocator::registerService<LibraryService>(service);
+
+    MovieDetailsViewModel vm;
+    QSignalSpy loadingSpy(&vm, &MovieDetailsViewModel::chaptersLoadingChanged);
+
+    vm.loadMovieChapters(QStringLiteral("movie-1"));
+    QCOMPARE(service->requests, QStringList{QStringLiteral("movie-1")});
+    QVERIFY(vm.chaptersLoading());
+
+    vm.loadMovieChapters(QStringLiteral("movie-2"));
+    QCOMPARE(service->requests, (QStringList{QStringLiteral("movie-1"), QStringLiteral("movie-2")}));
+
+    ChapterInfo first;
+    first.index = 0;
+    first.title = QStringLiteral("Cold Open");
+    first.startPositionTicks = 120000000;
+    first.imageTag = QStringLiteral("tag");
+    emit service->chaptersLoaded(QStringLiteral("movie-1"), QList<ChapterInfo>{first});
+    QVERIFY(vm.chapters().isEmpty());
+
+    ChapterInfo second = first;
+    second.title = QStringLiteral("Main Feature");
+    second.index = 1;
+    emit service->chaptersLoaded(QStringLiteral("movie-2"), QList<ChapterInfo>{second});
+
+    QCOMPARE(vm.chaptersLoading(), false);
+    QCOMPARE(vm.chapters().size(), 1);
+    const QVariantMap chapter = vm.chapters().first().toMap();
+    QCOMPARE(chapter.value(QStringLiteral("title")).toString(), QStringLiteral("Main Feature"));
+    QCOMPARE(chapter.value(QStringLiteral("thumbnailUrl")).toString(), QStringLiteral("chapter://movie-2/1/480"));
+    QVERIFY(loadingSpy.count() >= 2);
+
+    vm.loadMovieChapters(QStringLiteral("movie-2"));
+    QCOMPARE(service->requests.size(), 2);
+    QCOMPARE(vm.chapters().size(), 1);
+}
+
+void SimilarItemsRetryTest::movieChaptersFailureClearsVisibleState()
+{
+    ServiceLocator::clear();
+    auto *service = new EpisodeChaptersLibraryService(this);
+    ServiceLocator::registerService<LibraryService>(service);
+
+    MovieDetailsViewModel vm;
+    vm.loadMovieChapters(QStringLiteral("movie-1"));
+    QVERIFY(vm.chaptersLoading());
+
+    emit service->chaptersFailed(QStringLiteral("movie-1"), QStringLiteral("network"));
+    QCOMPARE(vm.chaptersLoading(), false);
+    QVERIFY(vm.chapters().isEmpty());
+
+    vm.loadMovieChapters(QStringLiteral("movie-1"));
+    QCOMPARE(service->requests.size(), 2);
 }
 
 void SimilarItemsRetryTest::seriesEpisodeDetailsFailureIsTargeted()
