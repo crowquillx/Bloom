@@ -229,6 +229,7 @@ public:
      * or playback context is intentionally replaced.
      */
     Q_INVOKABLE void clearPendingAutoplayContext();
+    Q_INVOKABLE void releaseDeferredPostPlaybackDisplayRestore();
 
     /**
      * @brief Resolves the effective startup audio/subtitle selection for a media source.
@@ -567,6 +568,7 @@ private:
     void connectBackendSignals(IPlayerBackend *backend);
     void enterIdleStateImmediate();
     void startDeferredDisplayRestore(bool needsHdrRestore, bool needsRefreshRestore);
+    void maybeStartDeferredPostPlaybackDisplayRestore();
     void scheduleDeferredRefreshRestore(quint64 generation, int delayMs);
     void cancelPendingDisplayRestore(bool applyCurrentPlaybackDisplayState = false);
     void cancelPendingTerminalTransition();
@@ -843,6 +845,9 @@ private:
     std::function<void()> m_pendingReplacementPlaybackAction;
     quint64 m_displayRestoreGeneration = 0;
     QMetaObject::Connection m_hdrRestoreFinishedConnection;
+    bool m_deferredPostPlaybackDisplayRestorePending = false;
+    bool m_deferredPostPlaybackNeedsHdrRestore = false;
+    bool m_deferredPostPlaybackNeedsRefreshRestore = false;
     
     // Buffering detection
     QElapsedTimer m_lastPositionUpdateTime;

@@ -23,6 +23,7 @@ FocusScope {
     property bool appliedPendingTrackOverride: false
     property bool userMadeAudioSelection: false
     property bool userMadeSubtitleSelection: false
+    readonly property bool activeVisibleDetailView: root.visible && StackView.status === StackView.Active
     readonly property int heroPosterWidth: Math.round(320 * Theme.layoutScale)
     readonly property int heroPosterHeight: Math.round(heroPosterWidth * 1.5)
     readonly property int heroPanelPadding: Theme.spacingXLarge
@@ -529,6 +530,9 @@ FocusScope {
         interval: 200  // Minimal delay to ensure playback stop event is processed before refresh
         repeat: false
         onTriggered: {
+            if (!root.activeVisibleDetailView || PlayerController.awaitingNextEpisodeResolution) {
+                return
+            }
             console.log("[SeriesSeasonEpisodeView] Refreshing episodes immediately after playback stop")
             if (SeriesDetailsViewModel.selectedSeasonId) {
                 SeriesDetailsViewModel.refreshSeasonEpisodes(SeriesDetailsViewModel.selectedSeasonId)
@@ -618,7 +622,9 @@ FocusScope {
         interval: 300
         repeat: false
         onTriggered: {
-            if (selectedEpisodeId
+            if (root.activeVisibleDetailView
+                    && !PlayerController.awaitingNextEpisodeResolution
+                    && selectedEpisodeId
                     && playbackInfoOwnerId !== selectedEpisodeId
                     && playbackInfoLoadingItemId !== selectedEpisodeId) {
                 playbackInfoLoadingItemId = selectedEpisodeId
@@ -630,7 +636,12 @@ FocusScope {
     
     // Playback info request
     function requestPlaybackInfo() {
-        if (!selectedEpisodeId || playbackInfoLoadingItemId === selectedEpisodeId) return
+        if (!selectedEpisodeId
+                || playbackInfoLoadingItemId === selectedEpisodeId
+                || !root.activeVisibleDetailView
+                || PlayerController.awaitingNextEpisodeResolution) {
+            return
+        }
         
         playbackInfoLoadingItemId = selectedEpisodeId
         console.log("[SeriesSeasonEpisodeView] Requesting playback info for episode:", selectedEpisodeId)
@@ -639,6 +650,9 @@ FocusScope {
     
     // Trigger debounced playback info preload when episode is selected
     function schedulePlaybackInfoPreload() {
+        if (!root.activeVisibleDetailView || PlayerController.awaitingNextEpisodeResolution) {
+            return
+        }
         playbackInfoPreloadTimer.restart()
     }
     
@@ -695,7 +709,9 @@ FocusScope {
                     console.log("[SeriesSeasonEpisodeView] Executing pending playback, fromBeginning:", fromBeginning, "playbackInfo available:", playbackInfo !== null)
                     // Use callLater to ensure property bindings have updated
                     Qt.callLater(function() {
-                        if (selectedEpisodeId === requestEpisodeId) {
+                        if (selectedEpisodeId === requestEpisodeId
+                                && root.activeVisibleDetailView
+                                && !PlayerController.awaitingNextEpisodeResolution) {
                             performPlayback(fromBeginning, restoreFocusTarget)
                         }
                     })
@@ -799,6 +815,7 @@ FocusScope {
 
     function restoreFocusAfterPlaybackExit() {
         if (!root.visible
+                || !root.activeVisibleDetailView
                 || !root.playbackReturnFocusPending
                 || !root.playbackReturnFocusActivated
                 || PlayerController.awaitingNextEpisodeResolution) {
@@ -825,7 +842,11 @@ FocusScope {
     
     // Playback actions
     function startPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks) {
-        if (!selectedEpisodeId) return
+        if (!selectedEpisodeId
+                || !root.activeVisibleDetailView
+                || PlayerController.awaitingNextEpisodeResolution) {
+            return
+        }
         
         console.log("[SeriesSeasonEpisodeView] startPlayback - Episode:", selectedEpisodeName,
                     "ID:", selectedEpisodeId,
@@ -845,7 +866,11 @@ FocusScope {
     }
     
     function performPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks) {
-        if (!selectedEpisodeId) return
+        if (!selectedEpisodeId
+                || !root.activeVisibleDetailView
+                || PlayerController.awaitingNextEpisodeResolution) {
+            return
+        }
         
         var hasChapterStart = chapterStartTicks !== undefined && chapterStartTicks !== null
         var startPos = hasChapterStart ? chapterStartTicks : (fromBeginning ? 0 : selectedEpisodePlaybackPosition)

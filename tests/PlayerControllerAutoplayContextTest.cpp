@@ -326,6 +326,8 @@ private slots:
     void explicitPausedStopReportsPausedState();
     void explicitMultipartStopReportsActiveSegmentContext();
     void playbackEndedUpgradesQueuedStopFinalization();
+    void nextEpisodeNavigationKeepsAwaitingUntilQueuedDelivery();
+    void deferredPostPlaybackDisplayRestoreCanBeReleased();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
     void playbackPrefetchIgnoresGenericNextEpisodeResponses();
@@ -739,6 +741,90 @@ void PlayerControllerAutoplayContextTest::playbackEndedUpgradesQueuedStopFinaliz
     QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
     QCOMPARE(libraryService.requestedContexts.first(),
              QStringLiteral("player:resolve:series-1:item-1"));
+}
+
+void PlayerControllerAutoplayContextTest::nextEpisodeNavigationKeepsAwaitingUntilQueuedDelivery()
+{
+    ConfigManager config;
+    config.setAutoplayNextEpisode(false);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_shouldAutoplay = true;
+    controller.m_waitingForNextEpisodeAtPlaybackEnd = true;
+    controller.m_pendingAutoplayItemId = QStringLiteral("item-1");
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-1");
+    controller.setAwaitingNextEpisodeResolution(true);
+
+    QSignalSpy navigationSpy(&controller, &PlayerController::navigateToNextEpisode);
+    QSignalSpy awaitingSpy(&controller, &PlayerController::awaitingNextEpisodeResolutionChanged);
+
+    const QJsonObject episodeData{
+        {QStringLiteral("Id"), QStringLiteral("episode-2")},
+        {QStringLiteral("Name"), QStringLiteral("Episode 2")},
+        {QStringLiteral("SeriesName"), QStringLiteral("Series A")},
+        {QStringLiteral("ParentIndexNumber"), 1},
+        {QStringLiteral("IndexNumber"), 2}
+    };
+
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onNextEpisodeLoaded",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("series-1")),
+                                      Q_ARG(QJsonObject, episodeData),
+                                      Q_ARG(QString, QStringLiteral("player:resolve:series-1:item-1"))));
+
+    QVERIFY(controller.awaitingNextEpisodeResolution());
+    QCOMPARE(navigationSpy.count(), 0);
+
+    QCoreApplication::processEvents();
+
+    QCOMPARE(navigationSpy.count(), 1);
+    QVERIFY(!controller.awaitingNextEpisodeResolution());
+    QCOMPARE(awaitingSpy.count(), 1);
+}
+
+void PlayerControllerAutoplayContextTest::deferredPostPlaybackDisplayRestoreCanBeReleased()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_deferredPostPlaybackDisplayRestorePending = true;
+    controller.m_deferredPostPlaybackNeedsHdrRestore = true;
+    controller.m_deferredPostPlaybackNeedsRefreshRestore = true;
+    const quint64 generationBeforeRelease = controller.m_displayRestoreGeneration;
+
+    controller.releaseDeferredPostPlaybackDisplayRestore();
+
+    QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
+    QVERIFY(!controller.m_deferredPostPlaybackNeedsHdrRestore);
+    QVERIFY(!controller.m_deferredPostPlaybackNeedsRefreshRestore);
+    QVERIFY(controller.m_displayRestoreGeneration > generationBeforeRelease);
 }
 
 void PlayerControllerAutoplayContextTest::nextEpisodeNavigationUsesPendingTrackContext()

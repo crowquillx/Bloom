@@ -690,6 +690,17 @@ void PlayerController::onEnterIdleState()
                             << "contentFramerate=" << m_contentFramerate;
 
     enterIdleStateImmediate();
+    if (m_awaitingNextEpisodeResolution) {
+        m_deferredPostPlaybackDisplayRestorePending = needsHdrRestore || needsRefreshRestore;
+        m_deferredPostPlaybackNeedsHdrRestore = needsHdrRestore;
+        m_deferredPostPlaybackNeedsRefreshRestore = needsRefreshRestore;
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] deferred-display-restore parked for up-next"
+                                << "needsHdrRestore=" << needsHdrRestore
+                                << "needsRefreshRestore=" << needsRefreshRestore;
+        return;
+    }
+
     startDeferredDisplayRestore(needsHdrRestore, needsRefreshRestore);
 }
 
@@ -1480,6 +1491,20 @@ void PlayerController::startDeferredDisplayRestore(bool needsHdrRestore, bool ne
                               Qt::QueuedConnection);
 }
 
+void PlayerController::maybeStartDeferredPostPlaybackDisplayRestore()
+{
+    if (!m_deferredPostPlaybackDisplayRestorePending) {
+        return;
+    }
+
+    const bool needsHdrRestore = m_deferredPostPlaybackNeedsHdrRestore;
+    const bool needsRefreshRestore = m_deferredPostPlaybackNeedsRefreshRestore;
+    m_deferredPostPlaybackDisplayRestorePending = false;
+    m_deferredPostPlaybackNeedsHdrRestore = false;
+    m_deferredPostPlaybackNeedsRefreshRestore = false;
+    startDeferredDisplayRestore(needsHdrRestore, needsRefreshRestore);
+}
+
 void PlayerController::scheduleDeferredRefreshRestore(quint64 generation, int delayMs)
 {
     if (m_displayManager == nullptr) {
@@ -1516,6 +1541,9 @@ void PlayerController::cancelPendingDisplayRestore(bool applyCurrentPlaybackDisp
         disconnect(m_hdrRestoreFinishedConnection);
         m_hdrRestoreFinishedConnection = QMetaObject::Connection();
     }
+    m_deferredPostPlaybackDisplayRestorePending = false;
+    m_deferredPostPlaybackNeedsHdrRestore = false;
+    m_deferredPostPlaybackNeedsRefreshRestore = false;
     if (m_displayManager != nullptr) {
         m_displayManager->cancelPendingHdrAsync();
         if (applyCurrentPlaybackDisplayState) {
@@ -1661,13 +1689,11 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
         noNextEpisodeData.insert(QStringLiteral("SeriesId"), seriesId);
         noNextEpisodeData.insert(QStringLiteral("SeasonId"), m_pendingAutoplaySeasonId);
         noNextEpisodeData.insert(QStringLiteral("NoNextEpisode"), true);
-        setAwaitingNextEpisodeResolution(false);
         emitNavigateToNextEpisodeQueued(noNextEpisodeData,
                                         seriesId,
                                         lastAudioIndex,
                                         lastSubtitleIndex,
                                         false);
-        clearPendingAutoplayContext();
         clearNextEpisodePrefetchState();
         return;
     }
@@ -1697,7 +1723,6 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
     qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with autoplay:" 
              << autoplay << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
 
-    setAwaitingNextEpisodeResolution(false);
     emitNavigateToNextEpisodeQueued(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay);
     
     // Note: Don't clear pending autoplay context here - playNextEpisode() needs it
@@ -2550,9 +2575,12 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     
     if (episodeId.isEmpty()) {
         qWarning() << "PlayerController::playNextEpisode: Empty episode ID";
+        cancelPendingDisplayRestore();
         clearPendingAutoplayContext();
         return;
     }
+
+    cancelPendingDisplayRestore();
     
     qDebug() << "PlayerController: Playing next episode from Up Next screen:" << seriesName
              << "S" << seasonNumber << "E" << episodeNumber << "-" << episodeName;
@@ -4464,7 +4492,6 @@ void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
 
     m_shouldAutoplay = false;
     m_waitingForNextEpisodeAtPlaybackEnd = false;
-    setAwaitingNextEpisodeResolution(false);
 
     qCDebug(lcPlayback) << "Using prefetched next episode for Up Next"
                         << "itemId=" << m_pendingAutoplayItemId
@@ -4491,6 +4518,7 @@ void PlayerController::emitNavigateToNextEpisodeQueued(const QJsonObject &episod
                                                              lastAudioIndex,
                                                              lastSubtitleIndex,
                                                              autoplay);
+                                  setAwaitingNextEpisodeResolution(false);
                               },
                               Qt::QueuedConnection);
 }
@@ -4559,6 +4587,11 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplayIsHDR = false;
     m_pendingAutoplayEpisodeData = QJsonObject();
     setAwaitingNextEpisodeResolution(false);
+}
+
+void PlayerController::releaseDeferredPostPlaybackDisplayRestore()
+{
+    maybeStartDeferredPostPlaybackDisplayRestore();
 }
 
 int PlayerController::pendingAutoplaySubtitleOverrideIndex() const
