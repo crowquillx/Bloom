@@ -1432,10 +1432,6 @@ void PlayerController::startDeferredDisplayRestore(bool needsHdrRestore, bool ne
         return;
     }
 
-    m_deferredPostPlaybackDisplayRestorePending = false;
-    m_deferredPostPlaybackNeedsHdrRestore = false;
-    m_deferredPostPlaybackNeedsRefreshRestore = false;
-
     const quint64 generation = m_displayRestoreGeneration;
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] deferred-display-restore queued"
@@ -2579,6 +2575,7 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     
     if (episodeId.isEmpty()) {
         qWarning() << "PlayerController::playNextEpisode: Empty episode ID";
+        cancelPendingDisplayRestore();
         clearPendingAutoplayContext();
         return;
     }

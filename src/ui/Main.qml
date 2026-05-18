@@ -305,10 +305,16 @@ Window {
         Keys.onPressed: function(event) {
             if (event.key === Qt.Key_Return
                     || event.key === Qt.Key_Enter
-                    || event.key === Qt.Key_Space
-                    || event.key === Qt.Key_Escape
-                    || event.key === Qt.Key_Back) {
+                    || event.key === Qt.Key_Space) {
                 event.accepted = true
+            } else if (event.key === Qt.Key_Escape
+                       || event.key === Qt.Key_Back) {
+                event.accepted = true
+                PlayerController.releaseDeferredPostPlaybackDisplayRestore()
+                PlayerController.clearPendingAutoplayContext()
+                while (stackView.depth > 1) {
+                    stackView.pop(null, StackView.Immediate)
+                }
             }
         }
 
@@ -1102,34 +1108,50 @@ Window {
                     PlayerController.releaseDeferredPostPlaybackDisplayRestore()
                     PlayerController.clearPendingAutoplayContext()
 
-                    var targetEpisodeData = Object.assign({}, episodeData || {})
-                    if (!targetEpisodeData.itemId && targetEpisodeData.Id) {
-                        targetEpisodeData.itemId = targetEpisodeData.Id
-                    }
-                    if (!targetEpisodeData.SeasonId && targetEpisodeData.ParentId) {
-                        targetEpisodeData.SeasonId = targetEpisodeData.ParentId
-                    }
-                    
-                    var targetSeasonId = targetEpisodeData.SeasonId || ""
-                    var targetEpisodeId = hasNextEpisode ? (targetEpisodeData.itemId || targetEpisodeData.Id || "") : ""
+                    var libraryScreen
+                    if (hasNextEpisode) {
+                        var targetEpisodeData = Object.assign({}, episodeData || {})
+                        if (!targetEpisodeData.itemId && targetEpisodeData.Id) {
+                            targetEpisodeData.itemId = targetEpisodeData.Id
+                        }
+                        if (!targetEpisodeData.SeasonId && targetEpisodeData.ParentId) {
+                            targetEpisodeData.SeasonId = targetEpisodeData.ParentId
+                        }
 
-                    var libraryScreen = stackView.push("LibraryScreen.qml", {
-                        currentParentId: "",
-                        currentLibraryId: "",
-                        currentLibraryName: "",
-                        currentSeriesId: normalizedSeriesId,
-                        currentSeasonId: targetSeasonId,
-                        initialEpisodeId: targetEpisodeId,
-                        showSeasonView: true,
-                        directNavigationMode: true,
-                        returnToHomeOnDirectBack: true,
-                        pendingAudioTrackIndex: lastAudioIndex,
-                        pendingSubtitleTrackIndex: lastSubtitleIndex
-                    }, StackView.Immediate)
+                        var targetSeasonId = targetEpisodeData.SeasonId || ""
+                        var targetEpisodeId = targetEpisodeData.itemId || targetEpisodeData.Id || ""
 
-                    LibraryService.getSeriesDetails(normalizedSeriesId)
-                    if (targetSeasonId) {
-                        SeriesDetailsViewModel.loadSeasonEpisodes(targetSeasonId)
+                        libraryScreen = stackView.push("LibraryScreen.qml", {
+                            currentParentId: "",
+                            currentLibraryId: "",
+                            currentLibraryName: "",
+                            currentSeriesId: normalizedSeriesId,
+                            currentSeasonId: targetSeasonId,
+                            initialEpisodeId: targetEpisodeId,
+                            showSeasonView: true,
+                            directNavigationMode: true,
+                            returnToHomeOnDirectBack: true,
+                            pendingAudioTrackIndex: lastAudioIndex,
+                            pendingSubtitleTrackIndex: lastSubtitleIndex
+                        }, StackView.Immediate)
+
+                        LibraryService.getSeriesDetails(normalizedSeriesId)
+                        if (targetSeasonId) {
+                            SeriesDetailsViewModel.loadSeasonEpisodes(targetSeasonId)
+                        }
+                    } else {
+                        libraryScreen = stackView.push("LibraryScreen.qml", {
+                            currentParentId: "",
+                            currentLibraryId: "",
+                            currentLibraryName: "",
+                            currentSeriesId: normalizedSeriesId,
+                            showSeriesDetails: true,
+                            directNavigationMode: true,
+                            returnToHomeOnDirectBack: true
+                        }, StackView.Immediate)
+
+                        LibraryService.getSeriesDetails(normalizedSeriesId)
+                        LibraryService.getItems(normalizedSeriesId, 0, 0)
                     }
                     if (libraryScreen && libraryScreen.forceActiveFocus) {
                         Qt.callLater(function() {
