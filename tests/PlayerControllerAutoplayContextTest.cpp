@@ -327,6 +327,7 @@ private slots:
     void explicitMultipartStopReportsActiveSegmentContext();
     void playbackEndedUpgradesQueuedStopFinalization();
     void nextEpisodeNavigationKeepsAwaitingUntilQueuedDelivery();
+    void upNextIdleParkingInvalidatesQueuedDisplayRestore();
     void deferredPostPlaybackDisplayRestoreCanBeReleased();
     void nextEpisodeNavigationUsesPendingTrackContext();
     void nextEpisodeIgnoresMismatchedSeries();
@@ -794,6 +795,41 @@ void PlayerControllerAutoplayContextTest::nextEpisodeNavigationKeepsAwaitingUnti
     QCOMPARE(navigationSpy.count(), 1);
     QVERIFY(!controller.awaitingNextEpisodeResolution());
     QCOMPARE(awaitingSpy.count(), 1);
+}
+
+void PlayerControllerAutoplayContextTest::upNextIdleParkingInvalidatesQueuedDisplayRestore()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_awaitingNextEpisodeResolution = true;
+    controller.m_deferredPostPlaybackDisplayRestorePending = true;
+    controller.m_deferredPostPlaybackNeedsHdrRestore = true;
+    controller.m_deferredPostPlaybackNeedsRefreshRestore = false;
+
+    const quint64 generationBeforeIdle = controller.m_displayRestoreGeneration;
+
+    controller.onEnterIdleState();
+
+    QVERIFY(controller.m_displayRestoreGeneration > generationBeforeIdle);
+    QVERIFY(!controller.m_deferredPostPlaybackDisplayRestorePending);
+    QVERIFY(!controller.m_deferredPostPlaybackNeedsHdrRestore);
+    QVERIFY(!controller.m_deferredPostPlaybackNeedsRefreshRestore);
 }
 
 void PlayerControllerAutoplayContextTest::deferredPostPlaybackDisplayRestoreCanBeReleased()

@@ -570,7 +570,8 @@ private:
     void startDeferredDisplayRestore(bool needsHdrRestore, bool needsRefreshRestore);
     void maybeStartDeferredPostPlaybackDisplayRestore();
     void scheduleDeferredRefreshRestore(quint64 generation, int delayMs);
-    void cancelPendingDisplayRestore(bool applyCurrentPlaybackDisplayState = false);
+    void cancelPendingDisplayRestore(bool applyCurrentPlaybackDisplayState = false,
+                                     bool clearParkedPostPlaybackRestore = true);
     void cancelPendingTerminalTransition();
     void scheduleReplacementPlayback(const std::function<void()> &action);
     void finalizeReplacementPlaybackStop();

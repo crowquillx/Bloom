@@ -691,6 +691,7 @@ void PlayerController::onEnterIdleState()
 
     enterIdleStateImmediate();
     if (m_awaitingNextEpisodeResolution) {
+        cancelPendingDisplayRestore(false, false);
         m_deferredPostPlaybackDisplayRestorePending = needsHdrRestore || needsRefreshRestore;
         m_deferredPostPlaybackNeedsHdrRestore = needsHdrRestore;
         m_deferredPostPlaybackNeedsRefreshRestore = needsRefreshRestore;
@@ -1531,7 +1532,8 @@ void PlayerController::scheduleDeferredRefreshRestore(quint64 generation, int de
                        });
 }
 
-void PlayerController::cancelPendingDisplayRestore(bool applyCurrentPlaybackDisplayState)
+void PlayerController::cancelPendingDisplayRestore(bool applyCurrentPlaybackDisplayState,
+                                                   bool clearParkedPostPlaybackRestore)
 {
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] deferred-display-restore cancel"
@@ -1541,9 +1543,11 @@ void PlayerController::cancelPendingDisplayRestore(bool applyCurrentPlaybackDisp
         disconnect(m_hdrRestoreFinishedConnection);
         m_hdrRestoreFinishedConnection = QMetaObject::Connection();
     }
-    m_deferredPostPlaybackDisplayRestorePending = false;
-    m_deferredPostPlaybackNeedsHdrRestore = false;
-    m_deferredPostPlaybackNeedsRefreshRestore = false;
+    if (clearParkedPostPlaybackRestore) {
+        m_deferredPostPlaybackDisplayRestorePending = false;
+        m_deferredPostPlaybackNeedsHdrRestore = false;
+        m_deferredPostPlaybackNeedsRefreshRestore = false;
+    }
     if (m_displayManager != nullptr) {
         m_displayManager->cancelPendingHdrAsync();
         if (applyCurrentPlaybackDisplayState) {
