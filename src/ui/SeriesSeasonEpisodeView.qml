@@ -73,6 +73,7 @@ FocusScope {
     signal backRequested()
     signal playRequested(var request)
     signal autoplayOverridesConsumed()
+    signal seriesDetailsRequested(string episodeId)
     
     Connections {
         target: SeriesDetailsViewModel
@@ -1605,7 +1606,7 @@ FocusScope {
                                 Layout.preferredWidth: Theme.buttonHeightLarge
 
                                 KeyNavigation.left: watchedToggleButton
-                                KeyNavigation.right: contextMenuButton
+                                KeyNavigation.right: goToSeriesButton
                                 KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
 
                                 onActiveFocusChanged: {
@@ -1641,6 +1642,50 @@ FocusScope {
                             }
 
                             SecondaryActionButton {
+                                id: goToSeriesButton
+                                text: qsTr("Go to Series")
+                                iconGlyph: Icons.tvShows
+                                showLabel: true
+                                enabled: seriesId !== ""
+                                Layout.preferredHeight: Theme.buttonHeightLarge
+
+                                KeyNavigation.left: favoriteButton
+                                KeyNavigation.right: contextMenuButton
+                                KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
+
+                                onActiveFocusChanged: {
+                                    if (activeFocus) {
+                                        mainContentFlickable.contentY = 0
+                                    }
+                                }
+
+                                Keys.onDownPressed: (event) => {
+                                    if (episodesList.count > 0) {
+                                        episodesList.forceActiveFocus()
+                                    } else if (castSection.visible && castList.count > 0) {
+                                        castSection.focusCurrentOrFirst()
+                                    }
+                                    event.accepted = true
+                                }
+
+                                Keys.onReturnPressed: (event) => {
+                                    if (!event.isAutoRepeat && enabled) {
+                                        clicked()
+                                        event.accepted = true
+                                    }
+                                }
+
+                                Keys.onEnterPressed: (event) => {
+                                    if (!event.isAutoRepeat && enabled) {
+                                        clicked()
+                                        event.accepted = true
+                                    }
+                                }
+
+                                onClicked: root.seriesDetailsRequested(selectedEpisodeId)
+                            }
+
+                            SecondaryActionButton {
                                 id: contextMenuButton
                                 text: ""
                                 iconGlyph: Icons.moreVert
@@ -1649,7 +1694,7 @@ FocusScope {
                                 Layout.preferredHeight: Theme.buttonHeightLarge
                                 Layout.preferredWidth: Theme.buttonHeightLarge
 
-                                KeyNavigation.left: favoriteButton
+                                KeyNavigation.left: goToSeriesButton
                                 KeyNavigation.up: (readMoreButton.visible && readMoreButton.enabled) ? readMoreButton : seasonsTabList
 
                                 onActiveFocusChanged: {
