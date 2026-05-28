@@ -196,6 +196,11 @@ conanbuildinfo.*
 # vcpkg
 vcpkg_installed/
 
+# Branch-local rewrite artifacts
+.fvm/
+flutter/
+target/
+
 # ===========================
 # Testing
 # ===========================
