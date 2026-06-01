@@ -1065,14 +1065,21 @@ Window {
             var normalizedSeriesId = seriesId
                 || (episodeData ? (episodeData.SeriesId || episodeData.ParentId || "") : "")
             var hasNextEpisode = episodeData && episodeData.Id && !episodeData.NoNextEpisode
+            var returnScreen = stackView.currentItem
+            var canReuseReturnScreen = returnScreen
+                && returnScreen["canRestoreUpNextEpisodeContext"] === true
+                && returnScreen["currentSeriesId"] === normalizedSeriesId
             console.log("[Main] Up Next screen for:",
                         hasNextEpisode ? episodeData.SeriesName : "(no next episode)",
                         hasNextEpisode ? ("S" + episodeData.ParentIndexNumber + "E" + episodeData.IndexNumber) : "",
-                        "Autoplay:", autoplay)
+                        "Autoplay:", autoplay,
+                        "Reuse return screen:", canReuseReturnScreen)
             
-            // Pop back to the root level (home screen) first
-            while (stackView.depth > 1) {
-                stackView.pop(null, StackView.Immediate)
+            if (!canReuseReturnScreen) {
+                // Pop back to the root level (home screen) first when there is no reusable context.
+                while (stackView.depth > 1) {
+                    stackView.pop(null, StackView.Immediate)
+                }
             }
             
             // Push the Up Next interstitial screen
@@ -1108,16 +1115,28 @@ Window {
                     PlayerController.releaseDeferredPostPlaybackDisplayRestore()
                     PlayerController.clearPendingAutoplayContext()
 
+                    var targetEpisodeData = Object.assign({}, episodeData || {})
+                    if (!targetEpisodeData.itemId && targetEpisodeData.Id) {
+                        targetEpisodeData.itemId = targetEpisodeData.Id
+                    }
+                    if (!targetEpisodeData.SeasonId && targetEpisodeData.ParentId) {
+                        targetEpisodeData.SeasonId = targetEpisodeData.ParentId
+                    }
+
+                    if (canReuseReturnScreen
+                            && returnScreen
+                            && stackView.currentItem === returnScreen
+                            && typeof returnScreen["restoreUpNextEpisodeContext"] === "function") {
+                        console.log("[Main] Up Next: Restoring existing episode context")
+                        returnScreen["restoreUpNextEpisodeContext"](targetEpisodeData,
+                                                                    normalizedSeriesId,
+                                                                    lastAudioIndex,
+                                                                    lastSubtitleIndex)
+                        return
+                    }
+
                     var libraryScreen
                     if (hasNextEpisode) {
-                        var targetEpisodeData = Object.assign({}, episodeData || {})
-                        if (!targetEpisodeData.itemId && targetEpisodeData.Id) {
-                            targetEpisodeData.itemId = targetEpisodeData.Id
-                        }
-                        if (!targetEpisodeData.SeasonId && targetEpisodeData.ParentId) {
-                            targetEpisodeData.SeasonId = targetEpisodeData.ParentId
-                        }
-
                         var targetSeasonId = targetEpisodeData.SeasonId || ""
                         var targetEpisodeId = targetEpisodeData.itemId || targetEpisodeData.Id || ""
 
@@ -1168,6 +1187,9 @@ Window {
                     PlayerController.releaseDeferredPostPlaybackDisplayRestore()
                     PlayerController.clearPendingAutoplayContext()
                     stackView.pop(null, StackView.Immediate)
+                    while (stackView.depth > 1) {
+                        stackView.pop(null, StackView.Immediate)
+                    }
                 })
 
                 upNextScreen.recommendationSelected.connect(function(itemData) {

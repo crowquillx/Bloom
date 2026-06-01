@@ -12,7 +12,10 @@ class EpisodeSelectionScriptTest : public QObject
 private slots:
     void initTestCase();
     void explicitSelectionMustExist();
+    void explicitSelectionMatchesLowercaseItemId();
     void explicitSelectionWaitsForTargetSeason();
+    void explicitSelectionUsesTargetSeasonEpisode();
+    void explicitSelectionDoesNotFallbackWithinTargetSeason();
     void fallbackSelectionChoosesFirstUnplayed();
     void fallbackSelectionSkipsLeadingNullEntries();
     void allNullEpisodesDoNotApplyFallback();
@@ -64,6 +67,34 @@ void EpisodeSelectionScriptTest::explicitSelectionMustExist()
     QCOMPARE(result.property(QStringLiteral("foundInitialEpisode")).toBool(), false);
 }
 
+void EpisodeSelectionScriptTest::explicitSelectionMatchesLowercaseItemId()
+{
+    QVariantList episodes;
+    episodes.append(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
+        {QStringLiteral("isPlayed"), true},
+        {QStringLiteral("playbackPositionTicks"), 0}
+    });
+    episodes.append(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("episode-2")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
+        {QStringLiteral("isPlayed"), false},
+        {QStringLiteral("playbackPositionTicks"), 0}
+    });
+
+    const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
+        m_engine.toScriptValue(episodes),
+        QJSValue(QStringLiteral("episode-2")),
+        QJSValue(QStringLiteral("season-a"))
+    });
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+
+    QCOMPARE(result.property(QStringLiteral("shouldApply")).toBool(), true);
+    QCOMPARE(result.property(QStringLiteral("foundInitialEpisode")).toBool(), true);
+    QCOMPARE(result.property(QStringLiteral("targetIndex")).toInt(), 1);
+}
+
 void EpisodeSelectionScriptTest::explicitSelectionWaitsForTargetSeason()
 {
     QVariantList episodes;
@@ -85,6 +116,67 @@ void EpisodeSelectionScriptTest::explicitSelectionWaitsForTargetSeason()
     QCOMPARE(result.property(QStringLiteral("shouldApply")).toBool(), false);
     QCOMPARE(result.property(QStringLiteral("waitingForTargetSeason")).toBool(), true);
     QCOMPARE(result.property(QStringLiteral("currentSeasonId")).toString(), QStringLiteral("season-a"));
+}
+
+void EpisodeSelectionScriptTest::explicitSelectionUsesTargetSeasonEpisode()
+{
+    QVariantList episodes;
+    episodes.append(QVariantMap{
+        {QStringLiteral("Id"), QStringLiteral("episode-1")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-b")},
+        {QStringLiteral("isPlayed"), false},
+        {QStringLiteral("playbackPositionTicks"), 0}
+    });
+    episodes.append(QVariantMap{
+        {QStringLiteral("Id"), QStringLiteral("episode-2")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-b")},
+        {QStringLiteral("isPlayed"), false},
+        {QStringLiteral("playbackPositionTicks"), 0}
+    });
+
+    const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
+        m_engine.toScriptValue(episodes),
+        QJSValue(QStringLiteral("episode-2")),
+        QJSValue(QStringLiteral("season-b"))
+    });
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+
+    QCOMPARE(result.property(QStringLiteral("shouldApply")).toBool(), true);
+    QCOMPARE(result.property(QStringLiteral("foundInitialEpisode")).toBool(), true);
+    QCOMPARE(result.property(QStringLiteral("targetIndex")).toInt(), 1);
+    QCOMPARE(result.property(QStringLiteral("currentSeasonId")).toString(), QStringLiteral("season-b"));
+}
+
+void EpisodeSelectionScriptTest::explicitSelectionDoesNotFallbackWithinTargetSeason()
+{
+    QVariantList episodes;
+    episodes.append(QVariantMap{
+        {QStringLiteral("Id"), QStringLiteral("episode-1")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
+        {QStringLiteral("UserData"), QVariantMap{
+            {QStringLiteral("Played"), true},
+            {QStringLiteral("PlaybackPositionTicks"), 0}
+        }}
+    });
+    episodes.append(QVariantMap{
+        {QStringLiteral("Id"), QStringLiteral("episode-2")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
+        {QStringLiteral("UserData"), QVariantMap{
+            {QStringLiteral("Played"), false},
+            {QStringLiteral("PlaybackPositionTicks"), 0}
+        }}
+    });
+
+    const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
+        m_engine.toScriptValue(episodes),
+        QJSValue(QStringLiteral("missing-episode")),
+        QJSValue(QStringLiteral("season-a"))
+    });
+    QVERIFY2(!result.isError(), qPrintable(result.toString()));
+
+    QCOMPARE(result.property(QStringLiteral("shouldApply")).toBool(), false);
+    QCOMPARE(result.property(QStringLiteral("foundInitialEpisode")).toBool(), false);
+    QCOMPARE(result.property(QStringLiteral("waitingForTargetSeason")).toBool(), false);
 }
 
 void EpisodeSelectionScriptTest::fallbackSelectionChoosesFirstUnplayed()

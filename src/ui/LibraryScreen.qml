@@ -69,6 +69,7 @@ FocusScope {
     property bool restoringFocusFromSeriesDetailsReturn: false
     property bool restoringFocusFromMovieDetailsReturn: false
     property var _seerrRecommendationCache: ({})
+    readonly property bool canRestoreUpNextEpisodeContext: currentSeriesId !== "" && (showSeasonView || showSeriesDetails)
 
     function saveFocusForSidebar() {
         if (contentLoader.item && typeof contentLoader.item.saveFocusForSidebar === "function") {
@@ -87,6 +88,61 @@ FocusScope {
         }
         Qt.callLater(function() {
             restoringFocusFromSidebar = false
+        })
+    }
+
+    function restoreUpNextEpisodeContext(episodeData, fallbackSeriesId, audioIndex, subtitleIndex) {
+        var itemData = Object.assign({}, episodeData || {})
+        var targetSeriesId = fallbackSeriesId || itemData.SeriesId || currentSeriesId || ""
+        var targetSeasonId = itemData.SeasonId || itemData.ParentId || currentSeasonId || ""
+        var targetEpisodeId = itemData.itemId || itemData.Id || ""
+
+        console.log("[Library] Restoring Up Next context",
+                    "seriesId:", targetSeriesId,
+                    "seasonId:", targetSeasonId,
+                    "episodeId:", targetEpisodeId)
+
+        pendingAudioTrackIndex = audioIndex
+        pendingSubtitleTrackIndex = subtitleIndex
+
+        if (targetSeriesId) {
+            currentSeriesId = targetSeriesId
+        }
+        if (targetSeasonId) {
+            currentSeasonId = targetSeasonId
+        }
+        initialEpisodeId = targetEpisodeId
+
+        showMovieDetails = false
+        if (targetSeasonId) {
+            showSeasonView = true
+            showSeriesDetails = false
+        } else {
+            showSeasonView = false
+            showSeriesDetails = true
+        }
+
+        if (targetSeriesId && SeriesDetailsViewModel.seriesId !== targetSeriesId) {
+            SeriesDetailsViewModel.loadSeriesDetails(targetSeriesId)
+        } else if (targetSeriesId) {
+            LibraryService.getSeriesDetails(targetSeriesId)
+        }
+
+        if (targetSeasonId) {
+            SeriesDetailsViewModel.refreshSeasonEpisodes(targetSeasonId)
+        } else if (targetSeriesId) {
+            LibraryService.getItems(targetSeriesId, 0, 0)
+        }
+
+        Qt.callLater(function() {
+            if (!contentLoader.item) {
+                root.forceActiveFocus()
+                return
+            }
+            if (targetEpisodeId && typeof contentLoader.item.restoreEpisodeSelection === "function") {
+                contentLoader.item.restoreEpisodeSelection(targetEpisodeId)
+            }
+            contentLoader.item.forceActiveFocus()
         })
     }
 
