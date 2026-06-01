@@ -295,10 +295,11 @@ jobs:
 
       - name: Stop sccache server
         if: always()
+        continue-on-error: true
         shell: pwsh
         run: |
           if (Get-Command sccache -ErrorAction SilentlyContinue) {
-            sccache --stop-server 2>$null
+            & sccache --stop-server 2>&1 | Out-Null
           }
 
       - name: Package App
