@@ -97,7 +97,11 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
     if (httpStatus == 401) {
         qCWarning(playbackService) << "Session expired (401) for endpoint:" << endpoint;
         m_authService->checkForSessionExpiry(reply, true);
-        if (failureHandler) failureHandler();
+        NetworkError error;
+        error.endpoint = endpoint;
+        error.code = httpStatus;
+        error.userMessage = tr("Session expired. Please log in again.");
+        if (failureHandler) failureHandler(error);
         return;
     }
     
@@ -122,7 +126,7 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
         });
     } else {
         emitError(netError);
-        if (failureHandler) failureHandler();
+        if (failureHandler) failureHandler(netError);
     }
 }
 
@@ -140,12 +144,20 @@ void PlaybackService::emitError(const NetworkError &error)
 
 void PlaybackService::getPlaybackInfo(const QString &itemId)
 {
+    getPlaybackInfo(itemId, QString());
+}
+
+void PlaybackService::getPlaybackInfo(const QString &itemId, const QString &requestContext)
+{
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getPlaybackInfo";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
         emitError(error);
+        if (!requestContext.isEmpty()) {
+            emit playbackInfoFailedForRequest(itemId, error.userMessage, requestContext);
+        }
         return;
     }
     
@@ -158,15 +170,28 @@ void PlaybackService::getPlaybackInfo(const QString &itemId)
             request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
             return m_authService->networkManager()->post(request, QByteArray("{}"));
         },
-        [this, itemId](QNetworkReply *reply) {
+        [this, itemId, requestContext](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             PlaybackInfoResponse info = PlaybackInfoResponse::fromJson(doc.object());
             emit playbackInfoLoaded(itemId, info);
+            if (!requestContext.isEmpty()) {
+                emit playbackInfoLoadedForRequest(itemId, info, requestContext);
+            }
+        },
+        [this, itemId, requestContext](const NetworkError &error) {
+            if (!requestContext.isEmpty()) {
+                emit playbackInfoFailedForRequest(itemId, error.userMessage, requestContext);
+            }
         });
 }
 
 void PlaybackService::getAdditionalParts(const QString &itemId)
+{
+    getAdditionalParts(itemId, QString());
+}
+
+void PlaybackService::getAdditionalParts(const QString &itemId, const QString &requestContext)
 {
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
@@ -174,6 +199,9 @@ void PlaybackService::getAdditionalParts(const QString &itemId)
         error.code = -1;
         error.userMessage = tr("Not authenticated");
         emitError(error);
+        if (!requestContext.isEmpty()) {
+            emit additionalPartsFailedForRequest(itemId, error.userMessage, requestContext);
+        }
         return;
     }
 
@@ -185,7 +213,7 @@ void PlaybackService::getAdditionalParts(const QString &itemId)
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, itemId](QNetworkReply *reply) {
+        [this, itemId, requestContext](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             QJsonArray parts;
@@ -193,6 +221,14 @@ void PlaybackService::getAdditionalParts(const QString &itemId)
                 parts = doc.object().value(QStringLiteral("Items")).toArray();
             }
             emit additionalPartsLoaded(itemId, parts);
+            if (!requestContext.isEmpty()) {
+                emit additionalPartsLoadedForRequest(itemId, parts, requestContext);
+            }
+        },
+        [this, itemId, requestContext](const NetworkError &error) {
+            if (!requestContext.isEmpty()) {
+                emit additionalPartsFailedForRequest(itemId, error.userMessage, requestContext);
+            }
         });
 }
 
@@ -374,7 +410,8 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
                             self->finishExternalMediaSegments(itemId, serverSegments, segments);
                         });
                 },
-                [this, context, serverSegments, itemId]() mutable {
+                [this, context, serverSegments, itemId](const NetworkError &error) mutable {
+                    Q_UNUSED(error);
                     qCDebug(playbackService) << "Failed to fetch series provider IDs for" << context.seriesId
                                              << "- external segment lookup may be incomplete";
                     QPointer<PlaybackService> self(this);
@@ -385,7 +422,8 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
                         });
                 });
         },
-        [this, itemId, serverSegments]() {
+        [this, itemId, serverSegments](const NetworkError &error) {
+            Q_UNUSED(error);
             if (serverSegments.isEmpty()) {
                 finishMediaSegments(itemId, serverSegments);
             }

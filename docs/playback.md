@@ -234,6 +234,7 @@ Alternate versions and multipart playback
   - first available source
 - Jellyfin multipart items are resolved via `/Videos/{itemId}/AdditionalParts`. Bloom fetches `PlaybackInfo` for each part, matches each later part against the chosen root version with the same affinity order, and falls back to that part’s first source when no match exists.
 - Multipart playback is queued into the backend playlist with `appendUrlsToPlaylist(...)` so part 2 starts seamlessly after part 1 without returning to idle.
+- User-initiated playback uses request-scoped `PlaybackInfo` and `AdditionalParts` responses so prefetch responses for the same item cannot satisfy a newer play request. If the primary `PlaybackInfo` request fails or returns no media sources, Bloom surfaces a playback error instead of falling back to a plain stream URL.
 
 Multipart reporting model
 - Bloom keeps two playback identities for multipart items:
@@ -265,9 +266,9 @@ Playback caching and network resilience
 - For longer server outages, `PlayerController` supports automatic recovery:
   - When playback hits `Error` because of a network/timeout failure, the controller stashes a `RecoveryContext` with the current item, stream URL, track selections, and last known position.
   - If `autoRecoverPlayback` is enabled (default `true`, stored in `settings.playback.auto_recover_playback`), the controller enters recovery mode and pings the server every 5 seconds via `LibraryService::pingServer()`.
-  - When the ping succeeds, playback resumes automatically at the last known position using the same stream URL and track state.
+  - When the ping succeeds, playback refreshes Jellyfin `PlaybackInfo` and resumes at the last known position using a fresh media source plus the prior track preference hints.
   - Recovery retries indefinitely until the server returns or the user explicitly stops/retries/clears the error.
-  - Manual retry (`retry()` / `Event::Play`) while recovering will resume from the stashed position instead of restarting from the beginning.
+  - Manual retry (`retry()` / `Event::Play`) while recovering refreshes Jellyfin `PlaybackInfo` and resumes from the stashed position instead of replaying the old stream URL.
 - `autoRecoverPlayback` is not exposed in the settings UI; it can be toggled by editing `app.json` directly.
 
 mpv config hints

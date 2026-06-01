@@ -33,8 +33,10 @@ public:
                              QObject *parent = nullptr);
     
     // Playback Info - Get media streams and track information
-    Q_INVOKABLE void getPlaybackInfo(const QString &itemId);
-    Q_INVOKABLE void getAdditionalParts(const QString &itemId);
+    Q_INVOKABLE virtual void getPlaybackInfo(const QString &itemId);
+    Q_INVOKABLE virtual void getAdditionalParts(const QString &itemId);
+    virtual void getPlaybackInfo(const QString &itemId, const QString &requestContext);
+    virtual void getAdditionalParts(const QString &itemId, const QString &requestContext);
     
     // Media Segments - Get intro/outro markers for skip functionality
     Q_INVOKABLE void getMediaSegments(const QString &itemId);
@@ -88,7 +90,19 @@ public:
 signals:
     // Playback info with media streams for track selection
     void playbackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
+    void playbackInfoLoadedForRequest(const QString &itemId,
+                                      const PlaybackInfoResponse &playbackInfo,
+                                      const QString &requestContext);
+    void playbackInfoFailedForRequest(const QString &itemId,
+                                      const QString &error,
+                                      const QString &requestContext);
     void additionalPartsLoaded(const QString &itemId, const QJsonArray &parts);
+    void additionalPartsLoadedForRequest(const QString &itemId,
+                                         const QJsonArray &parts,
+                                         const QString &requestContext);
+    void additionalPartsFailedForRequest(const QString &itemId,
+                                         const QString &error,
+                                         const QString &requestContext);
     
     // Media segments loaded (intro/outro markers)
     void mediaSegmentsLoaded(const QString &itemId, const QList<MediaSegmentInfo> &segments);
@@ -112,7 +126,7 @@ private:
     // Retry mechanism types  
     using ResponseHandler = std::function<void(QNetworkReply*)>;
     using RequestFactory = std::function<QNetworkReply*()>;
-    using FailureHandler = std::function<void()>;
+    using FailureHandler = std::function<void(const NetworkError&)>;
     
     void sendRequestWithRetry(const QString &endpoint,
                                RequestFactory requestFactory,

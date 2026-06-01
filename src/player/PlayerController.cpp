@@ -340,8 +340,16 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     // Connect to PlaybackService for media segments and trickplay info signals
     connect(m_playbackService, &PlaybackService::playbackInfoLoaded,
             this, &PlayerController::onPlaybackInfoLoaded);
+    connect(m_playbackService, &PlaybackService::playbackInfoLoadedForRequest,
+            this, &PlayerController::onPlaybackInfoLoadedForRequest);
+    connect(m_playbackService, &PlaybackService::playbackInfoFailedForRequest,
+            this, &PlayerController::onPlaybackInfoFailedForRequest);
     connect(m_playbackService, &PlaybackService::additionalPartsLoaded,
             this, &PlayerController::onAdditionalPartsLoaded);
+    connect(m_playbackService, &PlaybackService::additionalPartsLoadedForRequest,
+            this, &PlayerController::onAdditionalPartsLoadedForRequest);
+    connect(m_playbackService, &PlaybackService::additionalPartsFailedForRequest,
+            this, &PlayerController::onAdditionalPartsFailedForRequest);
     connect(m_playbackService, &PlaybackService::errorOccurred,
             this, &PlayerController::onPlaybackServiceErrorOccurred);
     connect(m_playbackService, &PlaybackService::networkError,
@@ -527,6 +535,7 @@ void PlayerController::setupStateMachine()
     
     // From Idle
     m_transitions[{Idle, Event::Play}] = Loading;
+    m_transitions[{Idle, Event::ErrorOccurred}] = Error;
     
     // From Loading
     m_transitions[{Loading, Event::LoadComplete}] = Buffering;
@@ -1734,19 +1743,6 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
 
 void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo)
 {
-    QStringList requestsToMaybeFinalize;
-    for (auto it = m_pendingPlaybackRequests.begin(); it != m_pendingPlaybackRequests.end(); ++it) {
-        if (!it->awaitedPlaybackInfoIds.contains(itemId)) {
-            continue;
-        }
-        it->playbackInfos.insert(itemId, playbackInfo);
-        it->awaitedPlaybackInfoIds.remove(itemId);
-        requestsToMaybeFinalize.append(it.key());
-    }
-    for (const QString &requestId : std::as_const(requestsToMaybeFinalize)) {
-        maybeFinalizePendingPlaybackRequest(requestId);
-    }
-
     if (!m_waitingForAutoplayPlaybackInfo) {
         return;
     }
@@ -1817,49 +1813,51 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
                       mediaSourceIsHdr(mediaSource));
 }
 
+void PlayerController::onPlaybackInfoLoadedForRequest(const QString &itemId,
+                                                      const PlaybackInfoResponse &playbackInfo,
+                                                      const QString &requestContext)
+{
+    auto it = m_pendingPlaybackRequests.find(requestContext);
+    if (it == m_pendingPlaybackRequests.end() || !it->awaitedPlaybackInfoIds.contains(itemId)) {
+        return;
+    }
+
+    if (itemId == it->itemId && playbackInfo.mediaSources.isEmpty()) {
+        failPendingPlaybackRequest(requestContext, tr("No playable media sources found."));
+        return;
+    }
+
+    it->playbackInfos.insert(itemId, playbackInfo);
+    it->awaitedPlaybackInfoIds.remove(itemId);
+    maybeFinalizePendingPlaybackRequest(requestContext);
+}
+
+void PlayerController::onPlaybackInfoFailedForRequest(const QString &itemId,
+                                                      const QString &error,
+                                                      const QString &requestContext)
+{
+    auto it = m_pendingPlaybackRequests.find(requestContext);
+    if (it == m_pendingPlaybackRequests.end() || !it->awaitedPlaybackInfoIds.contains(itemId)) {
+        return;
+    }
+
+    it->failedPlaybackInfoIds.insert(itemId);
+    it->awaitedPlaybackInfoIds.remove(itemId);
+    if (itemId == it->itemId) {
+        const QString message = error.isEmpty()
+            ? tr("Unable to load playback information.")
+            : error;
+        failPendingPlaybackRequest(requestContext, message);
+        return;
+    }
+
+    maybeFinalizePendingPlaybackRequest(requestContext);
+}
+
 void PlayerController::onPlaybackServiceErrorOccurred(const QString &endpoint, const QString &error)
 {
     const bool isPlaybackInfoEndpoint = endpoint == QStringLiteral("getPlaybackInfo")
         || endpoint.contains(QStringLiteral("/PlaybackInfo"), Qt::CaseInsensitive);
-    if (isPlaybackInfoEndpoint) {
-        QStringList requestsToMaybeFinalize;
-        for (auto it = m_pendingPlaybackRequests.begin(); it != m_pendingPlaybackRequests.end(); ++it) {
-            QStringList failedItemIds;
-            for (const QString &awaitedItemId : std::as_const(it->awaitedPlaybackInfoIds)) {
-                if (!endpoint.contains(awaitedItemId, Qt::CaseInsensitive)) {
-                    continue;
-                }
-                it->playbackInfos.insert(awaitedItemId, PlaybackInfoResponse{});
-                failedItemIds.append(awaitedItemId);
-            }
-            for (const QString &failedItemId : std::as_const(failedItemIds)) {
-                it->awaitedPlaybackInfoIds.remove(failedItemId);
-                requestsToMaybeFinalize.append(it.key());
-            }
-        }
-
-        for (const QString &requestId : std::as_const(requestsToMaybeFinalize)) {
-            maybeFinalizePendingPlaybackRequest(requestId);
-        }
-    }
-
-    if (endpoint.contains(QStringLiteral("/AdditionalParts"), Qt::CaseInsensitive)) {
-        QStringList requestsToMaybeFinalize;
-        for (auto it = m_pendingPlaybackRequests.begin(); it != m_pendingPlaybackRequests.end(); ++it) {
-            const QString itemId = it->itemId;
-            if (!endpoint.contains(itemId, Qt::CaseInsensitive)) {
-                continue;
-            }
-            it->additionalPartsLoaded = true;
-            it->additionalParts = QJsonArray();
-            requestsToMaybeFinalize.append(it.key());
-        }
-
-        for (const QString &requestId : std::as_const(requestsToMaybeFinalize)) {
-            maybeFinalizePendingPlaybackRequest(requestId);
-        }
-    }
-
     if (!m_waitingForAutoplayPlaybackInfo) {
         return;
     }
@@ -1925,8 +1923,8 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     m_pendingPlaybackRequests.insert(pending.requestId, pending);
     maybeResolvePendingRequestLibraryId(m_pendingPlaybackRequests[pending.requestId]);
 
-    m_playbackService->getPlaybackInfo(itemId);
-    m_playbackService->getAdditionalParts(itemId);
+    m_playbackService->getPlaybackInfo(itemId, pending.requestId);
+    m_playbackService->getAdditionalParts(itemId, pending.requestId);
 }
 
 void PlayerController::onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData)
@@ -2012,27 +2010,47 @@ void PlayerController::cancelPendingPlaybackRequest(const QString &requestId)
 
 void PlayerController::onAdditionalPartsLoaded(const QString &itemId, const QJsonArray &parts)
 {
-    const QStringList requestIds = m_pendingPlaybackRequests.keys();
-    for (const QString &requestId : requestIds) {
-        auto it = m_pendingPlaybackRequests.find(requestId);
-        if (it == m_pendingPlaybackRequests.end() || it->itemId != itemId) {
+    Q_UNUSED(itemId);
+    Q_UNUSED(parts);
+}
+
+void PlayerController::onAdditionalPartsLoadedForRequest(const QString &itemId,
+                                                         const QJsonArray &parts,
+                                                         const QString &requestContext)
+{
+    auto it = m_pendingPlaybackRequests.find(requestContext);
+    if (it == m_pendingPlaybackRequests.end() || it->itemId != itemId) {
+        return;
+    }
+
+    it->additionalPartsLoaded = true;
+    it->additionalParts = parts;
+
+    for (const QJsonValue &partValue : parts) {
+        const QString partId = partValue.toObject().value(QStringLiteral("Id")).toString();
+        if (partId.isEmpty() || partId == itemId || it->awaitedPlaybackInfoIds.contains(partId)) {
             continue;
         }
-
-        it->additionalPartsLoaded = true;
-        it->additionalParts = parts;
-
-        for (const QJsonValue &partValue : parts) {
-            const QString partId = partValue.toObject().value(QStringLiteral("Id")).toString();
-            if (partId.isEmpty() || partId == itemId || it->awaitedPlaybackInfoIds.contains(partId)) {
-                continue;
-            }
-            it->awaitedPlaybackInfoIds.insert(partId);
-            m_playbackService->getPlaybackInfo(partId);
-        }
-
-        maybeFinalizePendingPlaybackRequest(requestId);
+        it->awaitedPlaybackInfoIds.insert(partId);
+        m_playbackService->getPlaybackInfo(partId, requestContext);
     }
+
+    maybeFinalizePendingPlaybackRequest(requestContext);
+}
+
+void PlayerController::onAdditionalPartsFailedForRequest(const QString &itemId,
+                                                         const QString &error,
+                                                         const QString &requestContext)
+{
+    Q_UNUSED(error);
+    auto it = m_pendingPlaybackRequests.find(requestContext);
+    if (it == m_pendingPlaybackRequests.end() || it->itemId != itemId) {
+        return;
+    }
+
+    it->additionalPartsLoaded = true;
+    it->additionalParts = QJsonArray();
+    maybeFinalizePendingPlaybackRequest(requestContext);
 }
 
 void PlayerController::maybeFinalizePendingPlaybackRequest(const QString &requestId)
@@ -2043,12 +2061,21 @@ void PlayerController::maybeFinalizePendingPlaybackRequest(const QString &reques
     }
 
     if (!it->additionalPartsLoaded
-        || !it->playbackInfos.contains(it->itemId)
         || !it->awaitedPlaybackInfoIds.isEmpty()) {
         return;
     }
 
     if (it->awaitingLibraryResolution) {
+        return;
+    }
+
+    if (it->primaryPlaybackInfoFailed) {
+        failPendingPlaybackRequest(requestId, it->failureMessage);
+        return;
+    }
+
+    if (!it->playbackInfos.contains(it->itemId)) {
+        failPendingPlaybackRequest(requestId, tr("Unable to load playback information."));
         return;
     }
 
@@ -2080,23 +2107,7 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
     const QVariantList primaryMediaSources = primaryPlaybackInfo.getMediaSourcesVariant();
 
     if (primaryMediaSources.isEmpty()) {
-        const double framerate = request.isMovie
-            ? 0.0
-            : m_pendingAutoplayFramerate;
-        const bool isHdr = false;
-        setOverlayMetadata(request.overlayTitle,
-                           request.overlaySubtitle,
-                           request.overlayBackdropUrl,
-                           request.overlayLogoUrl);
-        playUrl(m_libraryService->getStreamUrl(request.itemId),
-                request.itemId,
-                request.startPositionTicks,
-                request.seriesId,
-                request.seasonId,
-                request.libraryId,
-                framerate,
-                isHdr);
-        m_pendingPlaybackRequests.remove(requestId);
+        failPendingPlaybackRequest(requestId, tr("No playable media sources found."));
         return;
     }
 
@@ -2166,6 +2177,23 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
     }
 
     m_pendingPlaybackRequests.remove(requestId);
+}
+
+void PlayerController::failPendingPlaybackRequest(const QString &requestId, const QString &message)
+{
+    auto it = m_pendingPlaybackRequests.find(requestId);
+    if (it == m_pendingPlaybackRequests.end()) {
+        return;
+    }
+
+    const QString errorMessage = message.isEmpty()
+        ? tr("Unable to start playback.")
+        : message;
+    m_pendingPlaybackRequests.erase(it);
+    setErrorMessage(errorMessage);
+    if (m_playbackState == Idle) {
+        processEvent(Event::ErrorOccurred);
+    }
 }
 
 QVariantMap PlayerController::buildPlaybackVersionDialogModel(const QString &requestId) const
@@ -3047,7 +3075,7 @@ void PlayerController::retry()
 {
     qDebug() << "PlayerController: retry requested";
     
-    if (m_playbackState == Error && !m_pendingUrl.isEmpty()) {
+    if (m_playbackState == Error) {
         m_reportProgressOnNextPositionUpdate = false;
 
         if (m_recoveryContext.valid) {
@@ -3056,7 +3084,30 @@ void PlayerController::retry()
             return;
         }
 
-        processEvent(Event::Play);
+        if (!m_currentItemId.isEmpty()) {
+            const qint64 retryPositionTicks = currentReportingPositionTicks();
+            requestPlayback(QVariantMap{
+                {QStringLiteral("itemId"), m_currentItemId},
+                {QStringLiteral("startPositionTicks"), retryPositionTicks},
+                {QStringLiteral("seriesId"), m_currentSeriesId},
+                {QStringLiteral("seasonId"), m_currentSeasonId},
+                {QStringLiteral("libraryId"), m_currentLibraryId},
+                {QStringLiteral("overlayTitle"), m_overlayTitle},
+                {QStringLiteral("overlaySubtitle"), m_overlaySubtitle},
+                {QStringLiteral("overlayBackdropUrl"), m_overlayBackdropUrl},
+                {QStringLiteral("overlayLogoUrl"), m_overlayLogoUrl},
+                {QStringLiteral("preferredAudioIndex"), m_selectedAudioTrack},
+                {QStringLiteral("preferredSubtitleIndex"), m_selectedSubtitleTrack},
+                {QStringLiteral("isMovie"), m_currentSeriesId.isEmpty()},
+                {QStringLiteral("allowVersionPrompt"), false},
+                {QStringLiteral("useAffinityFallback"), true}
+            });
+            return;
+        }
+
+        if (!m_pendingUrl.isEmpty()) {
+            processEvent(Event::Play);
+        }
     }
 }
 
@@ -3148,54 +3199,25 @@ void PlayerController::resumeFromRecoveryContext()
         return;
     }
 
-    playUrlWithTracks(m_recoveryContext.url,
-                      m_recoveryContext.itemId,
-                      m_recoveryContext.startPositionTicks,
-                      m_recoveryContext.seriesId,
-                      m_recoveryContext.seasonId,
-                      m_recoveryContext.libraryId,
-                      m_recoveryContext.mediaSourceId,
-                      m_recoveryContext.playSessionId,
-                      m_recoveryContext.mediaSource,
-                      m_recoveryContext.audioStreamIndex,
-                      m_recoveryContext.subtitleStreamIndex,
-                      m_recoveryContext.availableAudioTracks,
-                      m_recoveryContext.availableSubtitleTracks,
-                      m_recoveryContext.framerate,
-                      m_recoveryContext.isHDR);
-
-    // Restore multipart segment state so aggregate position and reporting are correct.
-    // This must be queued because playUrlWithTracks -> playUrl -> scheduleReplacementPlayback
-    // defers clearPlaybackSegments() into a lambda that may fire after we return.
-    if (!m_recoveryContext.playbackSegments.isEmpty()
-        && m_recoveryContext.activePlaybackSegmentIndex >= 0) {
-        const RecoveryContext ctx = m_recoveryContext;
-        QMetaObject::invokeMethod(this, [this, ctx]() {
-            m_playbackSegments = ctx.playbackSegments;
-            m_activePlaybackSegmentIndex = ctx.activePlaybackSegmentIndex;
-            m_activePlaybackSegmentOffsetTicks = ctx.activePlaybackSegmentOffsetTicks;
-            m_segmentRelativePosition = ctx.segmentRelativePosition;
-            m_aggregatePlaybackDuration = 0.0;
-            for (const QVariantMap &seg : m_playbackSegments) {
-                m_aggregatePlaybackDuration += static_cast<double>(seg.value(QStringLiteral("runTimeTicks")).toLongLong()) / 10000000.0;
-            }
-
-            // Queue remaining segments for mpv playlist so playback continues across segments
-            m_pendingPlaylistAppendUrls.clear();
-            for (int index = m_activePlaybackSegmentIndex + 1; index < m_playbackSegments.size(); ++index) {
-                const QString url = m_playbackSegments.at(index).value(QStringLiteral("url")).toString();
-                if (!url.isEmpty()) {
-                    m_pendingPlaylistAppendUrls.append(url);
-                }
-            }
-            if (!m_pendingPlaylistAppendUrls.isEmpty() && m_playerBackend && m_playerBackend->isRunning()) {
-                m_playerBackend->appendUrlsToPlaylist(m_pendingPlaylistAppendUrls);
-                m_pendingPlaylistAppendUrls.clear();
-            }
-        }, Qt::QueuedConnection);
-    }
-
+    const RecoveryContext context = m_recoveryContext;
     m_recoveryContext = RecoveryContext{};
+
+    requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), context.itemId},
+        {QStringLiteral("startPositionTicks"), context.startPositionTicks},
+        {QStringLiteral("seriesId"), context.seriesId},
+        {QStringLiteral("seasonId"), context.seasonId},
+        {QStringLiteral("libraryId"), context.libraryId},
+        {QStringLiteral("overlayTitle"), m_overlayTitle},
+        {QStringLiteral("overlaySubtitle"), m_overlaySubtitle},
+        {QStringLiteral("overlayBackdropUrl"), m_overlayBackdropUrl},
+        {QStringLiteral("overlayLogoUrl"), m_overlayLogoUrl},
+        {QStringLiteral("preferredAudioIndex"), context.audioStreamIndex},
+        {QStringLiteral("preferredSubtitleIndex"), context.subtitleStreamIndex},
+        {QStringLiteral("isMovie"), context.seriesId.isEmpty()},
+        {QStringLiteral("allowVersionPrompt"), false},
+        {QStringLiteral("useAffinityFallback"), true}
+    });
 }
 
 // === TRACK SELECTION ===

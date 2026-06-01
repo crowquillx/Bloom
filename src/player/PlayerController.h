@@ -382,7 +382,19 @@ private slots:
     void onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void onSeriesDetailsNotModified(const QString &seriesId);
     void onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
+    void onPlaybackInfoLoadedForRequest(const QString &itemId,
+                                        const PlaybackInfoResponse &playbackInfo,
+                                        const QString &requestContext);
+    void onPlaybackInfoFailedForRequest(const QString &itemId,
+                                        const QString &error,
+                                        const QString &requestContext);
     void onAdditionalPartsLoaded(const QString &itemId, const QJsonArray &parts);
+    void onAdditionalPartsLoadedForRequest(const QString &itemId,
+                                           const QJsonArray &parts,
+                                           const QString &requestContext);
+    void onAdditionalPartsFailedForRequest(const QString &itemId,
+                                           const QString &error,
+                                           const QString &requestContext);
     void onPlaybackServiceErrorOccurred(const QString &endpoint, const QString &error);
     void onPlaybackServiceNetworkError(const NetworkError &error);
     void onAutoplayPlaybackInfoTimeout();
@@ -638,6 +650,7 @@ private:
     void maybeResolvePendingRequestLibraryId(PendingPlaybackRequest &pending);
     void maybeFinalizePendingPlaybackRequest(const QString &requestId);
     void launchResolvedPlaybackRequest(const QString &requestId);
+    void failPendingPlaybackRequest(const QString &requestId, const QString &message);
     QVariantMap buildPlaybackVersionDialogModel(const QString &requestId) const;
     QString buildVersionSubtitle(const QVariantMap &mediaSource) const;
     QVariantMap selectMediaSourceForRequest(const QVariantList &mediaSources,
@@ -688,6 +701,9 @@ private:
         QString chosenMediaSourceId;
         QJsonArray additionalParts;
         QSet<QString> awaitedPlaybackInfoIds;
+        QSet<QString> failedPlaybackInfoIds;
+        bool primaryPlaybackInfoFailed = false;
+        QString failureMessage;
         QHash<QString, PlaybackInfoResponse> playbackInfos;
     };
 
