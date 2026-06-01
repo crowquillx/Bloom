@@ -3,6 +3,7 @@
 #include "../network/NextEpisodeResolver.h"
 #include <QUrl>
 #include <QDebug>
+#include "../utils/BloomLogging.h"
 
 MockLibraryService::MockLibraryService(QObject *parent)
     : LibraryService(nullptr, parent)  // Pass nullptr for authService since we don't need it in mock
@@ -20,17 +21,17 @@ void MockLibraryService::loadFixture(const QJsonObject &fixture)
     m_nextUp = fixture["nextUp"].toObject();
     m_latestItems = fixture["latestItems"].toObject();
     
-    qDebug() << "MockLibraryService: Loaded fixture with";
-    qDebug() << "  Libraries:" << m_libraries["Items"].toArray().size();
-    qDebug() << "  Movies:" << m_movies["Items"].toArray().size();
-    qDebug() << "  Series:" << m_series["Items"].toArray().size();
-    qDebug() << "  Episodes:" << m_episodes["Items"].toArray().size();
+    qCDebug(lcTest) << "MockLibraryService: Loaded fixture with";
+    qCDebug(lcTest) << "  Libraries:" << m_libraries["Items"].toArray().size();
+    qCDebug(lcTest) << "  Movies:" << m_movies["Items"].toArray().size();
+    qCDebug(lcTest) << "  Series:" << m_series["Items"].toArray().size();
+    qCDebug(lcTest) << "  Episodes:" << m_episodes["Items"].toArray().size();
 }
 
 void MockLibraryService::getViews()
 {
     QJsonArray views = m_libraries["Items"].toArray();
-    qDebug() << "MockLibraryService::getViews() ->" << views.size() << "views";
+    qCDebug(lcTest) << "MockLibraryService::getViews() ->" << views.size() << "views";
     emit viewsLoaded(views);
 }
 
@@ -71,21 +72,21 @@ void MockLibraryService::getItems(const QString &parentId, int startIndex, int l
         totalCount = allItems.size();
     }
     
-    qDebug() << "MockLibraryService::getItems(" << parentId << ") ->" << items.size() << "items";
+    qCDebug(lcTest) << "MockLibraryService::getItems(" << parentId << ") ->" << items.size() << "items";
     emit itemsLoadedWithTotal(parentId, items, totalCount);
 }
 
 void MockLibraryService::getNextUp()
 {
     QJsonArray items = m_nextUp["Items"].toArray();
-    qDebug() << "MockLibraryService::getNextUp() ->" << items.size() << "items";
+    qCDebug(lcTest) << "MockLibraryService::getNextUp() ->" << items.size() << "items";
     emit nextUpLoaded(items);
 }
 
 void MockLibraryService::getLatestMedia(const QString &parentId)
 {
     QJsonArray items = m_latestItems["Items"].toArray();
-    qDebug() << "MockLibraryService::getLatestMedia(" << parentId << ") ->" << items.size() << "items";
+    qCDebug(lcTest) << "MockLibraryService::getLatestMedia(" << parentId << ") ->" << items.size() << "items";
     emit latestMediaLoaded(parentId, items);
 }
 
@@ -112,7 +113,7 @@ void MockLibraryService::getHomeBackdropItems(int limit)
         result.append(allItems[i]);
     }
 
-    qDebug() << "MockLibraryService::getHomeBackdropItems(" << limit << ") ->" << result.size() << "items";
+    qCDebug(lcTest) << "MockLibraryService::getHomeBackdropItems(" << limit << ") ->" << result.size() << "items";
     emit homeBackdropItemsLoaded(result);
 }
 
@@ -125,11 +126,11 @@ void MockLibraryService::getItem(const QString &itemId, const QString &requestCo
 {
     QJsonObject item = findItemById(itemId);
     if (!item.isEmpty()) {
-        qDebug() << "MockLibraryService::getItem(" << itemId << ") -> found";
+        qCDebug(lcTest) << "MockLibraryService::getItem(" << itemId << ") -> found";
         emit itemLoaded(itemId, item, requestContext);
         emit itemLoaded(itemId, item);
     } else {
-        qWarning() << "MockLibraryService::getItem(" << itemId << ") -> not found";
+        qCWarning(lcTest) << "MockLibraryService::getItem(" << itemId << ") -> not found";
         emit itemFailed(itemId, "Item not found: " + itemId, requestContext);
         emit errorOccurred("getItem", "Item not found: " + itemId);
     }
@@ -166,11 +167,11 @@ void MockLibraryService::getSeriesDetails(const QString &seriesId)
         seriesData["Seasons"] = seasons;
         seriesData["Episodes"] = episodes;
         
-        qDebug() << "MockLibraryService::getSeriesDetails(" << seriesId << ") -> found with" 
+        qCDebug(lcTest) << "MockLibraryService::getSeriesDetails(" << seriesId << ") -> found with" 
                  << seasons.size() << "seasons and" << episodes.size() << "episodes";
         emit seriesDetailsLoaded(seriesId, seriesData);
     } else {
-        qWarning() << "MockLibraryService::getSeriesDetails(" << seriesId << ") -> not found";
+        qCWarning(lcTest) << "MockLibraryService::getSeriesDetails(" << seriesId << ") -> not found";
         emit errorOccurred("getSeriesDetails", "Series not found: " + seriesId);
     }
 }
@@ -195,7 +196,7 @@ void MockLibraryService::getNextUnplayedEpisode(const QString &seriesId,
     const QJsonObject resolvedEpisode =
         NextEpisodeResolver::resolveBestNextEpisode(episodes, excludeItemId);
 
-    qDebug() << "MockLibraryService::getNextUnplayedEpisode(" << seriesId
+    qCDebug(lcTest) << "MockLibraryService::getNextUnplayedEpisode(" << seriesId
              << ", exclude:" << excludeItemId << ") ->"
              << (resolvedEpisode.isEmpty() ? "no eligible episodes" : "resolved");
     emit nextUnplayedEpisodeLoaded(seriesId, resolvedEpisode, requestContext);
@@ -203,49 +204,49 @@ void MockLibraryService::getNextUnplayedEpisode(const QString &seriesId,
 
 void MockLibraryService::markSeriesWatched(const QString &seriesId)
 {
-    qDebug() << "MockLibraryService::markSeriesWatched(" << seriesId << ")";
+    qCDebug(lcTest) << "MockLibraryService::markSeriesWatched(" << seriesId << ")";
     emit seriesWatchedStatusChanged(seriesId);
 }
 
 void MockLibraryService::markSeriesUnwatched(const QString &seriesId)
 {
-    qDebug() << "MockLibraryService::markSeriesUnwatched(" << seriesId << ")";
+    qCDebug(lcTest) << "MockLibraryService::markSeriesUnwatched(" << seriesId << ")";
     emit seriesWatchedStatusChanged(seriesId);
 }
 
 void MockLibraryService::markItemPlayed(const QString &itemId)
 {
-    qDebug() << "MockLibraryService::markItemPlayed(" << itemId << ")";
+    qCDebug(lcTest) << "MockLibraryService::markItemPlayed(" << itemId << ")";
     emit itemPlayedStatusChanged(itemId, true);
 }
 
 void MockLibraryService::markItemUnplayed(const QString &itemId)
 {
-    qDebug() << "MockLibraryService::markItemUnplayed(" << itemId << ")";
+    qCDebug(lcTest) << "MockLibraryService::markItemUnplayed(" << itemId << ")";
     emit itemPlayedStatusChanged(itemId, false);
 }
 
 void MockLibraryService::markItemFavorite(const QString &itemId)
 {
-    qDebug() << "MockLibraryService::markItemFavorite(" << itemId << ")";
+    qCDebug(lcTest) << "MockLibraryService::markItemFavorite(" << itemId << ")";
     emit favoriteStatusChanged(itemId, true);
 }
 
 void MockLibraryService::markItemUnfavorite(const QString &itemId)
 {
-    qDebug() << "MockLibraryService::markItemUnfavorite(" << itemId << ")";
+    qCDebug(lcTest) << "MockLibraryService::markItemUnfavorite(" << itemId << ")";
     emit favoriteStatusChanged(itemId, false);
 }
 
 void MockLibraryService::toggleFavorite(const QString &itemId, bool isFavorite)
 {
-    qDebug() << "MockLibraryService::toggleFavorite(" << itemId << "," << isFavorite << ")";
+    qCDebug(lcTest) << "MockLibraryService::toggleFavorite(" << itemId << "," << isFavorite << ")";
     emit favoriteStatusChanged(itemId, isFavorite);
 }
 
 void MockLibraryService::getThemeSongs(const QString &seriesId)
 {
-    qDebug() << "MockLibraryService::getThemeSongs(" << seriesId << ")";
+    qCDebug(lcTest) << "MockLibraryService::getThemeSongs(" << seriesId << ")";
     // Return empty list for test mode
     emit themeSongsLoaded(seriesId, QStringList());
 }
@@ -275,7 +276,7 @@ void MockLibraryService::search(const QString &searchTerm, int limit)
         }
     }
     
-    qDebug() << "MockLibraryService::search(" << searchTerm << ") ->" 
+    qCDebug(lcTest) << "MockLibraryService::search(" << searchTerm << ") ->" 
              << matchedMovies.size() << "movies," << matchedSeries.size() << "series";
     emit searchResultsLoaded(searchTerm, matchedMovies, matchedSeries);
 }
@@ -297,7 +298,7 @@ void MockLibraryService::getRandomItems(int limit)
         result.append(allItems[i]);
     }
     
-    qDebug() << "MockLibraryService::getRandomItems(" << limit << ") ->" << result.size() << "items";
+    qCDebug(lcTest) << "MockLibraryService::getRandomItems(" << limit << ") ->" << result.size() << "items";
     emit randomItemsLoaded(result);
 }
 

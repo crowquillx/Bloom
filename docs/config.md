@@ -52,6 +52,50 @@ When adding settings
 - Implement getters/setters in `ConfigManager.cpp` that persist to `app.json` and emit signals on change.
 - Update docs (this file) and add UI controls in `SettingsScreen.qml` where appropriate.
 
+Logging settings
+- `settings.logging.level` controls file/console verbosity. Valid values: `info` (default), `debug`, `quiet`. Default `info` suppresses uncategorized `qDebug()` spam (for example view-model cache traces) and disables debug output for noisy Qt categories such as `bloom.imagecache` and `bloom.library`.
+- Default `info` level silences routine **image** (`bloom.imagecache`), **library cache** (`bloom.viewmodels`, `bloom.librarycache`, `bloom.cache`), and **playback trace** noise while keeping **all warnings and errors** (including image load failures).
+- `settings.logging.qt_rules` optional Qt logging category rules (newline-separated) appended to Bloom defaults. Use for targeted diagnostics, for example `bloom.imagecache.debug=true`. The `QT_LOGGING_RULES` environment variable is still honored by Qt before startup.
+- Pass `--verbose` / `-v` on the command line to force full debug logging for one session (overrides `settings.logging.level`).
+- **Settings UI:** Settings → About & Account → **Log Level** (same section as updates). Changes apply immediately without restart.
+
+
+### Logging categories (for `qt_rules`)
+
+At the default `info` level, Bloom applies filter rules in `src/utils/LoggingConfig.cpp` (`LoggingConfig::defaultQtRules()`). The table below lists every category used in the codebase. **Warnings and errors are never filtered** for any category.
+
+| Category | Purpose | Routine output hidden at `info` |
+|----------|---------|----------------------------------|
+| `bloom.imagecache` | Poster/backdrop disk + memory image cache | debug, info |
+| `bloom.viewmodels` | Library/series/movie view-model cache & SWR | debug, info |
+| `bloom.librarycache` | SQLite library list cache | debug, info |
+| `bloom.cache` | Detail-view JSON cache files | debug, info |
+| `bloom.library` | Jellyfin library API requests | debug, info |
+| `bloom.auth` | Login, session, keychain | debug |
+| `bloom.config` | Config load/save | debug |
+| `bloom.app` | Application startup / service wiring | debug |
+| `bloom.ui` | Fonts, responsive layout | debug |
+| `bloom.ui.scenegraph` | Qt Quick scene graph diagnostics | debug |
+| `bloom.playback` | Playback controller | debug |
+| `bloom.playback.ipc` | mpv JSON IPC traffic | debug |
+| `bloom.playback.trickplay` | Trickplay tile processing | debug |
+| `bloom.playback.trace` | Playback state-machine trace | debug, info |
+| `bloom.playback.displaytrace` | Display refresh rate / HDR switching | debug |
+| `bloom.playback.backend.linux.libmpv` | Embedded libmpv on Linux | debug |
+| `bloom.playback.backend.windows.libmpv` | Embedded libmpv on Windows | debug |
+| `bloom.playback.backend.factory` | Player backend selection | debug |
+| `bloom.playback.backend.*` | Wildcard for all backend categories | debug |
+| `bloom.gpu.trim` | GPU memory trimming | debug |
+| `bloom.mediaSegments` | Intro/credits segment providers | debug |
+| `jellyfin.network` | Shared Jellyfin network types/helpers | debug |
+| `bloom.test` | Test mode / mock services | debug |
+
+Example — debug image cache only:
+
+```json
+"qt_rules": "bloom.imagecache.debug=true\nbloom.imagecache.info=true"
+```
+
 Cache settings
 - `settings.cache.image_cache_size_mb` controls the disk image cache size in megabytes. Default 500; minimum enforced at 50MB; config-only (no UI).
 - `settings.cache.rounded_image_mode` controls how rounded thumbnails are generated and cached. Defaults to `auto` (platform decides); you can force `always` (preprocess every image) or `never`.

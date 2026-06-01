@@ -47,6 +47,46 @@ FocusScope {
         return rowButtons.length > 0 ? rowButtons[rowButtons.length - 1] : null
     }
 
+
+    function logLevelIndexForValue(value) {
+        if (value === "debug") return 1
+        if (value === "quiet") return 2
+        return 0
+    }
+
+    function logLevelValueForIndex(index) {
+        if (index === 1) return "debug"
+        if (index === 2) return "quiet"
+        return "info"
+    }
+
+    function focusUpdatesDownFromChannel() {
+        if (checkUpdatesBtn.enabled) {
+            checkUpdatesBtn.forceActiveFocus()
+        } else if (openDownloadPageBtn.visible) {
+            openDownloadPageBtn.forceActiveFocus()
+        } else {
+            logLevelCombo.forceActiveFocus()
+        }
+    }
+
+    function focusLastUpdatesControl() {
+        if (openDownloadPageBtn.visible) {
+            openDownloadPageBtn.forceActiveFocus()
+            return
+        }
+        var rowButtons = visibleUpdateRowButtons()
+        if (rowButtons.length > 0) {
+            rowButtons[rowButtons.length - 1].forceActiveFocus()
+            return
+        }
+        if (checkUpdatesBtn.enabled) {
+            checkUpdatesBtn.forceActiveFocus()
+            return
+        }
+        logLevelCombo.forceActiveFocus()
+    }
+
     function focusAdjacentUpdateButton(currentButton, step) {
         var buttons = [checkUpdatesBtn].concat(visibleUpdateRowButtons())
         if (openDownloadPageBtn.visible) buttons.push(openDownloadPageBtn)
@@ -228,7 +268,7 @@ FocusScope {
                             if (!popup.visible) {
                                 if (checkUpdatesBtn.enabled) checkUpdatesBtn.forceActiveFocus()
                                 else if (openDownloadPageBtn.visible) openDownloadPageBtn.forceActiveFocus()
-                                else signOutBtn.forceActiveFocus()
+                                else logLevelCombo.forceActiveFocus()
                                 event.accepted = true
                             }
                         }
@@ -327,7 +367,7 @@ FocusScope {
                             if (openDownloadPageBtn.visible) {
                                 openDownloadPageBtn.forceActiveFocus()
                             } else {
-                                signOutBtn.forceActiveFocus()
+                                logLevelCombo.forceActiveFocus()
                             }
                             event.accepted = true
                         }
@@ -362,7 +402,7 @@ FocusScope {
                             if (openDownloadPageBtn.visible) {
                                 openDownloadPageBtn.forceActiveFocus()
                             } else {
-                                signOutBtn.forceActiveFocus()
+                                logLevelCombo.forceActiveFocus()
                             }
                             event.accepted = true
                         }
@@ -398,7 +438,7 @@ FocusScope {
                             if (openDownloadPageBtn.visible) {
                                 openDownloadPageBtn.forceActiveFocus()
                             } else {
-                                signOutBtn.forceActiveFocus()
+                                logLevelCombo.forceActiveFocus()
                             }
                             event.accepted = true
                         }
@@ -434,7 +474,7 @@ FocusScope {
                             if (openDownloadPageBtn.visible) {
                                 openDownloadPageBtn.forceActiveFocus()
                             } else {
-                                signOutBtn.forceActiveFocus()
+                                logLevelCombo.forceActiveFocus()
                             }
                             event.accepted = true
                         }
@@ -522,7 +562,7 @@ FocusScope {
                         event.accepted = true
                     }
                     Keys.onDownPressed: function(event) {
-                        signOutBtn.forceActiveFocus()
+                        logLevelCombo.forceActiveFocus()
                         event.accepted = true
                     }
                     Keys.onLeftPressed: function(event) {
@@ -540,6 +580,149 @@ FocusScope {
                     contentItem: Text { text: openDownloadPageBtn.text; font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; color: openDownloadPageBtn.enabled ? Theme.textPrimary : Theme.textDisabled; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                     background: Rectangle { implicitHeight: Theme.buttonHeightSmall; radius: Theme.radiusSmall; color: openDownloadPageBtn.activeFocus || openDownloadPageBtn.hovered ? Theme.buttonSecondaryBackgroundHover : Theme.buttonSecondaryBackground; border.color: openDownloadPageBtn.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder; border.width: openDownloadPageBtn.activeFocus ? 2 : Theme.buttonBorderWidth; opacity: openDownloadPageBtn.enabled ? 1.0 : 0.5 }
                 }
+
+
+                // Log verbosity
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    spacing: Math.round(4 * Theme.layoutScale)
+
+                    Text {
+                        text: qsTr("Log Level")
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: Theme.textPrimary
+                    }
+
+                    Text {
+                        text: qsTr("Controls how much detail is written to the log file. Warnings and errors are always kept.")
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.family: Theme.fontPrimary
+                        color: Theme.textSecondary
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                    }
+
+                    ComboBox {
+                        id: logLevelCombo
+                        focusPolicy: Qt.StrongFocus
+                        model: [qsTr("Normal"), qsTr("Verbose"), qsTr("Quiet (warnings only)")]
+                        Layout.preferredWidth: Math.round(280 * Theme.layoutScale)
+
+                        property bool initialized: false
+                        property bool updatingSelection: false
+
+                        Component.onCompleted: {
+                            currentIndex = root.logLevelIndexForValue(ConfigManager.logLevel)
+                            initialized = true
+                        }
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                            }
+                        }
+
+                        onCurrentIndexChanged: {
+                            if (!initialized || updatingSelection) return
+                            var level = root.logLevelValueForIndex(currentIndex)
+                            if (level !== ConfigManager.logLevel) {
+                                ConfigManager.logLevel = level
+                            }
+                        }
+
+                        Connections {
+                            target: ConfigManager
+                            function onLogLevelChanged() {
+                                logLevelCombo.updatingSelection = true
+                                logLevelCombo.currentIndex = root.logLevelIndexForValue(ConfigManager.logLevel)
+                                logLevelCombo.updatingSelection = false
+                            }
+                        }
+
+                        Keys.onUpPressed: function(event) {
+                            if (!popup.visible) {
+                                root.focusLastUpdatesControl()
+                                event.accepted = true
+                            }
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (!popup.visible) {
+                                signOutBtn.forceActiveFocus()
+                                event.accepted = true
+                            }
+                        }
+                        Keys.onReturnPressed: popup.open()
+                        Keys.onEnterPressed: popup.open()
+
+                        background: Rectangle {
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: Theme.inputBackground
+                            border.color: logLevelCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: logLevelCombo.activeFocus ? 2 : 1
+                        }
+
+                        contentItem: Text {
+                            text: logLevelCombo.displayText
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.spacingSmall
+                        }
+
+                        delegate: ItemDelegate {
+                            width: logLevelCombo.width
+                            contentItem: Text {
+                                text: modelData
+                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                radius: Theme.radiusSmall
+                            }
+                            highlighted: ListView.isCurrentItem || logLevelCombo.highlightedIndex === index
+                        }
+
+                        popup: Popup {
+                            y: logLevelCombo.height + 5
+                            width: logLevelCombo.width
+                            implicitHeight: contentItem.implicitHeight
+                            padding: 1
+
+                            onOpened: {
+                                logLevelPopupList.currentIndex = logLevelCombo.highlightedIndex >= 0 ? logLevelCombo.highlightedIndex : logLevelCombo.currentIndex
+                                logLevelPopupList.forceActiveFocus()
+                            }
+                            onClosed: logLevelCombo.forceActiveFocus()
+
+                            contentItem: ListView {
+                                id: logLevelPopupList
+                                clip: true
+                                implicitHeight: contentHeight
+                                model: logLevelCombo.popup.visible ? logLevelCombo.delegateModel : null
+                                currentIndex: logLevelCombo.highlightedIndex >= 0 ? logLevelCombo.highlightedIndex : logLevelCombo.currentIndex
+                                ScrollIndicator.vertical: ScrollIndicator { }
+                                Keys.onReturnPressed: { logLevelCombo.currentIndex = currentIndex; logLevelCombo.popup.close() }
+                                Keys.onEnterPressed: { logLevelCombo.currentIndex = currentIndex; logLevelCombo.popup.close() }
+                                Keys.onEscapePressed: logLevelCombo.popup.close()
+                            }
+
+                            background: Rectangle {
+                                color: Theme.cardBackground
+                                border.color: Theme.focusBorder
+                                border.width: 1
+                                radius: Theme.radiusSmall
+                            }
+                        }
+                    }
+                }
+
 
                 SettingsGroupDivider { Layout.fillWidth: true }
 
@@ -569,14 +752,7 @@ FocusScope {
                         }
                     }
                     Keys.onUpPressed: function(event) {
-                        var target = root.lastVisibleUpdateTarget()
-                        if (target) {
-                            target.forceActiveFocus()
-                        } else if (checkUpdatesBtn.enabled) {
-                            checkUpdatesBtn.forceActiveFocus()
-                        } else {
-                            updateChannelCombo.forceActiveFocus()
-                        }
+                        logLevelCombo.forceActiveFocus()
                         event.accepted = true
                     }
                     Keys.onReturnPressed: root.signOutRequested()

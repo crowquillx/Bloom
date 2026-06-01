@@ -12,6 +12,8 @@
 #include <QtConcurrent/QtConcurrent>
 #include <vector>
 
+#include "BloomLogging.h"
+
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
@@ -21,8 +23,6 @@
 // but since we're targeting newer SDKs, we can rely on wingdi.h providing them.
 
 namespace {
-Q_LOGGING_CATEGORY(lcDisplayTrace, "bloom.playback.displaytrace")
-
 struct HdrAsyncFallbackResult
 {
     bool success = false;
@@ -35,7 +35,7 @@ bool runCommandAndWait(const QString &cmd, int *exitCode = nullptr)
     process.startCommand(cmd);
     const bool finished = process.waitForFinished();
     if (!finished) {
-        qWarning() << "DisplayManager: Command timed out:" << cmd;
+        qCWarning(lcDisplayTrace) << "DisplayManager: Command timed out:" << cmd;
         process.kill();
         process.waitForFinished(1000);
     }
@@ -200,7 +200,7 @@ bool setHDRWindowsImpl(bool enabled)
                            << "paths=" << numPathArrayElements
                            << "modes=" << numModeInfoArrayElements;
     if (sizeRet != ERROR_SUCCESS) {
-        qWarning() << "DisplayManager: GetDisplayConfigBufferSizes failed";
+        qCWarning(lcDisplayTrace) << "DisplayManager: GetDisplayConfigBufferSizes failed";
         return false;
     }
 
@@ -219,7 +219,7 @@ bool setHDRWindowsImpl(bool enabled)
                            << "paths=" << numPathArrayElements
                            << "modes=" << numModeInfoArrayElements;
     if (queryRet != ERROR_SUCCESS) {
-        qWarning() << "DisplayManager: QueryDisplayConfig failed";
+        qCWarning(lcDisplayTrace) << "DisplayManager: QueryDisplayConfig failed";
         return false;
     }
 
@@ -256,7 +256,7 @@ bool setHDRWindowsImpl(bool enabled)
                                << "requested=" << enabled
                                << "ret=" << ret;
         if (ret == ERROR_SUCCESS) {
-            qDebug() << "DisplayManager: Successfully set HDR to" << enabled << "for path" << i;
+            qCDebug(lcDisplayTrace) << "DisplayManager: Successfully set HDR to" << enabled << "for path" << i;
             static constexpr int kHdrSettleTimeoutMs = 5000;
             static constexpr int kHdrSettlePollMs = 50;
             const bool settled = waitForAdvancedColorState(pathArray[i], enabled, kHdrSettleTimeoutMs, kHdrSettlePollMs);
@@ -275,7 +275,7 @@ bool setHDRWindowsImpl(bool enabled)
             }
             success = true;
         } else {
-            qWarning() << "DisplayManager: Failed to set HDR for path" << i << "error:" << ret;
+            qCWarning(lcDisplayTrace) << "DisplayManager: Failed to set HDR for path" << i << "error:" << ret;
         }
     }
 
@@ -290,7 +290,7 @@ HdrAsyncFallbackResult runBlockingWindowsHdrToggle(bool enabled, const QString &
     if (!customCmdTemplate.isEmpty()) {
         QString cmd = customCmdTemplate;
         cmd.replace("{STATE}", enabled ? "on" : "off");
-        qDebug() << "DisplayManager: Executing custom Windows HDR command:" << cmd;
+        qCDebug(lcDisplayTrace) << "DisplayManager: Executing custom Windows HDR command:" << cmd;
 
         int exitCode = -1;
         result.success = runCommandAndWait(cmd, &exitCode);
@@ -307,14 +307,14 @@ HdrAsyncFallbackResult runBlockingWindowsHdrToggle(bool enabled, const QString &
 bool setHDRLinuxImpl(const QString &cmdTemplate, bool enabled)
 {
     if (cmdTemplate.isEmpty()) {
-        qWarning() << "DisplayManager: No Linux HDR command configured";
+        qCWarning(lcDisplayTrace) << "DisplayManager: No Linux HDR command configured";
         return false;
     }
 
     QString cmd = cmdTemplate;
     cmd.replace("{STATE}", enabled ? "on" : "off");
 
-    qDebug() << "DisplayManager: Executing Linux HDR command:" << cmd;
+    qCDebug(lcDisplayTrace) << "DisplayManager: Executing Linux HDR command:" << cmd;
     return runCommandAndWait(cmd);
 }
 #endif
@@ -359,13 +359,13 @@ void DisplayManager::captureOriginalRefreshRate()
     }
 #endif
     if (current <= 0.0) {
-        qWarning() << "DisplayManager: Failed to capture original refresh rate (current:" << current << ")";
+        qCWarning(lcDisplayTrace) << "DisplayManager: Failed to capture original refresh rate (current:" << current << ")";
         return;
     }
 
     m_originalRefreshRate = current;
     m_hasCapturedOriginalRefreshRate = true;
-    qDebug() << "DisplayManager: Captured original refresh rate:" << m_originalRefreshRate << "Hz";
+    qCDebug(lcDisplayTrace) << "DisplayManager: Captured original refresh rate:" << m_originalRefreshRate << "Hz";
     qCInfo(lcDisplayTrace) << "captureOriginalRefreshRate"
                            << "capturedHz=" << m_originalRefreshRate
                            << "refreshOverrideActive=" << m_refreshRateChanged;
@@ -392,30 +392,30 @@ void DisplayManager::updateHdrRestoreTracking(bool requestedState, bool preState
 
 bool DisplayManager::setRefreshRate(double hz)
 {
-    qDebug() << "DisplayManager::setRefreshRate called with hz:" << hz;
+    qCDebug(lcDisplayTrace) << "DisplayManager::setRefreshRate called with hz:" << hz;
     m_lastRefreshRateSwitchChanged = false;
     m_lastRefreshRateSwitchSkippedCompatibleMultiple = false;
     m_lastRefreshRateSwitchEffectiveRate = 0.0;
     
     if (hz <= 0) {
-        qDebug() << "DisplayManager: Invalid refresh rate" << hz << ", skipping";
+        qCDebug(lcDisplayTrace) << "DisplayManager: Invalid refresh rate" << hz << ", skipping";
         return false;
     }
     
     // Don't switch if already at target. Keep the tolerance tight so fractional
     // film modes are not confused with their neighboring integer modes.
     double current = getCurrentRefreshRate();
-    qDebug() << "DisplayManager: Current refresh rate:" << current << "Hz, target:" << hz << "Hz";
+    qCDebug(lcDisplayTrace) << "DisplayManager: Current refresh rate:" << current << "Hz, target:" << hz << "Hz";
     
     if (isCurrentRefreshAlreadyTarget(current, hz)) {
-        qDebug() << "DisplayManager: Already at target refresh rate" << current << "Hz";
+        qCDebug(lcDisplayTrace) << "DisplayManager: Already at target refresh rate" << current << "Hz";
         m_lastRefreshRateSwitchEffectiveRate = hz;
         return true;
     }
 
     if (m_config->getSkipRefreshRateOnCompatibleMultiple() && isCadenceCompatible(current, hz)) {
         const double ratio = current / hz;
-        qDebug() << "DisplayManager: Current refresh rate" << current
+        qCDebug(lcDisplayTrace) << "DisplayManager: Current refresh rate" << current
                  << "Hz is cadence-compatible with target" << hz
                  << "Hz (ratio" << ratio << "), skipping mode switch";
         m_lastRefreshRateSwitchSkippedCompatibleMultiple = true;
@@ -425,12 +425,12 @@ bool DisplayManager::setRefreshRate(double hz)
 
     if (!m_refreshRateChanged) {
         if (m_hasCapturedOriginalRefreshRate && m_originalRefreshRate > 0.0) {
-            qDebug() << "DisplayManager: Using captured original refresh rate for restore target:"
+            qCDebug(lcDisplayTrace) << "DisplayManager: Using captured original refresh rate for restore target:"
                      << m_originalRefreshRate << "Hz";
         } else {
             m_originalRefreshRate = current;
             m_hasCapturedOriginalRefreshRate = true;
-            qDebug() << "DisplayManager: Stored original refresh rate:" << m_originalRefreshRate << "Hz";
+            qCDebug(lcDisplayTrace) << "DisplayManager: Stored original refresh rate:" << m_originalRefreshRate << "Hz";
         }
     }
 
@@ -591,7 +591,7 @@ double DisplayManager::getCurrentRefreshRate()
             return static_cast<double>(dm.dmDisplayFrequency);
         }
     } else {
-        qWarning() << "DisplayManager: EnumDisplaySettings failed when reading current refresh rate";
+        qCWarning(lcDisplayTrace) << "DisplayManager: EnumDisplaySettings failed when reading current refresh rate";
     }
 #endif
 
@@ -605,14 +605,14 @@ double DisplayManager::getCurrentRefreshRate()
 #ifdef Q_OS_WIN
 bool DisplayManager::setRefreshRateWindows(double hz)
 {
-    qDebug() << "DisplayManager::setRefreshRateWindows called with hz:" << hz;
+    qCDebug(lcDisplayTrace) << "DisplayManager::setRefreshRateWindows called with hz:" << hz;
     
     DEVMODE dm;
     ZeroMemory(&dm, sizeof(dm));
     dm.dmSize = sizeof(dm);
     
     if (EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &dm)) {
-        qDebug() << "DisplayManager: Current display settings - Width:" << dm.dmPelsWidth 
+        qCDebug(lcDisplayTrace) << "DisplayManager: Current display settings - Width:" << dm.dmPelsWidth 
                  << "Height:" << dm.dmPelsHeight 
                  << "BitsPerPel:" << dm.dmBitsPerPel 
                  << "Frequency:" << dm.dmDisplayFrequency;
@@ -631,15 +631,15 @@ bool DisplayManager::setRefreshRateWindows(double hz)
         if (hz > 23.0 && hz < 24.0 && hz != 24.0) {
             // This is likely 23.976 content, try 23Hz first (how Windows reports 23.976)
             tryExactFirst = true;
-            qDebug() << "DisplayManager: Detected film framerate" << hz << ", will try 23Hz mode first";
+            qCDebug(lcDisplayTrace) << "DisplayManager: Detected film framerate" << hz << ", will try 23Hz mode first";
         } else if (hz > 29.0 && hz < 30.0 && hz != 30.0) {
             // 29.97 content
             tryExactFirst = true;
-            qDebug() << "DisplayManager: Detected 29.97 framerate, will try 29Hz mode first";
+            qCDebug(lcDisplayTrace) << "DisplayManager: Detected 29.97 framerate, will try 29Hz mode first";
         } else if (hz > 59.0 && hz < 60.0 && hz != 60.0) {
             // 59.94 content
             tryExactFirst = true;
-            qDebug() << "DisplayManager: Detected 59.94 framerate, will try 59Hz mode first";
+            qCDebug(lcDisplayTrace) << "DisplayManager: Detected 59.94 framerate, will try 59Hz mode first";
         }
         
         // Try exact truncated rate first if applicable (23 for 23.976, etc.)
@@ -649,10 +649,10 @@ bool DisplayManager::setRefreshRateWindows(double hz)
             
             LONG ret = ChangeDisplaySettingsEx(NULL, &dm, NULL, CDS_FULLSCREEN, NULL);
             if (ret == DISP_CHANGE_SUCCESSFUL) {
-                qDebug() << "DisplayManager: Successfully set refresh rate to" << exactHz << "Hz (exact match for" << hz << ")";
+                qCDebug(lcDisplayTrace) << "DisplayManager: Successfully set refresh rate to" << exactHz << "Hz (exact match for" << hz << ")";
                 return true;
             }
-            qDebug() << "DisplayManager: Exact" << exactHz << "Hz mode not available, trying" << targetHz << "Hz";
+            qCDebug(lcDisplayTrace) << "DisplayManager: Exact" << exactHz << "Hz mode not available, trying" << targetHz << "Hz";
         }
         
         // Try rounded rate
@@ -662,8 +662,8 @@ bool DisplayManager::setRefreshRateWindows(double hz)
         // Use CDS_FULLSCREEN without CDS_UPDATEREGISTRY so we can restore to registry settings later
         LONG ret = ChangeDisplaySettingsEx(NULL, &dm, NULL, CDS_FULLSCREEN, NULL);
         if (ret == DISP_CHANGE_SUCCESSFUL) {
-            qDebug() << "DisplayManager: Successfully set refresh rate to" << targetHz << "Hz";
-            qDebug() << "DisplayManager: Reported refresh after switch:" << getCurrentRefreshRate() << "Hz";
+            qCDebug(lcDisplayTrace) << "DisplayManager: Successfully set refresh rate to" << targetHz << "Hz";
+            qCDebug(lcDisplayTrace) << "DisplayManager: Reported refresh after switch:" << getCurrentRefreshRate() << "Hz";
             return true;
         } else {
             QString errorMsg;
@@ -677,10 +677,10 @@ bool DisplayManager::setRefreshRateWindows(double hz)
                 case DISP_CHANGE_RESTART: errorMsg = "RESTART (reboot required)"; break;
                 default: errorMsg = QString("Unknown error %1").arg(ret); break;
             }
-            qWarning() << "DisplayManager: Failed to set refresh rate to" << targetHz << "Hz, error:" << errorMsg;
+            qCWarning(lcDisplayTrace) << "DisplayManager: Failed to set refresh rate to" << targetHz << "Hz, error:" << errorMsg;
         }
     } else {
-        qWarning() << "DisplayManager: EnumDisplaySettings failed";
+        qCWarning(lcDisplayTrace) << "DisplayManager: EnumDisplaySettings failed";
     }
     return false;
 }
@@ -689,22 +689,22 @@ bool DisplayManager::restoreRefreshRateWindows()
 {
     const double targetHz = (m_originalRefreshRate > 0.0) ? m_originalRefreshRate : m_baselineRefreshRate;
     if (targetHz > 0.0) {
-        qDebug() << "DisplayManager: Restoring display refresh to captured original rate"
+        qCDebug(lcDisplayTrace) << "DisplayManager: Restoring display refresh to captured original rate"
                  << targetHz << "Hz";
         if (setRefreshRateWindows(targetHz)) {
             return true;
         }
-        qWarning() << "DisplayManager: Failed to restore to captured rate, falling back to registry defaults";
+        qCWarning(lcDisplayTrace) << "DisplayManager: Failed to restore to captured rate, falling back to registry defaults";
     }
 
-    qDebug() << "DisplayManager: Restoring display settings to registry defaults";
+    qCDebug(lcDisplayTrace) << "DisplayManager: Restoring display settings to registry defaults";
     LONG ret = ChangeDisplaySettingsEx(NULL, NULL, NULL, 0, NULL);
     if (ret == DISP_CHANGE_SUCCESSFUL) {
-        qDebug() << "DisplayManager: Restored display settings";
+        qCDebug(lcDisplayTrace) << "DisplayManager: Restored display settings";
         return true;
     }
 
-    qWarning() << "DisplayManager: Failed to restore display settings, error:" << ret;
+    qCWarning(lcDisplayTrace) << "DisplayManager: Failed to restore display settings, error:" << ret;
     return false;
 }
 
@@ -729,7 +729,7 @@ bool DisplayManager::startHDRAsyncWindows(bool enabled)
     UINT32 numModeInfoArrayElements = 0;
     const LONG sizeRet = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, &numModeInfoArrayElements);
     if (sizeRet != ERROR_SUCCESS) {
-        qWarning() << "DisplayManager: GetDisplayConfigBufferSizes failed for async HDR toggle";
+        qCWarning(lcDisplayTrace) << "DisplayManager: GetDisplayConfigBufferSizes failed for async HDR toggle";
         return false;
     }
 
@@ -742,7 +742,7 @@ bool DisplayManager::startHDRAsyncWindows(bool enabled)
                                              modeInfoArray.data(),
                                              nullptr);
     if (queryRet != ERROR_SUCCESS) {
-        qWarning() << "DisplayManager: QueryDisplayConfig failed for async HDR toggle";
+        qCWarning(lcDisplayTrace) << "DisplayManager: QueryDisplayConfig failed for async HDR toggle";
         return false;
     }
 
@@ -783,7 +783,7 @@ bool DisplayManager::startHDRAsyncWindows(bool enabled)
             m_hdrAsyncPaths.push_back(pathInfo);
         } else {
             success = false;
-            qWarning() << "DisplayManager: Failed async HDR toggle for path" << i << "error:" << ret;
+            qCWarning(lcDisplayTrace) << "DisplayManager: Failed async HDR toggle for path" << i << "error:" << ret;
         }
     }
 
@@ -819,7 +819,7 @@ bool DisplayManager::setRefreshRateLinux(double hz)
     if (cmdTemplate.isEmpty()) {
         // Default to xrandr if not configured
         // This is a naive default, users likely need to configure it
-        qWarning() << "DisplayManager: No Linux refresh rate command configured";
+        qCWarning(lcDisplayTrace) << "DisplayManager: No Linux refresh rate command configured";
         return false;
     }
     
@@ -844,7 +844,7 @@ bool DisplayManager::setRefreshRateLinux(double hz)
     cmd.replace("{RATE}", rateStr);
     cmd.replace("{RATE_INT}", QString::number(qRound(hz)));
     
-    qDebug() << "DisplayManager: Executing Linux refresh rate command:" << cmd;
+    qCDebug(lcDisplayTrace) << "DisplayManager: Executing Linux refresh rate command:" << cmd;
     
     QProcess process;
     process.startCommand(cmd);
@@ -854,7 +854,7 @@ bool DisplayManager::setRefreshRateLinux(double hz)
         return true;
     }
     
-    qWarning() << "DisplayManager: Command failed:" << process.readAllStandardError();
+    qCWarning(lcDisplayTrace) << "DisplayManager: Command failed:" << process.readAllStandardError();
     return false;
 }
 

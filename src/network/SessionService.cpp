@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QDebug>
+#include "../utils/BloomLogging.h"
 
 QVariantMap SessionInfo::toVariantMap() const
 {
@@ -148,7 +149,7 @@ void SessionService::setDeviceName(const QString &name)
     
     // We could potentially send a Capabilities POST to update session info
     // For now, just emit that we attempted
-    qDebug() << "SessionService: Device name set to" << name;
+    qCDebug(lcAuth) << "SessionService: Device name set to" << name;
 }
 
 bool SessionService::isCurrentSession(const QString &sessionId) const
@@ -227,7 +228,7 @@ void SessionService::onFetchSessionsFinished(QNetworkReply *reply)
     emit sessionsChanged();
     emit sessionsLoaded();
     
-    qDebug() << "SessionService: Loaded" << m_sessions.size() << "sessions, current:" << m_currentSessionId;
+    qCDebug(lcAuth) << "SessionService: Loaded" << m_sessions.size() << "sessions, current:" << m_currentSessionId;
 }
 
 void SessionService::onRevokeSessionFinished(QNetworkReply *reply, QString sessionId)
@@ -248,7 +249,7 @@ void SessionService::onRevokeSessionFinished(QNetworkReply *reply, QString sessi
 
     // Check if we revoked our own session
     if (sessionId == m_currentSessionId) {
-        qWarning() << "SessionService: Self-session was revoked";
+        qCWarning(lcAuth) << "SessionService: Self-session was revoked";
         emit selfSessionRevoked();
         return;
     }
@@ -265,7 +266,7 @@ void SessionService::onRevokeSessionFinished(QNetworkReply *reply, QString sessi
     emit sessionsChanged();
     emit sessionRevoked(sessionId);
     
-    qDebug() << "SessionService: Revoked session" << sessionId;
+    qCDebug(lcAuth) << "SessionService: Revoked session" << sessionId;
 }
 
 void SessionService::setIsLoading(bool loading)

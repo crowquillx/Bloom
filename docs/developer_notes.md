@@ -37,6 +37,11 @@ Useful utilities
 - `JellyfinClient` for network operations and request retriers.
 - `ConfigManager` for settings and QML exposures.
 
+Logging
+- Bloom routes Qt diagnostics through `Logger` with a default `info` level. Chatty areas use `Q_LOGGING_CATEGORY` (for example `bloom.imagecache`, `bloom.library`); debug for those categories is off unless you set `settings.logging.level` to `debug`, pass `--verbose`, or add rules under `settings.logging.qt_rules`.
+- Include `utils/BloomLogging.h` and use the declared categories (`lcImageCache`, `lcViewModels`, etc.) — never bare `qDebug()` in new code.
+- Prefer `qCDebug(category)` over bare `qDebug()` for high-volume paths so logs can be filtered without silencing the whole app.
+
 Where to add new docs
 - For new architectural changes, add a targeted doc under `/docs` and link it from `AGENTS.md`.
 

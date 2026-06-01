@@ -1,4 +1,5 @@
 #include "ConfigManager.h"
+#include "LoggingConfig.h"
 #include <QFile>
 #include <QJsonDocument>
 #include <QStandardPaths>
@@ -23,6 +24,19 @@ QString normalizeUpdateChannelValue(const QString &channel)
     return channel.trimmed().compare(QStringLiteral("dev"), Qt::CaseInsensitive) == 0
         ? QStringLiteral("dev")
         : QStringLiteral("stable");
+}
+
+QString normalizeLogLevelValue(const QString &level)
+{
+    const QString normalized = level.trimmed().toLower();
+    if (normalized == QStringLiteral("debug") || normalized == QStringLiteral("verbose")) {
+        return QStringLiteral("debug");
+    }
+    if (normalized == QStringLiteral("quiet") || normalized == QStringLiteral("warn")
+        || normalized == QStringLiteral("warning")) {
+        return QStringLiteral("quiet");
+    }
+    return QStringLiteral("info");
 }
 
 QVariantList supportedTrackLanguageOptions()
@@ -554,6 +568,71 @@ int ConfigManager::getImageCacheSizeMB() const
     }
     return 500; // Default 500MB
 }
+QString ConfigManager::getLogLevel() const
+{
+    if (m_config.contains(QStringLiteral("settings")) && m_config[QStringLiteral("settings")].isObject()) {
+        const QJsonObject settings = m_config[QStringLiteral("settings")].toObject();
+        if (settings.contains(QStringLiteral("logging")) && settings[QStringLiteral("logging")].isObject()) {
+            const QJsonObject logging = settings[QStringLiteral("logging")].toObject();
+            if (logging.contains(QStringLiteral("level"))) {
+                return normalizeLogLevelValue(logging[QStringLiteral("level")].toString());
+            }
+        }
+    }
+    return QStringLiteral("info");
+}
+
+QString ConfigManager::getQtLoggingRules() const
+{
+    if (m_config.contains(QStringLiteral("settings")) && m_config[QStringLiteral("settings")].isObject()) {
+        const QJsonObject settings = m_config[QStringLiteral("settings")].toObject();
+        if (settings.contains(QStringLiteral("logging")) && settings[QStringLiteral("logging")].isObject()) {
+            const QJsonObject logging = settings[QStringLiteral("logging")].toObject();
+            if (logging.contains(QStringLiteral("qt_rules"))) {
+                return logging[QStringLiteral("qt_rules")].toString();
+            }
+        }
+    }
+    return QString();
+}
+
+void ConfigManager::setLogLevel(const QString &level)
+{
+    const QString normalized = normalizeLogLevelValue(level);
+    if (normalized == getLogLevel()) {
+        return;
+    }
+
+    QJsonObject settings;
+    if (m_config.contains(QStringLiteral("settings")) && m_config[QStringLiteral("settings")].isObject()) {
+        settings = m_config[QStringLiteral("settings")].toObject();
+    }
+    QJsonObject logging;
+    if (settings.contains(QStringLiteral("logging")) && settings[QStringLiteral("logging")].isObject()) {
+        logging = settings[QStringLiteral("logging")].toObject();
+    }
+    logging[QStringLiteral("level")] = normalized;
+    settings[QStringLiteral("logging")] = logging;
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+    applyLoggingSettings();
+    emit logLevelChanged();
+}
+
+QString ConfigManager::normalizeLogLevelValue(const QString &level) const
+{
+    return ::normalizeLogLevelValue(level);
+}
+
+void ConfigManager::applyLoggingSettings()
+{
+    LoggingConfig::apply(
+        LoggingConfig::levelFromString(getLogLevel()),
+        getQtLoggingRules(),
+        false);
+}
+
+
 
 void ConfigManager::setPlaybackCacheSizeMB(int mb)
 {

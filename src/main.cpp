@@ -157,10 +157,15 @@ int main(int argc, char *argv[])
         "resolution",
         "1920x1080"
     );
+    QCommandLineOption verboseOption(
+        QStringList() << "verbose" << "v",
+        "Enable full debug logging (overrides settings.logging.level for this session)."
+    );
     
     parser.addOption(testModeOption);
     parser.addOption(fixtureOption);
     parser.addOption(resolutionOption);
+    parser.addOption(verboseOption);
     parser.process(app);
     
     // Initialize test mode if requested
@@ -200,7 +205,8 @@ int main(int argc, char *argv[])
     fontLoader.load();
     
     // Initialize Application Services
-    ApplicationInitializer appInitializer(&app, consoleOutputEnabled);
+    const bool verboseLogging = parser.isSet(verboseOption);
+    ApplicationInitializer appInitializer(&app, consoleOutputEnabled, verboseLogging);
     appInitializer.registerServices();
     appInitializer.initializeServices();
     

@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "GpuMemoryTrimmer.h"
 
-#include <QLoggingCategory>
 #include <QQuickWindow>
 #include <QPixmapCache>
 
+#include "BloomLogging.h"
 #include "ConfigManager.h"
 #include "ui/ImageCacheProvider.h"
-
-Q_LOGGING_CATEGORY(lcGpuTrim, "bloom.gpu.trim")
 
 GpuMemoryTrimmer::GpuMemoryTrimmer(ConfigManager *config,
                                    ImageCacheProvider *imageCache,

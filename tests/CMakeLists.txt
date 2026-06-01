@@ -69,6 +69,24 @@ target_link_libraries(LibraryCacheStoreTest
 
 add_test(NAME LibraryCacheStoreTest COMMAND LibraryCacheStoreTest)
 
+add_executable(LoggingConfigTest
+    LoggingConfigTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/LoggingConfig.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
+)
+
+target_include_directories(LoggingConfigTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+target_link_libraries(LoggingConfigTest
+    PRIVATE
+        Qt6::Core
+        GTest::gtest
+        GTest::gtest_main
+)
+
+add_test(NAME LoggingConfigTest COMMAND LoggingConfigTest)
+
 # Player backend abstraction tests
 add_executable(PlayerBackendFactoryTest
     PlayerBackendFactoryTest.cpp

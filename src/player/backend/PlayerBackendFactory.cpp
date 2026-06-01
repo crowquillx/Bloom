@@ -11,8 +11,7 @@
 #include <QByteArray>
 #include <QLoggingCategory>
 #include <QtGlobal>
-
-Q_LOGGING_CATEGORY(lcPlayerBackendFactory, "bloom.playback.backend.factory")
+#include "../../utils/BloomLogging.h"
 
 static constexpr auto kExternalBackendName = "external-mpv-ipc";
 static constexpr auto kLinuxLibmpvBackendName = "linux-libmpv-opengl";

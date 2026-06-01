@@ -7,32 +7,19 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDebug>
+#include "../utils/BloomLogging.h"
 
 AuthenticationService::AuthenticationService(ISecretStore *secretStore, QObject *parent)
     : QObject(parent)
     , m_nam(new QNetworkAccessManager(this))
     , m_secretStore(secretStore)
 {
-    // Handle async session restoration result
-    connect(&m_restorationWatcher, &QFutureWatcher<RestorationResult>::finished, this, [this, configManager = static_cast<ConfigManager*>(nullptr)]() mutable { // capture logic handled in initialize
-        // Note: We can't capture configManager easily in the constructor unless we store it
-        // But we passed it to initialize. We'll handle the completion logic there or rely on member variables?
-        // Actually, initialize passes configManager. We can't access it here easily.
-        // Let's rely on the lambda inside initialize connecting to the watcher, OR
-        // Use a pointer stored in the service? No, dependency injection via initialize is fine but the watcher needs context.
-        // Better: Connect in initialize, or just handle generic result here?
-        // We need to update configManager if migration happened.
-        
-        // Let's handle it in initialize's lambda to keep context.
-        m_isRestoringSession = false;
-        emit isRestoringSessionChanged();
-    });
 }
 
 void AuthenticationService::initialize(ConfigManager *configManager)
 {
     if (!configManager) {
-        qWarning() << "AuthenticationService::initialize called with null ConfigManager";
+        qCWarning(lcAuth) << "AuthenticationService::initialize called with null ConfigManager";
         return;
     }
 
@@ -58,39 +45,39 @@ void AuthenticationService::initialize(ConfigManager *configManager)
 
         if (!session.accessToken.isEmpty()) {
             // Legacy token found in config -> migrate to SecretStore
-            qInfo() << "Migrating legacy token to secure storage...";
+            qCInfo(lcAuth) << "Migrating legacy token to secure storage...";
             
             if (hasSecretStore && !session.username.isEmpty()) {
                 // Use device-specific account key: serverUrl|username|deviceId
                 QString account = QString("%1|%2|%3").arg(session.serverUrl, session.username, deviceId);
-                qDebug() << "Migrating token with account key:" << account;
+                qCDebug(lcAuth) << "Migrating token with account key:" << account;
                 // Synchronous call on background thread
                 if (store->setSecret("Bloom/Jellyfin", account, session.accessToken)) {
-                    qInfo() << "Token migrated successfully";
+                    qCInfo(lcAuth) << "Token migrated successfully";
                     result.migrated = true;
                     result.accessToken = session.accessToken;
                     result.success = true;
                 } else {
                     result.error = store->lastError();
-                    qWarning() << "Failed to migrate token:" << result.error;
+                    qCWarning(lcAuth) << "Failed to migrate token:" << result.error;
                 }
             } else {
-                qWarning() << "Cannot migrate token: missing username or SecretStore unavailable";
+                qCWarning(lcAuth) << "Cannot migrate token: missing username or SecretStore unavailable";
             }
         } else if (session.isValid()) {
             // No token in config, but we have userId/serverUrl/username -> try SecretStore
             if (hasSecretStore && !session.username.isEmpty()) {
                 // Use device-specific account key: serverUrl|username|deviceId
                 QString account = QString("%1|%2|%3").arg(session.serverUrl, session.username, deviceId);
-                qDebug() << "Attempting to restore session with account key:" << account;
+                qCDebug(lcAuth) << "Attempting to restore session with account key:" << account;
                 // Synchronous call on background thread
                 QString token = store->getSecret("Bloom/Jellyfin", account);
                 if (!token.isEmpty()) {
-                    qInfo() << "Restored session from secure storage";
+                    qCInfo(lcAuth) << "Restored session from secure storage";
                     result.accessToken = token;
                     result.success = true;
                 } else {
-                    qDebug() << "No token found in secure storage for account:" << account;
+                    qCDebug(lcAuth) << "No token found in secure storage for account:" << account;
                 }
             }
         }
@@ -121,7 +108,7 @@ void AuthenticationService::initialize(ConfigManager *configManager)
             restoreSession(result.serverUrl, result.userId, result.accessToken);
         } else {
              if (!result.error.isEmpty()) {
-                 qWarning() << "Session restoration failed:" << result.error;
+                 qCWarning(lcAuth) << "Session restoration failed:" << result.error;
              }
              // If failed, we remain logged out (default state)
         }
@@ -200,7 +187,7 @@ void AuthenticationService::onAuthenticateFinished(QNetworkReply *reply)
     m_userId = obj["User"].toObject()["Id"].toString();
     m_username = obj["User"].toObject()["Name"].toString();
     
-    qDebug() << "Authentication successful. User ID:" << m_userId << "Username:" << m_username;
+    qCDebug(lcAuth) << "Authentication successful. User ID:" << m_userId << "Username:" << m_username;
     
     // Store token in SecretStore asynchronously
     if (m_secretStore && m_configManager) {
@@ -211,9 +198,9 @@ void AuthenticationService::onAuthenticateFinished(QNetworkReply *reply)
         
         QtConcurrent::run([store, account, token]() {
             if (!store->setSecret("Bloom/Jellyfin", account, token)) {
-                qWarning() << "Failed to store token in keychain:" << store->lastError();
+                qCWarning(lcAuth) << "Failed to store token in keychain:" << store->lastError();
             } else {
-                qDebug() << "Token stored in keychain (async)";
+                qCDebug(lcAuth) << "Token stored in keychain (async)";
             }
         });
     }
@@ -221,7 +208,7 @@ void AuthenticationService::onAuthenticateFinished(QNetworkReply *reply)
     emit serverUrlChanged();
     emit userIdChanged();
     emit authenticatedChanged();
-    qCritical() << "=== AuthenticationService: EMITTING loginSuccess signal ===" << m_userId << m_username;
+    qCCritical(lcAuth) << "=== AuthenticationService: EMITTING loginSuccess signal ===" << m_userId << m_username;
     emit loginSuccess(m_userId, m_accessToken, m_username);
 }
 
@@ -234,19 +221,19 @@ void AuthenticationService::restoreSession(const QString &serverUrl, const QStri
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
     
-    qDebug() << "Restoring session for user:" << userId << "on server:" << serverUrl;
+    qCDebug(lcAuth) << "Restoring session for user:" << userId << "on server:" << serverUrl;
     
     // Validate the restored session
     validateAccessToken([this](bool valid) {
         if (valid) {
-            qDebug() << "Session restored successfully";
+            qCDebug(lcAuth) << "Session restored successfully";
             emit serverUrlChanged();
             emit userIdChanged();
             emit authenticatedChanged();
-            qCritical() << "=== AuthenticationService: EMITTING loginSuccess from restoreSession ===" << m_userId;
+            qCCritical(lcAuth) << "=== AuthenticationService: EMITTING loginSuccess from restoreSession ===" << m_userId;
             emit loginSuccess(m_userId, m_accessToken, m_username);
         } else {
-            qWarning() << "Stored session is invalid or expired";
+            qCWarning(lcAuth) << "Stored session is invalid or expired";
             logout();
         }
     });
@@ -254,7 +241,7 @@ void AuthenticationService::restoreSession(const QString &serverUrl, const QStri
 
 void AuthenticationService::logout()
 {
-    qDebug() << "Logging out user:" << m_userId;
+    qCDebug(lcAuth) << "Logging out user:" << m_userId;
     
     // Delete token from SecretStore asynchronously BEFORE clearing member vars (so we have username/url)
     if (m_secretStore && !m_username.isEmpty() && m_configManager) {
@@ -264,7 +251,7 @@ void AuthenticationService::logout()
         
         QtConcurrent::run([store, account]() {
             store->deleteSecret("Bloom/Jellyfin", account);
-            qDebug() << "Token deleted from keychain (async)";
+            qCDebug(lcAuth) << "Token deleted from keychain (async)";
         });
     }
 
@@ -294,7 +281,7 @@ bool AuthenticationService::checkForSessionExpiry(QNetworkReply *reply, bool def
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     
     if (statusCode == 401) {
-        qWarning() << "Received 401 Unauthorized - session expired";
+        qCWarning(lcAuth) << "Received 401 Unauthorized - session expired";
         
         if (deferLogout) {
             // During playback, defer the logout until playback ends
@@ -326,7 +313,7 @@ void AuthenticationService::validateAccessToken(std::function<void(bool)> callba
         bool valid = (reply->error() == QNetworkReply::NoError && statusCode == 200);
         
         if (!valid) {
-            qDebug() << "Token validation failed. Status:" << statusCode 
+            qCDebug(lcAuth) << "Token validation failed. Status:" << statusCode 
                      << "Error:" << reply->errorString();
         }
         

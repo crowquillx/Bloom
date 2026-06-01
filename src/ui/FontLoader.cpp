@@ -3,6 +3,7 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QDebug>
+#include "../utils/BloomLogging.h"
 
 FontLoader::FontLoader(QObject *parent)
     : QObject(parent)
@@ -13,10 +14,10 @@ void FontLoader::load()
 {
     int fontId = QFontDatabase::addApplicationFont(":/fonts/MaterialSymbolsOutlined.ttf");
     if (fontId == -1) {
-        qWarning() << "Failed to load Material Symbols font";
+        qCWarning(lcUi) << "Failed to load Material Symbols font";
     } else {
         QStringList families = QFontDatabase::applicationFontFamilies(fontId);
-        qDebug() << "Loaded Material Symbols font families:" << families;
+        qCDebug(lcUi) << "Loaded Material Symbols font families:" << families;
         
         // Test if the font can render our icon codepoints
         if (!families.isEmpty()) {
@@ -28,7 +29,7 @@ void FontLoader::load()
             bool hasHome = fm.inFont(QChar(0xE88A));
             bool hasMenu = fm.inFont(QChar(0xE5D2));
             bool hasSettings = fm.inFont(QChar(0xE8B8));
-            qDebug() << "Font glyph check - home (U+E88A):" << hasHome 
+            qCDebug(lcUi) << "Font glyph check - home (U+E88A):" << hasHome 
                      << "menu (U+E5D2):" << hasMenu 
                      << "settings (U+E8B8):" << hasSettings;
         }

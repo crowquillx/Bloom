@@ -60,9 +60,12 @@ jobs:
       - name: Cache Qt SDK
         id: cache_qt_windows
         uses: actions/cache@v5
+        continue-on-error: true
         with:
           path: ${{ runner.workspace }}/Qt
-          key: windows-qt-6.10.0-win64_msvc2022_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-v1
+          key: windows-qt-6.10.0-win64_msvc2022_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-v2
+          restore-keys: |
+            windows-qt-6.10.0-win64_msvc2022_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-
 
       - name: Install aqtinstall
         shell: pwsh
@@ -242,9 +245,11 @@ jobs:
 
       - name: Cache sccache
         uses: actions/cache@v5
+        continue-on-error: true
+        id: cache_sccache_windows
         with:
           path: .sccache
-          key: ${{ runner.os }}-sccache-msvc2022-qt610-v2
+          key: ${{ runner.os }}-sccache-msvc2022-qt610-v3
           restore-keys: |
             ${{ runner.os }}-sccache-msvc2022-qt610-
             ${{ runner.os }}-sccache-

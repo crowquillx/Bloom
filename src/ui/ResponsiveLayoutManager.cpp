@@ -4,11 +4,12 @@
 #include <QDebug>
 #include <QGuiApplication>
 #include <QScreen>
+#include "../utils/BloomLogging.h"
 
 ResponsiveLayoutManager::ResponsiveLayoutManager(QObject *parent)
     : QObject(parent)
 {
-    qDebug() << "ResponsiveLayoutManager: Initialized with defaults";
+    qCDebug(lcUi) << "ResponsiveLayoutManager: Initialized with defaults";
     
     // Connect to ConfigManager for manual DPI scale override changes
     connectToConfigManager();
@@ -26,15 +27,15 @@ void ResponsiveLayoutManager::connectToConfigManager()
     if (configManager) {
         connect(configManager, &ConfigManager::manualDpiScaleOverrideChanged,
                 this, &ResponsiveLayoutManager::onManualDpiScaleOverrideChanged);
-        qDebug() << "ResponsiveLayoutManager: Connected to ConfigManager for manualDpiScaleOverride changes";
+        qCDebug(lcUi) << "ResponsiveLayoutManager: Connected to ConfigManager for manualDpiScaleOverride changes";
     } else {
-        qWarning() << "ResponsiveLayoutManager: ConfigManager not available in ServiceLocator";
+        qCWarning(lcUi) << "ResponsiveLayoutManager: ConfigManager not available in ServiceLocator";
     }
 }
 
 void ResponsiveLayoutManager::onManualDpiScaleOverrideChanged()
 {
-    qDebug() << "ResponsiveLayoutManager: manualDpiScaleOverride changed, updating layout";
+    qCDebug(lcUi) << "ResponsiveLayoutManager: manualDpiScaleOverride changed, updating layout";
     updateLayout();
 }
 
@@ -61,7 +62,7 @@ void ResponsiveLayoutManager::setWindow(QQuickWindow* window)
         // Initial layout calculation
         updateLayout();
         
-        qDebug() << "ResponsiveLayoutManager: Window set, connected to geometry and screen change signals";
+        qCDebug(lcUi) << "ResponsiveLayoutManager: Window set, connected to geometry and screen change signals";
     }
 }
 
@@ -108,7 +109,7 @@ int ResponsiveLayoutManager::viewportHeight() const
 void ResponsiveLayoutManager::updateLayout()
 {
     if (!m_window) {
-        qWarning() << "ResponsiveLayoutManager: No window set, using defaults";
+        qCWarning(lcUi) << "ResponsiveLayoutManager: No window set, using defaults";
         return;
     }
     
@@ -124,7 +125,7 @@ void ResponsiveLayoutManager::updateLayout()
     
     // Calculate aspect ratio (guard against division by zero)
     if (newHeight == 0) {
-        qWarning() << "ResponsiveLayoutManager: newHeight is 0, skipping layout update";
+        qCWarning(lcUi) << "ResponsiveLayoutManager: newHeight is 0, skipping layout update";
         return;
     }
     qreal newAspectRatio = static_cast<qreal>(newWidth) / static_cast<qreal>(newHeight);
@@ -172,23 +173,23 @@ void ResponsiveLayoutManager::updateLayout()
         emit aspectRatioChanged();
     }
     if (bBreakpointChanged) {
-        qDebug() << "ResponsiveLayoutManager: Breakpoint changed to" << newBreakpoint;
+        qCDebug(lcUi) << "ResponsiveLayoutManager: Breakpoint changed to" << newBreakpoint;
         emit breakpointChanged();
     }
     if (bLayoutScaleChanged) {
         emit layoutScaleChanged();
     }
     if (bGridColumnsChanged) {
-        qDebug() << "ResponsiveLayoutManager: Grid columns changed to" << newGridColumns;
+        qCDebug(lcUi) << "ResponsiveLayoutManager: Grid columns changed to" << newGridColumns;
         emit gridColumnsChanged();
     }
     if (bSidebarModeChanged) {
-        qDebug() << "ResponsiveLayoutManager: Sidebar mode changed to" << newSidebarMode;
+        qCDebug(lcUi) << "ResponsiveLayoutManager: Sidebar mode changed to" << newSidebarMode;
         emit sidebarDefaultModeChanged();
     }
     
     // Debug output
-    qDebug() << "ResponsiveLayoutManager: Layout updated -"
+    qCDebug(lcUi) << "ResponsiveLayoutManager: Layout updated -"
              << "viewport:" << newWidth << "x" << newHeight
              << "effectiveHeight:" << effectiveHeight
              << "DPR:" << dpr
@@ -266,7 +267,7 @@ int ResponsiveLayoutManager::calculateGridColumns(const QString& breakpoint, qre
         qreal extraWidth = aspectRatio - ULTRAWIDE_THRESHOLD;
         int extraColumns = qMin(ULTRAWIDE_MAX_EXTRA_COLUMNS, static_cast<int>(extraWidth * 2));
         baseColumns += extraColumns;
-        qDebug() << "ResponsiveLayoutManager: Ultrawide detected (aspectRatio:" << aspectRatio 
+        qCDebug(lcUi) << "ResponsiveLayoutManager: Ultrawide detected (aspectRatio:" << aspectRatio 
                  << "), adding" << extraColumns << "columns";
     }
     
@@ -292,7 +293,7 @@ int ResponsiveLayoutManager::calculateEffectiveHeight(int logicalHeight, qreal d
     
     if (devicePixelRatio > HIGH_DPI_THRESHOLD) {
         int physicalHeight = qRound(logicalHeight * devicePixelRatio);
-        qDebug() << "ResponsiveLayoutManager: High-DPI detected (DPR:" << devicePixelRatio 
+        qCDebug(lcUi) << "ResponsiveLayoutManager: High-DPI detected (DPR:" << devicePixelRatio 
                  << "), using physical height:" << physicalHeight;
         return physicalHeight;
     }

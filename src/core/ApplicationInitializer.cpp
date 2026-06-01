@@ -24,6 +24,8 @@
 #include "ui/UiSoundController.h"
 #include "utils/GpuMemoryTrimmer.h"
 #include "utils/Logger.h"
+#include "utils/LoggingConfig.h"
+#include "utils/BloomLogging.h"
 #include "network/SessionManager.h"
 #include "network/SessionService.h"
 #include "updates/UpdateService.h"
@@ -93,10 +95,12 @@ static void qtMessageHandler(QtMsgType type, const QMessageLogContext &context, 
 
 ApplicationInitializer::ApplicationInitializer(QGuiApplication *app,
                                                bool consoleOutputEnabled,
+                                               bool verboseLogging,
                                                QObject *parent)
     : QObject(parent)
     , m_app(app)
     , m_consoleOutputEnabled(consoleOutputEnabled)
+    , m_verboseLogging(verboseLogging)
 {
 }
 
@@ -110,23 +114,25 @@ void ApplicationInitializer::registerServices()
 {
     // 0. Logger - Initialize logging system first (before any services)
     if (!Logger::instance().initialize()) {
-        qWarning() << "Failed to initialize Logger, falling back to console output";
+        qCWarning(lcApp) << "Failed to initialize Logger, falling back to console output";
     }
-    // Enable debug-level logging and console output
-    Logger::instance().setMinLogLevel(Logger::LogLevel::Debug);
-    Logger::instance().setConsoleOutputEnabled(m_consoleOutputEnabled);
-    // Install Qt message handler to route all qDebug/qWarning/etc through our Logger
-    qInstallMessageHandler(qtMessageHandler);
-    
 
     // 1. ConfigManager - No dependencies, must be first to load settings
     m_configManager = std::make_unique<ConfigManager>();
     ServiceLocator::registerService<ConfigManager>(m_configManager.get());
 
-
-    // Load configuration early so downstream services can read settings (e.g., cache size)
+    // Load configuration early so logging and downstream services can read settings
     m_configManager->load();
-    
+
+    LoggingConfig::apply(
+        LoggingConfig::levelFromString(m_configManager->getLogLevel()),
+        m_configManager->getQtLoggingRules(),
+        m_verboseLogging);
+
+    Logger::instance().setConsoleOutputEnabled(m_consoleOutputEnabled);
+    // Install Qt message handler to route all qDebug/qWarning/etc through our Logger
+    qInstallMessageHandler(qtMessageHandler);
+
     // 1.5 DisplayManager - Depends on ConfigManager
     m_displayManager = std::make_unique<DisplayManager>(m_configManager.get());
     ServiceLocator::registerService<DisplayManager>(m_displayManager.get());

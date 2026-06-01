@@ -2,6 +2,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QDebug>
+#include "BloomLogging.h"
 
 CacheMigrator::CacheMigrator(QObject *parent)
     : QObject(parent)
@@ -16,11 +17,11 @@ void CacheMigrator::migrate()
     QDir newCacheDir(newCachePath);
     
     if (oldCacheDir.exists() && !newCacheDir.exists()) {
-        qInfo() << "Migrating cache from Reef to Bloom:" << oldCachePath << "->" << newCachePath;
+        qCInfo(lcCache) << "Migrating cache from Reef to Bloom:" << oldCachePath << "->" << newCachePath;
         if (oldCacheDir.rename(oldCachePath, newCachePath)) {
-            qInfo() << "Cache migration successful";
+            qCInfo(lcCache) << "Cache migration successful";
         } else {
-            qWarning() << "Cache migration failed, will use new cache location";
+            qCWarning(lcCache) << "Cache migration failed, will use new cache location";
         }
     }
 }

@@ -15,6 +15,8 @@
 
 #include <QLoggingCategory>
 
+#include "../../utils/BloomLogging.h"
+
 #if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
 extern "C" {
 #include <mpv/client.h>
@@ -24,8 +26,6 @@ extern "C" {
 namespace {
 std::atomic<quint64> gWindowsMpvReplyUserdataCounter{0};
 }
-
-Q_LOGGING_CATEGORY(lcWindowsLibmpvBackend, "bloom.playback.backend.windows.libmpv")
 
 class WindowsMpvBackend::WindowsNativeGeometryFilter : public QAbstractNativeEventFilter
 {

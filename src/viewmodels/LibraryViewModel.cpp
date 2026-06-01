@@ -7,6 +7,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QStandardPaths>
+#include "../utils/BloomLogging.h"
 
 // Static cache initialization
 QHash<QString, LibraryCacheEntry> LibraryViewModel::s_libraryCache;
@@ -20,7 +21,7 @@ LibraryViewModel::LibraryViewModel(QObject *parent)
     QString dbPath = cacheDbPath();
     m_cacheStore = std::make_unique<LibraryCacheStore>(dbPath, kDiskCacheTtlMs);
     if (!m_cacheStore->open()) {
-        qWarning() << "LibraryViewModel: failed to open library cache store at" << dbPath;
+        qCWarning(lcViewModels) << "LibraryViewModel: failed to open library cache store at" << dbPath;
     }
 
     if (m_libraryService) {
@@ -33,7 +34,7 @@ LibraryViewModel::LibraryViewModel(QObject *parent)
         connect(m_libraryService, &LibraryService::errorOccurred,
                 this, &LibraryViewModel::onErrorOccurred);
     } else {
-        qWarning() << "LibraryViewModel: LibraryService not available in ServiceLocator";
+        qCWarning(lcViewModels) << "LibraryViewModel: LibraryService not available in ServiceLocator";
     }
 }
 
@@ -113,7 +114,7 @@ void LibraryViewModel::loadLibrary(const QString &parentId, int startIndex, int 
         LibraryCacheEntry cached = getCachedData(parentId);
         bool isStale = !cached.isValid(kCacheTtlMs);
         
-        qDebug() << "LibraryViewModel::loadLibrary SWR" << (isStale ? "STALE" : "FRESH") 
+        qCDebug(lcViewModels) << "LibraryViewModel::loadLibrary SWR" << (isStale ? "STALE" : "FRESH") 
                  << "cache for" << parentId 
                  << "items:" << cached.items.size() << "total:" << cached.totalRecordCount;
         
@@ -130,7 +131,7 @@ void LibraryViewModel::loadLibrary(const QString &parentId, int startIndex, int 
         
         // SWR: Cache is stale - trigger background refresh
         // This won't show loading spinner, data is already displayed
-        qDebug() << "LibraryViewModel: SWR background refresh for" << parentId;
+        qCDebug(lcViewModels) << "LibraryViewModel: SWR background refresh for" << parentId;
         m_isBackgroundRefresh = true;
         m_loadTimer.restart();
         clearError();
@@ -143,7 +144,7 @@ void LibraryViewModel::loadLibrary(const QString &parentId, int startIndex, int 
     m_loadTimer.restart();
     clearError();
 
-    qDebug() << "LibraryViewModel::loadLibrary" << parentId << "startIndex:" << startIndex << "limit:" << limit << "heavyFields:" << m_lastIncludeHeavyFields;
+    qCDebug(lcViewModels) << "LibraryViewModel::loadLibrary" << parentId << "startIndex:" << startIndex << "limit:" << limit << "heavyFields:" << m_lastIncludeHeavyFields;
     m_libraryService->getItems(parentId, startIndex, limit, QStringList(), QStringList(), QString(), QString(), m_lastIncludeHeavyFields);
 }
 
@@ -164,7 +165,7 @@ void LibraryViewModel::loadViews()
     setLoading(true);
     clearError();
 
-    qDebug() << "LibraryViewModel::loadViews";
+    qCDebug(lcViewModels) << "LibraryViewModel::loadViews";
     m_libraryService->getViews();
 }
 
@@ -219,7 +220,7 @@ void LibraryViewModel::loadMore(int limit)
     clearError();
     
     int startIndex = m_items.size();
-    qDebug() << "LibraryViewModel::loadMore from index" << startIndex << "limit:" << limit;
+    qCDebug(lcViewModels) << "LibraryViewModel::loadMore from index" << startIndex << "limit:" << limit;
     
     // Store the start index for the incremental load handler
     m_lastStartIndex = startIndex;
@@ -247,7 +248,7 @@ QString LibraryViewModel::buildImageUrl(const QVariantMap &item) const
 
 void LibraryViewModel::onViewsLoaded(const QJsonArray &views)
 {
-    qDebug() << "LibraryViewModel::onViewsLoaded" << views.size() << "items, loadingViews:" << m_loadingViews;
+    qCDebug(lcViewModels) << "LibraryViewModel::onViewsLoaded" << views.size() << "items, loadingViews:" << m_loadingViews;
     
     // Always store views for Settings access (library profile assignments)
     // even if we didn't initiate the request (HomeScreen might have)
@@ -258,7 +259,7 @@ void LibraryViewModel::onViewsLoaded(const QJsonArray &views)
         QString collectionType = viewObj["CollectionType"].toString();
         // Skip "boxsets" (Collections library) - items use their home library's profile
         if (collectionType == "boxsets") {
-            qDebug() << "LibraryViewModel: Filtering out Collections library from views";
+            qCDebug(lcViewModels) << "LibraryViewModel: Filtering out Collections library from views";
             continue;
         }
         viewsList.append(viewObj.toVariantMap());
@@ -292,7 +293,7 @@ void LibraryViewModel::onItemsLoadedWithTotal(const QString &parentId, const QJs
     if (parentId != m_currentParentId)
         return;
 
-    qDebug() << "LibraryViewModel::onItemsLoadedWithTotal" << parentId << items.size() 
+    qCDebug(lcViewModels) << "LibraryViewModel::onItemsLoadedWithTotal" << parentId << items.size() 
              << "items, total:" << totalRecordCount 
              << "backgroundRefresh:" << m_isBackgroundRefresh;
     
@@ -301,7 +302,7 @@ void LibraryViewModel::onItemsLoadedWithTotal(const QString &parentId, const QJs
         setIsLoadingMore(false);
         setTotalRecordCount(totalRecordCount);
         appendItems(items);
-        qDebug() << "LibraryViewModel: loadMore completed in" << m_loadMoreTimer.elapsed() << "ms";
+        qCDebug(lcViewModels) << "LibraryViewModel: loadMore completed in" << m_loadMoreTimer.elapsed() << "ms";
         
         // Cache incremental items without rewriting the whole dataset
         QJsonArray filteredItems;
@@ -322,7 +323,7 @@ void LibraryViewModel::onItemsLoadedWithTotal(const QString &parentId, const QJs
 
         if (m_cacheStore && m_cacheStore->isOpen()) {
             if (!m_cacheStore->upsertItems(parentId, filteredItems, totalRecordCount, false, m_lastStartIndex)) {
-                qWarning() << "LibraryViewModel: failed to upsert paginated cache for" << parentId;
+                qCWarning(lcViewModels) << "LibraryViewModel: failed to upsert paginated cache for" << parentId;
             }
         }
         
@@ -331,17 +332,17 @@ void LibraryViewModel::onItemsLoadedWithTotal(const QString &parentId, const QJs
     } else if (m_isBackgroundRefresh) {
         // SWR: Background refresh completed
         m_isBackgroundRefresh = false;
-        qDebug() << "LibraryViewModel: background refresh completed in" << m_loadTimer.elapsed() << "ms";
+        qCDebug(lcViewModels) << "LibraryViewModel: background refresh completed in" << m_loadTimer.elapsed() << "ms";
         
         // Check if data actually changed
         LibraryCacheEntry cached = getCachedData(parentId);
         if (hasDataChanged(items, totalRecordCount, cached)) {
-            qDebug() << "LibraryViewModel: SWR detected changes, updating model";
+            qCDebug(lcViewModels) << "LibraryViewModel: SWR detected changes, updating model";
             setTotalRecordCount(totalRecordCount);
             updateItemsFromBackground(items);
             emit canLoadMoreChanged();
         } else {
-            qDebug() << "LibraryViewModel: SWR no changes detected, updating timestamp only";
+            qCDebug(lcViewModels) << "LibraryViewModel: SWR no changes detected, updating timestamp only";
         }
         
         // Always update cache with fresh data and timestamp
@@ -350,7 +351,7 @@ void LibraryViewModel::onItemsLoadedWithTotal(const QString &parentId, const QJs
         setLoading(false);
         setTotalRecordCount(totalRecordCount);
         setItems(items);
-        qDebug() << "LibraryViewModel: initial load completed in" << m_loadTimer.elapsed() << "ms";
+        qCDebug(lcViewModels) << "LibraryViewModel: initial load completed in" << m_loadTimer.elapsed() << "ms";
         
         // Cache the data for faster back navigation (only for initial loads)
         if (m_lastStartIndex == 0) {
@@ -368,7 +369,7 @@ void LibraryViewModel::onErrorOccurred(const QString &endpoint, const QString &e
     if (endpoint != "getViews" && endpoint != "getItems")
         return;
 
-    qWarning() << "LibraryViewModel error:" << endpoint << error;
+    qCWarning(lcViewModels) << "LibraryViewModel error:" << endpoint << error;
     setLoading(false);
     setError(mapNetworkError(endpoint, error));
     emit loadError(error);
@@ -411,7 +412,7 @@ bool LibraryViewModel::isEmptyFolder(const QJsonObject &item) const
         if (item.contains("ChildCount")) {
             int childCount = item.value("ChildCount").toInt();
             if (childCount == 0) {
-                qDebug() << "Filtering out empty" << type << ":" << item.value("Name").toString();
+                qCDebug(lcViewModels) << "Filtering out empty" << type << ":" << item.value("Name").toString();
                 return true;
             }
         }
@@ -568,7 +569,7 @@ void LibraryViewModel::updateCache(const QString &parentId, const QJsonArray &it
     
     if (m_cacheStore && m_cacheStore->isOpen()) {
         if (!m_cacheStore->replaceAll(parentId, items, totalRecordCount)) {
-            qWarning() << "LibraryViewModel: failed to persist library cache for" << parentId;
+            qCWarning(lcViewModels) << "LibraryViewModel: failed to persist library cache for" << parentId;
         }
     }
 }
@@ -589,14 +590,14 @@ void LibraryViewModel::clearAllCache()
             vm->m_cacheStore->clearAll();
         }
     }
-    qDebug() << "LibraryViewModel: Cleared all cache";
+    qCDebug(lcViewModels) << "LibraryViewModel: Cleared all cache";
 }
 
 void LibraryViewModel::invalidateCache(const QString &parentId)
 {
     if (s_libraryCache.contains(parentId)) {
         s_libraryCache.remove(parentId);
-        qDebug() << "LibraryViewModel: Invalidated cache for" << parentId;
+        qCDebug(lcViewModels) << "LibraryViewModel: Invalidated cache for" << parentId;
     }
     if (m_cacheStore && m_cacheStore->isOpen()) {
         m_cacheStore->clearParent(parentId);
@@ -629,12 +630,12 @@ bool LibraryViewModel::hasDataChanged(const QJsonArray &newItems, int newTotal, 
 {
     // Quick checks first
     if (newTotal != cached.totalRecordCount) {
-        qDebug() << "LibraryViewModel: SWR total changed" << cached.totalRecordCount << "->" << newTotal;
+        qCDebug(lcViewModels) << "LibraryViewModel: SWR total changed" << cached.totalRecordCount << "->" << newTotal;
         return true;
     }
     
     if (newItems.size() != cached.items.size()) {
-        qDebug() << "LibraryViewModel: SWR item count changed" << cached.items.size() << "->" << newItems.size();
+        qCDebug(lcViewModels) << "LibraryViewModel: SWR item count changed" << cached.items.size() << "->" << newItems.size();
         return true;
     }
     
@@ -643,7 +644,7 @@ bool LibraryViewModel::hasDataChanged(const QJsonArray &newItems, int newTotal, 
         QString newId = newItems[i].toObject().value("Id").toString();
         QString cachedId = cached.items[i].toObject().value("Id").toString();
         if (newId != cachedId) {
-            qDebug() << "LibraryViewModel: SWR item ID mismatch at" << i << ":" << cachedId << "->" << newId;
+            qCDebug(lcViewModels) << "LibraryViewModel: SWR item ID mismatch at" << i << ":" << cachedId << "->" << newId;
             return true;
         }
     }
@@ -668,5 +669,5 @@ void LibraryViewModel::updateItemsFromBackground(const QJsonArray &items)
     }
     endResetModel();
     
-    qDebug() << "LibraryViewModel: SWR updated model with" << m_items.size() << "items";
+    qCDebug(lcViewModels) << "LibraryViewModel: SWR updated model with" << m_items.size() << "items";
 }

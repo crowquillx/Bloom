@@ -11,8 +11,7 @@
 #include <QUrlQuery>
 #include <QLoggingCategory>
 #include <cmath>
-
-Q_LOGGING_CATEGORY(playbackService, "bloom.playback")
+#include "../utils/BloomLogging.h"
 
 namespace {
 QJsonObject buildPlaybackPayload(const QString &itemId, qint64 positionTicks,
@@ -67,7 +66,7 @@ void PlaybackService::sendRequestWithRetry(const QString &endpoint,
                                             FailureHandler failureHandler,
                                             int attemptNumber)
 {
-    qCDebug(playbackService) << "Sending request to:" << endpoint 
+    qCDebug(lcPlayback) << "Sending request to:" << endpoint 
                              << "attempt:" << (attemptNumber + 1) << "/" << m_retryPolicy.maxRetries;
     
     QNetworkReply *reply = requestFactory();
@@ -87,7 +86,7 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
     reply->deleteLater();
     
     if (reply->error() == QNetworkReply::NoError) {
-        qCDebug(playbackService) << "Request succeeded:" << endpoint;
+        qCDebug(lcPlayback) << "Request succeeded:" << endpoint;
         responseHandler(reply);
         return;
     }
@@ -95,7 +94,7 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
     int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
     if (httpStatus == 401) {
-        qCWarning(playbackService) << "Session expired (401) for endpoint:" << endpoint;
+        qCWarning(lcPlayback) << "Session expired (401) for endpoint:" << endpoint;
         m_authService->checkForSessionExpiry(reply, true);
         NetworkError error;
         error.endpoint = endpoint;
@@ -107,7 +106,7 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
     
     NetworkError netError = ErrorHandler::createError(reply, endpoint);
     
-    qCWarning(playbackService) << "Request failed:" << endpoint
+    qCWarning(lcPlayback) << "Request failed:" << endpoint
                                << "Error:" << reply->error()
                                << "HTTP Status:" << httpStatus
                                << "Attempt:" << (attemptNumber + 1);
@@ -119,7 +118,7 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
     
     if (shouldRetry) {
         int delayMs = ErrorHandler::calculateBackoffDelay(attemptNumber, m_retryPolicy);
-        qCInfo(playbackService) << "Retrying request to:" << endpoint << "in" << delayMs << "ms";
+        qCInfo(lcPlayback) << "Retrying request to:" << endpoint << "in" << delayMs << "ms";
         
         QTimer::singleShot(delayMs, this, [this, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
             sendRequestWithRetry(endpoint, requestFactory, responseHandler, failureHandler, attemptNumber + 1);
@@ -132,7 +131,7 @@ void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
 
 void PlaybackService::emitError(const NetworkError &error)
 {
-    qCWarning(playbackService) << "Emitting error for endpoint:" << error.endpoint
+    qCWarning(lcPlayback) << "Emitting error for endpoint:" << error.endpoint
                                << "User message:" << error.userMessage;
     emit errorOccurred(error.endpoint, error.userMessage);
     emit networkError(error);
@@ -235,12 +234,12 @@ void PlaybackService::getAdditionalParts(const QString &itemId, const QString &r
 void PlaybackService::getMediaSegments(const QString &itemId)
 {
     if (!m_authService->isAuthenticated()) {
-        qCDebug(playbackService) << "getMediaSegments: Not authenticated, skipping";
+        qCDebug(lcPlayback) << "getMediaSegments: Not authenticated, skipping";
         emit mediaSegmentsLoaded(itemId, QList<MediaSegmentInfo>());
         return;
     }
     
-    qCDebug(playbackService) << "Getting media segments for item:" << itemId;
+    qCDebug(lcPlayback) << "Getting media segments for item:" << itemId;
     
     // GET /Episode/{id}/IntroSkipperSegments
     // This endpoint is provided by the "Intro Skipper" plugin on the Jellyfin server
@@ -257,7 +256,7 @@ void PlaybackService::getMediaSegments(const QString &itemId)
         
         // Check for session expiry (defer during playback)
         if (httpStatus == 401) {
-            qCWarning(playbackService) << "Session expired while fetching media segments for" << itemId;
+            qCWarning(lcPlayback) << "Session expired while fetching media segments for" << itemId;
             m_authService->checkForSessionExpiry(reply, true);
             finishMediaSegments(itemId, QList<MediaSegmentInfo>());
             return;
@@ -266,13 +265,13 @@ void PlaybackService::getMediaSegments(const QString &itemId)
         // 404 is expected if Intro Skipper plugin is not installed
         // Just emit empty segments silently
         if (httpStatus == 404) {
-            qCDebug(playbackService) << "Intro Skipper plugin not available for" << itemId;
+            qCDebug(lcPlayback) << "Intro Skipper plugin not available for" << itemId;
             maybeLoadExternalMediaSegments(itemId, QList<MediaSegmentInfo>());
             return;
         }
         
         if (reply->error() != QNetworkReply::NoError) {
-            qCWarning(playbackService) << "Failed to get media segments for" << itemId
+            qCWarning(lcPlayback) << "Failed to get media segments for" << itemId
                                        << "Error:" << reply->errorString();
             maybeLoadExternalMediaSegments(itemId, QList<MediaSegmentInfo>());
             return;
@@ -412,7 +411,7 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
                 },
                 [this, context, serverSegments, itemId](const NetworkError &error) mutable {
                     Q_UNUSED(error);
-                    qCDebug(playbackService) << "Failed to fetch series provider IDs for" << context.seriesId
+                    qCDebug(lcPlayback) << "Failed to fetch series provider IDs for" << context.seriesId
                                              << "- external segment lookup may be incomplete";
                     QPointer<PlaybackService> self(this);
                     m_mediaSegmentProviderService->fetchExternalSegments(context, serverSegments,
@@ -441,11 +440,11 @@ void PlaybackService::finishExternalMediaSegments(const QString &itemId,
 
 void PlaybackService::finishMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &segments)
 {
-    qCDebug(playbackService) << "Media segments loaded for" << itemId
+    qCDebug(lcPlayback) << "Media segments loaded for" << itemId
                              << "- Count:" << segments.size();
 
     for (const auto &segment : segments) {
-        qCDebug(playbackService) << "  Segment:" << segment.typeString
+        qCDebug(lcPlayback) << "  Segment:" << segment.typeString
                                  << "Source:" << segment.source
                                  << "Start:" << segment.startSeconds() << "s"
                                  << "End:" << segment.endSeconds() << "s";
@@ -457,12 +456,12 @@ void PlaybackService::finishMediaSegments(const QString &itemId, const QList<Med
 void PlaybackService::getTrickplayInfo(const QString &itemId)
 {
     if (!m_authService->isAuthenticated()) {
-        qCDebug(playbackService) << "getTrickplayInfo: Not authenticated, skipping";
+        qCDebug(lcPlayback) << "getTrickplayInfo: Not authenticated, skipping";
         emit trickplayInfoLoaded(itemId, QMap<int, TrickplayTileInfo>());
         return;
     }
     
-    qCDebug(playbackService) << "Getting trickplay info for item:" << itemId;
+    qCDebug(lcPlayback) << "Getting trickplay info for item:" << itemId;
     
     // GET /Items/{itemId}?Fields=Trickplay
     // The dedicated /Videos/{itemId}/Trickplay endpoint may not exist on all Jellyfin versions,
@@ -485,7 +484,7 @@ void PlaybackService::getTrickplayInfo(const QString &itemId)
             
             // Debug: Log the raw Trickplay JSON response
             QJsonObject trickplayRaw = obj["Trickplay"].toObject();
-            qCDebug(playbackService) << "Trickplay raw JSON for" << itemId << ":"
+            qCDebug(lcPlayback) << "Trickplay raw JSON for" << itemId << ":"
                                       << QJsonDocument(trickplayRaw).toJson(QJsonDocument::Compact)
                                       << "Duration:" << durationSeconds << "s";
             
@@ -509,7 +508,7 @@ void PlaybackService::getTrickplayInfo(const QString &itemId)
                         if (info.interval > 0 && durationSeconds > 0) {
                             int calculatedCount = static_cast<int>(std::ceil(durationSeconds * 1000.0 / info.interval));
                             if (calculatedCount > info.thumbnailCount) {
-                                qCDebug(playbackService) << "Overriding ThumbnailCount from" << info.thumbnailCount
+                                qCDebug(lcPlayback) << "Overriding ThumbnailCount from" << info.thumbnailCount
                                                           << "to calculated" << calculatedCount
                                                           << "(duration:" << durationSeconds << "s, interval:" << info.interval << "ms)";
                                 info.thumbnailCount = calculatedCount;
@@ -527,9 +526,9 @@ void PlaybackService::getTrickplayInfo(const QString &itemId)
             }
             
             if (trickplayInfo.isEmpty()) {
-                qCDebug(playbackService) << "No trickplay info available for" << itemId;
+                qCDebug(lcPlayback) << "No trickplay info available for" << itemId;
             } else {
-                qCDebug(playbackService) << "Trickplay info loaded for" << itemId 
+                qCDebug(lcPlayback) << "Trickplay info loaded for" << itemId 
                                           << "- Resolutions:" << trickplayInfo.keys();
             }
             
@@ -561,7 +560,7 @@ void PlaybackService::reportPlaybackStart(const QString &itemId, const QString &
 {
     if (!m_authService->isAuthenticated()) return;
 
-    qCDebug(playbackService) << "Reporting playback start for item:" << itemId
+    qCDebug(lcPlayback) << "Reporting playback start for item:" << itemId
                              << "mediaSourceId:" << mediaSourceId
                              << "audioIndex:" << audioStreamIndex
                              << "subtitleIndex:" << subtitleStreamIndex;
@@ -580,7 +579,7 @@ void PlaybackService::reportPlaybackStart(const QString &itemId, const QString &
         reply->deleteLater();
         if (m_authService->checkForSessionExpiry(reply, true)) return;
         if (reply->error() != QNetworkReply::NoError) {
-            qCWarning(playbackService) << "Failed to report playback start for" << itemId 
+            qCWarning(lcPlayback) << "Failed to report playback start for" << itemId 
                                        << ":" << reply->errorString();
         }
     });
@@ -597,7 +596,7 @@ void PlaybackService::reportPlaybackProgress(const QString &itemId, qint64 posit
 {
     if (!m_authService->isAuthenticated()) return;
 
-    qCDebug(playbackService) << "Reporting playback progress for item:" << itemId 
+    qCDebug(lcPlayback) << "Reporting playback progress for item:" << itemId 
                              << "position:" << positionTicks;
 
     QJsonObject json = buildPlaybackPayload(itemId, positionTicks, mediaSourceId,
@@ -615,7 +614,7 @@ void PlaybackService::reportPlaybackProgress(const QString &itemId, qint64 posit
         reply->deleteLater();
         if (m_authService->checkForSessionExpiry(reply, true)) return;
         if (reply->error() != QNetworkReply::NoError) {
-            qCWarning(playbackService) << "Failed to report playback progress for" << itemId 
+            qCWarning(lcPlayback) << "Failed to report playback progress for" << itemId 
                                        << ":" << reply->errorString();
         }
     });
@@ -632,7 +631,7 @@ void PlaybackService::reportPlaybackPaused(const QString &itemId, qint64 positio
 {
     if (!m_authService->isAuthenticated()) return;
 
-    qCDebug(playbackService) << "Reporting playback paused for item:" << itemId 
+    qCDebug(lcPlayback) << "Reporting playback paused for item:" << itemId 
                              << "position:" << positionTicks;
 
     QJsonObject json = buildPlaybackPayload(itemId, positionTicks, mediaSourceId,
@@ -650,7 +649,7 @@ void PlaybackService::reportPlaybackPaused(const QString &itemId, qint64 positio
         reply->deleteLater();
         if (m_authService->checkForSessionExpiry(reply, true)) return;
         if (reply->error() != QNetworkReply::NoError) {
-            qCWarning(playbackService) << "Failed to report playback paused for" << itemId 
+            qCWarning(lcPlayback) << "Failed to report playback paused for" << itemId 
                                        << ":" << reply->errorString();
         }
     });
@@ -667,7 +666,7 @@ void PlaybackService::reportPlaybackResumed(const QString &itemId, qint64 positi
 {
     if (!m_authService->isAuthenticated()) return;
 
-    qCDebug(playbackService) << "Reporting playback resumed for item:" << itemId 
+    qCDebug(lcPlayback) << "Reporting playback resumed for item:" << itemId 
                              << "position:" << positionTicks;
 
     QJsonObject json = buildPlaybackPayload(itemId, positionTicks, mediaSourceId,
@@ -685,7 +684,7 @@ void PlaybackService::reportPlaybackResumed(const QString &itemId, qint64 positi
         reply->deleteLater();
         if (m_authService->checkForSessionExpiry(reply, true)) return;
         if (reply->error() != QNetworkReply::NoError) {
-            qCWarning(playbackService) << "Failed to report playback resumed for" << itemId 
+            qCWarning(lcPlayback) << "Failed to report playback resumed for" << itemId 
                                        << ":" << reply->errorString();
         }
     });
@@ -702,7 +701,7 @@ void PlaybackService::reportPlaybackStopped(const QString &itemId, qint64 positi
 {
     if (!m_authService->isAuthenticated()) return;
 
-    qCDebug(playbackService) << "Reporting playback stopped for item:" << itemId 
+    qCDebug(lcPlayback) << "Reporting playback stopped for item:" << itemId 
                              << "position:" << positionTicks;
 
     QJsonObject json = buildPlaybackPayload(itemId, positionTicks, mediaSourceId,
@@ -720,7 +719,7 @@ void PlaybackService::reportPlaybackStopped(const QString &itemId, qint64 positi
         reply->deleteLater();
         if (m_authService->checkForSessionExpiry(reply, false)) return;
         if (reply->error() != QNetworkReply::NoError) {
-            qCWarning(playbackService) << "Failed to report playback stopped for" << itemId 
+            qCWarning(lcPlayback) << "Failed to report playback stopped for" << itemId 
                                        << ":" << reply->errorString();
         }
     });
@@ -730,7 +729,7 @@ void PlaybackService::markItemPlayed(const QString &itemId)
 {
     if (!m_authService->isAuthenticated()) return;
 
-    qCDebug(playbackService) << "Marking item as played:" << itemId;
+    qCDebug(lcPlayback) << "Marking item as played:" << itemId;
 
     QString endpoint = QString("/Users/%1/PlayedItems/%2").arg(m_authService->getUserId(), itemId);
     QNetworkRequest request = m_authService->createRequest(endpoint);
@@ -741,10 +740,10 @@ void PlaybackService::markItemPlayed(const QString &itemId)
         reply->deleteLater();
         if (m_authService->checkForSessionExpiry(reply, false)) return;
         if (reply->error() != QNetworkReply::NoError) {
-            qCWarning(playbackService) << "Failed to mark item as played:" << itemId 
+            qCWarning(lcPlayback) << "Failed to mark item as played:" << itemId 
                                        << ":" << reply->errorString();
         } else {
-            qCDebug(playbackService) << "Successfully marked item as played:" << itemId;
+            qCDebug(lcPlayback) << "Successfully marked item as played:" << itemId;
             emit itemMarkedPlayed(itemId);
         }
     });

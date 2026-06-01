@@ -17,8 +17,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QImageWriter>
-
-Q_LOGGING_CATEGORY(imageCache, "bloom.imagecache")
+#include "../utils/BloomLogging.h"
 
 // ============================================================================
 // CachedImageResponse Implementation
@@ -107,7 +106,7 @@ void CachedImageResponse::loadFromCache()
         QImage image = reader.read();
         
         if (!image.isNull()) {
-            qCDebug(imageCache) << "Cache hit:" << m_url;
+            qCDebug(lcImageCache) << "Cache hit:" << m_url;
             
             // Update access time in database
             m_provider->touchCacheEntry(m_url);
@@ -130,13 +129,13 @@ void CachedImageResponse::loadFromCache()
             finishWithImage(image);
             return;
         } else {
-            qCWarning(imageCache) << "Failed to read cached image:" << cachedPath 
+            qCWarning(lcImageCache) << "Failed to read cached image:" << cachedPath 
                                   << reader.errorString();
         }
     }
     
     // Not in cache, fetch from network
-    qCDebug(imageCache) << "Cache miss, fetching:" << m_url;
+    qCDebug(lcImageCache) << "Cache miss, fetching:" << m_url;
     fetchFromNetwork();
 }
 
@@ -258,7 +257,7 @@ void CachedImageResponse::finishWithImage(const QImage &image)
 void CachedImageResponse::finishWithError(const QString &error)
 {
     m_errorString = error;
-    qCWarning(imageCache) << "Image load failed:" << m_url << "-" << error;
+    qCWarning(lcImageCache) << "Image load failed:" << m_url << "-" << error;
     emit finished();
 }
 
@@ -279,7 +278,7 @@ ImageCacheProvider::ImageCacheProvider(qint64 maxCacheSizeMB)
     // Configure thread pool
     m_threadPool.setMaxThreadCount(4);  // Limit concurrent loads
     
-    qCInfo(imageCache) << "Image cache initialized at:" << m_cacheDir 
+    qCInfo(lcImageCache) << "Image cache initialized at:" << m_cacheDir 
                        << "Max size:" << maxCacheSizeMB << "MB";
     
     // Initialize database
@@ -328,7 +327,7 @@ void ImageCacheProvider::initDatabase()
     m_db.setDatabaseName(m_cacheDir + "/cache_index.db");
     
     if (!m_db.open()) {
-        qCCritical(imageCache) << "Failed to open cache database:" 
+        qCCritical(lcImageCache) << "Failed to open cache database:" 
                                << m_db.lastError().text();
         return;
     }
@@ -346,7 +345,7 @@ void ImageCacheProvider::initDatabase()
     )");
     
     if (!success) {
-        qCCritical(imageCache) << "Failed to create cache table:" 
+        qCCritical(lcImageCache) << "Failed to create cache table:" 
                                << query.lastError().text();
         return;
     }
@@ -358,7 +357,7 @@ void ImageCacheProvider::initDatabase()
     query.exec("SELECT COALESCE(SUM(size), 0) FROM cache_entries");
     if (query.next()) {
         m_currentCacheSize = query.value(0).toLongLong();
-        qCInfo(imageCache) << "Current cache size:" << m_currentCacheSize / (1024.0 * 1024.0) << "MB";
+        qCInfo(lcImageCache) << "Current cache size:" << m_currentCacheSize / (1024.0 * 1024.0) << "MB";
     }
     
     // Run eviction if needed on startup
@@ -373,7 +372,7 @@ QQuickImageResponse *ImageCacheProvider::requestImageResponse(const QString &id,
     QString url = QUrl::fromPercentEncoding(id.toUtf8());
     
     if (url.isEmpty()) {
-        qCWarning(imageCache) << "Empty image URL requested";
+        qCWarning(lcImageCache) << "Empty image URL requested";
         auto *response = new CachedImageResponse("", requestedSize, this);
         response->finishWithError("Empty URL");
         return response;
@@ -447,7 +446,7 @@ QString ImageCacheProvider::saveDataForKey(const QString &urlKey, const QByteArr
     // Write file
     QFile file(filepath);
     if (!file.open(QIODevice::WriteOnly)) {
-        qCWarning(imageCache) << "Failed to write cache file:" << filepath;
+        qCWarning(lcImageCache) << "Failed to write cache file:" << filepath;
         return QString();
     }
     
@@ -455,7 +454,7 @@ QString ImageCacheProvider::saveDataForKey(const QString &urlKey, const QByteArr
     file.close();
     
     if (written != data.size()) {
-        qCWarning(imageCache) << "Incomplete write to cache file:" << filepath;
+        qCWarning(lcImageCache) << "Incomplete write to cache file:" << filepath;
         QFile::remove(filepath);
         return QString();
     }
@@ -483,7 +482,7 @@ QString ImageCacheProvider::saveDataForKey(const QString &urlKey, const QByteArr
         query.addBindValue(now);
         
         if (!query.exec()) {
-            qCWarning(imageCache) << "Failed to update cache database:" 
+            qCWarning(lcImageCache) << "Failed to update cache database:" 
                                   << query.lastError().text();
             return QString();
         }
@@ -495,7 +494,7 @@ QString ImageCacheProvider::saveDataForKey(const QString &urlKey, const QByteArr
         m_currentCacheSize += data.size();
     }
     
-    qCDebug(imageCache) << "Cached:" << urlKey << "size:" << data.size();
+    qCDebug(lcImageCache) << "Cached:" << urlKey << "size:" << data.size();
     
     // Check if eviction is needed
     evictIfNeeded();
@@ -530,7 +529,7 @@ void ImageCacheProvider::evictIfNeeded()
     
     sizeLock.unlock();
     
-    qCInfo(imageCache) << "Cache eviction needed. Current:" 
+    qCInfo(lcImageCache) << "Cache eviction needed. Current:" 
                        << m_currentCacheSize / (1024.0 * 1024.0) << "MB"
                        << "Target:" << targetSize / (1024.0 * 1024.0) << "MB";
     
@@ -549,7 +548,7 @@ void ImageCacheProvider::evictIfNeeded()
     )");
     
     if (!query.exec()) {
-        qCWarning(imageCache) << "Failed to query cache for eviction:" 
+        qCWarning(lcImageCache) << "Failed to query cache for eviction:" 
                               << query.lastError().text();
         return;
     }
@@ -583,7 +582,7 @@ void ImageCacheProvider::evictIfNeeded()
     // Delete files
     for (const QString &filepath : filesToDelete) {
         if (QFile::remove(filepath)) {
-            qCDebug(imageCache) << "Evicted:" << filepath;
+            qCDebug(lcImageCache) << "Evicted:" << filepath;
         }
     }
     
@@ -591,7 +590,7 @@ void ImageCacheProvider::evictIfNeeded()
     sizeLock.relock();
     m_currentCacheSize -= freedBytes;
     
-    qCInfo(imageCache) << "Evicted" << urlsToDelete.size() << "entries,"
+    qCInfo(lcImageCache) << "Evicted" << urlsToDelete.size() << "entries,"
                        << freedBytes / (1024.0 * 1024.0) << "MB freed";
 }
 
@@ -615,7 +614,7 @@ bool ImageCacheProvider::renderRoundedPng(const QString &sourcePath, int radiusP
                                           const QSize &targetSize, QByteArray &outData) const
 {
     if (!QFile::exists(sourcePath)) {
-        qCWarning(imageCache) << "Rounded render failed, source missing:" << sourcePath;
+        qCWarning(lcImageCache) << "Rounded render failed, source missing:" << sourcePath;
         return false;
     }
 
@@ -625,7 +624,7 @@ bool ImageCacheProvider::renderRoundedPng(const QString &sourcePath, int radiusP
     }
     QImage src = reader.read();
     if (src.isNull()) {
-        qCWarning(imageCache) << "Rounded render failed to decode" << sourcePath << reader.errorString();
+        qCWarning(lcImageCache) << "Rounded render failed to decode" << sourcePath << reader.errorString();
         return false;
     }
 
@@ -651,7 +650,7 @@ bool ImageCacheProvider::renderRoundedPng(const QString &sourcePath, int radiusP
     buffer.close();
 
     if (!ok) {
-        qCWarning(imageCache) << "Rounded render failed to write PNG for" << sourcePath << writer.errorString();
+        qCWarning(lcImageCache) << "Rounded render failed to write PNG for" << sourcePath << writer.errorString();
     }
     return ok;
 }
@@ -806,7 +805,7 @@ void ImageCacheProvider::clearCache()
         m_currentCacheSize = 0;
     }
     
-    qCInfo(imageCache) << "Cache cleared";
+    qCInfo(lcImageCache) << "Cache cleared";
 }
 
 qint64 ImageCacheProvider::currentCacheSize() const
