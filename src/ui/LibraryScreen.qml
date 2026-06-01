@@ -1718,9 +1718,6 @@ FocusScope {
     function exitSeriesDetails() {
         // Helper to exit series details view
         showSeriesDetails = false
-        currentSeriesData = null
-        currentSeriesSeasons = []
-        currentNextEpisode = null
         navigateBack()
     }
     
@@ -1883,6 +1880,7 @@ FocusScope {
             seasonName: currentSeasonName,
             seasonNumber: currentSeasonNumber,
             seasonPosterUrl: currentSeasonPosterUrl,
+            seasonsGridIndex: SeriesDetailsViewModel.selectedSeasonIndex >= 0 ? SeriesDetailsViewModel.selectedSeasonIndex : -1,
             selectedGenres: selectedGenres.slice(),
             selectedNetworks: selectedNetworks.slice(),
             showFilterPanel: showFilterPanel,
