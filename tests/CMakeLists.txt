@@ -73,6 +73,7 @@ add_executable(LoggingConfigTest
     LoggingConfigTest.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/LoggingConfig.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
 )
 
 target_include_directories(LoggingConfigTest PRIVATE ${CMAKE_SOURCE_DIR}/src)

@@ -5,10 +5,11 @@
 #include <windows.h>
 #include <wincred.h>
 #include <QDebug>
+#include "../utils/BloomLogging.h"
 
 SecretStoreWindows::SecretStoreWindows()
 {
-    qDebug() << "SecretStoreWindows: Initialized (using Windows Credential Manager)";
+    qCDebug(lcAuth) << "SecretStoreWindows: Initialized (using Windows Credential Manager)";
 }
 
 QString SecretStoreWindows::makeTargetName(const QString &service, const QString &account) const
@@ -36,11 +37,11 @@ bool SecretStoreWindows::setSecret(const QString &service, const QString &accoun
     if (!CredWriteW(&cred, 0)) {
         DWORD errorCode = GetLastError();
         m_lastError = QString("Failed to store credential (error %1)").arg(errorCode);
-        qWarning() << "SecretStoreWindows::setSecret:" << m_lastError;
+        qCWarning(lcAuth) << "SecretStoreWindows::setSecret:" << m_lastError;
         return false;
     }
     
-    qDebug() << "SecretStoreWindows: Stored secret for service=" << service << "account=" << account;
+    qCDebug(lcAuth) << "SecretStoreWindows: Stored secret for service=" << service << "account=" << account;
     return true;
 }
 
@@ -54,10 +55,10 @@ QString SecretStoreWindows::getSecret(const QString &service, const QString &acc
     if (!CredReadW((LPCWSTR)targetName.utf16(), CRED_TYPE_GENERIC, 0, &pcred)) {
         DWORD errorCode = GetLastError();
         if (errorCode == ERROR_NOT_FOUND) {
-            qDebug() << "SecretStoreWindows: No secret found for service=" << service << "account=" << account;
+            qCDebug(lcAuth) << "SecretStoreWindows: No secret found for service=" << service << "account=" << account;
         } else {
             m_lastError = QString("Failed to retrieve credential (error %1)").arg(errorCode);
-            qWarning() << "SecretStoreWindows::getSecret:" << m_lastError;
+            qCWarning(lcAuth) << "SecretStoreWindows::getSecret:" << m_lastError;
         }
         return QString();
     }
@@ -69,7 +70,7 @@ QString SecretStoreWindows::getSecret(const QString &service, const QString &acc
     
     CredFree(pcred);
     
-    qDebug() << "SecretStoreWindows: Retrieved secret for service=" << service << "account=" << account;
+    qCDebug(lcAuth) << "SecretStoreWindows: Retrieved secret for service=" << service << "account=" << account;
     return result;
 }
 
@@ -82,16 +83,16 @@ bool SecretStoreWindows::deleteSecret(const QString &service, const QString &acc
     if (!CredDeleteW((LPCWSTR)targetName.utf16(), CRED_TYPE_GENERIC, 0)) {
         DWORD errorCode = GetLastError();
         if (errorCode == ERROR_NOT_FOUND) {
-            qDebug() << "SecretStoreWindows: No secret to delete for service=" << service << "account=" << account;
+            qCDebug(lcAuth) << "SecretStoreWindows: No secret to delete for service=" << service << "account=" << account;
             return true;  // Not found is success
         }
         
         m_lastError = QString("Failed to delete credential (error %1)").arg(errorCode);
-        qWarning() << "SecretStoreWindows::deleteSecret:" << m_lastError;
+        qCWarning(lcAuth) << "SecretStoreWindows::deleteSecret:" << m_lastError;
         return false;
     }
     
-    qDebug() << "SecretStoreWindows: Deleted secret for service=" << service << "account=" << account;
+    qCDebug(lcAuth) << "SecretStoreWindows: Deleted secret for service=" << service << "account=" << account;
     return true;
 }
 
@@ -117,7 +118,7 @@ QStringList SecretStoreWindows::listAccounts(const QString &service)
             return accounts;
         }
         m_lastError = QString("Failed to enumerate credentials (error %1)").arg(errorCode);
-        qWarning() << "SecretStoreWindows::listAccounts:" << m_lastError;
+        qCWarning(lcAuth) << "SecretStoreWindows::listAccounts:" << m_lastError;
         return accounts;
     }
 
@@ -136,7 +137,7 @@ QStringList SecretStoreWindows::listAccounts(const QString &service)
 
     CredFree(pcreds);
 
-    qDebug() << "SecretStoreWindows: Listed" << accounts.size() << "accounts for service=" << service;
+    qCDebug(lcAuth) << "SecretStoreWindows: Listed" << accounts.size() << "accounts for service=" << service;
     return accounts;
 }
 

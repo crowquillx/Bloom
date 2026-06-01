@@ -8,6 +8,7 @@
 #include <QJsonDocument>
 #include <QSaveFile>
 #include <QTimer>
+#include "BloomLogging.h"
 
 namespace {
 constexpr auto kVersionKey = "version";
@@ -163,7 +164,7 @@ void TrackPreferencesManager::load()
     QFile file(path);
     const auto discardPersistedPreferences = [&path]() {
         if (!QFile::remove(path)) {
-            qWarning() << "TrackPreferencesManager: Failed to remove invalid preferences file:" << path;
+            qCWarning(lcConfig) << "TrackPreferencesManager: Failed to remove invalid preferences file:" << path;
         }
     };
 
@@ -171,12 +172,12 @@ void TrackPreferencesManager::load()
     m_moviePreferences.clear();
 
     if (!file.exists()) {
-        qDebug() << "TrackPreferencesManager: No preferences file found at" << path;
+        qCDebug(lcConfig) << "TrackPreferencesManager: No preferences file found at" << path;
         return;
     }
 
     if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "TrackPreferencesManager: Failed to open preferences file:" << path;
+        qCWarning(lcConfig) << "TrackPreferencesManager: Failed to open preferences file:" << path;
         return;
     }
 
@@ -185,14 +186,14 @@ void TrackPreferencesManager::load()
     file.close();
 
     if (parseError.error != QJsonParseError::NoError) {
-        qWarning() << "TrackPreferencesManager: JSON parse error:" << parseError.errorString()
+        qCWarning(lcConfig) << "TrackPreferencesManager: JSON parse error:" << parseError.errorString()
                    << "- clearing saved track preferences";
         discardPersistedPreferences();
         return;
     }
 
     if (!document.isObject()) {
-        qWarning() << "TrackPreferencesManager: Invalid preferences format - clearing saved track preferences";
+        qCWarning(lcConfig) << "TrackPreferencesManager: Invalid preferences format - clearing saved track preferences";
         discardPersistedPreferences();
         return;
     }
@@ -200,7 +201,7 @@ void TrackPreferencesManager::load()
     const QJsonObject root = document.object();
     const int version = root.value(kVersionKey).toInt(-1);
     if (version != kCurrentSchemaVersion) {
-        qWarning() << "TrackPreferencesManager: Resetting legacy track preferences schema version"
+        qCWarning(lcConfig) << "TrackPreferencesManager: Resetting legacy track preferences schema version"
                    << version << "expected" << kCurrentSchemaVersion;
         discardPersistedPreferences();
         return;
@@ -209,7 +210,7 @@ void TrackPreferencesManager::load()
     loadPreferenceSection(root.value(kEpisodesKey).toObject(), m_episodePreferences);
     loadPreferenceSection(root.value(kMoviesKey).toObject(), m_moviePreferences);
 
-    qDebug() << "TrackPreferencesManager: Loaded preferences for"
+    qCDebug(lcConfig) << "TrackPreferencesManager: Loaded preferences for"
              << m_episodePreferences.size() << "episode scopes and"
              << m_moviePreferences.size() << "movie scopes";
 }
@@ -229,21 +230,21 @@ void TrackPreferencesManager::save()
 
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "TrackPreferencesManager: Failed to save preferences to" << path;
+        qCWarning(lcConfig) << "TrackPreferencesManager: Failed to save preferences to" << path;
         scheduleRetrySave();
         return;
     }
 
     file.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
     if (!file.commit()) {
-        qWarning() << "TrackPreferencesManager: Failed to commit preferences to" << path;
+        qCWarning(lcConfig) << "TrackPreferencesManager: Failed to commit preferences to" << path;
         scheduleRetrySave();
         return;
     }
 
     m_dirty = false;
     m_saveRetryAttempts = 0;
-    qDebug() << "TrackPreferencesManager: Saved preferences for"
+    qCDebug(lcConfig) << "TrackPreferencesManager: Saved preferences for"
              << m_episodePreferences.size() << "episode scopes and"
              << m_moviePreferences.size() << "movie scopes";
 }
@@ -266,7 +267,7 @@ void TrackPreferencesManager::scheduleRetrySave()
     }
 
     if (m_saveRetryAttempts >= kMaxSaveRetryAttempts) {
-        qWarning() << "TrackPreferencesManager: Giving up on autosave retries until preferences change again";
+        qCWarning(lcConfig) << "TrackPreferencesManager: Giving up on autosave retries until preferences change again";
         return;
     }
 

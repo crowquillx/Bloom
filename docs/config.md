@@ -54,8 +54,29 @@ When adding settings
 
 Logging settings
 - `settings.logging.level` controls file/console verbosity. Valid values: `info` (default), `debug`, `quiet`. Default `info` suppresses uncategorized `qDebug()` spam (for example view-model cache traces) and disables debug output for noisy Qt categories such as `bloom.imagecache` and `bloom.library`.
+- Default `info` level silences routine **image** (`bloom.imagecache`), **library cache** (`bloom.viewmodels`, `bloom.librarycache`, `bloom.cache`), and **playback trace** noise while keeping **all warnings and errors** (including image load failures).
 - `settings.logging.qt_rules` optional Qt logging category rules (newline-separated) appended to Bloom defaults. Use for targeted diagnostics, for example `bloom.imagecache.debug=true`. The `QT_LOGGING_RULES` environment variable is still honored by Qt before startup.
 - Pass `--verbose` / `-v` on the command line to force full debug logging for one session (overrides `settings.logging.level`).
+
+
+### Logging categories (for `qt_rules`)
+
+| Category | Purpose |
+|----------|---------|
+| `bloom.imagecache` | Poster/backdrop disk + memory image cache |
+| `bloom.viewmodels` | Library/series/movie view-model cache & SWR |
+| `bloom.librarycache` | SQLite library list cache |
+| `bloom.cache` | Detail-view JSON cache files |
+| `bloom.library` | Jellyfin library API requests |
+| `bloom.playback` | Playback controller (info suppressed by default) |
+| `bloom.playback.ipc` | mpv IPC traffic |
+| `bloom.auth` | Login, session, keychain |
+
+Example — debug image cache only:
+
+```json
+"qt_rules": "bloom.imagecache.debug=true\nbloom.imagecache.info=true"
+```
 
 Cache settings
 - `settings.cache.image_cache_size_mb` controls the disk image cache size in megabytes. Default 500; minimum enforced at 50MB; config-only (no UI).

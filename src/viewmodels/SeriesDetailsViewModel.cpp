@@ -14,6 +14,7 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QUrlQuery>
+#include "../utils/BloomLogging.h"
 
 namespace {
 constexpr qint64 kSeriesMemoryTtlMs = 5 * 60 * 1000;   // 5 minutes
@@ -485,7 +486,7 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
                         // Prefetch responses should be cached but not bound to UI
                         storeItemsCache(parentId, items);
                         m_prefetchSeasonIds.remove(parentId);
-                        qDebug() << "SeriesDetailsViewModel: Prefetched episodes for season" << parentId
+                        qCDebug(lcViewModels) << "SeriesDetailsViewModel: Prefetched episodes for season" << parentId
                                  << "count:" << items.size();
                     }
                 });
@@ -518,7 +519,7 @@ SeriesDetailsViewModel::SeriesDetailsViewModel(QObject *parent)
         connect(m_libraryService, &LibraryService::errorOccurred,
                 this, &SeriesDetailsViewModel::onErrorOccurred);
     } else {
-        qWarning() << "SeriesDetailsViewModel: LibraryService not available in ServiceLocator";
+        qCWarning(lcViewModels) << "SeriesDetailsViewModel: LibraryService not available in ServiceLocator";
     }
 }
 
@@ -560,14 +561,14 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
     bool hasAnySimilarItems = hasFreshSimilarItems || loadSimilarItemsFromCache(seriesId, cachedSimilarItems, /*requireFresh*/false);
 
     if (hasAnySeries) {
-        qDebug() << "SeriesDetailsViewModel: Serving series details from cache"
+        qCDebug(lcViewModels) << "SeriesDetailsViewModel: Serving series details from cache"
                  << (hasFreshSeries ? "FRESH" : "STALE");
         m_seriesData = cachedSeries;
         updateSeriesMetadata(cachedSeries);
     }
 
     if (hasAnySeasons) {
-        qDebug() << "SeriesDetailsViewModel: Serving seasons from cache"
+        qCDebug(lcViewModels) << "SeriesDetailsViewModel: Serving seasons from cache"
                  << (hasFreshSeasons ? "FRESH" : "STALE")
                  << "count:" << cachedSeasons.size();
         // Block seriesLoaded() during synchronous cache hydration; the async
@@ -578,7 +579,7 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
     }
 
     if (hasAnySimilarItems) {
-        qDebug() << "SeriesDetailsViewModel: Serving similar items from cache"
+        qCDebug(lcViewModels) << "SeriesDetailsViewModel: Serving similar items from cache"
                  << (hasFreshSimilarItems ? "FRESH" : "STALE")
                  << "count:" << cachedSimilarItems.size();
         m_similarItems = DetailListHelper::mapSimilarItems(cachedSimilarItems);
@@ -593,7 +594,7 @@ void SeriesDetailsViewModel::loadSeriesDetails(const QString &seriesId)
     setLoading(m_loadingSeries || m_loadingSeasons);
     clearError();
 
-    qDebug() << "SeriesDetailsViewModel::loadSeriesDetails" << seriesId;
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel::loadSeriesDetails" << seriesId;
     
     // Load series details
     m_seriesTimer.restart();
@@ -636,13 +637,13 @@ void SeriesDetailsViewModel::loadSeasonEpisodes(const QString &seasonId)
 
     // If cached data is missing special placement fields, treat as stale
     if (hasAnyEpisodes && !hasSpecialPlacementFields(cachedEpisodes)) {
-        qDebug() << "SeriesDetailsViewModel: Cached episodes missing placement fields, ignoring cache for" << seasonId;
+        qCDebug(lcViewModels) << "SeriesDetailsViewModel: Cached episodes missing placement fields, ignoring cache for" << seasonId;
         hasFreshEpisodes = false;
         hasAnyEpisodes = false;
     }
 
     if (hasAnyEpisodes) {
-        qDebug() << "SeriesDetailsViewModel: Serving episodes from cache for season"
+        qCDebug(lcViewModels) << "SeriesDetailsViewModel: Serving episodes from cache for season"
                  << seasonId << (hasFreshEpisodes ? "FRESH" : "STALE")
                  << "count:" << cachedEpisodes.size();
         m_loadingEpisodes = true;
@@ -654,7 +655,7 @@ void SeriesDetailsViewModel::loadSeasonEpisodes(const QString &seasonId)
     m_loadingEpisodes = true;
     setLoading(!hasAnyEpisodes);
 
-    qDebug() << "SeriesDetailsViewModel::loadSeasonEpisodes" << seasonId;
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel::loadSeasonEpisodes" << seasonId;
     m_episodesTimer.restart();
     m_libraryService->getItems(seasonId, 0, 0, QStringList(), QStringList(), QString(), QString(), /*includeHeavyFields*/false, /*useCacheValidation*/true);
 }
@@ -681,7 +682,7 @@ void SeriesDetailsViewModel::refreshSeasonEpisodes(const QString &seasonId)
     m_loadingEpisodes = true;
     setLoading(true);
 
-    qDebug() << "SeriesDetailsViewModel::refreshSeasonEpisodes" << seasonId;
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel::refreshSeasonEpisodes" << seasonId;
     m_episodesTimer.restart();
     m_libraryService->getItems(seasonId, 0, 0, QStringList(), QStringList(), QString(), QString(),
                                /*includeHeavyFields*/false, /*useCacheValidation*/false);
@@ -735,7 +736,7 @@ void SeriesDetailsViewModel::prefetchSeasonsAround(int startIndex, int radius)
             continue;
         }
 
-        qDebug() << "SeriesDetailsViewModel: Prefetching season episodes for" << seasonId;
+        qCDebug(lcViewModels) << "SeriesDetailsViewModel: Prefetching season episodes for" << seasonId;
         m_prefetchSeasonIds.insert(seasonId);
         m_libraryService->getItems(seasonId, 0, 0, QStringList(), QStringList(),
                                    QString(), QString(), /*includeHeavyFields*/false, /*useCacheValidation*/true);
@@ -748,7 +749,7 @@ void SeriesDetailsViewModel::markAsWatched()
         return;
     }
 
-    qDebug() << "SeriesDetailsViewModel::markAsWatched" << m_seriesId;
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel::markAsWatched" << m_seriesId;
     m_libraryService->markSeriesWatched(m_seriesId);
 }
 
@@ -758,7 +759,7 @@ void SeriesDetailsViewModel::markAsUnwatched()
         return;
     }
 
-    qDebug() << "SeriesDetailsViewModel::markAsUnwatched" << m_seriesId;
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel::markAsUnwatched" << m_seriesId;
     m_libraryService->markSeriesUnwatched(m_seriesId);
 }
 
@@ -774,7 +775,7 @@ void SeriesDetailsViewModel::toggleFavorite()
 void SeriesDetailsViewModel::loadFocusedEpisodeDetails(const QString &episodeId)
 {
     if (!m_libraryService) {
-        qWarning() << "SeriesDetailsViewModel::loadFocusedEpisodeDetails without LibraryService";
+        qCWarning(lcViewModels) << "SeriesDetailsViewModel::loadFocusedEpisodeDetails without LibraryService";
         clearFocusedEpisodeDetails();
         return;
     }
@@ -985,7 +986,7 @@ void SeriesDetailsViewModel::fetchMdbListRatings(const QString &imdbId, const QS
         compileRatings();
 
         const QVariantList ratingsList = m_mdbListRatings.value("ratings").toList();
-        qDebug() << "MDBList ratings updated, count:" << ratingsList.size();
+        qCDebug(lcViewModels) << "MDBList ratings updated, count:" << ratingsList.size();
     });
 }
 
@@ -1024,7 +1025,7 @@ void SeriesDetailsViewModel::fetchAniListRating(const QString &imdbId, const QSt
         if (!anilistId.isEmpty()) {
             queryAniListById(anilistId, requestedImdbId);
         } else {
-            qDebug() << "AniList ID not found via Wikidata";
+            qCDebug(lcViewModels) << "AniList ID not found via Wikidata";
         }
     });
 }
@@ -1046,7 +1047,7 @@ void SeriesDetailsViewModel::queryAniListById(const QString &anilistId, const QS
         const int score = (avgScore > 0) ? avgScore : meanScore;
 
         if (score > 0) {
-            qDebug() << "AniList Score found:" << score;
+            qCDebug(lcViewModels) << "AniList Score found:" << score;
 
             QVariantMap anilistRating;
             anilistRating["source"] = "AniList";
@@ -1085,7 +1086,7 @@ void SeriesDetailsViewModel::onSeriesDetailsLoaded(const QString &seriesId, cons
         return;
     }
 
-    qDebug() << "SeriesDetailsViewModel::onSeriesDetailsLoaded" << seriesId
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel::onSeriesDetailsLoaded" << seriesId
              << "elapsed(ms):" << m_seriesTimer.elapsed();
     m_loadingSeries = false;
     
@@ -1115,7 +1116,7 @@ void SeriesDetailsViewModel::onSeriesDetailsNotModified(const QString &seriesId)
 
     QJsonObject cached;
     if (loadSeriesFromCache(seriesId, cached, /*requireFresh*/false)) {
-        qDebug() << "SeriesDetailsViewModel::onSeriesDetailsNotModified using cached data";
+        qCDebug(lcViewModels) << "SeriesDetailsViewModel::onSeriesDetailsNotModified using cached data";
         m_loadingSeries = false;
         m_seriesData = cached;
         updateSeriesMetadata(cached);
@@ -1130,7 +1131,7 @@ void SeriesDetailsViewModel::onSeriesDetailsNotModified(const QString &seriesId)
             emit seriesLoaded();
         }
     } else {
-        qWarning() << "SeriesDetailsViewModel::onSeriesDetailsNotModified but no cache found";
+        qCWarning(lcViewModels) << "SeriesDetailsViewModel::onSeriesDetailsNotModified but no cache found";
         setLoading(false);
     }
 }
@@ -1141,7 +1142,7 @@ void SeriesDetailsViewModel::onSeasonsLoaded(const QString &parentId, const QJso
         return;
     }
 
-    qDebug() << "SeriesDetailsViewModel::onSeasonsLoaded" << parentId << items.size()
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel::onSeasonsLoaded" << parentId << items.size()
              << "seasons elapsed(ms):" << m_seasonsTimer.elapsed();
     m_loadingSeasons = false;
 
@@ -1154,7 +1155,7 @@ void SeriesDetailsViewModel::onSeasonsLoaded(const QString &parentId, const QJso
         if (item.value("Type").toString() == "Season") {
             // Filter out empty seasons (ChildCount == 0)
             if (item.contains("ChildCount") && item.value("ChildCount").toInt() == 0) {
-                qDebug() << "Filtering out empty season:" << item.value("Name").toString();
+                qCDebug(lcViewModels) << "Filtering out empty season:" << item.value("Name").toString();
                 continue;
             }
             m_seasons.append(item);
@@ -1194,20 +1195,20 @@ void SeriesDetailsViewModel::onItemsNotModified(const QString &parentId)
 {
     QJsonArray cached;
     if (!loadItemsFromCache(parentId, cached, /*requireFresh*/false)) {
-        qWarning() << "SeriesDetailsViewModel::onItemsNotModified but no cache for" << parentId;
+        qCWarning(lcViewModels) << "SeriesDetailsViewModel::onItemsNotModified but no cache for" << parentId;
         return;
     }
 
     if (parentId == m_seriesId) {
-        qDebug() << "SeriesDetailsViewModel: Seasons not modified, using cached data";
+        qCDebug(lcViewModels) << "SeriesDetailsViewModel: Seasons not modified, using cached data";
         onSeasonsLoaded(parentId, cached);
     } else if (parentId == m_selectedSeasonId) {
-        qDebug() << "SeriesDetailsViewModel: Episodes not modified, using cached data for season" << parentId;
+        qCDebug(lcViewModels) << "SeriesDetailsViewModel: Episodes not modified, using cached data for season" << parentId;
         onEpisodesLoaded(parentId, cached);
     } else if (m_prefetchSeasonIds.contains(parentId)) {
         storeItemsCache(parentId, cached);
         m_prefetchSeasonIds.remove(parentId);
-        qDebug() << "SeriesDetailsViewModel: Prefetch not modified for" << parentId;
+        qCDebug(lcViewModels) << "SeriesDetailsViewModel: Prefetch not modified for" << parentId;
     }
 }
 
@@ -1217,7 +1218,7 @@ void SeriesDetailsViewModel::onEpisodesLoaded(const QString &parentId, const QJs
         return;
     }
 
-    qDebug() << "SeriesDetailsViewModel::onEpisodesLoaded" << parentId << items.size()
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel::onEpisodesLoaded" << parentId << items.size()
              << "episodes elapsed(ms):" << m_episodesTimer.elapsed();
     m_loadingEpisodes = false;
     setLoading(false);
@@ -1247,7 +1248,7 @@ void SeriesDetailsViewModel::onEpisodesLoaded(const QString &parentId, const QJs
         // Filter out missing episodes - they have LocationType == "Virtual"
         QString locationType = item.value("LocationType").toString();
         if (locationType == "Virtual") {
-            qDebug() << "Filtering out missing episode:" << item.value("Name").toString()
+            qCDebug(lcViewModels) << "Filtering out missing episode:" << item.value("Name").toString()
                      << "S" << item.value("ParentIndexNumber").toInt()
                      << "E" << item.value("IndexNumber").toInt();
             continue;
@@ -1265,7 +1266,7 @@ void SeriesDetailsViewModel::onEpisodesLoaded(const QString &parentId, const QJs
             int airsBeforeEpisode = item.contains("AirsBeforeEpisodeNumber") ? 
                                     item.value("AirsBeforeEpisodeNumber").toInt() : -1;
             
-            qDebug() << "Special episode:" << item.value("Name").toString()
+            qCDebug(lcViewModels) << "Special episode:" << item.value("Name").toString()
                      << "AirsBeforeSeason:" << airsBeforeSeason
                      << "AirsAfterSeason:" << airsAfterSeason
                      << "AirsBeforeEpisode:" << airsBeforeEpisode;
@@ -1339,7 +1340,7 @@ void SeriesDetailsViewModel::onEpisodesLoaded(const QString &parentId, const QJs
         midSeasonSpecialCount += specials.size();
     }
 
-    qDebug() << "SeriesDetailsViewModel: Final episode count:" << episodesArray.size()
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel: Final episode count:" << episodesArray.size()
              << "(Regular:" << regularEpisodes.size()
              << "Specials before season:" << specialsBefore.size()
              << "Specials mid-season:" << midSeasonSpecialCount
@@ -1360,7 +1361,7 @@ void SeriesDetailsViewModel::onNextEpisodeLoaded(const QString &seriesId,
         return;
     }
 
-    qDebug() << "SeriesDetailsViewModel::onNextEpisodeLoaded" << seriesId;
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel::onNextEpisodeLoaded" << seriesId;
     updateNextEpisode(episodeData);
 }
 
@@ -1373,7 +1374,7 @@ void SeriesDetailsViewModel::onNextEpisodeFailed(const QString &seriesId,
         return;
     }
 
-    qWarning() << "SeriesDetailsViewModel next episode error:" << error;
+    qCWarning(lcViewModels) << "SeriesDetailsViewModel next episode error:" << error;
 }
 
 void SeriesDetailsViewModel::onSeriesWatchedStatusChanged(const QString &seriesId)
@@ -1382,7 +1383,7 @@ void SeriesDetailsViewModel::onSeriesWatchedStatusChanged(const QString &seriesI
         return;
     }
 
-    qDebug() << "SeriesDetailsViewModel::onSeriesWatchedStatusChanged" << seriesId;
+    qCDebug(lcViewModels) << "SeriesDetailsViewModel::onSeriesWatchedStatusChanged" << seriesId;
     
     // Toggle watched state (we don't get the actual value from the signal)
     m_isWatched = !m_isWatched;
@@ -1442,7 +1443,7 @@ void SeriesDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const Q
         emit similarItemsLoadingChanged();
     }
 
-    qWarning() << "SeriesDetailsViewModel similar items error:" << error;
+    qCWarning(lcViewModels) << "SeriesDetailsViewModel similar items error:" << error;
 }
 
 void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
@@ -1454,7 +1455,7 @@ void SeriesDetailsViewModel::onErrorOccurred(const QString &endpoint, const QStr
         return;
     }
 
-    qWarning() << "SeriesDetailsViewModel error:" << endpoint << error;
+    qCWarning(lcViewModels) << "SeriesDetailsViewModel error:" << endpoint << error;
     m_loadingSeries = false;
     m_loadingSeasons = false;
     m_loadingEpisodes = false;
@@ -1497,10 +1498,10 @@ void SeriesDetailsViewModel::onEpisodeDetailsNotModified(const QString &itemId,
         return;
     }
 
-    qWarning() << "SeriesDetailsViewModel::onEpisodeDetailsNotModified missing local cache for" << itemId;
+    qCWarning(lcViewModels) << "SeriesDetailsViewModel::onEpisodeDetailsNotModified missing local cache for" << itemId;
     if (itemId == m_focusedEpisodeDetailId && m_libraryService) {
         if (m_episodeDetailRetried.contains(itemId)) {
-            qWarning() << "SeriesDetailsViewModel::onEpisodeDetailsNotModified stopping repeated retry for" << itemId;
+            qCWarning(lcViewModels) << "SeriesDetailsViewModel::onEpisodeDetailsNotModified stopping repeated retry for" << itemId;
             m_episodeDetailRetried.remove(itemId);
             stopFocusedEpisodeDetailsLoadingFor(itemId);
             return;
@@ -1526,7 +1527,7 @@ void SeriesDetailsViewModel::onEpisodeDetailsFailed(const QString &itemId,
     finishEpisodeDetailsRequest(itemId);
     m_episodeDetailRetried.remove(itemId);
 
-    qWarning() << "SeriesDetailsViewModel focused episode details error for" << itemId << ":" << error;
+    qCWarning(lcViewModels) << "SeriesDetailsViewModel focused episode details error for" << itemId << ":" << error;
 
     if (itemId == m_focusedEpisodeDetailId || m_pendingEpisodeDetailIds.isEmpty()) {
         stopFocusedEpisodeDetailsLoadingFor(m_focusedEpisodeDetailId == itemId ? itemId : QString());
@@ -1565,7 +1566,7 @@ void SeriesDetailsViewModel::onFocusedEpisodeChaptersFailed(const QString &itemI
     }
 
     m_pendingEpisodeChapterIds.remove(itemId);
-    qWarning() << "SeriesDetailsViewModel focused episode chapters error for" << itemId << ":" << error;
+    qCWarning(lcViewModels) << "SeriesDetailsViewModel focused episode chapters error for" << itemId << ":" << error;
 
     if (itemId == m_focusedEpisodeChapterId) {
         m_focusedEpisodeChapters.clear();
@@ -1662,7 +1663,7 @@ void SeriesDetailsViewModel::updateSeriesMetadata(const QJsonObject &data)
     } else if (!m_title.isEmpty()) {
         // Fallback to title search if no IDs?
         // Maybe later. For now, rely on IDs.
-        qDebug() << "No IDs for MDBList, skipping.";
+        qCDebug(lcViewModels) << "No IDs for MDBList, skipping.";
     }
     
     // Trigger AniList fetch if we have IMDb ID

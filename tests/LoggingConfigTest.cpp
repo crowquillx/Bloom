@@ -16,3 +16,11 @@ TEST(LoggingConfigTest, defaultQtRulesSilencesImageCacheInInfoMode)
     const QString rules = LoggingConfig::defaultQtRules(LoggingConfig::Level::Info);
     EXPECT_TRUE(rules.contains(QStringLiteral("bloom.imagecache.debug=false")));
 }
+
+
+TEST(LoggingConfigTest, defaultInfoRulesSilenceImageCacheInfo)
+{
+    const QString rules = LoggingConfig::defaultQtRules(LoggingConfig::Level::Info);
+    EXPECT_TRUE(rules.contains(QStringLiteral("bloom.imagecache.info=false")));
+    EXPECT_TRUE(rules.contains(QStringLiteral("bloom.viewmodels.info=false")));
+}

@@ -12,6 +12,7 @@
 #endif
 #include "../network/AuthenticationService.h"
 #include "../network/PlaybackService.h"
+#include "../utils/BloomLogging.h"
 
 TrickplayProcessor::TrickplayProcessor(AuthenticationService *authService,
                                        PlaybackService *playbackService,
@@ -25,7 +26,7 @@ TrickplayProcessor::TrickplayProcessor(AuthenticationService *authService,
     , m_isReady(false)
     , m_isProcessing(false)
 {
-    qDebug() << "TrickplayProcessor: Initialized";
+    qCDebug(lcPlaybackTrickplay) << "TrickplayProcessor: Initialized";
 }
 
 TrickplayProcessor::~TrickplayProcessor()
@@ -38,14 +39,14 @@ void TrickplayProcessor::startProcessing(const QString &itemId, const TrickplayT
     QMutexLocker locker(&m_mutex);
     
     if (!m_authService || !m_playbackService || !m_nam) {
-        qWarning() << "TrickplayProcessor: Missing services, cannot process trickplay";
+        qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Missing services, cannot process trickplay";
         emit processingFailed(itemId, "Missing playback/auth services");
         return;
     }
     
     // If already processing the same item, skip
     if (m_isProcessing && m_currentItemId == itemId) {
-        qDebug() << "TrickplayProcessor: Already processing item" << itemId;
+        qCDebug(lcPlaybackTrickplay) << "TrickplayProcessor: Already processing item" << itemId;
         return;
     }
     
@@ -62,7 +63,7 @@ void TrickplayProcessor::startProcessing(const QString &itemId, const TrickplayT
     // Calculate number of tiles
     int thumbnailsPerTile = info.tileWidth * info.tileHeight;
     if (thumbnailsPerTile <= 0) {
-        qWarning() << "TrickplayProcessor: Invalid tile dimensions";
+        qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Invalid tile dimensions";
         m_isProcessing = false;
         emit processingFailed(itemId, "Invalid tile dimensions");
         return;
@@ -72,7 +73,7 @@ void TrickplayProcessor::startProcessing(const QString &itemId, const TrickplayT
     m_tilesDownloaded = 0;
     m_downloadedTiles.clear();
     
-    qDebug() << "TrickplayProcessor: Starting processing for item" << itemId
+    qCDebug(lcPlaybackTrickplay) << "TrickplayProcessor: Starting processing for item" << itemId
              << "- thumbnails:" << info.thumbnailCount
              << "tiles:" << m_totalTiles
              << "tile size:" << info.tileWidth << "x" << info.tileHeight
@@ -119,7 +120,7 @@ void TrickplayProcessor::clear()
     // Remove the binary file if it exists
     if (!m_binaryFilePath.isEmpty() && QFile::exists(m_binaryFilePath)) {
         QFile::remove(m_binaryFilePath);
-        qDebug() << "TrickplayProcessor: Removed binary file" << m_binaryFilePath;
+        qCDebug(lcPlaybackTrickplay) << "TrickplayProcessor: Removed binary file" << m_binaryFilePath;
     }
     m_binaryFilePath.clear();
     
@@ -155,7 +156,7 @@ void TrickplayProcessor::onTileDownloaded(QNetworkReply *reply)
     QString itemId = m_currentItemId;
     
     if (reply->error() != QNetworkReply::NoError) {
-        qWarning() << "TrickplayProcessor: Failed to download tile" << tileIndex
+        qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Failed to download tile" << tileIndex
                    << "for item" << itemId << ":" << reply->errorString();
         m_isProcessing = false;
         locker.unlock();
@@ -168,7 +169,7 @@ void TrickplayProcessor::onTileDownloaded(QNetworkReply *reply)
     m_downloadedTiles[tileIndex] = reply->readAll();
     m_tilesDownloaded++;
     
-    qDebug() << "TrickplayProcessor: Downloaded tile" << tileIndex 
+    qCDebug(lcPlaybackTrickplay) << "TrickplayProcessor: Downloaded tile" << tileIndex 
              << "(" << m_tilesDownloaded << "/" << m_totalTiles << ")";
     
     // Check if all tiles are downloaded
@@ -207,11 +208,11 @@ bool TrickplayProcessor::processAllTiles()
         totalTilesExpected = m_totalTiles;
     }
     
-    qDebug() << "TrickplayProcessor: Processing" << tiles.size() << "tiles into binary file";
+    qCDebug(lcPlaybackTrickplay) << "TrickplayProcessor: Processing" << tiles.size() << "tiles into binary file";
     
     QFile outputFile(filePath);
     if (!outputFile.open(QIODevice::WriteOnly)) {
-        qWarning() << "TrickplayProcessor: Failed to open output file" << filePath;
+        qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Failed to open output file" << filePath;
         emit processingFailed(itemId, "Failed to create output file");
         return false;
     }
@@ -221,7 +222,7 @@ bool TrickplayProcessor::processAllTiles()
     // Process tiles in order - iterate by expected tile index to ensure sequential order
     for (int i = 0; i < totalTilesExpected; ++i) {
         if (!tiles.contains(i)) {
-            qWarning() << "TrickplayProcessor: Missing tile" << i;
+            qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Missing tile" << i;
             outputFile.close();
             QFile::remove(filePath);
             emit processingFailed(itemId, QString("Missing tile %1").arg(i));
@@ -231,7 +232,7 @@ bool TrickplayProcessor::processAllTiles()
         // Load tile image
         QImage tileImage;
         if (!tileImage.loadFromData(tiles[i])) {
-            qWarning() << "TrickplayProcessor: Failed to decode tile" << i;
+            qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Failed to decode tile" << i;
             outputFile.close();
             QFile::remove(filePath);
             emit processingFailed(itemId, QString("Failed to decode tile %1").arg(i));
@@ -249,7 +250,7 @@ bool TrickplayProcessor::processAllTiles()
     
     outputFile.close();
     
-    qDebug() << "TrickplayProcessor: Successfully wrote" << thumbnailsWritten 
+    qCDebug(lcPlaybackTrickplay) << "TrickplayProcessor: Successfully wrote" << thumbnailsWritten 
              << "thumbnails to" << filePath
              << "(" << QFileInfo(filePath).size() << "bytes)";
     
@@ -270,7 +271,7 @@ bool TrickplayProcessor::processTileImage(const QImage &tileImage, int tileIndex
     int expectedHeight = m_trickplayInfo.height * m_trickplayInfo.tileHeight;
     
     if (tileImage.width() != expectedWidth || tileImage.height() != expectedHeight) {
-        qWarning() << "TrickplayProcessor: Tile" << tileIndex 
+        qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Tile" << tileIndex 
                    << "has unexpected dimensions:" << tileImage.size()
                    << "expected:" << expectedWidth << "x" << expectedHeight;
         // Continue anyway - some tiles might be smaller if they're the last one
@@ -305,7 +306,7 @@ bool TrickplayProcessor::processTileImage(const QImage &tileImage, int tileIndex
             int thumbLeft = x * thumbWidth;
             // Check if the entire thumbnail is within bounds
             if (thumbTop + thumbHeight > rgbaImage.height() || thumbLeft + thumbWidth > rgbaImage.width()) {
-                qWarning() << "TrickplayProcessor: Thumbnail" << thumbnailsWritten 
+                qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Thumbnail" << thumbnailsWritten 
                            << "is out of bounds, writing blank thumbnail";
                 QByteArray blankThumb(thumbWidth * thumbHeight * 4, 0);
                 outputFile.write(blankThumb);

@@ -4,6 +4,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QDebug>
+#include "BloomLogging.h"
 #include <QDateTime>
 #include <QFileInfo>
 #include <QCoreApplication>
@@ -159,7 +160,7 @@ bool migrateLegacyWindowsConfigDirIfNeeded(const QString &targetDirPath)
 
     QDir targetDir(targetDirPath);
     if (!targetDir.exists() && !targetDir.mkpath(".")) {
-        qWarning() << "ConfigManager: Failed to create target config directory for migration:" << targetDirPath;
+        qCWarning(lcConfig) << "ConfigManager: Failed to create target config directory for migration:" << targetDirPath;
         return false;
     }
 
@@ -169,7 +170,7 @@ bool migrateLegacyWindowsConfigDirIfNeeded(const QString &targetDirPath)
         const QString dstPath = targetDir.absoluteFilePath(entry.fileName());
 
         if (QFileInfo::exists(dstPath)) {
-            qWarning() << "ConfigManager: Skipping legacy config entry because target already exists:" << dstPath;
+            qCWarning(lcConfig) << "ConfigManager: Skipping legacy config entry because target already exists:" << dstPath;
             continue;
         }
 
@@ -181,9 +182,9 @@ bool migrateLegacyWindowsConfigDirIfNeeded(const QString &targetDirPath)
         }
 
         if (!migrated) {
-            qWarning() << "ConfigManager: Failed to migrate legacy config entry:" << srcPath << "->" << dstPath;
+            qCWarning(lcConfig) << "ConfigManager: Failed to migrate legacy config entry:" << srcPath << "->" << dstPath;
         } else {
-            qDebug() << "ConfigManager: Migrated legacy config entry:" << srcPath << "->" << dstPath;
+            qCDebug(lcConfig) << "ConfigManager: Migrated legacy config entry:" << srcPath << "->" << dstPath;
         }
     }
 
@@ -303,12 +304,12 @@ QStringList ConfigManager::getMpvConfigArgs() const
             const QString cleanedCanonicalPath = normalizePath(canonicalPath);
 
             if (canonicalPath.isEmpty()) {
-                qWarning() << "ConfigManager: Skipping mpv script with unresolved path:" << scriptInfo.absoluteFilePath();
+                qCWarning(lcConfig) << "ConfigManager: Skipping mpv script with unresolved path:" << scriptInfo.absoluteFilePath();
                 continue;
             }
 
             if (!cleanedCanonicalPath.startsWith(scriptsRootPrefix)) {
-                qWarning() << "ConfigManager: Skipping mpv script outside scripts directory:" << canonicalPath;
+                qCWarning(lcConfig) << "ConfigManager: Skipping mpv script outside scripts directory:" << canonicalPath;
                 continue;
             }
 
@@ -323,7 +324,7 @@ QStringList ConfigManager::getMpvConfigArgs() const
         args << QString("--demuxer-max-bytes=%1M").arg(cacheSizeMB);
         args << QString("--demuxer-max-back-bytes=%1M").arg(qMax(1, cacheSizeMB / 4));
         args << "--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=30";
-        qDebug() << "ConfigManager: mpv cache args: demuxer-max-bytes=" << cacheSizeMB << "MB back-bytes=" << qMax(1, cacheSizeMB / 4) << "MB";
+        qCDebug(lcConfig) << "ConfigManager: mpv cache args: demuxer-max-bytes=" << cacheSizeMB << "MB back-bytes=" << qMax(1, cacheSizeMB / 4) << "MB";
     }
     
     return args;
@@ -340,10 +341,10 @@ bool ConfigManager::ensureConfigDirExists()
     QDir dir(getConfigDir());
     if (!dir.exists()) {
         if (!dir.mkpath(".")) {
-            qWarning() << "ConfigManager: Failed to create config directory:" << getConfigDir();
+            qCWarning(lcConfig) << "ConfigManager: Failed to create config directory:" << getConfigDir();
             return false;
         }
-        qDebug() << "ConfigManager: Created config directory:" << getConfigDir();
+        qCDebug(lcConfig) << "ConfigManager: Created config directory:" << getConfigDir();
     }
     
     // Also create mpv subdirectory structure
@@ -351,10 +352,10 @@ bool ConfigManager::ensureConfigDirExists()
     QDir mpv(mpvDir);
     if (!mpv.exists()) {
         if (!mpv.mkpath(".")) {
-            qWarning() << "ConfigManager: Failed to create mpv config directory:" << mpvDir;
+            qCWarning(lcConfig) << "ConfigManager: Failed to create mpv config directory:" << mpvDir;
             return false;
         }
-        qDebug() << "ConfigManager: Created mpv config directory:" << mpvDir;
+        qCDebug(lcConfig) << "ConfigManager: Created mpv config directory:" << mpvDir;
     }
     
     return true;
@@ -368,14 +369,14 @@ void ConfigManager::load()
     QString path = getConfigPath();
     QFile file(path);
     if (!file.exists()) {
-        qWarning() << "Config file not found, creating default:" << path;
+        qCWarning(lcConfig) << "Config file not found, creating default:" << path;
         m_config = defaultConfig();
         save();
         return;
     }
 
     if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "Could not open config file for reading:" << path << ", using defaults";
+        qCWarning(lcConfig) << "Could not open config file for reading:" << path << ", using defaults";
         m_config = defaultConfig();
         return;
     }
@@ -384,16 +385,16 @@ void ConfigManager::load()
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        qWarning() << "Invalid config file (JSON parse error):" << parseError.errorString();
+        qCWarning(lcConfig) << "Invalid config file (JSON parse error):" << parseError.errorString();
         // Backup the bad file
         QString backup = path + ".corrupt-" + QDateTime::currentDateTime().toString(Qt::ISODate);
         if (QFile::exists(backup)) {
             QFile::remove(backup);
         }
         if (!QFile::rename(path, backup)) {
-            qWarning() << "Could not rename corrupt config file to backup:" << backup;
+            qCWarning(lcConfig) << "Could not rename corrupt config file to backup:" << backup;
         } else {
-            qWarning() << "Backed up corrupt config to" << backup;
+            qCWarning(lcConfig) << "Backed up corrupt config to" << backup;
         }
         m_config = defaultConfig();
         save();
@@ -404,7 +405,7 @@ void ConfigManager::load()
 
     // Run migrations, ensure config is at the current version
     if (!migrateConfig()) {
-        qWarning() << "Config migration failed -- resetting config to defaults";
+        qCWarning(lcConfig) << "Config migration failed -- resetting config to defaults";
         QString backup = path + ".migratefail-" + QDateTime::currentDateTime().toString(Qt::ISODate);
         if (QFile::exists(backup)) QFile::remove(backup);
         QFile::rename(path, backup);
@@ -414,7 +415,7 @@ void ConfigManager::load()
     }
 
     if (!validateConfig(m_config)) {
-        qWarning() << "Config failed schema validation -- resetting to defaults";
+        qCWarning(lcConfig) << "Config failed schema validation -- resetting to defaults";
         QString backup = path + ".badschema-" + QDateTime::currentDateTime().toString(Qt::ISODate);
         if (QFile::exists(backup)) QFile::remove(backup);
         QFile::rename(path, backup);
@@ -423,7 +424,7 @@ void ConfigManager::load()
         return;
     }
 
-    qDebug() << "Loaded config from" << path;
+    qCDebug(lcConfig) << "Loaded config from" << path;
 }
 
 void ConfigManager::save()
@@ -439,7 +440,7 @@ void ConfigManager::save()
     }
 
     if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "Could not open config file for writing:" << path;
+        qCWarning(lcConfig) << "Could not open config file for writing:" << path;
         return;
     }
     // Ensure current version and settings exist before saving
@@ -456,7 +457,7 @@ void ConfigManager::save()
 
     QJsonDocument doc(m_config);
     file.write(doc.toJson(QJsonDocument::Indented));
-    qDebug() << "Saved config to" << path;
+    qCDebug(lcConfig) << "Saved config to" << path;
 }
 
 void ConfigManager::exitApplication()
@@ -558,7 +559,7 @@ int ConfigManager::getImageCacheSizeMB() const
 void ConfigManager::setPlaybackCacheSizeMB(int mb)
 {
     int clamped = std::clamp(mb, 50, 2048);
-    qDebug() << "ConfigManager: setPlaybackCacheSizeMB called with" << mb << "clamped to" << clamped << "current" << getPlaybackCacheSizeMB();
+    qCDebug(lcConfig) << "ConfigManager: setPlaybackCacheSizeMB called with" << mb << "clamped to" << clamped << "current" << getPlaybackCacheSizeMB();
     if (clamped == getPlaybackCacheSizeMB()) {
         return;
     }
@@ -576,7 +577,7 @@ void ConfigManager::setPlaybackCacheSizeMB(int mb)
     m_config["settings"] = settings;
     save();
     emit playbackCacheSizeMBChanged();
-    qDebug() << "ConfigManager: playbackCacheSizeMB saved as" << clamped;
+    qCDebug(lcConfig) << "ConfigManager: playbackCacheSizeMB saved as" << clamped;
 }
 
 int ConfigManager::getPlaybackCacheSizeMB() const
@@ -592,7 +593,7 @@ int ConfigManager::getPlaybackCacheSizeMB() const
         }
     }
     int result = std::clamp(value, 50, 2048);
-    qDebug() << "ConfigManager: getPlaybackCacheSizeMB returning" << result << "(raw" << value << ")";
+    qCDebug(lcConfig) << "ConfigManager: getPlaybackCacheSizeMB returning" << result << "(raw" << value << ")";
     return result;
 }
 
@@ -728,7 +729,7 @@ QString ConfigManager::normalizePlayerBackendName(const QString &backendName) co
         return normalized;
     }
 
-    qWarning() << "ConfigManager: Ignoring unknown player backend preference:" << backendName;
+    qCWarning(lcConfig) << "ConfigManager: Ignoring unknown player backend preference:" << backendName;
     return QString();
 }
 
@@ -790,7 +791,7 @@ QString ConfigManager::getDeviceId() const
     mutableThis->m_config["settings"] = settings;
     mutableThis->save();
     
-    qDebug() << "ConfigManager: Generated new device ID:" << deviceId;
+    qCDebug(lcConfig) << "ConfigManager: Generated new device ID:" << deviceId;
     return deviceId;
 }
 
@@ -813,7 +814,7 @@ void ConfigManager::clearJellyfinSession()
         m_config["settings"] = settings;
         save();
         emit sessionChanged();
-        qDebug() << "ConfigManager: Cleared Jellyfin session data";
+        qCDebug(lcConfig) << "ConfigManager: Cleared Jellyfin session data";
     }
 }
 
@@ -1550,11 +1551,11 @@ void ConfigManager::setManualDpiScaleOverride(qreal scale)
     qreal clamped = qBound(0.5, scale, 2.0);
     
     qreal current = getManualDpiScaleOverride();
-    qDebug() << "ConfigManager::setManualDpiScaleOverride called with:" << scale 
+    qCDebug(lcConfig) << "ConfigManager::setManualDpiScaleOverride called with:" << scale 
              << "clamped to:" << clamped << "current value:" << current;
     
     if (qFuzzyCompare(clamped, current)) {
-        qDebug() << "ConfigManager: Value unchanged, skipping";
+        qCDebug(lcConfig) << "ConfigManager: Value unchanged, skipping";
         return;
     }
     
@@ -1565,7 +1566,7 @@ void ConfigManager::setManualDpiScaleOverride(qreal scale)
     settings["manualDpiScaleOverride"] = clamped;
     m_config["settings"] = settings;
     save();
-    qDebug() << "ConfigManager: Emitting manualDpiScaleOverrideChanged() signal";
+    qCDebug(lcConfig) << "ConfigManager: Emitting manualDpiScaleOverrideChanged() signal";
     emit manualDpiScaleOverrideChanged();
 }
 
@@ -2558,7 +2559,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 1) {
@@ -2566,7 +2567,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 2) {
@@ -2574,7 +2575,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 3) {
@@ -2582,7 +2583,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 4) {
@@ -2590,7 +2591,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 5) {
@@ -2598,7 +2599,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 6) {
@@ -2606,7 +2607,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 7) {
@@ -2614,7 +2615,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 8) {
@@ -2622,7 +2623,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 9) {
@@ -2630,7 +2631,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 10) {
@@ -2638,7 +2639,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 11) {
@@ -2646,7 +2647,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 12) {
@@ -2654,7 +2655,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 13) {
@@ -2662,7 +2663,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 14) {
@@ -2670,7 +2671,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 15) {
@@ -2678,7 +2679,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 16) {
@@ -2686,7 +2687,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 17) {
@@ -2694,7 +2695,7 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else if (version == 18) {
@@ -2702,11 +2703,11 @@ bool ConfigManager::migrateConfig()
             if (m_config.contains("version") && m_config["version"].isDouble()) {
                 version = m_config["version"].toInt();
             } else {
-                qWarning() << "Migration produced invalid config (no version)";
+                qCWarning(lcConfig) << "Migration produced invalid config (no version)";
                 return false;
             }
         } else {
-            qWarning() << "Unknown config version during migration:" << version;
+            qCWarning(lcConfig) << "Unknown config version during migration:" << version;
             return false;
         }
     }
@@ -3072,7 +3073,7 @@ bool ConfigManager::deleteMpvProfile(const QString &name)
 {
     // Cannot delete built-in profiles
     if (name == "Default" || name == "High Quality") {
-        qWarning() << "ConfigManager: Cannot delete built-in profile:" << name;
+        qCWarning(lcConfig) << "ConfigManager: Cannot delete built-in profile:" << name;
         return false;
     }
     
@@ -3144,12 +3145,12 @@ void ConfigManager::setDefaultProfileName(const QString &name)
 {
     const QString trimmedName = name.trimmed();
     if (trimmedName.isEmpty()) {
-        qWarning() << "ConfigManager: Ignoring empty default MPV profile name";
+        qCWarning(lcConfig) << "ConfigManager: Ignoring empty default MPV profile name";
         return;
     }
 
     if (!getMpvProfileNames().contains(trimmedName)) {
-        qWarning() << "ConfigManager: Ignoring unknown default MPV profile name:" << trimmedName;
+        qCWarning(lcConfig) << "ConfigManager: Ignoring unknown default MPV profile name:" << trimmedName;
         return;
     }
 

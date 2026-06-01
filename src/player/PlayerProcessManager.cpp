@@ -7,6 +7,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QtMath>
+#include "../utils/BloomLogging.h"
 
 PlayerProcessManager::PlayerProcessManager(QObject *parent)
     : QObject(parent)
@@ -93,7 +94,7 @@ void PlayerProcessManager::startMpv(const QString &mpvBin, const QStringList &ar
     m_playlistPosition = -1;
     m_playlistCount = 0;
     
-    qInfo() << "Starting mpv:" << mpvBin;
+    qCInfo(lcPlaybackIpc) << "Starting mpv:" << mpvBin;
     m_process->start(mpvBin, finalArgs);
     
     // Try to connect IPC after a short delay or retry loop
@@ -193,10 +194,10 @@ void PlayerProcessManager::sendVariantCommand(const QVariantList &command)
     if (m_ipcSocket->state() != QLocalSocket::ConnectedState) {
         // Queue the command for later if we're starting up
         if (isRunning()) {
-            qDebug() << "IPC: Queueing command (not connected yet):" << command;
+            qCDebug(lcPlaybackIpc) << "IPC: Queueing command (not connected yet):" << command;
             m_pendingCommands.append(command);
         } else {
-            qDebug() << "IPC: Not connected, dropping command:" << command;
+            qCDebug(lcPlaybackIpc) << "IPC: Not connected, dropping command:" << command;
         }
         return;
     }
@@ -210,7 +211,7 @@ void PlayerProcessManager::sendVariantCommand(const QVariantList &command)
     jsonObj["command"] = cmdArray;
     
     QJsonDocument doc(jsonObj);
-    qDebug() << "IPC >" << doc.toJson(QJsonDocument::Compact);
+    qCDebug(lcPlaybackIpc) << "IPC >" << doc.toJson(QJsonDocument::Compact);
     m_ipcSocket->write(doc.toJson(QJsonDocument::Compact));
     m_ipcSocket->write("\n");
     m_ipcSocket->flush();
@@ -220,7 +221,7 @@ void PlayerProcessManager::flushPendingCommands()
 {
     if (m_pendingCommands.isEmpty()) return;
     
-    qDebug() << "IPC: Flushing" << m_pendingCommands.size() << "pending commands";
+    qCDebug(lcPlaybackIpc) << "IPC: Flushing" << m_pendingCommands.size() << "pending commands";
     QList<QVariantList> commands = m_pendingCommands;
     m_pendingCommands.clear();
     
@@ -232,10 +233,10 @@ void PlayerProcessManager::flushPendingCommands()
 void PlayerProcessManager::onProcessFinished(int exitCode, QProcess::ExitStatus exitStatus)
 {
     if (exitStatus == QProcess::CrashExit || exitCode != 0) {
-        qWarning() << "mpv process exited abnormally: exitCode=" << exitCode 
+        qCWarning(lcPlaybackIpc) << "mpv process exited abnormally: exitCode=" << exitCode 
                    << "status=" << (exitStatus == QProcess::CrashExit ? "crashed" : "normal");
     } else {
-        qInfo() << "mpv process exited normally";
+        qCInfo(lcPlaybackIpc) << "mpv process exited normally";
     }
     m_ipcSocket->abort();
     m_isConnected = false;
@@ -257,13 +258,13 @@ void PlayerProcessManager::onProcessError(QProcess::ProcessError error)
     case QProcess::ReadError: errorStr = QStringLiteral("ReadError"); break;
     default: errorStr = QStringLiteral("Unknown"); break;
     }
-    qWarning() << "mpv process error:" << errorStr;
+    qCWarning(lcPlaybackIpc) << "mpv process error:" << errorStr;
     emit errorOccurred("mpv process error");
 }
 
 void PlayerProcessManager::onSocketConnected()
 {
-    qInfo() << "mpv IPC connected";
+    qCInfo(lcPlaybackIpc) << "mpv IPC connected";
     m_isConnected = true;
     m_ipcReconnectScheduled = false;
     
@@ -290,7 +291,7 @@ void PlayerProcessManager::onSocketReadyRead()
     // Handle events if needed
     while (m_ipcSocket->canReadLine()) {
         QByteArray line = m_ipcSocket->readLine();
-        qDebug() << "IPC <" << line;
+        qCDebug(lcPlaybackIpc) << "IPC <" << line;
         
         QJsonDocument doc = QJsonDocument::fromJson(line);
         QJsonObject obj = doc.object();
@@ -366,7 +367,7 @@ void PlayerProcessManager::onSocketReadyRead()
                 for (int i = 1; i < argsArray.size(); ++i) {
                     messageArgs.append(argsArray.at(i).toString());
                 }
-                qDebug() << "IPC: client-message received:" << messageName << messageArgs;
+                qCDebug(lcPlaybackIpc) << "IPC: client-message received:" << messageName << messageArgs;
                 emit scriptMessage(messageName, messageArgs);
             }
         }

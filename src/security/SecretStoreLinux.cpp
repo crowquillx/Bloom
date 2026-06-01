@@ -8,6 +8,7 @@
 #define signals Q_SIGNALS
 
 #include <QDebug>
+#include "../utils/BloomLogging.h"
 
 // Define the secret schema for Bloom credentials
 static const SecretSchema bloom_schema = {
@@ -22,7 +23,7 @@ static const SecretSchema bloom_schema = {
 
 SecretStoreLinux::SecretStoreLinux()
 {
-    qDebug() << "SecretStoreLinux: Initialized (using libsecret)";
+    qCDebug(lcAuth) << "SecretStoreLinux: Initialized (using libsecret)";
 }
 
 bool SecretStoreLinux::setSecret(const QString &service, const QString &account, const QString &secret)
@@ -46,18 +47,18 @@ bool SecretStoreLinux::setSecret(const QString &service, const QString &account,
     
     if (error) {
         m_lastError = QString("Failed to store secret: %1").arg(error->message);
-        qWarning() << "SecretStoreLinux::setSecret:" << m_lastError;
+        qCWarning(lcAuth) << "SecretStoreLinux::setSecret:" << m_lastError;
         g_error_free(error);
         return false;
     }
     
     if (!result) {
         m_lastError = "Failed to store secret (unknown error)";
-        qWarning() << "SecretStoreLinux::setSecret:" << m_lastError;
+        qCWarning(lcAuth) << "SecretStoreLinux::setSecret:" << m_lastError;
         return false;
     }
     
-    qDebug() << "SecretStoreLinux: Stored secret for service=" << service << "account=" << account;
+    qCDebug(lcAuth) << "SecretStoreLinux: Stored secret for service=" << service << "account=" << account;
     return true;
 }
 
@@ -77,20 +78,20 @@ QString SecretStoreLinux::getSecret(const QString &service, const QString &accou
     
     if (error) {
         m_lastError = QString("Failed to retrieve secret: %1").arg(error->message);
-        qWarning() << "SecretStoreLinux::getSecret:" << m_lastError;
+        qCWarning(lcAuth) << "SecretStoreLinux::getSecret:" << m_lastError;
         g_error_free(error);
         return QString();
     }
     
     if (!password) {
-        qDebug() << "SecretStoreLinux: No secret found for service=" << service << "account=" << account;
+        qCDebug(lcAuth) << "SecretStoreLinux: No secret found for service=" << service << "account=" << account;
         return QString();
     }
     
     QString result = QString::fromUtf8(password);
     secret_password_free(password);
     
-    qDebug() << "SecretStoreLinux: Retrieved secret for service=" << service << "account=" << account;
+    qCDebug(lcAuth) << "SecretStoreLinux: Retrieved secret for service=" << service << "account=" << account;
     return result;
 }
 
@@ -110,15 +111,15 @@ bool SecretStoreLinux::deleteSecret(const QString &service, const QString &accou
     
     if (error) {
         m_lastError = QString("Failed to delete secret: %1").arg(error->message);
-        qWarning() << "SecretStoreLinux::deleteSecret:" << m_lastError;
+        qCWarning(lcAuth) << "SecretStoreLinux::deleteSecret:" << m_lastError;
         g_error_free(error);
         return false;
     }
     
     if (result) {
-        qDebug() << "SecretStoreLinux: Deleted secret for service=" << service << "account=" << account;
+        qCDebug(lcAuth) << "SecretStoreLinux: Deleted secret for service=" << service << "account=" << account;
     } else {
-        qDebug() << "SecretStoreLinux: No secret to delete for service=" << service << "account=" << account;
+        qCDebug(lcAuth) << "SecretStoreLinux: No secret to delete for service=" << service << "account=" << account;
     }
     
     return true;
@@ -146,7 +147,7 @@ QStringList SecretStoreLinux::listAccounts(const QString &service)
 
     if (error) {
         m_lastError = QString("Failed to list accounts: %1").arg(error->message);
-        qWarning() << "SecretStoreLinux::listAccounts:" << m_lastError;
+        qCWarning(lcAuth) << "SecretStoreLinux::listAccounts:" << m_lastError;
         g_error_free(error);
         return accounts;
     }
@@ -166,7 +167,7 @@ QStringList SecretStoreLinux::listAccounts(const QString &service)
 
     g_list_free(items);
 
-    qDebug() << "SecretStoreLinux: Listed" << accounts.size() << "accounts for service=" << service;
+    qCDebug(lcAuth) << "SecretStoreLinux: Listed" << accounts.size() << "accounts for service=" << service;
     return accounts;
 }
 

@@ -25,10 +25,9 @@
 #include <QQmlContext>
 #include <QQuickStyle>
 #include <QLoggingCategory>
+#include "../utils/BloomLogging.h"
 
 using namespace Qt::StringLiterals;
-
-Q_LOGGING_CATEGORY(lcUiSceneGraph, "bloom.ui.scenegraph")
 
 WindowManager::WindowManager(QGuiApplication* app, QObject *parent)
     : QObject(parent)

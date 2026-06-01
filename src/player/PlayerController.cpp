@@ -30,9 +30,7 @@
 #include <QThread>
 #include <atomic>
 #include <algorithm>
-
-Q_LOGGING_CATEGORY(lcPlayback, "bloom.playback")
-Q_LOGGING_CATEGORY(lcPlaybackTrace, "bloom.playback.trace")
+#include "../utils/BloomLogging.h"
 
 namespace {
 std::atomic<quint64> gPlaybackAttemptCounter{0};
@@ -566,7 +564,7 @@ void PlayerController::setupStateMachine()
     m_transitions[{Error, Event::Play}] = Loading;  // Retry
     m_transitions[{Error, Event::Stop}] = Idle;
     
-    qDebug() << "PlayerController: State machine initialized with" << m_transitions.size() << "transitions";
+    qCDebug(lcPlayback) << "PlayerController: State machine initialized with" << m_transitions.size() << "transitions";
 }
 
 bool PlayerController::processEvent(Event event)
@@ -577,7 +575,7 @@ bool PlayerController::processEvent(Event event)
                             << "state=" << stateToString(m_playbackState);
     
     if (!m_transitions.contains(transition)) {
-        qWarning() << "PlayerController: Invalid transition from" 
+        qCWarning(lcPlayback) << "PlayerController: Invalid transition from" 
                    << stateToString(m_playbackState) << "on event" << eventToString(event);
         qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                    << "] invalid-transition"
@@ -587,7 +585,7 @@ bool PlayerController::processEvent(Event event)
     }
     
     PlaybackState newState = m_transitions[transition];
-    qDebug() << "PlayerController: Transition" 
+    qCDebug(lcPlayback) << "PlayerController: Transition" 
              << stateToString(m_playbackState) << "->" << stateToString(newState)
              << "on event" << eventToString(event);
     
@@ -797,7 +795,7 @@ void PlayerController::enterIdleStateImmediate()
 
 void PlayerController::onEnterLoadingState()
 {
-    qDebug() << "PlayerController: Entering Loading state";
+    qCDebug(lcPlayback) << "PlayerController: Entering Loading state";
     
     // Start loading timeout
     m_loadingTimeoutTimer->start(kLoadingTimeoutMs);
@@ -819,7 +817,7 @@ void PlayerController::onEnterLoadingState()
 
 void PlayerController::onEnterBufferingState()
 {
-    qDebug() << "PlayerController: Entering Buffering state";
+    qCDebug(lcPlayback) << "PlayerController: Entering Buffering state";
     
     // Start buffering timeout
     m_bufferingTimeoutTimer->start(kBufferingTimeoutMs);
@@ -881,14 +879,14 @@ void PlayerController::onEnterBufferingState()
     if (m_seekTargetWhileBuffering >= 0) {
         double target = m_seekTargetWhileBuffering;
         m_seekTargetWhileBuffering = -1;
-        qDebug() << "PlayerController: Executing queued seek to" << target << "seconds";
+        qCDebug(lcPlayback) << "PlayerController: Executing queued seek to" << target << "seconds";
         m_playerBackend->sendVariantCommand({"seek", target, "absolute"});
     }
     
     // Apply audio delay
     double delaySeconds = static_cast<double>(m_config->getAudioDelay()) / 1000.0;
     if (delaySeconds != 0.0) {
-        qDebug() << "PlayerController: Applying audio delay:" << delaySeconds << "s";
+        qCDebug(lcPlayback) << "PlayerController: Applying audio delay:" << delaySeconds << "s";
         m_playerBackend->sendVariantCommand({"set_property", "audio-delay", delaySeconds});
     }
 
@@ -945,7 +943,7 @@ void PlayerController::onEnterPausedState()
  */
 void PlayerController::onEnterErrorState()
 {
-    qDebug() << "PlayerController: Entering Error state -" << m_errorMessage;
+    qCDebug(lcPlayback) << "PlayerController: Entering Error state -" << m_errorMessage;
     
     // Stop all timers
     m_loadingTimeoutTimer->stop();
@@ -964,7 +962,7 @@ void PlayerController::onEnterErrorState()
 
 void PlayerController::onLoadingTimeout()
 {
-    qDebug() << "PlayerController: Loading timeout";
+    qCDebug(lcPlayback) << "PlayerController: Loading timeout";
     m_lastErrorWasNetworkRecoverable = true;
     setErrorMessage(tr("Loading timed out. Please check your connection and try again."));
     requestTerminalTransition(TerminalReason::Error);
@@ -972,7 +970,7 @@ void PlayerController::onLoadingTimeout()
 
 void PlayerController::onBufferingTimeout()
 {
-    qDebug() << "PlayerController: Buffering timeout";
+    qCDebug(lcPlayback) << "PlayerController: Buffering timeout";
     m_lastErrorWasNetworkRecoverable = true;
     setErrorMessage(tr("Buffering timed out. Network may be too slow."));
     requestTerminalTransition(TerminalReason::Error);
@@ -990,7 +988,7 @@ void PlayerController::onBufferingTimeout()
 
 void PlayerController::onProcessStateChanged(bool running)
 {
-    qDebug() << "PlayerController: Process state changed, running:" << running;
+    qCDebug(lcPlayback) << "PlayerController: Process state changed, running:" << running;
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] process-state"
                             << "running=" << running
@@ -1028,7 +1026,7 @@ void PlayerController::onProcessStateChanged(bool running)
 
 void PlayerController::onProcessError(const QString &error)
 {
-    qDebug() << "PlayerController: Process error:" << error;
+    qCDebug(lcPlayback) << "PlayerController: Process error:" << error;
     qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                << "] process-error"
                                << error;
@@ -1120,15 +1118,15 @@ void PlayerController::onDurationChanged(double seconds)
 
 void PlayerController::onPausedForCacheChanged(bool pausedForCache)
 {
-    qDebug() << "PlayerController: Paused for cache:" << pausedForCache;
+    qCDebug(lcPlayback) << "PlayerController: Paused for cache:" << pausedForCache;
     
     if (pausedForCache && m_playbackState == Playing) {
         // mpv reports actual buffering - transition to Buffering state
-        qDebug() << "PlayerController: mpv started buffering";
+        qCDebug(lcPlayback) << "PlayerController: mpv started buffering";
         processEvent(Event::BufferStart);
     } else if (!pausedForCache && m_playbackState == Buffering) {
         // mpv finished buffering - transition back to Playing
-        qDebug() << "PlayerController: mpv finished buffering";
+        qCDebug(lcPlayback) << "PlayerController: mpv finished buffering";
         processEvent(Event::BufferComplete);
     }
 }
@@ -1143,7 +1141,7 @@ void PlayerController::onCacheEndChanged(double seconds)
 
 void PlayerController::onPauseChanged(bool paused)
 {
-    qDebug() << "PlayerController: Pause changed:" << paused;
+    qCDebug(lcPlayback) << "PlayerController: Pause changed:" << paused;
     
     const QVariantMap segment = activePlaybackSegment();
     const QString reportItemId = segment.isEmpty()
@@ -1181,7 +1179,7 @@ void PlayerController::onPlaybackEnded()
         return;
     }
 
-    qDebug() << "PlayerController: Playback ended";
+    qCDebug(lcPlayback) << "PlayerController: Playback ended";
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] playback-ended"
                             << "position=" << m_currentPosition
@@ -1241,7 +1239,7 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
             m_waitingForNextEpisodeAtPlaybackEnd = true;
             stashPendingAutoplayContext();
             m_terminalPrefetchedReady = hasUsablePrefetchedNextEpisode();
-            qDebug() << "PlayerController: Threshold met, next episode will resolve after terminal finalization";
+            qCDebug(lcPlayback) << "PlayerController: Threshold met, next episode will resolve after terminal finalization";
         } else {
             clearPendingAutoplayContext();
             clearNextEpisodePrefetchState();
@@ -1686,7 +1684,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
     }
 
     if (!m_pendingAutoplaySeriesId.isEmpty() && seriesId != m_pendingAutoplaySeriesId) {
-        qDebug() << "PlayerController: Ignoring next episode for unexpected series:" << seriesId;
+        qCDebug(lcPlayback) << "PlayerController: Ignoring next episode for unexpected series:" << seriesId;
         return;
     }
     
@@ -1697,7 +1695,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
     const int lastSubtitleIndex = pendingAutoplaySubtitleOverrideIndex();
     
     if (episodeData.isEmpty()) {
-        qDebug() << "PlayerController: No next episode available";
+        qCDebug(lcPlayback) << "PlayerController: No next episode available";
         QJsonObject noNextEpisodeData;
         noNextEpisodeData.insert(QStringLiteral("SeriesId"), seriesId);
         noNextEpisodeData.insert(QStringLiteral("SeasonId"), m_pendingAutoplaySeasonId);
@@ -1726,14 +1724,14 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
     int seasonNumber = episodeData["ParentIndexNumber"].toInt();
     int episodeNumber = episodeData["IndexNumber"].toInt();
     
-    qDebug() << "PlayerController: Next episode found:" << seriesName 
+    qCDebug(lcPlayback) << "PlayerController: Next episode found:" << seriesName 
              << "S" << seasonNumber << "E" << episodeNumber << "-" << episodeName;
     
     // Always emit navigateToNextEpisode to show the Up Next screen
     // The QML screen will handle autoplay countdown vs manual play
     bool autoplay = m_config->getAutoplayNextEpisode();
     
-    qDebug() << "PlayerController: Emitting navigateToNextEpisode signal with autoplay:" 
+    qCDebug(lcPlayback) << "PlayerController: Emitting navigateToNextEpisode signal with autoplay:" 
              << autoplay << "audio:" << lastAudioIndex << "subtitle:" << lastSubtitleIndex;
 
     emitNavigateToNextEpisodeQueued(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay);
@@ -2606,7 +2604,7 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
     const int episodeNumber = episodeData["IndexNumber"].toInt();
     
     if (episodeId.isEmpty()) {
-        qWarning() << "PlayerController::playNextEpisode: Empty episode ID";
+        qCWarning(lcPlayback) << "PlayerController::playNextEpisode: Empty episode ID";
         cancelPendingDisplayRestore();
         clearPendingAutoplayContext();
         return;
@@ -2614,7 +2612,7 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
 
     cancelPendingDisplayRestore();
     
-    qDebug() << "PlayerController: Playing next episode from Up Next screen:" << seriesName
+    qCDebug(lcPlayback) << "PlayerController: Playing next episode from Up Next screen:" << seriesName
              << "S" << seasonNumber << "E" << episodeNumber << "-" << episodeName;
     
     QString subtitle = QStringLiteral("S%1 E%2").arg(seasonNumber).arg(episodeNumber);
@@ -2896,7 +2894,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     cancelPendingTerminalTransition();
     m_playbackAttemptId = ++gPlaybackAttemptCounter;
     m_reportProgressOnNextPositionUpdate = false;
-    qDebug() << "PlayerController: playUrl called with itemId:" << itemId 
+    qCDebug(lcPlayback) << "PlayerController: playUrl called with itemId:" << itemId 
              << "startPositionTicks:" << startPositionTicks
              << "seriesId:" << seriesId
              << "seasonId:" << seasonId
@@ -2965,7 +2963,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         // Jellyfin ticks are 100ns units, so divide by 10,000,000 to get seconds
         if (startPositionTicks > 0) {
             m_seekTargetWhileBuffering = static_cast<double>(startPositionTicks) / 10000000.0;
-            qDebug() << "PlayerController: Will seek to" << m_seekTargetWhileBuffering << "seconds after buffering";
+            qCDebug(lcPlayback) << "PlayerController: Will seek to" << m_seekTargetWhileBuffering << "seconds after buffering";
         } else {
             m_seekTargetWhileBuffering = -1;
         }
@@ -2984,7 +2982,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
  */
 void PlayerController::stop()
 {
-    qDebug() << "PlayerController: stop requested";
+    qCDebug(lcPlayback) << "PlayerController: stop requested";
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] stop requested"
                             << "state=" << stateToString(m_playbackState)
@@ -3018,14 +3016,14 @@ void PlayerController::togglePause()
 
 void PlayerController::seek(double seconds)
 {
-    qDebug() << "PlayerController: seek to" << seconds;
+    qCDebug(lcPlayback) << "PlayerController: seek to" << seconds;
     
     // If loading/buffering, queue the seek for when buffering setup completes.
     // This is required for early intro auto-skip where segments can arrive before
     // we transition out of Loading.
     if (m_playbackState == Loading || m_playbackState == Buffering) {
         m_seekTargetWhileBuffering = seconds;
-        qDebug() << "PlayerController: Queued seek for after loading/buffering";
+        qCDebug(lcPlayback) << "PlayerController: Queued seek for after loading/buffering";
         return;
     }
     
@@ -3037,12 +3035,12 @@ void PlayerController::seek(double seconds)
 
 void PlayerController::seekRelative(double seconds)
 {
-    qDebug() << "PlayerController: seekRelative" << seconds;
+    qCDebug(lcPlayback) << "PlayerController: seekRelative" << seconds;
     
     // During buffering, convert relative to absolute and queue
     if (m_playbackState == Buffering) {
         m_seekTargetWhileBuffering = m_currentPosition + seconds;
-        qDebug() << "PlayerController: Queued relative seek for after buffering";
+        qCDebug(lcPlayback) << "PlayerController: Queued relative seek for after buffering";
         return;
     }
     
@@ -3073,7 +3071,7 @@ void PlayerController::skipActiveSegment()
 
 void PlayerController::retry()
 {
-    qDebug() << "PlayerController: retry requested";
+    qCDebug(lcPlayback) << "PlayerController: retry requested";
     
     if (m_playbackState == Error) {
         m_reportProgressOnNextPositionUpdate = false;
@@ -3113,7 +3111,7 @@ void PlayerController::retry()
 
 void PlayerController::clearError()
 {
-    qDebug() << "PlayerController: clearError requested";
+    qCDebug(lcPlayback) << "PlayerController: clearError requested";
     
     if (m_playbackState == Error) {
         processEvent(Event::Recover);
@@ -3156,7 +3154,7 @@ void PlayerController::onRecoveryTick()
     }
     ++m_recoveryAttemptCount;
     emit recoveryAttemptCountChanged();
-    qDebug() << "PlayerController: Recovery ping attempt" << m_recoveryAttemptCount;
+    qCDebug(lcPlayback) << "PlayerController: Recovery ping attempt" << m_recoveryAttemptCount;
 
     QNetworkReply *reply = m_libraryService->pingServer();
     if (!reply) {
@@ -3172,20 +3170,20 @@ void PlayerController::onRecoveryTick()
         reply->deleteLater();
         int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         if (reply->error() == QNetworkReply::NoError) {
-            qDebug() << "PlayerController: Recovery ping succeeded";
+            qCDebug(lcPlayback) << "PlayerController: Recovery ping succeeded";
             if (m_isRecovering && m_playbackState == Error && !m_terminalTransitionActive) {
                 cancelRecovery();
                 resumeFromRecoveryContext();
             }
         } else if (httpStatus == 401) {
-            qDebug() << "PlayerController: Recovery ping got 401, auth expired";
+            qCDebug(lcPlayback) << "PlayerController: Recovery ping got 401, auth expired";
             if (m_isRecovering) {
                 cancelRecovery();
                 setErrorMessage(tr("Session expired. Please log in again."));
                 m_recoveryContext = RecoveryContext{};
             }
         } else {
-            qDebug() << "PlayerController: Recovery ping failed:" << reply->errorString();
+            qCDebug(lcPlayback) << "PlayerController: Recovery ping failed:" << reply->errorString();
             if (m_isRecovering) {
                 m_recoveryTimer->start(kRecoveryPingIntervalMs);
             }
@@ -3370,7 +3368,7 @@ void PlayerController::addExternalSubtitleTrack(const QString &subtitleUrl,
 
 void PlayerController::cycleAudioTrack()
 {
-    qDebug() << "PlayerController: Cycling audio track";
+    qCDebug(lcPlayback) << "PlayerController: Cycling audio track";
     if (m_playbackState == Playing || m_playbackState == Paused) {
         m_pendingAudioTrackPersistenceFromBackend = true;
         m_playerBackend->sendCommand({"cycle", "audio"});
@@ -3379,7 +3377,7 @@ void PlayerController::cycleAudioTrack()
 
 void PlayerController::cycleSubtitleTrack()
 {
-    qDebug() << "PlayerController: Cycling subtitle track";
+    qCDebug(lcPlayback) << "PlayerController: Cycling subtitle track";
     if (m_playbackState == Playing || m_playbackState == Paused) {
         m_pendingSubtitleTrackPersistenceFromBackend = true;
         m_playerBackend->sendCommand({"cycle", "sub"});
@@ -3706,7 +3704,7 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
                                          const QVariantList &availableSubtitleTracks,
                                          double framerate, bool isHDR)
 {
-    qDebug() << "PlayerController: playUrlWithTracks called with itemId:" << itemId
+    qCDebug(lcPlayback) << "PlayerController: playUrlWithTracks called with itemId:" << itemId
              << "audioIndex:" << audioStreamIndex
              << "subtitleIndex:" << subtitleStreamIndex
              << "framerate:" << framerate
@@ -4388,7 +4386,7 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
     if (thresholdMet) {
         const double percentage = (m_currentPosition / m_duration) * 100.0;
         const int threshold = m_config->getPlaybackCompletionThreshold();
-        qDebug() << "PlayerController: Completion threshold met for item" << m_currentItemId
+        qCDebug(lcPlayback) << "PlayerController: Completion threshold met for item" << m_currentItemId
                  << "(" << percentage << "% >= " << threshold << "% threshold)";
         return true;  // Threshold met - eligible for autoplay
     }
@@ -4711,7 +4709,7 @@ void PlayerController::setAwaitingNextEpisodeResolution(bool awaiting)
  */
 void PlayerController::startPlayback(const QString &url)
 {
-    qDebug() << "PlayerController: Starting playback of" << url;
+    qCDebug(lcPlayback) << "PlayerController: Starting playback of" << url;
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] start-playback"
                             << "contentIsHDR=" << m_contentIsHDR
@@ -4729,14 +4727,14 @@ void PlayerController::startPlayback(const QString &url)
         // Snapshot refresh before HDR toggle. Some setups force 60Hz in HDR,
         // and we want restore to return to the pre-HDR rate.
         m_displayManager->captureOriginalRefreshRate();
-        qDebug() << "PlayerController: Enabling HDR for HDR content";
+        qCDebug(lcPlayback) << "PlayerController: Enabling HDR for HDR content";
         qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                 << "] setHDR(true) begin";
         hdrEnabled = m_displayManager->setHDR(true);
         qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                 << "] setHDR(true) result=" << hdrEnabled;
     } else if (m_config->getEnableHDR() && !m_contentIsHDR) {
-        qDebug() << "PlayerController: HDR toggle enabled but content is SDR, not switching display HDR";
+        qCDebug(lcPlayback) << "PlayerController: HDR toggle enabled but content is SDR, not switching display HDR";
     }
 
     applyFramerateMatchingAndStart();
@@ -4767,11 +4765,11 @@ void PlayerController::applyFramerateMatchingAndStart()
     if (m_config->getEnableFramerateMatching() && m_contentFramerate > 0) {
         // Pass the exact framerate to DisplayManager for precise matching
         // TVs like LG can match exact 23.976Hz, while others will use closest available (24Hz)
-        qDebug() << "PlayerController: Content framerate:" << m_contentFramerate
+        qCDebug(lcPlayback) << "PlayerController: Content framerate:" << m_contentFramerate
                  << "-> attempting exact refresh rate match";
         
         if (m_displayManager->setRefreshRate(m_contentFramerate)) {
-            qDebug() << "PlayerController: Successfully set display refresh rate for framerate" << m_contentFramerate;
+            qCDebug(lcPlayback) << "PlayerController: Successfully set display refresh rate for framerate" << m_contentFramerate;
             qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                     << "] refresh-rate switch success";
 
@@ -4789,7 +4787,7 @@ void PlayerController::applyFramerateMatchingAndStart()
                 // Wait for display to stabilize after an actual refresh rate change.
                 int delaySeconds = m_config->getFramerateMatchDelay();
                 if (delaySeconds > 0) {
-                    qDebug() << "PlayerController: Scheduling mpv start in" << delaySeconds << "seconds for display to stabilize";
+                    qCDebug(lcPlayback) << "PlayerController: Scheduling mpv start in" << delaySeconds << "seconds for display to stabilize";
                     m_startDelayTimer->start(delaySeconds * 1000);
                 } else {
                     initiateMpvStart();
@@ -4800,12 +4798,12 @@ void PlayerController::applyFramerateMatchingAndStart()
             }
             return;  // Important: return early to avoid duplicate startMpv calls
         } else {
-            qWarning() << "PlayerController: Failed to set display refresh rate for framerate" << m_contentFramerate;
+            qCWarning(lcPlayback) << "PlayerController: Failed to set display refresh rate for framerate" << m_contentFramerate;
             qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                        << "] refresh-rate switch failed";
         }
     } else if (m_config->getEnableFramerateMatching()) {
-        qDebug() << "PlayerController: Framerate matching enabled but no framerate info available (framerate:" << m_contentFramerate << ")";
+        qCDebug(lcPlayback) << "PlayerController: Framerate matching enabled but no framerate info available (framerate:" << m_contentFramerate << ")";
         qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                 << "] framerate-matching enabled but no content framerate";
     }
@@ -4843,7 +4841,7 @@ void PlayerController::initiateMpvStart()
     
     // Resolve the MPV profile for this item
     QString profileName = m_config->resolveProfileForItem(m_currentLibraryId, m_currentSeriesId);
-    qDebug() << "PlayerController: Using MPV profile:" << profileName
+    qCDebug(lcPlayback) << "PlayerController: Using MPV profile:" << profileName
              << "for library:" << m_currentLibraryId
              << "series:" << m_currentSeriesId;
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
@@ -4917,14 +4915,14 @@ void PlayerController::initiateMpvStart()
             filteredArgs << arg;
         }
 
-        qDebug() << "PlayerController: Embedded linux backend filtered mpv args:"
+        qCDebug(lcPlayback) << "PlayerController: Embedded linux backend filtered mpv args:"
                  << "before=" << finalArgs.size()
                  << "after=" << filteredArgs.size();
         finalArgs = filteredArgs;
     }
 #endif
 
-    qDebug() << "PlayerController: Final mpv args:" << finalArgs;
+    qCDebug(lcPlayback) << "PlayerController: Final mpv args:" << finalArgs;
     
     m_playerBackend->startMpv(m_mpvBin, finalArgs, m_pendingUrl);
 }
@@ -5052,7 +5050,7 @@ bool PlayerController::seekToSegmentEnd(MediaSegmentType segmentType)
         }
 
         const double endSeconds = segment.endSeconds();
-        qDebug() << "PlayerController: Skipping segment type" << static_cast<int>(segmentType)
+        qCDebug(lcPlayback) << "PlayerController: Skipping segment type" << static_cast<int>(segmentType)
                  << "seeking to" << endSeconds;
         seek(endSeconds);
         return true;
@@ -5107,10 +5105,10 @@ void PlayerController::loadConfig()
             m_testVideoUrl = obj["test_video_url"].toString();
         }
         
-        qDebug() << "PlayerController: Loaded config from" << configPath;
-        qDebug() << "PlayerController: mpv binary:" << m_mpvBin;
+        qCDebug(lcPlayback) << "PlayerController: Loaded config from" << configPath;
+        qCDebug(lcPlayback) << "PlayerController: mpv binary:" << m_mpvBin;
     } else {
-        qWarning() << "PlayerController: Could not load config from" << configPath;
+        qCWarning(lcPlayback) << "PlayerController: Could not load config from" << configPath;
         // Defaults
         m_mpvBin = "mpv";
         m_testVideoUrl = "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
@@ -5118,15 +5116,15 @@ void PlayerController::loadConfig()
     
     // Log mpv config directory being used
     QString mpvConfigDir = ConfigManager::getMpvConfigDir();
-    qDebug() << "PlayerController: Bloom mpv config directory:" << mpvConfigDir;
+    qCDebug(lcPlayback) << "PlayerController: Bloom mpv config directory:" << mpvConfigDir;
     if (!ConfigManager::getMpvConfPath().isEmpty()) {
-        qDebug() << "PlayerController: Using mpv.conf from:" << ConfigManager::getMpvConfPath();
+        qCDebug(lcPlayback) << "PlayerController: Using mpv.conf from:" << ConfigManager::getMpvConfPath();
     }
     if (!ConfigManager::getMpvInputConfPath().isEmpty()) {
-        qDebug() << "PlayerController: Using input.conf from:" << ConfigManager::getMpvInputConfPath();
+        qCDebug(lcPlayback) << "PlayerController: Using input.conf from:" << ConfigManager::getMpvInputConfPath();
     }
     if (!ConfigManager::getMpvScriptsDir().isEmpty()) {
-        qDebug() << "PlayerController: Detected user mpv scripts in:" << ConfigManager::getMpvScriptsDir();
+        qCDebug(lcPlayback) << "PlayerController: Detected user mpv scripts in:" << ConfigManager::getMpvScriptsDir();
     }
 }
 
@@ -5134,16 +5132,16 @@ void PlayerController::loadConfig()
 
 void PlayerController::onScriptMessage(const QString &messageName, const QStringList &args)
 {
-    qDebug() << "PlayerController: Received script message:" << messageName << "args:" << args;
+    qCDebug(lcPlayback) << "PlayerController: Received script message:" << messageName << "args:" << args;
     
     if (messageName == "bloom-skip-intro") {
         if (!seekToSegmentEnd(MediaSegmentType::Intro)) {
-            qDebug() << "PlayerController: No intro segment found to skip";
+            qCDebug(lcPlayback) << "PlayerController: No intro segment found to skip";
         }
         
     } else if (messageName == "bloom-skip-outro") {
         if (!seekToSegmentEnd(MediaSegmentType::Outro)) {
-            qDebug() << "PlayerController: No outro segment found to skip";
+            qCDebug(lcPlayback) << "PlayerController: No outro segment found to skip";
         }
     }
     // Script-driven trickplay handlers were retired with the native overlay migration.
@@ -5225,12 +5223,12 @@ void PlayerController::onChaptersLoaded(const QString &itemId, const QList<Chapt
 
     QVariantList chapterModels;
     chapterModels.reserve(chapters.size());
-    qInfo() << "PlayerController: Normalizing playback chapters for item" << itemId
+    qCInfo(lcPlayback) << "PlayerController: Normalizing playback chapters for item" << itemId
             << "count" << chapters.size();
     for (const ChapterInfo &chapter : chapters) {
         const QString thumbnailUrl = m_libraryService->getCachedChapterThumbnailUrl(
             itemId, chapter.index, chapter.imageTag, chapter.imagePath);
-        qInfo() << "PlayerController: Playback chapter thumbnail"
+        qCInfo(lcPlayback) << "PlayerController: Playback chapter thumbnail"
                 << "item" << itemId
                 << "index" << chapter.index
                 << "hasThumbnailUrl" << !thumbnailUrl.isEmpty();
@@ -5245,7 +5243,7 @@ void PlayerController::onChaptersLoaded(const QString &itemId, const QList<Chapt
 void PlayerController::onChaptersFailed(const QString &itemId, const QString &error)
 {
     if (itemId == m_currentItemId) {
-        qDebug() << "PlayerController: Chapter metadata unavailable for item" << itemId << error;
+        qCDebug(lcPlayback) << "PlayerController: Chapter metadata unavailable for item" << itemId << error;
         clearPlaybackChapters();
     }
 }
@@ -5253,11 +5251,11 @@ void PlayerController::onChaptersFailed(const QString &itemId, const QString &er
 void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<MediaSegmentInfo> &segments)
 {
     if (itemId != activePlaybackSegmentItemId()) {
-        qDebug() << "PlayerController: Ignoring segments for different item:" << itemId;
+        qCDebug(lcPlayback) << "PlayerController: Ignoring segments for different item:" << itemId;
         return;
     }
     
-    qDebug() << "PlayerController: Received" << segments.size() << "segments for item:" << itemId;
+    qCDebug(lcPlayback) << "PlayerController: Received" << segments.size() << "segments for item:" << itemId;
     m_currentSegments = segments;
     updateSkipSegmentState();
 
@@ -5300,9 +5298,9 @@ void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<
         double endSeconds = static_cast<double>(segment.endTicks) / 10000000.0;
 
         if (segment.type == MediaSegmentType::Intro) {
-            qDebug() << "PlayerController: Intro segment:" << startSeconds << "->" << endSeconds;
+            qCDebug(lcPlayback) << "PlayerController: Intro segment:" << startSeconds << "->" << endSeconds;
         } else if (segment.type == MediaSegmentType::Outro) {
-            qDebug() << "PlayerController: Outro segment:" << startSeconds << "->" << endSeconds;
+            qCDebug(lcPlayback) << "PlayerController: Outro segment:" << startSeconds << "->" << endSeconds;
         }
     }
 }
@@ -5310,14 +5308,14 @@ void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<
 void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<int, TrickplayTileInfo> &trickplayInfo)
 {
     if (itemId != activePlaybackSegmentItemId()) {
-        qDebug() << "PlayerController: Ignoring trickplay info for different item:" << itemId;
+        qCDebug(lcPlayback) << "PlayerController: Ignoring trickplay info for different item:" << itemId;
         return;
     }
 
     const bool wasTrickplayReady = m_hasTrickplayInfo;
     
     if (trickplayInfo.isEmpty()) {
-        qDebug() << "PlayerController: No trickplay info available for item:" << itemId;
+        qCDebug(lcPlayback) << "PlayerController: No trickplay info available for item:" << itemId;
         m_hasTrickplayInfo = false;
         m_currentTrickplayInfo = TrickplayTileInfo{};
         m_trickplayBinaryPath.clear();
@@ -5350,7 +5348,7 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
     const TrickplayTileInfo &info = trickplayInfo[selectedWidth];
 
     if (info.interval <= 0 || info.thumbnailCount <= 0 || info.width <= 0 || info.height <= 0) {
-        qWarning() << "PlayerController: Ignoring invalid trickplay info for item:" << itemId
+        qCWarning(lcPlayback) << "PlayerController: Ignoring invalid trickplay info for item:" << itemId
                    << "interval:" << info.interval
                    << "count:" << info.thumbnailCount
                    << "size:" << info.width << "x" << info.height;
@@ -5365,7 +5363,7 @@ void PlayerController::onTrickplayInfoLoaded(const QString &itemId, const QMap<i
         return;
     }
     
-    qDebug() << "PlayerController: Received trickplay info for item:" << itemId
+    qCDebug(lcPlayback) << "PlayerController: Received trickplay info for item:" << itemId
              << "selected width:" << selectedWidth
              << "height:" << info.height
              << "interval:" << info.interval << "ms"
@@ -5399,18 +5397,18 @@ void PlayerController::onTrickplayProcessingComplete(const QString &itemId, int 
                                                       int width, int height, const QString &filePath)
 {
     if (itemId != activePlaybackSegmentItemId()) {
-        qDebug() << "PlayerController: Ignoring trickplay processing result for different item:" << itemId;
+        qCDebug(lcPlayback) << "PlayerController: Ignoring trickplay processing result for different item:" << itemId;
         return;
     }
     
-    qDebug() << "PlayerController: Trickplay processing complete for item:" << itemId
+    qCDebug(lcPlayback) << "PlayerController: Trickplay processing complete for item:" << itemId
              << "count:" << count
              << "interval:" << intervalMs << "ms"
              << "size:" << width << "x" << height
              << "file:" << filePath;
 
     if (count <= 0 || intervalMs <= 0 || width <= 0 || height <= 0 || filePath.isEmpty() || !QFile::exists(filePath)) {
-        qWarning() << "PlayerController: Trickplay processing result is invalid, disabling trickplay for item:" << itemId;
+        qCWarning(lcPlayback) << "PlayerController: Trickplay processing result is invalid, disabling trickplay for item:" << itemId;
         m_hasTrickplayInfo = false;
         m_trickplayBinaryPath.clear();
         m_currentTrickplayFrameIndex = -1;
@@ -5440,7 +5438,7 @@ void PlayerController::onTrickplayProcessingFailed(const QString &itemId, const 
         return;
     }
     
-    qWarning() << "PlayerController: Trickplay processing failed for item:" << itemId << "error:" << error;
+    qCWarning(lcPlayback) << "PlayerController: Trickplay processing failed for item:" << itemId << "error:" << error;
     // Trickplay thumbnails won't be available, but playback continues normally
     m_hasTrickplayInfo = false;
     m_trickplayBinaryPath.clear();
@@ -5511,7 +5509,7 @@ void PlayerController::updateTrickplayPreviewForPosition(double seconds)
     );
 
     if (previewUrl.isEmpty()) {
-        qWarning() << "PlayerController: Failed to load trickplay frame" << frameIndex << "for item" << m_currentItemId;
+        qCWarning(lcPlayback) << "PlayerController: Failed to load trickplay frame" << frameIndex << "for item" << m_currentItemId;
         m_hasTrickplayInfo = false;
         m_trickplayBinaryPath.clear();
         m_currentTrickplayFrameIndex = -1;

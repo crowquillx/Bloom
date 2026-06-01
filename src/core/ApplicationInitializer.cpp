@@ -35,6 +35,7 @@
 #include <QGuiApplication>
 #include <QDebug>
 #include <cstdio>
+#include "../utils/BloomLogging.h"
 
 /**
  * @brief Qt message handler that forwards all Qt diagnostic output to the custom Logger.
@@ -111,7 +112,7 @@ void ApplicationInitializer::registerServices()
 {
     // 0. Logger - Initialize logging system first (before any services)
     if (!Logger::instance().initialize()) {
-        qWarning() << "Failed to initialize Logger, falling back to console output";
+        qCWarning(lcApp) << "Failed to initialize Logger, falling back to console output";
     }
     // Enable debug-level logging and console output
     Logger::instance().setMinLogLevel(Logger::LogLevel::Debug);
@@ -143,13 +144,13 @@ void ApplicationInitializer::registerServices()
     // 2. Player backend - No dependencies
     m_playerBackend = PlayerBackendFactory::create(m_configManager->getPlayerBackend());
     ServiceLocator::registerService<IPlayerBackend>(m_playerBackend.get());
-    qInfo() << "ApplicationInitializer: Active player backend:" << m_playerBackend->backendName();
+    qCInfo(lcApp) << "ApplicationInitializer: Active player backend:" << m_playerBackend->backendName();
     
     // Check if we're in test mode
     bool isTestMode = TestModeController::instance()->isTestMode();
     
     if (isTestMode) {
-        qDebug() << "ApplicationInitializer: Running in test mode - registering mock services";
+        qCDebug(lcApp) << "ApplicationInitializer: Running in test mode - registering mock services";
         
         // 2.5 SecretStore - Create platform-specific secure storage (still needed for mock services)
         m_secretStore = SecretStoreFactory::create();
@@ -322,20 +323,20 @@ void ApplicationInitializer::initializeServices()
     
     connect(auth, &AuthenticationService::sessionExpired,
         [auth]() {
-            qWarning() << "Session expired, triggering logout";
+            qCWarning(lcApp) << "Session expired, triggering logout";
             auth->logout();
     });
     
     connect(auth, &AuthenticationService::sessionExpiredAfterPlayback,
         [auth]() {
-            qWarning() << "Session expired (detected during playback), triggering logout";
+            qCWarning(lcApp) << "Session expired (detected during playback), triggering logout";
             auth->logout();
     });
     
     // Connect playback stopped to check for pending session expiry
     connect(m_playerController.get(), &PlayerController::playbackStopped,
         [auth]() {
-            qDebug() << "Playback stopped, checking for pending session expiry";
+            qCDebug(lcApp) << "Playback stopped, checking for pending session expiry";
             auth->checkPendingSessionExpiry();
     });
     

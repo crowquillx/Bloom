@@ -11,8 +11,7 @@
 #include <QFileInfo>
 #include <QMutexLocker>
 #include <QStringList>
-
-Q_LOGGING_CATEGORY(libraryCacheStore, "bloom.librarycache")
+#include "BloomLogging.h"
 
 namespace {
 constexpr const char *kDefaultConnectionName = "bloom_library_cache";
@@ -54,7 +53,7 @@ bool LibraryCacheStore::open(const QString &dbPath)
             base = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
         }
         if (base.isEmpty()) {
-            qCWarning(libraryCacheStore) << "No writable cache location available";
+            qCWarning(lcLibraryCache) << "No writable cache location available";
             return false;
         }
         m_dbPath = base + "/Bloom/library_cache.db";
@@ -62,7 +61,7 @@ bool LibraryCacheStore::open(const QString &dbPath)
 
     QDir dir(QFileInfo(m_dbPath).absolutePath());
     if (!dir.exists() && !dir.mkpath(".")) {
-        qCWarning(libraryCacheStore) << "Failed to create cache directory for" << m_dbPath;
+        qCWarning(lcLibraryCache) << "Failed to create cache directory for" << m_dbPath;
         return false;
     }
 
@@ -73,12 +72,12 @@ bool LibraryCacheStore::open(const QString &dbPath)
     m_db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
     m_db.setDatabaseName(m_dbPath);
     if (!m_db.open()) {
-        qCWarning(libraryCacheStore) << "Failed to open library cache DB" << m_dbPath << m_db.lastError().text();
+        qCWarning(lcLibraryCache) << "Failed to open library cache DB" << m_dbPath << m_db.lastError().text();
         return false;
     }
 
     if (!ensureSchema()) {
-        qCWarning(libraryCacheStore) << "Failed to prepare library cache schema";
+        qCWarning(lcLibraryCache) << "Failed to prepare library cache schema";
         return false;
     }
     return true;
@@ -104,7 +103,7 @@ bool LibraryCacheStore::ensureSchema()
         )
     )");
     if (!ok) {
-        qCWarning(libraryCacheStore) << "Failed to create library_cache table" << query.lastError().text();
+        qCWarning(lcLibraryCache) << "Failed to create library_cache table" << query.lastError().text();
         return false;
     }
 
@@ -116,7 +115,7 @@ bool LibraryCacheStore::ensureSchema()
         )
     )");
     if (!ok) {
-        qCWarning(libraryCacheStore) << "Failed to create library_meta table" << query.lastError().text();
+        qCWarning(lcLibraryCache) << "Failed to create library_meta table" << query.lastError().text();
         return false;
     }
 
@@ -158,7 +157,7 @@ LibraryCacheStore::CachedSlice LibraryCacheStore::read(const QString &parentId, 
     }
 
     if (!query.exec()) {
-        qCWarning(libraryCacheStore) << "Failed to read library cache" << parentId << query.lastError().text();
+        qCWarning(lcLibraryCache) << "Failed to read library cache" << parentId << query.lastError().text();
         return slice;
     }
 
@@ -216,7 +215,7 @@ bool LibraryCacheStore::replaceAll(const QString &parentId, const QJsonArray &it
         insert.addBindValue(QJsonDocument(obj).toJson(QJsonDocument::Compact));
         insert.addBindValue(now);
         if (!insert.exec()) {
-            qCWarning(libraryCacheStore) << "Failed to insert cache row" << insert.lastError().text();
+            qCWarning(lcLibraryCache) << "Failed to insert cache row" << insert.lastError().text();
             rollbackTransaction();
             return false;
         }
@@ -231,7 +230,7 @@ bool LibraryCacheStore::replaceAll(const QString &parentId, const QJsonArray &it
     meta.addBindValue(totalCount);
     meta.addBindValue(now);
     if (!meta.exec()) {
-        qCWarning(libraryCacheStore) << "Failed to update library_meta" << meta.lastError().text();
+        qCWarning(lcLibraryCache) << "Failed to update library_meta" << meta.lastError().text();
         rollbackTransaction();
         return false;
     }
@@ -278,7 +277,7 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
         upsert.addBindValue(QJsonDocument(obj).toJson(QJsonDocument::Compact));
         upsert.addBindValue(now);
         if (!upsert.exec()) {
-            qCWarning(libraryCacheStore) << "Failed to upsert cache row" << upsert.lastError().text();
+            qCWarning(lcLibraryCache) << "Failed to upsert cache row" << upsert.lastError().text();
             rollbackTransaction();
             return false;
         }
@@ -306,7 +305,7 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
     meta.addBindValue(totalCount);
     meta.addBindValue(now);
     if (!meta.exec()) {
-        qCWarning(libraryCacheStore) << "Failed to update library_meta" << meta.lastError().text();
+        qCWarning(lcLibraryCache) << "Failed to update library_meta" << meta.lastError().text();
         rollbackTransaction();
         return false;
     }

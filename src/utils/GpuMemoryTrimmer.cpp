@@ -7,15 +7,14 @@
 
 #include "ConfigManager.h"
 #include "ui/ImageCacheProvider.h"
-
-Q_LOGGING_CATEGORY(lcGpuTrim, "bloom.gpu.trim")
+#include "BloomLogging.h"
 
 GpuMemoryTrimmer::GpuMemoryTrimmer(ConfigManager *config,
-                                   ImageCacheProvider *imageCache,
+                                   ImageCacheProvider *lcImageCache,
                                    QObject *parent)
     : QObject(parent)
     , m_config(config)
-    , m_imageCache(imageCache)
+    , m_imageCache(lcImageCache)
 {
 }
 

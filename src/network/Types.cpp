@@ -2,8 +2,7 @@
 #include <QJsonDocument>
 #include <QJsonParseError>
 #include <QtMath>
-
-Q_LOGGING_CATEGORY(jellyfinNetwork, "jellyfin.network")
+#include "../utils/BloomLogging.h"
 
 /**
  * @brief Register Qt metatypes for network data structures
@@ -398,7 +397,7 @@ TrickplayTileInfo TrickplayTileInfo::fromJson(const QJsonObject &json)
     info.interval = json["Interval"].toInt();
     info.bandwidth = json["Bandwidth"].toInt();
     
-    qDebug() << "TrickplayTileInfo::fromJson parsed:"
+    qCDebug(lcJellyfinNetwork) << "TrickplayTileInfo::fromJson parsed:"
              << "Width:" << info.width
              << "Height:" << info.height
              << "TileWidth:" << info.tileWidth

@@ -7,6 +7,7 @@
 #include <QDebug>
 #include <QJsonObject>
 #include <QJsonArray>
+#include "../utils/BloomLogging.h"
 
 SessionManager::SessionManager(ConfigManager *configManager, ISecretStore *secretStore, QObject *parent)
     : QObject(parent)
@@ -125,11 +126,11 @@ bool SessionManager::rotateDeviceId()
     QString oldDeviceId = m_deviceId;
     QString newDeviceId = generateDeviceId();
 
-    qInfo() << "SessionManager: Rotating device ID" << oldDeviceId << "->" << newDeviceId;
+    qCInfo(lcAuth) << "SessionManager: Rotating device ID" << oldDeviceId << "->" << newDeviceId;
 
     // Attempt to migrate token if we have credentials
     if (!migrateToken(oldDeviceId, newDeviceId)) {
-        qWarning() << "SessionManager: Token migration may have failed, continuing with rotation";
+        qCWarning(lcAuth) << "SessionManager: Token migration may have failed, continuing with rotation";
     }
 
     m_deviceId = newDeviceId;
@@ -177,7 +178,7 @@ void SessionManager::updateLastActivity()
     // The last activity is stored in the config via ConfigManager methods
     
     // For now, we track this in memory; persistence can be added if needed
-    qDebug() << "SessionManager: Last activity updated";
+    qCDebug(lcAuth) << "SessionManager: Last activity updated";
 }
 
 QDateTime SessionManager::lastActivity() const
@@ -277,19 +278,19 @@ bool SessionManager::migrateToken(const QString &oldDeviceId, const QString &new
     QString token = m_secretStore->getSecret("Bloom/Jellyfin", oldAccount);
     if (token.isEmpty()) {
         // No token in SecretStore for old device ID - nothing to migrate
-        qDebug() << "SessionManager: No token found for old device ID, nothing to migrate";
+        qCDebug(lcAuth) << "SessionManager: No token found for old device ID, nothing to migrate";
         return true;
     }
 
     // Store token under new account
     if (!m_secretStore->setSecret("Bloom/Jellyfin", newAccount, token)) {
-        qWarning() << "SessionManager: Failed to store token for new device ID:" << m_secretStore->lastError();
+        qCWarning(lcAuth) << "SessionManager: Failed to store token for new device ID:" << m_secretStore->lastError();
         return false;
     }
 
     // Delete old token
     m_secretStore->deleteSecret("Bloom/Jellyfin", oldAccount);
 
-    qInfo() << "SessionManager: Token migrated successfully";
+    qCInfo(lcAuth) << "SessionManager: Token migrated successfully";
     return true;
 }

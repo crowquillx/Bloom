@@ -7,8 +7,7 @@
 #include <QUrl>
 #include <QLoggingCategory>
 #include <memory>
-
-Q_LOGGING_CATEGORY(libraryService, "bloom.library")
+#include "../utils/BloomLogging.h"
 
 namespace {
 
@@ -50,7 +49,7 @@ void LibraryService::sendRequestWithRetry(const QString &endpoint,
                                            FailureHandler failureHandler,
                                            int attemptNumber)
 {
-    qCDebug(libraryService) << "Sending request to:" << endpoint 
+    qCDebug(lcLibrary) << "Sending request to:" << endpoint 
                             << "attempt:" << (attemptNumber + 1) << "/" << m_retryPolicy.maxRetries;
     
     QNetworkReply *reply = requestFactory();
@@ -70,7 +69,7 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
     reply->deleteLater();
     
     if (reply->error() == QNetworkReply::NoError) {
-        qCDebug(libraryService) << "Request succeeded:" << endpoint;
+        qCDebug(lcLibrary) << "Request succeeded:" << endpoint;
         responseHandler(reply);
         return;
     }
@@ -82,7 +81,7 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
 
     // Check for 401 Unauthorized - session expired
     if (httpStatus == 401) {
-        qCWarning(libraryService) << "Session expired (401) for endpoint:" << endpoint
+        qCWarning(lcLibrary) << "Session expired (401) for endpoint:" << endpoint
                                   << "userMessage:" << netError.userMessage;
         if (failureHandler) {
             failureHandler(netError);
@@ -92,7 +91,7 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
         return;
     }
     
-    qCWarning(libraryService) << "Request failed:" << endpoint
+    qCWarning(lcLibrary) << "Request failed:" << endpoint
                               << "Error:" << reply->error()
                               << "HTTP Status:" << httpStatus
                               << "Attempt:" << (attemptNumber + 1);
@@ -105,7 +104,7 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
     
     if (shouldRetry) {
         int delayMs = ErrorHandler::calculateBackoffDelay(attemptNumber, m_retryPolicy);
-        qCInfo(libraryService) << "Retrying request to:" << endpoint << "in" << delayMs << "ms";
+        qCInfo(lcLibrary) << "Retrying request to:" << endpoint << "in" << delayMs << "ms";
         
         QTimer::singleShot(delayMs, this, [this, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
             sendRequestWithRetry(endpoint, requestFactory, responseHandler, failureHandler, attemptNumber + 1);
@@ -121,7 +120,7 @@ void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
 
 void LibraryService::emitError(const NetworkError &error)
 {
-    qCWarning(libraryService) << "Emitting error for endpoint:" << error.endpoint
+    qCWarning(lcLibrary) << "Emitting error for endpoint:" << error.endpoint
                               << "User message:" << error.userMessage;
     emit errorOccurred(error.endpoint, error.userMessage);
     emit networkError(error);
@@ -455,7 +454,7 @@ void LibraryService::getHomeBackdropItems(int limit)
                     return;
                 }
                 QJsonArray items = doc.object()["Items"].toArray();
-                qCDebug(libraryService) << "getHomeBackdropItems starter sample size:" << items.size()
+                qCDebug(lcLibrary) << "getHomeBackdropItems starter sample size:" << items.size()
                                         << "requestedLimit:" << requestedLimit;
                 emit homeBackdropItemsLoaded(items);
             });
@@ -493,7 +492,7 @@ void LibraryService::getHomeBackdropItems(int limit)
 
                 QJsonObject obj = doc.object();
                 QJsonArray pageItems = obj["Items"].toArray();
-                qCDebug(libraryService) << "getHomeBackdropItems page startIndex:" << startIndex
+                qCDebug(lcLibrary) << "getHomeBackdropItems page startIndex:" << startIndex
                                         << "pageItems:" << pageItems.size()
                                         << "requestedLimit:" << requestedLimit;
 
@@ -510,7 +509,7 @@ void LibraryService::getHomeBackdropItems(int limit)
                 const bool reachedServerEndByPage = pageItems.size() < pageSize;
 
                 if (reachedRequestedLimit || reachedServerEndByPage) {
-                    qCDebug(libraryService) << "getHomeBackdropItems completed aggregate size:" << aggregate->size()
+                    qCDebug(lcLibrary) << "getHomeBackdropItems completed aggregate size:" << aggregate->size()
                                             << "requestedLimit:" << requestedLimit;
                     return;
                 }
@@ -619,7 +618,7 @@ void LibraryService::getChapters(const QString &itemId)
     }
 
     if (m_inFlightChapterRequests.contains(itemId)) {
-        qDebug() << "LibraryService: Skipping duplicate chapter request for item" << itemId;
+        qCDebug(lcLibrary) << "LibraryService: Skipping duplicate chapter request for item" << itemId;
         return;
     }
     m_inFlightChapterRequests.insert(itemId);
@@ -634,14 +633,14 @@ void LibraryService::getChapters(const QString &itemId)
             m_inFlightChapterRequests.remove(itemId);
             const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             if (!doc.isObject()) {
-                qWarning() << "LibraryService: Invalid chapter response for item" << itemId;
+                qCWarning(lcLibrary) << "LibraryService: Invalid chapter response for item" << itemId;
                 emit chaptersFailed(itemId, tr("Invalid chapter response"));
                 return;
             }
 
             QList<ChapterInfo> chapters;
             const QJsonArray array = doc.object().value(QStringLiteral("Chapters")).toArray();
-            qInfo() << "LibraryService: Loaded raw chapter array for item" << itemId
+            qCInfo(lcLibrary) << "LibraryService: Loaded raw chapter array for item" << itemId
                     << "count" << array.size();
             chapters.reserve(array.size());
             for (qsizetype i = 0; i < array.size(); ++i) {
@@ -653,7 +652,7 @@ void LibraryService::getChapters(const QString &itemId)
                 if (chapter.startPositionTicks < 0) {
                     chapter.startPositionTicks = 0;
                 }
-                qInfo() << "LibraryService: Chapter metadata"
+                qCInfo(lcLibrary) << "LibraryService: Chapter metadata"
                         << "item" << itemId
                         << "index" << chapter.index
                         << "title" << chapter.title
@@ -1239,7 +1238,7 @@ QString LibraryService::getCachedImageUrlWithWidth(const QString &itemId, const 
 QString LibraryService::getCachedChapterThumbnailUrl(const QString &itemId, int chapterIndex, const QString &imageTag, const QString &imagePath, int width)
 {
     if (itemId.isEmpty() || chapterIndex < 0) {
-        qWarning() << "LibraryService: Refusing chapter thumbnail URL"
+        qCWarning(lcLibrary) << "LibraryService: Refusing chapter thumbnail URL"
                    << "item" << itemId
                    << "index" << chapterIndex;
         return QString();
@@ -1262,7 +1261,7 @@ QString LibraryService::getCachedChapterThumbnailUrl(const QString &itemId, int 
         originalUrl += QString("&tag=%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(imageTag)));
     }
     const QString cachedUrl = QString("image://cached/%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(originalUrl)));
-    qInfo() << "LibraryService: Chapter thumbnail request"
+    qCInfo(lcLibrary) << "LibraryService: Chapter thumbnail request"
             << "item" << itemId
             << "index" << chapterIndex
             << "imageTagEmpty" << imageTag.trimmed().isEmpty()

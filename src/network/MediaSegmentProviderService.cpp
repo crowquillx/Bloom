@@ -13,8 +13,7 @@
 #include <QSet>
 #include <QUrl>
 #include <QUrlQuery>
-
-Q_LOGGING_CATEGORY(mediaSegmentProviders, "bloom.mediaSegments")
+#include "../utils/BloomLogging.h"
 
 namespace {
 constexpr double kTicksPerSecond = 10000000.0;
@@ -155,7 +154,7 @@ void MediaSegmentProviderService::fetchProviderAtIndex(const MediaSegmentLookupC
     } else if (providerId == QStringLiteral("introdb")) {
         fetchIntroDbSegments(context, continueWith);
     } else {
-        qCDebug(mediaSegmentProviders) << "Skipping unknown media segment provider" << providerOrder.at(providerIndex);
+        qCDebug(lcMediaSegments) << "Skipping unknown media segment provider" << providerOrder.at(providerIndex);
         continueWith(MediaSegmentProviderResult{providerId, {}, false, false});
     }
 }

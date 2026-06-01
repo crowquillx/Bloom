@@ -2,6 +2,7 @@
 
 #include <QDebug>
 #include <QSaveFile>
+#include "BloomLogging.h"
 
 namespace DetailViewCache {
 
@@ -119,19 +120,19 @@ void storeObjectCache(QHash<QString, ObjectCacheEntry> &memoryCache,
 
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "DetailViewCache: Failed to open object cache for write:" << path;
+        qCWarning(lcCache) << "DetailViewCache: Failed to open object cache for write:" << path;
         return;
     }
 
     const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Compact);
     if (file.write(payload) != payload.size()) {
-        qWarning() << "DetailViewCache: Failed to write object cache:" << path;
+        qCWarning(lcCache) << "DetailViewCache: Failed to write object cache:" << path;
         file.cancelWriting();
         return;
     }
 
     if (!file.commit()) {
-        qWarning() << "DetailViewCache: Failed to commit object cache:" << path;
+        qCWarning(lcCache) << "DetailViewCache: Failed to commit object cache:" << path;
     }
 }
 
@@ -235,19 +236,19 @@ void storeArrayCache(QHash<QString, ArrayCacheEntry> &memoryCache,
 
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "DetailViewCache: Failed to open array cache for write:" << path;
+        qCWarning(lcCache) << "DetailViewCache: Failed to open array cache for write:" << path;
         return;
     }
 
     const QByteArray payload = QJsonDocument(root).toJson(QJsonDocument::Compact);
     if (file.write(payload) != payload.size()) {
-        qWarning() << "DetailViewCache: Failed to write array cache:" << path;
+        qCWarning(lcCache) << "DetailViewCache: Failed to write array cache:" << path;
         file.cancelWriting();
         return;
     }
 
     if (!file.commit()) {
-        qWarning() << "DetailViewCache: Failed to commit array cache:" << path;
+        qCWarning(lcCache) << "DetailViewCache: Failed to commit array cache:" << path;
     }
 }
 

@@ -3,6 +3,7 @@
 #include <QJsonDocument>
 #include <QDir>
 #include <QDebug>
+#include "../utils/BloomLogging.h"
 
 TestModeController* TestModeController::instance()
 {
@@ -21,21 +22,21 @@ void TestModeController::initialize(const QString& fixturePath, const QSize& res
     m_fixturePath = fixturePath;
     m_testResolution = resolution;
     
-    qDebug() << "Test mode enabled:";
-    qDebug() << "  Fixture path:" << m_fixturePath;
-    qDebug() << "  Resolution:" << m_testResolution.width() << "x" << m_testResolution.height();
+    qCDebug(lcTest) << "Test mode enabled:";
+    qCDebug(lcTest) << "  Fixture path:" << m_fixturePath;
+    qCDebug(lcTest) << "  Resolution:" << m_testResolution.width() << "x" << m_testResolution.height();
 }
 
 QJsonObject TestModeController::loadFixture() const
 {
     if (m_fixturePath.isEmpty()) {
-        qWarning() << "TestModeController: No fixture path set";
+        qCWarning(lcTest) << "TestModeController: No fixture path set";
         return QJsonObject();
     }
     
     QFile file(m_fixturePath);
     if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "TestModeController: Failed to open fixture file:" << m_fixturePath;
+        qCWarning(lcTest) << "TestModeController: Failed to open fixture file:" << m_fixturePath;
         return QJsonObject();
     }
     
@@ -46,7 +47,7 @@ QJsonObject TestModeController::loadFixture() const
     QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
     
     if (parseError.error != QJsonParseError::NoError) {
-        qWarning() << "TestModeController: Failed to parse fixture JSON:" << parseError.errorString();
+        qCWarning(lcTest) << "TestModeController: Failed to parse fixture JSON:" << parseError.errorString();
         return QJsonObject();
     }
     

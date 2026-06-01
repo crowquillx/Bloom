@@ -43,19 +43,37 @@ QString defaultQtRules(Level level)
         return QStringLiteral("*.debug=false\n*.info=false");
     }
 
-    // Info: allow info/warnings globally, silence chatty debug categories.
+    // Info: warnings/errors everywhere; suppress routine image/cache/view-model noise.
     return QStringLiteral(
         "*.debug=false\n"
         "*.info=true\n"
         "*.warning=true\n"
+        "*.critical=true\n"
         "bloom.imagecache.debug=false\n"
+        "bloom.imagecache.info=false\n"
         "bloom.librarycache.debug=false\n"
+        "bloom.librarycache.info=false\n"
+        "bloom.cache.debug=false\n"
+        "bloom.cache.info=false\n"
+        "bloom.viewmodels.debug=false\n"
+        "bloom.viewmodels.info=false\n"
         "bloom.library.debug=false\n"
+        "bloom.library.info=false\n"
+        "bloom.auth.debug=false\n"
+        "bloom.config.debug=false\n"
+        "bloom.ui.debug=false\n"
+        "bloom.playback.debug=false\n"
+        "bloom.playback.ipc.debug=false\n"
+        "bloom.playback.trickplay.debug=false\n"
         "bloom.playback.trace.debug=false\n"
+        "bloom.playback.trace.info=false\n"
+        "bloom.playback.displaytrace.debug=false\n"
+        "bloom.playback.backend.*.debug=false\n"
         "bloom.ui.scenegraph.debug=false\n"
         "bloom.gpu.trim.debug=false\n"
-        "bloom.playback.displaytrace.debug=false\n"
-        "jellyfin.network.debug=false");
+        "bloom.mediaSegments.debug=false\n"
+        "jellyfin.network.debug=false\n"
+        "bloom.test.debug=false");
 }
 
 void apply(Level level, const QString &extraQtRules, bool forceVerbose)

@@ -11,6 +11,7 @@
 #include <QUrlQuery>
 #include <QVariantMap>
 #include <functional>
+#include "BloomLogging.h"
 
 namespace ExternalRatingsHelper {
 
@@ -57,11 +58,11 @@ inline void fetchMdbListRatings(QNetworkAccessManager *networkManager,
     }
 
     if (imdbId.isEmpty() && tmdbId.isEmpty()) {
-        qWarning() << "No external IDs found for MDBList lookup";
+        qCWarning(lcViewModels) << "No external IDs found for MDBList lookup";
         return;
     }
 
-    qDebug() << "Fetching MDBList ratings for IMDb:" << imdbId << "TMDB:" << tmdbId;
+    qCDebug(lcViewModels) << "Fetching MDBList ratings for IMDb:" << imdbId << "TMDB:" << tmdbId;
 
     QUrl url;
     QUrlQuery query;
@@ -72,7 +73,7 @@ inline void fetchMdbListRatings(QNetworkAccessManager *networkManager,
     } else if (!imdbId.isEmpty()) {
         url = QUrl("https://api.mdblist.com/imdb/" + imdbId);
     } else {
-        qWarning() << "No IDs for MDBList request";
+        qCWarning(lcViewModels) << "No IDs for MDBList request";
         return;
     }
 

@@ -7,17 +7,18 @@
 #endif
 
 #include <QDebug>
+#include "../utils/BloomLogging.h"
 
 std::unique_ptr<ISecretStore> SecretStoreFactory::create()
 {
 #ifdef Q_OS_LINUX
-    qDebug() << "SecretStoreFactory: Creating Linux implementation (libsecret)";
+    qCDebug(lcAuth) << "SecretStoreFactory: Creating Linux implementation (libsecret)";
     return std::make_unique<SecretStoreLinux>();
 #elif defined(Q_OS_WIN)
-    qDebug() << "SecretStoreFactory: Creating Windows implementation (Credential Manager)";
+    qCDebug(lcAuth) << "SecretStoreFactory: Creating Windows implementation (Credential Manager)";
     return std::make_unique<SecretStoreWindows>();
 #else
-    qWarning() << "SecretStoreFactory: No secure storage available for this platform";
+    qCWarning(lcAuth) << "SecretStoreFactory: No secure storage available for this platform";
     return nullptr;
 #endif
 }

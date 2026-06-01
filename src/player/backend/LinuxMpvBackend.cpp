@@ -20,10 +20,9 @@
 extern "C" {
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
+#include "../../utils/BloomLogging.h"
 }
 #endif
-
-Q_LOGGING_CATEGORY(lcLinuxLibmpvBackend, "bloom.playback.backend.linux.libmpv")
 
 namespace {
 bool isTruthyEnv(const char *name)
@@ -181,7 +180,7 @@ void LinuxMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, c
     if (m_renderWindow) {
         m_renderWindow->update();
     } else {
-        qWarning() << "LinuxMpvBackend: startMpv without render window; waiting for target/window attach";
+        qCWarning(lcLinuxLibmpvBackend) << "LinuxMpvBackend: startMpv without render window; waiting for target/window attach";
     }
 
     m_running = true;
@@ -413,7 +412,7 @@ bool LinuxMpvBackend::attachVideoTarget(QObject *target)
     }
 
     m_videoTarget = item;
-    qInfo() << "LinuxMpvBackend: attached video target" << item;
+    qCInfo(lcLinuxLibmpvBackend) << "LinuxMpvBackend: attached video target" << item;
 
     if (item->window()) {
         handleWindowChanged(item->window());
@@ -591,7 +590,7 @@ void LinuxMpvBackend::processMpvEvents()
             const QString prefix = QString::fromUtf8(logMessage->prefix ? logMessage->prefix : "");
             const QString text = QString::fromUtf8(logMessage->text).trimmed();
             if (!text.isEmpty()) {
-                qWarning().noquote() << QStringLiteral("[libmpv][%1] %2").arg(prefix, text);
+                qCWarning(lcLinuxLibmpvBackend).noquote() << QStringLiteral("[libmpv][%1] %2").arg(prefix, text);
             }
             break;
         }
@@ -860,7 +859,7 @@ void LinuxMpvBackend::handleWindowChanged(QQuickWindow *window)
     m_beforeRenderingConnection = connect(m_renderWindow, &QQuickWindow::beforeRendering,
                                           this, &LinuxMpvBackend::renderFrame,
                                           Qt::DirectConnection);
-    qInfo() << "LinuxMpvBackend: connected render hook to window" << m_renderWindow.data();
+    qCInfo(lcLinuxLibmpvBackend) << "LinuxMpvBackend: connected render hook to window" << m_renderWindow.data();
 
     if (m_renderWindow->isSceneGraphInitialized()) {
         initializeRenderContextIfNeeded();
@@ -1148,7 +1147,7 @@ void LinuxMpvBackend::renderFrame()
         ++m_consecutiveZeroFboFrames;
         static bool sLoggedZeroFbo = false;
         if (!sLoggedZeroFbo) {
-            qWarning() << "LinuxMpvBackend: rendering via FBO 0 fallback";
+            qCWarning(lcLinuxLibmpvBackend) << "LinuxMpvBackend: rendering via FBO 0 fallback";
             sLoggedZeroFbo = true;
         }
 
@@ -1244,7 +1243,7 @@ void LinuxMpvBackend::renderUpdateCallback(void *ctx)
     static std::atomic_int sUpdateCallbacks{0};
     const int count = sUpdateCallbacks.fetch_add(1, std::memory_order_relaxed);
     if (count < 5) {
-        qInfo() << "LinuxMpvBackend: renderUpdateCallback queued update" << (count + 1);
+        qCInfo(lcLinuxLibmpvBackend) << "LinuxMpvBackend: renderUpdateCallback queued update" << (count + 1);
     }
 
     QMetaObject::invokeMethod(self, [self]() {

@@ -17,6 +17,7 @@
 #include <QJsonDocument>
 #include <QJsonArray>
 #include <QPointer>
+#include "../utils/BloomLogging.h"
 
 namespace {
 constexpr qint64 kMovieMemoryTtlMs = 5 * 60 * 1000;   // 5 minutes
@@ -70,7 +71,7 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
                     }
                 });
     } else {
-        qWarning() << "MovieDetailsViewModel: LibraryService not available in ServiceLocator";
+        qCWarning(lcViewModels) << "MovieDetailsViewModel: LibraryService not available in ServiceLocator";
     }
 }
 
@@ -175,14 +176,14 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
     bool hasAnySimilarItems = hasFreshSimilarItems || loadSimilarItemsFromCache(movieId, cachedSimilarItems, /*requireFresh*/false);
 
     if (hasAny) {
-        qDebug() << "MovieDetailsViewModel: Serving movie details from cache"
+        qCDebug(lcViewModels) << "MovieDetailsViewModel: Serving movie details from cache"
                  << (hasFresh ? "FRESH" : "STALE");
         m_movieData = cachedMovie;
         updateMovieMetadata(cachedMovie);
     }
 
     if (hasAnySimilarItems) {
-        qDebug() << "MovieDetailsViewModel: Serving similar items from cache"
+        qCDebug(lcViewModels) << "MovieDetailsViewModel: Serving similar items from cache"
                  << (hasFreshSimilarItems ? "FRESH" : "STALE")
                  << "count:" << cachedSimilarItems.size();
         QVariantList mappedItems;
@@ -205,7 +206,7 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
     setLoading(m_loadingMovie);
     clearError();
 
-    qDebug() << "MovieDetailsViewModel::loadMovieDetails" << movieId;
+    qCDebug(lcViewModels) << "MovieDetailsViewModel::loadMovieDetails" << movieId;
     
     // Fetch from server
     // Request typical fields for details view
@@ -371,7 +372,7 @@ void MovieDetailsViewModel::onMovieDetailsNotModified(const QString &itemId)
     
     m_loadingMovie = false;
     setLoading(false);
-    qDebug() << "MovieDetailsViewModel: Movie details not modified" << itemId;
+    qCDebug(lcViewModels) << "MovieDetailsViewModel: Movie details not modified" << itemId;
 
     if (!m_similarItemsAttempted && !m_similarItemsLoading && m_libraryService) {
         m_similarItemsAttempted = true;
@@ -407,7 +408,7 @@ void MovieDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const QS
         emit similarItemsLoadingChanged();
     }
 
-    qWarning() << "MovieDetailsViewModel similar items error:" << error;
+    qCWarning(lcViewModels) << "MovieDetailsViewModel similar items error:" << error;
 }
 
 void MovieDetailsViewModel::onMovieChaptersLoaded(const QString &itemId,
@@ -441,7 +442,7 @@ void MovieDetailsViewModel::onMovieChaptersFailed(const QString &itemId, const Q
     }
 
     m_pendingMovieChapterIds.remove(itemId);
-    qWarning() << "MovieDetailsViewModel movie chapters error for" << itemId << ":" << error;
+    qCWarning(lcViewModels) << "MovieDetailsViewModel movie chapters error for" << itemId << ":" << error;
 
     if (itemId == m_movieChapterId) {
         m_chapters.clear();
@@ -553,7 +554,7 @@ void MovieDetailsViewModel::fetchMdbListRatings(const QString &imdbId, const QSt
         compileRatings();
 
         const QVariantList ratingsList = m_mdbListRatings.value("ratings").toList();
-        qDebug() << "MDBList ratings updated, count:" << ratingsList.size();
+        qCDebug(lcViewModels) << "MDBList ratings updated, count:" << ratingsList.size();
     });
 }
 
@@ -594,13 +595,13 @@ void MovieDetailsViewModel::fetchAniListRating(const QString &imdbId, const QStr
     // First try mapping via Wikidata
     fetchAniListIdFromWikidata(imdbId, [this, title, year](const QString &foundId) {
         if (!foundId.isEmpty()) {
-            qDebug() << "Found AniList ID via Wikidata:" << foundId;
+            qCDebug(lcViewModels) << "Found AniList ID via Wikidata:" << foundId;
             queryAniListById(foundId);
         } else {
             // Fallback: Search by title if Wikidata fails
             // NOTE: Implementing just the Wikidata path first as it's cleaner. 
             // Title search can be fuzzy.
-            qWarning() << "No AniList ID found in Wikidata for" << title;
+            qCWarning(lcViewModels) << "No AniList ID found in Wikidata for" << title;
         }
     });
 }
