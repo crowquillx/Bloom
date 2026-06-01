@@ -1,22 +1,22 @@
 {
-  "build_id": "0.6.5",
+  "build_id": "0.6.6",
   "channel": "stable",
   "installer": {
-    "filename": "Bloom-Setup-0.6.5.exe",
-    "sha256": "1b1d1949a77889006d333bd0aa2b94d2c07de91938bd23212285e5bb71cc45b4",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.5/Bloom-Setup-0.6.5.exe"
+    "filename": "Bloom-Setup-0.6.6.exe",
+    "sha256": "91a832b32655e50507106bca1beda6f2da793b098dd9c37d5bce0b7ea598b78e",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.6/Bloom-Setup-0.6.6.exe"
   },
-  "notes": "## What's Changed in v0.6.5\n\n### New Features\n\n- add media segment providers in app and support on server (#53)\n- extend skip popup duration setting\n- **playback**: runtime external subtitle injection (PlayerController::addExternalSubtitleTrack) (#52)\n- **home**: split Continue Watching from Next Up with merge setting (#51)\n- **playback**: add global track language defaults (#48)\n- add buffered cache progress indicator to playback overlay\n\n### Bug Fixes\n\n- **playback**: handle missing next episode (#50)\n- **tests**: add missing include paths + docs: Cursor Cloud setup instructions (#49)\n- **network**: use BLOOM_VERSION in Jellyfin auth header instead of hardcoded 1.0.0\n- **ui, config**: ensure spinbox value is committed on destruction and trace cache size\n\n**Full changelog:** [v0.6.4...v0.6.5](https://github.com/crowquillx/Bloom/compare/v0.6.4...v0.6.5)",
+  "notes": "## What's Changed in v0.6.6\n\n### New Features\n\n- **ui**: add Go to Series action from season episode view (#57)\n- chapter support (#54)\n- autoupdate update\n\n### Bug Fixes\n\n- race condition on active screen binding\n- stale playback info causing nonexistent files to play\n- navigation around next up screen\n- defer up next display restore\n- better handling for the up-next screen (#56)\n- correctly stop playback\n- stabilize detail metadata shelves and playback readiness (#55)\n\n### Documentation\n\n- **migration**: append Flutter shared-core contract notes (#59)\n\n### Other\n\n- gitignore\n- Update README.md\n\n**Full changelog:** [v0.6.5...v0.6.6](https://github.com/crowquillx/Bloom/compare/v0.6.5...v0.6.6)",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "6d0bd68cee6b8b9b0381f3cb63d6be73074a0fb573c0d0db1e0ff9ae1388390a",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.5/Bloom-Windows.zip"
+    "sha256": "1e8705bd9854a7dbc978ff87a37a18749639528ac1a7942d3316fbc37317eadd",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.6/Bloom-Windows.zip"
   },
-  "published_at": "2026-05-10T04:55:57.1211116Z",
-  "release_tag": "v0.6.5",
+  "published_at": "2026-06-01T02:48:13.4460521Z",
+  "release_tag": "v0.6.6",
   "rollout": {
     "enabled": true,
-    "minimum_supported_version": "0.6.5"
+    "minimum_supported_version": "0.6.6"
   },
-  "version": "0.6.5"
+  "version": "0.6.6"
 }
