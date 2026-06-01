@@ -16,11 +16,12 @@
 #include <clocale>
 #include <algorithm>
 
+#include "../../utils/BloomLogging.h"
+
 #if defined(BLOOM_HAS_LIBMPV)
 extern "C" {
 #include <mpv/client.h>
 #include <mpv/render_gl.h>
-#include "../../utils/BloomLogging.h"
 }
 #endif
 

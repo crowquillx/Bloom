@@ -242,9 +242,11 @@ jobs:
 
       - name: Cache sccache
         uses: actions/cache@v5
+        continue-on-error: true
+        id: cache_sccache_windows
         with:
           path: .sccache
-          key: ${{ runner.os }}-sccache-msvc2022-qt610-v2
+          key: ${{ runner.os }}-sccache-msvc2022-qt610-v3
           restore-keys: |
             ${{ runner.os }}-sccache-msvc2022-qt610-
             ${{ runner.os }}-sccache-
