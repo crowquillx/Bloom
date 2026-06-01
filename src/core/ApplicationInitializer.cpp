@@ -24,6 +24,7 @@
 #include "ui/UiSoundController.h"
 #include "utils/GpuMemoryTrimmer.h"
 #include "utils/Logger.h"
+#include "utils/LoggingConfig.h"
 #include "network/SessionManager.h"
 #include "network/SessionService.h"
 #include "updates/UpdateService.h"

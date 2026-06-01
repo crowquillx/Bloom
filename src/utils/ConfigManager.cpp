@@ -2783,6 +2783,11 @@ QJsonObject ConfigManager::defaultConfig() const
     cache["rounded_preprocess_enabled"] = true;
     settings["cache"] = cache;
 
+    QJsonObject logging;
+    logging["level"] = QStringLiteral("info");
+    logging["qt_rules"] = QString();
+    settings["logging"] = logging;
+
     // UI Settings
     QJsonObject ui;
     ui["backdrop_rotation_interval"] = 30000;

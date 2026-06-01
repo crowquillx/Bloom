@@ -52,6 +52,11 @@ When adding settings
 - Implement getters/setters in `ConfigManager.cpp` that persist to `app.json` and emit signals on change.
 - Update docs (this file) and add UI controls in `SettingsScreen.qml` where appropriate.
 
+Logging settings
+- `settings.logging.level` controls file/console verbosity. Valid values: `info` (default), `debug`, `quiet`. Default `info` suppresses uncategorized `qDebug()` spam (for example view-model cache traces) and disables debug output for noisy Qt categories such as `bloom.imagecache` and `bloom.library`.
+- `settings.logging.qt_rules` optional Qt logging category rules (newline-separated) appended to Bloom defaults. Use for targeted diagnostics, for example `bloom.imagecache.debug=true`. The `QT_LOGGING_RULES` environment variable is still honored by Qt before startup.
+- Pass `--verbose` / `-v` on the command line to force full debug logging for one session (overrides `settings.logging.level`).
+
 Cache settings
 - `settings.cache.image_cache_size_mb` controls the disk image cache size in megabytes. Default 500; minimum enforced at 50MB; config-only (no UI).
 - `settings.cache.rounded_image_mode` controls how rounded thumbnails are generated and cached. Defaults to `auto` (platform decides); you can force `always` (preprocess every image) or `never`.

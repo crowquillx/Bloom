@@ -72,6 +72,8 @@ qt_add_executable(Bloom
     utils/GpuMemoryTrimmer.cpp
     utils/Logger.h
     utils/Logger.cpp
+    utils/LoggingConfig.h
+    utils/LoggingConfig.cpp
     viewmodels/BaseViewModel.h
     viewmodels/BaseViewModel.cpp
     viewmodels/LibraryViewModel.h

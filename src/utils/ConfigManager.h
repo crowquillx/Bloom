@@ -362,6 +362,12 @@ public:
     QString getUsername() const;
     QString getUserId() const;
 
+    // Logging (config-only; no settings UI)
+    /// @brief Log verbosity: "info" (default), "debug", or "quiet".
+    QString getLogLevel() const;
+    /// @brief Optional Qt logging category rules appended to Bloom defaults.
+    QString getQtLoggingRules() const;
+
     // Cache Settings
     void setImageCacheSizeMB(int mb);
     int getImageCacheSizeMB() const;

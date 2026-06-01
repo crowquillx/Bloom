@@ -90,6 +90,7 @@ public:
 private:
     QGuiApplication *m_app;
     bool m_consoleOutputEnabled = false;
+    bool m_verboseLogging = false;
     
     // Service ownership
     std::unique_ptr<ConfigManager> m_configManager;
