@@ -129,6 +129,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool autoUpdateCheckEnabled READ getAutoUpdateCheckEnabled WRITE setAutoUpdateCheckEnabled NOTIFY autoUpdateCheckEnabledChanged)
     Q_PROPERTY(QString lastUpdateCheckAt READ getLastUpdateCheckAt WRITE setLastUpdateCheckAt NOTIFY lastUpdateCheckAtChanged)
     Q_PROPERTY(QString skippedUpdateVersion READ getSkippedUpdateVersion WRITE setSkippedUpdateVersion NOTIFY skippedUpdateVersionChanged)
+    Q_PROPERTY(QString logLevel READ getLogLevel WRITE setLogLevel NOTIFY logLevelChanged)
     Q_PROPERTY(QVariantList supportedTrackLanguages READ getSupportedTrackLanguages CONSTANT)
     
 public:
@@ -362,10 +363,9 @@ public:
     QString getUsername() const;
     QString getUserId() const;
 
-    // Logging (config-only; no settings UI)
-    /// @brief Log verbosity: "info" (default), "debug", or "quiet".
+    // Logging
     QString getLogLevel() const;
-    /// @brief Optional Qt logging category rules appended to Bloom defaults.
+    void setLogLevel(const QString &level);
     QString getQtLoggingRules() const;
 
     // Cache Settings

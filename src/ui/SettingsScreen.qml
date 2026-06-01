@@ -75,6 +75,7 @@ FocusScope {
         function onManualDpiScaleOverrideChanged() { root.scheduleSettingsSavedToast() }
         function onUpdateChannelChanged() { root.scheduleSettingsSavedToast() }
         function onAutoUpdateCheckEnabledChanged() { root.scheduleSettingsSavedToast() }
+        function onLogLevelChanged() { root.scheduleSettingsSavedToast() }
     }
 
     signal signOutRequested()

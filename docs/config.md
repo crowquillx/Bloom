@@ -57,6 +57,7 @@ Logging settings
 - Default `info` level silences routine **image** (`bloom.imagecache`), **library cache** (`bloom.viewmodels`, `bloom.librarycache`, `bloom.cache`), and **playback trace** noise while keeping **all warnings and errors** (including image load failures).
 - `settings.logging.qt_rules` optional Qt logging category rules (newline-separated) appended to Bloom defaults. Use for targeted diagnostics, for example `bloom.imagecache.debug=true`. The `QT_LOGGING_RULES` environment variable is still honored by Qt before startup.
 - Pass `--verbose` / `-v` on the command line to force full debug logging for one session (overrides `settings.logging.level`).
+- **Settings UI:** Settings → About & Account → **Log Level** (same section as updates). Changes apply immediately without restart.
 
 
 ### Logging categories (for `qt_rules`)

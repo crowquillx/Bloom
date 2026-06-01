@@ -95,10 +95,12 @@ static void qtMessageHandler(QtMsgType type, const QMessageLogContext &context, 
 
 ApplicationInitializer::ApplicationInitializer(QGuiApplication *app,
                                                bool consoleOutputEnabled,
+                                               bool verboseLogging,
                                                QObject *parent)
     : QObject(parent)
     , m_app(app)
     , m_consoleOutputEnabled(consoleOutputEnabled)
+    , m_verboseLogging(verboseLogging)
 {
 }
 
