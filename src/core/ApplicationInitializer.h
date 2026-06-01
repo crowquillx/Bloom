@@ -55,6 +55,7 @@ public:
     /** @brief Constructs the initializer; does not create any services yet. */
     explicit ApplicationInitializer(QGuiApplication *app,
                                     bool consoleOutputEnabled = false,
+                                    bool verboseLogging = false,
                                     QObject *parent = nullptr);
 
     /** @brief Destroys all owned services and clears the ServiceLocator. */
@@ -90,7 +91,6 @@ public:
 private:
     QGuiApplication *m_app;
     bool m_consoleOutputEnabled = false;
-    bool m_verboseLogging = false;
     
     // Service ownership
     std::unique_ptr<ConfigManager> m_configManager;

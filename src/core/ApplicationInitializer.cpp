@@ -25,6 +25,7 @@
 #include "utils/GpuMemoryTrimmer.h"
 #include "utils/Logger.h"
 #include "utils/LoggingConfig.h"
+#include "utils/BloomLogging.h"
 #include "network/SessionManager.h"
 #include "network/SessionService.h"
 #include "updates/UpdateService.h"
@@ -35,7 +36,6 @@
 #include <QGuiApplication>
 #include <QDebug>
 #include <cstdio>
-#include "../utils/BloomLogging.h"
 
 /**
  * @brief Qt message handler that forwards all Qt diagnostic output to the custom Logger.
@@ -114,21 +114,23 @@ void ApplicationInitializer::registerServices()
     if (!Logger::instance().initialize()) {
         qCWarning(lcApp) << "Failed to initialize Logger, falling back to console output";
     }
-    // Enable debug-level logging and console output
-    Logger::instance().setMinLogLevel(Logger::LogLevel::Debug);
-    Logger::instance().setConsoleOutputEnabled(m_consoleOutputEnabled);
-    // Install Qt message handler to route all qDebug/qWarning/etc through our Logger
-    qInstallMessageHandler(qtMessageHandler);
-    
 
     // 1. ConfigManager - No dependencies, must be first to load settings
     m_configManager = std::make_unique<ConfigManager>();
     ServiceLocator::registerService<ConfigManager>(m_configManager.get());
 
-
-    // Load configuration early so downstream services can read settings (e.g., cache size)
+    // Load configuration early so logging and downstream services can read settings
     m_configManager->load();
-    
+
+    LoggingConfig::apply(
+        LoggingConfig::levelFromString(m_configManager->getLogLevel()),
+        m_configManager->getQtLoggingRules(),
+        m_verboseLogging);
+
+    Logger::instance().setConsoleOutputEnabled(m_consoleOutputEnabled);
+    // Install Qt message handler to route all qDebug/qWarning/etc through our Logger
+    qInstallMessageHandler(qtMessageHandler);
+
     // 1.5 DisplayManager - Depends on ConfigManager
     m_displayManager = std::make_unique<DisplayManager>(m_configManager.get());
     ServiceLocator::registerService<DisplayManager>(m_displayManager.get());
@@ -144,13 +146,13 @@ void ApplicationInitializer::registerServices()
     // 2. Player backend - No dependencies
     m_playerBackend = PlayerBackendFactory::create(m_configManager->getPlayerBackend());
     ServiceLocator::registerService<IPlayerBackend>(m_playerBackend.get());
-    qCInfo(lcApp) << "ApplicationInitializer: Active player backend:" << m_playerBackend->backendName();
+    qInfo() << "ApplicationInitializer: Active player backend:" << m_playerBackend->backendName();
     
     // Check if we're in test mode
     bool isTestMode = TestModeController::instance()->isTestMode();
     
     if (isTestMode) {
-        qCDebug(lcApp) << "ApplicationInitializer: Running in test mode - registering mock services";
+        qDebug() << "ApplicationInitializer: Running in test mode - registering mock services";
         
         // 2.5 SecretStore - Create platform-specific secure storage (still needed for mock services)
         m_secretStore = SecretStoreFactory::create();
@@ -323,20 +325,20 @@ void ApplicationInitializer::initializeServices()
     
     connect(auth, &AuthenticationService::sessionExpired,
         [auth]() {
-            qCWarning(lcApp) << "Session expired, triggering logout";
+            qWarning() << "Session expired, triggering logout";
             auth->logout();
     });
     
     connect(auth, &AuthenticationService::sessionExpiredAfterPlayback,
         [auth]() {
-            qCWarning(lcApp) << "Session expired (detected during playback), triggering logout";
+            qWarning() << "Session expired (detected during playback), triggering logout";
             auth->logout();
     });
     
     // Connect playback stopped to check for pending session expiry
     connect(m_playerController.get(), &PlayerController::playbackStopped,
         [auth]() {
-            qCDebug(lcApp) << "Playback stopped, checking for pending session expiry";
+            qDebug() << "Playback stopped, checking for pending session expiry";
             auth->checkPendingSessionExpiry();
     });
     

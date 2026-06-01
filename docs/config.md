@@ -61,16 +61,33 @@ Logging settings
 
 ### Logging categories (for `qt_rules`)
 
-| Category | Purpose |
-|----------|---------|
-| `bloom.imagecache` | Poster/backdrop disk + memory image cache |
-| `bloom.viewmodels` | Library/series/movie view-model cache & SWR |
-| `bloom.librarycache` | SQLite library list cache |
-| `bloom.cache` | Detail-view JSON cache files |
-| `bloom.library` | Jellyfin library API requests |
-| `bloom.playback` | Playback controller (info suppressed by default) |
-| `bloom.playback.ipc` | mpv IPC traffic |
-| `bloom.auth` | Login, session, keychain |
+At the default `info` level, Bloom applies filter rules in `src/utils/LoggingConfig.cpp` (`LoggingConfig::defaultQtRules()`). The table below lists every category used in the codebase. **Warnings and errors are never filtered** for any category.
+
+| Category | Purpose | Routine output hidden at `info` |
+|----------|---------|----------------------------------|
+| `bloom.imagecache` | Poster/backdrop disk + memory image cache | debug, info |
+| `bloom.viewmodels` | Library/series/movie view-model cache & SWR | debug, info |
+| `bloom.librarycache` | SQLite library list cache | debug, info |
+| `bloom.cache` | Detail-view JSON cache files | debug, info |
+| `bloom.library` | Jellyfin library API requests | debug, info |
+| `bloom.auth` | Login, session, keychain | debug |
+| `bloom.config` | Config load/save | debug |
+| `bloom.app` | Application startup / service wiring | debug |
+| `bloom.ui` | Fonts, responsive layout | debug |
+| `bloom.ui.scenegraph` | Qt Quick scene graph diagnostics | debug |
+| `bloom.playback` | Playback controller | debug |
+| `bloom.playback.ipc` | mpv JSON IPC traffic | debug |
+| `bloom.playback.trickplay` | Trickplay tile processing | debug |
+| `bloom.playback.trace` | Playback state-machine trace | debug, info |
+| `bloom.playback.displaytrace` | Display refresh rate / HDR switching | debug |
+| `bloom.playback.backend.linux.libmpv` | Embedded libmpv on Linux | debug |
+| `bloom.playback.backend.windows.libmpv` | Embedded libmpv on Windows | debug |
+| `bloom.playback.backend.factory` | Player backend selection | debug |
+| `bloom.playback.backend.*` | Wildcard for all backend categories | debug |
+| `bloom.gpu.trim` | GPU memory trimming | debug |
+| `bloom.mediaSegments` | Intro/credits segment providers | debug |
+| `jellyfin.network` | Shared Jellyfin network types/helpers | debug |
+| `bloom.test` | Test mode / mock services | debug |
 
 Example — debug image cache only:
 

@@ -12,9 +12,10 @@
 #include <QtConcurrent/QtConcurrent>
 #include <vector>
 
+#include "BloomLogging.h"
+
 #ifdef Q_OS_WIN
 #include <windows.h>
-#include "BloomLogging.h"
 #endif
 
 // Windows 10 SDK 10.0.26100.0+ already includes the necessary definitions.
