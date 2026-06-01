@@ -129,6 +129,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool autoUpdateCheckEnabled READ getAutoUpdateCheckEnabled WRITE setAutoUpdateCheckEnabled NOTIFY autoUpdateCheckEnabledChanged)
     Q_PROPERTY(QString lastUpdateCheckAt READ getLastUpdateCheckAt WRITE setLastUpdateCheckAt NOTIFY lastUpdateCheckAtChanged)
     Q_PROPERTY(QString skippedUpdateVersion READ getSkippedUpdateVersion WRITE setSkippedUpdateVersion NOTIFY skippedUpdateVersionChanged)
+    Q_PROPERTY(QString logLevel READ getLogLevel WRITE setLogLevel NOTIFY logLevelChanged)
     Q_PROPERTY(QVariantList supportedTrackLanguages READ getSupportedTrackLanguages CONSTANT)
     
 public:
@@ -464,8 +465,12 @@ signals:
     void autoUpdateCheckEnabledChanged();
     void lastUpdateCheckAtChanged();
     void skippedUpdateVersionChanged();
+    void logLevelChanged();
 
 private:
+    QString normalizeLogLevelValue(const QString &level) const;
+    void applyLoggingSettings();
+
     QString normalizePlayerBackendName(const QString &backendName) const;
     QString normalizeRoundedMode(const QString &raw) const;
     bool envOverridesRoundedPreprocess(bool current) const;
