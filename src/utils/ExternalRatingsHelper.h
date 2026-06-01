@@ -95,7 +95,7 @@ inline void fetchMdbListRatings(QNetworkAccessManager *networkManager,
                 onSuccess(doc.object().toVariantMap());
             }
         } else {
-            qWarning() << "MDBList API error:" << reply->errorString();
+            qCWarning(lcViewModels) << "MDBList API error:" << reply->errorString();
         }
     });
 }
@@ -143,7 +143,7 @@ inline void fetchAniListIdFromWikidata(QNetworkAccessManager *networkManager,
                 anilistId = binding.value("anilistId").toObject().value("value").toString();
             }
         } else {
-            qWarning() << "Wikidata query failed:" << reply->errorString();
+            qCWarning(lcViewModels) << "Wikidata query failed:" << reply->errorString();
         }
 
         if (onFinished) {
@@ -182,7 +182,7 @@ inline void queryAniListById(QNetworkAccessManager *networkManager,
         }
 
         if (reply->error() != QNetworkReply::NoError) {
-            qWarning() << "AniList API error:" << reply->errorString();
+            qCWarning(lcViewModels) << "AniList API error:" << reply->errorString();
             return;
         }
 

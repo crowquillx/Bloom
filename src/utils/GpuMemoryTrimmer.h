@@ -3,15 +3,12 @@
 
 #include <QObject>
 #include <QPointer>
-#include <QLoggingCategory>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
 #include <optional>
 
 class ConfigManager;
 class ImageCacheProvider;
-
-Q_DECLARE_LOGGING_CATEGORY(lcGpuTrim)
 
 /**
  * @brief Trims GPU/scenegraph usage while mpv handles playback.

@@ -14,20 +14,6 @@ AuthenticationService::AuthenticationService(ISecretStore *secretStore, QObject 
     , m_nam(new QNetworkAccessManager(this))
     , m_secretStore(secretStore)
 {
-    // Handle async session restoration result
-    connect(&m_restorationWatcher, &QFutureWatcher<RestorationResult>::finished, this, [this, configManager = static_cast<ConfigManager*>(nullptr)]() mutable { // capture logic handled in initialize
-        // Note: We can't capture configManager easily in the constructor unless we store it
-        // But we passed it to initialize. We'll handle the completion logic there or rely on member variables?
-        // Actually, initialize passes configManager. We can't access it here easily.
-        // Let's rely on the lambda inside initialize connecting to the watcher, OR
-        // Use a pointer stored in the service? No, dependency injection via initialize is fine but the watcher needs context.
-        // Better: Connect in initialize, or just handle generic result here?
-        // We need to update configManager if migration happened.
-        
-        // Let's handle it in initialize's lambda to keep context.
-        m_isRestoringSession = false;
-        emit isRestoringSessionChanged();
-    });
 }
 
 void AuthenticationService::initialize(ConfigManager *configManager)
@@ -222,7 +208,7 @@ void AuthenticationService::onAuthenticateFinished(QNetworkReply *reply)
     emit serverUrlChanged();
     emit userIdChanged();
     emit authenticatedChanged();
-    qCritical() << "=== AuthenticationService: EMITTING loginSuccess signal ===" << m_userId << m_username;
+    qCCritical(lcAuth) << "=== AuthenticationService: EMITTING loginSuccess signal ===" << m_userId << m_username;
     emit loginSuccess(m_userId, m_accessToken, m_username);
 }
 
@@ -244,7 +230,7 @@ void AuthenticationService::restoreSession(const QString &serverUrl, const QStri
             emit serverUrlChanged();
             emit userIdChanged();
             emit authenticatedChanged();
-            qCritical() << "=== AuthenticationService: EMITTING loginSuccess from restoreSession ===" << m_userId;
+            qCCritical(lcAuth) << "=== AuthenticationService: EMITTING loginSuccess from restoreSession ===" << m_userId;
             emit loginSuccess(m_userId, m_accessToken, m_username);
         } else {
             qCWarning(lcAuth) << "Stored session is invalid or expired";
