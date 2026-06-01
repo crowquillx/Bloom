@@ -60,12 +60,9 @@ jobs:
       - name: Cache Qt SDK
         id: cache_qt_windows
         uses: actions/cache@v5
-        continue-on-error: true
         with:
           path: ${{ runner.workspace }}/Qt
-          key: windows-qt-6.10.0-win64_msvc2022_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-v2
-          restore-keys: |
-            windows-qt-6.10.0-win64_msvc2022_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-
+          key: windows-qt-6.10.0-win64_msvc2022_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-v1
 
       - name: Install aqtinstall
         shell: pwsh
@@ -295,6 +292,15 @@ jobs:
           }
           sccache --show-stats
           sccache --stop-server
+
+      - name: Stop sccache server
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          if (Get-Command sccache -ErrorAction SilentlyContinue) {
+            & sccache --stop-server 2>&1 | Out-Null
+          }
 
       - name: Package App
         shell: pwsh
