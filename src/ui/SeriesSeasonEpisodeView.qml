@@ -360,6 +360,28 @@ FocusScope {
             }
         })
     }
+
+    function restoreEpisodeSelection(episodeId) {
+        resetInitialSelectionState()
+        initialEpisodeSelectionPending = true
+        userHasInteracted = false
+
+        Qt.callLater(function() {
+            if (initialSeasonId !== "" && SeriesDetailsViewModel.selectedSeasonId !== initialSeasonId) {
+                enforceInitialSeasonSelection()
+            }
+
+            if (!selectInitialEpisode(episodeId)) {
+                if (initialSeasonId !== "") {
+                    SeriesDetailsViewModel.refreshSeasonEpisodes(initialSeasonId)
+                } else if (SeriesDetailsViewModel.selectedSeasonId) {
+                    SeriesDetailsViewModel.refreshSeasonEpisodes(SeriesDetailsViewModel.selectedSeasonId)
+                }
+            }
+
+            episodesList.forceActiveFocus()
+        })
+    }
     
     // When episodes are loaded, find next-up/partially-watched episode
     Connections {
@@ -373,10 +395,10 @@ FocusScope {
         }
     }
     
-    function selectInitialEpisode() {
+    function selectInitialEpisode(episodeIdOverride) {
         if (episodesList.count === 0) {
             console.log("[SeriesSeasonEpisodeView] selectInitialEpisode: No episodes, skipping")
-            return
+            return false
         }
 
         var episodes = []
@@ -384,26 +406,27 @@ FocusScope {
             episodes.push(SeriesDetailsViewModel.episodesModel.getItem(i))
         }
 
-        if (initialEpisodeId !== "") {
-            console.log("[SeriesSeasonEpisodeView] Looking for initial episode ID:", initialEpisodeId, "in count:", episodesList.count, "for season:", SeriesDetailsViewModel.selectedSeasonId)
+        var targetEpisodeId = episodeIdOverride || initialEpisodeId
+        if (targetEpisodeId !== "") {
+            console.log("[SeriesSeasonEpisodeView] Looking for initial episode ID:", targetEpisodeId, "in count:", episodesList.count, "for season:", SeriesDetailsViewModel.selectedSeasonId)
         }
 
-        var selection = EpisodeSelection.resolveInitialEpisodeSelection(episodes, initialEpisodeId, initialSeasonId)
-        if (!selection.shouldApply && initialEpisodeId !== "") {
+        var selection = EpisodeSelection.resolveInitialEpisodeSelection(episodes, targetEpisodeId, initialSeasonId)
+        if (!selection.shouldApply && targetEpisodeId !== "") {
             if (selection.waitingForTargetSeason) {
                 console.log("[SeriesSeasonEpisodeView] Episode model still belongs to season:", selection.currentSeasonId,
                             "waiting for target season:", initialSeasonId)
-                return
+                return false
             }
 
             if (initialSeasonId !== "" && SeriesDetailsViewModel.selectedSeasonId !== initialSeasonId) {
                 console.log("[SeriesSeasonEpisodeView] Initial episode not in current season yet, waiting for season:", initialSeasonId)
-                return
+                return false
             }
 
-            console.warn("[SeriesSeasonEpisodeView] Initial episode ID not found after loading target season:", initialEpisodeId)
+            console.warn("[SeriesSeasonEpisodeView] Initial episode ID not found after loading target season:", targetEpisodeId)
             initialEpisodeSelectionPending = false
-            return
+            return false
         }
 
         var targetIndex = selection.targetIndex
@@ -422,6 +445,7 @@ FocusScope {
             console.log("[SeriesSeasonEpisodeView] Restoring focus to episodesList")
             episodesList.forceActiveFocus()
         })
+        return true
     }
 
     function episodeIndexById(episodeId) {
