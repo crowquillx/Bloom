@@ -362,6 +362,11 @@ public:
     QString getUsername() const;
     QString getUserId() const;
 
+    // Logging
+    QString getLogLevel() const;
+    void setLogLevel(const QString &level);
+    QString getQtLoggingRules() const;
+
     // Cache Settings
     void setImageCacheSizeMB(int mb);
     int getImageCacheSizeMB() const;
@@ -459,12 +464,8 @@ signals:
     void autoUpdateCheckEnabledChanged();
     void lastUpdateCheckAtChanged();
     void skippedUpdateVersionChanged();
-    void logLevelChanged();
 
 private:
-    QString normalizeLogLevelValue(const QString &level) const;
-    void applyLoggingSettings();
-
     QString normalizePlayerBackendName(const QString &backendName) const;
     QString normalizeRoundedMode(const QString &raw) const;
     bool envOverridesRoundedPreprocess(bool current) const;
