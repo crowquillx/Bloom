@@ -512,6 +512,7 @@ FocusScope {
             initialEpisodeId: root.initialEpisodeId
             pendingAudioTrackIndex: root.pendingAudioTrackIndex
             pendingSubtitleTrackIndex: root.pendingSubtitleTrackIndex
+            screenStackActive: root.StackView.status === StackView.Active
             onAutoplayOverridesConsumed: {
                 root.pendingAudioTrackIndex = -2
                 root.pendingSubtitleTrackIndex = -2

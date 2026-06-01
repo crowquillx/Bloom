@@ -2126,7 +2126,7 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
                                                         primarySource,
                                                         primaryPlaybackInfo);
     if (segments.isEmpty()) {
-        m_pendingPlaybackRequests.remove(requestId);
+        failPendingPlaybackRequest(requestId, tr("No playable media sources found."));
         return;
     }
 

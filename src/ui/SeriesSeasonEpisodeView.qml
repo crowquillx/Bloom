@@ -23,7 +23,30 @@ FocusScope {
     property bool appliedPendingTrackOverride: false
     property bool userMadeAudioSelection: false
     property bool userMadeSubtitleSelection: false
-    readonly property bool activeVisibleDetailView: root.visible && StackView.status === StackView.Active
+    // LibraryScreen binds this from its own StackView attachment (not the nested view's).
+    property bool screenStackActive: false
+    readonly property bool activeVisibleDetailView: root.visible && screenStackActive
+
+    onScreenStackActiveChanged: {
+        if (!screenStackActive || !root.visible) {
+            return
+        }
+        schedulePlaybackInfoPreload()
+        if (!hasPendingPlayback || pendingPlaybackRequestEpisodeId !== selectedEpisodeId) {
+            return
+        }
+        var fromBeginning = pendingPlaybackFromBeginning
+        var restoreTarget = pendingPlaybackRestoreFocusTarget
+        hasPendingPlayback = false
+        pendingPlaybackRequestEpisodeId = ""
+        pendingPlaybackFromBeginning = false
+        pendingPlaybackRestoreFocusTarget = null
+        Qt.callLater(function() {
+            if (root.visible && screenStackActive && !PlayerController.awaitingNextEpisodeResolution) {
+                performPlayback(fromBeginning, restoreTarget)
+            }
+        })
+    }
     readonly property int heroPosterWidth: Math.round(320 * Theme.layoutScale)
     readonly property int heroPosterHeight: Math.round(heroPosterWidth * 1.5)
     readonly property int heroPanelPadding: Theme.spacingXLarge
@@ -647,7 +670,8 @@ FocusScope {
         interval: 300
         repeat: false
         onTriggered: {
-            if (root.activeVisibleDetailView
+            if (root.visible
+                    && screenStackActive
                     && !PlayerController.awaitingNextEpisodeResolution
                     && selectedEpisodeId
                     && playbackInfoOwnerId !== selectedEpisodeId
@@ -663,7 +687,8 @@ FocusScope {
     function requestPlaybackInfo() {
         if (!selectedEpisodeId
                 || playbackInfoLoadingItemId === selectedEpisodeId
-                || !root.activeVisibleDetailView
+                || !root.visible
+                || !screenStackActive
                 || PlayerController.awaitingNextEpisodeResolution) {
             return
         }
@@ -675,12 +700,12 @@ FocusScope {
     
     // Trigger debounced playback info preload when episode is selected
     function schedulePlaybackInfoPreload() {
-        if (!root.activeVisibleDetailView || PlayerController.awaitingNextEpisodeResolution) {
+        if (PlayerController.awaitingNextEpisodeResolution || !selectedEpisodeId) {
             return
         }
         playbackInfoPreloadTimer.restart()
     }
-    
+
     // Open track selector with fresh playback info
     property bool waitingForContextInfo: false
     
@@ -735,7 +760,8 @@ FocusScope {
                     // Use callLater to ensure property bindings have updated
                     Qt.callLater(function() {
                         if (selectedEpisodeId === requestEpisodeId
-                                && root.activeVisibleDetailView
+                                && root.visible
+                                && screenStackActive
                                 && !PlayerController.awaitingNextEpisodeResolution) {
                             performPlayback(fromBeginning, restoreFocusTarget)
                         }
@@ -867,33 +893,35 @@ FocusScope {
     
     // Playback actions
     function startPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks) {
-        if (!selectedEpisodeId
-                || !root.activeVisibleDetailView
-                || PlayerController.awaitingNextEpisodeResolution) {
+        if (!selectedEpisodeId || PlayerController.awaitingNextEpisodeResolution) {
             return
         }
-        
+        if (!screenStackActive) {
+            console.log("[SeriesSeasonEpisodeView] startPlayback deferred until library screen is active")
+            hasPendingPlayback = true
+            pendingPlaybackRequestEpisodeId = selectedEpisodeId
+            pendingPlaybackFromBeginning = fromBeginning
+            pendingPlaybackRestoreFocusTarget = restoreFocusTarget || null
+            return
+        }
+
         console.log("[SeriesSeasonEpisodeView] startPlayback - Episode:", selectedEpisodeName,
                     "ID:", selectedEpisodeId,
                     "fromBeginning:", fromBeginning,
                     "hasPlaybackInfo:", playbackInfo !== null)
-        
-        if (playbackInfoOwnerId !== selectedEpisodeId || !currentMediaSource) {
-            if (playbackInfoLoadingItemId !== selectedEpisodeId) {
-                requestPlaybackInfo()
-            }
-            showPlaybackInfoNotReadyToast()
-            return
+
+        if (playbackInfoOwnerId !== selectedEpisodeId && playbackInfoLoadingItemId !== selectedEpisodeId) {
+            schedulePlaybackInfoPreload()
         }
-        
-        // Playback info is ready, proceed with playback
+
         performPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks)
     }
     
     function performPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks) {
-        if (!selectedEpisodeId
-                || !root.activeVisibleDetailView
-                || PlayerController.awaitingNextEpisodeResolution) {
+        if (!selectedEpisodeId || PlayerController.awaitingNextEpisodeResolution) {
+            return
+        }
+        if (!screenStackActive) {
             return
         }
         
