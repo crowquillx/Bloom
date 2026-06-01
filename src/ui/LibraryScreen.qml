@@ -524,6 +524,10 @@ FocusScope {
                 }))
             }
             
+            onSeriesDetailsRequested: function(episodeId) {
+                showSeriesDetailsFromSeasonView(episodeId)
+            }
+
             onBackRequested: {
                 exitSeasonView()
             }
@@ -1714,9 +1718,6 @@ FocusScope {
     function exitSeriesDetails() {
         // Helper to exit series details view
         showSeriesDetails = false
-        currentSeriesData = null
-        currentSeriesSeasons = []
-        currentNextEpisode = null
         navigateBack()
     }
     
@@ -1844,6 +1845,65 @@ FocusScope {
         updateBackdropForItem(episodeData)
         
         // Ensure focus is transferred to the episode view after it loads
+        Qt.callLater(function() {
+            if (contentLoader.item) {
+                contentLoader.item.forceActiveFocus()
+            }
+        })
+    }
+
+    function showSeriesDetailsFromSeasonView(episodeId) {
+        if (!currentSeriesId) {
+            return
+        }
+        var episodeIndex = -1
+        var lookupEpisodeId = episodeId || initialEpisodeId
+        if (SeriesDetailsViewModel.episodesModel && lookupEpisodeId !== "") {
+            for (var i = 0; i < SeriesDetailsViewModel.episodesModel.rowCount(); i++) {
+                var ep = SeriesDetailsViewModel.episodesModel.getItem(i)
+                if (ep && (ep.Id === lookupEpisodeId || ep.itemId === lookupEpisodeId)) {
+                    episodeIndex = i
+                    break
+                }
+            }
+        }
+        var previousContext = {
+            parentId: currentParentId,
+            seriesId: currentSeriesId,
+            showSeriesDetails: showSeriesDetails,
+            showSeasonView: showSeasonView,
+            showMovieDetails: showMovieDetails,
+            seriesDetailsReturnState: _seriesDetailsReturnState,
+            movieDetailsReturnState: _movieDetailsReturnState,
+            movieData: currentMovieData,
+            seasonId: currentSeasonId || SeriesDetailsViewModel.selectedSeasonId,
+            seasonName: currentSeasonName,
+            seasonNumber: currentSeasonNumber,
+            seasonPosterUrl: currentSeasonPosterUrl,
+            seasonsGridIndex: SeriesDetailsViewModel.selectedSeasonIndex >= 0 ? SeriesDetailsViewModel.selectedSeasonIndex : -1,
+            selectedGenres: selectedGenres.slice(),
+            selectedNetworks: selectedNetworks.slice(),
+            showFilterPanel: showFilterPanel,
+            activeFilterCategory: activeFilterCategory,
+            episodeIndex: episodeIndex
+        }
+        navigationStack.push(previousContext)
+        console.log("[Library] push navigation context for Series from season view",
+                    "stackSize:", navigationStack.length)
+        if (SeriesDetailsViewModel.selectedSeasonIndex >= 0) {
+            _pendingSeasonsGridIndex = SeriesDetailsViewModel.selectedSeasonIndex
+        }
+        if (episodeId) {
+            initialEpisodeId = episodeId
+        }
+        showSeriesDetails = true
+        showSeasonView = false
+        currentParentId = currentSeriesId
+        if (SeriesDetailsViewModel.backdropUrl !== "") {
+            currentBackdropUrl = SeriesDetailsViewModel.backdropUrl
+        } else if (currentSeriesData) {
+            updateBackdropForItem(currentSeriesData)
+        }
         Qt.callLater(function() {
             if (contentLoader.item) {
                 contentLoader.item.forceActiveFocus()

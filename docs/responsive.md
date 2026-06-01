@@ -441,7 +441,7 @@ A `Connections` block on `ResponsiveLayoutManager.onBreakpointChanged` saves the
 
 ## SeriesSeasonEpisodeView Responsive Layout
 
-[`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) uses the responsive layout system for the episode browsing experience with seasons tabs, episode thumbnails, the selected-episode `Chapters` shelf, cast metadata, action buttons, and audio/subtitle track selection.
+[`SeriesSeasonEpisodeView.qml`](../src/ui/SeriesSeasonEpisodeView.qml) uses the responsive layout system for the episode browsing experience with seasons tabs, episode thumbnails, the selected-episode `Chapters` shelf, cast metadata, action buttons (Play, Mark Watched, Favorite, **Go to Series**, and the audio/subtitle context menu), and audio/subtitle track selection. **Go to Series** opens the parent series details view and returns to the same season/episode context via the library navigation stack.
 
 ### Token usage
 
