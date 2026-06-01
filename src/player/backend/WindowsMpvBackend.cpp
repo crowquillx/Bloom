@@ -15,10 +15,11 @@
 
 #include <QLoggingCategory>
 
+#include "../../utils/BloomLogging.h"
+
 #if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
 extern "C" {
 #include <mpv/client.h>
-#include "../../utils/BloomLogging.h"
 }
 #endif
 

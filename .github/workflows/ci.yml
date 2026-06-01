@@ -242,11 +242,9 @@ jobs:
 
       - name: Cache sccache
         uses: actions/cache@v5
-        continue-on-error: true
-        id: cache_sccache_windows
         with:
           path: .sccache
-          key: ${{ runner.os }}-sccache-msvc2022-qt610-v3
+          key: ${{ runner.os }}-sccache-msvc2022-qt610-v2
           restore-keys: |
             ${{ runner.os }}-sccache-msvc2022-qt610-
             ${{ runner.os }}-sccache-
@@ -294,6 +292,14 @@ jobs:
           }
           sccache --show-stats
           sccache --stop-server
+
+      - name: Stop sccache server
+        if: always()
+        shell: pwsh
+        run: |
+          if (Get-Command sccache -ErrorAction SilentlyContinue) {
+            sccache --stop-server 2>$null
+          }
 
       - name: Package App
         shell: pwsh
