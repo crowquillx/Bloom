@@ -587,6 +587,7 @@ private:
     void cancelPendingTerminalTransition();
     void scheduleReplacementPlayback(const std::function<void()> &action);
     void finalizeReplacementPlaybackStop();
+    bool runPendingReplacementPlaybackAction();
     /**
      * Attempt to fall back from the internal player backend to an external backend for the current attempt.
      * @param reason Human-readable reason for attempting the fallback.

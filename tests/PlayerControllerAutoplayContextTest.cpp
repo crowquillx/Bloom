@@ -357,6 +357,7 @@ private slots:
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
     void userStopBelowThresholdWaitsForBackendExit();
+    void replacementPlaybackWaitsForQueuedTerminalFinalization();
     void explicitStopReportsFinalProgressAndStoppedOnce();
     void explicitPausedStopReportsPausedState();
     void explicitMultipartStopReportsActiveSegmentContext();
@@ -586,6 +587,55 @@ void PlayerControllerAutoplayContextTest::userStopBelowThresholdWaitsForBackendE
     QCoreApplication::processEvents();
 
     QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QVERIFY(!controller.m_terminalTransitionActive);
+}
+
+void PlayerControllerAutoplayContextTest::replacementPlaybackWaitsForQueuedTerminalFinalization()
+{
+    ConfigManager config;
+    config.setPlaybackCompletionThreshold(90);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    backend.emitStopStateChangeSynchronously = false;
+    backend.setRunning(true);
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_currentSeriesId = QStringLiteral("series-1");
+    controller.m_duration = 100.0;
+    controller.m_currentPosition = 40.0;
+    controller.m_playbackState = PlayerController::Playing;
+
+    controller.stop();
+    QVERIFY(controller.m_terminalTransitionActive);
+    QVERIFY(controller.m_terminalFinalizationQueued);
+    QCOMPARE(controller.playbackState(), PlayerController::Playing);
+
+    controller.playUrl(QStringLiteral("https://example.invalid/item-2"),
+                       QStringLiteral("item-2"));
+
+    QCOMPARE(backend.stopCallCount, 1);
+    QVERIFY(controller.m_terminalTransitionActive);
+    QCOMPARE(controller.playbackState(), PlayerController::Playing);
+    QVERIFY(backend.lastStartUrl.isEmpty());
+
+    backend.emitRunningState(false);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Loading);
+    QCOMPARE(controller.currentItemId(), QStringLiteral("item-2"));
+    QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/item-2"));
     QVERIFY(!controller.m_terminalTransitionActive);
 }
 

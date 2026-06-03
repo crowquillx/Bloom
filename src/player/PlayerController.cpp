@@ -1364,6 +1364,10 @@ void PlayerController::finalizeTerminalTransition()
     resetTerminalTransitionState();
     processEvent(eventForTerminalReason(reason));
 
+    if (runPendingReplacementPlaybackAction()) {
+        return;
+    }
+
     if (prefetchedReady && reason != TerminalReason::Error) {
         consumePrefetchedNextEpisodeAndNavigate();
     } else if (reason != TerminalReason::Error
@@ -1590,6 +1594,14 @@ void PlayerController::scheduleReplacementPlayback(const std::function<void()> &
 {
     m_pendingReplacementPlaybackAction = action;
 
+    if (m_terminalTransitionActive || m_terminalFinalizationQueued) {
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] replacement playback deferred until terminal transition finalizes"
+                                << "terminalActive=" << m_terminalTransitionActive
+                                << "terminalFinalizationQueued=" << m_terminalFinalizationQueued;
+        return;
+    }
+
     if (m_playerBackend && m_playerBackend->isRunning()) {
         reportPlaybackStop();
         m_suppressBackendStopHandling = true;
@@ -1627,9 +1639,19 @@ void PlayerController::finalizeReplacementPlaybackStop()
         return;
     }
 
+    runPendingReplacementPlaybackAction();
+}
+
+bool PlayerController::runPendingReplacementPlaybackAction()
+{
+    if (!m_pendingReplacementPlaybackAction) {
+        return false;
+    }
+
     const std::function<void()> action = m_pendingReplacementPlaybackAction;
     m_pendingReplacementPlaybackAction = std::function<void()>();
     action();
+    return true;
 }
 
 /**
@@ -2802,7 +2824,6 @@ void PlayerController::setEmbeddedVideoShrinkEnabled(bool enabled)
  */
 void PlayerController::playTestVideo()
 {
-    cancelPendingTerminalTransition();
     clearPendingAutoplayContext();
     clearNextEpisodePrefetchState();
     m_shouldAutoplay = false;
@@ -2891,7 +2912,6 @@ void PlayerController::playTestVideo()
  */
 void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionTicks, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR)
 {
-    cancelPendingTerminalTransition();
     m_playbackAttemptId = ++gPlaybackAttemptCounter;
     m_reportProgressOnNextPositionUpdate = false;
     qCDebug(lcPlayback) << "PlayerController: playUrl called with itemId:" << itemId 
