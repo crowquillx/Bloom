@@ -372,6 +372,43 @@ FocusScope {
         showControls()
     }
 
+    function handlePlaybackShortcut(event) {
+        if (!overlayActive) {
+            return false
+        }
+
+        if (event.key === Qt.Key_Plus
+                || event.key === Qt.Key_Equal
+                || event.key === Qt.Key_VolumeUp) {
+            adjustVolumeBy(5)
+            return true
+        }
+
+        if (event.key === Qt.Key_Minus
+                || event.key === Qt.Key_Underscore
+                || event.key === Qt.Key_VolumeDown) {
+            adjustVolumeBy(-5)
+            return true
+        }
+
+        if (event.key === Qt.Key_V) {
+            openVolumeSelector()
+            return true
+        }
+
+        if (event.key === Qt.Key_A) {
+            openAudioSelector()
+            return true
+        }
+
+        if (event.key === Qt.Key_S || event.key === Qt.Key_T || event.key === Qt.Key_C) {
+            openSubtitleSelector()
+            return true
+        }
+
+        return false
+    }
+
     function handleDirectionalKey(direction) {
         if (!overlayActive) {
             return false
@@ -680,6 +717,10 @@ FocusScope {
                 && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) {
             event.accepted = true
             root.triggerActiveSkip()
+            return
+        }
+        if (root.handlePlaybackShortcut(event)) {
+            event.accepted = true
             return
         }
         if (event.key === Qt.Key_Left) {

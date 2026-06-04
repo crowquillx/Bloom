@@ -25,6 +25,7 @@ class UpNextRecommendationsViewModel;
 class ISecretStore;
 class SidebarSettings;
 class UiSoundController;
+class SystemPowerController;
 class SessionManager;
 class SessionService;
 class UpdateService;
@@ -115,6 +116,7 @@ private:
     std::unique_ptr<UpNextRecommendationsViewModel> m_upNextRecommendationsViewModel;
     std::unique_ptr<SidebarSettings> m_sidebarSettings;
     std::unique_ptr<UiSoundController> m_uiSoundController;
+    std::unique_ptr<SystemPowerController> m_systemPowerController;
     std::unique_ptr<SessionManager> m_sessionManager;
     std::unique_ptr<SessionService> m_sessionService;
     std::unique_ptr<UpdateService> m_updateService;

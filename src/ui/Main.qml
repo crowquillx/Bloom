@@ -101,6 +101,21 @@ Window {
         })
     }
 
+    function isOnRootHomeScreen() {
+        var item = stackView.currentItem
+        return isLoggedIn
+                && stackView.depth === 1
+                && item
+                && item["navigationId"] === "home"
+    }
+
+    function openHomePowerMenu() {
+        if (!isOnRootHomeScreen() || homePowerDialog.opened) {
+            return
+        }
+        homePowerDialog.open()
+    }
+
     function ensurePlaybackOverlayFocus() {
         if (!embeddedPlaybackActive) {
             return
@@ -375,6 +390,185 @@ Window {
         id: mediaSourceSelectionDialogLoader
         active: false
         sourceComponent: MediaSourceSelectionDialog {
+        }
+    }
+
+    component PowerMenuButton: Button {
+        id: powerMenuButton
+        property string iconText: ""
+        property bool destructive: false
+        Layout.fillWidth: true
+        Layout.preferredHeight: Math.round(64 * Theme.layoutScale)
+        focusPolicy: Qt.StrongFocus
+        activeFocusOnTab: true
+        leftPadding: Math.round(18 * Theme.layoutScale)
+        rightPadding: Math.round(18 * Theme.layoutScale)
+
+        Keys.onReturnPressed: function(event) {
+            event.accepted = true
+            clicked()
+        }
+        Keys.onEnterPressed: function(event) {
+            event.accepted = true
+            clicked()
+        }
+        Keys.onSpacePressed: function(event) {
+            event.accepted = true
+            clicked()
+        }
+
+        contentItem: RowLayout {
+            spacing: Math.round(14 * Theme.layoutScale)
+
+            Text {
+                text: powerMenuButton.iconText
+                font.family: Theme.fontIcon
+                font.pixelSize: Math.round(28 * Theme.layoutScale)
+                color: powerMenuButton.destructive ? Theme.errorColor : Theme.textPrimary
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            Text {
+                text: powerMenuButton.text
+                font.family: Theme.fontPrimary
+                font.pixelSize: Theme.fontSizeBody
+                font.weight: Font.DemiBold
+                color: Theme.textPrimary
+                elide: Text.ElideRight
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+            }
+        }
+
+        background: Rectangle {
+            radius: Theme.radiusSmall
+            color: {
+                if (powerMenuButton.down) return Theme.buttonSecondaryBackgroundPressed
+                if (powerMenuButton.hovered || powerMenuButton.activeFocus) return Theme.buttonSecondaryBackgroundHover
+                return Theme.buttonSecondaryBackground
+            }
+            border.width: powerMenuButton.activeFocus ? Theme.buttonFocusBorderWidth : 1
+            border.color: powerMenuButton.activeFocus ? Theme.focusBorder : Theme.buttonSecondaryBorder
+        }
+    }
+
+    Dialog {
+        id: homePowerDialog
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        anchors.centerIn: parent
+        width: Math.min(Math.round(430 * Theme.layoutScale),
+                        Math.max(0, window.width - (Theme.spacingLarge * 2)))
+        padding: Theme.spacingLarge
+
+        function restoreHomeFocus() {
+            Qt.callLater(function() {
+                var item = stackView.currentItem
+                if (item && item.visible && typeof item["restoreFocusState"] === "function") {
+                    item["restoreFocusState"]()
+                } else if (item && typeof item["forceActiveFocus"] === "function") {
+                    item.forceActiveFocus()
+                }
+            })
+        }
+
+        function runPowerAction(action) {
+            if (action()) {
+                close()
+                return
+            }
+            if (SystemPowerController.lastError.length > 0) {
+                toast.show(SystemPowerController.lastError)
+            }
+        }
+
+        onOpened: Qt.callLater(function() { quitButton.forceActiveFocus() })
+        onClosed: restoreHomeFocus()
+        onRejected: close()
+
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                event.accepted = true
+                close()
+            }
+        }
+
+        background: Rectangle {
+            color: Theme.cardBackground
+            radius: Theme.radiusMedium
+            border.color: Theme.cardBorder
+            border.width: 1
+        }
+
+        header: Item {
+            implicitHeight: powerHeaderColumn.implicitHeight + (Theme.spacingLarge * 2)
+
+            Column {
+                id: powerHeaderColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.spacingLarge
+                spacing: Theme.spacingSmall
+
+                Text {
+                    text: qsTr("Power")
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeTitle
+                    font.weight: Font.DemiBold
+                    color: Theme.textPrimary
+                }
+
+                Text {
+                    width: parent.width
+                    text: qsTr("Choose an action for this session.")
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.textSecondary
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingSmall
+
+            PowerMenuButton {
+                id: quitButton
+                text: qsTr("Quit")
+                iconText: Icons.close
+                KeyNavigation.down: restartAppButton
+                onClicked: homePowerDialog.runPowerAction(function() { return SystemPowerController.quitApplication() })
+            }
+
+            PowerMenuButton {
+                id: restartAppButton
+                text: qsTr("Restart App")
+                iconText: Icons.refresh
+                KeyNavigation.up: quitButton
+                KeyNavigation.down: restartPcButton
+                onClicked: homePowerDialog.runPowerAction(function() { return SystemPowerController.restartApplication() })
+            }
+
+            PowerMenuButton {
+                id: restartPcButton
+                text: qsTr("Restart PC")
+                iconText: Icons.refresh
+                destructive: true
+                KeyNavigation.up: restartAppButton
+                KeyNavigation.down: shutdownButton
+                onClicked: homePowerDialog.runPowerAction(function() { return SystemPowerController.restartComputer() })
+            }
+
+            PowerMenuButton {
+                id: shutdownButton
+                text: qsTr("Shutdown")
+                iconText: Icons.power
+                destructive: true
+                KeyNavigation.up: restartPcButton
+                onClicked: homePowerDialog.runPowerAction(function() { return SystemPowerController.shutdownComputer() })
+            }
         }
     }
 
@@ -1248,6 +1442,19 @@ Window {
                 stackView.pop()
                 Qt.callLater(updateSidebarNavigation)
             }
+        }
+    }
+
+    Shortcut {
+        sequences: ["Esc"]
+        enabled: !PlayerController.isPlaybackActive
+                 && isOnRootHomeScreen()
+                 && !sidebarProxy.expanded
+                 && !homePowerDialog.opened
+                 && !(updateDialogLoader.item && updateDialogLoader.item.visible)
+        onActivated: {
+            if (InputModeManager.pointerActive) UiSoundController.playBack()
+            openHomePowerMenu()
         }
     }
     
