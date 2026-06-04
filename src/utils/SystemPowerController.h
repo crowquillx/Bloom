@@ -25,7 +25,7 @@ signals:
     void lastErrorChanged();
 
 private:
-    bool startDetached(const QString& program, const QStringList& arguments);
+    bool runCheckedPowerCommand(const QString& program, const QStringList& arguments);
     void setLastError(const QString& error);
 
     ConfigManager* m_configManager = nullptr;

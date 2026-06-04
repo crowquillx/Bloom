@@ -51,37 +51,57 @@ bool SystemPowerController::restartApplication()
 bool SystemPowerController::restartComputer()
 {
 #if defined(Q_OS_WIN)
-    return startDetached(QStringLiteral("shutdown"), { QStringLiteral("/r"), QStringLiteral("/t"), QStringLiteral("0") });
+    return runCheckedPowerCommand(QStringLiteral("shutdown"), { QStringLiteral("/r"), QStringLiteral("/t"), QStringLiteral("0") });
 #elif defined(Q_OS_MACOS)
-    return startDetached(QStringLiteral("/sbin/shutdown"), { QStringLiteral("-r"), QStringLiteral("now") });
+    return runCheckedPowerCommand(QStringLiteral("/sbin/shutdown"), { QStringLiteral("-r"), QStringLiteral("now") });
 #else
-    return startDetached(QStringLiteral("systemctl"), { QStringLiteral("reboot") });
+    return runCheckedPowerCommand(QStringLiteral("systemctl"), { QStringLiteral("reboot") });
 #endif
 }
 
 bool SystemPowerController::shutdownComputer()
 {
 #if defined(Q_OS_WIN)
-    return startDetached(QStringLiteral("shutdown"), { QStringLiteral("/s"), QStringLiteral("/t"), QStringLiteral("0") });
+    return runCheckedPowerCommand(QStringLiteral("shutdown"), { QStringLiteral("/s"), QStringLiteral("/t"), QStringLiteral("0") });
 #elif defined(Q_OS_MACOS)
-    return startDetached(QStringLiteral("/sbin/shutdown"), { QStringLiteral("-h"), QStringLiteral("now") });
+    return runCheckedPowerCommand(QStringLiteral("/sbin/shutdown"), { QStringLiteral("-h"), QStringLiteral("now") });
 #else
-    return startDetached(QStringLiteral("systemctl"), { QStringLiteral("poweroff") });
+    return runCheckedPowerCommand(QStringLiteral("systemctl"), { QStringLiteral("poweroff") });
 #endif
 }
 
-bool SystemPowerController::startDetached(const QString& program, const QStringList& arguments)
+bool SystemPowerController::runCheckedPowerCommand(const QString& program, const QStringList& arguments)
 {
     if (m_configManager) {
         m_configManager->save();
     }
 
-    if (QProcess::startDetached(program, arguments)) {
-        return true;
+    QProcess process;
+    process.start(program, arguments);
+    if (!process.waitForStarted(3000)) {
+        setLastError(tr("Failed to start %1: %2").arg(program, process.errorString()));
+        return false;
     }
 
-    setLastError(tr("Failed to start %1.").arg(program));
-    return false;
+    if (!process.waitForFinished(5000)) {
+        process.kill();
+        process.waitForFinished(1000);
+        setLastError(tr("%1 did not finish. Check system power permissions.").arg(program));
+        return false;
+    }
+
+    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+        QString detail = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
+        if (detail.isEmpty()) {
+            detail = QString::fromLocal8Bit(process.readAllStandardOutput()).trimmed();
+        }
+        setLastError(detail.isEmpty()
+                         ? tr("%1 failed with exit code %2.").arg(program).arg(process.exitCode())
+                         : detail);
+        return false;
+    }
+
+    return true;
 }
 
 void SystemPowerController::setLastError(const QString& error)
