@@ -21,6 +21,9 @@ endif()
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network Sql Concurrent Multimedia Test ShaderTools LinguistTools)
 find_package(Qt6 COMPONENTS MultimediaQuick QUIET)
 include(CTest)
+if(BUILD_TESTING)
+    find_package(GTest REQUIRED)
+endif()
 
 # Platform-specific secure storage dependencies
 if(UNIX AND NOT APPLE)
