@@ -22,6 +22,7 @@ RUN pacman -Syu --noconfirm --needed \
     sqlite \
     mpv \
     git \
+    gtest \
     libsecret \
     pkgconf
 

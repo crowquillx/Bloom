@@ -19,6 +19,7 @@ Key services
 - `TrickplayProcessor` — Uses `AuthenticationService` (network) + `PlaybackService` (tile URLs) to build trickplay binaries.
 - `ThemeSongManager` — Uses `LibraryService` for theme songs plus `ConfigManager` and `PlayerController` for state.
 - `InputModeManager` — Pointer/keyboard detection and cursor management.
+- `SystemPowerController` — QML-facing app/system power actions for the home power menu; saves config before quit/restart/shutdown requests.
 - `UpdateService` — Fetches per-channel update manifests, determines whether an update is available, gates the startup-only popup, and exposes update actions/state to QML.
 
 Initialization order (recommended)
@@ -37,8 +38,9 @@ Initialization order (recommended)
 13. ViewModels — e.g., LibraryViewModel, SeriesDetailsViewModel (depend on LibraryService).
 14. SidebarSettings — UI preference persistence for the shell/sidebar state.
 15. UiSoundController — depends on ConfigManager for UI sound settings.
-16. SessionManager — shared session reporting/coordination service.
-17. UpdateService — depends on ConfigManager and PlayerController, and owns the current update provider/applier wiring.
+16. SystemPowerController — depends on ConfigManager for pre-action config saves and is exposed to QML.
+17. SessionManager — shared session reporting/coordination service.
+18. UpdateService — depends on ConfigManager and PlayerController, and owns the current update provider/applier wiring.
 
 Usage
 - Register services at main startup using `ServiceLocator::registerService<T>(&instance);`.

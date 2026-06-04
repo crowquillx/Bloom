@@ -68,6 +68,8 @@ qt_add_executable(Bloom
     utils/DisplayManager.h
     utils/SidebarSettings.h
     utils/SidebarSettings.cpp
+    utils/SystemPowerController.h
+    utils/SystemPowerController.cpp
     utils/GpuMemoryTrimmer.h
     utils/GpuMemoryTrimmer.cpp
     utils/Logger.h

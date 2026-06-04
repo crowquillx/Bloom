@@ -21,6 +21,7 @@
 #include "viewmodels/MovieDetailsViewModel.h"
 #include "viewmodels/UpNextRecommendationsViewModel.h"
 #include "utils/SidebarSettings.h"
+#include "utils/SystemPowerController.h"
 #include "ui/UiSoundController.h"
 #include "utils/GpuMemoryTrimmer.h"
 #include "utils/Logger.h"
@@ -275,6 +276,10 @@ void ApplicationInitializer::registerServices()
     // 9. UI Sound Controller
     m_uiSoundController = std::make_unique<UiSoundController>(m_configManager.get());
     ServiceLocator::registerService<UiSoundController>(m_uiSoundController.get());
+
+    // 9.5 System power/controller actions exposed to the home power menu
+    m_systemPowerController = std::make_unique<SystemPowerController>(m_configManager.get());
+    ServiceLocator::registerService<SystemPowerController>(m_systemPowerController.get());
 
     // 10. SessionManager - Depends on ConfigManager and SecretStore
     m_sessionManager = std::make_unique<SessionManager>(m_configManager.get(), m_secretStore.get());

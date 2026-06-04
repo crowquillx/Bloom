@@ -204,6 +204,7 @@ UI Components for Track Selection
   - Left group: audio/subtitle icon buttons (runtime track cycling via `PlayerController`).
   - Center group: skip back 10s, previous chapter, play/pause, next chapter, skip forward 10s.
   - Right group: volume icon button opens a native volume panel (slider + muted state) with left/right keyboard/gamepad adjustment and Enter/Space mute toggle.
+  - Direct playback shortcuts: `+`/`=` or media volume-up increases volume, `-` or media volume-down decreases volume, `V` opens the volume panel, `A` opens the audio track selector, and `S`/`T`/`C` open the subtitle selector.
   - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
   - Escape first dismisses visible playback chrome (full controls, seek preview, skip-intro popup, or open track/volume panels); a second Escape stops playback when the overlay is already hidden. The header back control exits playback immediately while controls are visible.
   - Trickplay preview bubble: renders processed Jellyfin trickplay thumbnails from `PlayerController` and is hidden entirely when trickplay images are unavailable.
