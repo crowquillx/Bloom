@@ -391,16 +391,25 @@ FocusScope {
         }
 
         if (event.key === Qt.Key_V) {
+            if (event.isAutoRepeat) {
+                return true
+            }
             openVolumeSelector()
             return true
         }
 
         if (event.key === Qt.Key_A) {
+            if (event.isAutoRepeat) {
+                return true
+            }
             openAudioSelector()
             return true
         }
 
         if (event.key === Qt.Key_S || event.key === Qt.Key_T || event.key === Qt.Key_C) {
+            if (event.isAutoRepeat) {
+                return true
+            }
             openSubtitleSelector()
             return true
         }
