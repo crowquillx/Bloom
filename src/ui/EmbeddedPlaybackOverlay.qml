@@ -385,7 +385,6 @@ FocusScope {
         }
 
         if (event.key === Qt.Key_Minus
-                || event.key === Qt.Key_Underscore
                 || event.key === Qt.Key_VolumeDown) {
             adjustVolumeBy(-5)
             return true

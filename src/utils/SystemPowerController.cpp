@@ -35,12 +35,17 @@ bool SystemPowerController::restartApplication()
         arguments.removeFirst();
     }
 
+    if (m_configManager) {
+        m_configManager->save();
+    }
+
     if (!QProcess::startDetached(program, arguments, QDir::currentPath())) {
         setLastError(tr("Failed to launch a new Bloom process."));
         return false;
     }
 
-    return quitApplication();
+    QCoreApplication::quit();
+    return true;
 }
 
 bool SystemPowerController::restartComputer()
