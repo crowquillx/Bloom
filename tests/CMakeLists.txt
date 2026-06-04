@@ -87,6 +87,26 @@ target_link_libraries(LoggingConfigTest
 
 add_test(NAME LoggingConfigTest COMMAND LoggingConfigTest)
 
+add_executable(ConfigManagerThemeTest
+    ConfigManagerThemeTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/LoggingConfig.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp
+)
+
+target_include_directories(ConfigManagerThemeTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(ConfigManagerThemeTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Test
+)
+
+add_test(NAME ConfigManagerThemeTest COMMAND ConfigManagerThemeTest)
+
 # Player backend abstraction tests
 add_executable(PlayerBackendFactoryTest
     PlayerBackendFactoryTest.cpp

@@ -95,6 +95,8 @@ class ConfigManager : public QObject
     
     // Theme
     Q_PROPERTY(QString theme READ getTheme WRITE setTheme NOTIFY themeChanged)
+    Q_PROPERTY(QString themeFlavor READ getThemeFlavor WRITE setThemeFlavor NOTIFY themeFlavorChanged)
+    Q_PROPERTY(QString themeColorScheme READ getThemeColorScheme WRITE setThemeColorScheme NOTIFY themeColorSchemeChanged)
     
     // Read-only session info for display
     Q_PROPERTY(QString serverUrl READ getServerUrl NOTIFY sessionChanged)
@@ -275,6 +277,10 @@ public:
     // Theme
     void setTheme(const QString &theme);
     QString getTheme() const;
+    void setThemeFlavor(const QString &flavor);
+    QString getThemeFlavor() const;
+    void setThemeColorScheme(const QString &colorScheme);
+    QString getThemeColorScheme() const;
     
     // ========================================
     // MPV Profile Management
@@ -449,6 +455,8 @@ signals:
     void libraryProfilesChanged();
     void seriesProfilesChanged();
     void themeChanged();
+    void themeFlavorChanged();
+    void themeColorSchemeChanged();
     void imageCacheSizeChanged();
     void roundedImageModeChanged();
     void roundedImagePreprocessEnabledChanged();
@@ -477,6 +485,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 19;
+    static constexpr int kCurrentConfigVersion = 20;
     QJsonObject defaultConfig() const;
 };

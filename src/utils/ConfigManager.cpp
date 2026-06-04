@@ -2612,6 +2612,25 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV19ToV20(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 20;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject ui = settings.value("ui").toObject();
+        if (!ui.contains("theme_flavor")) {
+            ui["theme_flavor"] = QString();
+        }
+        if (!ui.contains("theme_color_scheme")) {
+            ui["theme_color_scheme"] = QStringLiteral("blue");
+        }
+
+        settings["ui"] = ui;
+        newConfig["settings"] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -2784,6 +2803,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 19) {
+            m_config = ConfigMigrator::migrateV19ToV20(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -2868,6 +2895,9 @@ QJsonObject ConfigManager::defaultConfig() const
     ui["launch_in_fullscreen"] = true;
     ui["launch_in_fullscreen_user_set"] = false;
     ui["ui_animations_enabled"] = true;
+    ui["theme"] = QStringLiteral("Jellyfin");
+    ui["theme_flavor"] = QString();
+    ui["theme_color_scheme"] = QStringLiteral("blue");
     settings["ui"] = ui;
 
     // Manual DPI Scale Override
@@ -3410,4 +3440,75 @@ QString ConfigManager::getTheme() const
         }
     }
     return "Jellyfin"; // Default theme
+}
+
+void ConfigManager::setThemeFlavor(const QString &flavor)
+{
+    const QString normalized = flavor.trimmed().toLower();
+    if (normalized == getThemeFlavor()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject ui;
+    if (settings.contains("ui") && settings["ui"].isObject()) {
+        ui = settings["ui"].toObject();
+    }
+    ui["theme_flavor"] = normalized;
+    settings["ui"] = ui;
+    m_config["settings"] = settings;
+    save();
+    emit themeFlavorChanged();
+}
+
+QString ConfigManager::getThemeFlavor() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("ui") && settings["ui"].isObject()) {
+            QJsonObject ui = settings["ui"].toObject();
+            if (ui.contains("theme_flavor")) {
+                return ui["theme_flavor"].toString().trimmed().toLower();
+            }
+        }
+    }
+    return QString();
+}
+
+void ConfigManager::setThemeColorScheme(const QString &colorScheme)
+{
+    const QString normalized = colorScheme.trimmed().toLower();
+    if (normalized == getThemeColorScheme()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject ui;
+    if (settings.contains("ui") && settings["ui"].isObject()) {
+        ui = settings["ui"].toObject();
+    }
+    ui["theme_color_scheme"] = normalized;
+    settings["ui"] = ui;
+    m_config["settings"] = settings;
+    save();
+    emit themeColorSchemeChanged();
+}
+
+QString ConfigManager::getThemeColorScheme() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("ui") && settings["ui"].isObject()) {
+            QJsonObject ui = settings["ui"].toObject();
+            if (ui.contains("theme_color_scheme")) {
+                const QString colorScheme = ui["theme_color_scheme"].toString().trimmed().toLower();
+                if (!colorScheme.isEmpty()) {
+                    return colorScheme;
+                }
+            }
+        }
+    }
+    return QStringLiteral("blue");
 }

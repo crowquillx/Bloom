@@ -20,6 +20,32 @@ FocusScope {
         enterFromRail()
     }
 
+    function nextThemeVariantControl() {
+        if (flavorRow.visible) return flavorCombo
+        if (colorSchemeRow.visible) return colorSchemeCombo
+        return fullscreenToggle
+    }
+
+    function previousThemeVariantControl() {
+        if (colorSchemeRow.visible) return colorSchemeCombo
+        if (flavorRow.visible) return flavorCombo
+        return themeCombo
+    }
+
+    function previousColorSchemeControl() {
+        return flavorRow.visible ? flavorCombo : themeCombo
+    }
+
+    function syncThemeVariants(themeName) {
+        var flavor = Theme.validFlavorIdForTheme(themeName, ConfigManager.themeFlavor || "")
+        if (flavor !== (ConfigManager.themeFlavor || ""))
+            ConfigManager.themeFlavor = flavor
+
+        var colorScheme = Theme.validColorSchemeIdForTheme(themeName, ConfigManager.themeColorScheme || "")
+        if (colorScheme !== (ConfigManager.themeColorScheme || ""))
+            ConfigManager.themeColorScheme = colorScheme
+    }
+
     Keys.priority: Keys.AfterItem
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
@@ -114,8 +140,8 @@ FocusScope {
                         id: themeCombo
                         focusPolicy: Qt.StrongFocus
                         model: Theme.themeNames
-                        currentIndex: model.indexOf(ConfigManager.theme || "Jellyfin")
-                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
+                        currentIndex: Math.max(0, model.indexOf(ConfigManager.theme || "Jellyfin"))
+                        Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
@@ -124,7 +150,13 @@ FocusScope {
                             }
                         }
 
-                        onCurrentTextChanged: ConfigManager.theme = currentText
+                        onCurrentTextChanged: {
+                            if (!currentText)
+                                return
+                            if (ConfigManager.theme !== currentText)
+                                ConfigManager.theme = currentText
+                            root.syncThemeVariants(currentText)
+                        }
 
                         Keys.onUpPressed: function(event) {
                             if (!popup.visible) {
@@ -133,7 +165,7 @@ FocusScope {
                         }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
-                                fullscreenToggle.forceActiveFocus()
+                                root.nextThemeVariantControl().forceActiveFocus()
                             }
                         }
                         Keys.onReturnPressed: popup.open()
@@ -206,6 +238,264 @@ FocusScope {
                     }
                 }
 
+                RowLayout {
+                    id: flavorRow
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+                    visible: Theme.flavorNames.length > 0
+
+                    ColumnLayout {
+                        spacing: Math.round(4 * Theme.layoutScale)
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: qsTr("Flavor")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+
+                        Text {
+                            text: qsTr("Theme palette variant")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    ComboBox {
+                        id: flavorCombo
+                        focusPolicy: Qt.StrongFocus
+                        model: Theme.flavorNames
+                        currentIndex: Math.max(0, model.indexOf(Theme.currentFlavorLabel))
+                        Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                            }
+                        }
+
+                        onCurrentTextChanged: {
+                            if (!currentText)
+                                return
+                            var flavorId = Theme.optionIdForLabel(Theme.themeDefinition(Theme.currentTheme).flavors || [], currentText)
+                            if (flavorId !== ConfigManager.themeFlavor)
+                                ConfigManager.themeFlavor = flavorId
+                        }
+
+                        Keys.onUpPressed: function(event) {
+                            if (!popup.visible)
+                                themeCombo.forceActiveFocus()
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (!popup.visible) {
+                                if (colorSchemeRow.visible)
+                                    colorSchemeCombo.forceActiveFocus()
+                                else
+                                    fullscreenToggle.forceActiveFocus()
+                            }
+                        }
+                        Keys.onReturnPressed: popup.open()
+                        Keys.onEnterPressed: popup.open()
+
+                        background: Rectangle {
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: Theme.inputBackground
+                            border.color: flavorCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: flavorCombo.activeFocus ? 2 : 1
+                        }
+
+                        contentItem: Text {
+                            text: flavorCombo.displayText
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.spacingSmall
+                        }
+
+                        delegate: ItemDelegate {
+                            width: flavorCombo.width
+                            contentItem: Text {
+                                text: modelData
+                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                radius: Theme.radiusSmall
+                            }
+                            highlighted: ListView.isCurrentItem || flavorCombo.highlightedIndex === index
+                        }
+
+                        popup: Popup {
+                            y: flavorCombo.height + 5
+                            width: flavorCombo.width
+                            implicitHeight: contentItem.implicitHeight
+                            padding: 1
+
+                            onOpened: {
+                                flavorPopupList.currentIndex = flavorCombo.highlightedIndex >= 0 ? flavorCombo.highlightedIndex : flavorCombo.currentIndex
+                                flavorPopupList.forceActiveFocus()
+                            }
+                            onClosed: flavorCombo.forceActiveFocus()
+
+                            contentItem: ListView {
+                                id: flavorPopupList
+                                clip: true
+                                implicitHeight: contentHeight
+                                model: flavorCombo.popup.visible ? flavorCombo.delegateModel : null
+                                currentIndex: flavorCombo.highlightedIndex >= 0 ? flavorCombo.highlightedIndex : flavorCombo.currentIndex
+                                ScrollIndicator.vertical: ScrollIndicator { }
+                                Keys.onReturnPressed: { flavorCombo.currentIndex = currentIndex; flavorCombo.popup.close() }
+                                Keys.onEnterPressed: { flavorCombo.currentIndex = currentIndex; flavorCombo.popup.close() }
+                                Keys.onEscapePressed: flavorCombo.popup.close()
+                            }
+
+                            background: Rectangle {
+                                color: Theme.cardBackground
+                                border.color: Theme.focusBorder
+                                border.width: 1
+                                radius: Theme.radiusSmall
+                            }
+                        }
+                    }
+                }
+
+                RowLayout {
+                    id: colorSchemeRow
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+                    visible: Theme.colorSchemeNames.length > 0
+
+                    ColumnLayout {
+                        spacing: Math.round(4 * Theme.layoutScale)
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: qsTr("Color Scheme")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+
+                        Text {
+                            text: qsTr("Theme accent color")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    ComboBox {
+                        id: colorSchemeCombo
+                        focusPolicy: Qt.StrongFocus
+                        model: Theme.colorSchemeNames
+                        currentIndex: Math.max(0, model.indexOf(Theme.currentColorSchemeLabel))
+                        Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                            }
+                        }
+
+                        onCurrentTextChanged: {
+                            if (!currentText)
+                                return
+                            var colorSchemeId = Theme.optionIdForLabel(Theme.themeDefinition(Theme.currentTheme).colorSchemes || [], currentText)
+                            if (colorSchemeId !== ConfigManager.themeColorScheme)
+                                ConfigManager.themeColorScheme = colorSchemeId
+                        }
+
+                        Keys.onUpPressed: function(event) {
+                            if (!popup.visible)
+                                root.previousColorSchemeControl().forceActiveFocus()
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (!popup.visible)
+                                fullscreenToggle.forceActiveFocus()
+                        }
+                        Keys.onReturnPressed: popup.open()
+                        Keys.onEnterPressed: popup.open()
+
+                        background: Rectangle {
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: Theme.inputBackground
+                            border.color: colorSchemeCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: colorSchemeCombo.activeFocus ? 2 : 1
+                        }
+
+                        contentItem: Text {
+                            text: colorSchemeCombo.displayText
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.spacingSmall
+                        }
+
+                        delegate: ItemDelegate {
+                            width: colorSchemeCombo.width
+                            contentItem: Text {
+                                text: modelData
+                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                            background: Rectangle {
+                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                                radius: Theme.radiusSmall
+                            }
+                            highlighted: ListView.isCurrentItem || colorSchemeCombo.highlightedIndex === index
+                        }
+
+                        popup: Popup {
+                            y: colorSchemeCombo.height + 5
+                            width: colorSchemeCombo.width
+                            implicitHeight: contentItem.implicitHeight
+                            padding: 1
+
+                            onOpened: {
+                                colorSchemePopupList.currentIndex = colorSchemeCombo.highlightedIndex >= 0 ? colorSchemeCombo.highlightedIndex : colorSchemeCombo.currentIndex
+                                colorSchemePopupList.forceActiveFocus()
+                            }
+                            onClosed: colorSchemeCombo.forceActiveFocus()
+
+                            contentItem: ListView {
+                                id: colorSchemePopupList
+                                clip: true
+                                implicitHeight: contentHeight
+                                model: colorSchemeCombo.popup.visible ? colorSchemeCombo.delegateModel : null
+                                currentIndex: colorSchemeCombo.highlightedIndex >= 0 ? colorSchemeCombo.highlightedIndex : colorSchemeCombo.currentIndex
+                                ScrollIndicator.vertical: ScrollIndicator { }
+                                Keys.onReturnPressed: { colorSchemeCombo.currentIndex = currentIndex; colorSchemeCombo.popup.close() }
+                                Keys.onEnterPressed: { colorSchemeCombo.currentIndex = currentIndex; colorSchemeCombo.popup.close() }
+                                Keys.onEscapePressed: colorSchemeCombo.popup.close()
+                            }
+
+                            background: Rectangle {
+                                color: Theme.cardBackground
+                                border.color: Theme.focusBorder
+                                border.width: 1
+                                radius: Theme.radiusSmall
+                            }
+                        }
+                    }
+                }
+
                 SettingsGroupDivider { Layout.fillWidth: true }
 
                 // --- Launch in Fullscreen ---
@@ -217,7 +507,7 @@ FocusScope {
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     onToggled: function(value) { ConfigManager.launchInFullscreen = value }
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
-                    KeyNavigation.up: themeCombo
+                    KeyNavigation.up: root.previousThemeVariantControl()
                     KeyNavigation.down: backdropSlider
                 }
 

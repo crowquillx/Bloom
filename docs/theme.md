@@ -51,6 +51,18 @@ The system categorizes the viewport into four breakpoints based on effective hei
 
 ## Tokens
 
+### Theme Catalog & Variants
+- `Theme.qml` stores built-in themes as catalog entries with a stable ID, display label, optional `flavors`, optional `colorSchemes`, defaults, and token resolver data.
+- `ConfigManager.theme` selects the base theme. `ConfigManager.themeFlavor` and `ConfigManager.themeColorScheme` store the active variant IDs in lowercase.
+- Themes only show variant controls they declare. A theme may expose `Flavor`, `Color Scheme`, both, or neither.
+- Invalid stored variant IDs fall back to the selected theme defaults, keeping older configs and future theme changes safe.
+- Keep catalog entries data-shaped: stable IDs, labels, option lists, defaults, and token maps. Avoid theme-specific UI branches so future user-provided themes can use the same shape.
+
+Built-in variants:
+- `Jellyfin`: color schemes `Blue`, `Purple`, `Blend`; default `Blue`.
+- `Rosé Pine`: flavors `Main`, `Moon`, `Dawn`; color schemes `Love`, `Gold`, `Rose`, `Pine`, `Foam`, `Iris`; default `Main` + `Foam`.
+- `Catppuccin`: flavors `Latte`, `Frappé`, `Macchiato`, `Mocha`; color schemes `Rosewater`, `Flamingo`, `Pink`, `Mauve`, `Red`, `Maroon`, `Peach`, `Yellow`, `Green`, `Teal`, `Sky`, `Sapphire`, `Blue`, `Lavender`; default `Mocha` + `Mauve`.
+
 ### 1. Typography
 Font sizes scale automatically with `layoutScale`.
 - `fontSizeDisplay`: 42pt (Base) - Hero titles
