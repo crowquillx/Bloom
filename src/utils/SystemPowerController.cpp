@@ -90,7 +90,12 @@ bool SystemPowerController::runCheckedPowerCommand(const QString& program, const
         return false;
     }
 
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0) {
+    if (process.exitStatus() == QProcess::CrashExit) {
+        setLastError(tr("%1 crashed before completing the power request.").arg(program));
+        return false;
+    }
+
+    if (process.exitCode() != 0) {
         QString detail = QString::fromLocal8Bit(process.readAllStandardError()).trimmed();
         if (detail.isEmpty()) {
             detail = QString::fromLocal8Bit(process.readAllStandardOutput()).trimmed();
@@ -106,9 +111,6 @@ bool SystemPowerController::runCheckedPowerCommand(const QString& program, const
 
 void SystemPowerController::setLastError(const QString& error)
 {
-    if (m_lastError == error) {
-        return;
-    }
     m_lastError = error;
     emit lastErrorChanged();
 }
