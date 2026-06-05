@@ -45,7 +45,7 @@ QtObject {
     property string currentFlavorLabel: optionLabelForId(themeDefinition(currentTheme).flavors || [], currentFlavor)
     property string currentColorSchemeLabel: optionLabelForId(themeDefinition(currentTheme).colorSchemes || [], currentColorScheme)
 
-    property var themeCatalog: {
+    property var themeCatalog: ({
         "Jellyfin": {
             "id": "jellyfin",
             "label": "Jellyfin",
@@ -104,7 +104,7 @@ QtObject {
                 { "id": "lavender", "label": "Lavender" }
             ]
         }
-    }
+    })
 
     property var catppuccinPalettes: {
         "latte": {
@@ -252,7 +252,7 @@ QtObject {
             "textPrimary": palette.text,
             "textSecondary": palette.subtext1 || palette.subtle,
             "textDisabled": palette.overlay0 || palette.muted,
-            "textOnAccent": palette.base,
+            "textOnAccent": isLight ? palette.text : palette.base,
             "cardBackground": colorWithAlpha(palette.surface0 || palette.surface, 0.65),
             "cardBackgroundHover": colorWithAlpha(palette.surface1 || palette.overlay, 0.70),
             "cardBackgroundFocused": colorWithAlpha(palette.surface2 || palette.highlightMed, 0.75),

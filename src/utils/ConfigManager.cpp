@@ -3478,7 +3478,10 @@ QString ConfigManager::getThemeFlavor() const
 
 void ConfigManager::setThemeColorScheme(const QString &colorScheme)
 {
-    const QString normalized = colorScheme.trimmed().toLower();
+    QString normalized = colorScheme.trimmed().toLower();
+    if (normalized.isEmpty()) {
+        normalized = getThemeColorScheme();
+    }
     if (normalized == getThemeColorScheme()) return;
 
     QJsonObject settings;

@@ -36,14 +36,40 @@ FocusScope {
         return flavorRow.visible ? flavorCombo : themeCombo
     }
 
-    function syncThemeVariants(themeName) {
-        var flavor = Theme.validFlavorIdForTheme(themeName, ConfigManager.themeFlavor || "")
+    function syncThemeVariants(themeName, useDefaults) {
+        var flavor = useDefaults ? Theme.defaultFlavorForTheme(themeName)
+                                 : Theme.validFlavorIdForTheme(themeName, ConfigManager.themeFlavor || "")
         if (flavor !== (ConfigManager.themeFlavor || ""))
             ConfigManager.themeFlavor = flavor
 
-        var colorScheme = Theme.validColorSchemeIdForTheme(themeName, ConfigManager.themeColorScheme || "")
+        var colorScheme = useDefaults ? Theme.defaultColorSchemeForTheme(themeName)
+                                      : Theme.validColorSchemeIdForTheme(themeName, ConfigManager.themeColorScheme || "")
         if (colorScheme !== (ConfigManager.themeColorScheme || ""))
             ConfigManager.themeColorScheme = colorScheme
+    }
+
+    function restoreFlavorIndex() {
+        flavorCombo.currentIndex = Math.max(0, flavorCombo.model.indexOf(Theme.currentFlavorLabel))
+    }
+
+    function restoreColorSchemeIndex() {
+        colorSchemeCombo.currentIndex = Math.max(0, colorSchemeCombo.model.indexOf(Theme.currentColorSchemeLabel))
+    }
+
+    function applyCurrentFlavor() {
+        if (!flavorCombo.currentText)
+            return
+        var flavorId = Theme.optionIdForLabel(Theme.themeDefinition(Theme.currentTheme).flavors || [], flavorCombo.currentText)
+        if (flavorId !== ConfigManager.themeFlavor)
+            ConfigManager.themeFlavor = flavorId
+    }
+
+    function applyCurrentColorScheme() {
+        if (!colorSchemeCombo.currentText)
+            return
+        var colorSchemeId = Theme.optionIdForLabel(Theme.themeDefinition(Theme.currentTheme).colorSchemes || [], colorSchemeCombo.currentText)
+        if (colorSchemeId !== ConfigManager.themeColorScheme)
+            ConfigManager.themeColorScheme = colorSchemeId
     }
 
     Keys.priority: Keys.AfterItem
@@ -153,9 +179,10 @@ FocusScope {
                         onCurrentTextChanged: {
                             if (!currentText)
                                 return
-                            if (ConfigManager.theme !== currentText)
+                            var themeChanged = ConfigManager.theme !== currentText
+                            if (themeChanged)
                                 ConfigManager.theme = currentText
-                            root.syncThemeVariants(currentText)
+                            root.syncThemeVariants(currentText, themeChanged)
                         }
 
                         Keys.onUpPressed: function(event) {
@@ -269,22 +296,23 @@ FocusScope {
                         id: flavorCombo
                         focusPolicy: Qt.StrongFocus
                         model: Theme.flavorNames
-                        currentIndex: Math.max(0, model.indexOf(Theme.currentFlavorLabel))
+                        Component.onCompleted: root.restoreFlavorIndex()
+                        onModelChanged: Qt.callLater(root.restoreFlavorIndex)
+                        onActivated: root.applyCurrentFlavor()
                         Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
+
+                        Connections {
+                            target: Theme
+                            function onCurrentFlavorLabelChanged() {
+                                Qt.callLater(root.restoreFlavorIndex)
+                            }
+                        }
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
                                 root._lastFocusedItem = this
                                 flickable.ensureFocusVisible(this)
                             }
-                        }
-
-                        onCurrentTextChanged: {
-                            if (!currentText)
-                                return
-                            var flavorId = Theme.optionIdForLabel(Theme.themeDefinition(Theme.currentTheme).flavors || [], currentText)
-                            if (flavorId !== ConfigManager.themeFlavor)
-                                ConfigManager.themeFlavor = flavorId
                         }
 
                         Keys.onUpPressed: function(event) {
@@ -354,8 +382,8 @@ FocusScope {
                                 model: flavorCombo.popup.visible ? flavorCombo.delegateModel : null
                                 currentIndex: flavorCombo.highlightedIndex >= 0 ? flavorCombo.highlightedIndex : flavorCombo.currentIndex
                                 ScrollIndicator.vertical: ScrollIndicator { }
-                                Keys.onReturnPressed: { flavorCombo.currentIndex = currentIndex; flavorCombo.popup.close() }
-                                Keys.onEnterPressed: { flavorCombo.currentIndex = currentIndex; flavorCombo.popup.close() }
+                                Keys.onReturnPressed: { flavorCombo.currentIndex = currentIndex; root.applyCurrentFlavor(); flavorCombo.popup.close() }
+                                Keys.onEnterPressed: { flavorCombo.currentIndex = currentIndex; root.applyCurrentFlavor(); flavorCombo.popup.close() }
                                 Keys.onEscapePressed: flavorCombo.popup.close()
                             }
 
@@ -400,22 +428,23 @@ FocusScope {
                         id: colorSchemeCombo
                         focusPolicy: Qt.StrongFocus
                         model: Theme.colorSchemeNames
-                        currentIndex: Math.max(0, model.indexOf(Theme.currentColorSchemeLabel))
+                        Component.onCompleted: root.restoreColorSchemeIndex()
+                        onModelChanged: Qt.callLater(root.restoreColorSchemeIndex)
+                        onActivated: root.applyCurrentColorScheme()
                         Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
+
+                        Connections {
+                            target: Theme
+                            function onCurrentColorSchemeLabelChanged() {
+                                Qt.callLater(root.restoreColorSchemeIndex)
+                            }
+                        }
 
                         onActiveFocusChanged: {
                             if (activeFocus) {
                                 root._lastFocusedItem = this
                                 flickable.ensureFocusVisible(this)
                             }
-                        }
-
-                        onCurrentTextChanged: {
-                            if (!currentText)
-                                return
-                            var colorSchemeId = Theme.optionIdForLabel(Theme.themeDefinition(Theme.currentTheme).colorSchemes || [], currentText)
-                            if (colorSchemeId !== ConfigManager.themeColorScheme)
-                                ConfigManager.themeColorScheme = colorSchemeId
                         }
 
                         Keys.onUpPressed: function(event) {
@@ -481,8 +510,8 @@ FocusScope {
                                 model: colorSchemeCombo.popup.visible ? colorSchemeCombo.delegateModel : null
                                 currentIndex: colorSchemeCombo.highlightedIndex >= 0 ? colorSchemeCombo.highlightedIndex : colorSchemeCombo.currentIndex
                                 ScrollIndicator.vertical: ScrollIndicator { }
-                                Keys.onReturnPressed: { colorSchemeCombo.currentIndex = currentIndex; colorSchemeCombo.popup.close() }
-                                Keys.onEnterPressed: { colorSchemeCombo.currentIndex = currentIndex; colorSchemeCombo.popup.close() }
+                                Keys.onReturnPressed: { colorSchemeCombo.currentIndex = currentIndex; root.applyCurrentColorScheme(); colorSchemeCombo.popup.close() }
+                                Keys.onEnterPressed: { colorSchemeCombo.currentIndex = currentIndex; root.applyCurrentColorScheme(); colorSchemeCombo.popup.close() }
                                 Keys.onEscapePressed: colorSchemeCombo.popup.close()
                             }
 
