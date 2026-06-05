@@ -3444,7 +3444,10 @@ QString ConfigManager::getTheme() const
 
 void ConfigManager::setThemeFlavor(const QString &flavor)
 {
-    const QString normalized = flavor.trimmed().toLower();
+    QString normalized = flavor.trimmed().toLower();
+    if (normalized.isEmpty()) {
+        normalized = getThemeFlavor();
+    }
     if (normalized == getThemeFlavor()) return;
 
     QJsonObject settings;

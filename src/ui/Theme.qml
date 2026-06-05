@@ -106,7 +106,7 @@ QtObject {
         }
     })
 
-    property var catppuccinPalettes: {
+    property var catppuccinPalettes: ({
         "latte": {
             "rosewater": "#dc8a78", "flamingo": "#dd7878", "pink": "#ea76cb", "mauve": "#8839ef",
             "red": "#d20f39", "maroon": "#e64553", "peach": "#fe640b", "yellow": "#df8e1d",
@@ -143,9 +143,9 @@ QtObject {
             "surface2": "#585b70", "surface1": "#45475a", "surface0": "#313244", "base": "#1e1e2e",
             "mantle": "#181825", "crust": "#11111b", "isLight": false
         }
-    }
+    })
 
-    property var rosePinePalettes: {
+    property var rosePinePalettes: ({
         "main": {
             "base": "#191724", "surface": "#1f1d2e", "overlay": "#26233a", "muted": "#6e6a86",
             "subtle": "#908caa", "text": "#e0def4", "love": "#eb6f92", "gold": "#f6c177",
@@ -167,7 +167,7 @@ QtObject {
             "highlightLow": "#f4ede8", "highlightMed": "#dfdad9", "highlightHigh": "#cecacd",
             "isLight": true
         }
-    }
+    })
 
     function themeDefinition(themeName) {
         return themeCatalog[themeName] || themeCatalog["Jellyfin"]

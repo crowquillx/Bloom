@@ -123,6 +123,10 @@ void ConfigManagerThemeTest::themeVariantSettersPersistAndEmit()
     QCOMPARE(flavorSpy.count(), 1);
     QCOMPARE(colorSchemeSpy.count(), 1);
 
+    config.setThemeFlavor(QStringLiteral("   "));
+    QCOMPARE(config.getThemeFlavor(), QStringLiteral("mocha"));
+    QCOMPARE(flavorSpy.count(), 1);
+
     ConfigManager reloaded;
     reloaded.load();
     QCOMPARE(reloaded.getThemeFlavor(), QStringLiteral("mocha"));
