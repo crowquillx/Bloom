@@ -252,7 +252,7 @@ QtObject {
             "textPrimary": palette.text,
             "textSecondary": palette.subtext1 || palette.subtle,
             "textDisabled": palette.overlay0 || palette.muted,
-            "textOnAccent": isLight ? palette.text : palette.base,
+            "textOnAccent": palette.base,
             "cardBackground": colorWithAlpha(palette.surface0 || palette.surface, 0.65),
             "cardBackgroundHover": colorWithAlpha(palette.surface1 || palette.overlay, 0.70),
             "cardBackgroundFocused": colorWithAlpha(palette.surface2 || palette.highlightMed, 0.75),
