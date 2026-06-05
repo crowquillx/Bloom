@@ -36,31 +36,281 @@ QtObject {
     // Theme System
     // ============================
     
-    property string currentTheme: ConfigManager.theme || "Jellyfin"
-    property var themeNames: ["Jellyfin", "Rosé Pine"]
-    
-    // Theme Definitions
-    property var themes: {
+    property string currentTheme: typeof ConfigManager !== 'undefined' ? (ConfigManager.theme || "Jellyfin") : "Jellyfin"
+    property string currentFlavor: validFlavorIdForTheme(currentTheme, typeof ConfigManager !== 'undefined' ? ConfigManager.themeFlavor : "")
+    property string currentColorScheme: validColorSchemeIdForTheme(currentTheme, typeof ConfigManager !== 'undefined' ? ConfigManager.themeColorScheme : "blue")
+    property var themeNames: ["Jellyfin", "Rosé Pine", "Catppuccin"]
+    property var flavorNames: optionLabels(themeDefinition(currentTheme).flavors || [])
+    property var colorSchemeNames: optionLabels(themeDefinition(currentTheme).colorSchemes || [])
+    property string currentFlavorLabel: optionLabelForId(themeDefinition(currentTheme).flavors || [], currentFlavor)
+    property string currentColorSchemeLabel: optionLabelForId(themeDefinition(currentTheme).colorSchemes || [], currentColorScheme)
+
+    property var themeCatalog: ({
         "Jellyfin": {
+            "id": "jellyfin",
+            "label": "Jellyfin",
+            "defaultFlavor": "",
+            "defaultColorScheme": "blue",
+            "colorSchemes": [
+                { "id": "blue", "label": "Blue" },
+                { "id": "purple", "label": "Purple" },
+                { "id": "blend", "label": "Blend" }
+            ]
+        },
+        "Rosé Pine": {
+            "id": "rose-pine",
+            "label": "Rosé Pine",
+            "defaultFlavor": "main",
+            "defaultColorScheme": "foam",
+            "flavors": [
+                { "id": "main", "label": "Main" },
+                { "id": "moon", "label": "Moon" },
+                { "id": "dawn", "label": "Dawn" }
+            ],
+            "colorSchemes": [
+                { "id": "love", "label": "Love" },
+                { "id": "gold", "label": "Gold" },
+                { "id": "rose", "label": "Rose" },
+                { "id": "pine", "label": "Pine" },
+                { "id": "foam", "label": "Foam" },
+                { "id": "iris", "label": "Iris" }
+            ]
+        },
+        "Catppuccin": {
+            "id": "catppuccin",
+            "label": "Catppuccin",
+            "defaultFlavor": "mocha",
+            "defaultColorScheme": "mauve",
+            "flavors": [
+                { "id": "latte", "label": "Latte" },
+                { "id": "frappe", "label": "Frappé" },
+                { "id": "macchiato", "label": "Macchiato" },
+                { "id": "mocha", "label": "Mocha" }
+            ],
+            "colorSchemes": [
+                { "id": "rosewater", "label": "Rosewater" },
+                { "id": "flamingo", "label": "Flamingo" },
+                { "id": "pink", "label": "Pink" },
+                { "id": "mauve", "label": "Mauve" },
+                { "id": "red", "label": "Red" },
+                { "id": "maroon", "label": "Maroon" },
+                { "id": "peach", "label": "Peach" },
+                { "id": "yellow", "label": "Yellow" },
+                { "id": "green", "label": "Green" },
+                { "id": "teal", "label": "Teal" },
+                { "id": "sky", "label": "Sky" },
+                { "id": "sapphire", "label": "Sapphire" },
+                { "id": "blue", "label": "Blue" },
+                { "id": "lavender", "label": "Lavender" }
+            ]
+        }
+    })
+
+    property var catppuccinPalettes: ({
+        "latte": {
+            "rosewater": "#dc8a78", "flamingo": "#dd7878", "pink": "#ea76cb", "mauve": "#8839ef",
+            "red": "#d20f39", "maroon": "#e64553", "peach": "#fe640b", "yellow": "#df8e1d",
+            "green": "#40a02b", "teal": "#179299", "sky": "#04a5e5", "sapphire": "#209fb5",
+            "blue": "#1e66f5", "lavender": "#7287fd", "text": "#4c4f69", "subtext1": "#5c5f77",
+            "subtext0": "#6c6f85", "overlay2": "#7c7f93", "overlay1": "#8c8fa1", "overlay0": "#9ca0b0",
+            "surface2": "#acb0be", "surface1": "#bcc0cc", "surface0": "#ccd0da", "base": "#eff1f5",
+            "mantle": "#e6e9ef", "crust": "#dce0e8", "isLight": true
+        },
+        "frappe": {
+            "rosewater": "#f2d5cf", "flamingo": "#eebebe", "pink": "#f4b8e4", "mauve": "#ca9ee6",
+            "red": "#e78284", "maroon": "#ea999c", "peach": "#ef9f76", "yellow": "#e5c890",
+            "green": "#a6d189", "teal": "#81c8be", "sky": "#99d1db", "sapphire": "#85c1dc",
+            "blue": "#8caaee", "lavender": "#babbf1", "text": "#c6d0f5", "subtext1": "#b5bfe2",
+            "subtext0": "#a5adce", "overlay2": "#949cbb", "overlay1": "#838ba7", "overlay0": "#737994",
+            "surface2": "#626880", "surface1": "#51576d", "surface0": "#414559", "base": "#303446",
+            "mantle": "#292c3c", "crust": "#232634", "isLight": false
+        },
+        "macchiato": {
+            "rosewater": "#f4dbd6", "flamingo": "#f0c6c6", "pink": "#f5bde6", "mauve": "#c6a0f6",
+            "red": "#ed8796", "maroon": "#ee99a0", "peach": "#f5a97f", "yellow": "#eed49f",
+            "green": "#a6da95", "teal": "#8bd5ca", "sky": "#91d7e3", "sapphire": "#7dc4e4",
+            "blue": "#8aadf4", "lavender": "#b7bdf8", "text": "#cad3f5", "subtext1": "#b8c0e0",
+            "subtext0": "#a5adcb", "overlay2": "#939ab7", "overlay1": "#8087a2", "overlay0": "#6e738d",
+            "surface2": "#5b6078", "surface1": "#494d64", "surface0": "#363a4f", "base": "#24273a",
+            "mantle": "#1e2030", "crust": "#181926", "isLight": false
+        },
+        "mocha": {
+            "rosewater": "#f5e0dc", "flamingo": "#f2cdcd", "pink": "#f5c2e7", "mauve": "#cba6f7",
+            "red": "#f38ba8", "maroon": "#eba0ac", "peach": "#fab387", "yellow": "#f9e2af",
+            "green": "#a6e3a1", "teal": "#94e2d5", "sky": "#89dceb", "sapphire": "#74c7ec",
+            "blue": "#89b4fa", "lavender": "#b4befe", "text": "#cdd6f4", "subtext1": "#bac2de",
+            "subtext0": "#a6adc8", "overlay2": "#9399b2", "overlay1": "#7f849c", "overlay0": "#6c7086",
+            "surface2": "#585b70", "surface1": "#45475a", "surface0": "#313244", "base": "#1e1e2e",
+            "mantle": "#181825", "crust": "#11111b", "isLight": false
+        }
+    })
+
+    property var rosePinePalettes: ({
+        "main": {
+            "base": "#191724", "surface": "#1f1d2e", "overlay": "#26233a", "muted": "#6e6a86",
+            "subtle": "#908caa", "text": "#e0def4", "love": "#eb6f92", "gold": "#f6c177",
+            "rose": "#ebbcba", "pine": "#31748f", "foam": "#9ccfd8", "iris": "#c4a7e7",
+            "highlightLow": "#21202e", "highlightMed": "#403d52", "highlightHigh": "#524f67",
+            "isLight": false
+        },
+        "moon": {
+            "base": "#232136", "surface": "#2a273f", "overlay": "#393552", "muted": "#6e6a86",
+            "subtle": "#908caa", "text": "#e0def4", "love": "#eb6f92", "gold": "#f6c177",
+            "rose": "#ea9a97", "pine": "#3e8fb0", "foam": "#9ccfd8", "iris": "#c4a7e7",
+            "highlightLow": "#2a283e", "highlightMed": "#44415a", "highlightHigh": "#56526e",
+            "isLight": false
+        },
+        "dawn": {
+            "base": "#faf4ed", "surface": "#fffaf3", "overlay": "#f2e9e1", "muted": "#9893a5",
+            "subtle": "#797593", "text": "#575279", "love": "#b4637a", "gold": "#ea9d34",
+            "rose": "#d7827e", "pine": "#286983", "foam": "#56949f", "iris": "#907aa9",
+            "highlightLow": "#f4ede8", "highlightMed": "#dfdad9", "highlightHigh": "#cecacd",
+            "isLight": true
+        }
+    })
+
+    function themeDefinition(themeName) {
+        return themeCatalog[themeName] || themeCatalog["Jellyfin"]
+    }
+
+    function optionLabels(options) {
+        var labels = []
+        for (var i = 0; i < options.length; ++i)
+            labels.push(options[i].label)
+        return labels
+    }
+
+    function optionIdForLabel(options, label) {
+        for (var i = 0; i < options.length; ++i) {
+            if (options[i].label === label)
+                return options[i].id
+        }
+        return ""
+    }
+
+    function optionLabelForId(options, id) {
+        for (var i = 0; i < options.length; ++i) {
+            if (options[i].id === id)
+                return options[i].label
+        }
+        return options.length > 0 ? options[0].label : ""
+    }
+
+    function hasOptionId(options, id) {
+        for (var i = 0; i < options.length; ++i) {
+            if (options[i].id === id)
+                return true
+        }
+        return false
+    }
+
+    function defaultFlavorForTheme(themeName) {
+        return themeDefinition(themeName).defaultFlavor || ""
+    }
+
+    function defaultColorSchemeForTheme(themeName) {
+        return themeDefinition(themeName).defaultColorScheme || ""
+    }
+
+    function validFlavorIdForTheme(themeName, flavorId) {
+        var def = themeDefinition(themeName)
+        var options = def.flavors || []
+        if (options.length === 0)
+            return ""
+        return hasOptionId(options, flavorId) ? flavorId : (def.defaultFlavor || options[0].id)
+    }
+
+    function validColorSchemeIdForTheme(themeName, colorSchemeId) {
+        var def = themeDefinition(themeName)
+        var options = def.colorSchemes || []
+        if (options.length === 0)
+            return ""
+        return hasOptionId(options, colorSchemeId) ? colorSchemeId : (def.defaultColorScheme || options[0].id)
+    }
+
+    function colorWithAlpha(hex, alpha) {
+        if (!hex || hex.length < 7)
+            return Qt.rgba(1, 1, 1, alpha)
+        return Qt.rgba(parseInt(hex.substr(1, 2), 16) / 255,
+                       parseInt(hex.substr(3, 2), 16) / 255,
+                       parseInt(hex.substr(5, 2), 16) / 255,
+                       alpha)
+    }
+
+    function paletteTokens(palette, accentId, secondaryId) {
+        var accent = palette[accentId] || palette.blue || palette.foam
+        var secondary = palette[secondaryId] || palette.lavender || palette.iris || accent
+        var isLight = palette.isLight === true
+        return {
+            "backgroundPrimary": palette.base,
+            "backgroundSecondary": palette.mantle || palette.surface,
+            "backgroundGlass": colorWithAlpha(palette.base, 0.60),
+            "accentPrimary": accent,
+            "accentSecondary": secondary,
+            "accentGradientStart": secondary,
+            "accentGradientEnd": accent,
+            "textPrimary": palette.text,
+            "textSecondary": palette.subtext1 || palette.subtle,
+            "textDisabled": palette.overlay0 || palette.muted,
+            "textOnAccent": palette.base,
+            "cardBackground": colorWithAlpha(palette.surface0 || palette.surface, 0.65),
+            "cardBackgroundHover": colorWithAlpha(palette.surface1 || palette.overlay, 0.70),
+            "cardBackgroundFocused": colorWithAlpha(palette.surface2 || palette.highlightMed, 0.75),
+            "cardBorder": colorWithAlpha(palette.overlay0 || palette.muted, 0.35),
+            "cardBorderHover": colorWithAlpha(palette.overlay1 || palette.subtle, 0.45),
+            "cardBorderFocused": accent,
+            "buttonPrimaryBackground": colorWithAlpha(accent, 0.85),
+            "buttonPrimaryBackgroundHover": colorWithAlpha(accent, 0.95),
+            "buttonPrimaryBackgroundPressed": colorWithAlpha(accent, 1.0),
+            "buttonPrimaryBorder": colorWithAlpha(palette.text, 0.25),
+            "buttonPrimaryBorderFocused": colorWithAlpha(palette.text, 0.9),
+            "buttonSecondaryBackground": colorWithAlpha(palette.text, isLight ? 0.07 : 0.08),
+            "buttonSecondaryBackgroundDisabled": colorWithAlpha(palette.crust || palette.muted, 0.18),
+            "buttonSecondaryBackgroundHover": colorWithAlpha(palette.text, isLight ? 0.12 : 0.15),
+            "buttonSecondaryBackgroundPressed": colorWithAlpha(palette.text, isLight ? 0.17 : 0.20),
+            "buttonSecondaryBorder": colorWithAlpha(palette.text, 0.15),
+            "buttonSecondaryBorderHover": colorWithAlpha(palette.text, 0.25),
+            "buttonSecondaryBorderFocused": accent,
+            "chipBackground": colorWithAlpha(palette.crust || palette.surface, isLight ? 0.12 : 0.28),
+            "chipBorder": colorWithAlpha(palette.text, 0.12),
+            "hoverOverlay": colorWithAlpha(palette.text, isLight ? 0.08 : 0.10),
+            "inputBackground": colorWithAlpha(palette.text, isLight ? 0.07 : 0.10),
+            "inputBorder": colorWithAlpha(palette.text, 0.20),
+            "borderLight": colorWithAlpha(palette.text, 0.15)
+        }
+    }
+
+    function jellyfinTokens(colorScheme) {
+        var primary = "#00A4DC"
+        var secondary = "#AA5CC3"
+        if (colorScheme === "purple") {
+            primary = "#AA5CC3"
+            secondary = "#00A4DC"
+        } else if (colorScheme === "blend") {
+            primary = "#5580D0"
+            secondary = "#00A4DC"
+        }
+        return {
             "backgroundPrimary": "#000B25",
             "backgroundSecondary": "#101010",
             "backgroundGlass": Qt.rgba(0.1, 0.1, 0.1, 0.6),
-            "accentPrimary": "#00A4DC",
-            "accentSecondary": "#AA5CC3",
-            "accentGradientStart": "#AA5CC3",
-            "accentGradientEnd": "#00A4DC",
+            "accentPrimary": primary,
+            "accentSecondary": secondary,
+            "accentGradientStart": secondary,
+            "accentGradientEnd": primary,
             "textPrimary": "#FFFFFF",
             "textSecondary": "#B3B3B3",
             "textDisabled": "#666666",
+            "textOnAccent": "#191724",
             "cardBackground": Qt.rgba(0.15, 0.15, 0.18, 0.65),
             "cardBackgroundHover": Qt.rgba(0.2, 0.2, 0.23, 0.7),
             "cardBackgroundFocused": Qt.rgba(0.25, 0.25, 0.28, 0.75),
             "cardBorder": Qt.rgba(1, 1, 1, 0.12),
             "cardBorderHover": Qt.rgba(1, 1, 1, 0.2),
-            "cardBorderFocused": "#00A4DC", // accentPrimary
-            "buttonPrimaryBackground": Qt.rgba(0, 0.64, 0.86, 0.85),
-            "buttonPrimaryBackgroundHover": Qt.rgba(0, 0.72, 0.94, 0.9),
-            "buttonPrimaryBackgroundPressed": Qt.rgba(0, 0.50, 0.70, 0.95),
+            "cardBorderFocused": primary,
+            "buttonPrimaryBackground": colorWithAlpha(primary, 0.85),
+            "buttonPrimaryBackgroundHover": colorWithAlpha(primary, 0.9),
+            "buttonPrimaryBackgroundPressed": colorWithAlpha(primary, 0.95),
             "buttonPrimaryBorder": Qt.rgba(1, 1, 1, 0.25),
             "buttonPrimaryBorderFocused": Qt.rgba(1, 1, 1, 0.9),
             "buttonSecondaryBackground": Qt.rgba(1, 1, 1, 0.08),
@@ -69,46 +319,32 @@ QtObject {
             "buttonSecondaryBackgroundPressed": Qt.rgba(1, 1, 1, 0.2),
             "buttonSecondaryBorder": Qt.rgba(1, 1, 1, 0.15),
             "buttonSecondaryBorderHover": Qt.rgba(1, 1, 1, 0.25),
-            "buttonSecondaryBorderFocused": "#00A4DC", // accentPrimary
+            "buttonSecondaryBorderFocused": primary,
             "chipBackground": Qt.rgba(0, 0, 0, 0.28),
-            "chipBorder": Qt.rgba(1, 1, 1, 0.12)
-        },
-        "Rosé Pine": {
-            "backgroundPrimary": "#191724", // Base
-            "backgroundSecondary": "#1f1d2e", // Surface
-            "backgroundGlass": Qt.rgba(0.1, 0.09, 0.14, 0.6), // Base with alpha
-            "accentPrimary": "#9ccfd8", // Foam
-            "accentSecondary": "#c4a7e7", // Iris
-            "accentGradientStart": "#c4a7e7", // Iris
-            "accentGradientEnd": "#9ccfd8", // Foam
-            "textPrimary": "#e0def4", // Text
-            "textSecondary": "#908caa", // Subtle
-            "textDisabled": "#6e6a86", // Muted
-            "cardBackground": Qt.rgba(0.12, 0.11, 0.18, 0.65), // Surface with alpha
-            "cardBackgroundHover": Qt.rgba(0.16, 0.14, 0.23, 0.7), // Overlay with alpha
-            "cardBackgroundFocused": Qt.rgba(0.20, 0.18, 0.28, 0.75), // Highlight Low with alpha
-            "cardBorder": Qt.rgba(1, 1, 1, 0.12),
-            "cardBorderHover": Qt.rgba(1, 1, 1, 0.2),
-            "cardBorderFocused": "#9ccfd8", // Foam
-            "buttonPrimaryBackground": Qt.rgba(0.61, 0.81, 0.85, 0.85), // Foam with alpha
-            "buttonPrimaryBackgroundHover": Qt.rgba(0.61, 0.81, 0.85, 0.95),
-            "buttonPrimaryBackgroundPressed": Qt.rgba(0.61, 0.81, 0.85, 1.0),
-            "buttonPrimaryBorder": Qt.rgba(1, 1, 1, 0.25),
-            "buttonPrimaryBorderFocused": Qt.rgba(1, 1, 1, 0.9),
-            "buttonSecondaryBackground": Qt.rgba(1, 1, 1, 0.08),
-            "buttonSecondaryBackgroundDisabled": Qt.rgba(0, 0, 0, 0.18),
-            "buttonSecondaryBackgroundHover": Qt.rgba(1, 1, 1, 0.15),
-            "buttonSecondaryBackgroundPressed": Qt.rgba(1, 1, 1, 0.2),
-            "buttonSecondaryBorder": Qt.rgba(1, 1, 1, 0.15),
-            "buttonSecondaryBorderHover": Qt.rgba(1, 1, 1, 0.25),
-            "buttonSecondaryBorderFocused": "#9ccfd8", // Foam
-            "chipBackground": Qt.rgba(0.12, 0.11, 0.18, 0.65),
-            "chipBorder": Qt.rgba(1, 1, 1, 0.12)
+            "chipBorder": Qt.rgba(1, 1, 1, 0.12),
+            "hoverOverlay": Qt.rgba(1, 1, 1, 0.1),
+            "inputBackground": Qt.rgba(1, 1, 1, 0.1),
+            "inputBorder": Qt.rgba(1, 1, 1, 0.2),
+            "borderLight": Qt.rgba(1, 1, 1, 0.15)
         }
     }
-    
+
+    function resolveThemeTokens(themeName, flavorId, colorSchemeId) {
+        if (themeName === "Catppuccin") {
+            return paletteTokens(catppuccinPalettes[validFlavorIdForTheme(themeName, flavorId)] || catppuccinPalettes.mocha,
+                                 validColorSchemeIdForTheme(themeName, colorSchemeId),
+                                 "lavender")
+        }
+        if (themeName === "Rosé Pine") {
+            return paletteTokens(rosePinePalettes[validFlavorIdForTheme(themeName, flavorId)] || rosePinePalettes.main,
+                                 validColorSchemeIdForTheme(themeName, colorSchemeId),
+                                 "iris")
+        }
+        return jellyfinTokens(validColorSchemeIdForTheme("Jellyfin", colorSchemeId))
+    }
+
     // Helper to get current theme colors
-    property var activeTheme: themes[currentTheme] || themes["Jellyfin"]
+    property var activeTheme: resolveThemeTokens(currentTheme, currentFlavor, currentColorScheme)
 
     // Background colors
     property color backgroundPrimary: activeTheme.backgroundPrimary
@@ -129,7 +365,7 @@ QtObject {
     property color textMuted: textSecondary
     property color chipBackground: activeTheme.chipBackground
     property color chipBorder: activeTheme.chipBorder
-    property color textOnAccent: "#191724"  // Dark text for use on accent-colored backgrounds
+    property color textOnAccent: activeTheme.textOnAccent || "#191724"
     property color errorColor: "#ff6b6b"
     property color colorDestructive: errorColor
     property color destructiveBorder: colorDestructive
@@ -158,12 +394,12 @@ QtObject {
 
     // UI element properties
     property color focusBorder: accentPrimary
-    property color hoverOverlay: Qt.rgba(1, 1, 1, 0.1)
-    property color inputBackground: Qt.rgba(1, 1, 1, 0.1)
-    property color inputBorder: Qt.rgba(1, 1, 1, 0.2)
+    property color hoverOverlay: activeTheme.hoverOverlay || Qt.rgba(1, 1, 1, 0.1)
+    property color inputBackground: activeTheme.inputBackground || Qt.rgba(1, 1, 1, 0.1)
+    property color inputBorder: activeTheme.inputBorder || Qt.rgba(1, 1, 1, 0.2)
 
     // Border properties
-    property color borderLight: Qt.rgba(1, 1, 1, 0.15)
+    property color borderLight: activeTheme.borderLight || Qt.rgba(1, 1, 1, 0.15)
     property int borderWidth: 1
 
     // Radius values (responsive)

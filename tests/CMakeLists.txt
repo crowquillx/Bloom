@@ -8,6 +8,17 @@ set(UPDATER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/updates/WindowsNsisUpdateApplier.cpp
 )
 
+set(TEST_LOGGING_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
+)
+
+set(TEST_CONFIG_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/LoggingConfig.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp
+    ${TEST_LOGGING_SOURCES}
+)
+
 add_executable(BaseViewModelTest
     BaseViewModelTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
@@ -33,8 +44,8 @@ add_executable(SeriesDetailsCacheTest
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
+    ${TEST_CONFIG_SOURCES}
 )
 
 target_include_directories(SeriesDetailsCacheTest PRIVATE
@@ -56,6 +67,7 @@ add_test(NAME SeriesDetailsCacheTest COMMAND SeriesDetailsCacheTest)
 add_executable(LibraryCacheStoreTest
     LibraryCacheStoreTest.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/LibraryCacheStore.cpp
+    ${TEST_LOGGING_SOURCES}
 )
 
 target_include_directories(LibraryCacheStoreTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -87,6 +99,24 @@ target_link_libraries(LoggingConfigTest
 
 add_test(NAME LoggingConfigTest COMMAND LoggingConfigTest)
 
+add_executable(ConfigManagerThemeTest
+    ConfigManagerThemeTest.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(ConfigManagerThemeTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(ConfigManagerThemeTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Test
+)
+
+add_test(NAME ConfigManagerThemeTest COMMAND ConfigManagerThemeTest)
+
 # Player backend abstraction tests
 add_executable(PlayerBackendFactoryTest
     PlayerBackendFactoryTest.cpp
@@ -95,6 +125,7 @@ add_executable(PlayerBackendFactoryTest
     ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.cpp
     ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
+    ${TEST_LOGGING_SOURCES}
 )
 
 if(UNIX AND NOT APPLE)
@@ -134,9 +165,9 @@ add_executable(PlayerControllerAutoplayContextTest
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
+    ${TEST_CONFIG_SOURCES}
 )
 
 target_include_directories(PlayerControllerAutoplayContextTest PRIVATE
@@ -162,7 +193,7 @@ add_executable(MediaSegmentProviderServiceTest
     ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${TEST_CONFIG_SOURCES}
 )
 
 target_include_directories(MediaSegmentProviderServiceTest PRIVATE
@@ -226,7 +257,7 @@ add_test(NAME EpisodeSelectionScriptTest COMMAND EpisodeSelectionScriptTest)
 add_executable(TrackPreferencesManagerTest
     TrackPreferencesManagerTest.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${TEST_CONFIG_SOURCES}
 )
 
 target_include_directories(TrackPreferencesManagerTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -248,10 +279,10 @@ add_executable(SimilarItemsRetryTest
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
     ${CMAKE_SOURCE_DIR}/src/test/MockLibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/test/TestModeController.cpp
+    ${TEST_CONFIG_SOURCES}
 )
 
 target_include_directories(SimilarItemsRetryTest PRIVATE
@@ -278,7 +309,7 @@ add_executable(UpNextRecommendationsViewModelTest
     ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${TEST_CONFIG_SOURCES}
 )
 
 target_include_directories(UpNextRecommendationsViewModelTest PRIVATE
@@ -300,7 +331,7 @@ add_executable(UpdateServiceTest
     UpdateServiceTest.cpp
     PlayerControllerPlaybackStateStub.cpp
     ${UPDATER_SOURCES}
-    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${TEST_CONFIG_SOURCES}
 )
 
 target_include_directories(UpdateServiceTest PRIVATE
@@ -367,16 +398,16 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/core/ApplicationInitializer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/ServiceLocator.cpp
     # Utils sources
-    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/InputModeManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/LibraryCacheStore.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/SidebarSettings.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/GpuMemoryTrimmer.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/SystemPowerController.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/CacheMigrator.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
-    ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp
+    ${TEST_CONFIG_SOURCES}
     # Network sources
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
