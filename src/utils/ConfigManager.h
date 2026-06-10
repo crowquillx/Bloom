@@ -85,6 +85,8 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool skipRefreshRateOnCompatibleMultiple READ getSkipRefreshRateOnCompatibleMultiple WRITE setSkipRefreshRateOnCompatibleMultiple NOTIFY skipRefreshRateOnCompatibleMultipleChanged)
     Q_PROPERTY(int framerateMatchDelay READ getFramerateMatchDelay WRITE setFramerateMatchDelay NOTIFY framerateMatchDelayChanged)
     Q_PROPERTY(bool enableHDR READ getEnableHDR WRITE setEnableHDR NOTIFY enableHDRChanged)
+    Q_PROPERTY(QString hdrOutputMode READ getHDROutputMode WRITE setHDROutputMode NOTIFY hdrOutputModeChanged)
+    Q_PROPERTY(QString dolbyVisionFallbackMode READ getDolbyVisionFallbackMode WRITE setDolbyVisionFallbackMode NOTIFY dolbyVisionFallbackModeChanged)
     Q_PROPERTY(QString linuxRefreshRateCommand READ getLinuxRefreshRateCommand WRITE setLinuxRefreshRateCommand NOTIFY linuxRefreshRateCommandChanged)
     Q_PROPERTY(QString linuxHDRCommand READ getLinuxHDRCommand WRITE setLinuxHDRCommand NOTIFY linuxHDRCommandChanged)
     Q_PROPERTY(QString windowsCustomHDRCommand READ getWindowsCustomHDRCommand WRITE setWindowsCustomHDRCommand NOTIFY windowsCustomHDRCommandChanged)
@@ -264,6 +266,12 @@ public:
     
     void setEnableHDR(bool enabled);
     bool getEnableHDR() const;
+
+    void setHDROutputMode(const QString &mode);
+    QString getHDROutputMode() const;
+
+    void setDolbyVisionFallbackMode(const QString &mode);
+    QString getDolbyVisionFallbackMode() const;
     
     void setLinuxRefreshRateCommand(const QString &cmd);
     QString getLinuxRefreshRateCommand() const;
@@ -324,11 +332,11 @@ public:
     /// @return The resolved profile name
     Q_INVOKABLE QString resolveProfileForItem(const QString &libraryId, const QString &seriesId) const;
     
-    /// Get the final mpv args for playback, applying HDR overrides only for HDR content
+    /// Get the final mpv args for playback, applying HDR policy overrides for the content
     /// @param profileName The profile to use
     /// @param isHdrContent Whether the current item is HDR content
     /// @return List of mpv command-line arguments
-    QStringList getMpvArgsForProfile(const QString &profileName, bool isHdrContent = false) const;
+    QStringList getMpvArgsForProfile(const QString &profileName, bool isHdrContent = false, bool forceToneMapToSdr = false) const;
     
     /// Create the two default profiles (used by migration)
     static QJsonObject defaultMpvProfiles();
@@ -427,6 +435,8 @@ signals:
     void skipRefreshRateOnCompatibleMultipleChanged();
     void framerateMatchDelayChanged();
     void enableHDRChanged();
+    void hdrOutputModeChanged();
+    void dolbyVisionFallbackModeChanged();
     void linuxRefreshRateCommandChanged();
     void linuxHDRCommandChanged();
     void windowsCustomHDRCommandChanged();

@@ -114,6 +114,100 @@ QVariantList mediaStreamsForType(const QVariantMap &mediaSource, const QString &
     return result;
 }
 
+enum class HdrContentKind {
+    Sdr,
+    Hdr,
+    DolbyVisionCompatible,
+    DolbyVisionUnsupported
+};
+
+QString normalizedMetadataText(const QVariantMap &stream)
+{
+    return QStringList{
+        stream.value(QStringLiteral("videoRange")).toString(),
+        stream.value(QStringLiteral("videoRangeType")).toString(),
+        stream.value(QStringLiteral("codecTag")).toString(),
+        stream.value(QStringLiteral("codecTagString")).toString(),
+        stream.value(QStringLiteral("codecId")).toString(),
+        stream.value(QStringLiteral("profile")).toString()
+    }.join(QLatin1Char(' ')).trimmed().toLower();
+}
+
+HdrContentKind classifyVideoStream(const QVariantMap &stream)
+{
+    const QString metadata = normalizedMetadataText(stream);
+    const int dvProfile = stream.value(QStringLiteral("dolbyVisionProfile")).toInt();
+    const bool isDolbyVision = dvProfile > 0
+        || metadata.contains(QStringLiteral("dovi"))
+        || metadata.contains(QStringLiteral("dolby vision"))
+        || metadata.contains(QStringLiteral("dvhe"))
+        || metadata.contains(QStringLiteral("dvh1"));
+
+    if (isDolbyVision) {
+        if (dvProfile == 7 || dvProfile == 8
+            || metadata.contains(QStringLiteral("dvhe.07"))
+            || metadata.contains(QStringLiteral("dvhe.08"))
+            || metadata.contains(QStringLiteral("dvh1.08"))) {
+            return HdrContentKind::DolbyVisionCompatible;
+        }
+        return HdrContentKind::DolbyVisionUnsupported;
+    }
+
+    const QString range = stream.value(QStringLiteral("videoRange")).toString().trimmed().toUpper();
+    const QString rangeType = stream.value(QStringLiteral("videoRangeType")).toString().trimmed().toUpper();
+    if ((!range.isEmpty() && range != QStringLiteral("SDR"))
+        || (!rangeType.isEmpty() && rangeType != QStringLiteral("SDR"))
+        || metadata.contains(QStringLiteral("hdr10"))
+        || metadata.contains(QStringLiteral("hlg"))) {
+        return HdrContentKind::Hdr;
+    }
+
+    return HdrContentKind::Sdr;
+}
+
+HdrContentKind classifyMediaSourceHdr(const QVariantMap &mediaSource)
+{
+    HdrContentKind result = HdrContentKind::Sdr;
+    for (const QVariant &streamVariant : mediaStreamsForType(mediaSource, QStringLiteral("Video"))) {
+        const HdrContentKind streamKind = classifyVideoStream(streamVariant.toMap());
+        if (streamKind == HdrContentKind::DolbyVisionUnsupported) {
+            return streamKind;
+        }
+        if (streamKind == HdrContentKind::DolbyVisionCompatible) {
+            result = streamKind;
+        } else if (streamKind == HdrContentKind::Hdr && result == HdrContentKind::Sdr) {
+            result = streamKind;
+        }
+    }
+    return result;
+}
+
+bool kindIsHdr(HdrContentKind kind)
+{
+    return kind != HdrContentKind::Sdr;
+}
+
+bool kindShouldToneMapToSdr(HdrContentKind kind, const QString &dolbyVisionFallbackMode)
+{
+    return kind == HdrContentKind::DolbyVisionUnsupported
+        && dolbyVisionFallbackMode != QStringLiteral("experimental-direct-play");
+}
+
+const char *hdrContentKindName(HdrContentKind kind)
+{
+    switch (kind) {
+    case HdrContentKind::Sdr:
+        return "sdr";
+    case HdrContentKind::Hdr:
+        return "hdr";
+    case HdrContentKind::DolbyVisionCompatible:
+        return "dolby-vision-compatible";
+    case HdrContentKind::DolbyVisionUnsupported:
+        return "dolby-vision-unsupported";
+    }
+    return "unknown";
+}
+
 bool hasStreamIndex(const QVariantList &streams, int streamIndex)
 {
     for (const QVariant &streamVariant : streams) {
@@ -740,6 +834,7 @@ void PlayerController::enterIdleStateImmediate()
     m_startPositionTicks = 0;
     m_contentFramerate = 0.0;
     m_contentIsHDR = false;
+    m_contentShouldToneMapToSdr = false;
     m_playMethod = QStringLiteral("DirectPlay");
     clearOverlayMetadata();
     clearPlaybackChapters();
@@ -1830,7 +1925,9 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
                       availableAudioTracks,
                       availableSubtitleTracks,
                       videoFramerateForMediaSource(mediaSource),
-                      mediaSourceIsHdr(mediaSource));
+                      mediaSourceIsHdr(mediaSource),
+                      kindShouldToneMapToSdr(classifyMediaSourceHdr(mediaSource),
+                                             m_config->getDolbyVisionFallbackMode()));
 }
 
 void PlayerController::onPlaybackInfoLoadedForRequest(const QString &itemId,
@@ -2170,7 +2267,8 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
                       firstSegment.value(QStringLiteral("availableAudioTracks")).toList(),
                       firstSegment.value(QStringLiteral("availableSubtitleTracks")).toList(),
                       firstSegment.value(QStringLiteral("framerate")).toDouble(),
-                      firstSegment.value(QStringLiteral("isHDR")).toBool());
+                      firstSegment.value(QStringLiteral("isHDR")).toBool(),
+                      firstSegment.value(QStringLiteral("toneMapToSdr")).toBool());
 
     clearPlaybackSegments();
     for (const QVariant &segment : segments) {
@@ -2310,6 +2408,7 @@ QVariantMap PlayerController::resolveSegmentPlaybackContext(const QString &scope
                                                                            isMovie,
                                                                            preferredAudioIndex,
                                                                            preferredSubtitleIndex);
+    const HdrContentKind hdrKind = classifyMediaSourceHdr(resolvedSource);
     return QVariantMap{
         {QStringLiteral("mediaSource"), resolvedSource},
         {QStringLiteral("mediaSourceId"), resolvedSource.value(QStringLiteral("id")).toString()},
@@ -2319,7 +2418,9 @@ QVariantMap PlayerController::resolveSegmentPlaybackContext(const QString &scope
         {QStringLiteral("availableAudioTracks"), buildAvailableTrackOptions(resolvedSource, QStringLiteral("Audio"))},
         {QStringLiteral("availableSubtitleTracks"), buildAvailableTrackOptions(resolvedSource, QStringLiteral("Subtitle"))},
         {QStringLiteral("framerate"), videoFramerateForMediaSource(resolvedSource)},
-        {QStringLiteral("isHDR"), mediaSourceIsHdr(resolvedSource)},
+        {QStringLiteral("isHDR"), kindIsHdr(hdrKind)},
+        {QStringLiteral("hdrKind"), QString::fromLatin1(hdrContentKindName(hdrKind))},
+        {QStringLiteral("toneMapToSdr"), kindShouldToneMapToSdr(hdrKind, m_config->getDolbyVisionFallbackMode())},
         {QStringLiteral("runTimeTicks"), resolvedSource.value(QStringLiteral("runTimeTicks")).toLongLong()}
     };
 }
@@ -2834,6 +2935,7 @@ void PlayerController::playTestVideo()
         m_currentLibraryId.clear();
         m_contentFramerate = 0.0;
         m_contentIsHDR = false;
+        m_contentShouldToneMapToSdr = false;
         m_currentPosition = 0.0;
         m_duration = 0.0;
         m_hasReportedStart = false;
@@ -2910,7 +3012,7 @@ void PlayerController::playTestVideo()
  * @param framerate Content framerate in frames per second, used for framerate-matching decisions.
  * @param isHDR True if the content is HDR, used for HDR-related display handling.
  */
-void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionTicks, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR)
+void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionTicks, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR, bool toneMapToSdr)
 {
     m_playbackAttemptId = ++gPlaybackAttemptCounter;
     m_reportProgressOnNextPositionUpdate = false;
@@ -2920,20 +3022,24 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
              << "seasonId:" << seasonId
              << "libraryId:" << libraryId
              << "framerate:" << framerate
-             << "isHDR:" << isHDR;
+             << "isHDR:" << isHDR
+             << "toneMapToSdr:" << toneMapToSdr;
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] play-url"
                             << "itemId=" << itemId
                             << "startTicks=" << startPositionTicks
                             << "framerate=" << framerate
                             << "isHDR=" << isHDR
+                            << "toneMapToSdr=" << toneMapToSdr
                             << "enableHDRSetting=" << m_config->getEnableHDR()
+                            << "hdrOutputMode=" << m_config->getHDROutputMode()
+                            << "dolbyVisionFallbackMode=" << m_config->getDolbyVisionFallbackMode()
                             << "enableFramerateMatchSetting=" << m_config->getEnableFramerateMatching();
 
     clearPendingAutoplayContext();
     clearNextEpisodePrefetchState();
 
-    scheduleReplacementPlayback([this, url, itemId, startPositionTicks, seriesId, seasonId, libraryId, framerate, isHDR]() {
+    scheduleReplacementPlayback([this, url, itemId, startPositionTicks, seriesId, seasonId, libraryId, framerate, isHDR, toneMapToSdr]() {
         // Store pending playback info after the previous item has fully stopped.
         if (m_currentItemId != itemId) {
             m_currentItemId = itemId;
@@ -2951,6 +3057,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_contentFramerate = framerate;
         m_mpvDisplayFpsOverride = 0.0;
         m_contentIsHDR = isHDR;
+        m_contentShouldToneMapToSdr = toneMapToSdr;
         m_playMethod = inferPlayMethod(url);
         m_hasReportedStopForAttempt = false;
         m_hasEvaluatedCompletionForAttempt = false;
@@ -3722,13 +3829,14 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
                                          int audioStreamIndex, int subtitleStreamIndex,
                                          const QVariantList &availableAudioTracks,
                                          const QVariantList &availableSubtitleTracks,
-                                         double framerate, bool isHDR)
+                                         double framerate, bool isHDR, bool toneMapToSdr)
 {
     qCDebug(lcPlayback) << "PlayerController: playUrlWithTracks called with itemId:" << itemId
              << "audioIndex:" << audioStreamIndex
              << "subtitleIndex:" << subtitleStreamIndex
              << "framerate:" << framerate
-             << "isHDR:" << isHDR;
+             << "isHDR:" << isHDR
+             << "toneMapToSdr:" << toneMapToSdr;
 
     const QVariantList resolvedAvailableAudioTracks = availableAudioTracks.isEmpty()
         ? buildAvailableTrackOptions(mediaSource, QStringLiteral("Audio"))
@@ -3737,7 +3845,7 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
         ? buildAvailableTrackOptions(mediaSource, QStringLiteral("Subtitle"))
         : availableSubtitleTracks;
 
-    playUrl(url, itemId, startPositionTicks, seriesId, seasonId, libraryId, framerate, isHDR);
+    playUrl(url, itemId, startPositionTicks, seriesId, seasonId, libraryId, framerate, isHDR, toneMapToSdr);
 
     m_mediaSourceId = mediaSourceId;
     m_playSessionId = playSessionId;
@@ -4185,14 +4293,7 @@ double PlayerController::videoFramerateForMediaSource(const QVariantMap &mediaSo
 
 bool PlayerController::mediaSourceIsHdr(const QVariantMap &mediaSource) const
 {
-    for (const QVariant &streamVariant : mediaStreamsForType(mediaSource, QStringLiteral("Video"))) {
-        const QVariantMap stream = streamVariant.toMap();
-        const QString range = stream.value(QStringLiteral("videoRange")).toString().trimmed().toUpper();
-        if (!range.isEmpty() && range != QStringLiteral("SDR")) {
-            return true;
-        }
-    }
-    return false;
+    return kindIsHdr(classifyMediaSourceHdr(mediaSource));
 }
 
 // === PRIVATE HELPERS ===
@@ -4733,6 +4834,8 @@ void PlayerController::startPlayback(const QString &url)
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] start-playback"
                             << "contentIsHDR=" << m_contentIsHDR
+                            << "toneMapToSdr=" << m_contentShouldToneMapToSdr
+                            << "hdrOutputMode=" << m_config->getHDROutputMode()
                             << "contentFramerate=" << m_contentFramerate
                             << "url=" << url;
     
@@ -4741,7 +4844,15 @@ void PlayerController::startPlayback(const QString &url)
     
     // Handle Display Settings - HDR FIRST (must be done before refresh rate change)
     // Toggling HDR can reset the display mode, so we set HDR first, then refresh rate
-    const bool shouldAttemptHdrToggle = m_config->getEnableHDR() && m_contentIsHDR;
+    const QString hdrOutputMode = m_config->getHDROutputMode();
+    const bool shouldToneMapToSdr = m_contentIsHDR
+        && (m_contentShouldToneMapToSdr
+            || !m_config->getEnableHDR()
+            || hdrOutputMode == QStringLiteral("tone-map-to-sdr"));
+    const bool shouldAttemptHdrToggle = m_config->getEnableHDR()
+        && m_contentIsHDR
+        && !shouldToneMapToSdr
+        && hdrOutputMode != QStringLiteral("tone-map-to-sdr");
     bool hdrEnabled = false;
     if (shouldAttemptHdrToggle) {
         // Snapshot refresh before HDR toggle. Some setups force 60Hz in HDR,
@@ -4755,6 +4866,8 @@ void PlayerController::startPlayback(const QString &url)
                                 << "] setHDR(true) result=" << hdrEnabled;
     } else if (m_config->getEnableHDR() && !m_contentIsHDR) {
         qCDebug(lcPlayback) << "PlayerController: HDR toggle enabled but content is SDR, not switching display HDR";
+    } else if (shouldToneMapToSdr) {
+        qCDebug(lcPlayback) << "PlayerController: HDR content will be tone-mapped locally to SDR; not switching display HDR";
     }
 
     applyFramerateMatchingAndStart();
@@ -4777,6 +4890,8 @@ void PlayerController::applyFramerateMatchingAndStart()
                             << "enableFramerateMatchSetting=" << m_config->getEnableFramerateMatching()
                             << "contentFramerate=" << m_contentFramerate
                             << "enableHDRSetting=" << m_config->getEnableHDR()
+                            << "hdrOutputMode=" << m_config->getHDROutputMode()
+                            << "toneMapToSdr=" << m_contentShouldToneMapToSdr
                             << "contentIsHDR=" << m_contentIsHDR;
 
     m_mpvDisplayFpsOverride = 0.0;
@@ -4870,7 +4985,7 @@ void PlayerController::initiateMpvStart()
                             << "backend=" << m_playerBackend->backendName();
     
     // Get the args from the profile (includes HDR overrides if enabled)
-    QStringList profileArgs = m_config->getMpvArgsForProfile(profileName, m_contentIsHDR);
+    QStringList profileArgs = m_config->getMpvArgsForProfile(profileName, m_contentIsHDR, m_contentShouldToneMapToSdr);
     
     // Build final args: Bloom config args + profile args
     QStringList finalArgs;

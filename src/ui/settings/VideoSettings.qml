@@ -10,6 +10,10 @@ FocusScope {
 
     readonly property Item preferredEntryItem: framerateToggle
     property Item _lastFocusedItem: null
+    readonly property var hdrOutputModeValues: ["match-content", "tone-map-to-sdr", "force-hdr-experimental"]
+    readonly property var hdrOutputModeLabels: [qsTr("Match Content"), qsTr("Tone-map to SDR"), qsTr("Force HDR (Experimental)")]
+    readonly property var dolbyVisionFallbackModeValues: ["prefer-compatible-hdr", "tone-map-unsupported", "experimental-direct-play"]
+    readonly property var dolbyVisionFallbackModeLabels: [qsTr("Prefer Compatible HDR"), qsTr("Tone-map Unsupported"), qsTr("Experimental Direct Play")]
 
     function enterFromRail() {
         var target = (_lastFocusedItem && _lastFocusedItem.visible) ? _lastFocusedItem : preferredEntryItem
@@ -18,6 +22,11 @@ FocusScope {
 
     function restoreFocus() {
         enterFromRail()
+    }
+
+    function indexForValue(values, value) {
+        var index = values.indexOf(value)
+        return index >= 0 ? index : 0
     }
 
     Keys.priority: Keys.AfterItem
@@ -161,7 +170,7 @@ FocusScope {
                     }
 
                     KeyNavigation.up: hdrToggle
-                    KeyNavigation.down: advancedExpanded ? linuxRefreshRateInput : null
+                    KeyNavigation.down: advancedExpanded ? hdrOutputModeCombo : null
 
                     contentItem: RowLayout {
                         spacing: Theme.spacingSmall
@@ -204,13 +213,133 @@ FocusScope {
                     spacing: Theme.spacingMedium
                     Layout.leftMargin: Theme.spacingMedium
 
+                    RowLayout {
+                        id: hdrOutputModeRow
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingMedium
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingXSmall
+
+                            Text {
+                                text: qsTr("HDR Output Mode")
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+                            }
+
+                            Text {
+                                text: qsTr("Match content keeps SDR in SDR and HDR in HDR when supported")
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.family: Theme.fontPrimary
+                                color: Theme.textSecondary
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        SettingsComboBox {
+                            id: hdrOutputModeCombo
+                            model: root.hdrOutputModeLabels
+                            currentIndex: root.indexForValue(root.hdrOutputModeValues, ConfigManager.hdrOutputMode)
+                            Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
+
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    root._lastFocusedItem = this
+                                    flickable.ensureFocusVisible(this)
+                                }
+                            }
+
+                            onActivated: function(index) {
+                                ConfigManager.hdrOutputMode = root.hdrOutputModeValues[index]
+                            }
+
+                            Keys.onUpPressed: function(event) {
+                                if (!popup.visible) {
+                                    advancedToggle.forceActiveFocus()
+                                    event.accepted = true
+                                }
+                            }
+                            Keys.onDownPressed: function(event) {
+                                if (!popup.visible) {
+                                    dolbyVisionFallbackCombo.forceActiveFocus()
+                                    event.accepted = true
+                                }
+                            }
+                            Keys.onReturnPressed: popup.open()
+                            Keys.onEnterPressed: popup.open()
+                        }
+                    }
+
+                    RowLayout {
+                        id: dolbyVisionFallbackRow
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingMedium
+
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: Theme.spacingXSmall
+
+                            Text {
+                                text: qsTr("Dolby Vision Fallback")
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+                            }
+
+                            Text {
+                                text: qsTr("Unsupported Dolby Vision is locally tone-mapped instead of transcoded")
+                                font.pixelSize: Theme.fontSizeSmall
+                                font.family: Theme.fontPrimary
+                                color: Theme.textSecondary
+                                wrapMode: Text.WordWrap
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        SettingsComboBox {
+                            id: dolbyVisionFallbackCombo
+                            model: root.dolbyVisionFallbackModeLabels
+                            currentIndex: root.indexForValue(root.dolbyVisionFallbackModeValues, ConfigManager.dolbyVisionFallbackMode)
+                            Layout.preferredWidth: Math.round(280 * Theme.layoutScale)
+
+                            onActiveFocusChanged: {
+                                if (activeFocus) {
+                                    root._lastFocusedItem = this
+                                    flickable.ensureFocusVisible(this)
+                                }
+                            }
+
+                            onActivated: function(index) {
+                                ConfigManager.dolbyVisionFallbackMode = root.dolbyVisionFallbackModeValues[index]
+                            }
+
+                            Keys.onUpPressed: function(event) {
+                                if (!popup.visible) {
+                                    hdrOutputModeCombo.forceActiveFocus()
+                                    event.accepted = true
+                                }
+                            }
+                            Keys.onDownPressed: function(event) {
+                                if (!popup.visible) {
+                                    linuxRefreshRateInput.input.forceActiveFocus()
+                                    event.accepted = true
+                                }
+                            }
+                            Keys.onReturnPressed: popup.open()
+                            Keys.onEnterPressed: popup.open()
+                        }
+                    }
+
                     SettingsTextInputRow {
                         id: linuxRefreshRateInput
                         label: qsTr("Linux Refresh Rate Command")
                         placeholderText: "xrandr --output HDMI-1 --rate {RATE}"
                         text: ConfigManager.linuxRefreshRateCommand
                         ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
-                        keyUpTarget: advancedToggle
+                        keyUpTarget: dolbyVisionFallbackCombo
                         keyDownTarget: linuxHDRInput.input
                         onEditingFinished: ConfigManager.linuxRefreshRateCommand = text
                         onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }

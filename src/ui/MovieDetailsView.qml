@@ -231,12 +231,69 @@ FocusScope {
         if (!currentMediaSource || !currentMediaSource.mediaStreams) return false
         for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
             var stream = currentMediaSource.mediaStreams[i]
-            if (stream.type === "Video" && stream.videoRange) {
-                var range = String(stream.videoRange).toUpperCase()
-                if (range !== "SDR" && range !== "") return true
+            if (stream.type === "Video" && videoHdrLabel(stream) !== "") {
+                return true
             }
         }
         return false
+    }
+
+    function primaryVideoStream() {
+        if (!currentMediaSource || !currentMediaSource.mediaStreams) return null
+        for (var i = 0; i < currentMediaSource.mediaStreams.length; i++) {
+            var stream = currentMediaSource.mediaStreams[i]
+            if (stream.type === "Video") return stream
+        }
+        return null
+    }
+
+    function videoResolutionBadge() {
+        var stream = primaryVideoStream()
+        if (!stream) return ""
+        var height = Number(stream.height || stream.Height || 0)
+        var width = Number(stream.width || stream.Width || 0)
+        if (height >= 2160 || width >= 3800) return qsTr("4K")
+        if (height >= 1440) return qsTr("1440p")
+        if (height >= 1080) return qsTr("1080p")
+        if (height >= 720) return qsTr("720p")
+        if (height > 0) return qsTr("%1p").arg(height)
+        return ""
+    }
+
+    function videoHdrBadge() {
+        return videoHdrLabel(primaryVideoStream())
+    }
+
+    function hasMediaBadges() {
+        return videoResolutionBadge() !== "" || videoHdrBadge() !== ""
+    }
+
+    function videoHdrLabel(stream) {
+        if (!stream) return ""
+        var metadata = [
+            stream.videoRange,
+            stream.videoRangeType,
+            stream.codecTag,
+            stream.codecTagString,
+            stream.codecId,
+            stream.profile
+        ].join(" ").toUpperCase()
+        var dvProfile = Number(stream.dolbyVisionProfile || 0)
+        if (dvProfile > 0 || metadata.indexOf("DOVI") >= 0 || metadata.indexOf("DOLBY VISION") >= 0
+                || metadata.indexOf("DVHE") >= 0 || metadata.indexOf("DVH1") >= 0) {
+            return qsTr("Dolby Vision")
+        }
+        if (metadata.indexOf("HDR10+") >= 0 || metadata.indexOf("HDR10PLUS") >= 0) {
+            return qsTr("HDR10+")
+        }
+        if (metadata.indexOf("HLG") >= 0) {
+            return qsTr("HLG")
+        }
+        var range = String(stream.videoRange || stream.videoRangeType || "").toUpperCase()
+        if (range !== "" && range !== "SDR") {
+            return metadata.indexOf("HDR10") >= 0 || range.indexOf("HDR") >= 0 ? qsTr("HDR10") : range
+        }
+        return ""
     }
 
     function getAudioStreams() {
@@ -935,6 +992,19 @@ FocusScope {
                                 font.family: Theme.fontIcon
                                 font.pixelSize: Math.round(76 * Theme.layoutScale)
                                 color: Theme.textSecondary
+                            }
+
+                            Row {
+                                anchors.top: parent.top
+                                anchors.right: parent.right
+                                anchors.margins: Theme.spacingSmall
+                                spacing: Theme.spacingXSmall
+                                opacity: root.hasMediaBadges() ? 1.0 : 0.0
+
+                                Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
+
+                                MetadataChip { text: root.videoResolutionBadge() }
+                                MetadataChip { text: root.videoHdrBadge() }
                             }
                         }
                     }

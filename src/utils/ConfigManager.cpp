@@ -2092,6 +2092,110 @@ bool ConfigManager::getEnableHDR() const
     return false;
 }
 
+namespace {
+
+QString normalizedHdrOutputMode(QString mode)
+{
+    mode = mode.trimmed().toLower();
+    if (mode == QStringLiteral("tone-map-to-sdr")
+        || mode == QStringLiteral("tonemaptosdr")
+        || mode == QStringLiteral("tone_map_to_sdr")) {
+        return QStringLiteral("tone-map-to-sdr");
+    }
+    if (mode == QStringLiteral("force-hdr-experimental")
+        || mode == QStringLiteral("forcehdrexperimental")
+        || mode == QStringLiteral("force_hdr_experimental")) {
+        return QStringLiteral("force-hdr-experimental");
+    }
+    return QStringLiteral("match-content");
+}
+
+QString normalizedDolbyVisionFallbackMode(QString mode)
+{
+    mode = mode.trimmed().toLower();
+    if (mode == QStringLiteral("tone-map-unsupported")
+        || mode == QStringLiteral("tonemapunsupported")
+        || mode == QStringLiteral("tone_map_unsupported")) {
+        return QStringLiteral("tone-map-unsupported");
+    }
+    if (mode == QStringLiteral("experimental-direct-play")
+        || mode == QStringLiteral("experimentaldirectplay")
+        || mode == QStringLiteral("experimental_direct_play")) {
+        return QStringLiteral("experimental-direct-play");
+    }
+    return QStringLiteral("prefer-compatible-hdr");
+}
+
+} // namespace
+
+void ConfigManager::setHDROutputMode(const QString &mode)
+{
+    const QString normalized = normalizedHdrOutputMode(mode);
+    if (normalized == getHDROutputMode()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject video;
+    if (settings.contains("video") && settings["video"].isObject()) {
+        video = settings["video"].toObject();
+    }
+    video["hdr_output_mode"] = normalized;
+    settings["video"] = video;
+    m_config["settings"] = settings;
+    save();
+    emit hdrOutputModeChanged();
+}
+
+QString ConfigManager::getHDROutputMode() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        const QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("video") && settings["video"].isObject()) {
+            const QJsonObject video = settings["video"].toObject();
+            if (video.contains("hdr_output_mode")) {
+                return normalizedHdrOutputMode(video["hdr_output_mode"].toString());
+            }
+        }
+    }
+    return QStringLiteral("match-content");
+}
+
+void ConfigManager::setDolbyVisionFallbackMode(const QString &mode)
+{
+    const QString normalized = normalizedDolbyVisionFallbackMode(mode);
+    if (normalized == getDolbyVisionFallbackMode()) return;
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject video;
+    if (settings.contains("video") && settings["video"].isObject()) {
+        video = settings["video"].toObject();
+    }
+    video["dolby_vision_fallback_mode"] = normalized;
+    settings["video"] = video;
+    m_config["settings"] = settings;
+    save();
+    emit dolbyVisionFallbackModeChanged();
+}
+
+QString ConfigManager::getDolbyVisionFallbackMode() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        const QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("video") && settings["video"].isObject()) {
+            const QJsonObject video = settings["video"].toObject();
+            if (video.contains("dolby_vision_fallback_mode")) {
+                return normalizedDolbyVisionFallbackMode(video["dolby_vision_fallback_mode"].toString());
+            }
+        }
+    }
+    return QStringLiteral("prefer-compatible-hdr");
+}
+
 void ConfigManager::setLinuxRefreshRateCommand(const QString &cmd)
 {
     if (cmd == getLinuxRefreshRateCommand()) return;
@@ -2881,6 +2985,8 @@ QJsonObject ConfigManager::defaultConfig() const
     video["skip_refresh_rate_on_compatible_multiple"] = false;
     video["framerate_match_delay"] = 1;  // Default 1 second delay after refresh rate switch
     video["enable_hdr"] = false;
+    video["hdr_output_mode"] = QStringLiteral("match-content");
+    video["dolby_vision_fallback_mode"] = QStringLiteral("prefer-compatible-hdr");
     settings["video"] = video;
     
     QJsonObject cache;
@@ -3370,15 +3476,23 @@ QString ConfigManager::resolveProfileForItem(const QString &libraryId, const QSt
     return getDefaultProfileName();
 }
 
-QStringList ConfigManager::getMpvArgsForProfile(const QString &profileName, bool isHdrContent) const
+QStringList ConfigManager::getMpvArgsForProfile(const QString &profileName, bool isHdrContent, bool forceToneMapToSdr) const
 {
     MpvProfile profile = getMpvProfileStruct(profileName);
     QStringList args = profile.buildArgs();
-    
-    // Only apply HDR-specific renderer hints for HDR items.
-    // Applying these globally can trigger HDR behavior for SDR playback on some stacks.
-    if (getEnableHDR() && isHdrContent) {
-        // Ensure gpu-next for HDR
+
+    auto setOrAppendArg = [&args](const QString &name, const QString &value) {
+        const QString prefix = QStringLiteral("--") + name + QStringLiteral("=");
+        for (QString &arg : args) {
+            if (arg.startsWith(prefix)) {
+                arg = prefix + value;
+                return;
+            }
+        }
+        args << prefix + value;
+    };
+
+    auto ensureGpuNext = [&args]() {
         bool hasGpuNext = false;
         for (int i = 0; i < args.size(); ++i) {
             if (args[i].startsWith("--vo=")) {
@@ -3392,18 +3506,30 @@ QStringList ConfigManager::getMpvArgsForProfile(const QString &profileName, bool
         if (!hasGpuNext) {
             args.prepend("--vo=gpu-next");
         }
-        
-        // Normalize colorspace hint for HDR to avoid conflicting values from profiles.
-        bool hasTargetColorspaceHint = false;
-        for (int i = 0; i < args.size(); ++i) {
-            if (args[i].startsWith("--target-colorspace-hint=")) {
-                args[i] = "--target-colorspace-hint=auto";
-                hasTargetColorspaceHint = true;
-            }
-        }
-        if (!hasTargetColorspaceHint) {
-            args << "--target-colorspace-hint=auto";
-        }
+    };
+
+    const QString hdrOutputMode = getHDROutputMode();
+    const bool toneMapToSdr = isHdrContent
+        && (forceToneMapToSdr || !getEnableHDR() || hdrOutputMode == QStringLiteral("tone-map-to-sdr"));
+    const bool outputHdr = isHdrContent
+        && getEnableHDR()
+        && !toneMapToSdr
+        && (hdrOutputMode == QStringLiteral("match-content")
+            || hdrOutputMode == QStringLiteral("force-hdr-experimental"));
+
+    if (toneMapToSdr) {
+        ensureGpuNext();
+        setOrAppendArg(QStringLiteral("target-colorspace-hint"), QStringLiteral("no"));
+        setOrAppendArg(QStringLiteral("tone-mapping"), QStringLiteral("auto"));
+        setOrAppendArg(QStringLiteral("hdr-compute-peak"), QStringLiteral("auto"));
+    } else if (outputHdr) {
+        ensureGpuNext();
+        setOrAppendArg(QStringLiteral("target-colorspace-hint"), QStringLiteral("auto"));
+        setOrAppendArg(QStringLiteral("target-colorspace-hint-mode"), QStringLiteral("target"));
+#if defined(Q_OS_WIN)
+        setOrAppendArg(QStringLiteral("gpu-api"), QStringLiteral("d3d11"));
+        setOrAppendArg(QStringLiteral("gpu-context"), QStringLiteral("d3d11"));
+#endif
     }
     
     return args;

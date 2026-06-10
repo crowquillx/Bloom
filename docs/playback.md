@@ -89,6 +89,15 @@ Key components
 - JellyfinClient: handles API communication for reporting playback events, track selections, and sessions.
 - TrackPreferencesManager: persists explicit audio/subtitle user choices to a separate JSON file using a versioned schema.
 
+HDR and Dolby Vision policy
+- Bloom keeps `enableHDR` as the master switch. With `enableHDR=false`, HDR and Dolby Vision sources are direct-played where possible and locally tone-mapped to SDR by mpv/libplacebo.
+- With `enableHDR=true`, the default `hdr_output_mode=match-content` keeps SDR content in SDR and switches HDR-capable content to HDR output when the active backend/display path supports it.
+- `hdr_output_mode=tone-map-to-sdr` forces local SDR output for HDR/Dolby Vision sources. `hdr_output_mode=force-hdr-experimental` is intended only for validation/debugging.
+- Dolby Vision detection uses Jellyfin stream metadata including `VideoRangeType`, codec tags/IDs, and Dolby Vision profile/level fields. Profile 7/8 content is treated as HDR-compatible by default; unsupported Dolby Vision profiles are locally tone-mapped to SDR unless `dolby_vision_fallback_mode=experimental-direct-play` is selected.
+- Bloom does not request server transcoding for HDR/Dolby Vision fallback. Unsupported or unavailable HDR output should prefer local tone-mapping over full transcode.
+- Windows match-content playback toggles OS HDR only for HDR output playback and restores the previous state afterward. SDR playback does not enable Windows HDR just because the setting is on.
+- Linux production HDR should continue to use the external mpv IPC backend unless embedded HDR output has been explicitly selected for validation.
+
 Audio/Subtitle Track Selection
 - Call `JellyfinClient::getPlaybackInfo(itemId)` to fetch `PlaybackInfoResponse` containing `MediaSources` with all available streams.
 - Each `MediaSourceInfo` contains `mediaStreams` array with `MediaStreamInfo` objects describing video, audio, and subtitle tracks.

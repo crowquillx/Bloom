@@ -133,9 +133,19 @@ Video settings
   - Set to 0 to disable the delay (not recommended if experiencing dropped frames)
   - Configurable via Settings > Video > Refresh Rate Switch Delay slider (always visible; disabled/grayed out when Framerate Matching is off, interactive only when enabled)
   - When Bloom performs or confirms an exact refresh-rate match, mpv is started with an explicit `--display-fps` and `--video-sync=display-resample` override so fractional modes reported by the OS as integer 23/29/59Hz are paced as 23.976/29.97/59.94Hz.
-- `settings.video.enable_hdr` (Q_PROPERTY `enableHDR`): When true, enables HDR output for HDR content. Default: false. Configurable via Settings > Video > Enable HDR.
-  - HDR-specific mpv arguments are now applied only when the current item is detected as HDR content (not for SDR items).
+- `settings.video.enable_hdr` (Q_PROPERTY `enableHDR`): Master HDR switch. Default: false. Configurable via Settings > Video > Enable HDR.
+  - When false, Bloom keeps output in SDR and locally tone-maps detected HDR/Dolby Vision content through mpv/libplacebo.
+  - When true, Bloom defaults to match-content behavior: SDR items stay SDR, and HDR-capable items attempt HDR display output.
+  - HDR-specific mpv arguments are applied only when the current item is detected as HDR content (not for SDR items).
   - For HDR content, Bloom waits briefly for the HDR mode switch to settle before applying framerate matching. This avoids some Windows/TV/GPU combinations reverting to 60Hz after HDR is enabled.
   - Bloom also snapshots the pre-HDR refresh rate and uses it as the restore target when playback ends.
   - This pre-HDR restore path is applied even when framerate matching is disabled.
+- `settings.video.hdr_output_mode` (Q_PROPERTY `hdrOutputMode`): HDR output policy. Default: `match-content`. Configurable via Settings > Video > Advanced > HDR Output Mode.
+  - `match-content`: SDR in SDR, HDR in HDR when supported.
+  - `tone-map-to-sdr`: force local SDR output for HDR/Dolby Vision content.
+  - `force-hdr-experimental`: force HDR output hints for validation/debugging.
+- `settings.video.dolby_vision_fallback_mode` (Q_PROPERTY `dolbyVisionFallbackMode`): Dolby Vision fallback policy. Default: `prefer-compatible-hdr`. Configurable via Settings > Video > Advanced > Dolby Vision Fallback.
+  - `prefer-compatible-hdr`: use HDR-compatible Dolby Vision profile 7/8 paths as HDR; unsupported profiles locally tone-map to SDR.
+  - `tone-map-unsupported`: locally tone-map unsupported Dolby Vision to SDR.
+  - `experimental-direct-play`: allow uncertain Dolby Vision direct playback for validation.
 - `settings.video.linux_refresh_rate_command`, `settings.video.linux_hdr_command`, and `settings.video.windows_custom_hdr_command` store the optional OS-specific commands that Bloom executes when switching refresh rate or HDR modes; leave them blank to use the bundled defaults or specify custom commands for your display hardware.

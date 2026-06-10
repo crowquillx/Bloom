@@ -17,6 +17,8 @@ private slots:
     void defaultsIncludeThemeVariants();
     void themeVariantSettersPersistAndEmit();
     void v19MigrationAddsThemeVariantSettings();
+    void hdrPolicyDefaultsToMatchContent();
+    void hdrMpvArgsRespectOutputMode();
 };
 
 namespace {
@@ -162,6 +164,68 @@ void ConfigManagerThemeTest::v19MigrationAddsThemeVariantSettings()
     const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
     QVERIFY(ui.contains(QStringLiteral("theme_flavor")));
     QCOMPARE(ui.value(QStringLiteral("theme_color_scheme")).toString(), QStringLiteral("blue"));
+}
+
+void ConfigManagerThemeTest::hdrPolicyDefaultsToMatchContent()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getEnableHDR(), false);
+    QCOMPARE(config.getHDROutputMode(), QStringLiteral("match-content"));
+    QCOMPARE(config.getDolbyVisionFallbackMode(), QStringLiteral("prefer-compatible-hdr"));
+
+    QSignalSpy hdrModeSpy(&config, &ConfigManager::hdrOutputModeChanged);
+    QSignalSpy dvFallbackSpy(&config, &ConfigManager::dolbyVisionFallbackModeChanged);
+
+    config.setHDROutputMode(QStringLiteral("ToneMapToSdr"));
+    config.setDolbyVisionFallbackMode(QStringLiteral("ExperimentalDirectPlay"));
+
+    QCOMPARE(config.getHDROutputMode(), QStringLiteral("tone-map-to-sdr"));
+    QCOMPARE(config.getDolbyVisionFallbackMode(), QStringLiteral("experimental-direct-play"));
+    QCOMPARE(hdrModeSpy.count(), 1);
+    QCOMPARE(dvFallbackSpy.count(), 1);
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getHDROutputMode(), QStringLiteral("tone-map-to-sdr"));
+    QCOMPARE(reloaded.getDolbyVisionFallbackMode(), QStringLiteral("experimental-direct-play"));
+}
+
+void ConfigManagerThemeTest::hdrMpvArgsRespectOutputMode()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    QStringList args = config.getMpvArgsForProfile(QStringLiteral("Default"), true);
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
+    QVERIFY(args.contains(QStringLiteral("--tone-mapping=auto")));
+
+    config.setEnableHDR(true);
+    args = config.getMpvArgsForProfile(QStringLiteral("Default"), false);
+    QVERIFY(!args.contains(QStringLiteral("--target-colorspace-hint=auto")));
+
+    args = config.getMpvArgsForProfile(QStringLiteral("Default"), true);
+    QVERIFY(args.contains(QStringLiteral("--vo=gpu-next")));
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=auto")));
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint-mode=target")));
+
+    args = config.getMpvArgsForProfile(QStringLiteral("Default"), true, true);
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
+    QVERIFY(args.contains(QStringLiteral("--tone-mapping=auto")));
+
+    config.setHDROutputMode(QStringLiteral("tone-map-to-sdr"));
+    args = config.getMpvArgsForProfile(QStringLiteral("Default"), true);
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
+    QVERIFY(args.contains(QStringLiteral("--tone-mapping=auto")));
 }
 
 QTEST_MAIN(ConfigManagerThemeTest)

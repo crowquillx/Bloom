@@ -76,6 +76,12 @@ MediaStreamInfo MediaStreamInfo::fromJson(const QJsonObject &json)
     info.realFrameRate = json["RealFrameRate"].toDouble();
     info.profile = json["Profile"].toString();
     info.videoRange = json["VideoRange"].toString();
+    info.videoRangeType = json["VideoRangeType"].toString();
+    info.codecTag = json["CodecTag"].toString();
+    info.codecTagString = json["CodecTagString"].toString();
+    info.codecId = json["CodecId"].toString();
+    info.dolbyVisionProfile = json["DolbyVisionProfile"].toInt();
+    info.dolbyVisionLevel = json["DolbyVisionLevel"].toInt();
     return info;
 }
 
@@ -109,6 +115,12 @@ QVariantMap MediaStreamInfo::toVariantMap() const
     streamMap["realFrameRate"] = realFrameRate;
     streamMap["profile"] = profile;
     streamMap["videoRange"] = videoRange;
+    streamMap["videoRangeType"] = videoRangeType;
+    streamMap["codecTag"] = codecTag;
+    streamMap["codecTagString"] = codecTagString;
+    streamMap["codecId"] = codecId;
+    streamMap["dolbyVisionProfile"] = dolbyVisionProfile;
+    streamMap["dolbyVisionLevel"] = dolbyVisionLevel;
     return streamMap;
 }
 
@@ -607,4 +619,3 @@ ParsedItemsResult JsonParser::parseItemsResponse(const QByteArray &data, const Q
     result.success = true;
     return result;
 }
-

@@ -212,7 +212,7 @@ public:
     Q_INVOKABLE void setEmbeddedVideoShrinkEnabled(bool enabled);
 
     Q_INVOKABLE void playTestVideo();
-    Q_INVOKABLE void playUrl(const QString &url, const QString &itemId = "", qint64 startPositionTicks = 0, const QString &seriesId = "", const QString &seasonId = "", const QString &libraryId = "", double framerate = 0.0, bool isHDR = false);
+    Q_INVOKABLE void playUrl(const QString &url, const QString &itemId = "", qint64 startPositionTicks = 0, const QString &seriesId = "", const QString &seasonId = "", const QString &libraryId = "", double framerate = 0.0, bool isHDR = false, bool toneMapToSdr = false);
     Q_INVOKABLE void requestPlayback(const QVariantMap &request);
     Q_INVOKABLE void confirmPlaybackVersion(const QString &requestId, const QString &mediaSourceId);
     Q_INVOKABLE void cancelPendingPlaybackRequest(const QString &requestId);
@@ -252,7 +252,7 @@ public:
                                        int audioStreamIndex, int subtitleStreamIndex,
                                        const QVariantList &availableAudioTracks = {},
                                        const QVariantList &availableSubtitleTracks = {},
-                                       double framerate = 0.0, bool isHDR = false);
+                                       double framerate = 0.0, bool isHDR = false, bool toneMapToSdr = false);
     
     Q_INVOKABLE void stop();
     Q_INVOKABLE void pause();
@@ -850,6 +850,7 @@ private:
     
     // Content HDR flag for display HDR switching
     bool m_contentIsHDR = false;
+    bool m_contentShouldToneMapToSdr = false;
     quint64 m_playbackAttemptId = 0;
     bool m_hasReportedStopForAttempt = false;
     bool m_hasEvaluatedCompletionForAttempt = false;
