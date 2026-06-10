@@ -173,6 +173,7 @@ qt_add_qml_module(Bloom
         ui/settings/SettingsSliderRow.qml
         ui/settings/SettingsTextInputRow.qml
         ui/settings/SettingsSpinBoxRow.qml
+        ui/settings/SettingsComboBox.qml
         ui/settings/SettingsInfoRow.qml
         ui/settings/SettingsGroupDivider.qml
         ui/settings/PlaybackSettings.qml

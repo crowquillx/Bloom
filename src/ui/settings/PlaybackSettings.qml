@@ -173,7 +173,7 @@ FocusScope {
                         }
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: autoplayCountdownCombo
                         model: ["5s", "10s", "15s", "20s", "25s", "30s"]
                         currentIndex: 0
@@ -256,7 +256,7 @@ FocusScope {
                         }
 
                         contentItem: Text {
-                            text: autoplayCountdownCombo.displayText
+                            text: autoplayCountdownCombo.selectedText()
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: autoplayCountdownCombo.enabled ? Theme.textPrimary : Theme.textDisabled
@@ -268,7 +268,7 @@ FocusScope {
                             width: autoplayCountdownCombo.width
                             enabled: autoplayCountdownCombo.enabled
                             contentItem: Text {
-                                text: modelData
+                                text: autoplayCountdownCombo.optionTextAt(index)
                                 color: highlighted ? Theme.textPrimary : Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
@@ -420,7 +420,7 @@ FocusScope {
                         }
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: defaultAudioTrackCombo
                         readonly property var options: root.defaultTrackOptions(false)
                         model: options
@@ -502,7 +502,7 @@ FocusScope {
                         }
 
                         contentItem: Text {
-                            text: defaultAudioTrackCombo.displayText
+                            text: defaultAudioTrackCombo.selectedText()
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: Theme.textPrimary
@@ -514,7 +514,7 @@ FocusScope {
                         delegate: ItemDelegate {
                             width: defaultAudioTrackCombo.width
                             contentItem: Text {
-                                text: modelData.label
+                                text: defaultAudioTrackCombo.optionTextAt(index)
                                 color: highlighted ? Theme.textPrimary : Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
@@ -620,7 +620,7 @@ FocusScope {
                         }
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: defaultSubtitleTrackCombo
                         readonly property var options: root.defaultTrackOptions(true)
                         model: options
@@ -702,7 +702,7 @@ FocusScope {
                         }
 
                         contentItem: Text {
-                            text: defaultSubtitleTrackCombo.displayText
+                            text: defaultSubtitleTrackCombo.selectedText()
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: Theme.textPrimary
@@ -714,7 +714,7 @@ FocusScope {
                         delegate: ItemDelegate {
                             width: defaultSubtitleTrackCombo.width
                             contentItem: Text {
-                                text: modelData.label
+                                text: defaultSubtitleTrackCombo.optionTextAt(index)
                                 color: highlighted ? Theme.textPrimary : Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
@@ -900,7 +900,7 @@ FocusScope {
                         }
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: uiSoundsVolumeCombo
                         model: [qsTr("Off"), qsTr("Very Low"), qsTr("Low"), qsTr("Medium"), qsTr("High")]
                         currentIndex: 0
@@ -974,7 +974,7 @@ FocusScope {
                         }
 
                         contentItem: Text {
-                            text: uiSoundsVolumeCombo.displayText
+                            text: uiSoundsVolumeCombo.selectedText()
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: uiSoundsVolumeCombo.enabled ? Theme.textPrimary : Theme.textDisabled
@@ -986,7 +986,7 @@ FocusScope {
                             width: uiSoundsVolumeCombo.width
                             enabled: uiSoundsVolumeCombo.enabled
                             contentItem: Text {
-                                text: modelData
+                                text: uiSoundsVolumeCombo.optionTextAt(index)
                                 color: highlighted ? Theme.textPrimary : Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
@@ -1092,7 +1092,7 @@ FocusScope {
                         }
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: themeSongVolumeCombo
                         model: [qsTr("Off"), qsTr("Very Low"), qsTr("Low"), qsTr("Medium"), qsTr("High")]
                         currentIndex: 0
@@ -1165,7 +1165,7 @@ FocusScope {
                         }
 
                         contentItem: Text {
-                            text: themeSongVolumeCombo.displayText
+                            text: themeSongVolumeCombo.selectedText()
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: Theme.textPrimary
@@ -1176,7 +1176,7 @@ FocusScope {
                         delegate: ItemDelegate {
                             width: themeSongVolumeCombo.width
                             contentItem: Text {
-                                text: modelData
+                                text: themeSongVolumeCombo.optionTextAt(index)
                                 color: highlighted ? Theme.textPrimary : Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary

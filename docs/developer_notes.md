@@ -8,6 +8,7 @@ QML & Focus
 - For keyboard/remote UX, `InputModeManager` should detect pointer vs keyboard navigation; hide cursor while navigating via keyboard.
 - Use `Qt.callLater` to restore focus after async view/model updates or cache reloads.
 - Settings UX: keep explicit `KeyNavigation`/`Keys` wiring on interactive rows and preserve the home-style rotating backdrop + gradient readability overlay used by `SettingsScreen.qml`.
+- Settings dropdowns should use `SettingsComboBox` so primitive and role-based models render the selected text reliably after async model/index updates.
 - Global app-shell shortcuts live in `Main.qml`; ESC on the root home screen opens the power menu, while deeper screens keep the normal back-stack behavior.
 
 C++ conventions

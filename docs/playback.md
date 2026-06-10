@@ -201,6 +201,7 @@ UI Components for Track Selection
 - Explicit user play actions now route through `PlayerController::requestPlayback(...)` instead of assembling stream URLs in QML. This keeps version selection, multipart resolution, and track-hint handling consistent across detail pages, quick play, and Up Next manual play.
 - `MediaSourceSelectionDialog.qml` is the global version picker for entries with multiple Jellyfin media sources (for example 1080p vs 4K). It is opened from `Main.qml`, uses the app theme/focus patterns, supports keyboard-only selection, and restores focus with `Qt.callLater(...)` on close.
 - `EmbeddedPlaybackOverlay.qml`: Native 10-foot playback overlay (top metadata bar + bottom transport row) rendered in the dedicated transparent overlay window for Windows embedded playback.
+  - Active playback chrome uses theme-derived top and bottom regional shadows so metadata, transport controls, and chapter cards stay readable over video in both dark and light theme variants.
   - Left group: audio/subtitle icon buttons (runtime track cycling via `PlayerController`).
   - Center group: skip back 10s, previous chapter, play/pause, next chapter, skip forward 10s.
   - Right group: volume icon button opens a native volume panel (slider + muted state) with left/right keyboard/gamepad adjustment and Enter/Space mute toggle.

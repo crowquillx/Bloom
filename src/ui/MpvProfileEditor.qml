@@ -245,7 +245,7 @@ FocusScope {
                 Layout.preferredWidth: 150
             }
             
-            ComboBox {
+            SettingsComboBox {
                 id: videoOutputCombo
                 Layout.preferredWidth: 200
                 model: ["gpu-next", "gpu", "dmabuf-wayland", "x11", "drm"]
@@ -287,7 +287,7 @@ FocusScope {
                 }
                 
                 contentItem: Text {
-                    text: videoOutputCombo.displayText
+                    text: videoOutputCombo.selectedText()
                     font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary
                     color: Theme.textPrimary
@@ -298,7 +298,7 @@ FocusScope {
                 delegate: ItemDelegate {
                     width: videoOutputCombo.width
                     contentItem: Text {
-                        text: modelData
+                        text: videoOutputCombo.optionTextAt(index)
                         color: highlighted ? Theme.textPrimary : Theme.textSecondary
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
@@ -451,7 +451,7 @@ FocusScope {
                 Layout.preferredWidth: 150
             }
             
-            ComboBox {
+            SettingsComboBox {
                 id: hwdecMethodCombo
                 Layout.preferredWidth: 200
                 model: ["auto", "auto-safe", "auto-copy", "vaapi", "nvdec", "nvdec-copy", "cuda", "cuda-copy", "videotoolbox", "videotoolbox-copy", "d3d11va", "d3d11va-copy", "dxva2", "dxva2-copy"]
@@ -493,7 +493,7 @@ FocusScope {
                 }
                 
                 contentItem: Text {
-                    text: hwdecMethodCombo.displayText
+                    text: hwdecMethodCombo.selectedText()
                     font.pixelSize: Theme.fontSizeBody
                     font.family: Theme.fontPrimary
                     color: Theme.textPrimary
@@ -504,7 +504,7 @@ FocusScope {
                 delegate: ItemDelegate {
                     width: hwdecMethodCombo.width
                     contentItem: Text {
-                        text: modelData
+                        text: hwdecMethodCombo.optionTextAt(index)
                         color: highlighted ? Theme.textPrimary : Theme.textSecondary
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary

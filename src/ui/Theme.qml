@@ -245,6 +245,7 @@ QtObject {
             "backgroundPrimary": palette.base,
             "backgroundSecondary": palette.mantle || palette.surface,
             "backgroundGlass": colorWithAlpha(palette.base, 0.60),
+            "isLight": isLight,
             "accentPrimary": accent,
             "accentSecondary": secondary,
             "accentGradientStart": secondary,
@@ -294,6 +295,7 @@ QtObject {
             "backgroundPrimary": "#000B25",
             "backgroundSecondary": "#101010",
             "backgroundGlass": Qt.rgba(0.1, 0.1, 0.1, 0.6),
+            "isLight": false,
             "accentPrimary": primary,
             "accentSecondary": secondary,
             "accentGradientStart": secondary,
@@ -350,6 +352,7 @@ QtObject {
     property color backgroundPrimary: activeTheme.backgroundPrimary
     property color backgroundSecondary: activeTheme.backgroundSecondary
     property color backgroundGlass: activeTheme.backgroundGlass
+    property bool themeIsLight: activeTheme.isLight === true
 
     // Accent colors
     property color accentPrimary: activeTheme.accentPrimary
@@ -381,6 +384,8 @@ QtObject {
     property color gradientOverlayEnd: "#0a060ccc"
     property color playbackOverlayTopTint: accentPrimary
     property color playbackOverlayBottomTint: "#000000"
+    property color playbackOverlayShadowTint: themeIsLight ? "#000000" : backgroundPrimary
+    property color playbackOverlayAccentShadowTint: accentPrimary
     property color playbackControlGlassBackground: Qt.rgba(1, 1, 1, 0.10)
     property color playbackControlGlassBackgroundHover: Qt.rgba(1, 1, 1, 0.20)
     property color playbackControlGlassBorder: Qt.rgba(1, 1, 1, 0.20)

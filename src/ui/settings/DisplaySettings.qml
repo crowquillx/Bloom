@@ -162,7 +162,7 @@ FocusScope {
                         }
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: themeCombo
                         focusPolicy: Qt.StrongFocus
                         model: Theme.themeNames
@@ -198,70 +198,6 @@ FocusScope {
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: themeCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: themeCombo.activeFocus ? 2 : 1
-                        }
-
-                        contentItem: Text {
-                            text: themeCombo.displayText
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
-
-                        delegate: ItemDelegate {
-                            width: themeCombo.width
-                            contentItem: Text {
-                                text: modelData
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || themeCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: themeCombo.height + 5
-                            width: themeCombo.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 1
-
-                            onOpened: {
-                                themePopupList.currentIndex = themeCombo.highlightedIndex >= 0 ? themeCombo.highlightedIndex : themeCombo.currentIndex
-                                themePopupList.forceActiveFocus()
-                            }
-                            onClosed: themeCombo.forceActiveFocus()
-
-                            contentItem: ListView {
-                                id: themePopupList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: themeCombo.popup.visible ? themeCombo.delegateModel : null
-                                currentIndex: themeCombo.highlightedIndex >= 0 ? themeCombo.highlightedIndex : themeCombo.currentIndex
-                                ScrollIndicator.vertical: ScrollIndicator { }
-                                Keys.onReturnPressed: { themeCombo.currentIndex = currentIndex; themeCombo.popup.close() }
-                                Keys.onEnterPressed: { themeCombo.currentIndex = currentIndex; themeCombo.popup.close() }
-                                Keys.onEscapePressed: themeCombo.popup.close()
-                            }
-
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
-                        }
                     }
                 }
 
@@ -292,13 +228,14 @@ FocusScope {
                         }
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: flavorCombo
                         focusPolicy: Qt.StrongFocus
                         model: Theme.flavorNames
                         Component.onCompleted: root.restoreFlavorIndex()
                         onModelChanged: Qt.callLater(root.restoreFlavorIndex)
                         onActivated: root.applyCurrentFlavor()
+                        onSelectionAccepted: root.applyCurrentFlavor()
                         Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
 
                         Connections {
@@ -330,70 +267,6 @@ FocusScope {
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: flavorCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: flavorCombo.activeFocus ? 2 : 1
-                        }
-
-                        contentItem: Text {
-                            text: flavorCombo.displayText
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
-
-                        delegate: ItemDelegate {
-                            width: flavorCombo.width
-                            contentItem: Text {
-                                text: modelData
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || flavorCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: flavorCombo.height + 5
-                            width: flavorCombo.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 1
-
-                            onOpened: {
-                                flavorPopupList.currentIndex = flavorCombo.highlightedIndex >= 0 ? flavorCombo.highlightedIndex : flavorCombo.currentIndex
-                                flavorPopupList.forceActiveFocus()
-                            }
-                            onClosed: flavorCombo.forceActiveFocus()
-
-                            contentItem: ListView {
-                                id: flavorPopupList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: flavorCombo.popup.visible ? flavorCombo.delegateModel : null
-                                currentIndex: flavorCombo.highlightedIndex >= 0 ? flavorCombo.highlightedIndex : flavorCombo.currentIndex
-                                ScrollIndicator.vertical: ScrollIndicator { }
-                                Keys.onReturnPressed: { flavorCombo.currentIndex = currentIndex; root.applyCurrentFlavor(); flavorCombo.popup.close() }
-                                Keys.onEnterPressed: { flavorCombo.currentIndex = currentIndex; root.applyCurrentFlavor(); flavorCombo.popup.close() }
-                                Keys.onEscapePressed: flavorCombo.popup.close()
-                            }
-
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
-                        }
                     }
                 }
 
@@ -424,13 +297,14 @@ FocusScope {
                         }
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: colorSchemeCombo
                         focusPolicy: Qt.StrongFocus
                         model: Theme.colorSchemeNames
                         Component.onCompleted: root.restoreColorSchemeIndex()
                         onModelChanged: Qt.callLater(root.restoreColorSchemeIndex)
                         onActivated: root.applyCurrentColorScheme()
+                        onSelectionAccepted: root.applyCurrentColorScheme()
                         Layout.preferredWidth: Math.round(240 * Theme.layoutScale)
 
                         Connections {
@@ -458,70 +332,6 @@ FocusScope {
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
 
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: colorSchemeCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: colorSchemeCombo.activeFocus ? 2 : 1
-                        }
-
-                        contentItem: Text {
-                            text: colorSchemeCombo.displayText
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
-
-                        delegate: ItemDelegate {
-                            width: colorSchemeCombo.width
-                            contentItem: Text {
-                                text: modelData
-                                color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                verticalAlignment: Text.AlignVCenter
-                            }
-                            background: Rectangle {
-                                color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
-                                radius: Theme.radiusSmall
-                            }
-                            highlighted: ListView.isCurrentItem || colorSchemeCombo.highlightedIndex === index
-                        }
-
-                        popup: Popup {
-                            y: colorSchemeCombo.height + 5
-                            width: colorSchemeCombo.width
-                            implicitHeight: contentItem.implicitHeight
-                            padding: 1
-
-                            onOpened: {
-                                colorSchemePopupList.currentIndex = colorSchemeCombo.highlightedIndex >= 0 ? colorSchemeCombo.highlightedIndex : colorSchemeCombo.currentIndex
-                                colorSchemePopupList.forceActiveFocus()
-                            }
-                            onClosed: colorSchemeCombo.forceActiveFocus()
-
-                            contentItem: ListView {
-                                id: colorSchemePopupList
-                                clip: true
-                                implicitHeight: contentHeight
-                                model: colorSchemeCombo.popup.visible ? colorSchemeCombo.delegateModel : null
-                                currentIndex: colorSchemeCombo.highlightedIndex >= 0 ? colorSchemeCombo.highlightedIndex : colorSchemeCombo.currentIndex
-                                ScrollIndicator.vertical: ScrollIndicator { }
-                                Keys.onReturnPressed: { colorSchemeCombo.currentIndex = currentIndex; root.applyCurrentColorScheme(); colorSchemeCombo.popup.close() }
-                                Keys.onEnterPressed: { colorSchemeCombo.currentIndex = currentIndex; root.applyCurrentColorScheme(); colorSchemeCombo.popup.close() }
-                                Keys.onEscapePressed: colorSchemeCombo.popup.close()
-                            }
-
-                            background: Rectangle {
-                                color: Theme.cardBackground
-                                border.color: Theme.focusBorder
-                                border.width: 1
-                                radius: Theme.radiusSmall
-                            }
-                        }
                     }
                 }
 

@@ -115,7 +115,7 @@ FocusScope {
                         }
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: defaultProfileCombo
                         model: root.profileNames
                         Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
@@ -194,7 +194,7 @@ FocusScope {
                         }
 
                         contentItem: Text {
-                            text: defaultProfileCombo.displayText
+                            text: defaultProfileCombo.selectedText()
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: Theme.textPrimary
@@ -205,7 +205,7 @@ FocusScope {
                         delegate: ItemDelegate {
                             width: defaultProfileCombo.width
                             contentItem: Text {
-                                text: modelData
+                                text: defaultProfileCombo.optionTextAt(index)
                                 color: highlighted ? Theme.textPrimary : Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
@@ -338,7 +338,7 @@ FocusScope {
                         color: Theme.textPrimary
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: editProfileCombo
                         model: root.profileNames
                         Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
@@ -416,7 +416,7 @@ FocusScope {
                         }
 
                         contentItem: Text {
-                            text: editProfileCombo.displayText
+                            text: editProfileCombo.selectedText()
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: Theme.textPrimary
@@ -427,7 +427,7 @@ FocusScope {
                         delegate: ItemDelegate {
                             width: editProfileCombo.width
                             contentItem: Text {
-                                text: modelData
+                                text: editProfileCombo.optionTextAt(index)
                                 color: highlighted ? Theme.textPrimary : Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
@@ -795,7 +795,7 @@ FocusScope {
                             Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                         }
 
-                        ComboBox {
+                        SettingsComboBox {
                             id: libraryProfileCombo
                             model: libraryDelegate.profileOptions
                             Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
@@ -892,7 +892,7 @@ FocusScope {
                             }
 
                             contentItem: Text {
-                                text: libraryProfileCombo.displayText
+                                text: libraryProfileCombo.selectedText()
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
                                 color: Theme.textPrimary
@@ -903,7 +903,7 @@ FocusScope {
                             delegate: ItemDelegate {
                                 width: libraryProfileCombo.width
                                 contentItem: Text {
-                                    text: modelData
+                                    text: libraryProfileCombo.optionTextAt(index)
                                     color: highlighted ? Theme.textPrimary : Theme.textSecondary
                                     font.pixelSize: Theme.fontSizeBody
                                     font.family: Theme.fontPrimary

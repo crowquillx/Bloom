@@ -220,7 +220,7 @@ FocusScope {
                         Layout.fillWidth: true
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: updateChannelCombo
                         focusPolicy: Qt.StrongFocus
                         model: ["Stable", "Development"]
@@ -284,7 +284,7 @@ FocusScope {
                         }
 
                         contentItem: Text {
-                            text: updateChannelCombo.displayText
+                            text: updateChannelCombo.selectedText()
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: Theme.textPrimary
@@ -295,7 +295,7 @@ FocusScope {
                         delegate: ItemDelegate {
                             width: updateChannelCombo.width
                             contentItem: Text {
-                                text: modelData
+                                text: updateChannelCombo.optionTextAt(index)
                                 color: highlighted ? Theme.textPrimary : Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
@@ -603,7 +603,7 @@ FocusScope {
                         Layout.fillWidth: true
                     }
 
-                    ComboBox {
+                    SettingsComboBox {
                         id: logLevelCombo
                         focusPolicy: Qt.StrongFocus
                         model: [qsTr("Normal"), qsTr("Verbose"), qsTr("Quiet (warnings only)")]
@@ -665,7 +665,7 @@ FocusScope {
                         }
 
                         contentItem: Text {
-                            text: logLevelCombo.displayText
+                            text: logLevelCombo.selectedText()
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
                             color: Theme.textPrimary
@@ -676,7 +676,7 @@ FocusScope {
                         delegate: ItemDelegate {
                             width: logLevelCombo.width
                             contentItem: Text {
-                                text: modelData
+                                text: logLevelCombo.optionTextAt(index)
                                 color: highlighted ? Theme.textPrimary : Theme.textSecondary
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary

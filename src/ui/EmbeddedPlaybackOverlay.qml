@@ -895,17 +895,32 @@ FocusScope {
         }
     }
 
-    Rectangle {
+    Item {
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
-        height: Math.round(150 * Theme.layoutScale)
+        height: Math.round(300 * Theme.layoutScale)
         visible: !root.buffering
         opacity: root.controlsVisible && !root.seekOnlyMode ? 1.0 : 0.0
-        gradient: Gradient {
-            GradientStop { position: 0.0; color: Qt.rgba(Theme.playbackOverlayTopTint.r, Theme.playbackOverlayTopTint.g, Theme.playbackOverlayTopTint.b, 0.70) }
-            GradientStop { position: 1.0; color: "transparent" }
+
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(Theme.playbackOverlayShadowTint.r, Theme.playbackOverlayShadowTint.g, Theme.playbackOverlayShadowTint.b, 0.84) }
+                GradientStop { position: 0.52; color: Qt.rgba(Theme.playbackOverlayShadowTint.r, Theme.playbackOverlayShadowTint.g, Theme.playbackOverlayShadowTint.b, 0.42) }
+                GradientStop { position: 1.0; color: "transparent" }
+            }
         }
+
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: Qt.rgba(Theme.playbackOverlayAccentShadowTint.r, Theme.playbackOverlayAccentShadowTint.g, Theme.playbackOverlayAccentShadowTint.b, 0.18) }
+                GradientStop { position: 0.42; color: Qt.rgba(Theme.playbackOverlayAccentShadowTint.r, Theme.playbackOverlayAccentShadowTint.g, Theme.playbackOverlayAccentShadowTint.b, 0.08) }
+                GradientStop { position: 1.0; color: "transparent" }
+            }
+        }
+
         Behavior on opacity {
             NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }
         }
@@ -915,12 +930,13 @@ FocusScope {
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
-        height: Math.round(300 * Theme.layoutScale)
+        height: Math.round(430 * Theme.layoutScale)
         visible: !root.buffering
         opacity: root.controlsVisible && !root.seekOnlyMode ? 1.0 : 0.0
         gradient: Gradient {
             GradientStop { position: 0.0; color: "transparent" }
-            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, root.chapterMode ? 0.68 : 0.60) }
+            GradientStop { position: 0.42; color: Qt.rgba(Theme.playbackOverlayShadowTint.r, Theme.playbackOverlayShadowTint.g, Theme.playbackOverlayShadowTint.b, root.chapterMode ? 0.42 : 0.34) }
+            GradientStop { position: 1.0; color: Qt.rgba(Theme.playbackOverlayShadowTint.r, Theme.playbackOverlayShadowTint.g, Theme.playbackOverlayShadowTint.b, root.chapterMode ? 0.86 : 0.78) }
         }
         Behavior on opacity {
             NumberAnimation { duration: root.controlsHideAnimMs; easing.type: Easing.OutCubic }

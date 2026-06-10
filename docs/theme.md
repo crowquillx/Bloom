@@ -93,6 +93,9 @@ Standard component sizes.
 ### Playback Overlay Tokens
 - `playbackOverlayTopTint`
 - `playbackOverlayBottomTint`
+- `themeIsLight`
+- `playbackOverlayShadowTint`
+- `playbackOverlayAccentShadowTint`
 - `playbackControlGlassBackground`
 - `playbackControlGlassBackgroundHover`
 - `playbackControlGlassBorder`
@@ -103,7 +106,7 @@ Standard component sizes.
 - `playbackTimeSecondary`
 - `playbackIconColor`
 
-Use these instead of hardcoded playback overlay colors so both built-in themes remain consistent.
+Use these instead of hardcoded playback overlay colors so built-in themes remain consistent. `playbackOverlayShadowTint` resolves to black for light themes and the theme background base for dark themes; `playbackOverlayAccentShadowTint` adds a subtle themed accent to active playback chrome shadows.
 
 ## Layout Patterns
 
