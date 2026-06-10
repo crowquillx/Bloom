@@ -797,26 +797,23 @@ FocusScope {
     FocusScope {
         property alias grid: grid
 
-        function toggleFilterDrawer() {
-            showFilterPanel = !showFilterPanel
-            if (showFilterPanel) {
-                LibraryViewModel.loadFilterOptions(currentParentId, currentLibraryType)
-                Qt.callLater(function() {
-                    watchedFilterCombo.forceActiveFocus()
-                })
-            } else {
-                filterDrawerButton.forceActiveFocus()
-            }
+	        function toggleFilterDrawer() {
+	            showFilterPanel = !showFilterPanel
+	            if (showFilterPanel) {
+	                LibraryViewModel.loadFilterOptions(currentParentId, currentLibraryType)
+	                Qt.callLater(function() {
+	                    favoriteFilterCombo.forceActiveFocus()
+	                })
+	            } else {
+	                filterDrawerButton.forceActiveFocus()
+	            }
         }
 
         function syncFilterControls() {
             syncComboIndex(sortCombo, LibraryViewModel.sortBy)
             syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
-            syncComboIndex(watchedFilterCombo, LibraryViewModel.watchedFilter)
             syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
             syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
-            minYearBox.value = LibraryViewModel.minYear
-            maxYearBox.value = LibraryViewModel.maxYear
             ratingSlider.value = LibraryViewModel.minCommunityRating
         }
 
@@ -825,11 +822,8 @@ FocusScope {
             if (sortCombo.activeFocus || sortCombo.popup.visible) return "sortCombo"
             if (orderCombo.activeFocus || orderCombo.popup.visible) return "orderCombo"
             if (filterDrawerButton.activeFocus) return "filterDrawerButton"
-            if (watchedFilterCombo.activeFocus || watchedFilterCombo.popup.visible) return "watchedFilterCombo"
             if (favoriteFilterCombo.activeFocus || favoriteFilterCombo.popup.visible) return "favoriteFilterCombo"
             if (addedSinceCombo.activeFocus || addedSinceCombo.popup.visible) return "addedSinceCombo"
-            if (minYearBox.activeFocus) return "minYearBox"
-            if (maxYearBox.activeFocus) return "maxYearBox"
             if (ratingSlider.activeFocus) return "ratingSlider"
             if (clearFiltersButton.activeFocus) return "clearFiltersButton"
             if (facetTabs.activeFocus) return "facetTabs"
@@ -842,11 +836,8 @@ FocusScope {
             if (target === "sortCombo") return sortCombo
             if (target === "orderCombo") return orderCombo
             if (target === "filterDrawerButton") return filterDrawerButton
-            if (target === "watchedFilterCombo") return watchedFilterCombo
             if (target === "favoriteFilterCombo") return favoriteFilterCombo
             if (target === "addedSinceCombo") return addedSinceCombo
-            if (target === "minYearBox") return minYearBox
-            if (target === "maxYearBox") return maxYearBox
             if (target === "ratingSlider") return ratingSlider
             if (target === "clearFiltersButton") return clearFiltersButton
             if (target === "facetTabs") return facetTabs
@@ -857,8 +848,6 @@ FocusScope {
         function rememberQueryFocus(target) {
             pendingQueryFocusTarget = target || currentQueryFocusTarget()
             pendingQueryFilterPanelOpen = showFilterPanel || pendingQueryFocusTarget.indexOf("Filter") >= 0
-                    || pendingQueryFocusTarget === "minYearBox"
-                    || pendingQueryFocusTarget === "maxYearBox"
                     || pendingQueryFocusTarget === "ratingSlider"
                     || pendingQueryFocusTarget === "clearFiltersButton"
                     || pendingQueryFocusTarget === "facetTabs"
@@ -1004,8 +993,8 @@ FocusScope {
                         id: sortCombo
                         Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
                         Layout.preferredHeight: Theme.buttonHeightSmall
-                        model: ["Library order", "Title", "Release date", "Date added", "Runtime", "Rating", "Year", "Watched", "Random"]
-                        values: ["", "SortName", "PremiereDate", "DateCreated", "RunTimeTicks", "CommunityRating", "ProductionYear", "IsPlayed", "Random"]
+                        model: ["Library order", "Title", "Release date", "Date added", "Rating", "Year", "Random"]
+                        values: ["", "SortName", "PremiereDate", "DateCreated", "CommunityRating", "ProductionYear", "Random"]
                         Accessible.name: "Sort library"
                         leftTarget: searchField
                         rightTarget: orderCombo
@@ -1042,7 +1031,7 @@ FocusScope {
                         Accessible.name: text
                         KeyNavigation.left: orderCombo
                         KeyNavigation.right: backButton
-                        KeyNavigation.down: showFilterPanel ? watchedFilterCombo : grid
+                        KeyNavigation.down: showFilterPanel ? favoriteFilterCombo : grid
                         Keys.priority: Keys.BeforeItem
                         Keys.onReturnPressed: (event) => {
                             if (!event.isAutoRepeat) {
@@ -1067,12 +1056,12 @@ FocusScope {
                                     backButton.forceActiveFocus()
                                 }
                                 event.accepted = true
-                            } else if (event.key === Qt.Key_Down) {
-                                if (showFilterPanel) {
-                                    watchedFilterCombo.forceActiveFocus()
-                                } else {
-                                    grid.forceActiveFocus()
-                                }
+	                            } else if (event.key === Qt.Key_Down) {
+	                                if (showFilterPanel) {
+	                                    favoriteFilterCombo.forceActiveFocus()
+	                                } else {
+	                                    grid.forceActiveFocus()
+	                                }
                                 event.accepted = true
                             } else if (event.key === Qt.Key_Up) {
                                 event.accepted = true
@@ -1183,35 +1172,17 @@ FocusScope {
                         Layout.fillWidth: true
                         spacing: Theme.spacingSmall
 
-	                        LibraryComboBox {
-	                            id: watchedFilterCombo
-	                            Layout.preferredWidth: Math.round(160 * Theme.layoutScale)
-	                            Layout.preferredHeight: Theme.buttonHeightSmall
-                                labelFontSize: Theme.fontSizeSmall
-                            model: ["Any watch", "Watched", "Unwatched"]
-                            values: ["any", "played", "unplayed"]
-	                            Component.onCompleted: syncComboIndex(watchedFilterCombo, LibraryViewModel.watchedFilter)
-                                upTarget: filterDrawerButton
-                                rightTarget: favoriteFilterCombo
-                                downTarget: facetTabs
-	                            onValueAccepted: function(value) {
-	                                LibraryViewModel.setWatchedFilter(value)
-	                                applyFilters("watchedFilterCombo")
-                            }
-                        }
-	
-	                        LibraryComboBox {
-	                            id: favoriteFilterCombo
-	                            Layout.preferredWidth: Math.round(172 * Theme.layoutScale)
+		                        LibraryComboBox {
+		                            id: favoriteFilterCombo
+		                            Layout.preferredWidth: Math.round(172 * Theme.layoutScale)
 	                            Layout.preferredHeight: Theme.buttonHeightSmall
                                 labelFontSize: Theme.fontSizeSmall
                             model: ["Any favorite", "Favorites", "Not favorite"]
-                            values: ["any", "favorite", "notFavorite"]
-	                            Component.onCompleted: syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
-                                leftTarget: watchedFilterCombo
-                                rightTarget: addedSinceCombo
-                                upTarget: filterDrawerButton
-                                downTarget: facetTabs
+	                            values: ["any", "favorite", "notFavorite"]
+		                            Component.onCompleted: syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
+	                                rightTarget: addedSinceCombo
+	                                upTarget: filterDrawerButton
+	                                downTarget: facetTabs
 	                            onValueAccepted: function(value) {
 	                                LibraryViewModel.setFavoriteFilter(value)
 	                                applyFilters("favoriteFilterCombo")
@@ -1224,149 +1195,15 @@ FocusScope {
 	                            Layout.preferredHeight: Theme.buttonHeightSmall
                                 labelFontSize: Theme.fontSizeSmall
                             model: ["Any added date", "Last 7 days", "Last 30 days", "Last 90 days", "Last year"]
-                            values: ["any", "7d", "30d", "90d", "1y"]
-	                            Component.onCompleted: syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
-                                leftTarget: favoriteFilterCombo
-                                rightTarget: minYearBox
-                                upTarget: filterDrawerButton
-                                downTarget: facetTabs
+	                            values: ["any", "7d", "30d", "90d", "1y"]
+		                            Component.onCompleted: syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
+	                                leftTarget: favoriteFilterCombo
+	                                rightTarget: ratingSlider
+	                                upTarget: filterDrawerButton
+	                                downTarget: facetTabs
 	                            onValueAccepted: function(value) {
 	                                LibraryViewModel.setAddedSinceFilter(value)
 	                                applyFilters("addedSinceCombo")
-                            }
-                        }
-
-                        SpinBox {
-                            id: minYearBox
-                            Layout.preferredWidth: Math.round(118 * Theme.layoutScale)
-                            Layout.preferredHeight: Theme.buttonHeightSmall
-                            from: 0
-                            to: 2100
-	                            value: LibraryViewModel.minYear
-	                            editable: true
-	                            KeyNavigation.left: addedSinceCombo
-	                            KeyNavigation.right: maxYearBox
-	                            KeyNavigation.down: facetTabs
-	                            textFromValue: function(value) { return value === 0 ? "Min year" : value.toString() }
-                            valueFromText: function(text) { return parseInt(text) || 0 }
-                            onValueModified: {
-                                LibraryViewModel.setMinYear(value)
-                                applyFilters("minYearBox")
-                            }
-                            contentItem: TextInput {
-                                text: minYearBox.textFromValue(minYearBox.value, minYearBox.locale)
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-                                selectedTextColor: Theme.textPrimary
-                                selectionColor: Theme.accentPrimary
-                                horizontalAlignment: Qt.AlignHCenter
-                                verticalAlignment: Qt.AlignVCenter
-                                readOnly: !minYearBox.editable
-                                validator: minYearBox.validator
-                                inputMethodHints: Qt.ImhDigitsOnly
-                            }
-                            up.indicator: Rectangle {
-                                x: minYearBox.mirrored ? 0 : parent.width - width
-                                width: Math.round(32 * Theme.layoutScale)
-                                height: parent.height
-                                radius: Theme.radiusSmall
-                                color: minYearBox.up.pressed ? Theme.buttonSecondaryBackgroundPressed : "transparent"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "^"
-                                    color: Theme.textPrimary
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.family: Theme.fontPrimary
-                                }
-                            }
-                            down.indicator: Rectangle {
-                                x: minYearBox.mirrored ? parent.width - width : 0
-                                width: Math.round(32 * Theme.layoutScale)
-                                height: parent.height
-                                radius: Theme.radiusSmall
-                                color: minYearBox.down.pressed ? Theme.buttonSecondaryBackgroundPressed : "transparent"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "v"
-                                    color: Theme.textPrimary
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.family: Theme.fontPrimary
-                                }
-                            }
-                            background: Rectangle {
-                                implicitHeight: Theme.buttonHeightSmall
-                                radius: Theme.radiusSmall
-                                color: Theme.inputBackground
-                                border.color: minYearBox.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                                border.width: minYearBox.activeFocus ? 2 : Theme.borderWidth
-                            }
-                        }
-
-                        SpinBox {
-                            id: maxYearBox
-                            Layout.preferredWidth: Math.round(118 * Theme.layoutScale)
-                            Layout.preferredHeight: Theme.buttonHeightSmall
-                            from: 0
-                            to: 2100
-	                            value: LibraryViewModel.maxYear
-	                            editable: true
-	                            KeyNavigation.left: minYearBox
-	                            KeyNavigation.right: ratingSlider
-	                            KeyNavigation.down: facetTabs
-                            textFromValue: function(value) { return value === 0 ? "Max year" : value.toString() }
-                            valueFromText: function(text) { return parseInt(text) || 0 }
-                            onValueModified: {
-                                LibraryViewModel.setMaxYear(value)
-                                applyFilters("maxYearBox")
-                            }
-                            contentItem: TextInput {
-                                text: maxYearBox.textFromValue(maxYearBox.value, maxYearBox.locale)
-                                font.pixelSize: Theme.fontSizeBody
-                                font.family: Theme.fontPrimary
-                                color: Theme.textPrimary
-                                selectedTextColor: Theme.textPrimary
-                                selectionColor: Theme.accentPrimary
-                                horizontalAlignment: Qt.AlignHCenter
-                                verticalAlignment: Qt.AlignVCenter
-                                readOnly: !maxYearBox.editable
-                                validator: maxYearBox.validator
-                                inputMethodHints: Qt.ImhDigitsOnly
-                            }
-                            up.indicator: Rectangle {
-                                x: maxYearBox.mirrored ? 0 : parent.width - width
-                                width: Math.round(32 * Theme.layoutScale)
-                                height: parent.height
-                                radius: Theme.radiusSmall
-                                color: maxYearBox.up.pressed ? Theme.buttonSecondaryBackgroundPressed : "transparent"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "^"
-                                    color: Theme.textPrimary
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.family: Theme.fontPrimary
-                                }
-                            }
-                            down.indicator: Rectangle {
-                                x: maxYearBox.mirrored ? parent.width - width : 0
-                                width: Math.round(32 * Theme.layoutScale)
-                                height: parent.height
-                                radius: Theme.radiusSmall
-                                color: maxYearBox.down.pressed ? Theme.buttonSecondaryBackgroundPressed : "transparent"
-                                Text {
-                                    anchors.centerIn: parent
-                                    text: "v"
-                                    color: Theme.textPrimary
-                                    font.pixelSize: Theme.fontSizeSmall
-                                    font.family: Theme.fontPrimary
-                                }
-                            }
-                            background: Rectangle {
-                                implicitHeight: Theme.buttonHeightSmall
-                                radius: Theme.radiusSmall
-                                color: Theme.inputBackground
-                                border.color: maxYearBox.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                                border.width: maxYearBox.activeFocus ? 2 : Theme.borderWidth
                             }
                         }
 
@@ -1379,7 +1216,7 @@ FocusScope {
                             stepSize: 0.5
 	                            value: LibraryViewModel.minCommunityRating
                             Accessible.name: "Minimum rating"
-                            KeyNavigation.left: maxYearBox
+	                            KeyNavigation.left: addedSinceCombo
                             KeyNavigation.right: clearFiltersButton
                             KeyNavigation.down: facetTabs
                             Keys.priority: Keys.BeforeItem
@@ -1399,12 +1236,12 @@ FocusScope {
                                 } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
                                     ratingSliderEditing = false
                                     event.accepted = true
-                                } else if (event.key === Qt.Key_Left) {
-                                    if (ratingSliderEditing) {
-                                        adjustRating(-stepSize)
-                                    } else {
-                                        maxYearBox.forceActiveFocus()
-                                    }
+	                                } else if (event.key === Qt.Key_Left) {
+	                                    if (ratingSliderEditing) {
+	                                        adjustRating(-stepSize)
+	                                    } else {
+	                                        addedSinceCombo.forceActiveFocus()
+	                                    }
                                     event.accepted = true
                                 } else if (event.key === Qt.Key_Right) {
                                     if (ratingSliderEditing) {
@@ -1498,7 +1335,7 @@ FocusScope {
                                 border.color: Theme.inputBorder
                                 border.width: Theme.borderWidth
                             }
-	                        KeyNavigation.up: watchedFilterCombo
+	                        KeyNavigation.up: favoriteFilterCombo
 	                        KeyNavigation.down: facetGrid
 	                        currentIndex: activeFilterCategory === "tags" ? 1 : (activeFilterCategory === "studios" ? 2 : 0)
                             Keys.priority: Keys.BeforeItem
@@ -1512,10 +1349,10 @@ FocusScope {
                                 forceActiveFocus()
                                 event.accepted = true
                             }
-                            Keys.onUpPressed: (event) => {
-                                watchedFilterCombo.forceActiveFocus()
-                                event.accepted = true
-                            }
+	                            Keys.onUpPressed: (event) => {
+	                                favoriteFilterCombo.forceActiveFocus()
+	                                event.accepted = true
+	                            }
                             Keys.onDownPressed: (event) => {
                                 facetGrid.forceActiveFocus()
                                 event.accepted = true
@@ -3023,21 +2860,15 @@ FocusScope {
                     facetGrid.forceActiveFocus()
                 } else if (clearFiltersButton.activeFocus) {
                     clearFiltersButton.forceActiveFocus()
-                } else if (ratingSlider.activeFocus) {
-                    ratingSlider.forceActiveFocus()
-                } else if (maxYearBox.activeFocus) {
-                    maxYearBox.forceActiveFocus()
-                } else if (minYearBox.activeFocus) {
-                    minYearBox.forceActiveFocus()
-                } else if (addedSinceCombo.activeFocus) {
-                    addedSinceCombo.forceActiveFocus()
-                } else if (favoriteFilterCombo.activeFocus) {
-                    favoriteFilterCombo.forceActiveFocus()
-                } else if (watchedFilterCombo.activeFocus) {
-                    watchedFilterCombo.forceActiveFocus()
-                } else {
-                    filterDrawerButton.forceActiveFocus()
-                }
+	                } else if (ratingSlider.activeFocus) {
+	                    ratingSlider.forceActiveFocus()
+	                } else if (addedSinceCombo.activeFocus) {
+	                    addedSinceCombo.forceActiveFocus()
+	                } else if (favoriteFilterCombo.activeFocus) {
+	                    favoriteFilterCombo.forceActiveFocus()
+	                } else {
+	                    filterDrawerButton.forceActiveFocus()
+	                }
             })
         }
         

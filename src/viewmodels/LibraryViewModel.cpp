@@ -454,9 +454,19 @@ void LibraryViewModel::setSearchTerm(const QString &term)
 
 void LibraryViewModel::setSortBy(const QString &sortBy)
 {
-    if (m_sortBy == sortBy)
+    static const QStringList allowed = {
+        QString(),
+        QStringLiteral("SortName"),
+        QStringLiteral("PremiereDate"),
+        QStringLiteral("DateCreated"),
+        QStringLiteral("CommunityRating"),
+        QStringLiteral("ProductionYear"),
+        QStringLiteral("Random"),
+    };
+    const QString normalized = allowed.contains(sortBy) ? sortBy : QString();
+    if (m_sortBy == normalized)
         return;
-    m_sortBy = sortBy;
+    m_sortBy = normalized;
     emit sortByChanged();
 }
 
