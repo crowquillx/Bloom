@@ -546,7 +546,6 @@ void LibraryViewModel::toggleStudio(const QString &studio)
 
 void LibraryViewModel::clearQuery()
 {
-    bool changedFilters = activeFilterCount() > 0;
     if (!m_searchTerm.isEmpty()) {
         m_searchTerm.clear();
         emit searchTermChanged();
@@ -560,9 +559,6 @@ void LibraryViewModel::clearQuery()
         emit sortOrderChanged();
     }
     clearFilters();
-    if (changedFilters) {
-        emitActiveFilterCountChanged();
-    }
 }
 
 void LibraryViewModel::clearFilters()

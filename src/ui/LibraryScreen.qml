@@ -294,6 +294,17 @@ FocusScope {
         combo.currentIndex = 0
     }
 
+    function syncFilterControls() {
+        syncComboIndex(sortCombo, LibraryViewModel.sortBy)
+        syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
+        syncComboIndex(watchedFilterCombo, LibraryViewModel.watchedFilter)
+        syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
+        syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
+        minYearBox.value = LibraryViewModel.minYear
+        maxYearBox.value = LibraryViewModel.maxYear
+        ratingSlider.value = LibraryViewModel.minCommunityRating
+    }
+
     function normalizeActiveFilterCategory() {
         if (activeFilterCategory !== "tags" && activeFilterCategory !== "studios")
             activeFilterCategory = "genres"
@@ -1453,11 +1464,7 @@ FocusScope {
 	                            KeyNavigation.down: facetTabs
                             onClicked: {
                                 LibraryViewModel.clearFilters()
-                                syncComboIndex(sortCombo, LibraryViewModel.sortBy)
-                                syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
-                                syncComboIndex(watchedFilterCombo, LibraryViewModel.watchedFilter)
-                                syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
-                                syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
+                                syncFilterControls()
                                 applyFilters("clearFiltersButton")
                             }
                             background: Rectangle {
@@ -2258,11 +2265,7 @@ FocusScope {
                 resetQueryToolbarVisibility()
                 LibraryViewModel.clearQuery()
                 Qt.callLater(function() {
-                    syncComboIndex(sortCombo, LibraryViewModel.sortBy)
-                    syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
-                    syncComboIndex(watchedFilterCombo, LibraryViewModel.watchedFilter)
-                    syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
-                    syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
+                    syncFilterControls()
                 })
                 LibraryViewModel.loadFilterOptions(currentLibraryId, currentLibraryType)
             }
