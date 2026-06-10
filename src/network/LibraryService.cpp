@@ -221,7 +221,9 @@ QString LibraryItemQuery::cacheKey() const
     parts << "order=" + sortOrder;
     parts << "types=" + sortedList(includeItemTypes).join("|");
     parts << QStringLiteral("recursive=%1").arg(recursive ? "1" : "0");
-    parts << QStringLiteral("paged=%1").arg(limit > 0 ? "1" : "0");
+    parts << QStringLiteral("start=%1").arg(startIndex);
+    parts << QStringLiteral("limit=%1").arg(limit);
+    parts << QStringLiteral("heavy=%1").arg(includeHeavyFields ? "1" : "0");
     return parts.join(";");
 }
 

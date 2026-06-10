@@ -264,18 +264,6 @@ FocusScope {
         })
     }
 
-    function toggleFilterDrawer() {
-        showFilterPanel = !showFilterPanel
-        if (showFilterPanel) {
-            LibraryViewModel.loadFilterOptions(currentParentId, currentLibraryType)
-            Qt.callLater(function() {
-                watchedFilterCombo.forceActiveFocus()
-            })
-        } else {
-            filterDrawerButton.forceActiveFocus()
-        }
-    }
-
     function resetQueryToolbarVisibility() {
         queryToolbarPinned = true
         queryToolbarScrollArmed = false
@@ -294,89 +282,9 @@ FocusScope {
         combo.currentIndex = 0
     }
 
-    function syncFilterControls() {
-        syncComboIndex(sortCombo, LibraryViewModel.sortBy)
-        syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
-        syncComboIndex(watchedFilterCombo, LibraryViewModel.watchedFilter)
-        syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
-        syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
-        minYearBox.value = LibraryViewModel.minYear
-        maxYearBox.value = LibraryViewModel.maxYear
-        ratingSlider.value = LibraryViewModel.minCommunityRating
-    }
-
     function normalizeActiveFilterCategory() {
         if (activeFilterCategory !== "tags" && activeFilterCategory !== "studios")
             activeFilterCategory = "genres"
-    }
-
-    function currentQueryFocusTarget() {
-        if (searchField.activeFocus) return "searchField"
-        if (sortCombo.activeFocus || sortCombo.popup.visible) return "sortCombo"
-        if (orderCombo.activeFocus || orderCombo.popup.visible) return "orderCombo"
-        if (filterDrawerButton.activeFocus) return "filterDrawerButton"
-        if (watchedFilterCombo.activeFocus || watchedFilterCombo.popup.visible) return "watchedFilterCombo"
-        if (favoriteFilterCombo.activeFocus || favoriteFilterCombo.popup.visible) return "favoriteFilterCombo"
-        if (addedSinceCombo.activeFocus || addedSinceCombo.popup.visible) return "addedSinceCombo"
-        if (minYearBox.activeFocus) return "minYearBox"
-        if (maxYearBox.activeFocus) return "maxYearBox"
-        if (ratingSlider.activeFocus) return "ratingSlider"
-        if (clearFiltersButton.activeFocus) return "clearFiltersButton"
-        if (facetTabs.activeFocus) return "facetTabs"
-        if (facetGrid.activeFocus) return "facetGrid"
-        return ""
-    }
-
-    function queryFocusItem(target) {
-        if (target === "searchField") return searchField
-        if (target === "sortCombo") return sortCombo
-        if (target === "orderCombo") return orderCombo
-        if (target === "filterDrawerButton") return filterDrawerButton
-        if (target === "watchedFilterCombo") return watchedFilterCombo
-        if (target === "favoriteFilterCombo") return favoriteFilterCombo
-        if (target === "addedSinceCombo") return addedSinceCombo
-        if (target === "minYearBox") return minYearBox
-        if (target === "maxYearBox") return maxYearBox
-        if (target === "ratingSlider") return ratingSlider
-        if (target === "clearFiltersButton") return clearFiltersButton
-        if (target === "facetTabs") return facetTabs
-        if (target === "facetGrid") return facetGrid
-        return null
-    }
-
-    function rememberQueryFocus(target) {
-        pendingQueryFocusTarget = target || currentQueryFocusTarget()
-        pendingQueryFilterPanelOpen = showFilterPanel || pendingQueryFocusTarget.indexOf("Filter") >= 0
-                || pendingQueryFocusTarget === "minYearBox"
-                || pendingQueryFocusTarget === "maxYearBox"
-                || pendingQueryFocusTarget === "ratingSlider"
-                || pendingQueryFocusTarget === "clearFiltersButton"
-                || pendingQueryFocusTarget === "facetTabs"
-                || pendingQueryFocusTarget === "facetGrid"
-        if (pendingQueryFilterPanelOpen) {
-            showFilterPanel = true
-            normalizeActiveFilterCategory()
-        }
-        resetQueryToolbarVisibility()
-    }
-
-    function restorePendingQueryFocus() {
-        var target = pendingQueryFocusTarget
-        var shouldKeepFilterPanelOpen = pendingQueryFilterPanelOpen
-        pendingQueryFocusTarget = ""
-        pendingQueryFilterPanelOpen = false
-        if (!target)
-            return false
-        if (shouldKeepFilterPanelOpen) {
-            showFilterPanel = true
-            normalizeActiveFilterCategory()
-        }
-        var item = queryFocusItem(target)
-        if (item) {
-            item.forceActiveFocus()
-            return true
-        }
-        return false
     }
 
     function toggleActiveFacet(name) {
@@ -888,6 +796,98 @@ FocusScope {
         
     FocusScope {
         property alias grid: grid
+
+        function toggleFilterDrawer() {
+            showFilterPanel = !showFilterPanel
+            if (showFilterPanel) {
+                LibraryViewModel.loadFilterOptions(currentParentId, currentLibraryType)
+                Qt.callLater(function() {
+                    watchedFilterCombo.forceActiveFocus()
+                })
+            } else {
+                filterDrawerButton.forceActiveFocus()
+            }
+        }
+
+        function syncFilterControls() {
+            syncComboIndex(sortCombo, LibraryViewModel.sortBy)
+            syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
+            syncComboIndex(watchedFilterCombo, LibraryViewModel.watchedFilter)
+            syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
+            syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
+            minYearBox.value = LibraryViewModel.minYear
+            maxYearBox.value = LibraryViewModel.maxYear
+            ratingSlider.value = LibraryViewModel.minCommunityRating
+        }
+
+        function currentQueryFocusTarget() {
+            if (searchField.activeFocus) return "searchField"
+            if (sortCombo.activeFocus || sortCombo.popup.visible) return "sortCombo"
+            if (orderCombo.activeFocus || orderCombo.popup.visible) return "orderCombo"
+            if (filterDrawerButton.activeFocus) return "filterDrawerButton"
+            if (watchedFilterCombo.activeFocus || watchedFilterCombo.popup.visible) return "watchedFilterCombo"
+            if (favoriteFilterCombo.activeFocus || favoriteFilterCombo.popup.visible) return "favoriteFilterCombo"
+            if (addedSinceCombo.activeFocus || addedSinceCombo.popup.visible) return "addedSinceCombo"
+            if (minYearBox.activeFocus) return "minYearBox"
+            if (maxYearBox.activeFocus) return "maxYearBox"
+            if (ratingSlider.activeFocus) return "ratingSlider"
+            if (clearFiltersButton.activeFocus) return "clearFiltersButton"
+            if (facetTabs.activeFocus) return "facetTabs"
+            if (facetGrid.activeFocus) return "facetGrid"
+            return ""
+        }
+
+        function queryFocusItem(target) {
+            if (target === "searchField") return searchField
+            if (target === "sortCombo") return sortCombo
+            if (target === "orderCombo") return orderCombo
+            if (target === "filterDrawerButton") return filterDrawerButton
+            if (target === "watchedFilterCombo") return watchedFilterCombo
+            if (target === "favoriteFilterCombo") return favoriteFilterCombo
+            if (target === "addedSinceCombo") return addedSinceCombo
+            if (target === "minYearBox") return minYearBox
+            if (target === "maxYearBox") return maxYearBox
+            if (target === "ratingSlider") return ratingSlider
+            if (target === "clearFiltersButton") return clearFiltersButton
+            if (target === "facetTabs") return facetTabs
+            if (target === "facetGrid") return facetGrid
+            return null
+        }
+
+        function rememberQueryFocus(target) {
+            pendingQueryFocusTarget = target || currentQueryFocusTarget()
+            pendingQueryFilterPanelOpen = showFilterPanel || pendingQueryFocusTarget.indexOf("Filter") >= 0
+                    || pendingQueryFocusTarget === "minYearBox"
+                    || pendingQueryFocusTarget === "maxYearBox"
+                    || pendingQueryFocusTarget === "ratingSlider"
+                    || pendingQueryFocusTarget === "clearFiltersButton"
+                    || pendingQueryFocusTarget === "facetTabs"
+                    || pendingQueryFocusTarget === "facetGrid"
+            if (pendingQueryFilterPanelOpen) {
+                showFilterPanel = true
+                normalizeActiveFilterCategory()
+            }
+            resetQueryToolbarVisibility()
+        }
+
+        function restorePendingQueryFocus() {
+            var target = pendingQueryFocusTarget
+            var shouldKeepFilterPanelOpen = pendingQueryFilterPanelOpen
+            pendingQueryFocusTarget = ""
+            pendingQueryFilterPanelOpen = false
+            if (!target)
+                return false
+            if (shouldKeepFilterPanelOpen) {
+                showFilterPanel = true
+                normalizeActiveFilterCategory()
+            }
+            var item = queryFocusItem(target)
+            if (item) {
+                item.forceActiveFocus()
+                return true
+            }
+            return false
+        }
         
         // When this component receives focus, delegate to the grid
         onActiveFocusChanged: {
@@ -1414,7 +1414,7 @@ FocusScope {
                                     }
                                     event.accepted = true
                                 } else if (event.key === Qt.Key_Up) {
-                                    maxYearBox.forceActiveFocus()
+                                    filterDrawerButton.forceActiveFocus()
                                     event.accepted = true
                                 } else if (event.key === Qt.Key_Down) {
                                     facetTabs.forceActiveFocus()
@@ -2265,7 +2265,9 @@ FocusScope {
                 resetQueryToolbarVisibility()
                 LibraryViewModel.clearQuery()
                 Qt.callLater(function() {
-                    syncFilterControls()
+                    if (contentLoader.item && typeof contentLoader.item.syncFilterControls === "function") {
+                        contentLoader.item.syncFilterControls()
+                    }
                 })
                 LibraryViewModel.loadFilterOptions(currentLibraryId, currentLibraryType)
             }
@@ -2864,7 +2866,9 @@ FocusScope {
     }
     
     function applyFilters(focusTarget) {
-        rememberQueryFocus(focusTarget || "")
+        if (contentLoader.item && typeof contentLoader.item.rememberQueryFocus === "function") {
+            contentLoader.item.rememberQueryFocus(focusTarget || "")
+        }
         // Reload from beginning when filters change
         loadItemsForCurrentParent()
     }
@@ -3002,7 +3006,9 @@ FocusScope {
         // This is critical for cache hits where data loads synchronously
         if (pendingQueryFocusTarget !== "") {
             Qt.callLater(function() {
-                restorePendingQueryFocus()
+                if (contentLoader.item && typeof contentLoader.item.restorePendingQueryFocus === "function") {
+                    contentLoader.item.restorePendingQueryFocus()
+                }
             })
         } else if ((currentParentId === "" || !LibraryViewModel.isLoadingMore) && !showFilterPanel) {
             Qt.callLater(function() {

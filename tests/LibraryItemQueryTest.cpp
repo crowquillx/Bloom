@@ -7,7 +7,7 @@ class LibraryItemQueryTest : public QObject
 
 private slots:
     void cacheKeySeparatesSearchFilterAndSort();
-    void cacheKeyCarriesPaginationModeNotPageOffset();
+    void cacheKeySeparatesPaginationAndHeavyFields();
 };
 
 void LibraryItemQueryTest::cacheKeySeparatesSearchFilterAndSort()
@@ -33,7 +33,7 @@ void LibraryItemQueryTest::cacheKeySeparatesSearchFilterAndSort()
     QVERIFY(filtered.cacheKey() != sorted.cacheKey());
 }
 
-void LibraryItemQueryTest::cacheKeyCarriesPaginationModeNotPageOffset()
+void LibraryItemQueryTest::cacheKeySeparatesPaginationAndHeavyFields()
 {
     LibraryItemQuery firstPage;
     firstPage.parentId = "library";
@@ -46,8 +46,16 @@ void LibraryItemQueryTest::cacheKeyCarriesPaginationModeNotPageOffset()
     LibraryItemQuery unpaged = firstPage;
     unpaged.limit = 0;
 
-    QCOMPARE(firstPage.cacheKey(), nextPage.cacheKey());
+    LibraryItemQuery differentLimit = firstPage;
+    differentLimit.limit = 100;
+
+    LibraryItemQuery lightFields = firstPage;
+    lightFields.includeHeavyFields = false;
+
+    QVERIFY(firstPage.cacheKey() != nextPage.cacheKey());
     QVERIFY(firstPage.cacheKey() != unpaged.cacheKey());
+    QVERIFY(firstPage.cacheKey() != differentLimit.cacheKey());
+    QVERIFY(firstPage.cacheKey() != lightFields.cacheKey());
 }
 
 QTEST_MAIN(LibraryItemQueryTest)
