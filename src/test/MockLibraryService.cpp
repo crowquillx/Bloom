@@ -3,6 +3,7 @@
 #include "../network/NextEpisodeResolver.h"
 #include <QUrl>
 #include <QDebug>
+#include <algorithm>
 #include "../utils/BloomLogging.h"
 
 MockLibraryService::MockLibraryService(QObject *parent)
@@ -40,25 +41,28 @@ void MockLibraryService::getItems(const QString &parentId, int startIndex, int l
                                    const QString &sortBy, const QString &sortOrder,
                                    bool includeHeavyFields, bool useCacheValidation)
 {
-    Q_UNUSED(startIndex)
-    Q_UNUSED(limit)
-    Q_UNUSED(genres)
-    Q_UNUSED(networks)
-    Q_UNUSED(sortBy)
-    Q_UNUSED(sortOrder)
-    Q_UNUSED(includeHeavyFields)
-    Q_UNUSED(useCacheValidation)
-    
+    LibraryItemQuery query;
+    query.parentId = parentId;
+    query.startIndex = startIndex;
+    query.limit = limit;
+    query.genres = genres;
+    query.studios = networks;
+    query.sortBy = sortBy;
+    query.sortOrder = sortOrder;
+    query.includeHeavyFields = includeHeavyFields;
+    query.useCacheValidation = useCacheValidation;
+    getItems(query);
+}
+
+void MockLibraryService::getItems(const LibraryItemQuery &query)
+{
     QJsonArray items;
-    int totalCount = 0;
     
     // Determine which library type based on parentId
-    if (parentId == "library-movies") {
+    if (query.parentId == "library-movies") {
         items = m_movies["Items"].toArray();
-        totalCount = m_movies["TotalRecordCount"].toInt();
-    } else if (parentId == "library-shows") {
+    } else if (query.parentId == "library-shows") {
         items = m_series["Items"].toArray();
-        totalCount = m_series["TotalRecordCount"].toInt();
     } else {
         // Return all items for generic queries
         QJsonArray allItems;
@@ -69,11 +73,161 @@ void MockLibraryService::getItems(const QString &parentId, int startIndex, int l
             allItems.append(val);
         }
         items = allItems;
-        totalCount = allItems.size();
+    }
+
+    auto containsAny = [](const QJsonArray &array, const QStringList &needles) {
+        if (needles.isEmpty())
+            return true;
+        for (const auto &value : array) {
+            if (needles.contains(value.toString(), Qt::CaseInsensitive)) {
+                return true;
+            }
+            const QJsonObject obj = value.toObject();
+            if (needles.contains(obj.value("Name").toString(), Qt::CaseInsensitive)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    QJsonArray filtered;
+    for (const auto &val : items) {
+        const QJsonObject item = val.toObject();
+        const QString name = item.value("Name").toString();
+        if (!query.searchTerm.isEmpty() && !name.contains(query.searchTerm, Qt::CaseInsensitive)) {
+            continue;
+        }
+        if (!query.includeItemTypes.isEmpty() && !query.includeItemTypes.contains(item.value("Type").toString())) {
+            continue;
+        }
+        if (!containsAny(item.value("Genres").toArray(), query.genres)) {
+            continue;
+        }
+        if (!containsAny(item.value("Tags").toArray(), query.tags)) {
+            continue;
+        }
+        if (!containsAny(item.value("Studios").toArray(), query.studios)) {
+            continue;
+        }
+        const QJsonObject userData = item.value("UserData").toObject();
+        if (query.watched == LibraryItemQuery::TriState::Yes && !userData.value("Played").toBool()) {
+            continue;
+        }
+        if (query.watched == LibraryItemQuery::TriState::No && userData.value("Played").toBool()) {
+            continue;
+        }
+        if (query.favorite == LibraryItemQuery::TriState::Yes && !userData.value("IsFavorite").toBool()) {
+            continue;
+        }
+        if (query.favorite == LibraryItemQuery::TriState::No && userData.value("IsFavorite").toBool()) {
+            continue;
+        }
+        if (query.minCommunityRating > 0.0 && item.value("CommunityRating").toDouble() < query.minCommunityRating) {
+            continue;
+        }
+        const int year = item.value("ProductionYear").toInt();
+        if (query.minPremiereDate.isValid() && year > 0 && year < query.minPremiereDate.year()) {
+            continue;
+        }
+        if (query.maxPremiereDate.isValid() && year > 0 && year > query.maxPremiereDate.year()) {
+            continue;
+        }
+        filtered.append(item);
+    }
+    items = filtered;
+
+    QList<QJsonObject> sortable;
+    sortable.reserve(items.size());
+    for (const auto &val : items) {
+        sortable.append(val.toObject());
+    }
+    const bool descending = query.sortOrder.compare("Descending", Qt::CaseInsensitive) == 0;
+    const QString sortBy = query.normalizedSortBy();
+    std::sort(sortable.begin(), sortable.end(), [sortBy, descending](const QJsonObject &a, const QJsonObject &b) {
+        QVariant av;
+        QVariant bv;
+        if (sortBy.contains("DateCreated")) {
+            av = a.value("DateCreated").toString();
+            bv = b.value("DateCreated").toString();
+        } else if (sortBy.contains("PremiereDate")) {
+            av = a.value("PremiereDate").toString();
+            bv = b.value("PremiereDate").toString();
+        } else if (sortBy.contains("RunTimeTicks")) {
+            av = a.value("RunTimeTicks").toDouble();
+            bv = b.value("RunTimeTicks").toDouble();
+        } else if (sortBy.contains("CommunityRating")) {
+            av = a.value("CommunityRating").toDouble();
+            bv = b.value("CommunityRating").toDouble();
+        } else if (sortBy.contains("ProductionYear")) {
+            av = a.value("ProductionYear").toInt();
+            bv = b.value("ProductionYear").toInt();
+        } else if (sortBy.contains("IsPlayed")) {
+            av = a.value("UserData").toObject().value("Played").toBool();
+            bv = b.value("UserData").toObject().value("Played").toBool();
+        } else {
+            av = a.value("Name").toString();
+            bv = b.value("Name").toString();
+        }
+        const bool less = av.toString().localeAwareCompare(bv.toString()) < 0;
+        return descending ? !less : less;
+    });
+
+    const int totalCount = sortable.size();
+    const int start = qMax(0, query.startIndex);
+    const int end = query.limit > 0 ? qMin(start + query.limit, sortable.size()) : sortable.size();
+    QJsonArray paged;
+    for (int i = start; i < end; ++i) {
+        paged.append(sortable.at(i));
     }
     
-    qCDebug(lcTest) << "MockLibraryService::getItems(" << parentId << ") ->" << items.size() << "items";
-    emit itemsLoadedWithTotal(parentId, items, totalCount);
+    const QString queryKey = query.requestKey.isEmpty() ? query.cacheKey() : query.requestKey;
+    qCDebug(lcTest) << "MockLibraryService::getItems(" << query.parentId << ") ->" << paged.size() << "items";
+    emit itemsLoadedWithTotal(query.parentId, paged, totalCount);
+    emit itemsLoadedWithTotalForQuery(query.parentId, queryKey, paged, totalCount);
+}
+
+void MockLibraryService::getFilterOptions(const QString &parentId,
+                                          const QStringList &includeItemTypes,
+                                          bool recursive)
+{
+    Q_UNUSED(recursive)
+    LibraryItemQuery query;
+    query.parentId = parentId;
+    query.includeItemTypes = includeItemTypes;
+
+    QStringList genres;
+    QStringList tags;
+    QStringList studios;
+    QJsonArray source;
+    if (parentId == "library-movies") {
+        source = m_movies["Items"].toArray();
+    } else if (parentId == "library-shows") {
+        source = m_series["Items"].toArray();
+    }
+    for (const auto &val : source) {
+        const QJsonObject item = val.toObject();
+        if (!includeItemTypes.isEmpty() && !includeItemTypes.contains(item.value("Type").toString())) {
+            continue;
+        }
+        for (const auto &genre : item.value("Genres").toArray()) {
+            genres.append(genre.toString());
+        }
+        for (const auto &tag : item.value("Tags").toArray()) {
+            tags.append(tag.toString());
+        }
+        for (const auto &studio : item.value("Studios").toArray()) {
+            studios.append(studio.isString() ? studio.toString() : studio.toObject().value("Name").toString());
+        }
+    }
+    auto normalize = [](QStringList list) {
+        list.removeAll(QString());
+        list.removeDuplicates();
+        std::sort(list.begin(), list.end(), [](const QString &a, const QString &b) {
+            return QString::localeAwareCompare(a, b) < 0;
+        });
+        return list;
+    };
+    emit filterOptionsLoaded(parentId, normalize(genres), normalize(tags), normalize(studios));
 }
 
 void MockLibraryService::getNextUp()

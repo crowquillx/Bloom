@@ -277,6 +277,7 @@ struct ParsedItemsResult
 {
     bool success = false;
     QString parentId;
+    QString queryKey;
     QJsonArray items;
     int totalRecordCount = 0;
 };

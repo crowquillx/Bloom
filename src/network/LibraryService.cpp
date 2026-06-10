@@ -5,6 +5,9 @@
 #include <QJsonObject>
 #include <QTimer>
 #include <QUrl>
+#include <QUrlQuery>
+#include <QSet>
+#include <algorithm>
 #include <QLoggingCategory>
 #include <memory>
 #include "../utils/BloomLogging.h"
@@ -30,6 +33,196 @@ QString buildChaptersEndpoint(const QString &userId, const QString &itemId)
         .arg(userId, itemId);
 }
 
+QStringList sortedList(QStringList values)
+{
+    values.removeAll(QString());
+    values.removeDuplicates();
+    std::sort(values.begin(), values.end(), [](const QString &a, const QString &b) {
+        return QString::localeAwareCompare(a, b) < 0;
+    });
+    return values;
+}
+
+QString triStateKey(LibraryItemQuery::TriState state)
+{
+    switch (state) {
+    case LibraryItemQuery::TriState::Yes:
+        return QStringLiteral("yes");
+    case LibraryItemQuery::TriState::No:
+        return QStringLiteral("no");
+    case LibraryItemQuery::TriState::Any:
+        break;
+    }
+    return QStringLiteral("any");
+}
+
+void addJoined(QUrlQuery &urlQuery, const QString &key, const QStringList &values, const QString &separator = QStringLiteral("|"))
+{
+    const QStringList normalized = sortedList(values);
+    if (!normalized.isEmpty()) {
+        urlQuery.addQueryItem(key, normalized.join(separator));
+    }
+}
+
+void addFields(QUrlQuery &urlQuery, bool includeHeavyFields)
+{
+    QStringList fields = {
+        "Type",
+        "ParentIndexNumber",
+        "IndexNumber",
+        "LocationType",
+        "ImageTags",
+        "BackdropImageTags",
+        "ParentBackdropImageTags",
+        "ParentBackdropImageItemId",
+        "ParentBackdropItemId",
+        "ParentPrimaryImageTag",
+        "SeriesPrimaryImageTag",
+        "ProductionYear",
+        "PremiereDate",
+        "DateCreated",
+        "ChildCount",
+        "ParentId",
+        "SeriesId",
+        "UserData",
+        "RunTimeTicks",
+        "Overview",
+        "CommunityRating",
+        "Studios",
+        "Genres",
+        "Tags",
+        "SpecialEpisodeNumbers",
+        "AirsBeforeSeasonNumber",
+        "AirsAfterSeasonNumber",
+        "AirsBeforeEpisodeNumber"
+    };
+
+    if (includeHeavyFields) {
+        fields.prepend("Path");
+        fields.prepend("MediaSources");
+    }
+
+    urlQuery.addQueryItem("Fields", fields.join(","));
+    urlQuery.addQueryItem("EnableImageTypes", "Primary,Backdrop,Thumb");
+}
+
+QString buildItemsEndpoint(const QString &userId, const LibraryItemQuery &query)
+{
+    QUrl url(QStringLiteral("/Users/%1/Items").arg(userId));
+    QUrlQuery urlQuery;
+
+    if (!query.parentId.isEmpty()) {
+        urlQuery.addQueryItem("ParentId", query.parentId);
+    }
+    addFields(urlQuery, query.includeHeavyFields);
+    if (query.startIndex > 0) {
+        urlQuery.addQueryItem("StartIndex", QString::number(query.startIndex));
+    }
+    if (query.limit > 0) {
+        urlQuery.addQueryItem("Limit", QString::number(query.limit));
+    }
+    if (!query.searchTerm.trimmed().isEmpty()) {
+        urlQuery.addQueryItem("SearchTerm", query.searchTerm.trimmed());
+    }
+    addJoined(urlQuery, "Genres", query.genres, ",");
+    addJoined(urlQuery, "Tags", query.tags, ",");
+    addJoined(urlQuery, "Studios", query.studios, ",");
+    if (query.minPremiereDate.isValid()) {
+        urlQuery.addQueryItem("MinPremiereDate", query.minPremiereDate.startOfDay(Qt::UTC).toString(Qt::ISODate));
+    }
+    if (query.maxPremiereDate.isValid()) {
+        urlQuery.addQueryItem("MaxPremiereDate", query.maxPremiereDate.endOfDay(Qt::UTC).toString(Qt::ISODate));
+    }
+    if (query.minDateLastSaved.isValid()) {
+        urlQuery.addQueryItem("MinDateLastSaved", query.minDateLastSaved.startOfDay(Qt::UTC).toString(Qt::ISODate));
+    }
+    if (query.watched != LibraryItemQuery::TriState::Any) {
+        urlQuery.addQueryItem("IsPlayed", query.watched == LibraryItemQuery::TriState::Yes ? "true" : "false");
+    }
+    if (query.favorite != LibraryItemQuery::TriState::Any) {
+        urlQuery.addQueryItem("IsFavorite", query.favorite == LibraryItemQuery::TriState::Yes ? "true" : "false");
+    }
+    if (query.minCommunityRating > 0.0) {
+        urlQuery.addQueryItem("MinCommunityRating", QString::number(query.minCommunityRating, 'f', 1));
+    }
+    if (!query.years.isEmpty()) {
+        QStringList years;
+        years.reserve(query.years.size());
+        for (int year : query.years) {
+            if (year > 0) {
+                years.append(QString::number(year));
+            }
+        }
+        addJoined(urlQuery, "Years", years);
+    }
+    addJoined(urlQuery, "IncludeItemTypes", query.includeItemTypes, ",");
+    if (query.recursive) {
+        urlQuery.addQueryItem("Recursive", "true");
+    }
+
+    urlQuery.addQueryItem("SortBy", query.normalizedSortBy());
+    if (!query.sortOrder.isEmpty()) {
+        urlQuery.addQueryItem("SortOrder", query.sortOrder);
+    }
+
+    url.setQuery(urlQuery);
+    return url.toString(QUrl::FullyEncoded);
+}
+
+QStringList parseStringList(const QJsonValue &value)
+{
+    QStringList result;
+    if (value.isArray()) {
+        const QJsonArray array = value.toArray();
+        for (const auto &entry : array) {
+            if (entry.isString()) {
+                result.append(entry.toString());
+            } else {
+                const QJsonObject obj = entry.toObject();
+                const QString name = obj.value("Name").toString();
+                if (!name.isEmpty()) {
+                    result.append(name);
+                }
+            }
+        }
+    }
+    return sortedList(result);
+}
+
+}
+
+QString LibraryItemQuery::normalizedSortBy() const
+{
+    return sortBy.isEmpty() ? QStringLiteral("ParentIndexNumber,IndexNumber,SortName") : sortBy;
+}
+
+QString LibraryItemQuery::cacheKey() const
+{
+    QStringList parts;
+    parts << "parent=" + parentId;
+    parts << "search=" + searchTerm.trimmed();
+    parts << "genres=" + sortedList(genres).join("|");
+    parts << "tags=" + sortedList(tags).join("|");
+    parts << "studios=" + sortedList(studios).join("|");
+    parts << "minPremiere=" + (minPremiereDate.isValid() ? minPremiereDate.toString(Qt::ISODate) : QString());
+    parts << "maxPremiere=" + (maxPremiereDate.isValid() ? maxPremiereDate.toString(Qt::ISODate) : QString());
+    parts << "minAdded=" + (minDateLastSaved.isValid() ? minDateLastSaved.toString(Qt::ISODate) : QString());
+    parts << "watched=" + triStateKey(watched);
+    parts << "favorite=" + triStateKey(favorite);
+    parts << "rating=" + QString::number(minCommunityRating, 'f', 1);
+    QStringList yearParts;
+    for (int year : years) {
+        if (year > 0) {
+            yearParts.append(QString::number(year));
+        }
+    }
+    parts << "years=" + sortedList(yearParts).join("|");
+    parts << "sort=" + normalizedSortBy();
+    parts << "order=" + sortOrder;
+    parts << "types=" + sortedList(includeItemTypes).join("|");
+    parts << QStringLiteral("recursive=%1").arg(recursive ? "1" : "0");
+    parts << QStringLiteral("paged=%1").arg(limit > 0 ? "1" : "0");
+    return parts.join(";");
 }
 
 LibraryService::LibraryService(AuthenticationService *authService, QObject *parent)
@@ -202,6 +395,21 @@ void LibraryService::getItems(const QString &parentId, int startIndex, int limit
                                const QString &sortBy, const QString &sortOrder,
                                bool includeHeavyFields, bool useCacheValidation)
 {
+    LibraryItemQuery query;
+    query.parentId = parentId;
+    query.startIndex = startIndex;
+    query.limit = limit;
+    query.genres = genres;
+    query.studios = networks;
+    query.sortBy = sortBy;
+    query.sortOrder = sortOrder;
+    query.includeHeavyFields = includeHeavyFields;
+    query.useCacheValidation = useCacheValidation;
+    getItems(query);
+}
+
+void LibraryService::getItems(const LibraryItemQuery &query)
+{
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getItems";
@@ -210,58 +418,15 @@ void LibraryService::getItems(const QString &parentId, int startIndex, int limit
         emitError(error);
         return;
     }
-    
-    QStringList fields = {
-        // ordering keeps common small fields first
-        "Type",
-        "ParentIndexNumber",
-        "IndexNumber",
-        "LocationType",  // used to filter virtual/missing episodes
-        "ImageTags",
-        "BackdropImageTags",
-        "ParentBackdropImageTags",
-        "ParentBackdropImageItemId",
-        "ParentBackdropItemId",
-        "ParentPrimaryImageTag",
-        "SeriesPrimaryImageTag",
-        "ProductionYear",
-        "PremiereDate",
-        "ChildCount",
-        "ParentId",
-        "SeriesId",
-        "UserData",
-        "RunTimeTicks",
-        "Overview",
-        "CommunityRating",
-        "SpecialEpisodeNumbers",
-        // Special placement fields (needed for specials ordering)
-        "AirsBeforeSeasonNumber",
-        "AirsAfterSeasonNumber",
-        "AirsBeforeEpisodeNumber"
-    };
 
-    if (includeHeavyFields) {
-        fields.prepend("Path");
-        fields.prepend("MediaSources");
-        fields.append("Genres");
-    }
-
-    QString endpoint = QString("/Users/%1/Items?ParentId=%2&Fields=%3&EnableImageTypes=Primary,Backdrop,Thumb")
-                           .arg(m_authService->getUserId(), parentId, fields.join(","));
-    
-    if (startIndex > 0) endpoint += QString("&StartIndex=%1").arg(startIndex);
-    if (limit > 0) endpoint += QString("&Limit=%1").arg(limit);
-    if (!genres.isEmpty()) endpoint += QString("&Genres=%1").arg(genres.join("|"));
-    if (!networks.isEmpty()) endpoint += QString("&Networks=%1").arg(networks.join("|"));
-    
-    QString sortByParam = sortBy.isEmpty() ? "ParentIndexNumber,IndexNumber,SortName" : sortBy;
-    endpoint += QString("&SortBy=%1").arg(sortByParam);
-    if (!sortOrder.isEmpty()) endpoint += QString("&SortOrder=%1").arg(sortOrder);
+    const QString parentId = query.parentId;
+    const QString queryKey = query.requestKey.isEmpty() ? query.cacheKey() : query.requestKey;
+    const QString endpoint = buildItemsEndpoint(m_authService->getUserId(), query);
     
     sendRequestWithRetry(endpoint,
-        [this, endpoint, useCacheValidation, parentId]() {
+        [this, endpoint, query]() {
             QNetworkRequest request = m_authService->createRequest(endpoint);
-            if (useCacheValidation) {
+            if (query.useCacheValidation) {
                 if (m_etags.contains(endpoint)) {
                     request.setRawHeader("If-None-Match", m_etags.value(endpoint).toUtf8());
                 }
@@ -271,15 +436,16 @@ void LibraryService::getItems(const QString &parentId, int startIndex, int limit
             }
             return m_authService->networkManager()->get(request);
         },
-        [this, parentId, endpoint, useCacheValidation](QNetworkReply *reply) {
+        [this, parentId, endpoint, query, queryKey](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            if (httpStatus == 304 && useCacheValidation) {
+            if (httpStatus == 304 && query.useCacheValidation) {
                 emit itemsNotModified(parentId);
+                emit itemsNotModifiedForQuery(parentId, queryKey);
                 return;
             }
 
-            if (useCacheValidation) {
+            if (query.useCacheValidation) {
                 QByteArray etag = reply->rawHeader("ETag");
                 if (!etag.isEmpty()) {
                     m_etags[endpoint] = QString::fromUtf8(etag);
@@ -302,6 +468,7 @@ void LibraryService::getItems(const QString &parentId, int startIndex, int limit
                     if (result.success) {
                         emit itemsLoaded(result.parentId, result.items);
                         emit itemsLoadedWithTotal(result.parentId, result.items, result.totalRecordCount);
+                        emit itemsLoadedWithTotalForQuery(result.parentId, result.queryKey, result.items, result.totalRecordCount);
                     } else {
                         NetworkError error;
                         error.endpoint = "getItems";
@@ -311,8 +478,10 @@ void LibraryService::getItems(const QString &parentId, int startIndex, int limit
                     }
                 });
                 
-                QFuture<ParsedItemsResult> future = QtConcurrent::run([data, parentId]() {
-                    return JsonParser::parseItemsResponse(data, parentId);
+                QFuture<ParsedItemsResult> future = QtConcurrent::run([data, parentId, queryKey]() {
+                    auto result = JsonParser::parseItemsResponse(data, parentId);
+                    result.queryKey = queryKey;
+                    return result;
                 });
                 watcher->setFuture(future);
             } else {
@@ -330,7 +499,101 @@ void LibraryService::getItems(const QString &parentId, int startIndex, int limit
                 int totalRecordCount = obj["TotalRecordCount"].toInt();
                 emit itemsLoaded(parentId, items);
                 emit itemsLoadedWithTotal(parentId, items, totalRecordCount);
+                emit itemsLoadedWithTotalForQuery(parentId, queryKey, items, totalRecordCount);
             }
+        });
+}
+
+void LibraryService::getFilterOptions(const QString &parentId,
+                                      const QStringList &includeItemTypes,
+                                      bool recursive)
+{
+    if (!m_authService->isAuthenticated()) {
+        NetworkError error;
+        error.endpoint = "getFilterOptions";
+        error.code = -1;
+        error.userMessage = tr("Not authenticated");
+        emitError(error);
+        return;
+    }
+
+    auto buildFacetEndpoint = [this, parentId, includeItemTypes, recursive](const QString &path) {
+        QUrl url(path);
+        QUrlQuery query;
+        query.addQueryItem("UserId", m_authService->getUserId());
+        if (!parentId.isEmpty()) {
+            query.addQueryItem("ParentId", parentId);
+        }
+        if (!includeItemTypes.isEmpty()) {
+            query.addQueryItem("IncludeItemTypes", includeItemTypes.join(","));
+        }
+        if (recursive) {
+            query.addQueryItem("Recursive", "true");
+        }
+        query.addQueryItem("Limit", "500");
+        url.setQuery(query);
+        return url.toString(QUrl::FullyEncoded);
+    };
+
+    const QString filtersEndpoint = buildFacetEndpoint("/Items/Filters");
+    const QString genresEndpoint = buildFacetEndpoint("/Genres");
+    const QString studiosEndpoint = buildFacetEndpoint("/Studios");
+
+    auto state = std::make_shared<QHash<QString, QStringList>>();
+    auto remaining = std::make_shared<int>(3);
+    auto finish = [this, parentId, state, remaining]() {
+        --(*remaining);
+        if (*remaining > 0) {
+            return;
+        }
+        QStringList genres = state->value("genres");
+        genres.append(state->value("filterGenres"));
+        QStringList tags = state->value("tags");
+        QStringList studios = state->value("studios");
+        genres = sortedList(genres);
+        tags = sortedList(tags);
+        studios = sortedList(studios);
+        emit filterOptionsLoaded(parentId, genres, tags, studios);
+    };
+
+    sendRequestWithRetry(filtersEndpoint,
+        [this, filtersEndpoint]() {
+            return m_authService->networkManager()->get(m_authService->createRequest(filtersEndpoint));
+        },
+        [state, finish](QNetworkReply *reply) {
+            const QJsonObject obj = QJsonDocument::fromJson(reply->readAll()).object();
+            state->insert("filterGenres", parseStringList(obj.value("Genres")));
+            state->insert("tags", parseStringList(obj.value("Tags")));
+            finish();
+        },
+        [finish](const NetworkError &) {
+            finish();
+        });
+
+    sendRequestWithRetry(genresEndpoint,
+        [this, genresEndpoint]() {
+            return m_authService->networkManager()->get(m_authService->createRequest(genresEndpoint));
+        },
+        [state, finish](QNetworkReply *reply) {
+            const QJsonObject obj = QJsonDocument::fromJson(reply->readAll()).object();
+            state->insert("genres", parseStringList(obj.value("Items")));
+            finish();
+        },
+        [finish](const NetworkError &) {
+            finish();
+        });
+
+    sendRequestWithRetry(studiosEndpoint,
+        [this, studiosEndpoint]() {
+            return m_authService->networkManager()->get(m_authService->createRequest(studiosEndpoint));
+        },
+        [state, finish](QNetworkReply *reply) {
+            const QJsonObject obj = QJsonDocument::fromJson(reply->readAll()).object();
+            state->insert("studios", parseStringList(obj.value("Items")));
+            finish();
+        },
+        [finish](const NetworkError &) {
+            finish();
         });
 }
 

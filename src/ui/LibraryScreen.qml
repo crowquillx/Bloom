@@ -12,6 +12,7 @@ FocusScope {
     property string currentParentId: ""
     property string currentLibraryId: ""   // The root library ID (for profile resolution)
     property string currentLibraryName: ""  // Name of the current library for display
+    property string currentLibraryType: ""
     property string currentBackdropUrl: ""
     property string currentSeriesId: ""
     property var navigationStack: []
@@ -21,8 +22,16 @@ FocusScope {
     // Filter properties
     property var selectedGenres: []
     property var selectedNetworks: []
+    property var selectedTags: []
+    property var selectedStudios: []
     property bool showFilterPanel: false
-    property string activeFilterCategory: "" // "genres" or "networks"
+    property string activeFilterCategory: "genres"
+    property string librarySearchText: ""
+    property bool queryToolbarPinned: true
+    property bool queryToolbarScrollArmed: false
+    property string pendingQueryFocusTarget: ""
+    property bool pendingQueryFilterPanelOpen: false
+    property bool ratingSliderEditing: false
     
     // Position restoration properties (used when navigating back)
     property int _pendingGridIndex: -1
@@ -71,6 +80,170 @@ FocusScope {
     property var _seerrRecommendationCache: ({})
     readonly property bool canRestoreUpNextEpisodeContext: currentSeriesId !== "" && (showSeasonView || showSeriesDetails)
 
+    component LibraryComboBox: ComboBox {
+        id: combo
+
+        property var values: []
+        property Item leftTarget: null
+        property Item rightTarget: null
+        property Item upTarget: null
+        property Item downTarget: null
+        property int labelFontSize: Theme.fontSizeBody
+        signal valueAccepted(var value)
+
+        focusPolicy: Qt.StrongFocus
+        Accessible.role: Accessible.ComboBox
+
+        function selectedValue() {
+            if (currentIndex >= 0 && currentIndex < values.length)
+                return values[currentIndex]
+            return ""
+        }
+
+        function commitIndex(index) {
+            if (index < 0 || index >= count)
+                return
+            currentIndex = index
+            valueAccepted(selectedValue())
+            popup.close()
+            Qt.callLater(function() { combo.forceActiveFocus() })
+        }
+
+        Keys.priority: Keys.BeforeItem
+        Keys.onReturnPressed: (event) => {
+            if (!event.isAutoRepeat)
+                popup.open()
+            event.accepted = true
+        }
+        Keys.onEnterPressed: (event) => {
+            if (!event.isAutoRepeat)
+                popup.open()
+            event.accepted = true
+        }
+        Keys.onLeftPressed: (event) => {
+            if (!popup.visible && leftTarget) {
+                leftTarget.forceActiveFocus()
+                event.accepted = true
+            }
+        }
+        Keys.onRightPressed: (event) => {
+            if (!popup.visible && rightTarget) {
+                rightTarget.forceActiveFocus()
+                event.accepted = true
+            }
+        }
+        Keys.onUpPressed: (event) => {
+            if (!popup.visible) {
+                if (upTarget)
+                    upTarget.forceActiveFocus()
+                event.accepted = true
+            }
+        }
+        Keys.onDownPressed: (event) => {
+            if (!popup.visible) {
+                if (downTarget)
+                    downTarget.forceActiveFocus()
+                event.accepted = true
+            }
+        }
+
+        onActivated: valueAccepted(selectedValue())
+
+        background: Rectangle {
+            implicitHeight: Theme.buttonHeightSmall
+            radius: Theme.radiusSmall
+            color: Theme.inputBackground
+            border.color: combo.activeFocus || combo.popup.visible ? Theme.focusBorder : Theme.inputBorder
+            border.width: combo.activeFocus || combo.popup.visible ? 2 : 1
+        }
+
+        contentItem: Text {
+            text: combo.displayText
+            font.pixelSize: combo.labelFontSize
+            font.family: Theme.fontPrimary
+            color: Theme.textPrimary
+            verticalAlignment: Text.AlignVCenter
+            leftPadding: Theme.spacingSmall
+            rightPadding: Theme.spacingMedium
+            elide: Text.ElideRight
+        }
+
+        delegate: ItemDelegate {
+            width: combo.width
+            highlighted: ListView.isCurrentItem || combo.highlightedIndex === index
+            onClicked: combo.commitIndex(index)
+
+            contentItem: Text {
+                text: modelData
+                color: parent.highlighted ? Theme.textPrimary : Theme.textSecondary
+                font.pixelSize: combo.labelFontSize
+                font.family: Theme.fontPrimary
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+            }
+
+            background: Rectangle {
+                color: parent.highlighted ? Theme.buttonPrimaryBackground : "transparent"
+                radius: Theme.radiusSmall
+            }
+        }
+
+        popup: Popup {
+            y: combo.height + Math.round(5 * Theme.layoutScale)
+            width: combo.width
+            implicitHeight: Math.min(contentItem.implicitHeight, Math.round(320 * Theme.layoutScale))
+            padding: 1
+            closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+            onOpened: {
+                InputModeManager.setNavigationMode("keyboard")
+                InputModeManager.hideCursor(true)
+                comboList.currentIndex = combo.highlightedIndex >= 0 ? combo.highlightedIndex : combo.currentIndex
+                comboList.forceActiveFocus()
+            }
+            onClosed: {
+                Qt.callLater(function() { combo.forceActiveFocus() })
+                InputModeManager.setNavigationMode("pointer")
+                InputModeManager.hideCursor(false)
+            }
+
+            contentItem: ListView {
+                id: comboList
+                clip: true
+                implicitHeight: contentHeight
+                model: combo.popup.visible ? combo.delegateModel : null
+                currentIndex: combo.highlightedIndex >= 0 ? combo.highlightedIndex : combo.currentIndex
+                highlightMoveDuration: 0
+                boundsBehavior: Flickable.StopAtBounds
+                ScrollIndicator.vertical: ScrollIndicator { }
+
+                Keys.onReturnPressed: (event) => {
+                    combo.commitIndex(currentIndex)
+                    event.accepted = true
+                }
+                Keys.onEnterPressed: (event) => {
+                    combo.commitIndex(currentIndex)
+                    event.accepted = true
+                }
+                Keys.onEscapePressed: (event) => {
+                    combo.popup.close()
+                    event.accepted = true
+                }
+                Keys.onBackPressed: (event) => {
+                    combo.popup.close()
+                    event.accepted = true
+                }
+            }
+
+            background: Rectangle {
+                color: Theme.cardBackground
+                border.color: Theme.focusBorder
+                border.width: 1
+                radius: Theme.radiusSmall
+            }
+        }
+    }
+
     function saveFocusForSidebar() {
         if (contentLoader.item && typeof contentLoader.item.saveFocusForSidebar === "function") {
             contentLoader.item.saveFocusForSidebar()
@@ -89,6 +262,123 @@ FocusScope {
         Qt.callLater(function() {
             restoringFocusFromSidebar = false
         })
+    }
+
+    function toggleFilterDrawer() {
+        showFilterPanel = !showFilterPanel
+        if (showFilterPanel) {
+            LibraryViewModel.loadFilterOptions(currentParentId, currentLibraryType)
+            Qt.callLater(function() {
+                watchedFilterCombo.forceActiveFocus()
+            })
+        } else {
+            filterDrawerButton.forceActiveFocus()
+        }
+    }
+
+    function resetQueryToolbarVisibility() {
+        queryToolbarPinned = true
+        queryToolbarScrollArmed = false
+        queryToolbarScrollArmTimer.restart()
+    }
+
+    function syncComboIndex(combo, value) {
+        if (!combo || !combo.values)
+            return
+        for (var i = 0; i < combo.values.length; ++i) {
+            if (combo.values[i] === value) {
+                combo.currentIndex = i
+                return
+            }
+        }
+        combo.currentIndex = 0
+    }
+
+    function normalizeActiveFilterCategory() {
+        if (activeFilterCategory !== "tags" && activeFilterCategory !== "studios")
+            activeFilterCategory = "genres"
+    }
+
+    function currentQueryFocusTarget() {
+        if (searchField.activeFocus) return "searchField"
+        if (sortCombo.activeFocus || sortCombo.popup.visible) return "sortCombo"
+        if (orderCombo.activeFocus || orderCombo.popup.visible) return "orderCombo"
+        if (filterDrawerButton.activeFocus) return "filterDrawerButton"
+        if (watchedFilterCombo.activeFocus || watchedFilterCombo.popup.visible) return "watchedFilterCombo"
+        if (favoriteFilterCombo.activeFocus || favoriteFilterCombo.popup.visible) return "favoriteFilterCombo"
+        if (addedSinceCombo.activeFocus || addedSinceCombo.popup.visible) return "addedSinceCombo"
+        if (minYearBox.activeFocus) return "minYearBox"
+        if (maxYearBox.activeFocus) return "maxYearBox"
+        if (ratingSlider.activeFocus) return "ratingSlider"
+        if (clearFiltersButton.activeFocus) return "clearFiltersButton"
+        if (facetTabs.activeFocus) return "facetTabs"
+        if (facetGrid.activeFocus) return "facetGrid"
+        return ""
+    }
+
+    function queryFocusItem(target) {
+        if (target === "searchField") return searchField
+        if (target === "sortCombo") return sortCombo
+        if (target === "orderCombo") return orderCombo
+        if (target === "filterDrawerButton") return filterDrawerButton
+        if (target === "watchedFilterCombo") return watchedFilterCombo
+        if (target === "favoriteFilterCombo") return favoriteFilterCombo
+        if (target === "addedSinceCombo") return addedSinceCombo
+        if (target === "minYearBox") return minYearBox
+        if (target === "maxYearBox") return maxYearBox
+        if (target === "ratingSlider") return ratingSlider
+        if (target === "clearFiltersButton") return clearFiltersButton
+        if (target === "facetTabs") return facetTabs
+        if (target === "facetGrid") return facetGrid
+        return null
+    }
+
+    function rememberQueryFocus(target) {
+        pendingQueryFocusTarget = target || currentQueryFocusTarget()
+        pendingQueryFilterPanelOpen = showFilterPanel || pendingQueryFocusTarget.indexOf("Filter") >= 0
+                || pendingQueryFocusTarget === "minYearBox"
+                || pendingQueryFocusTarget === "maxYearBox"
+                || pendingQueryFocusTarget === "ratingSlider"
+                || pendingQueryFocusTarget === "clearFiltersButton"
+                || pendingQueryFocusTarget === "facetTabs"
+                || pendingQueryFocusTarget === "facetGrid"
+        if (pendingQueryFilterPanelOpen) {
+            showFilterPanel = true
+            normalizeActiveFilterCategory()
+        }
+        resetQueryToolbarVisibility()
+    }
+
+    function restorePendingQueryFocus() {
+        var target = pendingQueryFocusTarget
+        var shouldKeepFilterPanelOpen = pendingQueryFilterPanelOpen
+        pendingQueryFocusTarget = ""
+        pendingQueryFilterPanelOpen = false
+        if (!target)
+            return false
+        if (shouldKeepFilterPanelOpen) {
+            showFilterPanel = true
+            normalizeActiveFilterCategory()
+        }
+        var item = queryFocusItem(target)
+        if (item) {
+            item.forceActiveFocus()
+            return true
+        }
+        return false
+    }
+
+    function toggleActiveFacet(name) {
+        if (!name)
+            return
+        if (activeFilterCategory === "tags") {
+            LibraryViewModel.toggleTag(name)
+        } else if (activeFilterCategory === "studios") {
+            LibraryViewModel.toggleStudio(name)
+        } else {
+            LibraryViewModel.toggleGenre(name)
+        }
+        applyFilters("facetGrid")
     }
 
     function restoreUpNextEpisodeContext(episodeData, fallbackSeriesId, audioIndex, subtitleIndex) {
@@ -194,7 +484,20 @@ FocusScope {
     // Alias for loading state from ViewModel
     property bool isLoading: LibraryViewModel.isLoading
 
+    Timer {
+        id: searchDebounceTimer
+        interval: 300
+        repeat: false
+        onTriggered: {
+            LibraryViewModel.setSearchTerm(librarySearchText)
+            applyFilters("searchField")
+        }
+    }
+
     onCurrentParentIdChanged: {
+        if (currentParentId !== "" && currentSeriesId === "" && !showSeriesDetails && !showSeasonView && !showMovieDetails) {
+            resetQueryToolbarVisibility()
+        }
         if (componentReady) {
             loadItemsForCurrentParent()
         }
@@ -632,219 +935,160 @@ FocusScope {
 
                 Item { Layout.fillWidth: true }
                 
-                // Filter tabs
-                RowLayout {
-                    id: filterTabsRow
-                    visible: showPaginationControls
-                    spacing: Theme.spacingSmall
-                    
-                    Button {
-                        id: showsFilterButton
-                        text: "Shows"
-                        Accessible.role: Accessible.MenuItem
-                        Accessible.name: text
-                        Accessible.checkable: true
-                        Accessible.checked: isActive
-                        Layout.preferredWidth: implicitWidth + Math.round(40 * Theme.layoutScale)
+	                RowLayout {
+	                    id: queryToolbar
+	                    visible: showPaginationControls
+                                 && (queryToolbarPinned
+                                     || grid.contentY <= 1
+                                     || searchField.activeFocus
+                                     || sortCombo.activeFocus
+                                     || sortCombo.popup.visible
+                                     || orderCombo.activeFocus
+                                     || orderCombo.popup.visible
+                                     || filterDrawerButton.activeFocus
+                                     || showFilterPanel)
+	                    spacing: Theme.spacingSmall
+
+                    TextField {
+                        id: searchField
+                        Layout.preferredWidth: Math.round(300 * Theme.layoutScale)
                         Layout.preferredHeight: Theme.buttonHeightSmall
-                        property bool isActive: activeFilterCategory === "shows"
-                        
-                        KeyNavigation.right: genresFilterButton
+                        placeholderText: "Search"
+                        text: librarySearchText
+                        selectByMouse: true
+                        color: Theme.textPrimary
+                        placeholderTextColor: Theme.textSecondary
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        leftPadding: Theme.spacingSmall
+                        rightPadding: Theme.spacingSmall
+                        verticalAlignment: TextInput.AlignVCenter
+                        cursorVisible: activeFocus
+                        Accessible.name: "Search library"
+                        KeyNavigation.right: sortCombo
                         KeyNavigation.down: grid
-                        
-                        Keys.onReturnPressed: (event) => {
-                            if (event.isAutoRepeat) {
-                                event.accepted = true
-                                return
-                            }
-                            clicked()
-                            event.accepted = true
-                        }
-                        Keys.onEnterPressed: (event) => {
-                            if (event.isAutoRepeat) {
-                                event.accepted = true
-                                return
-                            }
-                            clicked()
-                            event.accepted = true
-                        }
-                        
                         background: Rectangle {
-                            radius: Theme.radiusLarge
-                            color: {
-                                if (parent.down) return Theme.buttonTabBackgroundPressed
-                                if (parent.isActive) return Theme.buttonTabBackgroundActive
-                                if (parent.hovered) return Theme.buttonTabBackgroundHover
-                                return Theme.buttonTabBackground
-                            }
-                            border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                            border.color: {
-                                if (parent.activeFocus) return Theme.buttonTabBorderFocused
-                                if (parent.isActive) return Theme.buttonTabBorderActive
-                                if (parent.hovered) return Theme.buttonTabBorderHover
-                                return Theme.buttonTabBorder
-                            }
-                            
-                            Behavior on color { ColorAnimation { duration: Theme.durationShort } }
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: Theme.inputBackground
+                            border.color: searchField.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: searchField.activeFocus ? 2 : Theme.borderWidth
                             Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
                         }
-                        contentItem: Text {
-                            text: parent.text
-                            color: parent.isActive ? Theme.textPrimary : Theme.textSecondary
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            font.bold: parent.isActive
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
+                        onTextEdited: {
+                            librarySearchText = text
+                            searchDebounceTimer.restart()
                         }
-                        onClicked: {
-                            activeFilterCategory = ""
-                            showFilterPanel = false
-                            selectedGenres = []
-                            selectedNetworks = []
-                            applyFilters()
-                        }
-                    }
-                    
-                    Button {
-                        id: genresFilterButton
-                        text: "Genres"
-                        Accessible.role: Accessible.MenuItem
-                        Accessible.name: text
-                        Accessible.checkable: true
-                        Accessible.checked: isActive
-                        Layout.preferredWidth: implicitWidth + Math.round(40 * Theme.layoutScale)
-                        Layout.preferredHeight: Theme.buttonHeightSmall
-                        property bool isActive: activeFilterCategory === "genres"
-                        
-                        KeyNavigation.left: showsFilterButton
-                        KeyNavigation.right: networksFilterButton
-                        KeyNavigation.down: grid
-                        
-                        Keys.onReturnPressed: (event) => {
-                            if (event.isAutoRepeat) {
+                        Keys.onEscapePressed: (event) => {
+                            if (text.length > 0) {
+                                text = ""
+                                librarySearchText = ""
+                                searchDebounceTimer.restart()
                                 event.accepted = true
-                                return
-                            }
-                            clicked()
-                            event.accepted = true
-                        }
-                        Keys.onEnterPressed: (event) => {
-                            if (event.isAutoRepeat) {
-                                event.accepted = true
-                                return
-                            }
-                            clicked()
-                            event.accepted = true
-                        }
-                        
-                        background: Rectangle {
-                            radius: Theme.radiusLarge
-                            color: {
-                                if (parent.down) return Theme.buttonTabBackgroundPressed
-                                if (parent.isActive) return Theme.buttonTabBackgroundActive
-                                if (parent.hovered) return Theme.buttonTabBackgroundHover
-                                return Theme.buttonTabBackground
-                            }
-                            border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                            border.color: {
-                                if (parent.activeFocus) return Theme.buttonTabBorderFocused
-                                if (parent.isActive) return Theme.buttonTabBorderActive
-                                if (parent.hovered) return Theme.buttonTabBorderHover
-                                return Theme.buttonTabBorder
-                            }
-                            
-                            Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                            Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
-                        }
-                        contentItem: Text {
-                            text: parent.text
-                            color: parent.isActive ? Theme.textPrimary : Theme.textSecondary
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            font.bold: parent.isActive
-                            horizontalAlignment: Text.AlignHCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        onClicked: {
-                            if (activeFilterCategory === "genres") {
-                                activeFilterCategory = ""
-                                showFilterPanel = false
-                            } else {
-                                activeFilterCategory = "genres"
-                                showFilterPanel = true
                             }
                         }
                     }
-                    
-                    Button {
-                        id: networksFilterButton
-                        text: "Networks"
-                        Accessible.role: Accessible.MenuItem
-                        Accessible.name: text
-                        Accessible.checkable: true
-                        Accessible.checked: isActive
-                        Layout.preferredWidth: implicitWidth + Math.round(40 * Theme.layoutScale)
+
+                    LibraryComboBox {
+                        id: sortCombo
+                        Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
                         Layout.preferredHeight: Theme.buttonHeightSmall
-                        property bool isActive: activeFilterCategory === "networks"
-                        
-                        KeyNavigation.left: genresFilterButton
+                        model: ["Library order", "Title", "Release date", "Date added", "Runtime", "Rating", "Year", "Watched", "Random"]
+                        values: ["", "SortName", "PremiereDate", "DateCreated", "RunTimeTicks", "CommunityRating", "ProductionYear", "IsPlayed", "Random"]
+                        Accessible.name: "Sort library"
+                        leftTarget: searchField
+                        rightTarget: orderCombo
+                        downTarget: grid
+                        Component.onCompleted: syncComboIndex(sortCombo, LibraryViewModel.sortBy)
+                        onValueAccepted: function(value) {
+                            LibraryViewModel.setSortBy(value)
+                            applyFilters("sortCombo")
+                        }
+                    }
+
+                    LibraryComboBox {
+                        id: orderCombo
+                        Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
+                        Layout.preferredHeight: Theme.buttonHeightSmall
+                        model: ["Ascending", "Descending"]
+                        values: ["Ascending", "Descending"]
+                        Accessible.name: "Sort order"
+                        leftTarget: sortCombo
+                        rightTarget: filterDrawerButton
+                        downTarget: grid
+                        Component.onCompleted: syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
+                        onValueAccepted: function(value) {
+                            LibraryViewModel.setSortOrder(value)
+                            applyFilters("orderCombo")
+                        }
+                    }
+
+                    Button {
+                        id: filterDrawerButton
+                        text: LibraryViewModel.activeFilterCount > 0 ? ("Filters " + LibraryViewModel.activeFilterCount) : "Filters"
+                        Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
+                        Layout.preferredHeight: Theme.buttonHeightSmall
+                        Accessible.name: text
+                        KeyNavigation.left: orderCombo
                         KeyNavigation.right: backButton
-                        KeyNavigation.down: grid
-                        
+                        KeyNavigation.down: showFilterPanel ? watchedFilterCombo : grid
+                        Keys.priority: Keys.BeforeItem
                         Keys.onReturnPressed: (event) => {
-                            if (event.isAutoRepeat) {
-                                event.accepted = true
-                                return
+                            if (!event.isAutoRepeat) {
+                                toggleFilterDrawer()
                             }
-                            clicked()
                             event.accepted = true
                         }
                         Keys.onEnterPressed: (event) => {
-                            if (event.isAutoRepeat) {
-                                event.accepted = true
-                                return
+                            if (!event.isAutoRepeat) {
+                                toggleFilterDrawer()
                             }
-                            clicked()
                             event.accepted = true
                         }
-                        
+                        Keys.onPressed: (event) => {
+                            if (event.isAutoRepeat)
+                                return
+                            if (event.key === Qt.Key_Left) {
+                                orderCombo.forceActiveFocus()
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Right) {
+                                if (backButton.visible) {
+                                    backButton.forceActiveFocus()
+                                }
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Down) {
+                                if (showFilterPanel) {
+                                    watchedFilterCombo.forceActiveFocus()
+                                } else {
+                                    grid.forceActiveFocus()
+                                }
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Up) {
+                                event.accepted = true
+                            }
+                        }
+                        onClicked: toggleFilterDrawer()
                         background: Rectangle {
-                            radius: Theme.radiusLarge
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
                             color: {
-                                if (parent.down) return Theme.buttonTabBackgroundPressed
-                                if (parent.isActive) return Theme.buttonTabBackgroundActive
-                                if (parent.hovered) return Theme.buttonTabBackgroundHover
-                                return Theme.buttonTabBackground
+                                if (filterDrawerButton.down || showFilterPanel) return Theme.buttonSecondaryBackgroundPressed
+                                if (filterDrawerButton.hovered) return Theme.buttonSecondaryBackgroundHover
+                                return Theme.inputBackground
                             }
-                            border.width: parent.activeFocus ? Theme.buttonFocusBorderWidth : Theme.buttonBorderWidth
-                            border.color: {
-                                if (parent.activeFocus) return Theme.buttonTabBorderFocused
-                                if (parent.isActive) return Theme.buttonTabBorderActive
-                                if (parent.hovered) return Theme.buttonTabBorderHover
-                                return Theme.buttonTabBorder
-                            }
-                            
+                            border.color: filterDrawerButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: filterDrawerButton.activeFocus ? 2 : Theme.borderWidth
                             Behavior on color { ColorAnimation { duration: Theme.durationShort } }
                             Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
                         }
                         contentItem: Text {
-                            text: parent.text
-                            color: parent.isActive ? Theme.textPrimary : Theme.textSecondary
+                            text: filterDrawerButton.text
+                            color: Theme.textPrimary
                             font.pixelSize: Theme.fontSizeBody
                             font.family: Theme.fontPrimary
-                            font.bold: parent.isActive
                             horizontalAlignment: Text.AlignHCenter
                             verticalAlignment: Text.AlignVCenter
-                        }
-                        onClicked: {
-                            if (activeFilterCategory === "networks") {
-                                activeFilterCategory = ""
-                                showFilterPanel = false
-                            } else {
-                                activeFilterCategory = "networks"
-                                showFilterPanel = true
-                            }
+                            elide: Text.ElideRight
                         }
                     }
                 }
@@ -859,7 +1103,7 @@ FocusScope {
                     Layout.preferredWidth: Math.round(148 * Theme.layoutScale)
                     Layout.preferredHeight: Theme.buttonHeightSmall
                     
-                    KeyNavigation.left: networksFilterButton
+                    KeyNavigation.left: filterDrawerButton
                     KeyNavigation.down: grid
                     
                     Keys.onReturnPressed: (event) => {
@@ -908,29 +1152,508 @@ FocusScope {
                 }
             }
             
-            // Filter panel (placeholder for future genre/network selection)
             Rectangle {
                 Layout.fillWidth: true
-                Layout.preferredHeight: showFilterPanel ? Math.round(80 * Theme.layoutScale) : 0
+                Layout.preferredHeight: showFilterPanel ? Math.round(260 * Theme.layoutScale) : 0
                 visible: showFilterPanel
-                color: Theme.buttonSecondaryBackground
+                color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.88)
                 radius: Theme.radiusLarge
-                border.width: Theme.buttonBorderWidth
-                border.color: Theme.buttonSecondaryBorder
+                border.width: Theme.borderWidth
+                border.color: Theme.inputBorder
                 clip: true
                 Behavior on Layout.preferredHeight { NumberAnimation { duration: 200 } }
-                
-                Text {
-                    anchors.centerIn: parent
-                    text: {
-                        if (activeFilterCategory === "genres") return "Genre filtering (coming soon)"
-                        if (activeFilterCategory === "networks") return "Network filtering (coming soon)"
-                        return ""
+
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMedium
+                    spacing: Theme.spacingSmall
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Theme.spacingSmall
+
+	                        LibraryComboBox {
+	                            id: watchedFilterCombo
+	                            Layout.preferredWidth: Math.round(160 * Theme.layoutScale)
+	                            Layout.preferredHeight: Theme.buttonHeightSmall
+                                labelFontSize: Theme.fontSizeSmall
+                            model: ["Any watch", "Watched", "Unwatched"]
+                            values: ["any", "played", "unplayed"]
+	                            Component.onCompleted: syncComboIndex(watchedFilterCombo, LibraryViewModel.watchedFilter)
+                                upTarget: filterDrawerButton
+                                rightTarget: favoriteFilterCombo
+                                downTarget: facetTabs
+	                            onValueAccepted: function(value) {
+	                                LibraryViewModel.setWatchedFilter(value)
+	                                applyFilters("watchedFilterCombo")
+                            }
+                        }
+	
+	                        LibraryComboBox {
+	                            id: favoriteFilterCombo
+	                            Layout.preferredWidth: Math.round(172 * Theme.layoutScale)
+	                            Layout.preferredHeight: Theme.buttonHeightSmall
+                                labelFontSize: Theme.fontSizeSmall
+                            model: ["Any favorite", "Favorites", "Not favorite"]
+                            values: ["any", "favorite", "notFavorite"]
+	                            Component.onCompleted: syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
+                                leftTarget: watchedFilterCombo
+                                rightTarget: addedSinceCombo
+                                upTarget: filterDrawerButton
+                                downTarget: facetTabs
+	                            onValueAccepted: function(value) {
+	                                LibraryViewModel.setFavoriteFilter(value)
+	                                applyFilters("favoriteFilterCombo")
+                            }
+                        }
+	
+	                        LibraryComboBox {
+	                            id: addedSinceCombo
+	                            Layout.preferredWidth: Math.round(188 * Theme.layoutScale)
+	                            Layout.preferredHeight: Theme.buttonHeightSmall
+                                labelFontSize: Theme.fontSizeSmall
+                            model: ["Any added date", "Last 7 days", "Last 30 days", "Last 90 days", "Last year"]
+                            values: ["any", "7d", "30d", "90d", "1y"]
+	                            Component.onCompleted: syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
+                                leftTarget: favoriteFilterCombo
+                                rightTarget: minYearBox
+                                upTarget: filterDrawerButton
+                                downTarget: facetTabs
+	                            onValueAccepted: function(value) {
+	                                LibraryViewModel.setAddedSinceFilter(value)
+	                                applyFilters("addedSinceCombo")
+                            }
+                        }
+
+                        SpinBox {
+                            id: minYearBox
+                            Layout.preferredWidth: Math.round(118 * Theme.layoutScale)
+                            Layout.preferredHeight: Theme.buttonHeightSmall
+                            from: 0
+                            to: 2100
+	                            value: LibraryViewModel.minYear
+	                            editable: true
+	                            KeyNavigation.left: addedSinceCombo
+	                            KeyNavigation.right: maxYearBox
+	                            KeyNavigation.down: facetTabs
+	                            textFromValue: function(value) { return value === 0 ? "Min year" : value.toString() }
+                            valueFromText: function(text) { return parseInt(text) || 0 }
+                            onValueModified: {
+                                LibraryViewModel.setMinYear(value)
+                                applyFilters("minYearBox")
+                            }
+                            contentItem: TextInput {
+                                text: minYearBox.textFromValue(minYearBox.value, minYearBox.locale)
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+                                selectedTextColor: Theme.textPrimary
+                                selectionColor: Theme.accentPrimary
+                                horizontalAlignment: Qt.AlignHCenter
+                                verticalAlignment: Qt.AlignVCenter
+                                readOnly: !minYearBox.editable
+                                validator: minYearBox.validator
+                                inputMethodHints: Qt.ImhDigitsOnly
+                            }
+                            up.indicator: Rectangle {
+                                x: minYearBox.mirrored ? 0 : parent.width - width
+                                width: Math.round(32 * Theme.layoutScale)
+                                height: parent.height
+                                radius: Theme.radiusSmall
+                                color: minYearBox.up.pressed ? Theme.buttonSecondaryBackgroundPressed : "transparent"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "^"
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                }
+                            }
+                            down.indicator: Rectangle {
+                                x: minYearBox.mirrored ? parent.width - width : 0
+                                width: Math.round(32 * Theme.layoutScale)
+                                height: parent.height
+                                radius: Theme.radiusSmall
+                                color: minYearBox.down.pressed ? Theme.buttonSecondaryBackgroundPressed : "transparent"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "v"
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                }
+                            }
+                            background: Rectangle {
+                                implicitHeight: Theme.buttonHeightSmall
+                                radius: Theme.radiusSmall
+                                color: Theme.inputBackground
+                                border.color: minYearBox.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                border.width: minYearBox.activeFocus ? 2 : Theme.borderWidth
+                            }
+                        }
+
+                        SpinBox {
+                            id: maxYearBox
+                            Layout.preferredWidth: Math.round(118 * Theme.layoutScale)
+                            Layout.preferredHeight: Theme.buttonHeightSmall
+                            from: 0
+                            to: 2100
+	                            value: LibraryViewModel.maxYear
+	                            editable: true
+	                            KeyNavigation.left: minYearBox
+	                            KeyNavigation.right: ratingSlider
+	                            KeyNavigation.down: facetTabs
+                            textFromValue: function(value) { return value === 0 ? "Max year" : value.toString() }
+                            valueFromText: function(text) { return parseInt(text) || 0 }
+                            onValueModified: {
+                                LibraryViewModel.setMaxYear(value)
+                                applyFilters("maxYearBox")
+                            }
+                            contentItem: TextInput {
+                                text: maxYearBox.textFromValue(maxYearBox.value, maxYearBox.locale)
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                color: Theme.textPrimary
+                                selectedTextColor: Theme.textPrimary
+                                selectionColor: Theme.accentPrimary
+                                horizontalAlignment: Qt.AlignHCenter
+                                verticalAlignment: Qt.AlignVCenter
+                                readOnly: !maxYearBox.editable
+                                validator: maxYearBox.validator
+                                inputMethodHints: Qt.ImhDigitsOnly
+                            }
+                            up.indicator: Rectangle {
+                                x: maxYearBox.mirrored ? 0 : parent.width - width
+                                width: Math.round(32 * Theme.layoutScale)
+                                height: parent.height
+                                radius: Theme.radiusSmall
+                                color: maxYearBox.up.pressed ? Theme.buttonSecondaryBackgroundPressed : "transparent"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "^"
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                }
+                            }
+                            down.indicator: Rectangle {
+                                x: maxYearBox.mirrored ? parent.width - width : 0
+                                width: Math.round(32 * Theme.layoutScale)
+                                height: parent.height
+                                radius: Theme.radiusSmall
+                                color: maxYearBox.down.pressed ? Theme.buttonSecondaryBackgroundPressed : "transparent"
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: "v"
+                                    color: Theme.textPrimary
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    font.family: Theme.fontPrimary
+                                }
+                            }
+                            background: Rectangle {
+                                implicitHeight: Theme.buttonHeightSmall
+                                radius: Theme.radiusSmall
+                                color: Theme.inputBackground
+                                border.color: maxYearBox.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                border.width: maxYearBox.activeFocus ? 2 : Theme.borderWidth
+                            }
+                        }
+
+	                        Slider {
+	                            id: ratingSlider
+	                            Layout.preferredWidth: Math.round(140 * Theme.layoutScale)
+                                Layout.preferredHeight: Theme.buttonHeightSmall
+                            from: 0
+                            to: 10
+                            stepSize: 0.5
+	                            value: LibraryViewModel.minCommunityRating
+                            Accessible.name: "Minimum rating"
+                            KeyNavigation.left: maxYearBox
+                            KeyNavigation.right: clearFiltersButton
+                            KeyNavigation.down: facetTabs
+                            Keys.priority: Keys.BeforeItem
+                            onActiveFocusChanged: {
+                                if (!activeFocus)
+                                    ratingSliderEditing = false
+                            }
+                            function adjustRating(delta) {
+                                value = Math.max(from, Math.min(to, value + delta))
+                                LibraryViewModel.setMinCommunityRating(value)
+                                applyFilters("ratingSlider")
+                            }
+                            Keys.onPressed: (event) => {
+                                if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                                    ratingSliderEditing = !ratingSliderEditing
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+                                    ratingSliderEditing = false
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Left) {
+                                    if (ratingSliderEditing) {
+                                        adjustRating(-stepSize)
+                                    } else {
+                                        maxYearBox.forceActiveFocus()
+                                    }
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Right) {
+                                    if (ratingSliderEditing) {
+                                        adjustRating(stepSize)
+                                    } else {
+                                        clearFiltersButton.forceActiveFocus()
+                                    }
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Up) {
+                                    maxYearBox.forceActiveFocus()
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Down) {
+                                    facetTabs.forceActiveFocus()
+                                    event.accepted = true
+                                }
+                            }
+                            onMoved: {
+                                LibraryViewModel.setMinCommunityRating(value)
+                                applyFilters("ratingSlider")
+                            }
+                            background: Rectangle {
+                                x: ratingSlider.leftPadding
+                                y: ratingSlider.topPadding + ratingSlider.availableHeight / 2 - height / 2
+                                width: ratingSlider.availableWidth
+                                height: Math.max(4, Math.round(5 * Theme.layoutScale))
+                                radius: height / 2
+                                color: Theme.inputBackground
+                                border.color: ratingSliderEditing ? Theme.accentPrimary
+                                                                 : (ratingSlider.activeFocus ? Theme.focusBorder : Theme.inputBorder)
+                                border.width: ratingSlider.activeFocus ? 2 : Theme.borderWidth
+
+                                Rectangle {
+                                    width: ratingSlider.visualPosition * parent.width
+                                    height: parent.height
+                                    radius: parent.radius
+                                    color: Theme.accentPrimary
+                                }
+                            }
+                            handle: Rectangle {
+                                x: ratingSlider.leftPadding + ratingSlider.visualPosition * (ratingSlider.availableWidth - width)
+                                y: ratingSlider.topPadding + ratingSlider.availableHeight / 2 - height / 2
+                                width: Math.round(18 * Theme.layoutScale)
+                                height: width
+                                radius: width / 2
+                                color: ratingSliderEditing || ratingSlider.pressed ? Theme.accentPrimary : Theme.textPrimary
+                                border.color: Theme.accentPrimary
+                                border.width: ratingSliderEditing ? 2 : Theme.borderWidth
+                            }
+                        }
+	
+	                        Button {
+	                            id: clearFiltersButton
+	                            text: "Clear"
+	                            Layout.preferredWidth: Math.round(100 * Theme.layoutScale)
+	                            Layout.preferredHeight: Theme.buttonHeightSmall
+	                            KeyNavigation.left: ratingSlider
+	                            KeyNavigation.down: facetTabs
+                            onClicked: {
+                                LibraryViewModel.clearFilters()
+                                syncComboIndex(sortCombo, LibraryViewModel.sortBy)
+                                syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
+                                syncComboIndex(watchedFilterCombo, LibraryViewModel.watchedFilter)
+                                syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
+                                syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
+                                applyFilters("clearFiltersButton")
+                            }
+                            background: Rectangle {
+                                implicitHeight: Theme.buttonHeightSmall
+                                radius: Theme.radiusSmall
+                                color: {
+                                    if (clearFiltersButton.down) return Theme.buttonSecondaryBackgroundPressed
+                                    if (clearFiltersButton.hovered) return Theme.buttonSecondaryBackgroundHover
+                                    return Theme.inputBackground
+                                }
+                                border.color: clearFiltersButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                border.width: clearFiltersButton.activeFocus ? 2 : Theme.borderWidth
+                            }
+                            contentItem: Text {
+                                text: clearFiltersButton.text
+                                color: Theme.textPrimary
+                                font.pixelSize: Theme.fontSizeBody
+                                font.family: Theme.fontPrimary
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
                     }
-                    color: Theme.textSecondary
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    font.italic: true
+
+	                    TabBar {
+	                        id: facetTabs
+	                        Layout.fillWidth: true
+                            background: Rectangle {
+                                color: Qt.rgba(Theme.inputBackground.r, Theme.inputBackground.g, Theme.inputBackground.b, 0.82)
+                                radius: Theme.radiusSmall
+                                border.color: Theme.inputBorder
+                                border.width: Theme.borderWidth
+                            }
+	                        KeyNavigation.up: watchedFilterCombo
+	                        KeyNavigation.down: facetGrid
+	                        currentIndex: activeFilterCategory === "tags" ? 1 : (activeFilterCategory === "studios" ? 2 : 0)
+                            Keys.priority: Keys.BeforeItem
+                            Keys.onLeftPressed: (event) => {
+                                currentIndex = currentIndex > 0 ? currentIndex - 1 : count - 1
+                                forceActiveFocus()
+                                event.accepted = true
+                            }
+                            Keys.onRightPressed: (event) => {
+                                currentIndex = currentIndex < count - 1 ? currentIndex + 1 : 0
+                                forceActiveFocus()
+                                event.accepted = true
+                            }
+                            Keys.onUpPressed: (event) => {
+                                watchedFilterCombo.forceActiveFocus()
+                                event.accepted = true
+                            }
+                            Keys.onDownPressed: (event) => {
+                                facetGrid.forceActiveFocus()
+                                event.accepted = true
+                            }
+	                        onCurrentIndexChanged: {
+	                            activeFilterCategory = currentIndex === 1 ? "tags" : (currentIndex === 2 ? "studios" : "genres")
+	                            facetGrid.currentIndex = 0
+	                        }
+	                        TabButton {
+                                text: "Genres"
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: parent.checked ? Theme.textPrimary : Theme.textSecondary
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                background: Rectangle {
+                                    color: parent.checked ? Theme.buttonTabBackgroundActive : (parent.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
+                                    border.color: parent.activeFocus ? Theme.focusBorder : "transparent"
+                                    border.width: parent.activeFocus ? 2 : 0
+                                }
+                            }
+	                        TabButton {
+                                text: "Tags"
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: parent.checked ? Theme.textPrimary : Theme.textSecondary
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                background: Rectangle {
+                                    color: parent.checked ? Theme.buttonTabBackgroundActive : (parent.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
+                                    border.color: parent.activeFocus ? Theme.focusBorder : "transparent"
+                                    border.width: parent.activeFocus ? 2 : 0
+                                }
+                            }
+	                        TabButton {
+                                text: currentLibraryType === "tvshows" ? "Networks" : "Studios"
+                                contentItem: Text {
+                                    text: parent.text
+                                    color: parent.checked ? Theme.textPrimary : Theme.textSecondary
+                                    font.pixelSize: Theme.fontSizeBody
+                                    font.family: Theme.fontPrimary
+                                    horizontalAlignment: Text.AlignHCenter
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                background: Rectangle {
+                                    color: parent.checked ? Theme.buttonTabBackgroundActive : (parent.hovered ? Theme.buttonSecondaryBackgroundHover : "transparent")
+                                    border.color: parent.activeFocus ? Theme.focusBorder : "transparent"
+                                    border.width: parent.activeFocus ? 2 : 0
+                                }
+                            }
+	                    }
+	
+	                    GridView {
+	                        id: facetGrid
+	                        Layout.fillWidth: true
+	                        Layout.fillHeight: true
+	                        Accessible.role: Accessible.List
+	                        Accessible.name: "Filter choices"
+	                        clip: true
+	                        cellWidth: Math.round(180 * Theme.layoutScale)
+	                        cellHeight: Theme.buttonHeightSmall + Theme.spacingSmall
+	                        boundsBehavior: Flickable.StopAtBounds
+	                        KeyNavigation.up: facetTabs
+	                        KeyNavigation.down: grid
+	                        model: {
+	                            if (activeFilterCategory === "tags") return LibraryViewModel.availableTags
+	                            if (activeFilterCategory === "studios") return LibraryViewModel.availableStudios
+	                            return LibraryViewModel.availableGenres
+	                        }
+	                        onModelChanged: currentIndex = count > 0 ? 0 : -1
+	                        Keys.onReturnPressed: (event) => {
+	                            if (currentIndex >= 0 && currentIndex < count) {
+	                                toggleActiveFacet(model[currentIndex])
+	                                event.accepted = true
+	                            }
+	                        }
+	                        Keys.onEnterPressed: (event) => {
+	                            if (currentIndex >= 0 && currentIndex < count) {
+	                                toggleActiveFacet(model[currentIndex])
+	                                event.accepted = true
+	                            }
+	                        }
+	                        delegate: Item {
+                                id: facetDelegate
+	                            width: facetGrid.cellWidth
+	                            height: facetGrid.cellHeight
+	                            required property string modelData
+	                            required property int index
+	                            property bool selected: {
+	                                if (activeFilterCategory === "tags") return LibraryViewModel.selectedTags.indexOf(modelData) >= 0
+	                                if (activeFilterCategory === "studios") return LibraryViewModel.selectedStudios.indexOf(modelData) >= 0
+	                                return LibraryViewModel.selectedGenres.indexOf(modelData) >= 0
+	                            }
+	                            property bool focused: facetGrid.activeFocus && facetGrid.currentIndex === index
+	
+	                            Rectangle {
+                                    id: facetButton
+	                                anchors.left: parent.left
+	                                anchors.right: parent.right
+	                                anchors.verticalCenter: parent.verticalCenter
+	                                height: Theme.buttonHeightSmall
+	                                radius: Theme.radiusSmall
+	                                color: {
+                                        if (parent.selected) return Theme.buttonTabBackgroundActive
+                                        return Qt.rgba(Theme.inputBackground.r, Theme.inputBackground.g, Theme.inputBackground.b, 0.78)
+                                    }
+	                                border.width: parent.focused ? 2 : Theme.borderWidth
+	                                border.color: parent.focused ? Theme.focusBorder
+	                                                       : (parent.selected ? Theme.buttonTabBorderActive : Theme.inputBorder)
+	
+	                                Text {
+	                                anchors.fill: parent
+	                                anchors.leftMargin: Theme.spacingMedium
+	                                anchors.rightMargin: Theme.spacingMedium
+	                                text: facetDelegate.modelData
+	                                color: facetDelegate.selected ? Theme.textPrimary : Theme.textSecondary
+	                                font.pixelSize: Theme.fontSizeSmall
+	                                font.family: Theme.fontPrimary
+	                                horizontalAlignment: Text.AlignHCenter
+	                                verticalAlignment: Text.AlignVCenter
+	                                elide: Text.ElideRight
+	                            }
+	                            }
+
+	                            MouseArea {
+	                                anchors.fill: parent
+	                                hoverEnabled: true
+	                                onClicked: {
+	                                    facetGrid.forceActiveFocus()
+	                                    facetGrid.currentIndex = index
+	                                    toggleActiveFacet(modelData)
+	                                }
+	                            }
+	
+	                            Accessible.role: Accessible.CheckBox
+	                            Accessible.name: modelData
+	                            Accessible.checked: selected
+	                        }
+	                    }
                 }
             }
 
@@ -986,6 +1709,11 @@ FocusScope {
                     }
                 }
                 focus: true
+                onActiveFocusChanged: {
+                    if (activeFocus && showFilterPanel) {
+                        showFilterPanel = false
+                    }
+                }
                 // Allow focused-scale/border overflow at viewport edges.
                 clip: false
                 boundsBehavior: Flickable.StopAtBounds
@@ -1016,6 +1744,9 @@ FocusScope {
                 property real loadMoreThreshold: Theme.posterHeightLarge * 2
                 
                 onContentYChanged: {
+                    if (showPaginationControls && queryToolbarScrollArmed) {
+                        queryToolbarPinned = contentY <= 1
+                    }
                     // Check if we're near the bottom and should load more
                     // Only trigger when we have content and are not already loading
                     if (!isLoading && !LibraryViewModel.isLoadingMore && LibraryViewModel.canLoadMore && contentHeight > height) {
@@ -1026,7 +1757,7 @@ FocusScope {
                     }
                 }
                 
-                KeyNavigation.up: showPaginationControls ? showsFilterButton : (backButton.visible ? backButton : null)
+	                KeyNavigation.up: (showPaginationControls && queryToolbar.visible) ? searchField : (backButton.visible ? backButton : null)
 
                 model: LibraryViewModel
 
@@ -1519,6 +2250,22 @@ FocusScope {
             console.log("[Library] push navigation context",
                         JSON.stringify(previousContext),
                         "stackSize:", navigationStack.length)
+            if (currentParentId === "") {
+                currentLibraryId = item.Id || ""
+                currentLibraryName = item.Name || ""
+                currentLibraryType = item.CollectionType || ""
+                librarySearchText = ""
+                resetQueryToolbarVisibility()
+                LibraryViewModel.clearQuery()
+                Qt.callLater(function() {
+                    syncComboIndex(sortCombo, LibraryViewModel.sortBy)
+                    syncComboIndex(orderCombo, LibraryViewModel.sortOrder)
+                    syncComboIndex(watchedFilterCombo, LibraryViewModel.watchedFilter)
+                    syncComboIndex(favoriteFilterCombo, LibraryViewModel.favoriteFilter)
+                    syncComboIndex(addedSinceCombo, LibraryViewModel.addedSinceFilter)
+                })
+                LibraryViewModel.loadFilterOptions(currentLibraryId, currentLibraryType)
+            }
             currentSeriesId = ""
             currentParentId = item.Id
             showSeriesDetails = false
@@ -2055,12 +2802,17 @@ FocusScope {
                     "seriesId:", currentSeriesId,
                     "selectedGenres:", selectedGenres,
                     "selectedNetworks:", selectedNetworks,
+                    "libraryType:", currentLibraryType,
                     "_pendingGridIndex:", _pendingGridIndex)
         letterBuckets = []
         // NOTE: Don't clear backdrop here - keep it visible while loading
         // The backdrop will be updated in applyItems() once new data arrives
         
         if (!currentParentId) {
+            currentLibraryId = ""
+            currentLibraryName = ""
+            currentLibraryType = ""
+            librarySearchText = ""
             LibraryViewModel.loadViews()
         } else {
             // Determine if we should apply pagination based on navigation level
@@ -2094,11 +2846,22 @@ FocusScope {
                         "limit:", limit)
             
             // Use LibraryViewModel instead of direct service call
-            LibraryViewModel.loadLibrary(currentParentId, startIndex, limit)
+            LibraryViewModel.loadLibrary(currentParentId, currentLibraryType, startIndex, limit)
+            if (shouldPaginate) {
+                LibraryViewModel.loadFilterOptions(currentParentId, currentLibraryType)
+            }
         }
     }
+
+    Timer {
+        id: queryToolbarScrollArmTimer
+        interval: 400
+        repeat: false
+        onTriggered: queryToolbarScrollArmed = true
+    }
     
-    function applyFilters() {
+    function applyFilters(focusTarget) {
+        rememberQueryFocus(focusTarget || "")
         // Reload from beginning when filters change
         loadItemsForCurrentParent()
     }
@@ -2234,11 +2997,37 @@ FocusScope {
         
         // Use Qt.callLater to defer focus - ensures grid delegates are instantiated
         // This is critical for cache hits where data loads synchronously
-        if (currentParentId === "" || !LibraryViewModel.isLoadingMore) {
+        if (pendingQueryFocusTarget !== "") {
+            Qt.callLater(function() {
+                restorePendingQueryFocus()
+            })
+        } else if ((currentParentId === "" || !LibraryViewModel.isLoadingMore) && !showFilterPanel) {
             Qt.callLater(function() {
                 var g = contentLoader.item ? contentLoader.item.grid : null
                 if (g) {
                     g.forceActiveFocus()
+                }
+            })
+        } else if (showFilterPanel) {
+            Qt.callLater(function() {
+                if (facetGrid.activeFocus) {
+                    facetGrid.forceActiveFocus()
+                } else if (clearFiltersButton.activeFocus) {
+                    clearFiltersButton.forceActiveFocus()
+                } else if (ratingSlider.activeFocus) {
+                    ratingSlider.forceActiveFocus()
+                } else if (maxYearBox.activeFocus) {
+                    maxYearBox.forceActiveFocus()
+                } else if (minYearBox.activeFocus) {
+                    minYearBox.forceActiveFocus()
+                } else if (addedSinceCombo.activeFocus) {
+                    addedSinceCombo.forceActiveFocus()
+                } else if (favoriteFilterCombo.activeFocus) {
+                    favoriteFilterCombo.forceActiveFocus()
+                } else if (watchedFilterCombo.activeFocus) {
+                    watchedFilterCombo.forceActiveFocus()
+                } else {
+                    filterDrawerButton.forceActiveFocus()
                 }
             })
         }

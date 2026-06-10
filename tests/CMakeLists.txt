@@ -81,6 +81,30 @@ target_link_libraries(LibraryCacheStoreTest
 
 add_test(NAME LibraryCacheStoreTest COMMAND LibraryCacheStoreTest)
 
+add_executable(LibraryItemQueryTest
+    LibraryItemQueryTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(LibraryItemQueryTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(LibraryItemQueryTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Test
+)
+
+add_test(NAME LibraryItemQueryTest COMMAND LibraryItemQueryTest)
+
 add_executable(LoggingConfigTest
     LoggingConfigTest.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/LoggingConfig.cpp

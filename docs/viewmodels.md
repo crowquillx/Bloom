@@ -40,6 +40,8 @@ Column {
 
 ## Current migrations
 - `LibraryViewModel` now inherits `BaseViewModel`; loading/error wiring is centralized while pagination, caching, and signals (`loadComplete`, `loadMoreComplete`) remain intact.
+- `LibraryViewModel` owns per-library root search, sort, and broad filters. Library-root queries use a structured `LibraryItemQuery` with a stable query cache key so search/filter/sort variants do not reuse each other's cached rows, and `loadMore()` carries the active query key to avoid appending stale results. Series details, seasons, movie details, and playback-return contexts stay outside this root-library filter state.
+- Filter facets are loaded per library through `LibraryService::getFilterOptions(...)` and cached separately from item result slices. Recursive filtered queries use collection-type item narrowing (`Movie` for movie libraries, `Series` for TV libraries, both for mixed/unknown libraries).
 - `SeriesDetailsViewModel` inherits `BaseViewModel` for standardized loading/error properties; nested `SeasonsModel`/`EpisodesModel` keep their role-focused implementations.
 - `SeriesDetailsViewModel` also owns focused-episode chapter shelf state for the season view. It normalizes `LibraryService::getChapters(...)` results into QML-ready chapter maps with cached thumbnail URLs, hides stale episode responses, and keeps a small in-memory per-episode cache for quick return navigation.
 

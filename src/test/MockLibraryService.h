@@ -34,6 +34,10 @@ public:
                                const QString &sortOrder = QString(),
                                bool includeHeavyFields = true,
                                bool useCacheValidation = false) override;
+    void getItems(const LibraryItemQuery &query) override;
+    Q_INVOKABLE void getFilterOptions(const QString &parentId,
+                                      const QStringList &includeItemTypes = QStringList(),
+                                      bool recursive = true) override;
     
     // Next up episodes - returns data from fixture["nextUp"]
     Q_INVOKABLE void getNextUp() override;

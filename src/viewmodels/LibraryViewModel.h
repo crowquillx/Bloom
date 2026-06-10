@@ -10,8 +10,10 @@
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QVariantList>
+#include <QStringList>
 #include <memory>
 #include "../utils/LibraryCacheStore.h"
+#include "../network/LibraryService.h"
 
 class LibraryService;
 class ConfigManager;
@@ -71,6 +73,23 @@ class LibraryViewModel : public BaseViewModel
     Q_PROPERTY(int totalRecordCount READ totalRecordCount NOTIFY totalRecordCountChanged)
     Q_PROPERTY(QString currentParentId READ currentParentId NOTIFY currentParentIdChanged)
     Q_PROPERTY(QVariantList views READ views NOTIFY viewsChanged)
+    Q_PROPERTY(QString searchTerm READ searchTerm WRITE setSearchTerm NOTIFY searchTermChanged)
+    Q_PROPERTY(QString sortBy READ sortBy WRITE setSortBy NOTIFY sortByChanged)
+    Q_PROPERTY(QString sortOrder READ sortOrder WRITE setSortOrder NOTIFY sortOrderChanged)
+    Q_PROPERTY(QString watchedFilter READ watchedFilter WRITE setWatchedFilter NOTIFY watchedFilterChanged)
+    Q_PROPERTY(QString favoriteFilter READ favoriteFilter WRITE setFavoriteFilter NOTIFY favoriteFilterChanged)
+    Q_PROPERTY(QString addedSinceFilter READ addedSinceFilter WRITE setAddedSinceFilter NOTIFY addedSinceFilterChanged)
+    Q_PROPERTY(int minYear READ minYear WRITE setMinYear NOTIFY yearRangeChanged)
+    Q_PROPERTY(int maxYear READ maxYear WRITE setMaxYear NOTIFY yearRangeChanged)
+    Q_PROPERTY(double minCommunityRating READ minCommunityRating WRITE setMinCommunityRating NOTIFY minCommunityRatingChanged)
+    Q_PROPERTY(QStringList selectedGenres READ selectedGenres NOTIFY selectedGenresChanged)
+    Q_PROPERTY(QStringList selectedTags READ selectedTags NOTIFY selectedTagsChanged)
+    Q_PROPERTY(QStringList selectedStudios READ selectedStudios NOTIFY selectedStudiosChanged)
+    Q_PROPERTY(QStringList availableGenres READ availableGenres NOTIFY filterOptionsChanged)
+    Q_PROPERTY(QStringList availableTags READ availableTags NOTIFY filterOptionsChanged)
+    Q_PROPERTY(QStringList availableStudios READ availableStudios NOTIFY filterOptionsChanged)
+    Q_PROPERTY(bool filterOptionsLoading READ filterOptionsLoading NOTIFY filterOptionsLoadingChanged)
+    Q_PROPERTY(int activeFilterCount READ activeFilterCount NOTIFY activeFilterCountChanged)
 
 public:
     enum Roles {
@@ -100,6 +119,23 @@ public:
     int totalRecordCount() const { return m_totalRecordCount; }
     QString currentParentId() const { return m_currentParentId; }
     QVariantList views() const { return m_views; }
+    QString searchTerm() const { return m_searchTerm; }
+    QString sortBy() const { return m_sortBy; }
+    QString sortOrder() const { return m_sortOrder; }
+    QString watchedFilter() const { return m_watchedFilter; }
+    QString favoriteFilter() const { return m_favoriteFilter; }
+    QString addedSinceFilter() const { return m_addedSinceFilter; }
+    int minYear() const { return m_minYear; }
+    int maxYear() const { return m_maxYear; }
+    double minCommunityRating() const { return m_minCommunityRating; }
+    QStringList selectedGenres() const { return m_selectedGenres; }
+    QStringList selectedTags() const { return m_selectedTags; }
+    QStringList selectedStudios() const { return m_selectedStudios; }
+    QStringList availableGenres() const { return m_availableGenres; }
+    QStringList availableTags() const { return m_availableTags; }
+    QStringList availableStudios() const { return m_availableStudios; }
+    bool filterOptionsLoading() const { return m_filterOptionsLoading; }
+    int activeFilterCount() const;
 
     /**
      * @brief Load items for a specific parent folder.
@@ -108,6 +144,23 @@ public:
      * @param limit Maximum items to fetch (default 0 = no limit)
      */
     Q_INVOKABLE void loadLibrary(const QString &parentId, int startIndex = 0, int limit = 0);
+    Q_INVOKABLE void loadLibrary(const QString &parentId, const QString &collectionType, int startIndex = 0, int limit = 0);
+    Q_INVOKABLE void reloadWithCurrentQuery();
+    Q_INVOKABLE void loadFilterOptions(const QString &parentId, const QString &collectionType);
+    Q_INVOKABLE void setSearchTerm(const QString &term);
+    Q_INVOKABLE void setSortBy(const QString &sortBy);
+    Q_INVOKABLE void setSortOrder(const QString &sortOrder);
+    Q_INVOKABLE void setWatchedFilter(const QString &filter);
+    Q_INVOKABLE void setFavoriteFilter(const QString &filter);
+    Q_INVOKABLE void setAddedSinceFilter(const QString &filter);
+    Q_INVOKABLE void setMinYear(int year);
+    Q_INVOKABLE void setMaxYear(int year);
+    Q_INVOKABLE void setMinCommunityRating(double rating);
+    Q_INVOKABLE void toggleGenre(const QString &genre);
+    Q_INVOKABLE void toggleTag(const QString &tag);
+    Q_INVOKABLE void toggleStudio(const QString &studio);
+    Q_INVOKABLE void clearQuery();
+    Q_INVOKABLE void clearFilters();
 
     /**
      * @brief Load user's library views (top-level libraries).
@@ -159,11 +212,30 @@ signals:
     void loadMoreComplete();
     void loadError(const QString &error);
     void viewsChanged();
+    void searchTermChanged();
+    void sortByChanged();
+    void sortOrderChanged();
+    void watchedFilterChanged();
+    void favoriteFilterChanged();
+    void addedSinceFilterChanged();
+    void yearRangeChanged();
+    void minCommunityRatingChanged();
+    void selectedGenresChanged();
+    void selectedTagsChanged();
+    void selectedStudiosChanged();
+    void filterOptionsChanged();
+    void filterOptionsLoadingChanged();
+    void activeFilterCountChanged();
 
 private slots:
     void onViewsLoaded(const QJsonArray &views);
     void onItemsLoaded(const QString &parentId, const QJsonArray &items);
     void onItemsLoadedWithTotal(const QString &parentId, const QJsonArray &items, int totalRecordCount);
+    void onItemsLoadedWithTotalForQuery(const QString &parentId, const QString &queryKey, const QJsonArray &items, int totalRecordCount);
+    void onFilterOptionsLoaded(const QString &parentId,
+                               const QStringList &genres,
+                               const QStringList &tags,
+                               const QStringList &studios);
     void onErrorOccurred(const QString &endpoint, const QString &error);
 
 private:
@@ -173,6 +245,13 @@ private:
     void appendItems(const QJsonArray &items);
     QString getImageUrl(const QJsonObject &item) const;
     bool isEmptyFolder(const QJsonObject &item) const;
+    LibraryItemQuery buildCurrentQuery(int startIndex, int limit, bool includeHeavyFields) const;
+    QStringList includeItemTypesForCollection(const QString &collectionType) const;
+    LibraryItemQuery::TriState triStateFromFilter(const QString &filter) const;
+    QDate addedSinceDate() const;
+    void emitActiveFilterCountChanged();
+    void setFilterOptionsLoading(bool loading);
+    void toggleString(QStringList &list, const QString &value, void (LibraryViewModel::*signal)());
 
     LibraryService *m_libraryService = nullptr;
     ConfigManager *m_configManager = nullptr;
@@ -181,12 +260,30 @@ private:
     int m_lastStartIndex = 0;
     int m_lastLimit = 0;
     bool m_lastIncludeHeavyFields = true;
+    QString m_currentCollectionType;
+    QString m_activeQueryKey;
     bool m_isLoadingMore = false;
     bool m_isBackgroundRefresh = false;  // SWR: true when revalidating in background
     int m_totalRecordCount = 0;
     bool m_loadingViews = false;
     QVariantList m_views;  // Stores user's library views for Settings access
     std::unique_ptr<class LibraryCacheStore> m_cacheStore;
+    QString m_searchTerm;
+    QString m_sortBy;
+    QString m_sortOrder;
+    QString m_watchedFilter = "any";
+    QString m_favoriteFilter = "any";
+    QString m_addedSinceFilter = "any";
+    int m_minYear = 0;
+    int m_maxYear = 0;
+    double m_minCommunityRating = 0.0;
+    QStringList m_selectedGenres;
+    QStringList m_selectedTags;
+    QStringList m_selectedStudios;
+    QStringList m_availableGenres;
+    QStringList m_availableTags;
+    QStringList m_availableStudios;
+    bool m_filterOptionsLoading = false;
     
     // In-memory cache for library data to speed up back navigation
     // Key: parentId, Value: cached items and metadata

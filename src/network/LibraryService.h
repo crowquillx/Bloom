@@ -10,10 +10,43 @@
 #include <QtConcurrent>
 #include <QHash>
 #include <QSet>
+#include <QDate>
 #include <functional>
 #include "Types.h"  // Shared data structs and error helpers
 
 class AuthenticationService;
+
+struct LibraryItemQuery {
+    QString parentId;
+    int startIndex = 0;
+    int limit = 0;
+    QString searchTerm;
+    QStringList genres;
+    QStringList tags;
+    QStringList studios;
+    QDate minPremiereDate;
+    QDate maxPremiereDate;
+    QDate minDateLastSaved;
+    enum class TriState {
+        Any,
+        Yes,
+        No
+    };
+    TriState watched = TriState::Any;
+    TriState favorite = TriState::Any;
+    double minCommunityRating = 0.0;
+    QList<int> years;
+    QString sortBy;
+    QString sortOrder;
+    QStringList includeItemTypes;
+    bool recursive = false;
+    bool includeHeavyFields = true;
+    bool useCacheValidation = false;
+    QString requestKey;
+
+    QString normalizedSortBy() const;
+    QString cacheKey() const;
+};
 
 /**
  * Service for browsing a media library and retrieving items, metadata, and related URLs.
@@ -47,6 +80,10 @@ public:
                                const QString &sortOrder = QString(),
                                bool includeHeavyFields = true,
                                bool useCacheValidation = false);
+    virtual void getItems(const LibraryItemQuery &query);
+    Q_INVOKABLE virtual void getFilterOptions(const QString &parentId,
+                                              const QStringList &includeItemTypes = QStringList(),
+                                              bool recursive = true);
     
     // Next up episodes
     Q_INVOKABLE virtual void getNextUp();
@@ -99,7 +136,13 @@ signals:
     void viewsLoaded(const QJsonArray &views);
     void itemsLoaded(const QString &parentId, const QJsonArray &items);
     void itemsLoadedWithTotal(const QString &parentId, const QJsonArray &items, int totalRecordCount);
+    void itemsLoadedWithTotalForQuery(const QString &parentId, const QString &queryKey, const QJsonArray &items, int totalRecordCount);
     void itemsNotModified(const QString &parentId);
+    void itemsNotModifiedForQuery(const QString &parentId, const QString &queryKey);
+    void filterOptionsLoaded(const QString &parentId,
+                             const QStringList &genres,
+                             const QStringList &tags,
+                             const QStringList &studios);
     
     // Generic Item Signals
     void itemLoaded(const QString &itemId, const QJsonObject &data);
