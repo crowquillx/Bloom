@@ -89,6 +89,7 @@ FocusScope {
         property Item upTarget: null
         property Item downTarget: null
         property int labelFontSize: Theme.fontSizeBody
+        property string previousNavigationMode: "pointer"
         signal valueAccepted(var value)
 
         focusPolicy: Qt.StrongFocus
@@ -196,6 +197,7 @@ FocusScope {
             closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
 
             onOpened: {
+                previousNavigationMode = InputModeManager.pointerActive ? "pointer" : "keyboard"
                 InputModeManager.setNavigationMode("keyboard")
                 InputModeManager.hideCursor(true)
                 comboList.currentIndex = combo.highlightedIndex >= 0 ? combo.highlightedIndex : combo.currentIndex
@@ -203,8 +205,8 @@ FocusScope {
             }
             onClosed: {
                 Qt.callLater(function() { combo.forceActiveFocus() })
-                InputModeManager.setNavigationMode("pointer")
-                InputModeManager.hideCursor(false)
+                InputModeManager.setNavigationMode(previousNavigationMode)
+                InputModeManager.hideCursor(previousNavigationMode !== "pointer")
             }
 
             contentItem: ListView {
@@ -876,6 +878,22 @@ FocusScope {
                 return true
             }
             return false
+        }
+
+        function restoreFilterPanelFocus() {
+            if (facetGrid.activeFocus) {
+                facetGrid.forceActiveFocus()
+            } else if (clearFiltersButton.activeFocus) {
+                clearFiltersButton.forceActiveFocus()
+            } else if (ratingSlider.activeFocus) {
+                ratingSlider.forceActiveFocus()
+            } else if (addedSinceCombo.activeFocus) {
+                addedSinceCombo.forceActiveFocus()
+            } else if (favoriteFilterCombo.activeFocus) {
+                favoriteFilterCombo.forceActiveFocus()
+            } else {
+                filterDrawerButton.forceActiveFocus()
+            }
         }
         
         // When this component receives focus, delegate to the grid
@@ -2856,19 +2874,9 @@ FocusScope {
             })
         } else if (showFilterPanel) {
             Qt.callLater(function() {
-                if (facetGrid.activeFocus) {
-                    facetGrid.forceActiveFocus()
-                } else if (clearFiltersButton.activeFocus) {
-                    clearFiltersButton.forceActiveFocus()
-	                } else if (ratingSlider.activeFocus) {
-	                    ratingSlider.forceActiveFocus()
-	                } else if (addedSinceCombo.activeFocus) {
-	                    addedSinceCombo.forceActiveFocus()
-	                } else if (favoriteFilterCombo.activeFocus) {
-	                    favoriteFilterCombo.forceActiveFocus()
-	                } else {
-	                    filterDrawerButton.forceActiveFocus()
-	                }
+                if (contentLoader.item && typeof contentLoader.item.restoreFilterPanelFocus === "function") {
+                    contentLoader.item.restoreFilterPanelFocus()
+                }
             })
         }
         

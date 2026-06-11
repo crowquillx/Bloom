@@ -144,32 +144,42 @@ void MockLibraryService::getItems(const LibraryItemQuery &query)
     const bool descending = query.sortOrder.compare("Descending", Qt::CaseInsensitive) == 0;
     const QString sortBy = query.normalizedSortBy();
     std::sort(sortable.begin(), sortable.end(), [sortBy, descending](const QJsonObject &a, const QJsonObject &b) {
-        QVariant av;
-        QVariant bv;
+        bool less = false;
+        bool greater = false;
         if (sortBy.contains("DateCreated")) {
-            av = a.value("DateCreated").toString();
-            bv = b.value("DateCreated").toString();
+            const int cmp = QString::localeAwareCompare(a.value("DateCreated").toString(), b.value("DateCreated").toString());
+            less = cmp < 0;
+            greater = cmp > 0;
         } else if (sortBy.contains("PremiereDate")) {
-            av = a.value("PremiereDate").toString();
-            bv = b.value("PremiereDate").toString();
+            const int cmp = QString::localeAwareCompare(a.value("PremiereDate").toString(), b.value("PremiereDate").toString());
+            less = cmp < 0;
+            greater = cmp > 0;
         } else if (sortBy.contains("RunTimeTicks")) {
-            av = a.value("RunTimeTicks").toDouble();
-            bv = b.value("RunTimeTicks").toDouble();
+            const double av = a.value("RunTimeTicks").toDouble();
+            const double bv = b.value("RunTimeTicks").toDouble();
+            less = av < bv;
+            greater = av > bv;
         } else if (sortBy.contains("CommunityRating")) {
-            av = a.value("CommunityRating").toDouble();
-            bv = b.value("CommunityRating").toDouble();
+            const double av = a.value("CommunityRating").toDouble();
+            const double bv = b.value("CommunityRating").toDouble();
+            less = av < bv;
+            greater = av > bv;
         } else if (sortBy.contains("ProductionYear")) {
-            av = a.value("ProductionYear").toInt();
-            bv = b.value("ProductionYear").toInt();
+            const int av = a.value("ProductionYear").toInt();
+            const int bv = b.value("ProductionYear").toInt();
+            less = av < bv;
+            greater = av > bv;
         } else if (sortBy.contains("IsPlayed")) {
-            av = a.value("UserData").toObject().value("Played").toBool();
-            bv = b.value("UserData").toObject().value("Played").toBool();
+            const bool av = a.value("UserData").toObject().value("Played").toBool();
+            const bool bv = b.value("UserData").toObject().value("Played").toBool();
+            less = av < bv;
+            greater = av > bv;
         } else {
-            av = a.value("Name").toString();
-            bv = b.value("Name").toString();
+            const int cmp = QString::localeAwareCompare(a.value("Name").toString(), b.value("Name").toString());
+            less = cmp < 0;
+            greater = cmp > 0;
         }
-        const bool less = av.toString().localeAwareCompare(bv.toString()) < 0;
-        return descending ? !less : less;
+        return descending ? greater : less;
     });
 
     const int totalCount = sortable.size();

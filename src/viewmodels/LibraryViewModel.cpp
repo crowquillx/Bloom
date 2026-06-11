@@ -472,9 +472,15 @@ void LibraryViewModel::setSortBy(const QString &sortBy)
 
 void LibraryViewModel::setSortOrder(const QString &sortOrder)
 {
-    if (m_sortOrder == sortOrder)
+    static const QStringList allowed = {
+        QString(),
+        QStringLiteral("Ascending"),
+        QStringLiteral("Descending"),
+    };
+    const QString normalized = allowed.contains(sortOrder) ? sortOrder : QString();
+    if (m_sortOrder == normalized)
         return;
-    m_sortOrder = sortOrder;
+    m_sortOrder = normalized;
     emit sortOrderChanged();
 }
 
