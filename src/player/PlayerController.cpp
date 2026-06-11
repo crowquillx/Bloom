@@ -1131,8 +1131,10 @@ void PlayerController::onProcessError(const QString &error)
         return;
     }
 
-    m_lastErrorWasNetworkRecoverable = false;
-    setErrorMessage(error);
+    m_lastErrorWasNetworkRecoverable = isRecoverableBackendPlaybackError(error);
+    setErrorMessage(m_lastErrorWasNetworkRecoverable
+                    ? tr("Playback stream interrupted. Attempting to recover...")
+                    : error);
     requestTerminalTransition(TerminalReason::Error);
 }
 
@@ -1905,10 +1907,10 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
     const QString mediaSourceId = mediaSource.value(QStringLiteral("id")).toString();
     const QVariantList availableAudioTracks = buildAvailableTrackOptions(mediaSource, QStringLiteral("Audio"));
     const QVariantList availableSubtitleTracks = buildAvailableTrackOptions(mediaSource, QStringLiteral("Subtitle"));
-    const QString streamUrl = m_libraryService->getStreamUrlWithTracks(itemId,
-                                                                       mediaSourceId,
-                                                                       resolved.audioIndex,
-                                                                       resolved.subtitleIndex);
+    const QString streamUrl = streamUrlForMediaSource(itemId,
+                                                      mediaSource,
+                                                      resolved.audioIndex,
+                                                      resolved.subtitleIndex);
     const QString seriesId = m_pendingAutoplaySeriesId;
     const QString libraryId = m_pendingAutoplayLibraryId;
 
@@ -2453,9 +2455,9 @@ QVariantList PlayerController::buildMultipartSegments(const QVariantMap &request
 
     QVariantMap primarySegment = primaryContext;
     primarySegment[QStringLiteral("itemId")] = itemId;
-    primarySegment[QStringLiteral("url")] = m_libraryService->getStreamUrlWithTracks(
+    primarySegment[QStringLiteral("url")] = streamUrlForMediaSource(
         itemId,
-        primaryContext.value(QStringLiteral("mediaSourceId")).toString(),
+        primaryContext.value(QStringLiteral("mediaSource")).toMap(),
         primaryContext.value(QStringLiteral("audioIndex"), -1).toInt(),
         primaryContext.value(QStringLiteral("subtitleIndex"), -1).toInt());
     segments.append(primarySegment);
@@ -2491,9 +2493,9 @@ QVariantList PlayerController::buildMultipartSegments(const QVariantMap &request
 
             QVariantMap segment = partContext;
             segment[QStringLiteral("itemId")] = partId;
-            segment[QStringLiteral("url")] = m_libraryService->getStreamUrlWithTracks(
+            segment[QStringLiteral("url")] = streamUrlForMediaSource(
                 partId,
-                partContext.value(QStringLiteral("mediaSourceId")).toString(),
+                partContext.value(QStringLiteral("mediaSource")).toMap(),
                 partContext.value(QStringLiteral("audioIndex"), -1).toInt(),
                 partContext.value(QStringLiteral("subtitleIndex"), -1).toInt());
             segments.append(segment);
@@ -5134,6 +5136,58 @@ QString PlayerController::inferPlayMethod(const QString &url)
     }
 
     return QStringLiteral("DirectPlay");
+}
+
+bool PlayerController::isRecoverableBackendPlaybackError(const QString &error) const
+{
+    const QString normalized = error.toLower();
+    return normalized.startsWith(QStringLiteral("recoverable-stream-ended-prematurely"))
+        || normalized.contains(QStringLiteral("stream ends prematurely"))
+        || normalized.contains(QStringLiteral("http error 5"))
+        || normalized.contains(QStringLiteral("i/o error"))
+        || normalized.contains(QStringLiteral("io error"));
+}
+
+QString PlayerController::streamUrlForMediaSource(const QString &itemId,
+                                                  const QVariantMap &mediaSource,
+                                                  int audioStreamIndex,
+                                                  int subtitleStreamIndex) const
+{
+    const QString mediaSourceId = mediaSource.value(QStringLiteral("id")).toString();
+    QString selectedUrl = mediaSource.value(QStringLiteral("directStreamUrl")).toString().trimmed();
+    if (selectedUrl.isEmpty()) {
+        selectedUrl = mediaSource.value(QStringLiteral("transcodingUrl")).toString().trimmed();
+    }
+    if (selectedUrl.isEmpty() || m_authService == nullptr) {
+        return m_libraryService->getStreamUrlWithTracks(itemId,
+                                                        mediaSourceId,
+                                                        audioStreamIndex,
+                                                        subtitleStreamIndex);
+    }
+
+    QUrl url(selectedUrl);
+    if (url.isRelative()) {
+        url = QUrl(m_authService->getServerUrl()).resolved(url);
+    }
+
+    QUrlQuery query(url);
+    if (!m_authService->getAccessToken().isEmpty()
+        && !query.hasQueryItem(QStringLiteral("api_key"))
+        && !query.hasQueryItem(QStringLiteral("X-Emby-Token"))) {
+        query.addQueryItem(QStringLiteral("api_key"), m_authService->getAccessToken());
+    }
+    if (!mediaSourceId.isEmpty() && !query.hasQueryItem(QStringLiteral("MediaSourceId"))) {
+        query.addQueryItem(QStringLiteral("MediaSourceId"), mediaSourceId);
+    }
+    if (audioStreamIndex >= 0 && !query.hasQueryItem(QStringLiteral("AudioStreamIndex"))) {
+        query.addQueryItem(QStringLiteral("AudioStreamIndex"), QString::number(audioStreamIndex));
+    }
+    if (subtitleStreamIndex >= 0 && !query.hasQueryItem(QStringLiteral("SubtitleStreamIndex"))) {
+        query.addQueryItem(QStringLiteral("SubtitleStreamIndex"), QString::number(subtitleStreamIndex));
+    }
+    url.setQuery(query);
+
+    return url.toString();
 }
 
 void PlayerController::updateSkipSegmentState()

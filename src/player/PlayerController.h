@@ -652,6 +652,11 @@ private:
      */
     static QString eventToString(Event event);
     static QString inferPlayMethod(const QString &url);
+    [[nodiscard]] bool isRecoverableBackendPlaybackError(const QString &error) const;
+    [[nodiscard]] QString streamUrlForMediaSource(const QString &itemId,
+                                                  const QVariantMap &mediaSource,
+                                                  int audioStreamIndex,
+                                                  int subtitleStreamIndex) const;
     void fallbackToPendingAutoplayPlayback();
     [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex() const;
     void stopAutoplayPlaybackInfoWait();

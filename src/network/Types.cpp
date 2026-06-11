@@ -156,6 +156,8 @@ MediaSourceInfo MediaSourceInfo::fromJson(const QJsonObject &json)
     info.id = json["Id"].toString();
     info.name = json["Name"].toString();
     info.path = json["Path"].toString();
+    info.directStreamUrl = json["DirectStreamUrl"].toString();
+    info.transcodingUrl = json["TranscodingUrl"].toString();
     info.container = json["Container"].toString();
     info.size = static_cast<qint64>(json["Size"].toDouble());
     info.bitRate = json["Bitrate"].toInt();
@@ -273,6 +275,8 @@ QVariantList PlaybackInfoResponse::getMediaSourcesVariant() const
         sourceMap["id"] = source.id;
         sourceMap["name"] = source.name;
         sourceMap["path"] = source.path;
+        sourceMap["directStreamUrl"] = source.directStreamUrl;
+        sourceMap["transcodingUrl"] = source.transcodingUrl;
         sourceMap["container"] = source.container;
         sourceMap["size"] = source.size;
         sourceMap["bitRate"] = source.bitRate;

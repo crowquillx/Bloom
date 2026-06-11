@@ -2,6 +2,7 @@
 
 #include <QAbstractNativeEventFilter>
 #include <QCoreApplication>
+#include <QDateTime>
 #include <QEvent>
 #include <QMetaObject>
 #include <QMetaType>
@@ -27,6 +28,7 @@ extern "C" {
 
 namespace {
 std::atomic<quint64> gWindowsMpvReplyUserdataCounter{0};
+constexpr qint64 kRecentStreamFailureWindowMs = 30000;
 
 bool isTruthyEnv(const char *name)
 {
@@ -84,6 +86,22 @@ bool isEmbeddedUnsafeOptionName(const QString &name)
         || name.startsWith(QStringLiteral("opengl-"))
         || name.startsWith(QStringLiteral("wayland-"))
         || name.startsWith(QStringLiteral("x11-"));
+}
+
+bool isDirectLibmpvUnsupportedOptionName(const QString &name)
+{
+    return name == QStringLiteral("no-osc")
+        || name == QStringLiteral("display-fps");
+}
+
+bool isRecoverableStreamFailureLog(const QString &level, const QString &prefix, const QString &text)
+{
+    const QString haystack = QStringList{level, prefix, text}.join(QLatin1Char(' ')).toLower();
+    return haystack.contains(QStringLiteral("stream ends prematurely"))
+        || haystack.contains(QStringLiteral("will reconnect"))
+        || haystack.contains(QStringLiteral("http error 5"))
+        || haystack.contains(QStringLiteral("i/o error"))
+        || haystack.contains(QStringLiteral("io error"));
 }
 }
 
@@ -212,6 +230,7 @@ void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args,
     m_playlistCount = 0;
     m_stopRequested = false;
     m_pendingStopReplyUserdata = 0;
+    clearRecentStreamFailure();
 
 #if defined(Q_OS_WIN)
     if (m_videoTarget != nullptr) {
@@ -782,6 +801,7 @@ void WindowsMpvBackend::teardownMpv()
     m_playlistCount = 0;
     m_stopRequested = false;
     m_pendingStopReplyUserdata = 0;
+    clearRecentStreamFailure();
     setDirectRunning(false);
     m_directControlActive = false;
 
@@ -877,6 +897,7 @@ void WindowsMpvBackend::processMpvEvents()
                                           .arg(level.isEmpty() ? QStringLiteral("unknown") : level,
                                                prefix.isEmpty() ? QStringLiteral("unknown") : prefix,
                                                text);
+            recordMpvLogMessage(level, prefix, text);
             if (level == QStringLiteral("fatal") || level == QStringLiteral("error")) {
                 qCCritical(lcWindowsLibmpvBackend).noquote() << formatted;
                 Logger::instance().flush();
@@ -927,6 +948,11 @@ void WindowsMpvBackend::processMpvEvents()
             const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
 
             const bool endedWithError = endFile != nullptr && endFile->reason == MPV_END_FILE_REASON_ERROR;
+            const bool endedWithEof = endFile != nullptr && endFile->reason == MPV_END_FILE_REASON_EOF;
+            const bool recoverablePrematureEof = endedWithEof
+                && !m_stopRequested
+                && reachedTerminalPlaybackState
+                && hasRecentStreamFailure();
             if (endedWithError) {
                 qCWarning(lcWindowsLibmpvBackend)
                     << "MPV_EVENT_END_FILE"
@@ -940,6 +966,8 @@ void WindowsMpvBackend::processMpvEvents()
                     << "playlistCount=" << m_playlistCount
                     << "hasRemainingPlaylistItems=" << hasRemainingPlaylistItems
                     << "reachedTerminalPlaybackState=" << reachedTerminalPlaybackState
+                    << "recoverablePrematureEof=" << recoverablePrematureEof
+                    << "recentStreamFailure=" << m_recentStreamFailureText
                     << "running=" << m_running;
             } else {
                 qCInfo(lcWindowsLibmpvBackend)
@@ -956,12 +984,25 @@ void WindowsMpvBackend::processMpvEvents()
                     << "playlistCount=" << m_playlistCount
                     << "hasRemainingPlaylistItems=" << hasRemainingPlaylistItems
                     << "reachedTerminalPlaybackState=" << reachedTerminalPlaybackState
+                    << "recoverablePrematureEof=" << recoverablePrematureEof
+                    << "recentStreamFailure=" << m_recentStreamFailureText
                     << "running=" << m_running;
             }
             Logger::instance().flush();
 
             if (m_stopRequested && reachedTerminalPlaybackState) {
                 shouldEmitPlaybackEnded = false;
+            }
+
+            if (recoverablePrematureEof) {
+                const QString errorMessage = QStringLiteral("recoverable-stream-ended-prematurely: %1")
+                                                 .arg(m_recentStreamFailureText);
+                qCWarning(lcWindowsLibmpvBackend) << errorMessage;
+                clearRecentStreamFailure();
+                teardownMpv();
+                syncContainerGeometry();
+                emit errorOccurred(errorMessage);
+                return;
             }
 
             if (shouldEmitPlaybackEnded && reachedTerminalPlaybackState) {
@@ -1038,6 +1079,7 @@ void WindowsMpvBackend::processMpvEvents()
                     << "Ignoring START_FILE while stop is pending";
                 break;
             }
+            clearRecentStreamFailure();
             setDirectRunning(true);
             break;
         case MPV_EVENT_PLAYBACK_RESTART:
@@ -1227,6 +1269,10 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
         if (isEmbeddedUnsafeOptionName(name)) {
             continue;
         }
+        if (isDirectLibmpvUnsupportedOptionName(name)) {
+            qCInfo(lcWindowsLibmpvBackend) << "Skipping direct-libmpv unsupported mpv option" << name;
+            continue;
+        }
 
         const QByteArray nameUtf8 = name.toUtf8();
         const QByteArray valueUtf8 = value.toUtf8();
@@ -1248,6 +1294,33 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
     Q_UNUSED(handlePtr);
     Q_UNUSED(args);
 #endif
+}
+
+void WindowsMpvBackend::recordMpvLogMessage(const QString &level, const QString &prefix, const QString &text)
+{
+    if (!isRecoverableStreamFailureLog(level, prefix, text)) {
+        return;
+    }
+
+    m_recentStreamFailureTimeMs = QDateTime::currentMSecsSinceEpoch();
+    m_recentStreamFailureText = QStringLiteral("[%1][%2] %3")
+                                    .arg(level.isEmpty() ? QStringLiteral("unknown") : level,
+                                         prefix.isEmpty() ? QStringLiteral("unknown") : prefix,
+                                         text);
+}
+
+void WindowsMpvBackend::clearRecentStreamFailure()
+{
+    m_recentStreamFailureTimeMs = 0;
+    m_recentStreamFailureText.clear();
+}
+
+bool WindowsMpvBackend::hasRecentStreamFailure() const
+{
+    if (m_recentStreamFailureTimeMs <= 0 || m_recentStreamFailureText.isEmpty()) {
+        return false;
+    }
+    return QDateTime::currentMSecsSinceEpoch() - m_recentStreamFailureTimeMs <= kRecentStreamFailureWindowMs;
 }
 
 void WindowsMpvBackend::logLifecycleCheckpoint(const char *checkpoint) const

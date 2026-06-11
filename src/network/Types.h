@@ -81,6 +81,8 @@ struct MediaSourceInfo
     Q_PROPERTY(QString id MEMBER id)
     Q_PROPERTY(QString name MEMBER name)
     Q_PROPERTY(QString path MEMBER path)
+    Q_PROPERTY(QString directStreamUrl MEMBER directStreamUrl)
+    Q_PROPERTY(QString transcodingUrl MEMBER transcodingUrl)
     Q_PROPERTY(QString container MEMBER container)
     Q_PROPERTY(qint64 size MEMBER size)
     Q_PROPERTY(int bitRate MEMBER bitRate)
@@ -94,6 +96,8 @@ public:
     QString id;
     QString name;
     QString path;
+    QString directStreamUrl;
+    QString transcodingUrl;
     QString container;
     qint64 size = 0;
     int bitRate = 0;

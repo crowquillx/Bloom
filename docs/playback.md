@@ -98,11 +98,13 @@ HDR and Dolby Vision policy
 - Bloom does not request server transcoding for HDR/Dolby Vision fallback. Unsupported or unavailable HDR output should prefer local tone-mapping over full transcode.
 - Windows match-content playback toggles OS HDR only for HDR output playback and restores the previous state afterward. SDR playback does not enable Windows HDR just because the setting is on.
 - Windows embedded libmpv keeps the HDR output policy but lets mpv choose the render backend; unsafe render-context overrides such as `gpu-api`, `gpu-context`, and `vulkan-*` are filtered, and unsupported mpv HDR options are logged with the option name and mpv error.
+- Windows embedded libmpv classifies an early `END_FILE reason=eof` as a recoverable interruption when recent mpv/ffmpeg logs show stream failures such as premature HTTP EOF, reconnect attempts, HTTP 5xx, or I/O errors. This prevents hosted/sparse sources from closing the player when mpv reports EOF after a transient stream interruption.
 - Linux production HDR should continue to use the external mpv IPC backend unless embedded HDR output has been explicitly selected for validation.
 
 Audio/Subtitle Track Selection
 - Call `JellyfinClient::getPlaybackInfo(itemId)` to fetch `PlaybackInfoResponse` containing `MediaSources` with all available streams.
 - Each `MediaSourceInfo` contains `mediaStreams` array with `MediaStreamInfo` objects describing video, audio, and subtitle tracks.
+- If PlaybackInfo provides `DirectStreamUrl` or `TranscodingUrl`, Bloom uses that Jellyfin-selected URL for playback and appends missing auth/media-source/track query parameters. The older constructed `/Videos/{itemId}/stream` URL remains the fallback when PlaybackInfo does not include a playback URL.
 - The server provides `defaultAudioStreamIndex` and `defaultSubtitleStreamIndex` which reflect the user's preferences set on the Jellyfin server.
 - Use `PlayerController::setSelectedAudioTrack(index)` and `setSelectedSubtitleTrack(index)` to change tracks during playback via mpv IPC (`aid`, `sid` properties).
 - Initial selection resolution order:

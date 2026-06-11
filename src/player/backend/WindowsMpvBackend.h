@@ -54,6 +54,9 @@ private:
     bool sendVariantCommandDirect(const QVariantList &command);
     void setDirectRunning(bool running);
     void logLifecycleCheckpoint(const char *checkpoint) const;
+    void recordMpvLogMessage(const QString &level, const QString &prefix, const QString &text);
+    void clearRecentStreamFailure();
+    [[nodiscard]] bool hasRecentStreamFailure() const;
 
     static void wakeupCallback(void *ctx);
 
@@ -87,6 +90,8 @@ private:
     bool m_videoHostDestroyDeferred = false;
     quint64 m_pendingStopReplyUserdata = 0;
     quint64 m_stopTeardownGeneration = 0;
+    qint64 m_recentStreamFailureTimeMs = 0;
+    QString m_recentStreamFailureText;
     void *m_mpvHandle = nullptr;
     std::atomic_bool m_eventDispatchQueued{false};
     QList<QByteArray> m_commandScratch;

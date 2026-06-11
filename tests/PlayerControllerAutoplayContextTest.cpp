@@ -4,6 +4,8 @@
 #include <QDir>
 #include <QStandardPaths>
 #include <QTemporaryDir>
+#include <QUrl>
+#include <QUrlQuery>
 
 #include "player/PlayerController.h"
 
@@ -288,12 +290,16 @@ static MediaSourceInfo buildMediaSourceInfo(const QString &id,
                                             int defaultSubtitle = -1,
                                             const QString &container = QStringLiteral("mkv"),
                                             int bitRate = 0,
-                                            qint64 runTimeTicks = 0)
+                                            qint64 runTimeTicks = 0,
+                                            const QString &directStreamUrl = QString(),
+                                            const QString &transcodingUrl = QString())
 {
     MediaSourceInfo info;
     info.id = id;
     info.name = name;
     info.path = path;
+    info.directStreamUrl = directStreamUrl;
+    info.transcodingUrl = transcodingUrl;
     info.container = container;
     info.bitRate = bitRate;
     info.runTimeTicks = runTimeTicks;
@@ -397,6 +403,8 @@ private slots:
     void additionalPartsFailureStillStartsPrimary();
     void additionalPartPlaybackInfoFailureSkipsPart();
     void retryRefreshesPlaybackInfoBeforeRestarting();
+    void recoverableBackendStreamErrorStartsRecovery();
+    void playbackInfoDirectStreamUrlIsPreferred();
     void multipartIntermediateEndIsIgnoredUntilFinalSegment();
     void versionAffinityPrefersMatchingParentPath();
     void startupTrackSelectionUsesCanonicalMapWhenUrlNotPinned();
@@ -2466,6 +2474,105 @@ void PlayerControllerAutoplayContextTest::retryRefreshesPlaybackInfoBeforeRestar
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
     QCOMPARE(libraryService.requestedStreamMediaSourceIds, QStringList{QStringLiteral("fresh-source")});
     QCOMPARE(controller.m_startPositionTicks, 1200000000LL);
+}
+
+void PlayerControllerAutoplayContextTest::recoverableBackendStreamErrorStartsRecovery()
+{
+    ConfigManager config;
+    config.setAutoRecoverPlayback(true);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("episode-1");
+    controller.m_pendingUrl = QStringLiteral("https://example.invalid/episode-1");
+    controller.m_mediaSourceId = QStringLiteral("media-source-1");
+    controller.m_selectedAudioTrack = 1;
+    controller.m_selectedSubtitleTrack = -1;
+    controller.m_segmentRelativePosition = 5.75;
+
+    controller.onProcessError(QStringLiteral("recoverable-stream-ended-prematurely: [error][ffmpeg] http: Stream ends prematurely"));
+
+    QVERIFY(controller.m_lastErrorWasNetworkRecoverable);
+    QVERIFY(controller.m_recoveryContext.valid);
+    QCOMPARE(controller.m_recoveryContext.itemId, QStringLiteral("episode-1"));
+    QCOMPARE(controller.m_recoveryContext.mediaSourceId, QStringLiteral("media-source-1"));
+    QCOMPARE(controller.m_recoveryContext.startPositionTicks, 57500000LL);
+}
+
+void PlayerControllerAutoplayContextTest::playbackInfoDirectStreamUrlIsPreferred()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    authService.restoreSession(QStringLiteral("https://jellyfin.example"),
+                               QStringLiteral("user-1"),
+                               QStringLiteral("token-1"));
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.requestPlayback(QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("preferredAudioIndex"), 3},
+        {QStringLiteral("preferredSubtitleIndex"), -1},
+        {QStringLiteral("allowVersionPrompt"), false}
+    });
+
+    QCOMPARE(controller.m_pendingPlaybackRequests.size(), 1);
+    const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
+    const MediaSourceInfo source = buildMediaSourceInfo(
+        QStringLiteral("media-source-1"),
+        QStringLiteral("Hosted"),
+        QStringLiteral("/hosted/file.mkv"),
+        {
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 3}},
+            QVariantMap{{QStringLiteral("type"), QStringLiteral("Video")}, {QStringLiteral("index"), 0}}
+        },
+        3,
+        -1,
+        QStringLiteral("mkv"),
+        0,
+        0,
+        QStringLiteral("/Videos/episode-1/stream?Static=true"));
+
+    emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
+                                                      buildPlaybackInfo({source}),
+                                                      requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
+
+    const QUrl startedUrl(backend.lastStartUrl);
+    QCOMPARE(startedUrl.scheme(), QStringLiteral("https"));
+    QCOMPARE(startedUrl.host(), QStringLiteral("jellyfin.example"));
+    QCOMPARE(startedUrl.path(), QStringLiteral("/Videos/episode-1/stream"));
+
+    const QUrlQuery query(startedUrl);
+    QCOMPARE(query.queryItemValue(QStringLiteral("api_key")), QStringLiteral("token-1"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("MediaSourceId")), QStringLiteral("media-source-1"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("AudioStreamIndex")), QStringLiteral("3"));
+    QVERIFY(!query.hasQueryItem(QStringLiteral("SubtitleStreamIndex")));
+    QVERIFY(libraryService.requestedTrackStreamItemIds.isEmpty());
 }
 
 void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntilFinalSegment()
