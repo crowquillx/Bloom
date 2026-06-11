@@ -404,6 +404,8 @@ private slots:
     void additionalPartPlaybackInfoFailureSkipsPart();
     void retryRefreshesPlaybackInfoBeforeRestarting();
     void recoverableBackendStreamErrorStartsRecovery();
+    void recoverableErrorAfterBackendStopUpgradesTerminalTransition();
+    void backendStopWithoutRecoverableErrorGoesIdle();
     void playbackInfoDirectStreamUrlIsPreferred();
     void multipartIntermediateEndIsIgnoredUntilFinalSegment();
     void versionAffinityPrefersMatchingParentPath();
@@ -2510,6 +2512,90 @@ void PlayerControllerAutoplayContextTest::recoverableBackendStreamErrorStartsRec
     QCOMPARE(controller.m_recoveryContext.itemId, QStringLiteral("episode-1"));
     QCOMPARE(controller.m_recoveryContext.mediaSourceId, QStringLiteral("media-source-1"));
     QCOMPARE(controller.m_recoveryContext.startPositionTicks, 57500000LL);
+}
+
+void PlayerControllerAutoplayContextTest::recoverableErrorAfterBackendStopUpgradesTerminalTransition()
+{
+    ConfigManager config;
+    config.setAutoRecoverPlayback(true);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("episode-1");
+    controller.m_pendingUrl = QStringLiteral("https://example.invalid/episode-1");
+    controller.m_mediaSourceId = QStringLiteral("media-source-1");
+    controller.m_selectedAudioTrack = 1;
+    controller.m_selectedSubtitleTrack = -1;
+    controller.m_segmentRelativePosition = 5.75;
+    backend.setRunning(true);
+
+    backend.emitRunningState(false);
+    QVERIFY(controller.m_terminalTransitionActive);
+    QCOMPARE(controller.m_pendingTerminalReason, PlayerController::TerminalReason::Stop);
+    QVERIFY(controller.isPlaybackActive());
+
+    controller.onProcessError(QStringLiteral("recoverable-stream-ended-prematurely: [error][ffmpeg] http: Stream ends prematurely"));
+
+    QCOMPARE(controller.m_pendingTerminalReason, PlayerController::TerminalReason::Error);
+    QVERIFY(controller.m_lastErrorWasNetworkRecoverable);
+    QVERIFY(controller.m_recoveryContext.valid);
+    QCOMPARE(controller.m_recoveryContext.itemId, QStringLiteral("episode-1"));
+    QCOMPARE(controller.m_recoveryContext.mediaSourceId, QStringLiteral("media-source-1"));
+    QCOMPARE(controller.m_recoveryContext.startPositionTicks, 57500000LL);
+    QVERIFY(controller.isPlaybackActive());
+
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Error);
+    QVERIFY(controller.m_recoveryContext.valid);
+    QVERIFY(controller.m_isRecovering);
+    QVERIFY(controller.isPlaybackActive());
+}
+
+void PlayerControllerAutoplayContextTest::backendStopWithoutRecoverableErrorGoesIdle()
+{
+    ConfigManager config;
+    config.setAutoRecoverPlayback(true);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentItemId = QStringLiteral("episode-1");
+    controller.m_pendingUrl = QStringLiteral("https://example.invalid/episode-1");
+    backend.setRunning(true);
+
+    backend.emitRunningState(false);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.playbackState(), PlayerController::Idle);
+    QVERIFY(!controller.m_recoveryContext.valid);
+    QVERIFY(!controller.m_isRecovering);
+    QVERIFY(!controller.isPlaybackActive());
 }
 
 void PlayerControllerAutoplayContextTest::playbackInfoDirectStreamUrlIsPreferred()

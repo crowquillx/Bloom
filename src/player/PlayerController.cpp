@@ -1346,44 +1346,7 @@ void PlayerController::prepareTerminalTransition(TerminalReason reason)
         clearPendingAutoplayContext();
         clearNextEpisodePrefetchState();
         m_shouldAutoplay = false;
-
-        // Stash recovery context so we can resume if the server comes back
-        if (m_config && m_config->getAutoRecoverPlayback()
-            && m_lastErrorWasNetworkRecoverable
-            && !m_currentItemId.isEmpty()
-            && !m_pendingUrl.isEmpty()) {
-            QString segmentUrl = m_pendingUrl;
-            if (m_activePlaybackSegmentIndex >= 0
-                && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
-                const QString segUrl = m_playbackSegments[m_activePlaybackSegmentIndex]
-                                           .value(QStringLiteral("url")).toString();
-                if (!segUrl.isEmpty()) {
-                    segmentUrl = segUrl;
-                }
-            }
-            m_recoveryContext.url = segmentUrl;
-            m_recoveryContext.itemId = m_currentItemId;
-            m_recoveryContext.startPositionTicks = static_cast<qint64>(m_segmentRelativePosition * 10000000.0);
-            m_recoveryContext.seriesId = m_currentSeriesId;
-            m_recoveryContext.seasonId = m_currentSeasonId;
-            m_recoveryContext.libraryId = m_currentLibraryId;
-            m_recoveryContext.mediaSourceId = m_mediaSourceId;
-            m_recoveryContext.playSessionId = QString(); // avoid stale session
-            m_recoveryContext.mediaSource = m_activeMediaSource;
-            m_recoveryContext.audioStreamIndex = m_selectedAudioTrack;
-            m_recoveryContext.subtitleStreamIndex = m_selectedSubtitleTrack;
-            m_recoveryContext.availableAudioTracks = m_availableAudioTracks;
-            m_recoveryContext.availableSubtitleTracks = m_availableSubtitleTracks;
-            m_recoveryContext.framerate = m_contentFramerate;
-            m_recoveryContext.isHDR = m_contentIsHDR;
-            m_recoveryContext.playbackSegments = m_playbackSegments;
-            m_recoveryContext.activePlaybackSegmentIndex = m_activePlaybackSegmentIndex;
-            m_recoveryContext.activePlaybackSegmentOffsetTicks = m_activePlaybackSegmentOffsetTicks;
-            m_recoveryContext.segmentRelativePosition = m_segmentRelativePosition;
-            m_recoveryContext.valid = true;
-        } else {
-            m_recoveryContext = RecoveryContext{};
-        }
+        stashRecoveryContextForCurrentPlayback();
     }
 
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
@@ -1504,7 +1467,94 @@ void PlayerController::updatePendingTerminalReason(TerminalReason reason)
                             << "] terminal-transition reason upgraded"
                             << "from=" << static_cast<int>(m_pendingTerminalReason)
                             << "to=" << static_cast<int>(reason);
+    const TerminalReason previousReason = m_pendingTerminalReason;
     m_pendingTerminalReason = reason;
+
+    if (reason == TerminalReason::Error && previousReason != TerminalReason::Error) {
+        clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
+        m_shouldAutoplay = false;
+        m_terminalPrefetchedReady = false;
+        const bool stashed = stashRecoveryContextForCurrentPlayback();
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] terminal-transition upgraded to recoverable error"
+                                << "recoveryContextStashed=" << stashed;
+    }
+}
+
+bool PlayerController::stashRecoveryContextForCurrentPlayback()
+{
+    const bool wasActive = isPlaybackActive();
+
+    auto clearContext = [this, wasActive](const char *reason) {
+        m_recoveryContext = RecoveryContext{};
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] recovery-context skipped"
+                                << "reason=" << reason
+                                << "autoRecover=" << (m_config && m_config->getAutoRecoverPlayback())
+                                << "recoverable=" << m_lastErrorWasNetworkRecoverable
+                                << "itemIdEmpty=" << m_currentItemId.isEmpty()
+                                << "urlEmpty=" << m_pendingUrl.isEmpty();
+        if (wasActive != isPlaybackActive()) {
+            emit isPlaybackActiveChanged();
+        }
+        return false;
+    };
+
+    if (!m_config || !m_config->getAutoRecoverPlayback()) {
+        return clearContext("auto-recover-disabled");
+    }
+    if (!m_lastErrorWasNetworkRecoverable) {
+        return clearContext("error-not-recoverable");
+    }
+    if (m_currentItemId.isEmpty()) {
+        return clearContext("missing-item-id");
+    }
+    if (m_pendingUrl.isEmpty()) {
+        return clearContext("missing-url");
+    }
+
+    QString segmentUrl = m_pendingUrl;
+    if (m_activePlaybackSegmentIndex >= 0
+        && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
+        const QString segUrl = m_playbackSegments[m_activePlaybackSegmentIndex]
+                                   .value(QStringLiteral("url")).toString();
+        if (!segUrl.isEmpty()) {
+            segmentUrl = segUrl;
+        }
+    }
+
+    m_recoveryContext.url = segmentUrl;
+    m_recoveryContext.itemId = m_currentItemId;
+    m_recoveryContext.startPositionTicks = static_cast<qint64>(m_segmentRelativePosition * 10000000.0);
+    m_recoveryContext.seriesId = m_currentSeriesId;
+    m_recoveryContext.seasonId = m_currentSeasonId;
+    m_recoveryContext.libraryId = m_currentLibraryId;
+    m_recoveryContext.mediaSourceId = m_mediaSourceId;
+    m_recoveryContext.playSessionId = QString(); // avoid stale session
+    m_recoveryContext.mediaSource = m_activeMediaSource;
+    m_recoveryContext.audioStreamIndex = m_selectedAudioTrack;
+    m_recoveryContext.subtitleStreamIndex = m_selectedSubtitleTrack;
+    m_recoveryContext.availableAudioTracks = m_availableAudioTracks;
+    m_recoveryContext.availableSubtitleTracks = m_availableSubtitleTracks;
+    m_recoveryContext.framerate = m_contentFramerate;
+    m_recoveryContext.isHDR = m_contentIsHDR;
+    m_recoveryContext.playbackSegments = m_playbackSegments;
+    m_recoveryContext.activePlaybackSegmentIndex = m_activePlaybackSegmentIndex;
+    m_recoveryContext.activePlaybackSegmentOffsetTicks = m_activePlaybackSegmentOffsetTicks;
+    m_recoveryContext.segmentRelativePosition = m_segmentRelativePosition;
+    m_recoveryContext.valid = true;
+
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] recovery-context stashed"
+                            << "itemId=" << m_recoveryContext.itemId
+                            << "mediaSourceId=" << m_recoveryContext.mediaSourceId
+                            << "positionTicks=" << m_recoveryContext.startPositionTicks;
+
+    if (wasActive != isPlaybackActive()) {
+        emit isPlaybackActiveChanged();
+    }
+    return true;
 }
 
 PlayerController::Event PlayerController::eventForTerminalReason(TerminalReason reason) const
@@ -2839,8 +2889,9 @@ bool PlayerController::isPlaybackActive() const
     case Playing:
     case Paused:
         return true;
-    case Idle:
     case Error:
+        return m_recoveryContext.valid || m_isRecovering;
+    case Idle:
     default:
         return false;
     }
@@ -3253,10 +3304,14 @@ void PlayerController::beginRecovery()
     if (m_isRecovering) {
         return;
     }
+    const bool wasActive = isPlaybackActive();
     m_isRecovering = true;
     m_recoveryAttemptCount = 0;
     emit isRecoveringChanged();
     emit recoveryAttemptCountChanged();
+    if (wasActive != isPlaybackActive()) {
+        emit isPlaybackActiveChanged();
+    }
     setErrorMessage(tr("Connection lost. Attempting to reconnect..."));
     onRecoveryTick();
 }
@@ -3266,11 +3321,15 @@ void PlayerController::cancelRecovery()
     if (!m_isRecovering) {
         return;
     }
+    const bool wasActive = isPlaybackActive();
     m_recoveryTimer->stop();
     m_isRecovering = false;
     m_recoveryAttemptCount = 0;
     emit isRecoveringChanged();
     emit recoveryAttemptCountChanged();
+    if (wasActive != isPlaybackActive()) {
+        emit isPlaybackActiveChanged();
+    }
     if (m_recoveryReply) {
         m_recoveryReply->abort();
         m_recoveryReply.clear();
@@ -3310,7 +3369,11 @@ void PlayerController::onRecoveryTick()
             if (m_isRecovering) {
                 cancelRecovery();
                 setErrorMessage(tr("Session expired. Please log in again."));
+                const bool wasActive = isPlaybackActive();
                 m_recoveryContext = RecoveryContext{};
+                if (wasActive != isPlaybackActive()) {
+                    emit isPlaybackActiveChanged();
+                }
             }
         } else {
             qCDebug(lcPlayback) << "PlayerController: Recovery ping failed:" << reply->errorString();
@@ -3328,7 +3391,11 @@ void PlayerController::resumeFromRecoveryContext()
     }
 
     const RecoveryContext context = m_recoveryContext;
+    const bool wasActive = isPlaybackActive();
     m_recoveryContext = RecoveryContext{};
+    if (wasActive != isPlaybackActive()) {
+        emit isPlaybackActiveChanged();
+    }
 
     requestPlayback(QVariantMap{
         {QStringLiteral("itemId"), context.itemId},

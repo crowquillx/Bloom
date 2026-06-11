@@ -494,6 +494,7 @@ private:
     void finalizeTerminalTransition();
     void resetTerminalTransitionState(bool invalidateQueuedWork = false);
     void updatePendingTerminalReason(TerminalReason reason);
+    bool stashRecoveryContextForCurrentPlayback();
     [[nodiscard]] Event eventForTerminalReason(TerminalReason reason) const;
     [[nodiscard]] static int terminalReasonPriority(TerminalReason reason);
     void maybeTriggerNextEpisodePrefetch();

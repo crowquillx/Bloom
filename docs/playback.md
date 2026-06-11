@@ -281,6 +281,7 @@ Playback caching and network resilience
 - This allows mpv to buffer aggressively in RAM so brief server outages do not stall playback.
 - For longer server outages, `PlayerController` supports automatic recovery:
   - When playback hits `Error` because of a network/timeout failure, the controller stashes a `RecoveryContext` with the current item, stream URL, track selections, and last known position.
+  - If the backend reports stopped before the recoverable mpv error arrives, `PlayerController` upgrades the pending terminal transition from `Stop` to `Error`, stashes the same recovery context, and keeps playback active so embedded video/overlay surfaces are not torn down during retry.
   - If `autoRecoverPlayback` is enabled (default `true`, stored in `settings.playback.auto_recover_playback`), the controller enters recovery mode and pings the server every 5 seconds via `LibraryService::pingServer()`.
   - When the ping succeeds, playback refreshes Jellyfin `PlaybackInfo` and resumes at the last known position using a fresh media source plus the prior track preference hints.
   - Recovery retries indefinitely until the server returns or the user explicitly stops/retries/clears the error.
