@@ -4,6 +4,9 @@
 
 #include "player/backend/IPlayerBackend.h"
 #include "player/backend/PlayerBackendFactory.h"
+#if defined(Q_OS_WIN)
+#include "player/backend/WindowsMpvBackend.h"
+#endif
 
 class PlayerBackendFactoryTest : public QObject
 {
@@ -22,6 +25,7 @@ private slots:
     void envOverrideUnknownResolvesToExternal();
     void configPreferenceSelectsExternalWhenNoEnvOverride();
     void envOverrideTakesPrecedenceOverConfigPreference();
+    void windowsEmbeddedSanitizerFiltersRenderBackendOverrides();
 };
 
 void PlayerBackendFactoryTest::createsPlatformDefaultBackend()
@@ -200,6 +204,34 @@ void PlayerBackendFactoryTest::envOverrideTakesPrecedenceOverConfigPreference()
 #endif
 
     qunsetenv("BLOOM_PLAYER_BACKEND");
+}
+
+void PlayerBackendFactoryTest::windowsEmbeddedSanitizerFiltersRenderBackendOverrides()
+{
+#if defined(Q_OS_WIN)
+    WindowsMpvBackend backend;
+    const QStringList args = {
+        QStringLiteral("--target-colorspace-hint=auto"),
+        QStringLiteral("--target-colorspace-hint-mode=target"),
+        QStringLiteral("--gpu-api=vulkan"),
+        QStringLiteral("--gpu-context=winvk"),
+        QStringLiteral("--vulkan-device=GPU-1"),
+        QStringLiteral("--wid=12345"),
+        QStringLiteral("--profile=fast")
+    };
+
+    const QStringList sanitized = backend.sanitizeStartupArgsForTest(args);
+
+    QVERIFY(sanitized.contains(QStringLiteral("--target-colorspace-hint=auto")));
+    QVERIFY(sanitized.contains(QStringLiteral("--target-colorspace-hint-mode=target")));
+    QVERIFY(sanitized.contains(QStringLiteral("--profile=fast")));
+    QVERIFY(!sanitized.contains(QStringLiteral("--gpu-api=vulkan")));
+    QVERIFY(!sanitized.contains(QStringLiteral("--gpu-context=winvk")));
+    QVERIFY(!sanitized.contains(QStringLiteral("--vulkan-device=GPU-1")));
+    QVERIFY(!sanitized.contains(QStringLiteral("--wid=12345")));
+#else
+    QSKIP("Windows embedded sanitizer is only compiled on Windows");
+#endif
 }
 
 QTEST_MAIN(PlayerBackendFactoryTest)

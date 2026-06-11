@@ -36,6 +36,10 @@ public:
     void detachVideoTarget(QObject *target) override;
     void setVideoViewport(const QRectF &viewport) override;
 
+#ifdef BLOOM_TESTING
+    QStringList sanitizeStartupArgsForTest(const QStringList &args) const { return sanitizeStartupArgs(args); }
+#endif
+
 private:
     bool eventFilter(QObject *watched, QEvent *event) override;
 

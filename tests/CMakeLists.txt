@@ -167,6 +167,7 @@ if(WIN32)
 endif()
 
 target_include_directories(PlayerBackendFactoryTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_compile_definitions(PlayerBackendFactoryTest PRIVATE BLOOM_TESTING=1)
 
 target_link_libraries(PlayerBackendFactoryTest
     PRIVATE

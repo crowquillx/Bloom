@@ -96,6 +96,7 @@ HDR and Dolby Vision policy
 - Dolby Vision detection uses Jellyfin stream metadata including `VideoRangeType`, codec tags/IDs, and Dolby Vision profile/level fields. Profile 7/8 content is treated as HDR-compatible by default; unsupported Dolby Vision profiles are locally tone-mapped to SDR unless `dolby_vision_fallback_mode=experimental-direct-play` is selected.
 - Bloom does not request server transcoding for HDR/Dolby Vision fallback. Unsupported or unavailable HDR output should prefer local tone-mapping over full transcode.
 - Windows match-content playback toggles OS HDR only for HDR output playback and restores the previous state afterward. SDR playback does not enable Windows HDR just because the setting is on.
+- Windows embedded libmpv keeps the HDR output policy but lets mpv choose the render backend; unsafe render-context overrides such as `gpu-api`, `gpu-context`, and `vulkan-*` are filtered, and unsupported mpv HDR options are logged with the option name and mpv error.
 - Linux production HDR should continue to use the external mpv IPC backend unless embedded HDR output has been explicitly selected for validation.
 
 Audio/Subtitle Track Selection

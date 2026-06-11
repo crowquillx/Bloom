@@ -369,6 +369,8 @@ private slots:
     void nextEpisodeIgnoresMismatchedSeries();
     void playbackPrefetchIgnoresGenericNextEpisodeResponses();
     void autoplayPlaybackInfoErrorFallsBackToBasicPlayback();
+    void autoplayToneMapStateSurvivesPlaybackInfoFallback();
+    void displayHdrPolicyDoesNotToggleWhenToneMappingToSdr();
     void autoplayPlaybackInfoUsesStoredSubtitlePreferenceWhenOverrideUnset();
     void explicitSeasonPreferencesBeatGlobalTrackDefaults();
     void globalAudioLanguageSelectsMatchingStream();
@@ -1170,6 +1172,7 @@ void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoErrorFallsBackToBa
     controller.m_pendingAutoplayLibraryId = QStringLiteral("library-9");
     controller.m_pendingAutoplayFramerate = 23.976;
     controller.m_pendingAutoplayIsHDR = true;
+    controller.m_pendingAutoplayToneMapToSdr = true;
     controller.m_pendingAutoplayEpisodeData = QJsonObject{
         {QStringLiteral("Id"), QStringLiteral("episode-9")},
         {QStringLiteral("ParentId"), QStringLiteral("season-9")},
@@ -1190,6 +1193,72 @@ void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoErrorFallsBackToBa
     QCOMPARE(controller.m_currentLibraryId, QStringLiteral("library-9"));
     QCOMPARE(controller.m_pendingUrl, QStringLiteral("https://example.invalid/episode-9"));
     QCOMPARE(controller.m_startPositionTicks, 4200000000LL);
+    QVERIFY(controller.m_contentShouldToneMapToSdr);
+}
+
+void PlayerControllerAutoplayContextTest::autoplayToneMapStateSurvivesPlaybackInfoFallback()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-dv");
+    controller.m_pendingAutoplaySeasonId = QStringLiteral("season-dv");
+    controller.m_pendingAutoplayLibraryId = QStringLiteral("library-dv");
+    controller.m_pendingAutoplayFramerate = 24.0;
+    controller.m_pendingAutoplayIsHDR = true;
+    controller.m_pendingAutoplayToneMapToSdr = true;
+    controller.m_pendingAutoplayEpisodeData = QJsonObject{
+        {QStringLiteral("Id"), QStringLiteral("episode-dv")},
+        {QStringLiteral("ParentId"), QStringLiteral("season-dv")}
+    };
+
+    controller.fallbackToPendingAutoplayPlayback();
+
+    QCOMPARE(controller.m_currentItemId, QStringLiteral("episode-dv"));
+    QVERIFY(controller.m_contentIsHDR);
+    QVERIFY(controller.m_contentShouldToneMapToSdr);
+}
+
+void PlayerControllerAutoplayContextTest::displayHdrPolicyDoesNotToggleWhenToneMappingToSdr()
+{
+    ConfigManager config;
+    config.setEnableHDR(true);
+    config.setHDROutputMode(QStringLiteral("match-content"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_contentIsHDR = true;
+    controller.m_contentShouldToneMapToSdr = true;
+
+    const PlayerController::HdrPlaybackPolicy policy = controller.computeEffectiveHdrPlaybackPolicy();
+    QVERIFY(policy.toneMapToSdr);
+    QVERIFY(!policy.outputHdr);
+    QVERIFY(!policy.shouldToggleDisplayHdr);
 }
 
 void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoUsesStoredSubtitlePreferenceWhenOverrideUnset()

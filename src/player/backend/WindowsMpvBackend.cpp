@@ -25,6 +25,26 @@ extern "C" {
 
 namespace {
 std::atomic<quint64> gWindowsMpvReplyUserdataCounter{0};
+
+bool isEmbeddedUnsafeOptionName(const QString &name)
+{
+    if (name == QStringLiteral("input-ipc-server")
+        || name == QStringLiteral("input-ipc-client")
+        || name == QStringLiteral("idle")
+        || name == QStringLiteral("vo")
+        || name == QStringLiteral("hwdec")
+        || name == QStringLiteral("wid")
+        || name == QStringLiteral("fullscreen")
+        || name == QStringLiteral("gpu-context")
+        || name == QStringLiteral("gpu-api")) {
+        return true;
+    }
+
+    return name.startsWith(QStringLiteral("vulkan-"))
+        || name.startsWith(QStringLiteral("opengl-"))
+        || name.startsWith(QStringLiteral("wayland-"))
+        || name.startsWith(QStringLiteral("x11-"));
+}
 }
 
 class WindowsMpvBackend::WindowsNativeGeometryFilter : public QAbstractNativeEventFilter
@@ -969,15 +989,22 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
             value = option.mid(equalsIndex + 1);
         }
 
-        if (name == QStringLiteral("input-ipc-server")
-            || name == QStringLiteral("input-ipc-client")
-            || name == QStringLiteral("wid")) {
+        if (isEmbeddedUnsafeOptionName(name)) {
             continue;
         }
 
         const QByteArray nameUtf8 = name.toUtf8();
         const QByteArray valueUtf8 = value.toUtf8();
-        mpv_set_option_string(handle, nameUtf8.constData(), valueUtf8.constData());
+        const int status = mpv_set_option_string(handle, nameUtf8.constData(), valueUtf8.constData());
+        if (status < 0) {
+            qCWarning(lcWindowsLibmpvBackend)
+                << "Failed to set mpv option"
+                << name
+                << "value"
+                << value
+                << "error"
+                << mpv_error_string(status);
+        }
     }
 #else
     Q_UNUSED(handlePtr);
@@ -1225,12 +1252,25 @@ QStringList WindowsMpvBackend::sanitizeStartupArgs(const QStringList &args) cons
             continue;
         }
 
-        if (arg.compare(QStringLiteral("--wid"), Qt::CaseInsensitive) == 0) {
-            skipNextValue = true;
+        if (!arg.startsWith(QStringLiteral("--"))) {
+            finalArgs.append(arg);
             continue;
         }
 
-        if (arg.startsWith(QStringLiteral("--wid="), Qt::CaseInsensitive)) {
+        const QString option = arg.mid(2);
+        const int equalsIndex = option.indexOf('=');
+        const QString name = equalsIndex >= 0 ? option.left(equalsIndex) : option;
+
+        if (name.compare(QStringLiteral("wid"), Qt::CaseInsensitive) == 0) {
+            skipNextValue = equalsIndex < 0;
+            continue;
+        }
+
+        if (isEmbeddedUnsafeOptionName(name.toLower())) {
+            if (equalsIndex < 0) {
+                skipNextValue = true;
+            }
+            qCDebug(lcWindowsLibmpvBackend) << "Skipping unsafe embedded mpv option" << name;
             continue;
         }
 

@@ -144,6 +144,7 @@ Video settings
   - `match-content`: SDR in SDR, HDR in HDR when supported.
   - `tone-map-to-sdr`: force local SDR output for HDR/Dolby Vision content.
   - `force-hdr-experimental`: force HDR output hints for validation/debugging.
+  - Windows embedded libmpv preserves these output decisions but lets mpv choose the render backend; unsafe render-context overrides such as `gpu-api`, `gpu-context`, and `vulkan-*` are filtered.
 - `settings.video.dolby_vision_fallback_mode` (Q_PROPERTY `dolbyVisionFallbackMode`): Dolby Vision fallback policy. Default: `prefer-compatible-hdr`. Configurable via Settings > Video > Advanced > Dolby Vision Fallback.
   - `prefer-compatible-hdr`: use HDR-compatible Dolby Vision profile 7/8 paths as HDR; unsupported profiles locally tone-map to SDR.
   - `tone-map-unsupported`: locally tone-map unsupported Dolby Vision to SDR.

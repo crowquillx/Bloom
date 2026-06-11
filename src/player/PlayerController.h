@@ -430,6 +430,12 @@ private:
     };
 
     struct PendingPlaybackRequest;
+    struct HdrPlaybackPolicy
+    {
+        bool toneMapToSdr = false;
+        bool outputHdr = false;
+        bool shouldToggleDisplayHdr = false;
+    };
     // State machine
     void setupStateMachine();
     bool processEvent(Event event);
@@ -535,6 +541,7 @@ private:
      * Initiate mpv (or configured internal player) startup sequence according to the pending playback context.
      */
     void initiateMpvStart();
+    HdrPlaybackPolicy computeEffectiveHdrPlaybackPolicy() const;
     /**
      * Update the trickplay preview image/URL for the specified playback position.
      * @param seconds Position in seconds for which to update the trickplay preview.
@@ -809,6 +816,7 @@ private:
     TrackPreferenceMode m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
     double m_pendingAutoplayFramerate = 0.0;
     bool m_pendingAutoplayIsHDR = false;
+    bool m_pendingAutoplayToneMapToSdr = false;
     
     // Track selection state
     int m_selectedAudioTrack = -1;      // Jellyfin audio stream index (for API reporting)

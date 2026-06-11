@@ -3526,10 +3526,6 @@ QStringList ConfigManager::getMpvArgsForProfile(const QString &profileName, bool
         ensureGpuNext();
         setOrAppendArg(QStringLiteral("target-colorspace-hint"), QStringLiteral("auto"));
         setOrAppendArg(QStringLiteral("target-colorspace-hint-mode"), QStringLiteral("target"));
-#if defined(Q_OS_WIN)
-        setOrAppendArg(QStringLiteral("gpu-api"), QStringLiteral("d3d11"));
-        setOrAppendArg(QStringLiteral("gpu-context"), QStringLiteral("d3d11"));
-#endif
     }
     
     return args;

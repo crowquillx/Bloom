@@ -1657,7 +1657,8 @@ void PlayerController::cancelPendingDisplayRestore(bool applyCurrentPlaybackDisp
     if (m_displayManager != nullptr) {
         m_displayManager->cancelPendingHdrAsync();
         if (applyCurrentPlaybackDisplayState) {
-            const bool shouldEnableHdr = m_config->getEnableHDR() && m_contentIsHDR;
+            const HdrPlaybackPolicy hdrPolicy = computeEffectiveHdrPlaybackPolicy();
+            const bool shouldEnableHdr = hdrPolicy.shouldToggleDisplayHdr;
             const bool shouldMatchRefresh = m_config->getEnableFramerateMatching() && m_contentFramerate > 0.0;
 
             if (!shouldEnableHdr && m_displayManager->needsHdrRestore()) {
@@ -4709,6 +4710,7 @@ void PlayerController::stashPendingAutoplayContext()
     }
     m_pendingAutoplayFramerate = m_contentFramerate;
     m_pendingAutoplayIsHDR = m_contentIsHDR;
+    m_pendingAutoplayToneMapToSdr = m_contentShouldToneMapToSdr;
     setAwaitingNextEpisodeResolution(true);
 }
 
@@ -4730,6 +4732,7 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplaySubtitleMode = TrackPreferenceMode::Unset;
     m_pendingAutoplayFramerate = 0.0;
     m_pendingAutoplayIsHDR = false;
+    m_pendingAutoplayToneMapToSdr = false;
     m_pendingAutoplayEpisodeData = QJsonObject();
     setAwaitingNextEpisodeResolution(false);
 }
@@ -4781,6 +4784,7 @@ void PlayerController::fallbackToPendingAutoplayPlayback()
     const QString libraryId = m_pendingAutoplayLibraryId;
     const double framerate = m_pendingAutoplayFramerate;
     const bool isHdr = m_pendingAutoplayIsHDR;
+    const bool toneMapToSdr = m_pendingAutoplayToneMapToSdr;
     stopAutoplayPlaybackInfoWait();
 
     const QString fallbackUrl = m_libraryService->getStreamUrl(itemId);
@@ -4791,7 +4795,8 @@ void PlayerController::fallbackToPendingAutoplayPlayback()
             targetSeasonId,
             libraryId,
             framerate,
-            isHdr);
+            isHdr,
+            toneMapToSdr);
 }
 
 void PlayerController::stopAutoplayPlaybackInfoWait()
@@ -4844,17 +4849,9 @@ void PlayerController::startPlayback(const QString &url)
     
     // Handle Display Settings - HDR FIRST (must be done before refresh rate change)
     // Toggling HDR can reset the display mode, so we set HDR first, then refresh rate
-    const QString hdrOutputMode = m_config->getHDROutputMode();
-    const bool shouldToneMapToSdr = m_contentIsHDR
-        && (m_contentShouldToneMapToSdr
-            || !m_config->getEnableHDR()
-            || hdrOutputMode == QStringLiteral("tone-map-to-sdr"));
-    const bool shouldAttemptHdrToggle = m_config->getEnableHDR()
-        && m_contentIsHDR
-        && !shouldToneMapToSdr
-        && hdrOutputMode != QStringLiteral("tone-map-to-sdr");
+    const HdrPlaybackPolicy hdrPolicy = computeEffectiveHdrPlaybackPolicy();
     bool hdrEnabled = false;
-    if (shouldAttemptHdrToggle) {
+    if (hdrPolicy.shouldToggleDisplayHdr) {
         // Snapshot refresh before HDR toggle. Some setups force 60Hz in HDR,
         // and we want restore to return to the pre-HDR rate.
         m_displayManager->captureOriginalRefreshRate();
@@ -4866,11 +4863,30 @@ void PlayerController::startPlayback(const QString &url)
                                 << "] setHDR(true) result=" << hdrEnabled;
     } else if (m_config->getEnableHDR() && !m_contentIsHDR) {
         qCDebug(lcPlayback) << "PlayerController: HDR toggle enabled but content is SDR, not switching display HDR";
-    } else if (shouldToneMapToSdr) {
+    } else if (hdrPolicy.toneMapToSdr) {
         qCDebug(lcPlayback) << "PlayerController: HDR content will be tone-mapped locally to SDR; not switching display HDR";
     }
 
     applyFramerateMatchingAndStart();
+}
+
+PlayerController::HdrPlaybackPolicy PlayerController::computeEffectiveHdrPlaybackPolicy() const
+{
+    HdrPlaybackPolicy policy;
+    if (!m_contentIsHDR) {
+        return policy;
+    }
+
+    const QString hdrOutputMode = m_config->getHDROutputMode();
+    policy.toneMapToSdr = m_contentShouldToneMapToSdr
+        || !m_config->getEnableHDR()
+        || hdrOutputMode == QStringLiteral("tone-map-to-sdr");
+    policy.outputHdr = m_config->getEnableHDR()
+        && !policy.toneMapToSdr
+        && (hdrOutputMode == QStringLiteral("match-content")
+            || hdrOutputMode == QStringLiteral("force-hdr-experimental"));
+    policy.shouldToggleDisplayHdr = policy.outputHdr;
+    return policy;
 }
 
 void PlayerController::applyFramerateMatchingAndStart()

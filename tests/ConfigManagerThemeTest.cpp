@@ -217,15 +217,19 @@ void ConfigManagerThemeTest::hdrMpvArgsRespectOutputMode()
     QVERIFY(args.contains(QStringLiteral("--vo=gpu-next")));
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=auto")));
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint-mode=target")));
+    QVERIFY(!args.contains(QStringLiteral("--gpu-api=d3d11")));
+    QVERIFY(!args.contains(QStringLiteral("--gpu-context=d3d11")));
 
     args = config.getMpvArgsForProfile(QStringLiteral("Default"), true, true);
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
     QVERIFY(args.contains(QStringLiteral("--tone-mapping=auto")));
+    QVERIFY(args.contains(QStringLiteral("--hdr-compute-peak=auto")));
 
     config.setHDROutputMode(QStringLiteral("tone-map-to-sdr"));
     args = config.getMpvArgsForProfile(QStringLiteral("Default"), true);
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
     QVERIFY(args.contains(QStringLiteral("--tone-mapping=auto")));
+    QVERIFY(args.contains(QStringLiteral("--hdr-compute-peak=auto")));
 }
 
 QTEST_MAIN(ConfigManagerThemeTest)
