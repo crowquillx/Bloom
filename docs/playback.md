@@ -44,6 +44,7 @@ Windows embedded overlay layering model
 - Natural playback end, explicit stop, and error-triggered shutdown now share one coordinated terminal-transition path so reporting/autoplay work runs once per playback attempt.
 - Windows direct-libmpv event handling now suppresses playback reactivation events (`START_FILE`/`FILE_LOADED`/`PLAYBACK_RESTART`/`SEEK`) while a stop command is pending, preventing stale wakeup events from re-showing the embedded host window as a black frame during teardown.
 - Refresh-rate matching starts mpv with explicit display-sync options for exact matches (`--video-sync=display-resample` plus `--display-fps=<content fps>`), except when the user has chosen to keep an already compatible higher multiple such as 120Hz for 23.976fps content. This avoids pacing fractional Windows modes as integer 23/29/59Hz after Bloom switches the display.
+- Windows direct-libmpv diagnostics request mpv log messages by default at `warn` level and include detailed terminal event/teardown breadcrumbs. Set `BLOOM_WINDOWS_LIBMPV_MPV_LOG=info`, `debug`, or `trace` before launching Bloom to collect more mpv-side detail for playback termination diagnosis; use `no`/`off` to disable mpv log forwarding.
 
 Reference implementation notes (Plezy)
 - External reference: https://github.com/edde746/plezy

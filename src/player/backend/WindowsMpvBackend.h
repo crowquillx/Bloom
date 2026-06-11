@@ -53,6 +53,7 @@ private:
     void handlePropertyChange(const QString &name, const QVariant &value);
     bool sendVariantCommandDirect(const QVariantList &command);
     void setDirectRunning(bool running);
+    void logLifecycleCheckpoint(const char *checkpoint) const;
 
     static void wakeupCallback(void *ctx);
 

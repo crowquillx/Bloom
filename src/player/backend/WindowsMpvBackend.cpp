@@ -7,6 +7,7 @@
 #include <QMetaType>
 #include <QVector>
 #include <QtMath>
+#include <QtGlobal>
 #if defined(Q_OS_WIN)
 #include <windows.h>
 #endif
@@ -16,6 +17,7 @@
 #include <QLoggingCategory>
 
 #include "../../utils/BloomLogging.h"
+#include "../../utils/Logger.h"
 
 #if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
 extern "C" {
@@ -25,6 +27,44 @@ extern "C" {
 
 namespace {
 std::atomic<quint64> gWindowsMpvReplyUserdataCounter{0};
+
+bool isTruthyEnv(const char *name)
+{
+    return qEnvironmentVariableIntValue(name) == 1;
+}
+
+const char *windowsMpvLogLevel()
+{
+    const QByteArray configured = qgetenv("BLOOM_WINDOWS_LIBMPV_MPV_LOG").trimmed().toLower();
+    if (configured == "no" || configured == "none" || configured == "off" || configured == "0") {
+        return "no";
+    }
+    if (configured == "trace") return "trace";
+    if (configured == "debug") return "debug";
+    if (configured == "info") return "info";
+    if (configured == "v") return "v";
+    if (configured == "warn") return "warn";
+    if (configured == "error") return "error";
+    if (configured == "fatal") return "fatal";
+    if (isTruthyEnv("BLOOM_WINDOWS_LIBMPV_DEBUG")) {
+        return "debug";
+    }
+    return "warn";
+}
+
+#if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
+const char *endFileReasonToString(int reason)
+{
+    switch (reason) {
+    case MPV_END_FILE_REASON_EOF: return "eof";
+    case MPV_END_FILE_REASON_STOP: return "stop";
+    case MPV_END_FILE_REASON_QUIT: return "quit";
+    case MPV_END_FILE_REASON_ERROR: return "error";
+    case MPV_END_FILE_REASON_REDIRECT: return "redirect";
+    default: return "unknown";
+    }
+}
+#endif
 
 bool isEmbeddedUnsafeOptionName(const QString &name)
 {
@@ -220,7 +260,13 @@ void WindowsMpvBackend::stopMpv()
 {
     qCInfo(lcWindowsLibmpvBackend) << "stopMpv requested"
                                    << "directControlActive=" << m_directControlActive
-                                   << "running=" << m_running;
+                                   << "running=" << m_running
+                                   << "stopRequested=" << m_stopRequested
+                                   << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata
+                                   << "handlePresent=" << (m_mpvHandle != nullptr)
+                                   << "containerWinId=" << static_cast<qulonglong>(m_containerWinId)
+                                   << "hostWinId=" << static_cast<qulonglong>(m_videoHostWinId);
+    Logger::instance().flush();
     if (m_directControlActive) {
         m_stopRequested = true;
 #if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
@@ -228,11 +274,18 @@ void WindowsMpvBackend::stopMpv()
             mpv_handle *handle = static_cast<mpv_handle *>(m_mpvHandle);
             const char *command[] = {"stop", nullptr};
             const quint64 replyUserdata = ++gWindowsMpvReplyUserdataCounter;
+            qCInfo(lcWindowsLibmpvBackend)
+                << "Dispatching direct libmpv stop command"
+                << "replyUserdata=" << replyUserdata;
+            Logger::instance().flush();
             const int status = mpv_command_async(handle,
                                                  static_cast<uint64_t>(replyUserdata),
                                                  command);
             if (status < 0) {
-                qCWarning(lcWindowsLibmpvBackend) << "Direct libmpv stop command failed; falling back to immediate teardown";
+                qCWarning(lcWindowsLibmpvBackend)
+                    << "Direct libmpv stop command failed; falling back to immediate teardown"
+                    << "error=" << QString::fromUtf8(mpv_error_string(status));
+                Logger::instance().flush();
                 teardownMpv();
                 syncContainerGeometry();
                 return;
@@ -612,14 +665,17 @@ bool WindowsMpvBackend::tryStartDirectMpv(const QStringList &args, const QString
 #else
     teardownMpv();
     m_stopRequested = false;
+    logLifecycleCheckpoint("tryStartDirectMpv-after-teardown");
 
     if (!initializeMpv(args)) {
         qCWarning(lcWindowsLibmpvBackend) << "Direct libmpv initialize failed";
+        Logger::instance().flush();
         return false;
     }
 
     if (!queueLoadFile(mediaUrl)) {
         qCWarning(lcWindowsLibmpvBackend) << "Direct libmpv loadfile failed";
+        Logger::instance().flush();
         teardownMpv();
         return false;
     }
@@ -636,31 +692,66 @@ bool WindowsMpvBackend::initializeMpv(const QStringList &args)
     Q_UNUSED(args);
     return false;
 #else
+    qCInfo(lcWindowsLibmpvBackend)
+        << "mpv_create begin"
+        << "argCount=" << args.size()
+        << "hostWinId=" << static_cast<qulonglong>(m_videoHostWinId);
+    Logger::instance().flush();
     mpv_handle *handle = mpv_create();
     if (!handle) {
         qCWarning(lcWindowsLibmpvBackend) << "mpv_create failed";
+        Logger::instance().flush();
         return false;
     }
+    qCInfo(lcWindowsLibmpvBackend)
+        << "mpv_create ok"
+        << "handle=" << handle
+        << "mpvLogLevel=" << windowsMpvLogLevel();
+    Logger::instance().flush();
 
     mpv_set_wakeup_callback(handle, &WindowsMpvBackend::wakeupCallback, this);
+    const int logStatus = mpv_request_log_messages(handle, windowsMpvLogLevel());
+    if (logStatus < 0) {
+        qCWarning(lcWindowsLibmpvBackend)
+            << "mpv_request_log_messages failed"
+            << "level=" << windowsMpvLogLevel()
+            << "error=" << QString::fromUtf8(mpv_error_string(logStatus));
+        Logger::instance().flush();
+    }
 
     m_mpvHandle = handle;
     applyMpvArgs(handle, args);
 
     if (m_videoHostWinId != 0) {
         const QByteArray widValue = QByteArray::number(static_cast<qulonglong>(m_videoHostWinId));
-        if (mpv_set_option_string(handle, "wid", widValue.constData()) < 0) {
-            qCWarning(lcWindowsLibmpvBackend) << "Failed to set wid option for direct libmpv path";
+        qCInfo(lcWindowsLibmpvBackend)
+            << "Setting direct libmpv wid option"
+            << "wid=" << widValue.constData();
+        Logger::instance().flush();
+        const int widStatus = mpv_set_option_string(handle, "wid", widValue.constData());
+        if (widStatus < 0) {
+            qCWarning(lcWindowsLibmpvBackend)
+                << "Failed to set wid option for direct libmpv path"
+                << "error=" << QString::fromUtf8(mpv_error_string(widStatus));
+            Logger::instance().flush();
         }
     }
 
-    if (mpv_initialize(handle) < 0) {
-        qCWarning(lcWindowsLibmpvBackend) << "mpv_initialize failed";
+    qCInfo(lcWindowsLibmpvBackend) << "mpv_initialize begin";
+    Logger::instance().flush();
+    const int initializeStatus = mpv_initialize(handle);
+    if (initializeStatus < 0) {
+        qCWarning(lcWindowsLibmpvBackend)
+            << "mpv_initialize failed"
+            << "error=" << QString::fromUtf8(mpv_error_string(initializeStatus));
+        Logger::instance().flush();
         mpv_set_wakeup_callback(handle, nullptr, nullptr);
         mpv_terminate_destroy(handle);
         m_mpvHandle = nullptr;
         return false;
     }
+    qCInfo(lcWindowsLibmpvBackend) << "mpv_initialize ok";
+    Logger::instance().flush();
 
     observeMpvProperties(handle);
     return true;
@@ -669,11 +760,18 @@ bool WindowsMpvBackend::initializeMpv(const QStringList &args)
 
 void WindowsMpvBackend::teardownMpv()
 {
+    logLifecycleCheckpoint("teardownMpv-begin");
 #if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
     if (m_mpvHandle != nullptr) {
         mpv_handle *handle = static_cast<mpv_handle *>(m_mpvHandle);
         mpv_set_wakeup_callback(handle, nullptr, nullptr);
+        qCInfo(lcWindowsLibmpvBackend)
+            << "mpv_terminate_destroy begin"
+            << "handle=" << handle;
+        Logger::instance().flush();
         mpv_terminate_destroy(handle);
+        qCInfo(lcWindowsLibmpvBackend) << "mpv_terminate_destroy returned";
+        Logger::instance().flush();
     }
 #endif
 
@@ -691,6 +789,7 @@ void WindowsMpvBackend::teardownMpv()
         m_videoHostDestroyDeferred = false;
         destroyVideoHostWindow();
     }
+    logLifecycleCheckpoint("teardownMpv-end");
 }
 
 void WindowsMpvBackend::scheduleStopTeardownWatchdog(quint64 replyUserdata)
@@ -717,13 +816,30 @@ bool WindowsMpvBackend::queueLoadFile(const QString &mediaUrl)
     return false;
 #else
     if (m_mpvHandle == nullptr || mediaUrl.isEmpty()) {
+        qCWarning(lcWindowsLibmpvBackend)
+            << "queueLoadFile skipped"
+            << "handlePresent=" << (m_mpvHandle != nullptr)
+            << "mediaUrlEmpty=" << mediaUrl.isEmpty();
+        Logger::instance().flush();
         return false;
     }
 
     mpv_handle *handle = static_cast<mpv_handle *>(m_mpvHandle);
     const QByteArray mediaUrlUtf8 = mediaUrl.toUtf8();
     const char *command[] = {"loadfile", mediaUrlUtf8.constData(), "replace", nullptr};
-    return mpv_command_async(handle, 0, command) >= 0;
+    qCInfo(lcWindowsLibmpvBackend)
+        << "Dispatching direct libmpv loadfile"
+        << "media=" << mediaUrl;
+    Logger::instance().flush();
+    const int status = mpv_command_async(handle, 0, command);
+    if (status < 0) {
+        qCWarning(lcWindowsLibmpvBackend)
+            << "Direct libmpv loadfile dispatch failed"
+            << "error=" << QString::fromUtf8(mpv_error_string(status));
+        Logger::instance().flush();
+        return false;
+    }
+    return true;
 #endif
 }
 
@@ -745,7 +861,44 @@ void WindowsMpvBackend::processMpvEvents()
         }
 
         switch (event->event_id) {
+        case MPV_EVENT_LOG_MESSAGE: {
+            const mpv_event_log_message *logMessage = static_cast<const mpv_event_log_message *>(event->data);
+            if (!logMessage || !logMessage->text) {
+                break;
+            }
+            const QString level = QString::fromUtf8(logMessage->level ? logMessage->level : "");
+            const QString prefix = QString::fromUtf8(logMessage->prefix ? logMessage->prefix : "");
+            const QString text = QString::fromUtf8(logMessage->text).trimmed();
+            if (text.isEmpty()) {
+                break;
+            }
+
+            const QString formatted = QStringLiteral("[libmpv][%1][%2] %3")
+                                          .arg(level.isEmpty() ? QStringLiteral("unknown") : level,
+                                               prefix.isEmpty() ? QStringLiteral("unknown") : prefix,
+                                               text);
+            if (level == QStringLiteral("fatal") || level == QStringLiteral("error")) {
+                qCCritical(lcWindowsLibmpvBackend).noquote() << formatted;
+                Logger::instance().flush();
+            } else if (level == QStringLiteral("warn")) {
+                qCWarning(lcWindowsLibmpvBackend).noquote() << formatted;
+                Logger::instance().flush();
+            } else if (level == QStringLiteral("info") || level == QStringLiteral("status")) {
+                qCInfo(lcWindowsLibmpvBackend).noquote() << formatted;
+            } else {
+                qCDebug(lcWindowsLibmpvBackend).noquote() << formatted;
+            }
+            break;
+        }
         case MPV_EVENT_SHUTDOWN:
+            qCWarning(lcWindowsLibmpvBackend)
+                << "MPV_EVENT_SHUTDOWN"
+                << "stopRequested=" << m_stopRequested
+                << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata
+                << "running=" << m_running
+                << "playlistPosition=" << m_playlistPosition
+                << "playlistCount=" << m_playlistCount;
+            Logger::instance().flush();
             m_stopRequested = false;
             teardownMpv();
             return;
@@ -773,6 +926,40 @@ void WindowsMpvBackend::processMpvEvents()
                 && (m_playlistPosition + 1) < m_playlistCount;
             const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
 
+            const bool endedWithError = endFile != nullptr && endFile->reason == MPV_END_FILE_REASON_ERROR;
+            if (endedWithError) {
+                qCWarning(lcWindowsLibmpvBackend)
+                    << "MPV_EVENT_END_FILE"
+                    << "reason=" << endFileReasonToString(endFile->reason)
+                    << "reasonCode=" << endFile->reason
+                    << "error=" << endFile->error
+                    << "errorText=" << (endFile->error < 0 ? QString::fromUtf8(mpv_error_string(endFile->error)) : QString())
+                    << "stopRequested=" << m_stopRequested
+                    << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata
+                    << "playlistPosition=" << m_playlistPosition
+                    << "playlistCount=" << m_playlistCount
+                    << "hasRemainingPlaylistItems=" << hasRemainingPlaylistItems
+                    << "reachedTerminalPlaybackState=" << reachedTerminalPlaybackState
+                    << "running=" << m_running;
+            } else {
+                qCInfo(lcWindowsLibmpvBackend)
+                    << "MPV_EVENT_END_FILE"
+                    << "reason=" << (endFile != nullptr ? endFileReasonToString(endFile->reason) : "none")
+                    << "reasonCode=" << (endFile != nullptr ? endFile->reason : -1)
+                    << "error=" << (endFile != nullptr ? endFile->error : 0)
+                    << "errorText=" << (endFile != nullptr && endFile->error < 0
+                                          ? QString::fromUtf8(mpv_error_string(endFile->error))
+                                          : QString())
+                    << "stopRequested=" << m_stopRequested
+                    << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata
+                    << "playlistPosition=" << m_playlistPosition
+                    << "playlistCount=" << m_playlistCount
+                    << "hasRemainingPlaylistItems=" << hasRemainingPlaylistItems
+                    << "reachedTerminalPlaybackState=" << reachedTerminalPlaybackState
+                    << "running=" << m_running;
+            }
+            Logger::instance().flush();
+
             if (m_stopRequested && reachedTerminalPlaybackState) {
                 shouldEmitPlaybackEnded = false;
             }
@@ -792,6 +979,16 @@ void WindowsMpvBackend::processMpvEvents()
             break;
         }
         case MPV_EVENT_COMMAND_REPLY:
+            qCInfo(lcWindowsLibmpvBackend)
+                << "MPV_EVENT_COMMAND_REPLY"
+                << "replyUserdata=" << static_cast<qulonglong>(event->reply_userdata)
+                << "error=" << event->error
+                << "errorText=" << (event->error < 0 ? QString::fromUtf8(mpv_error_string(event->error)) : QString())
+                << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata;
+            if (event->error < 0 || (m_pendingStopReplyUserdata != 0
+                                     && static_cast<quint64>(event->reply_userdata) == m_pendingStopReplyUserdata)) {
+                Logger::instance().flush();
+            }
             if (m_pendingStopReplyUserdata != 0
                 && static_cast<quint64>(event->reply_userdata) == m_pendingStopReplyUserdata) {
                 const bool stopFailed = event->error < 0;
@@ -817,6 +1014,12 @@ void WindowsMpvBackend::processMpvEvents()
             }
             break;
         case MPV_EVENT_IDLE:
+            qCInfo(lcWindowsLibmpvBackend)
+                << "MPV_EVENT_IDLE"
+                << "stopRequested=" << m_stopRequested
+                << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata
+                << "running=" << m_running;
+            Logger::instance().flush();
             if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
                 teardownMpv();
                 syncContainerGeometry();
@@ -825,6 +1028,11 @@ void WindowsMpvBackend::processMpvEvents()
             setDirectRunning(false);
             break;
         case MPV_EVENT_START_FILE:
+            qCInfo(lcWindowsLibmpvBackend)
+                << "MPV_EVENT_START_FILE"
+                << "stopRequested=" << m_stopRequested
+                << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata
+                << "running=" << m_running;
             if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
                 qCDebug(lcWindowsLibmpvBackend)
                     << "Ignoring START_FILE while stop is pending";
@@ -833,6 +1041,11 @@ void WindowsMpvBackend::processMpvEvents()
             setDirectRunning(true);
             break;
         case MPV_EVENT_PLAYBACK_RESTART:
+            qCInfo(lcWindowsLibmpvBackend)
+                << "MPV_EVENT_PLAYBACK_RESTART"
+                << "stopRequested=" << m_stopRequested
+                << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata
+                << "running=" << m_running;
             if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
                 qCDebug(lcWindowsLibmpvBackend)
                     << "Ignoring PLAYBACK_RESTART while stop is pending";
@@ -841,6 +1054,11 @@ void WindowsMpvBackend::processMpvEvents()
             setDirectRunning(true);
             break;
         case MPV_EVENT_FILE_LOADED:
+            qCInfo(lcWindowsLibmpvBackend)
+                << "MPV_EVENT_FILE_LOADED"
+                << "stopRequested=" << m_stopRequested
+                << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata
+                << "running=" << m_running;
             if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
                 qCDebug(lcWindowsLibmpvBackend)
                     << "Ignoring FILE_LOADED while stop is pending";
@@ -849,6 +1067,11 @@ void WindowsMpvBackend::processMpvEvents()
             setDirectRunning(true);
             break;
         case MPV_EVENT_SEEK:
+            qCInfo(lcWindowsLibmpvBackend)
+                << "MPV_EVENT_SEEK"
+                << "stopRequested=" << m_stopRequested
+                << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata
+                << "running=" << m_running;
             if (m_stopRequested || m_pendingStopReplyUserdata != 0) {
                 qCDebug(lcWindowsLibmpvBackend)
                     << "Ignoring SEEK while stop is pending";
@@ -936,6 +1159,14 @@ void WindowsMpvBackend::processMpvEvents()
             break;
         }
         default:
+            if (event->event_id != MPV_EVENT_PROPERTY_CHANGE) {
+                qCDebug(lcWindowsLibmpvBackend)
+                    << "Unhandled direct libmpv event"
+                    << "event=" << mpv_event_name(event->event_id)
+                    << "eventId=" << event->event_id
+                    << "replyUserdata=" << static_cast<qulonglong>(event->reply_userdata)
+                    << "error=" << event->error;
+            }
             break;
         }
     }
@@ -974,6 +1205,10 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
     }
 
     mpv_handle *handle = static_cast<mpv_handle *>(handlePtr);
+    qCInfo(lcWindowsLibmpvBackend)
+        << "Applying direct libmpv startup options"
+        << "argCount=" << args.size();
+    Logger::instance().flush();
     for (const QString &arg : args) {
         if (!arg.startsWith("--")) {
             continue;
@@ -1002,14 +1237,35 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
                 << name
                 << "value"
                 << value
+                << "rawArg"
+                << arg
                 << "error"
                 << mpv_error_string(status);
+            Logger::instance().flush();
         }
     }
 #else
     Q_UNUSED(handlePtr);
     Q_UNUSED(args);
 #endif
+}
+
+void WindowsMpvBackend::logLifecycleCheckpoint(const char *checkpoint) const
+{
+    qCInfo(lcWindowsLibmpvBackend)
+        << checkpoint
+        << "handlePresent=" << (m_mpvHandle != nullptr)
+        << "directControlActive=" << m_directControlActive
+        << "running=" << m_running
+        << "stopRequested=" << m_stopRequested
+        << "pendingStopReplyUserdata=" << m_pendingStopReplyUserdata
+        << "playlistPosition=" << m_playlistPosition
+        << "playlistCount=" << m_playlistCount
+        << "containerWinId=" << static_cast<qulonglong>(m_containerWinId)
+        << "hostWinId=" << static_cast<qulonglong>(m_videoHostWinId)
+        << "videoTargetPresent=" << (m_videoTarget != nullptr)
+        << "videoHostDestroyDeferred=" << m_videoHostDestroyDeferred;
+    Logger::instance().flush();
 }
 
 void WindowsMpvBackend::handlePropertyChange(const QString &name, const QVariant &value)
