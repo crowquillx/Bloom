@@ -152,6 +152,8 @@ add_executable(PlayerBackendFactoryTest
     ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/MpvArgFilter.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/backend/MpvEmbeddedShaderUtils.h
+    ${CMAKE_SOURCE_DIR}/src/player/backend/MpvEmbeddedShaderUtils.cpp
     ${TEST_LOGGING_SOURCES}
 )
 
@@ -605,6 +607,8 @@ if(UNIX AND NOT APPLE)
     target_sources(VisualRegressionTest PRIVATE
         ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxMpvBackend.h
         ${CMAKE_SOURCE_DIR}/src/player/backend/LinuxMpvBackend.cpp
+        ${CMAKE_SOURCE_DIR}/src/player/backend/MpvEmbeddedShaderUtils.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/MpvEmbeddedShaderUtils.cpp
     )
     # Linux: link libsecret
     target_sources(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src/security/SecretStoreLinux.cpp)
@@ -614,6 +618,8 @@ elseif(WIN32)
     target_sources(VisualRegressionTest PRIVATE
         ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.h
         ${CMAKE_SOURCE_DIR}/src/player/backend/WindowsMpvBackend.cpp
+        ${CMAKE_SOURCE_DIR}/src/player/backend/MpvEmbeddedShaderUtils.h
+        ${CMAKE_SOURCE_DIR}/src/player/backend/MpvEmbeddedShaderUtils.cpp
     )
     # Windows: link advapi32 for Credential Manager API
     target_sources(VisualRegressionTest PRIVATE ${CMAKE_SOURCE_DIR}/src/security/SecretStoreWindows.cpp)

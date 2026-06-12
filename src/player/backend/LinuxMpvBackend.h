@@ -50,6 +50,7 @@ private:
     void processMpvEvents();
     void observeMpvProperties(void *handle);
     void applyMpvArgs(void *handle, const QStringList &args);
+    void applyEmbeddedShaderList(void *handle);
     bool queueLoadFile(const QString &mediaUrl);
     void handlePropertyChange(const QString &name, const QVariant &value);
     void handleWindowChanged(QQuickWindow *window);
@@ -93,4 +94,5 @@ private:
     std::atomic_bool m_swFrameDispatchQueued{false};
     int m_playlistPosition = -1;
     int m_playlistCount = 0;
+    QStringList m_pendingEmbeddedShaderPaths;
 };

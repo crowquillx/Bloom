@@ -45,6 +45,7 @@ private slots:
     void importMpvConfigMissingFileReturnsError();
     void embeddedMpvShaderPartitionPreservesOrder();
     void resolveMpvPortablePathExpandsConfigDirPrefix();
+    void joinMpvPathListOptionValueUsesPlatformSeparator();
 };
 
 namespace {
@@ -1122,6 +1123,21 @@ void ConfigManagerThemeTest::resolveMpvPortablePathExpandsConfigDirPrefix()
              QDir(mpvConfigDir).filePath(QStringLiteral("shaders/Foo.glsl")));
     QCOMPARE(MpvArgFilter::resolveMpvPortablePath(QStringLiteral("C:\\filters\\ArtCNN.glsl"), mpvConfigDir),
              QStringLiteral("C:\\filters\\ArtCNN.glsl"));
+}
+
+void ConfigManagerThemeTest::joinMpvPathListOptionValueUsesPlatformSeparator()
+{
+    const QStringList paths{
+        QStringLiteral("/first.glsl"),
+        QStringLiteral("/second.glsl"),
+    };
+#if defined(Q_OS_WIN)
+    QCOMPARE(MpvArgFilter::joinMpvPathListOptionValue(paths),
+             QStringLiteral("/first.glsl;/second.glsl"));
+#else
+    QCOMPARE(MpvArgFilter::joinMpvPathListOptionValue(paths),
+             QStringLiteral("/first.glsl:/second.glsl"));
+#endif
 }
 
 QTEST_MAIN(ConfigManagerThemeTest)

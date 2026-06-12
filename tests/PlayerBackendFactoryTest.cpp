@@ -297,15 +297,14 @@ void PlayerBackendFactoryTest::windowsEmbeddedShaderListUsesResolvedGlslShadersO
         QStringLiteral("--glsl-shaders-append=~~/shaders/SSimDownscaler.glsl"),
     };
 
-    const QString shaderListValue = backend.embeddedShaderListValueForTest(highQualityArgs);
+    const QStringList shaderPaths = backend.embeddedShaderPathsForTest(highQualityArgs);
     const QStringList expectedPaths{
         QDir(mpvConfigDir).filePath(QStringLiteral("shaders/FSRCNNX_x2_8-0-4-1.glsl")),
         QDir(mpvConfigDir).filePath(QStringLiteral("shaders/KrigBilateral.glsl")),
         QDir(mpvConfigDir).filePath(QStringLiteral("shaders/SSimDownscaler.glsl")),
     };
-    QCOMPARE(shaderListValue, expectedPaths.join(QLatin1Char(',')));
-    QVERIFY(!shaderListValue.contains(QStringLiteral("glsl-shaders-append")));
-    QVERIFY(!shaderListValue.contains(QStringLiteral("~~/")));
+    QCOMPARE(shaderPaths, expectedPaths);
+    QVERIFY(shaderPaths.size() == 3);
 #else
     QSKIP("Windows embedded shader list helper is only compiled on Windows");
 #endif

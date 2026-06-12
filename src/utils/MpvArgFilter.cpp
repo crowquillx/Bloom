@@ -216,6 +216,25 @@ QString resolveMpvPortablePath(const QString &path, const QString &mpvConfigDir)
     return path;
 }
 
+QStringList resolveEmbeddedShaderPaths(const QStringList &shaderPaths, const QString &mpvConfigDir)
+{
+    QStringList resolved;
+    resolved.reserve(shaderPaths.size());
+    for (const QString &shaderPath : shaderPaths) {
+        resolved.append(resolveMpvPortablePath(shaderPath, mpvConfigDir));
+    }
+    return resolved;
+}
+
+QString joinMpvPathListOptionValue(const QStringList &paths)
+{
+#if defined(Q_OS_WIN)
+    return paths.join(QLatin1Char(';'));
+#else
+    return paths.join(QLatin1Char(':'));
+#endif
+}
+
 QStringList filterBloomManagedArgs(const QStringList &args, QStringList *filteredArgs)
 {
     QStringList result;

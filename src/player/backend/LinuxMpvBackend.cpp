@@ -16,6 +16,8 @@
 #include <clocale>
 #include <algorithm>
 
+#include "MpvEmbeddedShaderUtils.h"
+
 #include "../../utils/BloomLogging.h"
 #include "../../utils/ConfigManager.h"
 #include "../../utils/MpvArgFilter.h"
@@ -469,6 +471,7 @@ bool LinuxMpvBackend::initializeMpv(const QStringList &args)
     mpv_request_log_messages(handle, mpvLogLevelForEnv(m_debugLogging));
 
     m_mpvHandle = handle;
+    m_pendingEmbeddedShaderPaths.clear();
     applyMpvArgs(handle, args);
 
     if (mpv_initialize(handle) < 0) {
@@ -478,6 +481,7 @@ bool LinuxMpvBackend::initializeMpv(const QStringList &args)
         return false;
     }
 
+    applyEmbeddedShaderList(handle);
     observeMpvProperties(handle);
     return true;
 #endif
@@ -709,27 +713,9 @@ void LinuxMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
     }
 
     if (!partitioned.shaderPaths.isEmpty()) {
-        const QString mpvConfigDir = ConfigManager::getMpvConfigDir();
-        QStringList resolvedShaderPaths;
-        resolvedShaderPaths.reserve(partitioned.shaderPaths.size());
-        for (const QString &shaderPath : partitioned.shaderPaths) {
-            resolvedShaderPaths.append(MpvArgFilter::resolveMpvPortablePath(shaderPath, mpvConfigDir));
-        }
-
-        const QString joinedShaderPaths = resolvedShaderPaths.join(QLatin1Char(','));
-        const QByteArray joinedShaderPathsUtf8 = joinedShaderPaths.toUtf8();
-        const int shaderStatus = mpv_set_option_string(handle,
-                                                         "glsl-shaders",
-                                                         joinedShaderPathsUtf8.constData());
-        if (shaderStatus < 0) {
-            qCWarning(lcLinuxLibmpvBackend)
-                << "Failed to set embedded libmpv shaders"
-                << joinedShaderPaths
-                << "error"
-                << mpv_error_string(shaderStatus);
-        } else if (m_debugLogging) {
-            qCInfo(lcLinuxLibmpvBackend) << "Applied embedded libmpv shaders:" << resolvedShaderPaths;
-        }
+        m_pendingEmbeddedShaderPaths =
+            MpvArgFilter::resolveEmbeddedShaderPaths(partitioned.shaderPaths,
+                                                     ConfigManager::getMpvConfigDir());
     }
 
     // Prefer software decode first on Linux embedded path to avoid HW interop failures.
@@ -740,6 +726,29 @@ void LinuxMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
 #else
     Q_UNUSED(handlePtr);
     Q_UNUSED(args);
+#endif
+}
+
+void LinuxMpvBackend::applyEmbeddedShaderList(void *handlePtr)
+{
+#if defined(BLOOM_HAS_LIBMPV)
+    if (!handlePtr || m_pendingEmbeddedShaderPaths.isEmpty()) {
+        return;
+    }
+
+    if (!MpvEmbeddedShaderUtils::applyShaderList(static_cast<mpv_handle *>(handlePtr),
+                                                 m_pendingEmbeddedShaderPaths)) {
+        qCWarning(lcLinuxLibmpvBackend)
+            << "Failed to apply embedded libmpv shaders"
+            << m_pendingEmbeddedShaderPaths;
+        return;
+    }
+
+    if (m_debugLogging) {
+        qCInfo(lcLinuxLibmpvBackend) << "Applied embedded libmpv shaders:" << m_pendingEmbeddedShaderPaths;
+    }
+#else
+    Q_UNUSED(handlePtr);
 #endif
 }
 

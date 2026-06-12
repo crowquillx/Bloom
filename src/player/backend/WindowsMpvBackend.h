@@ -58,17 +58,12 @@ public:
         }
         return result;
     }
-    QString embeddedShaderListValueForTest(const QStringList &args) const
+    QStringList embeddedShaderPathsForTest(const QStringList &args) const
     {
         const MpvArgFilter::ShaderArgPartition partitioned =
             MpvArgFilter::partitionShaderArgs(MpvArgFilter::sanitizeArgs(args));
-        const QString mpvConfigDir = ConfigManager::getMpvConfigDir();
-        QStringList resolvedShaderPaths;
-        resolvedShaderPaths.reserve(partitioned.shaderPaths.size());
-        for (const QString &shaderPath : partitioned.shaderPaths) {
-            resolvedShaderPaths.append(MpvArgFilter::resolveMpvPortablePath(shaderPath, mpvConfigDir));
-        }
-        return resolvedShaderPaths.join(QLatin1Char(','));
+        return MpvArgFilter::resolveEmbeddedShaderPaths(partitioned.shaderPaths,
+                                                        ConfigManager::getMpvConfigDir());
     }
 #endif
 
@@ -82,6 +77,7 @@ private:
     void processMpvEvents();
     void observeMpvProperties(void *handle);
     void applyMpvArgs(void *handle, const QStringList &args);
+    void applyEmbeddedShaderList(void *handle);
     void applyRenderApiOptions(void *handle);
     void handlePropertyChange(const QString &name, const QVariant &value);
     bool sendVariantCommandDirect(const QVariantList &command);
@@ -137,4 +133,5 @@ private:
     QList<QByteArray> m_commandScratch;
     int m_playlistPosition = -1;
     int m_playlistCount = 0;
+    QStringList m_pendingEmbeddedShaderPaths;
 };

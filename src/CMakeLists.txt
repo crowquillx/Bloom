@@ -27,6 +27,8 @@ qt_add_executable(Bloom
     player/backend/ExternalMpvBackend.cpp
     player/backend/PlayerBackendFactory.h
     player/backend/PlayerBackendFactory.cpp
+    player/backend/MpvEmbeddedShaderUtils.h
+    player/backend/MpvEmbeddedShaderUtils.cpp
     network/AuthenticationService.h
     network/AuthenticationService.cpp
     network/LibraryService.h
