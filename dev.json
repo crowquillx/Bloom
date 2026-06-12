@@ -1,18 +1,18 @@
 {
-  "build_id": "20260612045714-57ac6f5",
+  "build_id": "20260612175010-e8934be",
   "channel": "dev",
   "installer": {
     "filename": "Bloom-Setup-dev.exe",
-    "sha256": "9543921fe7385b2698d1724dab0544b89a9449df1f9b1251258620d3a73bf143",
+    "sha256": "b17ece08cae155888ba9216dd452b22afcf7429e2ce58d0f965727a5560529a8",
     "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-dev.exe"
   },
-  "notes": "Latest development build from main branch.\n\n## Windows\nPortable ZIP (`Bloom-Windows.zip`)\nSHA256: `2d3b92c5cc13c7647e231ed6e0204bd437a07bd5ce0703967b11498626fd71d4`\n\nInstaller (`Bloom-Setup-dev.exe`)\nSHA256: `9543921fe7385b2698d1724dab0544b89a9449df1f9b1251258620d3a73bf143`\n\n## Linux\nDebian package (`bloom_dev_amd64.deb`)\nSHA256: `08e02a2fc21da9997915aeaf58aa15c3777f6cf3c8d1abc827cea5695f93d2f1`\n\nTarball (`Bloom-Linux.tar.gz`)\nSHA256: `191f6e54e53dfa763d95d382af4a25b40f210170b7ae84db941395c26c8258dd`",
+  "notes": "Latest development build from main branch.\n\n## Windows\nPortable ZIP (`Bloom-Windows.zip`)\nSHA256: `749397db9c3bb6d7214a4e647fc80594c439443e5a0c8a4c67f04389bbf55413`\n\nInstaller (`Bloom-Setup-dev.exe`)\nSHA256: `b17ece08cae155888ba9216dd452b22afcf7429e2ce58d0f965727a5560529a8`\n\n## Linux\nDebian package (`bloom_dev_amd64.deb`)\nSHA256: `bb4349560b9070491bece6878ad30ecb3f7530780045f6bd2562ba579a62f22e`\n\nTarball (`Bloom-Linux.tar.gz`)\nSHA256: `cb020a729d854387153bb240b5e5729f5c793ed0ec2fbad50c47893015da1a9d`",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "2d3b92c5cc13c7647e231ed6e0204bd437a07bd5ce0703967b11498626fd71d4",
+    "sha256": "749397db9c3bb6d7214a4e647fc80594c439443e5a0c8a4c67f04389bbf55413",
     "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
   },
-  "published_at": "2026-06-12T04:57:27Z",
+  "published_at": "2026-06-12T17:50:41Z",
   "release_tag": "dev-latest",
   "rollout": {
     "enabled": true,
