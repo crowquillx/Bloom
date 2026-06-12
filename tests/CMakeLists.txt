@@ -127,6 +127,7 @@ add_test(NAME LoggingConfigTest COMMAND LoggingConfigTest)
 add_executable(ConfigManagerThemeTest
     ConfigManagerThemeTest.cpp
     ${TEST_CONFIG_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
 )
 
 target_include_directories(ConfigManagerThemeTest PRIVATE

@@ -6,6 +6,7 @@
 namespace MpvArgFilter {
 
 QString optionNameForArg(const QString &arg);
+bool isSafeBuiltinProfileArg(const QString &arg);
 bool isBloomManagedOptionName(const QString &name);
 QString sanitizeArg(const QString &arg);
 QStringList sanitizeArgs(const QStringList &args);

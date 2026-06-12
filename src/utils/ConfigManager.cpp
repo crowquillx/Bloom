@@ -153,6 +153,176 @@ QSet<QString> supportedTrackLanguageCodes()
     return result;
 }
 
+QStringList builtInMpvProfileNames()
+{
+    return {
+        QStringLiteral("Low Quality"),
+        QStringLiteral("Medium Quality"),
+        QStringLiteral("High Quality"),
+        QStringLiteral("ArtCNN"),
+        QStringLiteral("ArtCNN-Deband"),
+        QStringLiteral("nnedi3"),
+        QStringLiteral("nnedi3-deband")
+    };
+}
+
+bool isBuiltInMpvProfileName(const QString &name)
+{
+    return builtInMpvProfileNames().contains(name.trimmed());
+}
+
+QJsonObject legacyDefaultMpvProfiles()
+{
+    QJsonObject profiles;
+
+    QJsonObject defaultProfile;
+    defaultProfile[QStringLiteral("hwdec_enabled")] = true;
+    defaultProfile[QStringLiteral("hwdec_method")] = QStringLiteral("auto");
+    defaultProfile[QStringLiteral("deinterlace")] = false;
+    defaultProfile[QStringLiteral("deinterlace_method")] = QString();
+    defaultProfile[QStringLiteral("video_output")] = QStringLiteral("gpu-next");
+    defaultProfile[QStringLiteral("interpolation")] = false;
+    defaultProfile[QStringLiteral("windows_render_api")] = QStringLiteral("auto");
+    defaultProfile[QStringLiteral("extra_args")] = QJsonArray{QStringLiteral("--fullscreen")};
+    profiles[QStringLiteral("Default")] = defaultProfile;
+
+    QJsonObject highQuality;
+    highQuality[QStringLiteral("hwdec_enabled")] = true;
+    highQuality[QStringLiteral("hwdec_method")] = QStringLiteral("auto");
+    highQuality[QStringLiteral("deinterlace")] = false;
+    highQuality[QStringLiteral("deinterlace_method")] = QString();
+    highQuality[QStringLiteral("video_output")] = QStringLiteral("gpu-next");
+    highQuality[QStringLiteral("interpolation")] = false;
+    highQuality[QStringLiteral("windows_render_api")] = QStringLiteral("auto");
+    highQuality[QStringLiteral("extra_args")] = QJsonArray{
+        QStringLiteral("--fullscreen"),
+        QStringLiteral("--profile=high-quality")
+    };
+    profiles[QStringLiteral("High Quality")] = highQuality;
+
+    return profiles;
+}
+
+QString uniqueProfileBackupName(const QJsonObject &profiles, const QString &baseName)
+{
+    const QString first = QStringLiteral("%1 (custom backup)").arg(baseName);
+    if (!profiles.contains(first)) {
+        return first;
+    }
+    int suffix = 2;
+    while (profiles.contains(QStringLiteral("%1 %2").arg(first).arg(suffix))) {
+        ++suffix;
+    }
+    return QStringLiteral("%1 %2").arg(first).arg(suffix);
+}
+
+void rewriteProfileAssignments(QJsonObject &settings, const QString &from, const QString &to)
+{
+    if (settings.value(QStringLiteral("default_profile")).toString() == from) {
+        settings[QStringLiteral("default_profile")] = to;
+    }
+
+    for (const QString &key : {QStringLiteral("library_profiles"), QStringLiteral("series_profiles")}) {
+        QJsonObject assignments = settings.value(key).toObject();
+        for (const QString &assignmentKey : assignments.keys()) {
+            if (assignments.value(assignmentKey).toString() == from) {
+                assignments[assignmentKey] = to;
+            }
+        }
+        settings[key] = assignments;
+    }
+}
+
+bool copyResourceIfDifferent(const QString &resourcePath, const QString &targetPath)
+{
+    QFile source(resourcePath);
+    if (!source.open(QIODevice::ReadOnly)) {
+        qWarning() << "ConfigManager: Failed to open bundled mpv shader:" << resourcePath;
+        return false;
+    }
+    const QByteArray sourceBytes = source.readAll();
+
+    QFile target(targetPath);
+    if (target.exists() && target.open(QIODevice::ReadOnly)) {
+        const QByteArray targetBytes = target.readAll();
+        target.close();
+        if (targetBytes == sourceBytes) {
+            return true;
+        }
+    }
+
+    QFileInfo targetInfo(targetPath);
+    if (!QDir().mkpath(targetInfo.absolutePath())) {
+        qWarning() << "ConfigManager: Failed to create mpv shader directory:" << targetInfo.absolutePath();
+        return false;
+    }
+
+    if (target.exists() && !target.remove()) {
+        qWarning() << "ConfigManager: Failed to replace mpv shader:" << targetPath;
+        return false;
+    }
+    if (!target.open(QIODevice::WriteOnly)) {
+        qWarning() << "ConfigManager: Failed to write mpv shader:" << targetPath;
+        return false;
+    }
+    target.write(sourceBytes);
+    return true;
+}
+
+bool ensureBundledMpvShaders()
+{
+    const QStringList shaderNames{
+        QStringLiteral("FSRCNNX_x2_8-0-4-1.glsl"),
+        QStringLiteral("KrigBilateral.glsl"),
+        QStringLiteral("SSimDownscaler.glsl"),
+        QStringLiteral("ArtCNN_C4F16.glsl"),
+        QStringLiteral("nnedi3-nns32-win8x6.hook")
+    };
+    const QDir shaderDir(QDir(ConfigManager::getMpvConfigDir()).filePath(QStringLiteral("shaders")));
+    bool ok = true;
+    for (const QString &shaderName : shaderNames) {
+        ok = copyResourceIfDifferent(QStringLiteral(":/mpv-shaders/") + shaderName,
+                                     shaderDir.filePath(shaderName))
+             && ok;
+    }
+    return ok;
+}
+
+bool ensureBundledMpvFonts()
+{
+    const QStringList fontNames{
+        QStringLiteral("GandhiSans-Regular.otf"),
+        QStringLiteral("GandhiSans-Bold.otf"),
+        QStringLiteral("GandhiSans-Italic.otf"),
+        QStringLiteral("GandhiSans-BoldItalic.otf"),
+        QStringLiteral("LICENSE-GandhiSans.txt")
+    };
+    const QDir fontsDir(QDir(ConfigManager::getMpvConfigDir()).filePath(QStringLiteral("fonts")));
+    bool ok = true;
+    for (const QString &fontName : fontNames) {
+        ok = copyResourceIfDifferent(QStringLiteral(":/mpv-fonts/") + fontName,
+                                     fontsDir.filePath(fontName))
+             && ok;
+    }
+    return ok;
+}
+
+QJsonObject v22DefaultMpvProfiles()
+{
+    QJsonObject profiles = ConfigManager::defaultMpvProfiles();
+    for (const QString &name : profiles.keys()) {
+        QJsonObject profile = profiles.value(name).toObject();
+        profile.remove(QStringLiteral("hdr_metadata_mode"));
+        profile.remove(QStringLiteral("windows_10bit_output"));
+        if (name == QStringLiteral("ArtCNN") || name == QStringLiteral("ArtCNN-Deband")
+            || name == QStringLiteral("nnedi3") || name == QStringLiteral("nnedi3-deband")) {
+            profile[QStringLiteral("windows_render_api")] = QStringLiteral("auto");
+        }
+        profiles[name] = profile;
+    }
+    return profiles;
+}
+
 QString canonicalTrackLanguageCode(const QString &language)
 {
     const QString normalized = language.trimmed().toLower();
@@ -444,6 +614,9 @@ bool ConfigManager::ensureConfigDirExists()
         }
         qDebug() << "ConfigManager: Created mpv config directory:" << mpvDir;
     }
+
+    ensureBundledMpvShaders();
+    ensureBundledMpvFonts();
     
     return true;
 }
@@ -2809,6 +2982,117 @@ public:
         newConfig["settings"] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV20ToV21(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig["version"] = 21;
+
+        QJsonObject settings = newConfig["settings"].toObject();
+        QJsonObject profiles = settings.value(QStringLiteral("mpv_profiles")).toObject();
+        const QJsonObject legacyProfiles = legacyDefaultMpvProfiles();
+        const QJsonObject canonicalProfiles = ConfigManager::defaultMpvProfiles();
+
+        if (profiles.contains(QStringLiteral("Default"))
+            && profiles.value(QStringLiteral("Default")).toObject()
+                   != legacyProfiles.value(QStringLiteral("Default")).toObject()) {
+            profiles[uniqueProfileBackupName(profiles, QStringLiteral("Default"))] =
+                profiles.value(QStringLiteral("Default"));
+        }
+        if (profiles.contains(QStringLiteral("High Quality"))
+            && profiles.value(QStringLiteral("High Quality")).toObject()
+                   != legacyProfiles.value(QStringLiteral("High Quality")).toObject()
+            && profiles.value(QStringLiteral("High Quality")).toObject()
+                   != canonicalProfiles.value(QStringLiteral("High Quality")).toObject()) {
+            profiles[uniqueProfileBackupName(profiles, QStringLiteral("High Quality"))] =
+                profiles.value(QStringLiteral("High Quality"));
+        }
+
+        profiles.remove(QStringLiteral("Default"));
+        for (const QString &name : canonicalProfiles.keys()) {
+            profiles[name] = canonicalProfiles.value(name);
+        }
+
+        rewriteProfileAssignments(settings, QStringLiteral("Default"), QStringLiteral("Medium Quality"));
+        if (settings.value(QStringLiteral("default_profile")).toString().trimmed().isEmpty()) {
+            settings[QStringLiteral("default_profile")] = QStringLiteral("Medium Quality");
+        }
+
+        settings[QStringLiteral("mpv_profiles")] = profiles;
+        newConfig[QStringLiteral("settings")] = settings;
+        return newConfig;
+    }
+
+    static QJsonObject migrateV21ToV22(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig[QStringLiteral("version")] = 22;
+
+        QJsonObject settings = newConfig[QStringLiteral("settings")].toObject();
+        QJsonObject profiles = settings.value(QStringLiteral("mpv_profiles")).toObject();
+        const QJsonObject canonicalProfiles = ConfigManager::defaultMpvProfiles();
+        for (const QString &name : {
+                 QStringLiteral("ArtCNN"),
+                 QStringLiteral("ArtCNN-Deband"),
+                 QStringLiteral("nnedi3"),
+                 QStringLiteral("nnedi3-deband")}) {
+            profiles[name] = canonicalProfiles.value(name);
+        }
+
+        settings[QStringLiteral("mpv_profiles")] = profiles;
+        newConfig[QStringLiteral("settings")] = settings;
+        return newConfig;
+    }
+
+    static QJsonObject migrateV22ToV23(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig[QStringLiteral("version")] = 23;
+
+        QJsonObject settings = newConfig[QStringLiteral("settings")].toObject();
+        QJsonObject profiles = settings.value(QStringLiteral("mpv_profiles")).toObject();
+        const QJsonObject oldCanonicalProfiles = v22DefaultMpvProfiles();
+        const QJsonObject newCanonicalProfiles = ConfigManager::defaultMpvProfiles();
+
+        for (const QString &name : newCanonicalProfiles.keys()) {
+            if (!profiles.contains(name)) {
+                profiles[name] = newCanonicalProfiles.value(name);
+                continue;
+            }
+
+            QJsonObject profile = profiles.value(name).toObject();
+            const bool isAnimeProfile =
+                name == QStringLiteral("ArtCNN") || name == QStringLiteral("ArtCNN-Deband")
+                || name == QStringLiteral("nnedi3") || name == QStringLiteral("nnedi3-deband");
+            if (isAnimeProfile && profile == oldCanonicalProfiles.value(name).toObject()) {
+                profiles[name] = newCanonicalProfiles.value(name);
+                continue;
+            }
+
+            if (!profile.contains(QStringLiteral("hdr_metadata_mode"))) {
+                profile[QStringLiteral("hdr_metadata_mode")] = QStringLiteral("target");
+            }
+            if (!profile.contains(QStringLiteral("windows_10bit_output"))) {
+                profile[QStringLiteral("windows_10bit_output")] = false;
+            }
+            profiles[name] = profile;
+        }
+
+        for (const QString &name : profiles.keys()) {
+            QJsonObject profile = profiles.value(name).toObject();
+            if (!profile.contains(QStringLiteral("hdr_metadata_mode"))) {
+                profile[QStringLiteral("hdr_metadata_mode")] = QStringLiteral("target");
+            }
+            if (!profile.contains(QStringLiteral("windows_10bit_output"))) {
+                profile[QStringLiteral("windows_10bit_output")] = false;
+            }
+            profiles[name] = profile;
+        }
+
+        settings[QStringLiteral("mpv_profiles")] = profiles;
+        newConfig[QStringLiteral("settings")] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -2989,6 +3273,30 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 20) {
+            m_config = ConfigMigrator::migrateV20ToV21(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
+        } else if (version == 21) {
+            m_config = ConfigMigrator::migrateV21ToV22(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
+        } else if (version == 22) {
+            m_config = ConfigMigrator::migrateV22ToV23(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -3021,8 +3329,8 @@ bool ConfigManager::validateConfig(const QJsonObject &cfg)
  * manual DPI override, and MPV profile management. Notable defaults include a playback
  * completion threshold of 90, autoplay countdown of 10 seconds, image cache size of 500 MB,
  * and `manualDpiScaleOverride` set to 1.0. MPV profiles are initialized via `defaultMpvProfiles()`
- * with `"Default"` selected as the default profile; `library_profiles` and `series_profiles` are
- * initialized empty.
+ * with `"Medium Quality"` selected as the default profile; `library_profiles` and
+ * `series_profiles` are initialized empty.
  *
  * @return QJsonObject The complete default configuration object ready to be persisted or used
  *                     as a fallback when no valid config is available.
@@ -3085,7 +3393,7 @@ QJsonObject ConfigManager::defaultConfig() const
 
     // MPV Profiles
     settings["mpv_profiles"] = defaultMpvProfiles();
-    settings["default_profile"] = "Default";
+    settings["default_profile"] = QStringLiteral("Medium Quality");
     settings["library_profiles"] = QJsonObject();
     settings["series_profiles"] = QJsonObject();
     
@@ -3117,30 +3425,134 @@ QJsonObject ConfigManager::defaultConfig() const
 QJsonObject ConfigManager::defaultMpvProfiles()
 {
     QJsonObject profiles;
+    const auto makeProfile = [](bool hwdecEnabled,
+                                const QString &hwdecMethod,
+                                const QJsonArray &extraArgs) {
+        QJsonObject profile;
+        profile[QStringLiteral("hwdec_enabled")] = hwdecEnabled;
+        profile[QStringLiteral("hwdec_method")] = hwdecMethod;
+        profile[QStringLiteral("deinterlace")] = false;
+        profile[QStringLiteral("deinterlace_method")] = QString();
+        profile[QStringLiteral("video_output")] = QStringLiteral("gpu-next");
+        profile[QStringLiteral("interpolation")] = false;
+        profile[QStringLiteral("windows_render_api")] = QStringLiteral("auto");
+        profile[QStringLiteral("hdr_metadata_mode")] = QStringLiteral("target");
+        profile[QStringLiteral("windows_10bit_output")] = false;
+        profile[QStringLiteral("extra_args")] = extraArgs;
+        return profile;
+    };
+
+    const auto artProfileArgs = [](const QString &shaderPath, bool deband) {
+        QJsonArray args{
+            QStringLiteral("--fullscreen"),
+            QStringLiteral("--profile=high-quality"),
+            QStringLiteral("--sub-fonts-dir=~~/fonts"),
+            QStringLiteral("--sub-ass-override=no"),
+            QStringLiteral("--sub-font=Gandhi Sans Bold"),
+            QStringLiteral("--sub-font-size=48"),
+            QStringLiteral("--sub-color=#FFFFFF"),
+            QStringLiteral("--sub-border-size=2.4"),
+            QStringLiteral("--sub-border-color=#FF000000"),
+            QStringLiteral("--sub-shadow-color=#A0000000"),
+            QStringLiteral("--sub-shadow-offset=0.75"),
+            QStringLiteral("--sub-ass=yes"),
+            QStringLiteral("--sub-bold=no"),
+            QStringLiteral("--sub-ass-style-overrides=WrapStyle=0,Kerning=yes,Spacing=0,MarginL=200,MarginR=200,MarginV=74,Outline=3.6,Shadow=1.5"),
+            QStringLiteral("--blend-subtitles=video"),
+            QStringLiteral("--secondary-sub-ass-override=yes"),
+            QStringLiteral("--glsl-shaders-append=") + shaderPath,
+            deband ? QStringLiteral("--deband=yes") : QStringLiteral("--deband=no")
+        };
+        if (deband) {
+            args.append(QStringLiteral("--deband-iterations=4"));
+            args.append(QStringLiteral("--deband-threshold=48"));
+            args.append(QStringLiteral("--deband-range=64"));
+            args.append(QStringLiteral("--deband-grain=12"));
+        }
+        return args;
+    };
+
+    QJsonObject lowQuality;
+    lowQuality["hwdec_enabled"] = true;
+    lowQuality["hwdec_method"] = "auto-safe";
+    lowQuality["deinterlace"] = false;
+    lowQuality["deinterlace_method"] = "";
+    lowQuality["video_output"] = "gpu-next";
+    lowQuality["interpolation"] = false;
+    lowQuality["windows_render_api"] = "auto";
+    lowQuality["hdr_metadata_mode"] = "target";
+    lowQuality["windows_10bit_output"] = false;
+    lowQuality["extra_args"] = QJsonArray({
+        QStringLiteral("--fullscreen"),
+        QStringLiteral("--profile=fast")
+    });
+    profiles["Low Quality"] = lowQuality;
+
+    QJsonObject mediumQuality;
+    mediumQuality["hwdec_enabled"] = true;
+    mediumQuality["hwdec_method"] = "auto-safe";
+    mediumQuality["deinterlace"] = false;
+    mediumQuality["deinterlace_method"] = "";
+    mediumQuality["video_output"] = "gpu-next";
+    mediumQuality["interpolation"] = false;
+    mediumQuality["windows_render_api"] = "auto";
+    mediumQuality["hdr_metadata_mode"] = "target";
+    mediumQuality["windows_10bit_output"] = false;
+    mediumQuality["extra_args"] = QJsonArray({
+        QStringLiteral("--fullscreen"),
+        QStringLiteral("--profile=high-quality")
+    });
+    profiles["Medium Quality"] = mediumQuality;
     
-    // Default profile - uses mpv defaults with basic settings
-    QJsonObject defaultProfile;
-    defaultProfile["hwdec_enabled"] = true;
-    defaultProfile["hwdec_method"] = "auto";
-    defaultProfile["deinterlace"] = false;
-    defaultProfile["deinterlace_method"] = "";
-    defaultProfile["video_output"] = "gpu-next";
-    defaultProfile["interpolation"] = false;
-    defaultProfile["windows_render_api"] = "auto";
-    defaultProfile["extra_args"] = QJsonArray({"--fullscreen"});
-    profiles["Default"] = defaultProfile;
-    
-    // High Quality profile - uses mpv's built-in high-quality profile
     QJsonObject highQuality;
     highQuality["hwdec_enabled"] = true;
-    highQuality["hwdec_method"] = "auto";
+    highQuality["hwdec_method"] = "auto-safe";
     highQuality["deinterlace"] = false;
     highQuality["deinterlace_method"] = "";
     highQuality["video_output"] = "gpu-next";
     highQuality["interpolation"] = false;
     highQuality["windows_render_api"] = "auto";
-    highQuality["extra_args"] = QJsonArray({"--fullscreen", "--profile=high-quality"});
+    highQuality["hdr_metadata_mode"] = "target";
+    highQuality["windows_10bit_output"] = false;
+    highQuality["extra_args"] = QJsonArray({
+        QStringLiteral("--fullscreen"),
+        QStringLiteral("--profile=high-quality"),
+        QStringLiteral("--glsl-shaders-append=~~/shaders/FSRCNNX_x2_8-0-4-1.glsl"),
+        QStringLiteral("--scale=ewa_lanczos"),
+        QStringLiteral("--glsl-shaders-append=~~/shaders/KrigBilateral.glsl"),
+        QStringLiteral("--cscale=ewa_lanczos"),
+        QStringLiteral("--glsl-shaders-append=~~/shaders/SSimDownscaler.glsl"),
+        QStringLiteral("--dscale=mitchell"),
+        QStringLiteral("--linear-downscaling=no"),
+        QStringLiteral("--correct-downscaling=yes")
+    });
     profiles["High Quality"] = highQuality;
+
+    profiles[QStringLiteral("ArtCNN")] = makeProfile(
+        false,
+        QStringLiteral("no"),
+        artProfileArgs(QStringLiteral("~~/shaders/ArtCNN_C4F16.glsl"), false));
+    profiles[QStringLiteral("ArtCNN-Deband")] = makeProfile(
+        false,
+        QStringLiteral("no"),
+        artProfileArgs(QStringLiteral("~~/shaders/ArtCNN_C4F16.glsl"), true));
+    profiles[QStringLiteral("nnedi3")] = makeProfile(
+        false,
+        QStringLiteral("no"),
+        artProfileArgs(QStringLiteral("~~/shaders/nnedi3-nns32-win8x6.hook"), false));
+    profiles[QStringLiteral("nnedi3-deband")] = makeProfile(
+        false,
+        QStringLiteral("no"),
+        artProfileArgs(QStringLiteral("~~/shaders/nnedi3-nns32-win8x6.hook"), true));
+    for (const QString &name : {
+             QStringLiteral("ArtCNN"),
+             QStringLiteral("ArtCNN-Deband"),
+             QStringLiteral("nnedi3"),
+             QStringLiteral("nnedi3-deband")}) {
+        QJsonObject profile = profiles.value(name).toObject();
+        profile[QStringLiteral("windows_render_api")] = QStringLiteral("vulkan");
+        profiles[name] = profile;
+    }
     
     return profiles;
 }
@@ -3193,6 +3605,8 @@ QJsonObject MpvProfile::toJson() const
     obj["video_output"] = videoOutput;
     obj["interpolation"] = interpolation;
     obj["windows_render_api"] = normalizeWindowsRenderApi(windowsRenderApi);
+    obj["hdr_metadata_mode"] = normalizeHdrMetadataMode(hdrMetadataMode);
+    obj["windows_10bit_output"] = windows10BitOutput;
     
     QJsonArray extraArgsArray;
     for (const QString &arg : extraArgs) {
@@ -3212,6 +3626,15 @@ QString MpvProfile::normalizeWindowsRenderApi(const QString &value)
     return QStringLiteral("auto");
 }
 
+QString MpvProfile::normalizeHdrMetadataMode(const QString &value)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == QStringLiteral("source-dynamic")) {
+        return normalized;
+    }
+    return QStringLiteral("target");
+}
+
 MpvProfile MpvProfile::fromJson(const QString &name, const QJsonObject &obj)
 {
     MpvProfile profile;
@@ -3223,6 +3646,8 @@ MpvProfile MpvProfile::fromJson(const QString &name, const QJsonObject &obj)
     profile.videoOutput = obj["video_output"].toString("gpu-next");
     profile.interpolation = obj["interpolation"].toBool(false);
     profile.windowsRenderApi = normalizeWindowsRenderApi(obj["windows_render_api"].toString("auto"));
+    profile.hdrMetadataMode = normalizeHdrMetadataMode(obj["hdr_metadata_mode"].toString("target"));
+    profile.windows10BitOutput = obj["windows_10bit_output"].toBool(false);
     
     // Migration-safe parsing:
     // - Preferred: array of strings (current format)
@@ -3270,10 +3695,11 @@ QStringList ConfigManager::getMpvProfileNames() const
             names = profiles.keys();
         }
     }
-    // Ensure Default profiles are always present in the list
-    if (!names.contains("Default")) names.prepend("Default");
-    if (!names.contains("High Quality") && !names.contains("High Quality")) {
-        names.insert(1, "High Quality");
+    const QStringList builtIns = builtInMpvProfileNames();
+    for (int i = builtIns.size() - 1; i >= 0; --i) {
+        if (!names.contains(builtIns.at(i))) {
+            names.prepend(builtIns.at(i));
+        }
     }
     return names;
 }
@@ -3290,6 +3716,8 @@ QVariantMap ConfigManager::getMpvProfile(const QString &name) const
     result["videoOutput"] = profile.videoOutput;
     result["interpolation"] = profile.interpolation;
     result["windowsRenderApi"] = profile.windowsRenderApi;
+    result["hdrMetadataMode"] = profile.hdrMetadataMode;
+    result["windows10BitOutput"] = profile.windows10BitOutput;
     result["extraArgs"] = QVariant::fromValue(profile.extraArgs);
     result["args"] = QVariant::fromValue(profile.args);
     return result;
@@ -3313,8 +3741,9 @@ MpvProfile ConfigManager::getMpvProfileStruct(const QString &name) const
         return MpvProfile::fromJson(name, defaultProfiles[name].toObject());
     }
     
-    // Fallback to Default profile
-    return MpvProfile::fromJson("Default", defaultProfiles["Default"].toObject());
+    // Fallback to Medium Quality profile
+    return MpvProfile::fromJson(QStringLiteral("Medium Quality"),
+                                defaultProfiles[QStringLiteral("Medium Quality")].toObject());
 }
 
 void ConfigManager::setMpvProfile(const QString &name, const QVariantMap &profileData)
@@ -3341,6 +3770,10 @@ void ConfigManager::setMpvProfile(const QString &name, const QVariantMap &profil
     profileJson["interpolation"] = profileData["interpolation"].toBool();
     profileJson["windows_render_api"] = MpvProfile::normalizeWindowsRenderApi(
         profileData.value(QStringLiteral("windowsRenderApi"), QStringLiteral("auto")).toString());
+    profileJson["hdr_metadata_mode"] = MpvProfile::normalizeHdrMetadataMode(
+        profileData.value(QStringLiteral("hdrMetadataMode"), QStringLiteral("target")).toString());
+    profileJson["windows_10bit_output"] =
+        profileData.value(QStringLiteral("windows10BitOutput"), false).toBool();
     
     QJsonArray extraArgsArray;
     const QVariant extraArgsVariant = profileData.value("extraArgs");
@@ -3440,7 +3873,8 @@ QVariantMap ConfigManager::importMpvConfigAsProfile(const QString &path, const Q
             continue;
         }
 
-        if (MpvArgFilter::isBloomManagedOptionName(MpvArgFilter::optionNameForArg(sanitized))) {
+        if (MpvArgFilter::isBloomManagedOptionName(MpvArgFilter::optionNameForArg(sanitized))
+            && !MpvArgFilter::isSafeBuiltinProfileArg(sanitized)) {
             filteredArgs.append(sanitized);
             continue;
         }
@@ -3475,7 +3909,7 @@ bool ConfigManager::renameMpvProfile(const QString &oldName, const QString &newN
     if (trimmedOldName.isEmpty() || trimmedNewName.isEmpty()) {
         return false;
     }
-    if (trimmedOldName == QStringLiteral("Default") || trimmedOldName == QStringLiteral("High Quality")) {
+    if (isBuiltInMpvProfileName(trimmedOldName)) {
         qWarning() << "ConfigManager: Cannot rename built-in profile:" << trimmedOldName;
         return false;
     }
@@ -3546,7 +3980,7 @@ bool ConfigManager::renameMpvProfile(const QString &oldName, const QString &newN
 bool ConfigManager::deleteMpvProfile(const QString &name)
 {
     // Cannot delete built-in profiles
-    if (name == "Default" || name == "High Quality") {
+    if (isBuiltInMpvProfileName(name)) {
         qWarning() << "ConfigManager: Cannot delete built-in profile:" << name;
         return false;
     }
@@ -3568,9 +4002,9 @@ bool ConfigManager::deleteMpvProfile(const QString &name)
     profiles.remove(name);
     settings["mpv_profiles"] = profiles;
     
-    // If this was the default profile, reset to Default
+    // If this was the default profile, reset to Medium Quality
     if (settings["default_profile"].toString() == name) {
-        settings["default_profile"] = "Default";
+        settings["default_profile"] = QStringLiteral("Medium Quality");
         emit defaultProfileNameChanged();
     }
     
@@ -3612,7 +4046,7 @@ QString ConfigManager::getDefaultProfileName() const
             }
         }
     }
-    return "Default";
+    return QStringLiteral("Medium Quality");
 }
 
 void ConfigManager::setDefaultProfileName(const QString &name)
@@ -3790,7 +4224,7 @@ QStringList ConfigManager::getMpvArgsForProfile(const QString &profileName, bool
     } else if (outputHdr) {
         ensureGpuNext();
         setOrAppendArg(QStringLiteral("target-colorspace-hint"), QStringLiteral("auto"));
-        setOrAppendArg(QStringLiteral("target-colorspace-hint-mode"), QStringLiteral("target"));
+        setOrAppendArg(QStringLiteral("target-colorspace-hint-mode"), profile.hdrMetadataMode);
     }
     
     return args;

@@ -391,6 +391,7 @@ private slots:
     void staleAutoplayPlaybackInfoResponseFallsBackAfterTimeout();
     void playUrlWithTracksKeepsNewSessionMetadataWhenReplacingPlayback();
     void embeddedVideoShrinkToggleEmitsAndPersists();
+    void playbackTogglesSendMpvCycleValuesCommands();
     void requestPlaybackPromptsForVersionSelection();
     void requestPlaybackRecoversLibraryProfileFromSeriesDetails();
     void requestPlaybackWaitsForSeriesDetailsParentIdBeforeStarting();
@@ -1750,6 +1751,42 @@ void PlayerControllerAutoplayContextTest::embeddedVideoShrinkToggleEmitsAndPersi
     controller.setEmbeddedVideoShrinkEnabled(false);
     QVERIFY(!controller.embeddedVideoShrinkEnabled());
     QCOMPARE(shrinkSpy.count(), 2);
+}
+
+void PlayerControllerAutoplayContextTest::playbackTogglesSendMpvCycleValuesCommands()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+
+    controller.toggleSubtitleAssOverride();
+    controller.toggleDeband();
+
+    QCOMPARE(backend.commands.size(), 2);
+    QCOMPARE(backend.commands.at(0),
+             QStringList({QStringLiteral("cycle-values"),
+                          QStringLiteral("sub-ass-override"),
+                          QStringLiteral("no"),
+                          QStringLiteral("yes")}));
+    QCOMPARE(backend.commands.at(1),
+             QStringList({QStringLiteral("cycle-values"),
+                          QStringLiteral("deband"),
+                          QStringLiteral("no"),
+                          QStringLiteral("yes")}));
 }
 
 void PlayerControllerAutoplayContextTest::requestPlaybackPromptsForVersionSelection()

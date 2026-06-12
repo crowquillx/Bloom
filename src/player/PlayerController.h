@@ -285,6 +285,8 @@ public:
     Q_INVOKABLE void showMpvStatsOnce();
     Q_INVOKABLE void toggleMpvStats();
     Q_INVOKABLE void showMpvStatsPage(int page);
+    Q_INVOKABLE void toggleSubtitleAssOverride();
+    Q_INVOKABLE void toggleDeband();
     Q_INVOKABLE void sendMpvKeypress(const QString &key);
     Q_INVOKABLE void setOverlayMetadata(const QString &title,
                                         const QString &subtitle = QString(),

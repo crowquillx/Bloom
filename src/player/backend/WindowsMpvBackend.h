@@ -48,6 +48,9 @@ public:
         if (!m_effectiveGpuContext.isEmpty()) {
             result << QStringLiteral("--gpu-context=") + m_effectiveGpuContext;
         }
+        if (m_windows10BitOutput && m_currentWindowsRenderApi == QStringLiteral("d3d11")) {
+            result << QStringLiteral("--d3d11-output-format=rgb10_a2");
+        }
         return result;
     }
 #endif
@@ -111,6 +114,7 @@ private:
     QString m_effectiveVo = QStringLiteral("gpu-next");
     QString m_effectiveGpuApi;
     QString m_effectiveGpuContext;
+    bool m_windows10BitOutput = false;
     void *m_mpvHandle = nullptr;
     std::atomic_bool m_eventDispatchQueued{false};
     QList<QByteArray> m_commandScratch;

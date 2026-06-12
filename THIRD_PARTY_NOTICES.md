@@ -24,6 +24,29 @@ Important note
 - If a non-LGPL mpv/libmpv artifact is used for packaging, licensing obligations may differ.
 - Verify the exact license metadata of the bundled mpv/libmpv package before distribution.
 
+Bundled mpv GLSL shaders
+- Bloom bundles these shader files under `src/resources/mpv-shaders/` and copies them to Bloom's mpv config shader directory at runtime:
+  - `FSRCNNX_x2_8-0-4-1.glsl`
+  - `KrigBilateral.glsl`
+  - `SSimDownscaler.glsl`
+  - `ArtCNN_C4F16.glsl`
+  - `nnedi3-nns32-win8x6.hook`
+- `FSRCNNX_x2_8-0-4-1.glsl`, `KrigBilateral.glsl`, `SSimDownscaler.glsl`, and
+  `nnedi3-nns32-win8x6.hook` state GNU Lesser General Public License version 3.0 or later.
+- `ArtCNN_C4F16.glsl` states the MIT License in its file header.
+- Sources:
+  - FSRCNNX: https://github.com/igv/FSRCNN-TensorFlow/releases/tag/1.1
+  - KrigBilateral: https://gist.github.com/igv/a015fc885d5c22e6891820ad89555637
+  - SSimDownscaler: https://gist.github.com/igv/36508af3ffc84410fe39761d6969be10
+  - ArtCNN: https://github.com/Artoriuz/ArtCNN
+  - nnedi3: https://github.com/bjin/mpv-prescalers
+
+Bundled Gandhi Sans fonts
+- Bloom bundles Gandhi Sans OpenType fonts under `src/resources/mpv-fonts/` and copies them
+  to Bloom's mpv config font directory at runtime for libass subtitle styling.
+- License text is included at `src/resources/mpv-fonts/LICENSE-GandhiSans.txt`.
+- Source/license reference: https://www.fontsquirrel.com/license/gandhi-sans
+
 Attribution
 - Bloom's embedded mpv architecture was inspired by Plezy:
   - https://github.com/edde746/plezy

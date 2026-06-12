@@ -35,6 +35,16 @@ FocusScope {
         })
     }
 
+    function isBuiltInProfileName(name) {
+        return name === "Low Quality"
+            || name === "Medium Quality"
+            || name === "High Quality"
+            || name === "ArtCNN"
+            || name === "ArtCNN-Deband"
+            || name === "nnedi3"
+            || name === "nnedi3-deband"
+    }
+
     Keys.priority: Keys.AfterItem
     Keys.onLeftPressed: function(event) { requestReturnToRail(); event.accepted = true }
     Keys.onEscapePressed: function(event) { requestReturnToRail(); event.accepted = true }
@@ -146,7 +156,7 @@ FocusScope {
                             }
                             updatingSelection = true
                             var idx = options.indexOf(ConfigManager.defaultProfileName)
-                            if (idx < 0) idx = options.indexOf("Default")
+                            if (idx < 0) idx = options.indexOf("Medium Quality")
                             currentIndex = idx >= 0 ? idx : 0
                             updatingSelection = false
                         }
@@ -633,7 +643,7 @@ FocusScope {
                         focusPolicy: enabled ? Qt.StrongFocus : Qt.NoFocus
                         enabled: {
                             var name = editProfileCombo.currentText || ""
-                            return name !== "" && name !== "Default" && name !== "High Quality"
+                            return name !== "" && !root.isBuiltInProfileName(name)
                         }
 
                         onActiveFocusChanged: {
@@ -744,7 +754,7 @@ FocusScope {
                         focusPolicy: enabled ? Qt.StrongFocus : Qt.NoFocus
                         enabled: {
                             var name = editProfileCombo.currentText || ""
-                            return name !== "" && name !== "Default" && name !== "High Quality"
+                            return name !== "" && !root.isBuiltInProfileName(name)
                         }
 
                         onActiveFocusChanged: {

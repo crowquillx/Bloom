@@ -406,6 +406,22 @@ FocusScope {
             return true
         }
 
+        if (event.key === Qt.Key_K) {
+            if (event.isAutoRepeat) {
+                return true
+            }
+            PlayerController.toggleSubtitleAssOverride()
+            return true
+        }
+
+        if (event.key === Qt.Key_B) {
+            if (event.isAutoRepeat) {
+                return true
+            }
+            PlayerController.toggleDeband()
+            return true
+        }
+
         if (event.key === Qt.Key_S || event.key === Qt.Key_T || event.key === Qt.Key_C) {
             if (event.isAutoRepeat) {
                 return true

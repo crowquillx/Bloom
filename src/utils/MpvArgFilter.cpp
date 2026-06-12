@@ -13,6 +13,18 @@ QString optionNameForArg(const QString &arg)
     return equalsIndex >= 0 ? option.left(equalsIndex).toLower() : option.toLower();
 }
 
+bool isSafeBuiltinProfileArg(const QString &arg)
+{
+    const QString trimmed = arg.trimmed();
+    const int equalsIndex = trimmed.indexOf(QLatin1Char('='));
+    if (equalsIndex < 0 || optionNameForArg(trimmed) != QStringLiteral("profile")) {
+        return false;
+    }
+
+    const QString value = trimmed.mid(equalsIndex + 1).trimmed().toLower();
+    return value == QStringLiteral("fast") || value == QStringLiteral("high-quality");
+}
+
 bool isBloomManagedOptionName(const QString &name)
 {
     const QString normalized = name.toLower();
@@ -138,6 +150,10 @@ QStringList filterBloomManagedArgs(const QStringList &args, QStringList *filtere
 
     for (const QString &arg : args) {
         const QString name = optionNameForArg(arg);
+        if (name == QStringLiteral("profile") && isSafeBuiltinProfileArg(arg)) {
+            result.append(arg);
+            continue;
+        }
         if (!name.isEmpty() && isBloomManagedOptionName(name)) {
             if (filteredArgs) {
                 filteredArgs->append(arg);

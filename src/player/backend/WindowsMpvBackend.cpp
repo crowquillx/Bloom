@@ -569,6 +569,7 @@ void WindowsMpvBackend::logHdrDiagnostics(const QStringList &args, const QString
         << "effectiveVo=" << m_effectiveVo
         << "effectiveGpuApi=" << (m_effectiveGpuApi.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuApi)
         << "effectiveGpuContext=" << (m_effectiveGpuContext.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuContext)
+        << "windows10BitOutput=" << m_windows10BitOutput
         << "hdrOutputMode=" << hdrOutputMode
         << "hasGpuNext=" << hasGpuNext
         << "hasHdrHintAuto=" << hasHdrHintAuto
@@ -587,6 +588,7 @@ void WindowsMpvBackend::captureStartupMetadata(const QStringList &args)
 {
     m_currentProfileName = QStringLiteral("unknown");
     m_currentWindowsRenderApi = QStringLiteral("auto");
+    m_windows10BitOutput = false;
     m_effectiveVo = QStringLiteral("gpu-next");
     m_effectiveGpuApi.clear();
     m_effectiveGpuContext.clear();
@@ -599,6 +601,10 @@ void WindowsMpvBackend::captureStartupMetadata(const QStringList &args)
             if (api == QStringLiteral("d3d11") || api == QStringLiteral("vulkan")) {
                 m_currentWindowsRenderApi = api;
             }
+        } else if (arg.startsWith(QStringLiteral("--bloom-windows-10bit-output="))) {
+            const QString value = arg.mid(QStringLiteral("--bloom-windows-10bit-output=").size()).trimmed().toLower();
+            m_windows10BitOutput = value == QStringLiteral("yes") || value == QStringLiteral("true")
+                || value == QStringLiteral("1");
         }
     }
 
@@ -1305,7 +1311,13 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
             value = option.mid(equalsIndex + 1);
         }
 
-        if (MpvArgFilter::isBloomManagedOptionName(name)) {
+        if (name.compare(QStringLiteral("profile"), Qt::CaseInsensitive) == 0) {
+            if (!MpvArgFilter::isSafeBuiltinProfileArg(arg)) {
+                qCDebug(lcWindowsLibmpvBackend) << "Skipping unsafe embedded mpv option" << name;
+                continue;
+            }
+            // Safe mpv profiles are allowed for direct libmpv startup.
+        } else if (MpvArgFilter::isBloomManagedOptionName(name)) {
             continue;
         }
         if (isDirectLibmpvUnsupportedOptionName(name)) {
@@ -1363,6 +1375,9 @@ void WindowsMpvBackend::applyRenderApiOptions(void *handlePtr)
     if (!m_effectiveGpuContext.isEmpty()) {
         setOption("gpu-context", m_effectiveGpuContext);
     }
+    if (m_windows10BitOutput && m_currentWindowsRenderApi == QStringLiteral("d3d11")) {
+        setOption("d3d11-output-format", QStringLiteral("rgb10_a2"));
+    }
 
     qCInfo(lcWindowsLibmpvBackend)
         << "Applied Windows render API profile"
@@ -1370,7 +1385,8 @@ void WindowsMpvBackend::applyRenderApiOptions(void *handlePtr)
         << "windowsRenderApi=" << m_currentWindowsRenderApi
         << "vo=" << m_effectiveVo
         << "gpuApi=" << (m_effectiveGpuApi.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuApi)
-        << "gpuContext=" << (m_effectiveGpuContext.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuContext);
+        << "gpuContext=" << (m_effectiveGpuContext.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuContext)
+        << "windows10BitOutput=" << m_windows10BitOutput;
     Logger::instance().flush();
 #else
     Q_UNUSED(handlePtr);

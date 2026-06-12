@@ -25,6 +25,8 @@ struct MpvProfile {
     Q_PROPERTY(QString videoOutput MEMBER videoOutput)
     Q_PROPERTY(bool interpolation MEMBER interpolation)
     Q_PROPERTY(QString windowsRenderApi MEMBER windowsRenderApi)
+    Q_PROPERTY(QString hdrMetadataMode MEMBER hdrMetadataMode)
+    Q_PROPERTY(bool windows10BitOutput MEMBER windows10BitOutput)
     Q_PROPERTY(QStringList extraArgs MEMBER extraArgs)
 public:
     QString name;                    // Display name
@@ -38,6 +40,8 @@ public:
     QString videoOutput = "gpu-next"; // gpu, gpu-next, etc.
     bool interpolation = false;
     QString windowsRenderApi = "auto"; // auto, d3d11, vulkan
+    QString hdrMetadataMode = "target"; // target, source-dynamic
+    bool windows10BitOutput = false;
     QStringList extraArgs;           // Additional raw args
     
     /// Build the final args list from structured options
@@ -51,6 +55,9 @@ public:
 
     /// Normalize Windows render API profile values
     static QString normalizeWindowsRenderApi(const QString &value);
+
+    /// Normalize HDR metadata hint mode profile values
+    static QString normalizeHdrMetadataMode(const QString &value);
     
     /// Check if this is a valid profile
     bool isValid() const { return !name.isEmpty(); }
@@ -320,7 +327,7 @@ public:
     /// Rename a custom profile while preserving assignments (cannot rename built-ins)
     Q_INVOKABLE bool renameMpvProfile(const QString &oldName, const QString &newName);
 
-    /// Delete a profile (cannot delete "Default" or "High Quality")
+    /// Delete a profile (cannot delete built-ins)
     Q_INVOKABLE bool deleteMpvProfile(const QString &name);
     
     /// Get/set the default profile name (used when no library/series override)
@@ -352,7 +359,7 @@ public:
     /// @return List of mpv command-line arguments
     QStringList getMpvArgsForProfile(const QString &profileName, bool isHdrContent = false, bool forceToneMapToSdr = false) const;
     
-    /// Create the two default profiles (used by migration)
+    /// Create the built-in profiles (used by migration)
     static QJsonObject defaultMpvProfiles();
     
     // Path Accessors
@@ -509,6 +516,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 20;
+    static constexpr int kCurrentConfigVersion = 23;
     QJsonObject defaultConfig() const;
 };

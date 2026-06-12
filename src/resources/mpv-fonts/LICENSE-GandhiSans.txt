@@ -1,0 +1,24 @@
+Librerias Gandhi S.A. de C.V. Font License
+
+Conditions of use
+
+You may:
+- Install the fonts on as many devices as you wish.
+- Distribute the fonts to anyone you wish.
+- Use the fonts in any commercial or non-commercial document.
+- Save the fonts in a format that would best fit your purposes.
+
+You may not:
+- Modify the fonts in a font editor software.
+- Sell or rent out the fonts.
+
+Notes:
+- The fonts and any other accompanying written or electronic materials are provided
+  "as is" without warranty of any kind, expressed or implied. The authors do not
+  warrant that the functions contained in the fonts will meet the user's requirements.
+- The authors shall not be liable for any direct, indirect, consequential, or
+  incidental damages (including damages from loss of business profits, business
+  interruption, loss of business information, and the like) arising out of the use
+  of or inability to use the fonts.
+
+Source: https://www.fontsquirrel.com/license/gandhi-sans

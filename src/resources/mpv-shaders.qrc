@@ -1,0 +1,16 @@
+<RCC>
+    <qresource prefix="/mpv-shaders">
+        <file alias="FSRCNNX_x2_8-0-4-1.glsl">mpv-shaders/FSRCNNX_x2_8-0-4-1.glsl</file>
+        <file alias="KrigBilateral.glsl">mpv-shaders/KrigBilateral.glsl</file>
+        <file alias="SSimDownscaler.glsl">mpv-shaders/SSimDownscaler.glsl</file>
+        <file alias="ArtCNN_C4F16.glsl">mpv-shaders/ArtCNN_C4F16.glsl</file>
+        <file alias="nnedi3-nns32-win8x6.hook">mpv-shaders/nnedi3-nns32-win8x6.hook</file>
+    </qresource>
+    <qresource prefix="/mpv-fonts">
+        <file alias="GandhiSans-Regular.otf">mpv-fonts/GandhiSans-Regular.otf</file>
+        <file alias="GandhiSans-Bold.otf">mpv-fonts/GandhiSans-Bold.otf</file>
+        <file alias="GandhiSans-Italic.otf">mpv-fonts/GandhiSans-Italic.otf</file>
+        <file alias="GandhiSans-BoldItalic.otf">mpv-fonts/GandhiSans-BoldItalic.otf</file>
+        <file alias="LICENSE-GandhiSans.txt">mpv-fonts/LICENSE-GandhiSans.txt</file>
+    </qresource>
+</RCC>

@@ -690,7 +690,10 @@ void LinuxMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
             value = option.mid(equalsIndex + 1);
         }
 
-        if (MpvArgFilter::isBloomManagedOptionName(name)) {
+        if (name.compare(QStringLiteral("profile"), Qt::CaseInsensitive) == 0
+            && MpvArgFilter::isSafeBuiltinProfileArg(arg)) {
+            // mpv profile options must be set before mpv_initialize.
+        } else if (MpvArgFilter::isBloomManagedOptionName(name)) {
             if (m_debugLogging) {
                 qCInfo(lcLinuxLibmpvBackend) << "Skipping unsafe embedded mpv option" << name;
             }

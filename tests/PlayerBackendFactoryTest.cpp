@@ -218,7 +218,9 @@ void PlayerBackendFactoryTest::windowsEmbeddedSanitizerFiltersRenderBackendOverr
         QStringLiteral("--gpu-context=winvk"),
         QStringLiteral("--vulkan-device=GPU-1"),
         QStringLiteral("--wid=12345"),
-        QStringLiteral("--profile=fast")
+        QStringLiteral("--profile=fast"),
+        QStringLiteral("--profile=high-quality"),
+        QStringLiteral("--profile=custom")
     };
 
     const QStringList sanitized = backend.sanitizeStartupArgsForTest(args);
@@ -226,6 +228,8 @@ void PlayerBackendFactoryTest::windowsEmbeddedSanitizerFiltersRenderBackendOverr
     QVERIFY(sanitized.contains(QStringLiteral("--target-colorspace-hint=auto")));
     QVERIFY(sanitized.contains(QStringLiteral("--target-colorspace-hint-mode=target")));
     QVERIFY(sanitized.contains(QStringLiteral("--profile=fast")));
+    QVERIFY(sanitized.contains(QStringLiteral("--profile=high-quality")));
+    QVERIFY(!sanitized.contains(QStringLiteral("--profile=custom")));
     QVERIFY(!sanitized.contains(QStringLiteral("--gpu-api=vulkan")));
     QVERIFY(!sanitized.contains(QStringLiteral("--gpu-context=winvk")));
     QVERIFY(!sanitized.contains(QStringLiteral("--vulkan-device=GPU-1")));
@@ -246,22 +250,31 @@ void PlayerBackendFactoryTest::windowsEmbeddedRenderApiProfilesApplyExpectedOpti
              QStringList({QStringLiteral("--vo=gpu-next")}));
 
     QCOMPARE(backend.renderApiStartupArgsForTest({
-                 QStringLiteral("--bloom-windows-render-api=d3d11")
+                 QStringLiteral("--bloom-windows-render-api=d3d11"),
+                 QStringLiteral("--bloom-windows-10bit-output=yes")
              }),
              QStringList({
                  QStringLiteral("--vo=gpu-next"),
                  QStringLiteral("--gpu-api=d3d11"),
-                 QStringLiteral("--gpu-context=d3d11")
+                 QStringLiteral("--gpu-context=d3d11"),
+                 QStringLiteral("--d3d11-output-format=rgb10_a2")
              }));
 
     QCOMPARE(backend.renderApiStartupArgsForTest({
-                 QStringLiteral("--bloom-windows-render-api=vulkan")
+                 QStringLiteral("--bloom-windows-render-api=vulkan"),
+                 QStringLiteral("--bloom-windows-10bit-output=yes")
              }),
              QStringList({
                  QStringLiteral("--vo=gpu-next"),
                  QStringLiteral("--gpu-api=vulkan"),
                  QStringLiteral("--gpu-context=winvk")
              }));
+
+    QCOMPARE(backend.renderApiStartupArgsForTest({
+                 QStringLiteral("--bloom-windows-render-api=auto"),
+                 QStringLiteral("--bloom-windows-10bit-output=yes")
+             }),
+             QStringList({QStringLiteral("--vo=gpu-next")}));
 #else
     QSKIP("Windows embedded render API profiles are only compiled on Windows");
 #endif

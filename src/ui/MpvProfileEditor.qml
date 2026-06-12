@@ -17,7 +17,7 @@ FocusScope {
     property var profileData: ({})
     property var extraArgsList: []
     property bool skipNextAutoFocus: false
-    property bool isBuiltIn: profileName === "Default" || profileName === "High Quality"
+    property bool isBuiltIn: isBuiltInProfileName(profileName)
     
     // Reference to parent flickable for scroll-into-view
     property Flickable parentFlickable: null
@@ -72,6 +72,8 @@ FocusScope {
         videoOutputCombo.currentIndex = videoOutputCombo.model.indexOf(profileData.videoOutput || "gpu-next")
         interpolationSwitch.checked = profileData.interpolation || false
         windowsRenderApiCombo.currentIndex = windowsRenderApiIndex(profileData.windowsRenderApi || "auto")
+        hdrMetadataModeCombo.currentIndex = hdrMetadataModeIndex(profileData.hdrMetadataMode || "target")
+        windows10BitOutputSwitch.checked = profileData.windows10BitOutput || false
 
         var incoming = profileData.extraArgs
         if (incoming === undefined || incoming === null) {
@@ -93,6 +95,8 @@ FocusScope {
             "videoOutput": videoOutputCombo.currentText,
             "interpolation": interpolationSwitch.checked,
             "windowsRenderApi": windowsRenderApiValue(windowsRenderApiCombo.currentIndex),
+            "hdrMetadataMode": hdrMetadataModeValue(hdrMetadataModeCombo.currentIndex),
+            "windows10BitOutput": windows10BitOutputSwitch.checked,
             "extraArgs": extraArgsList
                 .filter(function(arg) { return typeof arg === "string" && arg.trim() !== "" })
                 .map(function(arg) { return arg.trim() })
@@ -111,6 +115,26 @@ FocusScope {
         if (index === 1) return "d3d11"
         if (index === 2) return "vulkan"
         return "auto"
+    }
+
+    function hdrMetadataModeIndex(value) {
+        if (value === "source-dynamic") return 1
+        return 0
+    }
+
+    function hdrMetadataModeValue(index) {
+        if (index === 1) return "source-dynamic"
+        return "target"
+    }
+
+    function isBuiltInProfileName(name) {
+        return name === "Low Quality"
+            || name === "Medium Quality"
+            || name === "High Quality"
+            || name === "ArtCNN"
+            || name === "ArtCNN-Deband"
+            || name === "nnedi3"
+            || name === "nnedi3-deband"
     }
 
     function updateExtraArg(index, text) {
@@ -918,13 +942,7 @@ FocusScope {
                         onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
 
                         Keys.onUpPressed: advancedToggleBtn.forceActiveFocus()
-                        Keys.onDownPressed: {
-                            if (argRepeater.count > 0 && argRepeater.itemAt(0) && argRepeater.itemAt(0).argumentField) {
-                                argRepeater.itemAt(0).argumentField.forceActiveFocus()
-                            } else {
-                                addArgButton.forceActiveFocus()
-                            }
-                        }
+                        Keys.onDownPressed: hdrMetadataModeCombo.forceActiveFocus()
                         Keys.onReturnPressed: popup.open()
                         Keys.onEnterPressed: popup.open()
 
@@ -949,6 +967,143 @@ FocusScope {
                             color: Theme.textPrimary
                             verticalAlignment: Text.AlignVCenter
                             leftPadding: Theme.spacingSmall
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+
+                        Text {
+                            text: "HDR Metadata Mode"
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+
+                        Text {
+                            text: "Target is the stable default. Source Dynamic is experimental and only affects HDR output."
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    SettingsComboBox {
+                        id: hdrMetadataModeCombo
+                        Layout.preferredWidth: 260
+                        model: ["Target", "Source Dynamic (Experimental)"]
+                        focusPolicy: Qt.StrongFocus
+                        Accessible.role: Accessible.ComboBox
+                        Accessible.name: "HDR Metadata Mode"
+
+                        onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
+
+                        Keys.onUpPressed: windowsRenderApiCombo.forceActiveFocus()
+                        Keys.onDownPressed: {
+                            if (windows10BitOutputSwitch.enabled) {
+                                windows10BitOutputSwitch.forceActiveFocus()
+                            } else if (argRepeater.count > 0 && argRepeater.itemAt(0) && argRepeater.itemAt(0).argumentField) {
+                                argRepeater.itemAt(0).argumentField.forceActiveFocus()
+                            } else {
+                                addArgButton.forceActiveFocus()
+                            }
+                        }
+                        Keys.onReturnPressed: popup.open()
+                        Keys.onEnterPressed: popup.open()
+
+                        onCurrentIndexChanged: {
+                            if (root.profileName !== "") {
+                                Qt.callLater(root.saveProfile)
+                            }
+                        }
+
+                        background: Rectangle {
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: Theme.inputBackground
+                            border.color: hdrMetadataModeCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: hdrMetadataModeCombo.activeFocus ? 2 : 1
+                        }
+
+                        contentItem: Text {
+                            text: hdrMetadataModeCombo.currentText
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.spacingSmall
+                            elide: Text.ElideRight
+                        }
+                    }
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+
+                        Text {
+                            text: "10-bit D3D11 Output"
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: windowsRenderApiValue(windowsRenderApiCombo.currentIndex) === "d3d11" ? Theme.textPrimary : Theme.textDisabled
+                        }
+
+                        Text {
+                            text: windowsRenderApiValue(windowsRenderApiCombo.currentIndex) === "d3d11"
+                                ? "Uses rgb10_a2 output format for Windows D3D11 playback."
+                                : "Available only when Windows Render API is D3D11."
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    Switch {
+                        id: windows10BitOutputSwitch
+                        enabled: windowsRenderApiValue(windowsRenderApiCombo.currentIndex) === "d3d11"
+                        focusPolicy: enabled ? Qt.StrongFocus : Qt.NoFocus
+                        Accessible.role: Accessible.CheckBox
+                        Accessible.name: "10-bit D3D11 Output"
+                        Accessible.checkable: true
+                        Accessible.checked: checked
+
+                        onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
+                        onEnabledChanged: {
+                            if (!enabled && activeFocus) {
+                                hdrMetadataModeCombo.forceActiveFocus()
+                            }
+                        }
+
+                        Keys.onUpPressed: hdrMetadataModeCombo.forceActiveFocus()
+                        Keys.onDownPressed: {
+                            if (argRepeater.count > 0 && argRepeater.itemAt(0) && argRepeater.itemAt(0).argumentField) {
+                                argRepeater.itemAt(0).argumentField.forceActiveFocus()
+                            } else {
+                                addArgButton.forceActiveFocus()
+                            }
+                        }
+                        Keys.onReturnPressed: if (enabled) checked = !checked
+                        Keys.onEnterPressed: if (enabled) checked = !checked
+                        Keys.onSpacePressed: if (enabled) checked = !checked
+
+                        onCheckedChanged: {
+                            if (root.profileName !== "") {
+                                Qt.callLater(root.saveProfile)
+                            }
                         }
                     }
                 }

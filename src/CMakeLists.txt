@@ -14,6 +14,7 @@ qt_add_executable(Bloom
     resources/fonts.qrc
     resources/sounds.qrc
     resources/images.qrc
+    resources/mpv-shaders.qrc
     player/PlayerProcessManager.cpp
     player/PlayerController.cpp
     player/MpvVideoItem.h

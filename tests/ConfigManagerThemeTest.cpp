@@ -15,10 +15,20 @@ class ConfigManagerThemeTest : public QObject
 
 private slots:
     void defaultsIncludeThemeVariants();
+    void defaultsContainNewBuiltinMpvProfiles();
     void themeVariantSettersPersistAndEmit();
     void v19MigrationAddsThemeVariantSettings();
+    void v20MigrationRenamesDefaultProfileAssignments();
+    void v21MigrationAddsArtProfilesWithoutChangingAssignments();
     void hdrPolicyDefaultsToMatchContent();
     void hdrMpvArgsRespectOutputMode();
+    void builtinMpvProfilesEmitExpectedQualityArgs();
+    void artMpvProfilesEmitExpectedShaderAndDebandArgs();
+    void mpvProfileHdrAndWindowsOutputFieldsDefaultAndPersist();
+    void hdrMpvArgsUseProfileMetadataMode();
+    void v23MigrationPreservesCustomizedBuiltInProfiles();
+    void bundledMpvShadersAreCopied();
+    void bundledMpvFontsAreCopied();
     void importMpvConfigCreatesProfile();
     void importMpvConfigNormalizesQuotedShaderArgs();
     void existingMpvProfileArgsAreSanitizedOnLoad();
@@ -27,6 +37,7 @@ private slots:
     void setMpvProfilePreservesWindowsRenderApiValues();
     void renameMpvProfilePreservesProfileAndAssignments();
     void renameMpvProfileRejectsInvalidRequests();
+    void deleteMpvProfileRejectsBuiltins();
     void importMpvConfigFiltersBloomManagedOptions();
     void importMpvConfigIgnoresProfileSections();
     void importMpvConfigRejectsDuplicateOrEmptyNames();
@@ -97,6 +108,98 @@ QJsonObject minimalV19Config()
     return config;
 }
 
+QJsonObject minimalV20ConfigWithDefaultAssignments()
+{
+    QJsonObject defaultProfile;
+    defaultProfile[QStringLiteral("hwdec_enabled")] = true;
+    defaultProfile[QStringLiteral("hwdec_method")] = QStringLiteral("auto");
+    defaultProfile[QStringLiteral("deinterlace")] = false;
+    defaultProfile[QStringLiteral("deinterlace_method")] = QString();
+    defaultProfile[QStringLiteral("video_output")] = QStringLiteral("gpu-next");
+    defaultProfile[QStringLiteral("interpolation")] = false;
+    defaultProfile[QStringLiteral("windows_render_api")] = QStringLiteral("auto");
+    defaultProfile[QStringLiteral("extra_args")] = QJsonArray{QStringLiteral("--fullscreen")};
+
+    QJsonObject highQuality = defaultProfile;
+    highQuality[QStringLiteral("extra_args")] = QJsonArray{
+        QStringLiteral("--fullscreen"),
+        QStringLiteral("--profile=high-quality")
+    };
+
+    QJsonObject customDefault = defaultProfile;
+    customDefault[QStringLiteral("extra_args")] = QJsonArray{
+        QStringLiteral("--fullscreen"),
+        QStringLiteral("--sub-auto=fuzzy")
+    };
+
+    QJsonObject profiles;
+    profiles[QStringLiteral("Default")] = customDefault;
+    profiles[QStringLiteral("High Quality")] = highQuality;
+
+    QJsonObject settings;
+    settings[QStringLiteral("playback")] = QJsonObject{{QStringLiteral("completion_threshold"), 90}};
+    settings[QStringLiteral("mpv_profiles")] = profiles;
+    settings[QStringLiteral("default_profile")] = QStringLiteral("Default");
+    settings[QStringLiteral("library_profiles")] = QJsonObject{{QStringLiteral("library-1"), QStringLiteral("Default")}};
+    settings[QStringLiteral("series_profiles")] = QJsonObject{{QStringLiteral("series-1"), QStringLiteral("Default")}};
+
+    QJsonObject config;
+    config[QStringLiteral("version")] = 20;
+    config[QStringLiteral("settings")] = settings;
+    return config;
+}
+
+QJsonObject minimalV21ConfigWithAssignments()
+{
+    QJsonObject config = minimalV20ConfigWithDefaultAssignments();
+    QJsonObject settings = config.value(QStringLiteral("settings")).toObject();
+    QJsonObject profiles = ConfigManager::defaultMpvProfiles();
+    profiles.remove(QStringLiteral("ArtCNN"));
+    profiles.remove(QStringLiteral("ArtCNN-Deband"));
+    profiles.remove(QStringLiteral("nnedi3"));
+    profiles.remove(QStringLiteral("nnedi3-deband"));
+    settings[QStringLiteral("mpv_profiles")] = profiles;
+    settings[QStringLiteral("default_profile")] = QStringLiteral("High Quality");
+    settings[QStringLiteral("library_profiles")] = QJsonObject{{QStringLiteral("library-1"), QStringLiteral("Low Quality")}};
+    settings[QStringLiteral("series_profiles")] = QJsonObject{{QStringLiteral("series-1"), QStringLiteral("High Quality")}};
+    config[QStringLiteral("version")] = 21;
+    config[QStringLiteral("settings")] = settings;
+    return config;
+}
+
+QJsonObject minimalV22ConfigWithCustomizedAnimeProfile()
+{
+    QJsonObject profiles = ConfigManager::defaultMpvProfiles();
+    for (const QString &name : profiles.keys()) {
+        QJsonObject profile = profiles.value(name).toObject();
+        profile.remove(QStringLiteral("hdr_metadata_mode"));
+        profile.remove(QStringLiteral("windows_10bit_output"));
+        if (name == QStringLiteral("ArtCNN") || name == QStringLiteral("ArtCNN-Deband")
+            || name == QStringLiteral("nnedi3") || name == QStringLiteral("nnedi3-deband")) {
+            profile[QStringLiteral("windows_render_api")] = QStringLiteral("auto");
+        }
+        profiles[name] = profile;
+    }
+
+    QJsonObject customizedArt = profiles.value(QStringLiteral("ArtCNN")).toObject();
+    QJsonArray extraArgs = customizedArt.value(QStringLiteral("extra_args")).toArray();
+    extraArgs.append(QStringLiteral("--sub-auto=fuzzy"));
+    customizedArt[QStringLiteral("extra_args")] = extraArgs;
+    profiles[QStringLiteral("ArtCNN")] = customizedArt;
+
+    QJsonObject settings;
+    settings[QStringLiteral("playback")] = QJsonObject{{QStringLiteral("completion_threshold"), 90}};
+    settings[QStringLiteral("mpv_profiles")] = profiles;
+    settings[QStringLiteral("default_profile")] = QStringLiteral("Medium Quality");
+    settings[QStringLiteral("library_profiles")] = QJsonObject();
+    settings[QStringLiteral("series_profiles")] = QJsonObject();
+
+    QJsonObject config;
+    config[QStringLiteral("version")] = 22;
+    config[QStringLiteral("settings")] = settings;
+    return config;
+}
+
 QString writeMpvConf(const QString &dirPath, const QString &contents)
 {
     const QString path = QDir(dirPath).filePath(QStringLiteral("mpv.conf"));
@@ -123,6 +226,27 @@ void ConfigManagerThemeTest::defaultsIncludeThemeVariants()
     QCOMPARE(config.getTheme(), QStringLiteral("Jellyfin"));
     QCOMPARE(config.getThemeFlavor(), QString());
     QCOMPARE(config.getThemeColorScheme(), QStringLiteral("blue"));
+}
+
+void ConfigManagerThemeTest::defaultsContainNewBuiltinMpvProfiles()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getDefaultProfileName(), QStringLiteral("Medium Quality"));
+    const QStringList names = config.getMpvProfileNames();
+    QVERIFY(names.contains(QStringLiteral("Low Quality")));
+    QVERIFY(names.contains(QStringLiteral("Medium Quality")));
+    QVERIFY(names.contains(QStringLiteral("High Quality")));
+    QVERIFY(names.contains(QStringLiteral("ArtCNN")));
+    QVERIFY(names.contains(QStringLiteral("ArtCNN-Deband")));
+    QVERIFY(names.contains(QStringLiteral("nnedi3")));
+    QVERIFY(names.contains(QStringLiteral("nnedi3-deband")));
+    QVERIFY(!names.contains(QStringLiteral("Default")));
 }
 
 void ConfigManagerThemeTest::themeVariantSettersPersistAndEmit()
@@ -184,10 +308,60 @@ void ConfigManagerThemeTest::v19MigrationAddsThemeVariantSettings()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 20);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 23);
     const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
     QVERIFY(ui.contains(QStringLiteral("theme_flavor")));
     QCOMPARE(ui.value(QStringLiteral("theme_color_scheme")).toString(), QStringLiteral("blue"));
+}
+
+void ConfigManagerThemeTest::v21MigrationAddsArtProfilesWithoutChangingAssignments()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    QVERIFY(QDir().mkpath(ConfigManager::getConfigDir()));
+    QFile configFile(ConfigManager::getConfigPath());
+    QVERIFY(configFile.open(QIODevice::WriteOnly));
+    configFile.write(QJsonDocument(minimalV21ConfigWithAssignments()).toJson(QJsonDocument::Indented));
+    configFile.close();
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getDefaultProfileName(), QStringLiteral("High Quality"));
+    QCOMPARE(config.getLibraryProfile(QStringLiteral("library-1")), QStringLiteral("Low Quality"));
+    QCOMPARE(config.getSeriesProfile(QStringLiteral("series-1")), QStringLiteral("High Quality"));
+
+    const QStringList names = config.getMpvProfileNames();
+    QVERIFY(names.contains(QStringLiteral("ArtCNN")));
+    QVERIFY(names.contains(QStringLiteral("ArtCNN-Deband")));
+    QVERIFY(names.contains(QStringLiteral("nnedi3")));
+    QVERIFY(names.contains(QStringLiteral("nnedi3-deband")));
+}
+
+void ConfigManagerThemeTest::v20MigrationRenamesDefaultProfileAssignments()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    const QString bloomDir = ConfigManager::getConfigDir();
+    QVERIFY(QDir().mkpath(bloomDir));
+
+    QFile configFile(ConfigManager::getConfigPath());
+    QVERIFY(configFile.open(QIODevice::WriteOnly));
+    configFile.write(QJsonDocument(minimalV20ConfigWithDefaultAssignments()).toJson(QJsonDocument::Indented));
+    configFile.close();
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getDefaultProfileName(), QStringLiteral("Medium Quality"));
+    QCOMPARE(config.getLibraryProfile(QStringLiteral("library-1")), QStringLiteral("Medium Quality"));
+    QCOMPARE(config.getSeriesProfile(QStringLiteral("series-1")), QStringLiteral("Medium Quality"));
+    QVERIFY(!config.getMpvProfileNames().contains(QStringLiteral("Default")));
+    QVERIFY(config.getMpvProfileNames().contains(QStringLiteral("Default (custom backup)")));
 }
 
 void ConfigManagerThemeTest::hdrPolicyDefaultsToMatchContent()
@@ -229,31 +403,251 @@ void ConfigManagerThemeTest::hdrMpvArgsRespectOutputMode()
     ConfigManager config;
     config.load();
 
-    QStringList args = config.getMpvArgsForProfile(QStringLiteral("Default"), true);
+    QStringList args = config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), true);
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
     QVERIFY(args.contains(QStringLiteral("--tone-mapping=auto")));
 
     config.setEnableHDR(true);
-    args = config.getMpvArgsForProfile(QStringLiteral("Default"), false);
+    args = config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), false);
     QVERIFY(!args.contains(QStringLiteral("--target-colorspace-hint=auto")));
 
-    args = config.getMpvArgsForProfile(QStringLiteral("Default"), true);
+    args = config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), true);
     QVERIFY(args.contains(QStringLiteral("--vo=gpu-next")));
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=auto")));
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint-mode=target")));
     QVERIFY(!args.contains(QStringLiteral("--gpu-api=d3d11")));
     QVERIFY(!args.contains(QStringLiteral("--gpu-context=d3d11")));
 
-    args = config.getMpvArgsForProfile(QStringLiteral("Default"), true, true);
+    args = config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), true, true);
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
     QVERIFY(args.contains(QStringLiteral("--tone-mapping=auto")));
     QVERIFY(args.contains(QStringLiteral("--hdr-compute-peak=auto")));
 
     config.setHDROutputMode(QStringLiteral("tone-map-to-sdr"));
-    args = config.getMpvArgsForProfile(QStringLiteral("Default"), true);
+    args = config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), true);
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
     QVERIFY(args.contains(QStringLiteral("--tone-mapping=auto")));
     QVERIFY(args.contains(QStringLiteral("--hdr-compute-peak=auto")));
+}
+
+void ConfigManagerThemeTest::builtinMpvProfilesEmitExpectedQualityArgs()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    const QStringList lowArgs = config.getMpvArgsForProfile(QStringLiteral("Low Quality"));
+    QVERIFY(lowArgs.contains(QStringLiteral("--profile=fast")));
+
+    const QStringList mediumArgs = config.getMpvArgsForProfile(QStringLiteral("Medium Quality"));
+    QVERIFY(mediumArgs.contains(QStringLiteral("--profile=high-quality")));
+
+    const QStringList highArgs = config.getMpvArgsForProfile(QStringLiteral("High Quality"));
+    const QString clearArg = QStringLiteral("--glsl-shaders-clr");
+    const QString fsrcnnx = QStringLiteral("--glsl-shaders-append=~~/shaders/FSRCNNX_x2_8-0-4-1.glsl");
+    const QString krig = QStringLiteral("--glsl-shaders-append=~~/shaders/KrigBilateral.glsl");
+    const QString ssim = QStringLiteral("--glsl-shaders-append=~~/shaders/SSimDownscaler.glsl");
+
+    QVERIFY(highArgs.contains(QStringLiteral("--profile=high-quality")));
+    QVERIFY(highArgs.indexOf(clearArg) >= 0);
+    QVERIFY(highArgs.indexOf(clearArg) < highArgs.indexOf(fsrcnnx));
+    QVERIFY(highArgs.indexOf(fsrcnnx) < highArgs.indexOf(QStringLiteral("--scale=ewa_lanczos")));
+    QVERIFY(highArgs.indexOf(QStringLiteral("--scale=ewa_lanczos")) < highArgs.indexOf(krig));
+    QVERIFY(highArgs.indexOf(krig) < highArgs.indexOf(QStringLiteral("--cscale=ewa_lanczos")));
+    QVERIFY(highArgs.indexOf(QStringLiteral("--cscale=ewa_lanczos")) < highArgs.indexOf(ssim));
+    QVERIFY(highArgs.indexOf(ssim) < highArgs.indexOf(QStringLiteral("--dscale=mitchell")));
+    QVERIFY(highArgs.contains(QStringLiteral("--linear-downscaling=no")));
+    QVERIFY(highArgs.contains(QStringLiteral("--correct-downscaling=yes")));
+}
+
+void ConfigManagerThemeTest::artMpvProfilesEmitExpectedShaderAndDebandArgs()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    const auto countArg = [](const QStringList &args, const QString &arg) {
+        return args.count(arg);
+    };
+    const auto verifyProfile = [&](const QString &profileName, const QString &shaderArg, bool deband) {
+        const QStringList args = config.getMpvArgsForProfile(profileName);
+        QCOMPARE(config.getMpvProfile(profileName).value(QStringLiteral("windowsRenderApi")).toString(),
+                 QStringLiteral("vulkan"));
+        QCOMPARE(countArg(args, shaderArg), 1);
+        QVERIFY(args.contains(QStringLiteral("--vo=gpu-next")));
+        QVERIFY(args.contains(QStringLiteral("--hwdec=no")));
+        QVERIFY(args.contains(QStringLiteral("--profile=high-quality")));
+        QVERIFY(args.contains(QStringLiteral("--sub-fonts-dir=~~/fonts")));
+        QVERIFY(args.contains(QStringLiteral("--sub-ass-override=no")));
+        QVERIFY(args.contains(QStringLiteral("--sub-font=Gandhi Sans Bold")));
+        QVERIFY(args.contains(QStringLiteral("--blend-subtitles=video")));
+        QVERIFY(args.contains(QStringLiteral("--secondary-sub-ass-override=yes")));
+        if (deband) {
+            QVERIFY(args.contains(QStringLiteral("--deband=yes")));
+            QVERIFY(args.contains(QStringLiteral("--deband-iterations=4")));
+            QVERIFY(args.contains(QStringLiteral("--deband-threshold=48")));
+            QVERIFY(args.contains(QStringLiteral("--deband-range=64")));
+            QVERIFY(args.contains(QStringLiteral("--deband-grain=12")));
+        } else {
+            QVERIFY(args.contains(QStringLiteral("--deband=no")));
+            QVERIFY(!args.contains(QStringLiteral("--deband-iterations=4")));
+            QVERIFY(!args.contains(QStringLiteral("--deband-threshold=48")));
+            QVERIFY(!args.contains(QStringLiteral("--deband-range=64")));
+            QVERIFY(!args.contains(QStringLiteral("--deband-grain=12")));
+        }
+    };
+
+    verifyProfile(QStringLiteral("ArtCNN"),
+                  QStringLiteral("--glsl-shaders-append=~~/shaders/ArtCNN_C4F16.glsl"),
+                  false);
+    verifyProfile(QStringLiteral("ArtCNN-Deband"),
+                  QStringLiteral("--glsl-shaders-append=~~/shaders/ArtCNN_C4F16.glsl"),
+                  true);
+    verifyProfile(QStringLiteral("nnedi3"),
+                  QStringLiteral("--glsl-shaders-append=~~/shaders/nnedi3-nns32-win8x6.hook"),
+                  false);
+    verifyProfile(QStringLiteral("nnedi3-deband"),
+                  QStringLiteral("--glsl-shaders-append=~~/shaders/nnedi3-nns32-win8x6.hook"),
+                  true);
+}
+
+void ConfigManagerThemeTest::mpvProfileHdrAndWindowsOutputFieldsDefaultAndPersist()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    const QVariantMap medium = config.getMpvProfile(QStringLiteral("Medium Quality"));
+    QCOMPARE(medium.value(QStringLiteral("hdrMetadataMode")).toString(), QStringLiteral("target"));
+    QCOMPARE(medium.value(QStringLiteral("windows10BitOutput")).toBool(), false);
+
+    config.setMpvProfile(QStringLiteral("HDR Test"), QVariantMap{
+        {QStringLiteral("hwdecEnabled"), true},
+        {QStringLiteral("hwdecMethod"), QStringLiteral("auto")},
+        {QStringLiteral("deinterlace"), false},
+        {QStringLiteral("deinterlaceMethod"), QString()},
+        {QStringLiteral("videoOutput"), QStringLiteral("gpu-next")},
+        {QStringLiteral("interpolation"), false},
+        {QStringLiteral("windowsRenderApi"), QStringLiteral("d3d11")},
+        {QStringLiteral("hdrMetadataMode"), QStringLiteral("source-dynamic")},
+        {QStringLiteral("windows10BitOutput"), true},
+        {QStringLiteral("extraArgs"), QStringList{}}
+    });
+
+    const QVariantMap saved = config.getMpvProfile(QStringLiteral("HDR Test"));
+    QCOMPARE(saved.value(QStringLiteral("hdrMetadataMode")).toString(), QStringLiteral("source-dynamic"));
+    QCOMPARE(saved.value(QStringLiteral("windows10BitOutput")).toBool(), true);
+}
+
+void ConfigManagerThemeTest::hdrMpvArgsUseProfileMetadataMode()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    config.setEnableHDR(true);
+
+    QStringList args = config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), true);
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=auto")));
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint-mode=target")));
+
+    QVariantMap profile = config.getMpvProfile(QStringLiteral("Medium Quality"));
+    profile[QStringLiteral("hdrMetadataMode")] = QStringLiteral("source-dynamic");
+    config.setMpvProfile(QStringLiteral("Medium Quality"), profile);
+
+    args = config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), true);
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=auto")));
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint-mode=source-dynamic")));
+
+    args = config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), true, true);
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
+    QVERIFY(!args.contains(QStringLiteral("--target-colorspace-hint-mode=source-dynamic")));
+}
+
+void ConfigManagerThemeTest::v23MigrationPreservesCustomizedBuiltInProfiles()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    QVERIFY(QDir().mkpath(ConfigManager::getConfigDir()));
+    QFile configFile(ConfigManager::getConfigPath());
+    QVERIFY(configFile.open(QIODevice::WriteOnly));
+    configFile.write(QJsonDocument(minimalV22ConfigWithCustomizedAnimeProfile()).toJson(QJsonDocument::Indented));
+    configFile.close();
+
+    ConfigManager config;
+    config.load();
+
+    const QVariantMap art = config.getMpvProfile(QStringLiteral("ArtCNN"));
+    QCOMPARE(art.value(QStringLiteral("windowsRenderApi")).toString(), QStringLiteral("auto"));
+    QCOMPARE(art.value(QStringLiteral("hdrMetadataMode")).toString(), QStringLiteral("target"));
+    QCOMPARE(art.value(QStringLiteral("windows10BitOutput")).toBool(), false);
+    QVERIFY(art.value(QStringLiteral("extraArgs")).toStringList().contains(QStringLiteral("--sub-auto=fuzzy")));
+
+    QCOMPARE(config.getMpvProfile(QStringLiteral("ArtCNN-Deband")).value(QStringLiteral("windowsRenderApi")).toString(),
+             QStringLiteral("vulkan"));
+    QCOMPARE(config.getMpvProfile(QStringLiteral("nnedi3")).value(QStringLiteral("windowsRenderApi")).toString(),
+             QStringLiteral("vulkan"));
+    QCOMPARE(config.getMpvProfile(QStringLiteral("nnedi3-deband")).value(QStringLiteral("windowsRenderApi")).toString(),
+             QStringLiteral("vulkan"));
+}
+
+void ConfigManagerThemeTest::bundledMpvShadersAreCopied()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    const QDir shaderDir(QDir(ConfigManager::getMpvConfigDir()).filePath(QStringLiteral("shaders")));
+    for (const QString &shaderName : QStringList{
+             QStringLiteral("FSRCNNX_x2_8-0-4-1.glsl"),
+             QStringLiteral("KrigBilateral.glsl"),
+             QStringLiteral("SSimDownscaler.glsl"),
+             QStringLiteral("ArtCNN_C4F16.glsl"),
+             QStringLiteral("nnedi3-nns32-win8x6.hook")}) {
+        QFile copied(shaderDir.filePath(shaderName));
+        QVERIFY2(copied.exists(), qPrintable(shaderName));
+        QVERIFY(copied.open(QIODevice::ReadOnly));
+        QVERIFY(!copied.readAll().isEmpty());
+    }
+}
+
+void ConfigManagerThemeTest::bundledMpvFontsAreCopied()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    const QDir fontsDir(QDir(ConfigManager::getMpvConfigDir()).filePath(QStringLiteral("fonts")));
+    for (const QString &fontName : QStringList{
+             QStringLiteral("GandhiSans-Regular.otf"),
+             QStringLiteral("GandhiSans-Bold.otf"),
+             QStringLiteral("GandhiSans-Italic.otf"),
+             QStringLiteral("GandhiSans-BoldItalic.otf"),
+             QStringLiteral("LICENSE-GandhiSans.txt")}) {
+        QFile copied(fontsDir.filePath(fontName));
+        QVERIFY2(copied.exists(), qPrintable(fontName));
+        QVERIFY(copied.open(QIODevice::ReadOnly));
+        QVERIFY(!copied.readAll().isEmpty());
+    }
 }
 
 void ConfigManagerThemeTest::importMpvConfigCreatesProfile()
@@ -402,6 +796,8 @@ void ConfigManagerThemeTest::setMpvProfileNormalizesExtraArgs()
             QStringLiteral("--glsl-shader=\"C:\\shader dir\\ArtCNN.glsl\""),
             QStringLiteral("--gpu-api=vulkan"),
             QStringLiteral("--gpu-context=winvk"),
+            QStringLiteral("--profile=fast"),
+            QStringLiteral("--profile=custom"),
             QStringLiteral("--sub-font=\"Noto Sans\"")
         }}
     });
@@ -411,6 +807,7 @@ void ConfigManagerThemeTest::setMpvProfileNormalizesExtraArgs()
                                       .toStringList();
     QCOMPARE(extraArgs, QStringList({
         QStringLiteral("--glsl-shaders-append=C:\\shader dir\\ArtCNN.glsl"),
+        QStringLiteral("--profile=fast"),
         QStringLiteral("--sub-font=Noto Sans")
     }));
 }
@@ -551,12 +948,40 @@ void ConfigManagerThemeTest::renameMpvProfileRejectsInvalidRequests()
     });
 
     const QStringList namesBefore = config.getMpvProfileNames();
-    QVERIFY(!config.renameMpvProfile(QStringLiteral("Default"), QStringLiteral("Default Renamed")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("Low Quality"), QStringLiteral("Low Renamed")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("Medium Quality"), QStringLiteral("Medium Renamed")));
     QVERIFY(!config.renameMpvProfile(QStringLiteral("High Quality"), QStringLiteral("HQ Renamed")));
-    QVERIFY(!config.renameMpvProfile(QStringLiteral("Custom"), QStringLiteral("Default")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("ArtCNN"), QStringLiteral("Art Renamed")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("ArtCNN-Deband"), QStringLiteral("Art Deband Renamed")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("nnedi3"), QStringLiteral("nnedi3 Renamed")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("nnedi3-deband"), QStringLiteral("nnedi3 Deband Renamed")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("Custom"), QStringLiteral("Medium Quality")));
     QVERIFY(!config.renameMpvProfile(QStringLiteral("Custom"), QStringLiteral("   ")));
     QVERIFY(!config.renameMpvProfile(QStringLiteral("Missing"), QStringLiteral("New Missing")));
     QVERIFY(!config.renameMpvProfile(QStringLiteral("Custom"), QStringLiteral("Custom")));
+    QCOMPARE(config.getMpvProfileNames(), namesBefore);
+}
+
+void ConfigManagerThemeTest::deleteMpvProfileRejectsBuiltins()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    const QStringList namesBefore = config.getMpvProfileNames();
+    for (const QString &name : QStringList{
+             QStringLiteral("Low Quality"),
+             QStringLiteral("Medium Quality"),
+             QStringLiteral("High Quality"),
+             QStringLiteral("ArtCNN"),
+             QStringLiteral("ArtCNN-Deband"),
+             QStringLiteral("nnedi3"),
+             QStringLiteral("nnedi3-deband")}) {
+        QVERIFY2(!config.deleteMpvProfile(name), qPrintable(name));
+    }
     QCOMPARE(config.getMpvProfileNames(), namesBefore);
 }
 
@@ -640,7 +1065,7 @@ void ConfigManagerThemeTest::importMpvConfigRejectsDuplicateOrEmptyNames()
     QVERIFY(!result.value(QStringLiteral("success")).toBool());
     QCOMPARE(config.getMpvProfileNames(), namesBefore);
 
-    result = config.importMpvConfigAsProfile(confPath, QStringLiteral("Default"));
+    result = config.importMpvConfigAsProfile(confPath, QStringLiteral("Medium Quality"));
     QVERIFY(!result.value(QStringLiteral("success")).toBool());
     QCOMPARE(config.getMpvProfileNames(), namesBefore);
 }

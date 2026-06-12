@@ -3726,6 +3726,22 @@ void PlayerController::showMpvStatsPage(int page)
     }
 }
 
+void PlayerController::toggleSubtitleAssOverride()
+{
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"cycle-values", "sub-ass-override", "no", "yes"});
+    }
+}
+
+void PlayerController::toggleDeband()
+{
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        m_playerBackend->sendCommand({"cycle-values", "deband", "no", "yes"});
+    }
+}
+
 void PlayerController::sendMpvKeypress(const QString &key)
 {
     if (key.isEmpty()) {
@@ -5077,6 +5093,10 @@ void PlayerController::initiateMpvStart()
         profileArgs << QStringLiteral("--bloom-profile-name=%1").arg(profileName);
         profileArgs << QStringLiteral("--bloom-windows-render-api=%1")
                            .arg(profileData.value(QStringLiteral("windowsRenderApi"), QStringLiteral("auto")).toString());
+        profileArgs << QStringLiteral("--bloom-windows-10bit-output=%1")
+                           .arg(profileData.value(QStringLiteral("windows10BitOutput"), false).toBool()
+                                    ? QStringLiteral("yes")
+                                    : QStringLiteral("no"));
     }
     
     // Build final args: Bloom config args + profile args
