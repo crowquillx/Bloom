@@ -227,10 +227,10 @@ function Fetch-MpvSdk {
         New-Item -ItemType Directory -Path $DestinationRoot | Out-Null
     }
 
-    $mpvSdkVersion = "20260419-git-06f4ce7"
+    $mpvReleaseTag = "20260610"
+    $mpvSdkVersion = "20260610-git-304426c"
     $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
-    # Use a concrete SourceForge mirror URL and curl.exe. Invoke-WebRequest can save HTML instead of the archive.
-    $downloadUrl = "https://master.dl.sourceforge.net/project/mpv-player-windows/libmpv/$mpvSdkFile"
+    $downloadUrl = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$mpvReleaseTag/$mpvSdkFile"
 
     Write-Host "Attempting to fetch pinned mpv-dev SDK: $mpvSdkFile" -ForegroundColor Cyan
 

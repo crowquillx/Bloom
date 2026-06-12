@@ -143,12 +143,11 @@ jobs:
       - name: Fetch libmpv SDK
         shell: pwsh
         run: |
-          # Windows libmpv SDK assets are archived separately from the tagged GitHub releases.
-          # Pin to the latest archived x86_64 libmpv build we've validated instead of following latest git dynamically.
-          $mpvSdkVersion = "20260419-git-06f4ce7"
+          # Pin to a validated shinchiro mpv-winbuild-cmake release instead of following latest git dynamically.
+          $mpvReleaseTag = "20260610"
+          $mpvSdkVersion = "20260610-git-304426c"
           $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
-          # Use a concrete SourceForge mirror URL and curl.exe. Invoke-WebRequest can save HTML instead of the archive.
-          $downloadUrl = "https://master.dl.sourceforge.net/project/mpv-player-windows/libmpv/$mpvSdkFile"
+          $downloadUrl = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$mpvReleaseTag/$mpvSdkFile"
 
           Write-Host "Downloading pinned libmpv SDK: $mpvSdkFile"
           $downloadPath = Join-Path $PWD $mpvSdkFile
