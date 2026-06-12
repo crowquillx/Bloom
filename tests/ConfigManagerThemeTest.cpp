@@ -8,6 +8,7 @@
 #include <QTemporaryDir>
 
 #include "utils/ConfigManager.h"
+#include "utils/MpvArgFilter.h"
 
 class ConfigManagerThemeTest : public QObject
 {
@@ -42,6 +43,8 @@ private slots:
     void importMpvConfigIgnoresProfileSections();
     void importMpvConfigRejectsDuplicateOrEmptyNames();
     void importMpvConfigMissingFileReturnsError();
+    void embeddedMpvShaderPartitionPreservesOrder();
+    void resolveMpvPortablePathExpandsConfigDirPrefix();
 };
 
 namespace {
@@ -1085,6 +1088,40 @@ void ConfigManagerThemeTest::importMpvConfigMissingFileReturnsError()
     QVERIFY(!result.value(QStringLiteral("success")).toBool());
     QVERIFY(!result.value(QStringLiteral("error")).toString().isEmpty());
     QVERIFY(!config.getMpvProfileNames().contains(QStringLiteral("Missing")));
+}
+
+void ConfigManagerThemeTest::embeddedMpvShaderPartitionPreservesOrder()
+{
+    const QStringList args{
+        QStringLiteral("--profile=high-quality"),
+        QStringLiteral("--glsl-shaders-clr"),
+        QStringLiteral("--glsl-shaders-append=~~/shaders/FSRCNNX_x2_8-0-4-1.glsl"),
+        QStringLiteral("--scale=ewa_lanczos"),
+        QStringLiteral("--glsl-shaders-append=~~/shaders/KrigBilateral.glsl"),
+        QStringLiteral("--glsl-shaders-append=~~/shaders/SSimDownscaler.glsl"),
+    };
+
+    const MpvArgFilter::ShaderArgPartition partitioned = MpvArgFilter::partitionShaderArgs(args);
+    QCOMPARE(partitioned.nonShaderArgs,
+             QStringList({
+                 QStringLiteral("--profile=high-quality"),
+                 QStringLiteral("--scale=ewa_lanczos"),
+             }));
+    QCOMPARE(partitioned.shaderPaths,
+             QStringList({
+                 QStringLiteral("~~/shaders/FSRCNNX_x2_8-0-4-1.glsl"),
+                 QStringLiteral("~~/shaders/KrigBilateral.glsl"),
+                 QStringLiteral("~~/shaders/SSimDownscaler.glsl"),
+             }));
+}
+
+void ConfigManagerThemeTest::resolveMpvPortablePathExpandsConfigDirPrefix()
+{
+    const QString mpvConfigDir = QStringLiteral("/cfg/mpv");
+    QCOMPARE(MpvArgFilter::resolveMpvPortablePath(QStringLiteral("~~/shaders/Foo.glsl"), mpvConfigDir),
+             QDir(mpvConfigDir).filePath(QStringLiteral("shaders/Foo.glsl")));
+    QCOMPARE(MpvArgFilter::resolveMpvPortablePath(QStringLiteral("C:\\filters\\ArtCNN.glsl"), mpvConfigDir),
+             QStringLiteral("C:\\filters\\ArtCNN.glsl"));
 }
 
 QTEST_MAIN(ConfigManagerThemeTest)

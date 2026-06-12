@@ -11,6 +11,11 @@
 
 #include <memory>
 
+#ifdef BLOOM_TESTING
+#include "../../utils/ConfigManager.h"
+#include "../../utils/MpvArgFilter.h"
+#endif
+
 class QEvent;
 
 class WindowsMpvBackend : public IPlayerBackend
@@ -52,6 +57,18 @@ public:
             result << QStringLiteral("--d3d11-output-format=rgb10_a2");
         }
         return result;
+    }
+    QString embeddedShaderListValueForTest(const QStringList &args) const
+    {
+        const MpvArgFilter::ShaderArgPartition partitioned =
+            MpvArgFilter::partitionShaderArgs(MpvArgFilter::sanitizeArgs(args));
+        const QString mpvConfigDir = ConfigManager::getMpvConfigDir();
+        QStringList resolvedShaderPaths;
+        resolvedShaderPaths.reserve(partitioned.shaderPaths.size());
+        for (const QString &shaderPath : partitioned.shaderPaths) {
+            resolvedShaderPaths.append(MpvArgFilter::resolveMpvPortablePath(shaderPath, mpvConfigDir));
+        }
+        return resolvedShaderPaths.join(QLatin1Char(','));
     }
 #endif
 

@@ -1,6 +1,35 @@
 #include "MpvArgFilter.h"
 
+#include <QDir>
+
 namespace MpvArgFilter {
+
+namespace {
+
+QString unquoteArgValue(QString value)
+{
+    if (value.size() >= 2) {
+        const QChar first = value.front();
+        const QChar last = value.back();
+        if ((first == QLatin1Char('"') && last == QLatin1Char('"'))
+            || (first == QLatin1Char('\'') && last == QLatin1Char('\''))) {
+            value = value.mid(1, value.size() - 2);
+        }
+    }
+    return value;
+}
+
+QString shaderPathFromArg(const QString &arg)
+{
+    const int equalsIndex = arg.indexOf(QLatin1Char('='));
+    if (equalsIndex < 0) {
+        return QString();
+    }
+
+    return unquoteArgValue(arg.mid(equalsIndex + 1).trimmed());
+}
+
+} // namespace
 
 QString optionNameForArg(const QString &arg)
 {
@@ -23,6 +52,16 @@ bool isSafeBuiltinProfileArg(const QString &arg)
 
     const QString value = trimmed.mid(equalsIndex + 1).trimmed().toLower();
     return value == QStringLiteral("fast") || value == QStringLiteral("high-quality");
+}
+
+bool isShaderListArg(const QString &arg)
+{
+    const QString name = optionNameForArg(arg);
+    return name == QStringLiteral("glsl-shader")
+        || name == QStringLiteral("glsl-shader-append")
+        || name == QStringLiteral("glsl-shaders")
+        || name == QStringLiteral("glsl-shaders-append")
+        || name == QStringLiteral("glsl-shaders-clr");
 }
 
 bool isBloomManagedOptionName(const QString &name)
@@ -75,15 +114,7 @@ QString sanitizeArg(const QString &arg)
         return trimmed;
     }
 
-    QString value = trimmed.mid(equalsIndex + 1).trimmed();
-    if (value.size() >= 2) {
-        const QChar first = value.front();
-        const QChar last = value.back();
-        if ((first == QLatin1Char('"') && last == QLatin1Char('"'))
-            || (first == QLatin1Char('\'') && last == QLatin1Char('\''))) {
-            value = value.mid(1, value.size() - 2);
-        }
-    }
+    QString value = unquoteArgValue(trimmed.mid(equalsIndex + 1).trimmed());
 
     QString option = trimmed.mid(2, equalsIndex - 2);
     if (name == QStringLiteral("glsl-shader")
@@ -141,6 +172,48 @@ QStringList expandShaderListArgs(const QStringList &args)
     }
 
     return result;
+}
+
+ShaderArgPartition partitionShaderArgs(const QStringList &args)
+{
+    ShaderArgPartition result;
+    result.nonShaderArgs.reserve(args.size());
+
+    for (const QString &arg : args) {
+        const QString name = optionNameForArg(arg);
+        if (name == QStringLiteral("glsl-shaders-clr")) {
+            continue;
+        }
+
+        if (name == QStringLiteral("glsl-shader")
+            || name == QStringLiteral("glsl-shader-append")
+            || name == QStringLiteral("glsl-shaders")
+            || name == QStringLiteral("glsl-shaders-append")) {
+            const QString path = shaderPathFromArg(arg);
+            if (!path.isEmpty()) {
+                result.shaderPaths.append(path);
+            }
+            continue;
+        }
+
+        result.nonShaderArgs.append(arg);
+    }
+
+    return result;
+}
+
+QString resolveMpvPortablePath(const QString &path, const QString &mpvConfigDir)
+{
+    if (path.startsWith(QStringLiteral("~~/"))) {
+        return QDir(mpvConfigDir).filePath(path.mid(3));
+    }
+    if (path == QStringLiteral("~~")) {
+        return QDir::cleanPath(mpvConfigDir);
+    }
+    if (path.startsWith(QStringLiteral("~~"))) {
+        return QDir(mpvConfigDir).filePath(path.mid(2));
+    }
+    return path;
 }
 
 QStringList filterBloomManagedArgs(const QStringList &args, QStringList *filteredArgs)

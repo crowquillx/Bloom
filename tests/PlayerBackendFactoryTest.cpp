@@ -2,8 +2,11 @@
 #include <QtGlobal>
 #include <memory>
 
+#include <QDir>
+
 #include "player/backend/IPlayerBackend.h"
 #include "player/backend/PlayerBackendFactory.h"
+#include "utils/ConfigManager.h"
 #if defined(Q_OS_WIN)
 #include "player/backend/WindowsMpvBackend.h"
 #endif
@@ -27,6 +30,7 @@ private slots:
     void envOverrideTakesPrecedenceOverConfigPreference();
     void windowsEmbeddedSanitizerFiltersRenderBackendOverrides();
     void windowsEmbeddedRenderApiProfilesApplyExpectedOptions();
+    void windowsEmbeddedShaderListUsesResolvedGlslShadersOption();
 };
 
 void PlayerBackendFactoryTest::createsPlatformDefaultBackend()
@@ -277,6 +281,33 @@ void PlayerBackendFactoryTest::windowsEmbeddedRenderApiProfilesApplyExpectedOpti
              QStringList({QStringLiteral("--vo=gpu-next")}));
 #else
     QSKIP("Windows embedded render API profiles are only compiled on Windows");
+#endif
+}
+
+void PlayerBackendFactoryTest::windowsEmbeddedShaderListUsesResolvedGlslShadersOption()
+{
+#if defined(Q_OS_WIN)
+    const QString mpvConfigDir = ConfigManager::getMpvConfigDir();
+    WindowsMpvBackend backend;
+
+    const QStringList highQualityArgs{
+        QStringLiteral("--glsl-shaders-clr"),
+        QStringLiteral("--glsl-shaders-append=~~/shaders/FSRCNNX_x2_8-0-4-1.glsl"),
+        QStringLiteral("--glsl-shaders-append=~~/shaders/KrigBilateral.glsl"),
+        QStringLiteral("--glsl-shaders-append=~~/shaders/SSimDownscaler.glsl"),
+    };
+
+    const QString shaderListValue = backend.embeddedShaderListValueForTest(highQualityArgs);
+    const QStringList expectedPaths{
+        QDir(mpvConfigDir).filePath(QStringLiteral("shaders/FSRCNNX_x2_8-0-4-1.glsl")),
+        QDir(mpvConfigDir).filePath(QStringLiteral("shaders/KrigBilateral.glsl")),
+        QDir(mpvConfigDir).filePath(QStringLiteral("shaders/SSimDownscaler.glsl")),
+    };
+    QCOMPARE(shaderListValue, expectedPaths.join(QLatin1Char(',')));
+    QVERIFY(!shaderListValue.contains(QStringLiteral("glsl-shaders-append")));
+    QVERIFY(!shaderListValue.contains(QStringLiteral("~~/")));
+#else
+    QSKIP("Windows embedded shader list helper is only compiled on Windows");
 #endif
 }
 

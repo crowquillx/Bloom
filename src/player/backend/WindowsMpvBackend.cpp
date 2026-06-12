@@ -18,6 +18,7 @@
 #include <QLoggingCategory>
 
 #include "../../utils/BloomLogging.h"
+#include "../../utils/ConfigManager.h"
 #include "../../utils/Logger.h"
 #include "../../utils/MpvArgFilter.h"
 
@@ -1292,11 +1293,15 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
     }
 
     mpv_handle *handle = static_cast<mpv_handle *>(handlePtr);
+    const MpvArgFilter::ShaderArgPartition partitioned =
+        MpvArgFilter::partitionShaderArgs(MpvArgFilter::sanitizeArgs(args));
+
     qCInfo(lcWindowsLibmpvBackend)
         << "Applying direct libmpv startup options"
-        << "argCount=" << args.size();
+        << "argCount=" << partitioned.nonShaderArgs.size()
+        << "shaderCount=" << partitioned.shaderPaths.size();
     Logger::instance().flush();
-    for (const QString &arg : MpvArgFilter::sanitizeArgs(args)) {
+    for (const QString &arg : partitioned.nonShaderArgs) {
         if (!arg.startsWith("--")) {
             continue;
         }
@@ -1338,6 +1343,34 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
                 << arg
                 << "error"
                 << mpv_error_string(status);
+            Logger::instance().flush();
+        }
+    }
+
+    if (!partitioned.shaderPaths.isEmpty()) {
+        const QString mpvConfigDir = ConfigManager::getMpvConfigDir();
+        QStringList resolvedShaderPaths;
+        resolvedShaderPaths.reserve(partitioned.shaderPaths.size());
+        for (const QString &shaderPath : partitioned.shaderPaths) {
+            resolvedShaderPaths.append(MpvArgFilter::resolveMpvPortablePath(shaderPath, mpvConfigDir));
+        }
+
+        const QString joinedShaderPaths = resolvedShaderPaths.join(QLatin1Char(','));
+        const QByteArray joinedShaderPathsUtf8 = joinedShaderPaths.toUtf8();
+        const int shaderStatus = mpv_set_option_string(handle,
+                                                         "glsl-shaders",
+                                                         joinedShaderPathsUtf8.constData());
+        if (shaderStatus < 0) {
+            qCWarning(lcWindowsLibmpvBackend)
+                << "Failed to set mpv option"
+                << "glsl-shaders"
+                << "value"
+                << joinedShaderPaths
+                << "error"
+                << mpv_error_string(shaderStatus);
+            Logger::instance().flush();
+        } else {
+            qCInfo(lcWindowsLibmpvBackend) << "Applied embedded libmpv shaders:" << resolvedShaderPaths;
             Logger::instance().flush();
         }
     }
