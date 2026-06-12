@@ -31,6 +31,7 @@ bool isBloomManagedOptionName(const QString &name)
         || normalized == QStringLiteral("input-ipc-server")
         || normalized == QStringLiteral("input-ipc-client")
         || normalized == QStringLiteral("idle")
+        || normalized.startsWith(QStringLiteral("bloom-"))
         || normalized == QStringLiteral("vo")
         || normalized == QStringLiteral("hwdec")
         || normalized == QStringLiteral("gpu-context")
@@ -39,6 +40,7 @@ bool isBloomManagedOptionName(const QString &name)
     }
 
     return normalized.startsWith(QStringLiteral("vulkan-"))
+        || normalized.startsWith(QStringLiteral("d3d11-"))
         || normalized.startsWith(QStringLiteral("opengl-"))
         || normalized.startsWith(QStringLiteral("wayland-"))
         || normalized.startsWith(QStringLiteral("x11-"));

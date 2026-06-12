@@ -26,6 +26,7 @@ private slots:
     void configPreferenceSelectsExternalWhenNoEnvOverride();
     void envOverrideTakesPrecedenceOverConfigPreference();
     void windowsEmbeddedSanitizerFiltersRenderBackendOverrides();
+    void windowsEmbeddedRenderApiProfilesApplyExpectedOptions();
 };
 
 void PlayerBackendFactoryTest::createsPlatformDefaultBackend()
@@ -231,6 +232,38 @@ void PlayerBackendFactoryTest::windowsEmbeddedSanitizerFiltersRenderBackendOverr
     QVERIFY(!sanitized.contains(QStringLiteral("--wid=12345")));
 #else
     QSKIP("Windows embedded sanitizer is only compiled on Windows");
+#endif
+}
+
+void PlayerBackendFactoryTest::windowsEmbeddedRenderApiProfilesApplyExpectedOptions()
+{
+#if defined(Q_OS_WIN)
+    WindowsMpvBackend backend;
+
+    QCOMPARE(backend.renderApiStartupArgsForTest({
+                 QStringLiteral("--bloom-windows-render-api=auto")
+             }),
+             QStringList({QStringLiteral("--vo=gpu-next")}));
+
+    QCOMPARE(backend.renderApiStartupArgsForTest({
+                 QStringLiteral("--bloom-windows-render-api=d3d11")
+             }),
+             QStringList({
+                 QStringLiteral("--vo=gpu-next"),
+                 QStringLiteral("--gpu-api=d3d11"),
+                 QStringLiteral("--gpu-context=d3d11")
+             }));
+
+    QCOMPARE(backend.renderApiStartupArgsForTest({
+                 QStringLiteral("--bloom-windows-render-api=vulkan")
+             }),
+             QStringList({
+                 QStringLiteral("--vo=gpu-next"),
+                 QStringLiteral("--gpu-api=vulkan"),
+                 QStringLiteral("--gpu-context=winvk")
+             }));
+#else
+    QSKIP("Windows embedded render API profiles are only compiled on Windows");
 #endif
 }
 

@@ -3126,6 +3126,7 @@ QJsonObject ConfigManager::defaultMpvProfiles()
     defaultProfile["deinterlace_method"] = "";
     defaultProfile["video_output"] = "gpu-next";
     defaultProfile["interpolation"] = false;
+    defaultProfile["windows_render_api"] = "auto";
     defaultProfile["extra_args"] = QJsonArray({"--fullscreen"});
     profiles["Default"] = defaultProfile;
     
@@ -3137,6 +3138,7 @@ QJsonObject ConfigManager::defaultMpvProfiles()
     highQuality["deinterlace_method"] = "";
     highQuality["video_output"] = "gpu-next";
     highQuality["interpolation"] = false;
+    highQuality["windows_render_api"] = "auto";
     highQuality["extra_args"] = QJsonArray({"--fullscreen", "--profile=high-quality"});
     profiles["High Quality"] = highQuality;
     
@@ -3190,6 +3192,7 @@ QJsonObject MpvProfile::toJson() const
     obj["deinterlace_method"] = deinterlaceMethod;
     obj["video_output"] = videoOutput;
     obj["interpolation"] = interpolation;
+    obj["windows_render_api"] = normalizeWindowsRenderApi(windowsRenderApi);
     
     QJsonArray extraArgsArray;
     for (const QString &arg : extraArgs) {
@@ -3198,6 +3201,15 @@ QJsonObject MpvProfile::toJson() const
     obj["extra_args"] = extraArgsArray;
     
     return obj;
+}
+
+QString MpvProfile::normalizeWindowsRenderApi(const QString &value)
+{
+    const QString normalized = value.trimmed().toLower();
+    if (normalized == QStringLiteral("d3d11") || normalized == QStringLiteral("vulkan")) {
+        return normalized;
+    }
+    return QStringLiteral("auto");
 }
 
 MpvProfile MpvProfile::fromJson(const QString &name, const QJsonObject &obj)
@@ -3210,6 +3222,7 @@ MpvProfile MpvProfile::fromJson(const QString &name, const QJsonObject &obj)
     profile.deinterlaceMethod = obj["deinterlace_method"].toString("");
     profile.videoOutput = obj["video_output"].toString("gpu-next");
     profile.interpolation = obj["interpolation"].toBool(false);
+    profile.windowsRenderApi = normalizeWindowsRenderApi(obj["windows_render_api"].toString("auto"));
     
     // Migration-safe parsing:
     // - Preferred: array of strings (current format)
@@ -3276,6 +3289,7 @@ QVariantMap ConfigManager::getMpvProfile(const QString &name) const
     result["deinterlaceMethod"] = profile.deinterlaceMethod;
     result["videoOutput"] = profile.videoOutput;
     result["interpolation"] = profile.interpolation;
+    result["windowsRenderApi"] = profile.windowsRenderApi;
     result["extraArgs"] = QVariant::fromValue(profile.extraArgs);
     result["args"] = QVariant::fromValue(profile.args);
     return result;
@@ -3325,6 +3339,8 @@ void ConfigManager::setMpvProfile(const QString &name, const QVariantMap &profil
     profileJson["deinterlace_method"] = profileData["deinterlaceMethod"].toString();
     profileJson["video_output"] = profileData["videoOutput"].toString();
     profileJson["interpolation"] = profileData["interpolation"].toBool();
+    profileJson["windows_render_api"] = MpvProfile::normalizeWindowsRenderApi(
+        profileData.value(QStringLiteral("windowsRenderApi"), QStringLiteral("auto")).toString());
     
     QJsonArray extraArgsArray;
     const QVariant extraArgsVariant = profileData.value("extraArgs");
@@ -3343,7 +3359,7 @@ void ConfigManager::setMpvProfile(const QString &name, const QVariantMap &profil
         extraArgs = extraArgsVariant.toString().split('\n', Qt::SkipEmptyParts);
     }
 
-    for (const QString &arg : MpvArgFilter::sanitizeArgs(extraArgs)) {
+    for (const QString &arg : MpvArgFilter::filterBloomManagedArgs(MpvArgFilter::sanitizeArgs(extraArgs))) {
         if (!arg.isEmpty()) {
             extraArgsArray.append(arg);
         }
@@ -3439,6 +3455,7 @@ QVariantMap ConfigManager::importMpvConfigAsProfile(const QString &path, const Q
     profileData[QStringLiteral("deinterlaceMethod")] = QString();
     profileData[QStringLiteral("videoOutput")] = QStringLiteral("gpu-next");
     profileData[QStringLiteral("interpolation")] = false;
+    profileData[QStringLiteral("windowsRenderApi")] = QStringLiteral("auto");
     profileData[QStringLiteral("extraArgs")] = importedArgs;
 
     setMpvProfile(trimmedName, profileData);

@@ -24,6 +24,7 @@ struct MpvProfile {
     Q_PROPERTY(QString deinterlaceMethod MEMBER deinterlaceMethod)
     Q_PROPERTY(QString videoOutput MEMBER videoOutput)
     Q_PROPERTY(bool interpolation MEMBER interpolation)
+    Q_PROPERTY(QString windowsRenderApi MEMBER windowsRenderApi)
     Q_PROPERTY(QStringList extraArgs MEMBER extraArgs)
 public:
     QString name;                    // Display name
@@ -36,6 +37,7 @@ public:
     QString deinterlaceMethod = ""; // yadif, bwdif, etc.
     QString videoOutput = "gpu-next"; // gpu, gpu-next, etc.
     bool interpolation = false;
+    QString windowsRenderApi = "auto"; // auto, d3d11, vulkan
     QStringList extraArgs;           // Additional raw args
     
     /// Build the final args list from structured options
@@ -46,6 +48,9 @@ public:
     
     /// Create from JSON
     static MpvProfile fromJson(const QString &name, const QJsonObject &obj);
+
+    /// Normalize Windows render API profile values
+    static QString normalizeWindowsRenderApi(const QString &value);
     
     /// Check if this is a valid profile
     bool isValid() const { return !name.isEmpty(); }

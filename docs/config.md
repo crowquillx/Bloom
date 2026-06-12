@@ -41,16 +41,17 @@ Config API sample (high level)
 - `externalSegmentProvidersEnabled` and `mediaSegmentProviderOrder` persist external intro/recap/credits provider settings under `settings.media_segments`. Defaults: enabled, provider order `["theintrodb", "introdb"]`. External provider reads are anonymous.
 
 MPV profile management
-- `settings.mpv_profiles` contains the base set of profiles (`Default`, `High Quality`, plus any user-created profiles) and their structured options (hwdec, interpolation, extra args).
+- `settings.mpv_profiles` contains the base set of profiles (`Default`, `High Quality`, plus any user-created profiles) and their structured options (hwdec, interpolation, Windows render API, extra args).
 - `settings.default_profile` names the profile to use when no library/series override is present.
 - `settings.library_profiles` and `settings.series_profiles` hold dictionaries keyed by Jellyfin library/series IDs when an override is required at a higher level.
 - Playback requests may omit `libraryId` in direct-navigation contexts such as Home > Continue Watching / Next Up. QML should pass any known context but must not block playback waiting for a library id; `PlayerController` recovers episodic library context by resolving series ancestors to the top-level Jellyfin library (`CollectionFolder`) before starting mpv, then falls back to the default profile if no mapping is available.
 - The settings-screen rework did not change the on-disk MPV profile schema; existing `settings.mpv_profiles` and `settings.default_profile` entries continue to load as-is.
 - Settings > MPV > Edit Profiles > Import Config creates a new profile from an existing `mpv.conf`. v1 imports only global top-level options before the first `[profile]` section and stores them as normalized `extra_args` entries (`--option=value` or `--option`) in `settings.mpv_profiles`; it never overwrites an existing profile.
 - MPV profile import/save/load normalizes one surrounding quote pair from `--option=value` and stores common shader aliases (`--glsl-shader`, `--glsl-shader-append`, `--glsl-shaders-append`) as canonical `--glsl-shaders=...`. `--glsl-shaders-clr` is dropped because canonical shader entries replace the shader list.
+- MPV profiles support `windows_render_api` for Windows embedded playback. Values are `auto`, `d3d11`, or `vulkan`; missing or unknown values load as `auto`. `auto` keeps mpv's render backend choice, `d3d11` forces `gpu-api=d3d11`/`gpu-context=d3d11`, and `vulkan` forces `gpu-api=vulkan`/`gpu-context=winvk`.
 - Custom MPV profiles can be renamed from Settings > MPV > Edit Profiles. Renaming preserves default, library, and series assignments; built-in profiles (`Default`, `High Quality`) cannot be renamed.
 - Import accepts `option=value`, `--option=value`, `option`, and `--option`. Blank lines and full-line `#` comments are ignored. Unsupported lines are skipped and profile sections are ignored in v1.
-- Import filters options Bloom manages during playback so imported profiles cannot override backend/render plumbing. Filtered names include `config-dir`, `config`, `input-conf`, `include`, `script`, `script-opts`, `scripts`, `osc`, `no-osc`, `profile`, `fullscreen`, `wid`, `input-ipc-server`, `idle`, `vo`, `hwdec`, `gpu-context`, `gpu-api`, and `vulkan-*`, `opengl-*`, `wayland-*`, `x11-*`.
+- Import and manual extra-arg saving filter options Bloom manages during playback so profiles cannot override backend/render plumbing. Filtered names include `config-dir`, `config`, `input-conf`, `include`, `script`, `script-opts`, `scripts`, `osc`, `no-osc`, `profile`, `fullscreen`, `wid`, `input-ipc-server`, `idle`, `vo`, `hwdec`, `gpu-context`, `gpu-api`, and `vulkan-*`, `d3d11-*`, `opengl-*`, `wayland-*`, `x11-*`.
 
 When adding settings
 - Update `ConfigManager.h` (Q_PROPERTY & signals).
@@ -149,7 +150,7 @@ Video settings
   - `match-content`: SDR in SDR, HDR in HDR when supported.
   - `tone-map-to-sdr`: force local SDR output for HDR/Dolby Vision content.
   - `force-hdr-experimental`: force HDR output hints for validation/debugging.
-  - Windows embedded libmpv preserves these output decisions but lets mpv choose the render backend; unsafe render-context overrides such as `gpu-api`, `gpu-context`, and `vulkan-*` are filtered.
+  - Windows embedded libmpv preserves these output decisions while allowing per-profile `windows_render_api` selection; unsafe raw render-context overrides such as `gpu-api`, `gpu-context`, `vulkan-*`, and `d3d11-*` are filtered.
 - `settings.video.dolby_vision_fallback_mode` (Q_PROPERTY `dolbyVisionFallbackMode`): Dolby Vision fallback policy. Default: `prefer-compatible-hdr`. Configurable via Settings > Video > Advanced > Dolby Vision Fallback.
   - `prefer-compatible-hdr`: use HDR-compatible Dolby Vision profile 7/8 paths as HDR; unsupported profiles locally tone-map to SDR.
   - `tone-map-unsupported`: locally tone-map unsupported Dolby Vision to SDR.

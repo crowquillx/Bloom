@@ -348,6 +348,7 @@ FocusScope {
                 "deinterlaceMethod": "",
                 "videoOutput": "gpu-next",
                 "interpolation": false,
+                "windowsRenderApi": "auto",
                 "extraArgs": ["--fullscreen"]
             })
         }

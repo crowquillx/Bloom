@@ -206,6 +206,7 @@ QString WindowsMpvBackend::backendName() const
 void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl)
 {
     Q_UNUSED(mpvBin);
+    captureStartupMetadata(args);
     const QStringList finalArgs = sanitizeStartupArgs(args);
     m_playlistPosition = -1;
     m_playlistCount = 0;
@@ -529,32 +530,86 @@ void WindowsMpvBackend::beginTransitionMitigation(const char *reason, int settle
 void WindowsMpvBackend::logHdrDiagnostics(const QStringList &args, const QString &mediaUrl) const
 {
     QStringList hdrArgs;
+    QStringList shaderArgs;
     hdrArgs.reserve(args.size());
 
     for (const QString &arg : args) {
         if (isHdrRelatedArg(arg)) {
             hdrArgs.append(arg);
         }
+        if (arg.startsWith(QStringLiteral("--glsl-shaders="))) {
+            shaderArgs.append(arg.mid(QStringLiteral("--glsl-shaders=").size()));
+        }
     }
 
     bool hasHdrHintAuto = false;
+    bool hasHdrHintNo = false;
+    bool hasToneMapping = false;
     for (const QString &arg : args) {
         if (arg == QStringLiteral("--target-colorspace-hint=auto")) {
             hasHdrHintAuto = true;
-            break;
+        } else if (arg == QStringLiteral("--target-colorspace-hint=no")) {
+            hasHdrHintNo = true;
+        } else if (arg.startsWith(QStringLiteral("--tone-mapping="))) {
+            hasToneMapping = true;
         }
     }
-    const bool hasGpuNext = args.contains(QStringLiteral("--vo=gpu-next"));
+    const bool hasGpuNext = m_effectiveVo == QStringLiteral("gpu-next");
+    const QString hdrOutputMode = hasHdrHintAuto
+        ? QStringLiteral("hdr-output")
+        : (hasHdrHintNo || hasToneMapping ? QStringLiteral("tone-map-to-sdr") : QStringLiteral("profile/default"));
 
     qCInfo(lcWindowsLibmpvBackend)
         << "HDR diagnostics"
         << "media=" << mediaUrl
+        << "profile=" << m_currentProfileName
+        << "windowsRenderApi=" << m_currentWindowsRenderApi
+        << "effectiveVo=" << m_effectiveVo
+        << "effectiveGpuApi=" << (m_effectiveGpuApi.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuApi)
+        << "effectiveGpuContext=" << (m_effectiveGpuContext.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuContext)
+        << "hdrOutputMode=" << hdrOutputMode
         << "hasGpuNext=" << hasGpuNext
         << "hasHdrHintAuto=" << hasHdrHintAuto
-        << "hdrArgCount=" << hdrArgs.size();
+        << "hdrArgCount=" << hdrArgs.size()
+        << "shaderArgCount=" << shaderArgs.size();
 
     if (!hdrArgs.isEmpty()) {
         qCDebug(lcWindowsLibmpvBackend) << "HDR diagnostics args:" << hdrArgs;
+    }
+    if (!shaderArgs.isEmpty()) {
+        qCInfo(lcWindowsLibmpvBackend) << "MPV shader files:" << shaderArgs;
+    }
+}
+
+void WindowsMpvBackend::captureStartupMetadata(const QStringList &args)
+{
+    m_currentProfileName = QStringLiteral("unknown");
+    m_currentWindowsRenderApi = QStringLiteral("auto");
+    m_effectiveVo = QStringLiteral("gpu-next");
+    m_effectiveGpuApi.clear();
+    m_effectiveGpuContext.clear();
+
+    for (const QString &arg : args) {
+        if (arg.startsWith(QStringLiteral("--bloom-profile-name="))) {
+            m_currentProfileName = arg.mid(QStringLiteral("--bloom-profile-name=").size()).trimmed();
+        } else if (arg.startsWith(QStringLiteral("--bloom-windows-render-api="))) {
+            const QString api = arg.mid(QStringLiteral("--bloom-windows-render-api=").size()).trimmed().toLower();
+            if (api == QStringLiteral("d3d11") || api == QStringLiteral("vulkan")) {
+                m_currentWindowsRenderApi = api;
+            }
+        }
+    }
+
+    if (m_currentProfileName.isEmpty()) {
+        m_currentProfileName = QStringLiteral("unknown");
+    }
+
+    if (m_currentWindowsRenderApi == QStringLiteral("d3d11")) {
+        m_effectiveGpuApi = QStringLiteral("d3d11");
+        m_effectiveGpuContext = QStringLiteral("d3d11");
+    } else if (m_currentWindowsRenderApi == QStringLiteral("vulkan")) {
+        m_effectiveGpuApi = QStringLiteral("vulkan");
+        m_effectiveGpuContext = QStringLiteral("winvk");
     }
 }
 
@@ -720,6 +775,7 @@ bool WindowsMpvBackend::initializeMpv(const QStringList &args)
     }
 
     m_mpvHandle = handle;
+    applyRenderApiOptions(handle);
     applyMpvArgs(handle, args);
 
     if (m_videoHostWinId != 0) {
@@ -1277,8 +1333,62 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
 #endif
 }
 
+void WindowsMpvBackend::applyRenderApiOptions(void *handlePtr)
+{
+#if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
+    if (!handlePtr) {
+        return;
+    }
+
+    mpv_handle *handle = static_cast<mpv_handle *>(handlePtr);
+    const auto setOption = [handle](const char *name, const QString &value) {
+        const QByteArray valueUtf8 = value.toUtf8();
+        const int status = mpv_set_option_string(handle, name, valueUtf8.constData());
+        if (status < 0) {
+            qCWarning(lcWindowsLibmpvBackend)
+                << "Failed to set Windows render mpv option"
+                << name
+                << "value=" << value
+                << "error=" << QString::fromUtf8(mpv_error_string(status));
+            Logger::instance().flush();
+        }
+    };
+
+    setOption("vo", m_effectiveVo);
+    if (!m_effectiveGpuApi.isEmpty()) {
+        setOption("gpu-api", m_effectiveGpuApi);
+    }
+    if (!m_effectiveGpuContext.isEmpty()) {
+        setOption("gpu-context", m_effectiveGpuContext);
+    }
+
+    qCInfo(lcWindowsLibmpvBackend)
+        << "Applied Windows render API profile"
+        << "profile=" << m_currentProfileName
+        << "windowsRenderApi=" << m_currentWindowsRenderApi
+        << "vo=" << m_effectiveVo
+        << "gpuApi=" << (m_effectiveGpuApi.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuApi)
+        << "gpuContext=" << (m_effectiveGpuContext.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuContext);
+    Logger::instance().flush();
+#else
+    Q_UNUSED(handlePtr);
+#endif
+}
+
 void WindowsMpvBackend::recordMpvLogMessage(const QString &level, const QString &prefix, const QString &text)
 {
+    const QString haystack = QStringList{level, prefix, text}.join(QLatin1Char(' ')).toLower();
+    if (haystack.contains(QStringLiteral("shader")) && haystack.contains(QStringLiteral("stall"))) {
+        qCWarning(lcWindowsLibmpvBackend)
+            << "mpv shader stall context"
+            << "profile=" << m_currentProfileName
+            << "windowsRenderApi=" << m_currentWindowsRenderApi
+            << "vo=" << m_effectiveVo
+            << "gpuApi=" << (m_effectiveGpuApi.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuApi)
+            << "gpuContext=" << (m_effectiveGpuContext.isEmpty() ? QStringLiteral("mpv-default") : m_effectiveGpuContext)
+            << "mpvLog=" << text;
+    }
+
     if (!isRecoverableStreamFailureLog(level, prefix, text)) {
         return;
     }

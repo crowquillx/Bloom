@@ -38,6 +38,18 @@ public:
 
 #ifdef BLOOM_TESTING
     QStringList sanitizeStartupArgsForTest(const QStringList &args) const { return sanitizeStartupArgs(args); }
+    QStringList renderApiStartupArgsForTest(const QStringList &args)
+    {
+        captureStartupMetadata(args);
+        QStringList result{QStringLiteral("--vo=") + m_effectiveVo};
+        if (!m_effectiveGpuApi.isEmpty()) {
+            result << QStringLiteral("--gpu-api=") + m_effectiveGpuApi;
+        }
+        if (!m_effectiveGpuContext.isEmpty()) {
+            result << QStringLiteral("--gpu-context=") + m_effectiveGpuContext;
+        }
+        return result;
+    }
 #endif
 
 private:
@@ -50,6 +62,7 @@ private:
     void processMpvEvents();
     void observeMpvProperties(void *handle);
     void applyMpvArgs(void *handle, const QStringList &args);
+    void applyRenderApiOptions(void *handle);
     void handlePropertyChange(const QString &name, const QVariant &value);
     bool sendVariantCommandDirect(const QVariantList &command);
     void setDirectRunning(bool running);
@@ -64,6 +77,7 @@ private:
     void scheduleGeometrySync(int delayMs = 16);
     void beginTransitionMitigation(const char *reason, int settleMs = 90);
     void logHdrDiagnostics(const QStringList &args, const QString &mediaUrl) const;
+    void captureStartupMetadata(const QStringList &args);
     static bool isHdrRelatedArg(const QString &arg);
     QStringList sanitizeStartupArgs(const QStringList &args) const;
     bool ensureVideoHostWindow();
@@ -92,6 +106,11 @@ private:
     quint64 m_stopTeardownGeneration = 0;
     qint64 m_recentStreamFailureTimeMs = 0;
     QString m_recentStreamFailureText;
+    QString m_currentProfileName = QStringLiteral("unknown");
+    QString m_currentWindowsRenderApi = QStringLiteral("auto");
+    QString m_effectiveVo = QStringLiteral("gpu-next");
+    QString m_effectiveGpuApi;
+    QString m_effectiveGpuContext;
     void *m_mpvHandle = nullptr;
     std::atomic_bool m_eventDispatchQueued{false};
     QList<QByteArray> m_commandScratch;

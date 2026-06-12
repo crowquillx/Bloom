@@ -5072,6 +5072,12 @@ void PlayerController::initiateMpvStart()
     
     // Get the args from the profile (includes HDR overrides if enabled)
     QStringList profileArgs = m_config->getMpvArgsForProfile(profileName, m_contentIsHDR, m_contentShouldToneMapToSdr);
+    if (m_playerBackend->backendName() == QStringLiteral("win-libmpv")) {
+        const QVariantMap profileData = m_config->getMpvProfile(profileName);
+        profileArgs << QStringLiteral("--bloom-profile-name=%1").arg(profileName);
+        profileArgs << QStringLiteral("--bloom-windows-render-api=%1")
+                           .arg(profileData.value(QStringLiteral("windowsRenderApi"), QStringLiteral("auto")).toString());
+    }
     
     // Build final args: Bloom config args + profile args
     QStringList finalArgs;

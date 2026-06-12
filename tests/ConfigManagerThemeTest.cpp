@@ -23,6 +23,8 @@ private slots:
     void importMpvConfigNormalizesQuotedShaderArgs();
     void existingMpvProfileArgsAreSanitizedOnLoad();
     void setMpvProfileNormalizesExtraArgs();
+    void mpvProfileWindowsRenderApiDefaultsAndNormalizes();
+    void setMpvProfilePreservesWindowsRenderApiValues();
     void renameMpvProfilePreservesProfileAndAssignments();
     void renameMpvProfileRejectsInvalidRequests();
     void importMpvConfigFiltersBloomManagedOptions();
@@ -378,8 +380,11 @@ void ConfigManagerThemeTest::setMpvProfileNormalizesExtraArgs()
         {QStringLiteral("deinterlaceMethod"), QString()},
         {QStringLiteral("videoOutput"), QStringLiteral("gpu-next")},
         {QStringLiteral("interpolation"), false},
+        {QStringLiteral("windowsRenderApi"), QStringLiteral("vulkan")},
         {QStringLiteral("extraArgs"), QStringList{
             QStringLiteral("--glsl-shader=\"C:\\shader dir\\ArtCNN.glsl\""),
+            QStringLiteral("--gpu-api=vulkan"),
+            QStringLiteral("--gpu-context=winvk"),
             QStringLiteral("--sub-font=\"Noto Sans\"")
         }}
     });
@@ -391,6 +396,84 @@ void ConfigManagerThemeTest::setMpvProfileNormalizesExtraArgs()
         QStringLiteral("--glsl-shaders=C:\\shader dir\\ArtCNN.glsl"),
         QStringLiteral("--sub-font=Noto Sans")
     }));
+}
+
+void ConfigManagerThemeTest::mpvProfileWindowsRenderApiDefaultsAndNormalizes()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager initialConfig;
+    initialConfig.load();
+
+    QFile configFile(ConfigManager::getConfigPath());
+    QVERIFY(configFile.open(QIODevice::ReadOnly));
+    QJsonObject configJson = QJsonDocument::fromJson(configFile.readAll()).object();
+    configFile.close();
+
+    QJsonObject settings = configJson.value(QStringLiteral("settings")).toObject();
+    QJsonObject profiles = settings.value(QStringLiteral("mpv_profiles")).toObject();
+
+    QJsonObject missingRenderApi;
+    missingRenderApi[QStringLiteral("hwdec_enabled")] = true;
+    missingRenderApi[QStringLiteral("hwdec_method")] = QStringLiteral("auto");
+    missingRenderApi[QStringLiteral("deinterlace")] = false;
+    missingRenderApi[QStringLiteral("deinterlace_method")] = QString();
+    missingRenderApi[QStringLiteral("video_output")] = QStringLiteral("gpu-next");
+    missingRenderApi[QStringLiteral("interpolation")] = false;
+    missingRenderApi[QStringLiteral("extra_args")] = QJsonArray{};
+    profiles[QStringLiteral("Missing Render API")] = missingRenderApi;
+
+    QJsonObject invalidRenderApi = missingRenderApi;
+    invalidRenderApi[QStringLiteral("windows_render_api")] = QStringLiteral("metal");
+    profiles[QStringLiteral("Invalid Render API")] = invalidRenderApi;
+
+    settings[QStringLiteral("mpv_profiles")] = profiles;
+    configJson[QStringLiteral("settings")] = settings;
+
+    QVERIFY(configFile.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    configFile.write(QJsonDocument(configJson).toJson());
+    configFile.close();
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getMpvProfile(QStringLiteral("Missing Render API")).value(QStringLiteral("windowsRenderApi")).toString(),
+             QStringLiteral("auto"));
+    QCOMPARE(config.getMpvProfile(QStringLiteral("Invalid Render API")).value(QStringLiteral("windowsRenderApi")).toString(),
+             QStringLiteral("auto"));
+}
+
+void ConfigManagerThemeTest::setMpvProfilePreservesWindowsRenderApiValues()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    const QStringList values{
+        QStringLiteral("auto"),
+        QStringLiteral("d3d11"),
+        QStringLiteral("vulkan")
+    };
+
+    for (const QString &value : values) {
+        const QString profileName = QStringLiteral("Render API %1").arg(value);
+        config.setMpvProfile(profileName, QVariantMap{
+            {QStringLiteral("hwdecEnabled"), true},
+            {QStringLiteral("hwdecMethod"), QStringLiteral("auto")},
+            {QStringLiteral("deinterlace"), false},
+            {QStringLiteral("deinterlaceMethod"), QString()},
+            {QStringLiteral("videoOutput"), QStringLiteral("gpu-next")},
+            {QStringLiteral("interpolation"), false},
+            {QStringLiteral("windowsRenderApi"), value},
+            {QStringLiteral("extraArgs"), QStringList{}}
+        });
+        QCOMPARE(config.getMpvProfile(profileName).value(QStringLiteral("windowsRenderApi")).toString(), value);
+    }
 }
 
 void ConfigManagerThemeTest::renameMpvProfilePreservesProfileAndAssignments()
@@ -408,6 +491,7 @@ void ConfigManagerThemeTest::renameMpvProfilePreservesProfileAndAssignments()
         {QStringLiteral("deinterlaceMethod"), QStringLiteral("bwdif")},
         {QStringLiteral("videoOutput"), QStringLiteral("gpu")},
         {QStringLiteral("interpolation"), true},
+        {QStringLiteral("windowsRenderApi"), QStringLiteral("vulkan")},
         {QStringLiteral("extraArgs"), QStringList{QStringLiteral("--sub-auto=fuzzy")}}
     });
     config.setDefaultProfileName(QStringLiteral("Old Name"));
@@ -427,6 +511,7 @@ void ConfigManagerThemeTest::renameMpvProfilePreservesProfileAndAssignments()
     QCOMPARE(profile.value(QStringLiteral("deinterlaceMethod")).toString(), QStringLiteral("bwdif"));
     QCOMPARE(profile.value(QStringLiteral("videoOutput")).toString(), QStringLiteral("gpu"));
     QCOMPARE(profile.value(QStringLiteral("interpolation")).toBool(), true);
+    QCOMPARE(profile.value(QStringLiteral("windowsRenderApi")).toString(), QStringLiteral("vulkan"));
     QCOMPARE(profile.value(QStringLiteral("extraArgs")).toStringList(), QStringList({QStringLiteral("--sub-auto=fuzzy")}));
 }
 
@@ -467,6 +552,9 @@ void ConfigManagerThemeTest::importMpvConfigFiltersBloomManagedOptions()
     const QString confPath = writeMpvConf(tempDir.path(), QStringLiteral(
         "vo=gpu\n"
         "hwdec=vaapi\n"
+        "gpu-api=vulkan\n"
+        "gpu-context=winvk\n"
+        "d3d11-output-format=rgba16hf\n"
         "vulkan-device=GPU-1\n"
         "audio-file-auto=fuzzy\n"));
     QVERIFY(!confPath.isEmpty());
@@ -478,7 +566,14 @@ void ConfigManagerThemeTest::importMpvConfigFiltersBloomManagedOptions()
     QVERIFY(result.value(QStringLiteral("success")).toBool());
     QCOMPARE(result.value(QStringLiteral("importedCount")).toInt(), 1);
     QCOMPARE(result.value(QStringLiteral("filteredOptions")).toStringList(),
-             QStringList({QStringLiteral("--vo=gpu"), QStringLiteral("--hwdec=vaapi"), QStringLiteral("--vulkan-device=GPU-1")}));
+             QStringList({
+                 QStringLiteral("--vo=gpu"),
+                 QStringLiteral("--hwdec=vaapi"),
+                 QStringLiteral("--gpu-api=vulkan"),
+                 QStringLiteral("--gpu-context=winvk"),
+                 QStringLiteral("--d3d11-output-format=rgba16hf"),
+                 QStringLiteral("--vulkan-device=GPU-1")
+             }));
 
     const QStringList extraArgs = config.getMpvProfile(QStringLiteral("Filtered"))
                                       .value(QStringLiteral("extraArgs"))

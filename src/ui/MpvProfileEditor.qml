@@ -71,6 +71,7 @@ FocusScope {
         deinterlaceMethodField.text = profileData.deinterlaceMethod || ""
         videoOutputCombo.currentIndex = videoOutputCombo.model.indexOf(profileData.videoOutput || "gpu-next")
         interpolationSwitch.checked = profileData.interpolation || false
+        windowsRenderApiCombo.currentIndex = windowsRenderApiIndex(profileData.windowsRenderApi || "auto")
 
         var incoming = profileData.extraArgs
         if (incoming === undefined || incoming === null) {
@@ -91,12 +92,25 @@ FocusScope {
             "deinterlaceMethod": deinterlaceMethodField.text,
             "videoOutput": videoOutputCombo.currentText,
             "interpolation": interpolationSwitch.checked,
+            "windowsRenderApi": windowsRenderApiValue(windowsRenderApiCombo.currentIndex),
             "extraArgs": extraArgsList
                 .filter(function(arg) { return typeof arg === "string" && arg.trim() !== "" })
                 .map(function(arg) { return arg.trim() })
         }
         ConfigManager.setMpvProfile(profileName, data)
         profileChanged(data)
+    }
+
+    function windowsRenderApiIndex(value) {
+        if (value === "d3d11") return 1
+        if (value === "vulkan") return 2
+        return 0
+    }
+
+    function windowsRenderApiValue(index) {
+        if (index === 1) return "d3d11"
+        if (index === 2) return "vulkan"
+        return "auto"
     }
 
     function updateExtraArg(index, text) {
@@ -806,11 +820,7 @@ FocusScope {
             Keys.onUpPressed: interpolationSwitch.forceActiveFocus()
             Keys.onDownPressed: {
                 if (expanded) {
-                    if (argRepeater.count > 0 && argRepeater.itemAt(0) && argRepeater.itemAt(0).argumentField) {
-                        argRepeater.itemAt(0).argumentField.forceActiveFocus()
-                    } else {
-                        addArgButton.forceActiveFocus()
-                    }
+                    windowsRenderApiCombo.forceActiveFocus()
                 } else {
                     root.navigateOut("down")
                 }
@@ -864,6 +874,92 @@ FocusScope {
                 anchors.margins: Theme.spacingMedium
                 Layout.fillWidth: true
                 spacing: Theme.spacingSmall
+
+                Text {
+                    text: "Windows Render API"
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    color: Theme.textPrimary
+                }
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 2
+
+                        Text {
+                            text: "Windows embedded playback"
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+
+                        Text {
+                            text: "Auto keeps the current mpv default. Vulkan/winvk is opt-in for shader-heavy profiles."
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    SettingsComboBox {
+                        id: windowsRenderApiCombo
+                        Layout.preferredWidth: 220
+                        model: ["Auto", "D3D11", "Vulkan/winvk"]
+                        focusPolicy: Qt.StrongFocus
+                        Accessible.role: Accessible.ComboBox
+                        Accessible.name: "Windows Render API"
+
+                        onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
+
+                        Keys.onUpPressed: advancedToggleBtn.forceActiveFocus()
+                        Keys.onDownPressed: {
+                            if (argRepeater.count > 0 && argRepeater.itemAt(0) && argRepeater.itemAt(0).argumentField) {
+                                argRepeater.itemAt(0).argumentField.forceActiveFocus()
+                            } else {
+                                addArgButton.forceActiveFocus()
+                            }
+                        }
+                        Keys.onReturnPressed: popup.open()
+                        Keys.onEnterPressed: popup.open()
+
+                        onCurrentIndexChanged: {
+                            if (root.profileName !== "") {
+                                Qt.callLater(root.saveProfile)
+                            }
+                        }
+
+                        background: Rectangle {
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: Theme.inputBackground
+                            border.color: windowsRenderApiCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                            border.width: windowsRenderApiCombo.activeFocus ? 2 : 1
+                        }
+
+                        contentItem: Text {
+                            text: windowsRenderApiCombo.currentText
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                            verticalAlignment: Text.AlignVCenter
+                            leftPadding: Theme.spacingSmall
+                        }
+                    }
+                }
+
+                Rectangle {
+                    Layout.fillWidth: true
+                    height: 1
+                    color: Theme.borderLight
+                    Layout.topMargin: Theme.spacingSmall
+                    Layout.bottomMargin: Theme.spacingSmall
+                }
 
                 Text {
                     text: "Extra MPV Arguments"
@@ -949,7 +1045,7 @@ FocusScope {
                                             prev.argumentField.forceActiveFocus()
                                         }
                                     } else {
-                                        advancedToggleBtn.forceActiveFocus()
+                                        windowsRenderApiCombo.forceActiveFocus()
                                     }
                                     event.accepted = true
                                 }
@@ -1052,7 +1148,7 @@ FocusScope {
                                 last.argumentField.forceActiveFocus()
                             }
                         } else {
-                            advancedToggleBtn.forceActiveFocus()
+                            windowsRenderApiCombo.forceActiveFocus()
                         }
                         event.accepted = true
                     }
