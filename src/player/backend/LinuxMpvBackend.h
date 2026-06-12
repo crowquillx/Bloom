@@ -46,13 +46,16 @@ private:
     };
 
     bool initializeMpv(const QStringList &args);
-    void teardownMpv();
+    void teardownMpv(bool emitStateChange = true);
     void processMpvEvents();
     void observeMpvProperties(void *handle);
     void applyMpvArgs(void *handle, const QStringList &args);
     void applyEmbeddedShaderList(void *handle);
     bool queueLoadFile(const QString &mediaUrl);
     void handlePropertyChange(const QString &name, const QVariant &value);
+    void recordMpvLogMessage(const QString &level, const QString &prefix, const QString &text);
+    void clearRecentStreamFailure();
+    [[nodiscard]] bool hasRecentStreamFailure() const;
     void handleWindowChanged(QQuickWindow *window);
     void initializeRenderContextIfNeeded();
     void teardownRenderContext();
@@ -94,5 +97,7 @@ private:
     std::atomic_bool m_swFrameDispatchQueued{false};
     int m_playlistPosition = -1;
     int m_playlistCount = 0;
+    qint64 m_recentStreamFailureTimeMs = 0;
+    QString m_recentStreamFailureText;
     QStringList m_pendingEmbeddedShaderPaths;
 };

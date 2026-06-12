@@ -315,87 +315,6 @@ FocusScope {
                         Qt.callLater(root.saveProfile)
                     }
                 }
-                
-                background: Rectangle {
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: Theme.inputBackground
-                    border.color: videoOutputCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: videoOutputCombo.activeFocus ? 2 : 1
-                }
-                
-                contentItem: Text {
-                    text: videoOutputCombo.selectedText()
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: Theme.spacingSmall
-                }
-
-                delegate: ItemDelegate {
-                    width: videoOutputCombo.width
-                    contentItem: Text {
-                        text: videoOutputCombo.optionTextAt(index)
-                        color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
-                        radius: Theme.radiusSmall
-                    }
-                    highlighted: ListView.isCurrentItem || videoOutputCombo.highlightedIndex === index
-                }
-
-                popup: Popup {
-                    y: videoOutputCombo.height + 5
-                    width: videoOutputCombo.width
-                    implicitHeight: contentItem.implicitHeight
-                    padding: 1
-                    
-                    onOpened: {
-                        videoOutputList.currentIndex = videoOutputCombo.highlightedIndex >= 0
-                            ? videoOutputCombo.highlightedIndex
-                            : videoOutputCombo.currentIndex
-                        videoOutputList.forceActiveFocus()
-                    }
-                    onClosed: videoOutputCombo.forceActiveFocus()
-
-                    Accessible.role: Accessible.Popup
-                    Accessible.name: "Video Output Options"
-
-                    contentItem: ListView {
-                        id: videoOutputList
-                        clip: true
-                        implicitHeight: contentHeight
-                        model: videoOutputCombo.popup.visible ? videoOutputCombo.delegateModel : null
-                        currentIndex: videoOutputCombo.highlightedIndex >= 0
-                            ? videoOutputCombo.highlightedIndex
-                            : videoOutputCombo.currentIndex
-
-                        ScrollIndicator.vertical: ScrollIndicator { }
-                        onCurrentIndexChanged: videoOutputCombo.highlightedIndex = currentIndex
-                        
-                        Keys.onReturnPressed: { 
-                            videoOutputCombo.currentIndex = currentIndex
-                            videoOutputCombo.popup.close() 
-                        }
-                        Keys.onEnterPressed: { 
-                            videoOutputCombo.currentIndex = currentIndex
-                            videoOutputCombo.popup.close() 
-                        }
-                        Keys.onEscapePressed: videoOutputCombo.popup.close()
-                    }
-
-                    background: Rectangle {
-                        color: Theme.cardBackground
-                        border.color: Theme.focusBorder
-                        border.width: 1
-                        radius: Theme.radiusSmall
-                    }
-                }
             }
         }
         
@@ -408,69 +327,25 @@ FocusScope {
             Layout.topMargin: Theme.spacingMedium
         }
         
-        // Hardware Decoding Toggle
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingMedium
-            
-            Text {
-                text: "Enable Hardware Decoding"
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                Layout.fillWidth: true
+        SettingsToggleRow {
+            id: hwdecSwitch
+            label: "Enable Hardware Decoding"
+            checked: false
+            ensureVisible: function(item) { root.ensureVisible(item) }
+
+            Keys.onUpPressed: videoOutputCombo.forceActiveFocus()
+            Keys.onDownPressed: {
+                if (checked) {
+                    hwdecMethodCombo.forceActiveFocus()
+                } else {
+                    deinterlaceSwitch.forceActiveFocus()
+                }
             }
-            
-            Switch {
-                id: hwdecSwitch
-                focusPolicy: Qt.StrongFocus
-                Accessible.role: Accessible.CheckBox
-                Accessible.name: "Enable Hardware Decoding"
-                Accessible.checkable: true
-                Accessible.checked: checked
-                
-                onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
-                
-                Keys.onUpPressed: videoOutputCombo.forceActiveFocus()
-                Keys.onDownPressed: {
-                    if (checked) {
-                        hwdecMethodCombo.forceActiveFocus()
-                    } else {
-                        deinterlaceSwitch.forceActiveFocus()
-                    }
-                }
-                
-                onCheckedChanged: {
-                    if (root.profileName !== "") {
-                        Qt.callLater(root.saveProfile)
-                    }
-                }
-                Keys.onReturnPressed: checked = !checked
-                Keys.onEnterPressed: checked = !checked
-                Keys.onSpacePressed: checked = !checked
 
-                indicator: Rectangle {
-                    implicitWidth: 56
-                    implicitHeight: 30
-                    radius: height / 2
-                    color: hwdecSwitch.checked ? Theme.accentPrimary : Qt.rgba(1, 1, 1, 0.2)
-                    border.color: hwdecSwitch.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: hwdecSwitch.activeFocus ? 2 : 1
-
-                    Rectangle {
-                        width: 24
-                        height: 24
-                        radius: 12
-                        x: hwdecSwitch.checked ? parent.width - width - 3 : 3
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: Theme.textPrimary
-                        border.color: hwdecSwitch.activeFocus ? Theme.focusBorder : "transparent"
-                        border.width: hwdecSwitch.activeFocus ? 1 : 0
-                        Behavior on x { NumberAnimation { duration: Theme.durationShort; easing.type: Easing.OutCubic } }
-                    }
-
-                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+            onToggled: function(value) {
+                checked = value
+                if (root.profileName !== "") {
+                    Qt.callLater(root.saveProfile)
                 }
             }
         }
@@ -521,84 +396,6 @@ FocusScope {
                         Qt.callLater(root.saveProfile)
                     }
                 }
-                
-                background: Rectangle {
-                    implicitHeight: Theme.buttonHeightSmall
-                    radius: Theme.radiusSmall
-                    color: Theme.inputBackground
-                    border.color: hwdecMethodCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: hwdecMethodCombo.activeFocus ? 2 : 1
-                }
-                
-                contentItem: Text {
-                    text: hwdecMethodCombo.selectedText()
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                    verticalAlignment: Text.AlignVCenter
-                    leftPadding: Theme.spacingSmall
-                }
-
-                delegate: ItemDelegate {
-                    width: hwdecMethodCombo.width
-                    contentItem: Text {
-                        text: hwdecMethodCombo.optionTextAt(index)
-                        color: highlighted ? Theme.textPrimary : Theme.textSecondary
-                        font.pixelSize: Theme.fontSizeBody
-                        font.family: Theme.fontPrimary
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    background: Rectangle {
-                        color: highlighted ? Theme.buttonPrimaryBackground : "transparent"
-                        radius: Theme.radiusSmall
-                    }
-                    highlighted: ListView.isCurrentItem || hwdecMethodCombo.highlightedIndex === index
-                }
-
-                popup: Popup {
-                    y: hwdecMethodCombo.height + 5
-                    width: hwdecMethodCombo.width
-                    implicitHeight: contentItem.implicitHeight
-                    padding: 1
-                    
-                    onOpened: {
-                        hwdecMethodList.currentIndex = hwdecMethodCombo.highlightedIndex >= 0
-                            ? hwdecMethodCombo.highlightedIndex
-                            : hwdecMethodCombo.currentIndex
-                        hwdecMethodList.forceActiveFocus()
-                    }
-                    onClosed: hwdecMethodCombo.forceActiveFocus()
-
-                    contentItem: ListView {
-                        id: hwdecMethodList
-                        clip: true
-                        implicitHeight: contentHeight
-                        model: hwdecMethodCombo.popup.visible ? hwdecMethodCombo.delegateModel : null
-                        currentIndex: hwdecMethodCombo.highlightedIndex >= 0
-                            ? hwdecMethodCombo.highlightedIndex
-                            : hwdecMethodCombo.currentIndex
-
-                        ScrollIndicator.vertical: ScrollIndicator { }
-                        onCurrentIndexChanged: hwdecMethodCombo.highlightedIndex = currentIndex
-                        
-                        Keys.onReturnPressed: { 
-                            hwdecMethodCombo.currentIndex = currentIndex
-                            hwdecMethodCombo.popup.close() 
-                        }
-                        Keys.onEnterPressed: { 
-                            hwdecMethodCombo.currentIndex = currentIndex
-                            hwdecMethodCombo.popup.close() 
-                        }
-                        Keys.onEscapePressed: hwdecMethodCombo.popup.close()
-                    }
-
-                    background: Rectangle {
-                        color: Theme.cardBackground
-                        border.color: Theme.focusBorder
-                        border.width: 1
-                        radius: Theme.radiusSmall
-                    }
-                }
             }
         }
         
@@ -611,75 +408,31 @@ FocusScope {
             Layout.topMargin: Theme.spacingMedium
         }
         
-        // Deinterlace Toggle
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingMedium
-            
-            Text {
-                text: "Enable Deinterlacing"
-                font.pixelSize: Theme.fontSizeBody
-                font.family: Theme.fontPrimary
-                color: Theme.textPrimary
-                Layout.fillWidth: true
+        SettingsToggleRow {
+            id: deinterlaceSwitch
+            label: "Enable Deinterlacing"
+            checked: false
+            ensureVisible: function(item) { root.ensureVisible(item) }
+
+            Keys.onUpPressed: {
+                if (hwdecSwitch.checked) {
+                    hwdecMethodCombo.forceActiveFocus()
+                } else {
+                    hwdecSwitch.forceActiveFocus()
+                }
             }
-            
-            Switch {
-                id: deinterlaceSwitch
-                focusPolicy: Qt.StrongFocus
-                Accessible.role: Accessible.CheckBox
-                Accessible.name: "Enable Deinterlacing"
-                Accessible.checkable: true
-                Accessible.checked: checked
-                
-                onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
-                
-                Keys.onUpPressed: {
-                    if (hwdecSwitch.checked) {
-                        hwdecMethodCombo.forceActiveFocus()
-                    } else {
-                        hwdecSwitch.forceActiveFocus()
-                    }
+            Keys.onDownPressed: {
+                if (checked) {
+                    deinterlaceMethodField.forceActiveFocus()
+                } else {
+                    interpolationSwitch.forceActiveFocus()
                 }
-                Keys.onDownPressed: {
-                    if (checked) {
-                        deinterlaceMethodField.forceActiveFocus()
-                    } else {
-                        interpolationSwitch.forceActiveFocus()
-                    }
-                }
-                
-                onCheckedChanged: {
-                    if (root.profileName !== "") {
-                        Qt.callLater(root.saveProfile)
-                    }
-                }
-                Keys.onReturnPressed: checked = !checked
-                Keys.onEnterPressed: checked = !checked
-                Keys.onSpacePressed: checked = !checked
+            }
 
-                indicator: Rectangle {
-                    implicitWidth: 56
-                    implicitHeight: 30
-                    radius: height / 2
-                    color: deinterlaceSwitch.checked ? Theme.accentPrimary : Qt.rgba(1, 1, 1, 0.2)
-                    border.color: deinterlaceSwitch.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: deinterlaceSwitch.activeFocus ? 2 : 1
-
-                    Rectangle {
-                        width: 24
-                        height: 24
-                        radius: 12
-                        x: deinterlaceSwitch.checked ? parent.width - width - 3 : 3
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: Theme.textPrimary
-                        border.color: deinterlaceSwitch.activeFocus ? Theme.focusBorder : "transparent"
-                        border.width: deinterlaceSwitch.activeFocus ? 1 : 0
-                        Behavior on x { NumberAnimation { duration: Theme.durationShort; easing.type: Easing.OutCubic } }
-                    }
-
-                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+            onToggled: function(value) {
+                checked = value
+                if (root.profileName !== "") {
+                    Qt.callLater(root.saveProfile)
                 }
             }
         }
@@ -739,82 +492,26 @@ FocusScope {
             Layout.topMargin: Theme.spacingMedium
         }
         
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingMedium
-            
-            ColumnLayout {
-                Layout.fillWidth: true
-                spacing: 2
-                
-                Text {
-                    text: "Enable Interpolation"
-                    font.pixelSize: Theme.fontSizeBody
-                    font.family: Theme.fontPrimary
-                    color: Theme.textPrimary
-                }
-                
-                Text {
-                    text: "Smooths motion by interpolating frames (higher CPU/GPU usage)"
-                    font.pixelSize: Theme.fontSizeSmall
-                    font.family: Theme.fontPrimary
-                    color: Theme.textSecondary
-                    wrapMode: Text.WordWrap
-                    Layout.fillWidth: true
+        SettingsToggleRow {
+            id: interpolationSwitch
+            label: "Enable Interpolation"
+            description: "Smooths motion by interpolating frames (higher CPU/GPU usage)"
+            checked: false
+            ensureVisible: function(item) { root.ensureVisible(item) }
+
+            Keys.onUpPressed: {
+                if (deinterlaceSwitch.checked) {
+                    deinterlaceMethodField.forceActiveFocus()
+                } else {
+                    deinterlaceSwitch.forceActiveFocus()
                 }
             }
-            
-            Switch {
-                id: interpolationSwitch
-                focusPolicy: Qt.StrongFocus
-                Accessible.role: Accessible.CheckBox
-                Accessible.name: "Enable Motion Interpolation"
-                Accessible.description: "Smooths motion by interpolating frames"
-                Accessible.checkable: true
-                Accessible.checked: checked
-                
-                onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
-                
-                Keys.onUpPressed: {
-                    if (deinterlaceSwitch.checked) {
-                        deinterlaceMethodField.forceActiveFocus()
-                    } else {
-                        deinterlaceSwitch.forceActiveFocus()
-                    }
-                }
-                Keys.onDownPressed: advancedToggleBtn.forceActiveFocus()
-                
-                onCheckedChanged: {
-                    if (root.profileName !== "") {
-                        Qt.callLater(root.saveProfile)
-                    }
-                }
-                Keys.onReturnPressed: checked = !checked
-                Keys.onEnterPressed: checked = !checked
-                Keys.onSpacePressed: checked = !checked
+            Keys.onDownPressed: advancedToggleBtn.forceActiveFocus()
 
-                indicator: Rectangle {
-                    implicitWidth: 56
-                    implicitHeight: 30
-                    radius: height / 2
-                    color: interpolationSwitch.checked ? Theme.accentPrimary : Qt.rgba(1, 1, 1, 0.2)
-                    border.color: interpolationSwitch.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                    border.width: interpolationSwitch.activeFocus ? 2 : 1
-
-                    Rectangle {
-                        width: 24
-                        height: 24
-                        radius: 12
-                        x: interpolationSwitch.checked ? parent.width - width - 3 : 3
-                        anchors.verticalCenter: parent.verticalCenter
-                        color: Theme.textPrimary
-                        border.color: interpolationSwitch.activeFocus ? Theme.focusBorder : "transparent"
-                        border.width: interpolationSwitch.activeFocus ? 1 : 0
-                        Behavior on x { NumberAnimation { duration: Theme.durationShort; easing.type: Easing.OutCubic } }
-                    }
-
-                    Behavior on color { ColorAnimation { duration: Theme.durationShort } }
-                    Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
+            onToggled: function(value) {
+                checked = value
+                if (root.profileName !== "") {
+                    Qt.callLater(root.saveProfile)
                 }
             }
         }
@@ -951,23 +648,6 @@ FocusScope {
                                 Qt.callLater(root.saveProfile)
                             }
                         }
-
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: windowsRenderApiCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: windowsRenderApiCombo.activeFocus ? 2 : 1
-                        }
-
-                        contentItem: Text {
-                            text: windowsRenderApiCombo.currentText
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                        }
                     }
                 }
 
@@ -1024,86 +704,38 @@ FocusScope {
                                 Qt.callLater(root.saveProfile)
                             }
                         }
-
-                        background: Rectangle {
-                            implicitHeight: Theme.buttonHeightSmall
-                            radius: Theme.radiusSmall
-                            color: Theme.inputBackground
-                            border.color: hdrMetadataModeCombo.activeFocus ? Theme.focusBorder : Theme.inputBorder
-                            border.width: hdrMetadataModeCombo.activeFocus ? 2 : 1
-                        }
-
-                        contentItem: Text {
-                            text: hdrMetadataModeCombo.currentText
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: Theme.textPrimary
-                            verticalAlignment: Text.AlignVCenter
-                            leftPadding: Theme.spacingSmall
-                            elide: Text.ElideRight
-                        }
                     }
                 }
 
-                RowLayout {
-                    Layout.fillWidth: true
-                    spacing: Theme.spacingMedium
+                SettingsToggleRow {
+                    id: windows10BitOutputSwitch
+                    label: "10-bit D3D11 Output"
+                    description: windowsRenderApiValue(windowsRenderApiCombo.currentIndex) === "d3d11"
+                        ? "Uses rgb10_a2 output format for Windows D3D11 playback."
+                        : "Available only when Windows Render API is D3D11."
+                    checked: false
+                    enabled: windowsRenderApiValue(windowsRenderApiCombo.currentIndex) === "d3d11"
+                    ensureVisible: function(item) { root.ensureVisible(item) }
 
-                    ColumnLayout {
-                        Layout.fillWidth: true
-                        spacing: 2
-
-                        Text {
-                            text: "10-bit D3D11 Output"
-                            font.pixelSize: Theme.fontSizeBody
-                            font.family: Theme.fontPrimary
-                            color: windowsRenderApiValue(windowsRenderApiCombo.currentIndex) === "d3d11" ? Theme.textPrimary : Theme.textDisabled
-                        }
-
-                        Text {
-                            text: windowsRenderApiValue(windowsRenderApiCombo.currentIndex) === "d3d11"
-                                ? "Uses rgb10_a2 output format for Windows D3D11 playback."
-                                : "Available only when Windows Render API is D3D11."
-                            font.pixelSize: Theme.fontSizeSmall
-                            font.family: Theme.fontPrimary
-                            color: Theme.textSecondary
-                            wrapMode: Text.WordWrap
-                            Layout.fillWidth: true
+                    onEnabledChanged: {
+                        if (!enabled && activeFocus) {
+                            hdrMetadataModeCombo.forceActiveFocus()
                         }
                     }
 
-                    Switch {
-                        id: windows10BitOutputSwitch
-                        enabled: windowsRenderApiValue(windowsRenderApiCombo.currentIndex) === "d3d11"
-                        focusPolicy: enabled ? Qt.StrongFocus : Qt.NoFocus
-                        Accessible.role: Accessible.CheckBox
-                        Accessible.name: "10-bit D3D11 Output"
-                        Accessible.checkable: true
-                        Accessible.checked: checked
-
-                        onActiveFocusChanged: if (activeFocus) root.ensureVisible(this)
-                        onEnabledChanged: {
-                            if (!enabled && activeFocus) {
-                                hdrMetadataModeCombo.forceActiveFocus()
-                            }
+                    Keys.onUpPressed: hdrMetadataModeCombo.forceActiveFocus()
+                    Keys.onDownPressed: {
+                        if (argRepeater.count > 0 && argRepeater.itemAt(0) && argRepeater.itemAt(0).argumentField) {
+                            argRepeater.itemAt(0).argumentField.forceActiveFocus()
+                        } else {
+                            addArgButton.forceActiveFocus()
                         }
+                    }
 
-                        Keys.onUpPressed: hdrMetadataModeCombo.forceActiveFocus()
-                        Keys.onDownPressed: {
-                            if (argRepeater.count > 0 && argRepeater.itemAt(0) && argRepeater.itemAt(0).argumentField) {
-                                argRepeater.itemAt(0).argumentField.forceActiveFocus()
-                            } else {
-                                addArgButton.forceActiveFocus()
-                            }
-                        }
-                        Keys.onReturnPressed: if (enabled) checked = !checked
-                        Keys.onEnterPressed: if (enabled) checked = !checked
-                        Keys.onSpacePressed: if (enabled) checked = !checked
-
-                        onCheckedChanged: {
-                            if (root.profileName !== "") {
-                                Qt.callLater(root.saveProfile)
-                            }
+                    onToggled: function(value) {
+                        checked = value
+                        if (root.profileName !== "") {
+                            Qt.callLater(root.saveProfile)
                         }
                     }
                 }

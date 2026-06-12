@@ -135,6 +135,11 @@ public:
     {
         emit playbackEnded();
     }
+
+    void emitCacheEnd(double seconds)
+    {
+        emit cacheEndChanged(seconds);
+    }
 };
 
 class FakeLibraryService final : public LibraryService
@@ -394,6 +399,7 @@ private slots:
     void playbackTogglesSendMpvCycleValuesCommands();
     void requestPlaybackPromptsForVersionSelection();
     void requestPlaybackRecoversLibraryProfileFromSeriesDetails();
+    void remoteMountStartupBufferingAppendsMpvArgs();
     void requestPlaybackWaitsForSeriesDetailsParentIdBeforeStarting();
     void requestPlaybackUsesRecoveredLibraryWhenSeriesDetailsArriveBeforePlaybackInfo();
     void requestPlaybackFallsBackWithoutRecoveredLibraryProfileWhenParentIdMissing();
@@ -1942,6 +1948,53 @@ void PlayerControllerAutoplayContextTest::requestPlaybackRecoversLibraryProfileF
 
     QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--test-library-profile=yes")));
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
+}
+
+void PlayerControllerAutoplayContextTest::remoteMountStartupBufferingAppendsMpvArgs()
+{
+    ConfigManager config;
+    config.setLibraryStartupBufferingMode(QStringLiteral("library-1"), QStringLiteral("remote-mount"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.playUrl(QStringLiteral("https://example.invalid/video.mkv"),
+                       QStringLiteral("episode-1"),
+                       0,
+                       QStringLiteral("series-1"),
+                       QStringLiteral("season-1"),
+                       QStringLiteral("library-1"));
+
+    QTRY_VERIFY(backend.lastStartArgs.contains(QStringLiteral("--cache-pause-initial=yes")));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--pause=yes")));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--cache-pause-wait=60")));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--cache-secs=120")));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--demuxer-readahead-secs=60")));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--demuxer-max-bytes=2048M")));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--demuxer-max-back-bytes=512M")));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--stream-buffer-size=4MiB")));
+
+    backend.emitCacheEnd(59.0);
+    QVERIFY(backend.variantCommands.isEmpty());
+
+    backend.emitCacheEnd(60.0);
+    QTRY_VERIFY(!backend.variantCommands.isEmpty());
+    QCOMPARE(backend.variantCommands.last(), QVariantList({
+        QStringLiteral("set_property"),
+        QStringLiteral("pause"),
+        false,
+    }));
 }
 
 void PlayerControllerAutoplayContextTest::requestPlaybackWaitsForSeriesDetailsParentIdBeforeStarting()

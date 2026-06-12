@@ -15,10 +15,12 @@ FocusScope {
                                                 && !paused
                                                 && PlayerController.currentPositionSeconds <= 0
                                                 && PlayerController.durationSeconds <= 0
-    readonly property bool buffering: overlayActive
-                                     && (PlayerController.isLoading
-                                         || PlayerController.isBuffering
-                                         || waitingForFirstFrame)
+    readonly property bool startupBuffering: overlayActive
+                                             && (PlayerController.isLoading || waitingForFirstFrame)
+    readonly property bool playbackBuffering: overlayActive
+                                             && !startupBuffering
+                                             && (PlayerController.isBuffering || PlayerController.isRecovering)
+    readonly property bool buffering: startupBuffering || playbackBuffering
     readonly property string mediaTitle: (PlayerController.overlayTitle && PlayerController.overlayTitle.length > 0)
                                         ? PlayerController.overlayTitle
                                         : qsTr("Now Playing")
@@ -978,9 +980,9 @@ FocusScope {
     }
 
     Item {
-        id: bufferingOverlay
+        id: startupBufferingOverlay
         anchors.fill: parent
-        visible: root.buffering
+        visible: root.startupBuffering
         z: 500
 
         Image {
@@ -995,7 +997,7 @@ FocusScope {
             scale: 1.02
 
             SequentialAnimation on scale {
-                running: bufferingOverlay.visible && loadingBackdrop.visible
+                running: startupBufferingOverlay.visible && loadingBackdrop.visible
                 loops: Animation.Infinite
                 NumberAnimation { to: 1.07; duration: 7000; easing.type: Easing.InOutCubic }
                 NumberAnimation { to: 1.02; duration: 7000; easing.type: Easing.InOutCubic }
@@ -1069,8 +1071,8 @@ FocusScope {
                     border.color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.46)
                     opacity: 0.8
 
-                    SequentialAnimation on opacity {
-                        running: bufferingOverlay.visible
+                        SequentialAnimation on opacity {
+                            running: startupBufferingOverlay.visible
                         loops: Animation.Infinite
                         NumberAnimation { to: 0.38; duration: 760; easing.type: Easing.InOutQuad }
                         NumberAnimation { to: 0.86; duration: 760; easing.type: Easing.InOutQuad }
@@ -1096,13 +1098,13 @@ FocusScope {
                     }
                 }
 
-                RotationAnimator on rotation {
-                    from: 0
-                    to: 360
-                    duration: 900
-                    loops: Animation.Infinite
-                    running: bufferingOverlay.visible
-                }
+                    RotationAnimator on rotation {
+                        from: 0
+                        to: 360
+                        duration: 900
+                        loops: Animation.Infinite
+                        running: startupBufferingOverlay.visible
+                    }
             }
 
             Text {
@@ -1193,16 +1195,81 @@ FocusScope {
                         fontWeight: Font.Bold
                         fontLetterSpacing: 0.15
                         textStyle: Text.Outline
-                        textStyleColor: Qt.rgba(0, 0, 0, 0.9)
-                        active: bufferingOverlay.visible
+                            textStyleColor: Qt.rgba(0, 0, 0, 0.9)
+                            active: startupBufferingOverlay.visible
+                        }
                     }
                 }
             }
         }
-    }
 
-    Item {
-        anchors.fill: parent
+        Item {
+            id: playbackBufferingOverlay
+            anchors.fill: parent
+            visible: root.playbackBuffering
+            z: 505
+
+            Rectangle {
+                anchors.fill: parent
+                color: Qt.rgba(0, 0, 0, 0.18)
+            }
+
+            Rectangle {
+                id: compactSpinnerShell
+                anchors.centerIn: parent
+                width: Math.round(96 * Theme.layoutScale)
+                height: width
+                radius: width / 2
+                color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.58)
+                border.width: 1
+                border.color: Qt.rgba(Theme.accentPrimary.r, Theme.accentPrimary.g, Theme.accentPrimary.b, 0.46)
+
+                layer.enabled: true
+                layer.effect: MultiEffect {
+                    shadowEnabled: true
+                    shadowColor: Qt.rgba(0, 0, 0, 0.48)
+                    shadowBlur: 0.85
+                    shadowVerticalOffset: 8
+                }
+            }
+
+            Item {
+                id: compactSpinner
+                anchors.centerIn: compactSpinnerShell
+                width: Math.round(64 * Theme.layoutScale)
+                height: width
+
+                Repeater {
+                    model: 12
+                    Item {
+                        width: compactSpinner.width
+                        height: compactSpinner.height
+                        rotation: index * 30
+
+                        Rectangle {
+                            width: Math.round(5 * Theme.layoutScale)
+                            height: Math.round(14 * Theme.layoutScale)
+                            radius: width / 2
+                            color: Theme.accentPrimary
+                            opacity: (index + 1) / 12
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            y: Math.round(4 * Theme.layoutScale)
+                        }
+                    }
+                }
+
+                RotationAnimator on rotation {
+                    from: 0
+                    to: 360
+                    duration: 900
+                    loops: Animation.Infinite
+                    running: playbackBufferingOverlay.visible
+                }
+            }
+        }
+
+        Item {
+            anchors.fill: parent
         visible: !root.buffering
         enabled: root.controlsVisible
 

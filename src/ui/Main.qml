@@ -158,10 +158,9 @@ Window {
         modality: Qt.NonModal
         color: "transparent"
         visible: useDetachedPlaybackOverlayWindow
-                 && window.visible
-                 && window.visibility !== Window.Minimized
-                 && embeddedPlaybackActive
-                 && PlayerController.playbackState !== PlayerController.Loading
+                     && window.visible
+                     && window.visibility !== Window.Minimized
+                     && embeddedPlaybackActive
         x: window.x
         y: window.y
         width: window.width

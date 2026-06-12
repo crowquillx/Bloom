@@ -8,6 +8,7 @@
 #include <QSGRendererInterface>
 #include <QOpenGLContext>
 #include <QOpenGLFunctions>
+#include <QDateTime>
 #include <QImage>
 #include <QMutexLocker>
 #include <QVector>
@@ -30,6 +31,8 @@ extern "C" {
 #endif
 
 namespace {
+constexpr qint64 kRecentStreamFailureWindowMs = 30000;
+
 bool isTruthyEnv(const char *name)
 {
     return qEnvironmentVariableIntValue(name) == 1;
@@ -84,6 +87,16 @@ const char *endFileReasonToString(int reason)
     }
 }
 #endif
+
+bool isRecoverableStreamFailureLog(const QString &level, const QString &prefix, const QString &text)
+{
+    const QString haystack = QStringList{level, prefix, text}.join(QLatin1Char(' ')).toLower();
+    return haystack.contains(QStringLiteral("stream ends prematurely"))
+        || haystack.contains(QStringLiteral("will reconnect"))
+        || haystack.contains(QStringLiteral("http error 5"))
+        || haystack.contains(QStringLiteral("i/o error"))
+        || haystack.contains(QStringLiteral("io error"));
+}
 
 }
 
@@ -142,6 +155,7 @@ void LinuxMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, c
     m_renderMode = m_forceSoftwareRender ? RenderMode::Software : RenderMode::OpenGL;
     m_playlistPosition = -1;
     m_playlistCount = 0;
+    clearRecentStreamFailure();
     m_swRenderImage = QImage();
     m_swFrameDispatchQueued.store(false, std::memory_order_release);
     {
@@ -487,12 +501,14 @@ bool LinuxMpvBackend::initializeMpv(const QStringList &args)
 #endif
 }
 
-void LinuxMpvBackend::teardownMpv()
+void LinuxMpvBackend::teardownMpv(bool emitStateChange)
 {
     if (!m_mpvHandle) {
-        if (m_running) {
+        if (m_running && emitStateChange) {
             m_running = false;
             emit stateChanged(false);
+        } else {
+            m_running = false;
         }
         return;
     }
@@ -509,10 +525,13 @@ void LinuxMpvBackend::teardownMpv()
     m_eventDispatchQueued.store(false, std::memory_order_release);
     m_playlistPosition = -1;
     m_playlistCount = 0;
+    clearRecentStreamFailure();
 
-    if (m_running) {
+    if (m_running && emitStateChange) {
         m_running = false;
         emit stateChanged(false);
+    } else {
+        m_running = false;
     }
 }
 
@@ -538,20 +557,56 @@ void LinuxMpvBackend::processMpvEvents()
             teardownMpv();
             return;
         case MPV_EVENT_END_FILE:
-            if (event->data) {
-                const mpv_event_end_file *endFile = static_cast<const mpv_event_end_file *>(event->data);
+        {
+            const mpv_event_end_file *endFile = event->data
+                ? static_cast<const mpv_event_end_file *>(event->data)
+                : nullptr;
+            const bool hasRemainingPlaylistItems = m_playlistCount > 0
+                && m_playlistPosition >= 0
+                && (m_playlistPosition + 1) < m_playlistCount;
+            bool isRedirectTransition = false;
+            bool isIntentionalEnd = false;
+            if (endFile != nullptr) {
+                #if defined(MPV_END_FILE_REASON_REDIRECT)
+                isRedirectTransition = endFile->reason == MPV_END_FILE_REASON_REDIRECT;
+                #endif
+                #if defined(MPV_END_FILE_REASON_STOP)
+                isIntentionalEnd = isIntentionalEnd || endFile->reason == MPV_END_FILE_REASON_STOP;
+                #endif
+                #if defined(MPV_END_FILE_REASON_QUIT)
+                isIntentionalEnd = isIntentionalEnd || endFile->reason == MPV_END_FILE_REASON_QUIT;
+                #endif
+            }
+            const bool reachedTerminalPlaybackState = !hasRemainingPlaylistItems && !isRedirectTransition;
+            const bool recoverablePrematureEof = endFile != nullptr
+                && reachedTerminalPlaybackState
+                && !isIntentionalEnd
+                && hasRecentStreamFailure();
+
+            if (endFile) {
                 qCInfo(lcLinuxLibmpvBackend)
                     << "MPV_EVENT_END_FILE reason=" << endFileReasonToString(endFile->reason)
-                    << "error=" << QString::fromUtf8(mpv_error_string(endFile->error));
+                    << "error=" << QString::fromUtf8(mpv_error_string(endFile->error))
+                    << "hasRemainingPlaylistItems=" << hasRemainingPlaylistItems
+                    << "recoverablePrematureEof=" << recoverablePrematureEof
+                    << "recentStreamFailure=" << m_recentStreamFailureText;
             } else {
                 qCInfo(lcLinuxLibmpvBackend) << "MPV_EVENT_END_FILE (no data)";
             }
-            if (m_playlistCount <= 0
-                || m_playlistPosition < 0
-                || (m_playlistPosition + 1) >= m_playlistCount) {
+
+            if (recoverablePrematureEof) {
+                const QString errorMessage = QStringLiteral("recoverable-stream-ended-prematurely: %1")
+                                                 .arg(m_recentStreamFailureText);
+                qCWarning(lcLinuxLibmpvBackend) << errorMessage;
+                clearRecentStreamFailure();
+                teardownMpv(false);
+                emit errorOccurred(errorMessage);
+                return;
+            } else if (reachedTerminalPlaybackState) {
                 emit playbackEnded();
             }
             break;
+        }
         case MPV_EVENT_CLIENT_MESSAGE: {
             mpv_event_client_message *message = static_cast<mpv_event_client_message *>(event->data);
             if (!message || message->num_args <= 0 || !message->args) {
@@ -577,9 +632,11 @@ void LinuxMpvBackend::processMpvEvents()
                 break;
             }
             const QString prefix = QString::fromUtf8(logMessage->prefix ? logMessage->prefix : "");
+            const QString level = QString::fromUtf8(logMessage->level ? logMessage->level : "");
             const QString text = QString::fromUtf8(logMessage->text).trimmed();
             if (!text.isEmpty()) {
                 qCWarning(lcLinuxLibmpvBackend).noquote() << QStringLiteral("[libmpv][%1] %2").arg(prefix, text);
+                recordMpvLogMessage(level, prefix, text);
             }
             break;
         }
@@ -709,7 +766,15 @@ void LinuxMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
 
         const QByteArray nameUtf8 = name.toUtf8();
         const QByteArray valueUtf8 = value.toUtf8();
-        mpv_set_option_string(handle, nameUtf8.constData(), valueUtf8.constData());
+        const int status = mpv_set_option_string(handle, nameUtf8.constData(), valueUtf8.constData());
+        if (status < 0) {
+            qCWarning(lcLinuxLibmpvBackend)
+                << "Failed to apply embedded libmpv option"
+                << name
+                << "="
+                << value
+                << "error=" << QString::fromUtf8(mpv_error_string(status));
+        }
     }
 
     if (!partitioned.shaderPaths.isEmpty()) {
@@ -834,6 +899,33 @@ void LinuxMpvBackend::handlePropertyChange(const QString &name, const QVariant &
     if (name == QStringLiteral("demuxer-cache-time")) {
         emit cacheEndChanged(value.toDouble());
     }
+}
+
+void LinuxMpvBackend::recordMpvLogMessage(const QString &level, const QString &prefix, const QString &text)
+{
+    if (!isRecoverableStreamFailureLog(level, prefix, text)) {
+        return;
+    }
+
+    m_recentStreamFailureTimeMs = QDateTime::currentMSecsSinceEpoch();
+    m_recentStreamFailureText = QStringLiteral("[%1][%2] %3")
+                                    .arg(level.isEmpty() ? QStringLiteral("unknown") : level,
+                                         prefix.isEmpty() ? QStringLiteral("unknown") : prefix,
+                                         text);
+}
+
+void LinuxMpvBackend::clearRecentStreamFailure()
+{
+    m_recentStreamFailureTimeMs = 0;
+    m_recentStreamFailureText.clear();
+}
+
+bool LinuxMpvBackend::hasRecentStreamFailure() const
+{
+    if (m_recentStreamFailureTimeMs <= 0 || m_recentStreamFailureText.isEmpty()) {
+        return false;
+    }
+    return QDateTime::currentMSecsSinceEpoch() - m_recentStreamFailureTimeMs <= kRecentStreamFailureWindowMs;
 }
 
 void LinuxMpvBackend::handleWindowChanged(QQuickWindow *window)

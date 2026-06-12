@@ -826,6 +826,7 @@ void PlayerController::enterIdleStateImmediate()
     m_pendingUrl.clear();
     m_recoveryContext = RecoveryContext{};
     m_lastErrorWasNetworkRecoverable = false;
+    m_waitingForRemoteMountInitialCache = false;
     m_currentPosition = 0;
     m_duration = 0;
     m_cacheEndSeconds = 0;
@@ -894,7 +895,9 @@ void PlayerController::onEnterLoadingState()
     qCDebug(lcPlayback) << "PlayerController: Entering Loading state";
     
     // Start loading timeout
-    m_loadingTimeoutTimer->start(kLoadingTimeoutMs);
+    const bool remoteMountStartupBuffering = m_config
+        && m_config->resolveStartupBufferingModeForItem(m_currentLibraryId) == QStringLiteral("remote-mount");
+    m_loadingTimeoutTimer->start(remoteMountStartupBuffering ? kRemoteMountLoadingTimeoutMs : kLoadingTimeoutMs);
     
     // Reset tracking
     m_hasReportedStart = false;
@@ -1132,6 +1135,7 @@ void PlayerController::onProcessError(const QString &error)
         return;
     }
 
+    m_waitingForRemoteMountInitialCache = false;
     m_lastErrorWasNetworkRecoverable = isRecoverableBackendPlaybackError(error);
     setErrorMessage(m_lastErrorWasNetworkRecoverable
                     ? tr("Playback stream interrupted. Attempting to recover...")
@@ -1234,6 +1238,20 @@ void PlayerController::onCacheEndChanged(double seconds)
     if (seconds != m_cacheEndSeconds) {
         m_cacheEndSeconds = seconds;
         emit cacheEndChanged();
+    }
+
+    if (m_waitingForRemoteMountInitialCache
+        && m_playbackState == Loading
+        && seconds >= kRemoteMountInitialCacheSeconds) {
+        m_waitingForRemoteMountInitialCache = false;
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] remote-mount initial cache ready"
+                                << "cacheSeconds=" << seconds;
+        m_playerBackend->sendVariantCommand(QVariantList{
+            QStringLiteral("set_property"),
+            QStringLiteral("pause"),
+            false,
+        });
     }
 }
 
@@ -5103,6 +5121,25 @@ void PlayerController::initiateMpvStart()
     QStringList finalArgs;
     finalArgs << m_config->getMpvConfigArgs();  // mpv.conf, input.conf, scripts
     finalArgs << profileArgs;                        // Profile-specific args
+
+    const bool remoteMountStartupBuffering =
+        m_config->resolveStartupBufferingModeForItem(m_currentLibraryId) == QStringLiteral("remote-mount");
+    m_waitingForRemoteMountInitialCache = remoteMountStartupBuffering;
+    if (remoteMountStartupBuffering) {
+        finalArgs << QStringLiteral("--pause=yes");
+        finalArgs << QStringLiteral("--cache=yes");
+        finalArgs << QStringLiteral("--cache-pause=yes");
+        finalArgs << QStringLiteral("--cache-pause-initial=yes");
+        finalArgs << QStringLiteral("--cache-pause-wait=%1").arg(kRemoteMountInitialCacheSeconds, 0, 'f', 0);
+        finalArgs << QStringLiteral("--cache-secs=120");
+        finalArgs << QStringLiteral("--demuxer-readahead-secs=%1").arg(kRemoteMountInitialCacheSeconds, 0, 'f', 0);
+        finalArgs << QStringLiteral("--demuxer-max-bytes=2048M");
+        finalArgs << QStringLiteral("--demuxer-max-back-bytes=512M");
+        finalArgs << QStringLiteral("--stream-buffer-size=4MiB");
+        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                << "] remote-mount startup prebuffer enabled"
+                                << "library=" << m_currentLibraryId;
+    }
 
     if (m_mpvDisplayFpsOverride > 0.0) {
         // Windows reports fractional modes such as 23.976/29.97/59.94 as

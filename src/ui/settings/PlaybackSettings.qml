@@ -41,6 +41,110 @@ FocusScope {
         return 0
     }
 
+    readonly property var globalStartupBufferingOptions: [
+        { label: qsTr("Normal"), value: "normal" },
+        { label: qsTr("Remote Mount"), value: "remote-mount" }
+    ]
+    readonly property var libraryStartupBufferingOptions: [
+        { label: qsTr("Use Default"), value: "" },
+        { label: qsTr("Normal"), value: "normal" },
+        { label: qsTr("Remote Mount"), value: "remote-mount" }
+    ]
+
+    component StartupBufferingComboRow: RowLayout {
+        id: startupRow
+
+        property string label: ""
+        property string description: ""
+        property var options: []
+        property string selectedValue: "normal"
+        property Item upTarget: null
+        property Item downTarget: null
+        property bool initialized: false
+        property bool updatingSelection: false
+        property alias focusItem: combo
+        signal selected(string value)
+
+        Layout.fillWidth: true
+        spacing: Theme.spacingMedium
+
+        function refreshSelection() {
+            var idx = root.optionIndexForValue(options, selectedValue)
+            if (combo.currentIndex === idx) return
+            updatingSelection = true
+            combo.currentIndex = idx
+            updatingSelection = false
+        }
+
+        ColumnLayout {
+            spacing: Math.round(4 * Theme.layoutScale)
+            Layout.fillWidth: true
+
+            Text {
+                text: startupRow.label
+                font.pixelSize: Theme.fontSizeBody
+                font.family: Theme.fontPrimary
+                color: Theme.textPrimary
+            }
+
+            Text {
+                text: startupRow.description
+                font.pixelSize: Theme.fontSizeSmall
+                font.family: Theme.fontPrimary
+                color: Theme.textSecondary
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+
+        SettingsComboBox {
+            id: combo
+            model: startupRow.options
+            textRole: "label"
+            valueRole: "value"
+            currentIndex: root.optionIndexForValue(startupRow.options, startupRow.selectedValue)
+            Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
+            focusPolicy: Qt.StrongFocus
+
+            Component.onCompleted: {
+                startupRow.refreshSelection()
+                startupRow.initialized = true
+            }
+
+            onActiveFocusChanged: {
+                if (activeFocus) {
+                    root._lastFocusedItem = this
+                    flickable.ensureFocusVisible(this)
+                    InputModeManager.setNavigationMode("keyboard")
+                    InputModeManager.hideCursor(true)
+                } else if (!popup.visible) {
+                    InputModeManager.setNavigationMode("pointer")
+                    InputModeManager.hideCursor(false)
+                }
+            }
+
+            onCurrentIndexChanged: {
+                if (!startupRow.initialized || startupRow.updatingSelection || currentIndex < 0) return
+                startupRow.selected(startupRow.options[currentIndex].value)
+            }
+
+            Keys.onUpPressed: function(event) {
+                if (!popup.visible && startupRow.upTarget) {
+                    startupRow.upTarget.forceActiveFocus()
+                    event.accepted = true
+                }
+            }
+            Keys.onDownPressed: function(event) {
+                if (!popup.visible && startupRow.downTarget) {
+                    startupRow.downTarget.forceActiveFocus()
+                    event.accepted = true
+                }
+            }
+            Keys.onReturnPressed: function(event) { popup.open(); event.accepted = true }
+            Keys.onEnterPressed: function(event) { popup.open(); event.accepted = true }
+        }
+    }
+
     Keys.priority: Keys.AfterItem
     Keys.onLeftPressed: function(event) {
         root.requestReturnToRail()
@@ -1287,9 +1391,84 @@ FocusScope {
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: themeSongLoopToggle
+                    KeyNavigation.down: globalStartupBufferingRow.focusItem
 
                     onSpinBoxValueChanged: function(newValue) {
                         ConfigManager.playbackCacheSizeMB = newValue
+                    }
+                }
+
+                // ── Group 8: Startup buffering ──
+
+                SettingsGroupDivider { Layout.fillWidth: true }
+
+                StartupBufferingComboRow {
+                    id: globalStartupBufferingRow
+                    label: qsTr("Startup Buffering")
+                    description: qsTr("Remote Mount waits for a larger media cache before playback starts")
+                    options: root.globalStartupBufferingOptions
+                    selectedValue: ConfigManager.startupBufferingMode
+                    upTarget: cacheSizeSpinBox
+                    downTarget: libraryStartupBufferingRepeater.count > 0
+                                ? libraryStartupBufferingRepeater.itemAt(0).focusItem
+                                : null
+
+                    onSelected: function(value) {
+                        ConfigManager.startupBufferingMode = value
+                    }
+
+                    Connections {
+                        target: ConfigManager
+                        function onStartupBufferingModeChanged() {
+                            globalStartupBufferingRow.selectedValue = ConfigManager.startupBufferingMode
+                            globalStartupBufferingRow.refreshSelection()
+                        }
+                    }
+                }
+
+                Text {
+                    text: qsTr("Library Overrides")
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.family: Theme.fontPrimary
+                    font.weight: Font.DemiBold
+                    color: Theme.textSecondary
+                    visible: libraryStartupBufferingRepeater.count > 0
+                    Layout.fillWidth: true
+                }
+
+                Repeater {
+                    id: libraryStartupBufferingRepeater
+                    model: LibraryViewModel.views
+
+                    delegate: StartupBufferingComboRow {
+                        required property var modelData
+                        required property int index
+
+                        property string libraryName: modelData.Name || ""
+                        property string libraryId: modelData.Id || ""
+
+                        label: libraryName
+                        description: qsTr("Startup buffering for this library")
+                        options: root.libraryStartupBufferingOptions
+                        selectedValue: ConfigManager.getLibraryStartupBufferingMode(libraryId)
+                        upTarget: index > 0
+                                  ? libraryStartupBufferingRepeater.itemAt(index - 1).focusItem
+                                  : globalStartupBufferingRow.focusItem
+                        downTarget: index < libraryStartupBufferingRepeater.count - 1
+                                    ? libraryStartupBufferingRepeater.itemAt(index + 1).focusItem
+                                    : null
+
+                        onSelected: function(value) {
+                            ConfigManager.setLibraryStartupBufferingMode(libraryId, value)
+                        }
+
+                        Connections {
+                            target: ConfigManager
+                            function onLibraryStartupBufferingModesChanged() {
+                                selectedValue = ConfigManager.getLibraryStartupBufferingMode(libraryId)
+                                refreshSelection()
+                            }
+                        }
                     }
                 }
             }

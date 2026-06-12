@@ -743,6 +743,8 @@ private:
     QTimer *m_bufferingTimeoutTimer;
     QTimer *m_startDelayTimer;  // Trackable timer for deferred mpv start
     static constexpr int kLoadingTimeoutMs = 30000;  // 30 seconds
+    static constexpr int kRemoteMountLoadingTimeoutMs = 300000; // 5 minutes
+    static constexpr double kRemoteMountInitialCacheSeconds = 60.0;
     static constexpr int kBufferingTimeoutMs = 60000; // 60 seconds
     
     // Progress reporting timer
@@ -783,6 +785,7 @@ private:
     int m_recoveryAttemptCount = 0;
     bool m_isRecovering = false;
     bool m_lastErrorWasNetworkRecoverable = false;
+    bool m_waitingForRemoteMountInitialCache = false;
     static constexpr int kRecoveryPingIntervalMs = 5000;
     
     // State

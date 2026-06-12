@@ -28,6 +28,7 @@ private slots:
     void mpvProfileHdrAndWindowsOutputFieldsDefaultAndPersist();
     void hdrMpvArgsUseProfileMetadataMode();
     void v23MigrationPreservesCustomizedBuiltInProfiles();
+    void startupBufferingModesDefaultNormalizeAndPersist();
     void bundledMpvShadersAreCopied();
     void bundledMpvFontsAreCopied();
     void importMpvConfigCreatesProfile();
@@ -312,7 +313,7 @@ void ConfigManagerThemeTest::v19MigrationAddsThemeVariantSettings()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 23);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 24);
     const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
     QVERIFY(ui.contains(QStringLiteral("theme_flavor")));
     QCOMPARE(ui.value(QStringLiteral("theme_color_scheme")).toString(), QStringLiteral("blue"));
@@ -605,7 +606,43 @@ void ConfigManagerThemeTest::v23MigrationPreservesCustomizedBuiltInProfiles()
     QCOMPARE(config.getMpvProfile(QStringLiteral("nnedi3")).value(QStringLiteral("windowsRenderApi")).toString(),
              QStringLiteral("vulkan"));
     QCOMPARE(config.getMpvProfile(QStringLiteral("nnedi3-deband")).value(QStringLiteral("windowsRenderApi")).toString(),
-             QStringLiteral("vulkan"));
+	             QStringLiteral("vulkan"));
+}
+
+void ConfigManagerThemeTest::startupBufferingModesDefaultNormalizeAndPersist()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getStartupBufferingMode(), QStringLiteral("normal"));
+    QCOMPARE(config.resolveStartupBufferingModeForItem(QStringLiteral("library-1")), QStringLiteral("normal"));
+    QCOMPARE(config.getLibraryStartupBufferingMode(QStringLiteral("library-1")), QString());
+
+    QSignalSpy globalSpy(&config, &ConfigManager::startupBufferingModeChanged);
+    QSignalSpy librarySpy(&config, &ConfigManager::libraryStartupBufferingModesChanged);
+
+    config.setStartupBufferingMode(QStringLiteral("remote_mount"));
+    QCOMPARE(config.getStartupBufferingMode(), QStringLiteral("remote-mount"));
+    QCOMPARE(globalSpy.count(), 1);
+
+    config.setLibraryStartupBufferingMode(QStringLiteral("library-1"), QStringLiteral("normal"));
+    QCOMPARE(config.getLibraryStartupBufferingMode(QStringLiteral("library-1")), QStringLiteral("normal"));
+    QCOMPARE(config.resolveStartupBufferingModeForItem(QStringLiteral("library-1")), QStringLiteral("normal"));
+    QCOMPARE(librarySpy.count(), 1);
+
+    config.setLibraryStartupBufferingMode(QStringLiteral("library-1"), QStringLiteral("use-default"));
+    QCOMPARE(config.getLibraryStartupBufferingMode(QStringLiteral("library-1")), QString());
+    QCOMPARE(config.resolveStartupBufferingModeForItem(QStringLiteral("library-1")), QStringLiteral("remote-mount"));
+    QCOMPARE(librarySpy.count(), 2);
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getStartupBufferingMode(), QStringLiteral("remote-mount"));
+    QCOMPARE(reloaded.getLibraryStartupBufferingMode(QStringLiteral("library-1")), QString());
 }
 
 void ConfigManagerThemeTest::bundledMpvShadersAreCopied()

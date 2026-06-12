@@ -368,6 +368,20 @@ QString normalizeDefaultTrackSelectionValue(const QString &selection, bool allow
     return QStringLiteral("jellyfin-default");
 }
 
+QString normalizeStartupBufferingModeValue(const QString &raw, bool allowDefault)
+{
+    const QString normalized = raw.trimmed().toLower();
+    if (allowDefault && (normalized.isEmpty() || normalized == QStringLiteral("default")
+                         || normalized == QStringLiteral("use-default"))) {
+        return QString();
+    }
+    if (normalized == QStringLiteral("remote-mount") || normalized == QStringLiteral("remote_mount")
+        || normalized == QStringLiteral("remote")) {
+        return QStringLiteral("remote-mount");
+    }
+    return QStringLiteral("normal");
+}
+
 QJsonObject playbackSettingsObject(const QJsonObject &config)
 {
     const QJsonObject settings = config.value(QStringLiteral("settings")).toObject();
@@ -957,6 +971,66 @@ bool ConfigManager::getAutoRecoverPlayback() const
     return true; // Default enabled
 }
 
+void ConfigManager::setStartupBufferingMode(const QString &mode)
+{
+    const QString normalized = normalizeStartupBufferingMode(mode);
+    if (normalized == getStartupBufferingMode()) {
+        return;
+    }
+
+    setPlaybackSetting(m_config, QStringLiteral("startup_buffering_mode"), normalized);
+    save();
+    emit startupBufferingModeChanged();
+}
+
+QString ConfigManager::getStartupBufferingMode() const
+{
+    return normalizeStartupBufferingMode(playbackSettingsObject(m_config)
+                                             .value(QStringLiteral("startup_buffering_mode"))
+                                             .toString(QStringLiteral("normal")));
+}
+
+QString ConfigManager::getLibraryStartupBufferingMode(const QString &libraryId) const
+{
+    if (libraryId.isEmpty()) {
+        return QString();
+    }
+
+    const QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    const QJsonObject modes = settings.value(QStringLiteral("library_startup_buffering_modes")).toObject();
+    return normalizeStartupBufferingMode(modes.value(libraryId).toString(), true);
+}
+
+void ConfigManager::setLibraryStartupBufferingMode(const QString &libraryId, const QString &mode)
+{
+    if (libraryId.isEmpty()) {
+        return;
+    }
+
+    const QString normalized = normalizeStartupBufferingMode(mode, true);
+    if (normalized == getLibraryStartupBufferingMode(libraryId)) {
+        return;
+    }
+
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject modes = settings.value(QStringLiteral("library_startup_buffering_modes")).toObject();
+    if (normalized.isEmpty()) {
+        modes.remove(libraryId);
+    } else {
+        modes[libraryId] = normalized;
+    }
+    settings[QStringLiteral("library_startup_buffering_modes")] = modes;
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+    emit libraryStartupBufferingModesChanged();
+}
+
+QString ConfigManager::resolveStartupBufferingModeForItem(const QString &libraryId) const
+{
+    const QString libraryMode = getLibraryStartupBufferingMode(libraryId);
+    return libraryMode.isEmpty() ? getStartupBufferingMode() : libraryMode;
+}
+
 void ConfigManager::setRoundedImageMode(const QString &mode)
 {
     const QString normalized = normalizeRoundedMode(mode);
@@ -1065,6 +1139,11 @@ QString ConfigManager::normalizeRoundedMode(const QString &raw) const
         return lowered;
     }
     return "auto";
+}
+
+QString ConfigManager::normalizeStartupBufferingMode(const QString &raw, bool allowDefault) const
+{
+    return normalizeStartupBufferingModeValue(raw, allowDefault);
 }
 
 bool ConfigManager::envOverridesRoundedPreprocess(bool current) const
@@ -3093,6 +3172,37 @@ public:
         newConfig[QStringLiteral("settings")] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV23ToV24(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig[QStringLiteral("version")] = 24;
+
+        QJsonObject settings = newConfig[QStringLiteral("settings")].toObject();
+        QJsonObject playback = settings.value(QStringLiteral("playback")).toObject();
+        if (!playback.contains(QStringLiteral("startup_buffering_mode"))) {
+            playback[QStringLiteral("startup_buffering_mode")] = QStringLiteral("normal");
+        } else {
+            playback[QStringLiteral("startup_buffering_mode")] =
+                normalizeStartupBufferingModeValue(playback.value(QStringLiteral("startup_buffering_mode")).toString(),
+                                                   false);
+        }
+        settings[QStringLiteral("playback")] = playback;
+
+        QJsonObject modes = settings.value(QStringLiteral("library_startup_buffering_modes")).toObject();
+        for (const QString &key : modes.keys()) {
+            const QString normalized = normalizeStartupBufferingModeValue(modes.value(key).toString(), true);
+            if (normalized.isEmpty()) {
+                modes.remove(key);
+            } else {
+                modes[key] = normalized;
+            }
+        }
+        settings[QStringLiteral("library_startup_buffering_modes")] = modes;
+
+        newConfig[QStringLiteral("settings")] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -3297,6 +3407,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 23) {
+            m_config = ConfigMigrator::migrateV23ToV24(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -3358,6 +3476,7 @@ QJsonObject ConfigManager::defaultConfig() const
     playback["performance_mode_enabled"] = false;
     playback["playback_cache_size_mb"] = 500;
     playback["auto_recover_playback"] = true;
+    playback["startup_buffering_mode"] = QStringLiteral("normal");
     playback["default_audio_track_selection"] = QStringLiteral("jellyfin-default");
     playback["default_subtitle_track_selection"] = QStringLiteral("jellyfin-default");
     settings["playback"] = playback;
@@ -3396,6 +3515,7 @@ QJsonObject ConfigManager::defaultConfig() const
     settings["default_profile"] = QStringLiteral("Medium Quality");
     settings["library_profiles"] = QJsonObject();
     settings["series_profiles"] = QJsonObject();
+    settings["library_startup_buffering_modes"] = QJsonObject();
     
     // Third-party integrations
     QJsonObject seerr;
