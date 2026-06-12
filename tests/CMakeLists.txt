@@ -14,6 +14,7 @@ set(TEST_LOGGING_SOURCES
 
 set(TEST_CONFIG_SOURCES
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/MpvArgFilter.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/LoggingConfig.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp
     ${TEST_LOGGING_SOURCES}
@@ -149,6 +150,7 @@ add_executable(PlayerBackendFactoryTest
     ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.cpp
     ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/MpvArgFilter.cpp
     ${TEST_LOGGING_SOURCES}
 )
 

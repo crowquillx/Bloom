@@ -46,6 +46,9 @@ MPV profile management
 - `settings.library_profiles` and `settings.series_profiles` hold dictionaries keyed by Jellyfin library/series IDs when an override is required at a higher level.
 - Playback requests may omit `libraryId` in direct-navigation contexts such as Home > Continue Watching / Next Up. QML should pass any known context but must not block playback waiting for a library id; `PlayerController` recovers episodic library context by resolving series ancestors to the top-level Jellyfin library (`CollectionFolder`) before starting mpv, then falls back to the default profile if no mapping is available.
 - The settings-screen rework did not change the on-disk MPV profile schema; existing `settings.mpv_profiles` and `settings.default_profile` entries continue to load as-is.
+- Settings > MPV > Edit Profiles > Import Config creates a new profile from an existing `mpv.conf`. v1 imports only global top-level options before the first `[profile]` section and stores them as normalized `extra_args` entries (`--option=value` or `--option`) in `settings.mpv_profiles`; it never overwrites an existing profile.
+- Import accepts `option=value`, `--option=value`, `option`, and `--option`. Blank lines and full-line `#` comments are ignored. Unsupported lines are skipped and profile sections are ignored in v1.
+- Import filters options Bloom manages during playback so imported profiles cannot override backend/render plumbing. Filtered names include `config-dir`, `config`, `input-conf`, `include`, `script`, `script-opts`, `scripts`, `osc`, `no-osc`, `profile`, `fullscreen`, `wid`, `input-ipc-server`, `idle`, `vo`, `hwdec`, `gpu-context`, `gpu-api`, and `vulkan-*`, `opengl-*`, `wayland-*`, `x11-*`.
 
 When adding settings
 - Update `ConfigManager.h` (Q_PROPERTY & signals).

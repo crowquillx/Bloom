@@ -12,6 +12,7 @@ FocusScope {
 
     signal requestReturnToRail()
     signal openNewProfileDialog(Item returnFocusTarget)
+    signal openImportConfigDialog(Item returnFocusTarget)
     signal openDeleteProfileDialog(string profileName, Item returnFocusTarget)
 
     function enterFromRail() {
@@ -21,6 +22,16 @@ FocusScope {
 
     function restoreFocus() {
         enterFromRail()
+    }
+
+    function selectProfile(name) {
+        Qt.callLater(function() {
+            var idx = editProfileCombo.model ? editProfileCombo.model.indexOf(name) : -1
+            if (idx >= 0) {
+                profileEditorToggle.expanded = true
+                editProfileCombo.currentIndex = idx
+            }
+        })
     }
 
     Keys.priority: Keys.AfterItem
@@ -508,7 +519,7 @@ FocusScope {
                         Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
                         Keys.onDownPressed: profileEditor.forceActiveFocus()
                         Keys.onLeftPressed: editProfileCombo.forceActiveFocus()
-                        Keys.onRightPressed: duplicateProfileBtn.forceActiveFocus()
+                        Keys.onRightPressed: importConfigBtn.forceActiveFocus()
 
                         contentItem: Text {
                             text: newProfileBtn.text
@@ -550,7 +561,7 @@ FocusScope {
 
                         Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
                         Keys.onDownPressed: profileEditor.forceActiveFocus()
-                        Keys.onLeftPressed: newProfileBtn.forceActiveFocus()
+                        Keys.onLeftPressed: importConfigBtn.forceActiveFocus()
                         Keys.onRightPressed: {
                             if (deleteProfileBtn.enabled) {
                                 deleteProfileBtn.forceActiveFocus()
@@ -607,6 +618,48 @@ FocusScope {
                         onClicked: duplicateSelectedProfile()
                         Keys.onReturnPressed: duplicateSelectedProfile()
                         Keys.onEnterPressed: duplicateSelectedProfile()
+                    }
+
+                    Button {
+                        id: importConfigBtn
+                        text: qsTr("Import Config")
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Import mpv.conf as profile")
+                        focusPolicy: Qt.StrongFocus
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                            }
+                        }
+
+                        Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
+                        Keys.onDownPressed: profileEditor.forceActiveFocus()
+                        Keys.onLeftPressed: newProfileBtn.forceActiveFocus()
+                        Keys.onRightPressed: duplicateProfileBtn.forceActiveFocus()
+
+                        contentItem: Text {
+                            text: importConfigBtn.text
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.accentPrimary
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            implicitWidth: 150
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: importConfigBtn.activeFocus || importConfigBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
+                            border.color: importConfigBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary
+                            border.width: importConfigBtn.activeFocus ? 2 : 1
+                        }
+
+                        onClicked: root.openImportConfigDialog(importConfigBtn)
+                        Keys.onReturnPressed: root.openImportConfigDialog(importConfigBtn)
+                        Keys.onEnterPressed: root.openImportConfigDialog(importConfigBtn)
                     }
 
                     Button {

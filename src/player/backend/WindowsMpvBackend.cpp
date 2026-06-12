@@ -19,6 +19,7 @@
 
 #include "../../utils/BloomLogging.h"
 #include "../../utils/Logger.h"
+#include "../../utils/MpvArgFilter.h"
 
 #if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
 extern "C" {
@@ -67,26 +68,6 @@ const char *endFileReasonToString(int reason)
     }
 }
 #endif
-
-bool isEmbeddedUnsafeOptionName(const QString &name)
-{
-    if (name == QStringLiteral("input-ipc-server")
-        || name == QStringLiteral("input-ipc-client")
-        || name == QStringLiteral("idle")
-        || name == QStringLiteral("vo")
-        || name == QStringLiteral("hwdec")
-        || name == QStringLiteral("wid")
-        || name == QStringLiteral("fullscreen")
-        || name == QStringLiteral("gpu-context")
-        || name == QStringLiteral("gpu-api")) {
-        return true;
-    }
-
-    return name.startsWith(QStringLiteral("vulkan-"))
-        || name.startsWith(QStringLiteral("opengl-"))
-        || name.startsWith(QStringLiteral("wayland-"))
-        || name.startsWith(QStringLiteral("x11-"));
-}
 
 bool isDirectLibmpvUnsupportedOptionName(const QString &name)
 {
@@ -1266,7 +1247,7 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
             value = option.mid(equalsIndex + 1);
         }
 
-        if (isEmbeddedUnsafeOptionName(name)) {
+        if (MpvArgFilter::isBloomManagedOptionName(name)) {
             continue;
         }
         if (isDirectLibmpvUnsupportedOptionName(name)) {
@@ -1595,7 +1576,7 @@ QStringList WindowsMpvBackend::sanitizeStartupArgs(const QStringList &args) cons
             continue;
         }
 
-        if (isEmbeddedUnsafeOptionName(name.toLower())) {
+        if (MpvArgFilter::isBloomManagedOptionName(name)) {
             if (equalsIndex < 0) {
                 skipNextValue = true;
             }

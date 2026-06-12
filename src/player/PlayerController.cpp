@@ -31,6 +31,7 @@
 #include <atomic>
 #include <algorithm>
 #include "../utils/BloomLogging.h"
+#include "../utils/MpvArgFilter.h"
 
 namespace {
 std::atomic<quint64> gPlaybackAttemptCounter{0};
@@ -5089,51 +5090,7 @@ void PlayerController::initiateMpvStart()
     if (m_playerBackend->backendName() == QStringLiteral("linux-libmpv-opengl")) {
         // Embedded libmpv render path should avoid external-process mpv config/scripts
         // and profile switches that can override render-critical options.
-        QStringList filteredArgs;
-        filteredArgs.reserve(finalArgs.size());
-
-        auto optionNameForArg = [](const QString &arg) -> QString {
-            if (!arg.startsWith("--")) return QString();
-            const QString option = arg.mid(2);
-            const int equalsIndex = option.indexOf('=');
-            return equalsIndex >= 0 ? option.left(equalsIndex) : option;
-        };
-
-        auto shouldSkipEmbeddedArg = [](const QString &name) -> bool {
-            if (name == QStringLiteral("config-dir")
-                || name == QStringLiteral("config")
-                || name == QStringLiteral("input-conf")
-                || name == QStringLiteral("include")
-                || name == QStringLiteral("script")
-                || name == QStringLiteral("script-opts")
-                || name == QStringLiteral("scripts")
-                || name == QStringLiteral("osc")
-                || name == QStringLiteral("no-osc")
-                || name == QStringLiteral("profile")
-                || name == QStringLiteral("fullscreen")
-                || name == QStringLiteral("wid")
-                || name == QStringLiteral("input-ipc-server")
-                || name == QStringLiteral("idle")
-                || name == QStringLiteral("vo")
-                || name == QStringLiteral("hwdec")
-                || name == QStringLiteral("gpu-context")
-                || name == QStringLiteral("gpu-api")) {
-                return true;
-            }
-
-            return name.startsWith(QStringLiteral("vulkan-"))
-                || name.startsWith(QStringLiteral("opengl-"))
-                || name.startsWith(QStringLiteral("wayland-"))
-                || name.startsWith(QStringLiteral("x11-"));
-        };
-
-        for (const QString &arg : std::as_const(finalArgs)) {
-            const QString name = optionNameForArg(arg);
-            if (!name.isEmpty() && shouldSkipEmbeddedArg(name)) {
-                continue;
-            }
-            filteredArgs << arg;
-        }
+        const QStringList filteredArgs = MpvArgFilter::filterBloomManagedArgs(finalArgs);
 
         qCDebug(lcPlayback) << "PlayerController: Embedded linux backend filtered mpv args:"
                  << "before=" << finalArgs.size()

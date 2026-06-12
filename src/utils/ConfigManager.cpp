@@ -1,5 +1,6 @@
 #include "ConfigManager.h"
 #include "LoggingConfig.h"
+#include "MpvArgFilter.h"
 #include <QFile>
 #include <QJsonDocument>
 #include <QStandardPaths>
@@ -15,6 +16,7 @@
 #include <QMetaType>
 #include <QHash>
 #include <QSet>
+#include <QTextStream>
 #include <algorithm>
 
 namespace {
@@ -68,6 +70,78 @@ QVariantList supportedTrackLanguageOptions()
         QVariantMap{{QStringLiteral("label"), QStringLiteral("Thai")}, {QStringLiteral("value"), QStringLiteral("tha")}},
         QVariantMap{{QStringLiteral("label"), QStringLiteral("Vietnamese")}, {QStringLiteral("value"), QStringLiteral("vie")}}
     };
+}
+
+QString normalizeMpvConfLineToArg(const QString &line)
+{
+    QString trimmed = line.trimmed();
+    if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
+        return QString();
+    }
+    if (trimmed.startsWith(QLatin1Char('[')) && trimmed.endsWith(QLatin1Char(']'))) {
+        return QStringLiteral("[section]");
+    }
+    if (trimmed.startsWith(QStringLiteral("--"))) {
+        trimmed = trimmed.mid(2);
+    } else if (trimmed.startsWith(QLatin1Char('-'))) {
+        return QString();
+    }
+
+    if (trimmed.isEmpty()) {
+        return QString();
+    }
+
+    const int equalsIndex = trimmed.indexOf(QLatin1Char('='));
+    const QString name = equalsIndex >= 0 ? trimmed.left(equalsIndex).trimmed() : trimmed.trimmed();
+    const QString value = equalsIndex >= 0 ? trimmed.mid(equalsIndex + 1).trimmed() : QString();
+    if (equalsIndex < 0 && trimmed.contains(QRegularExpression(QStringLiteral("\\s")))) {
+        return QString();
+    }
+    static const QRegularExpression validName(QStringLiteral("^[A-Za-z0-9][A-Za-z0-9_-]*$"));
+    if (!validName.match(name).hasMatch()) {
+        return QString();
+    }
+
+    if (equalsIndex >= 0) {
+        return QStringLiteral("--") + name + QStringLiteral("=") + value;
+    }
+    return QStringLiteral("--") + name;
+}
+
+QStringList mpvConfigImportCandidatePaths()
+{
+    QStringList candidates;
+    const auto appendCandidate = [&candidates](const QString &path) {
+        const QString cleaned = QDir::cleanPath(path);
+        if (!cleaned.isEmpty() && QFileInfo::exists(cleaned) && !candidates.contains(cleaned)) {
+            candidates.append(cleaned);
+        }
+    };
+
+    const QString appSpecific = ConfigManager::getMpvConfPath();
+    if (!appSpecific.isEmpty()) {
+        appendCandidate(appSpecific);
+    }
+
+    const QString genericConfig = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
+    if (!genericConfig.isEmpty()) {
+        appendCandidate(QDir(genericConfig).filePath(QStringLiteral("mpv/mpv.conf")));
+    }
+
+    const QString home = QDir::homePath();
+    if (!home.isEmpty()) {
+        appendCandidate(QDir(home).filePath(QStringLiteral(".mpv/config")));
+        appendCandidate(QDir(home).filePath(QStringLiteral(".config/mpv/mpv.conf")));
+    }
+
+#ifdef Q_OS_WIN
+    const QString appData = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    if (!appData.isEmpty()) {
+        appendCandidate(QDir(appData).filePath(QStringLiteral("mpv/mpv.conf")));
+    }
+#endif
+
+    return candidates;
 }
 
 QSet<QString> supportedTrackLanguageCodes()
@@ -3276,6 +3350,95 @@ void ConfigManager::setMpvProfile(const QString &name, const QVariantMap &profil
     m_config["settings"] = settings;
     save();
     emit mpvProfilesChanged();
+}
+
+QStringList ConfigManager::detectMpvConfigImportCandidates() const
+{
+    return mpvConfigImportCandidatePaths();
+}
+
+QVariantMap ConfigManager::importMpvConfigAsProfile(const QString &path, const QString &profileName)
+{
+    QVariantMap result;
+    result[QStringLiteral("success")] = false;
+    result[QStringLiteral("importedCount")] = 0;
+    result[QStringLiteral("filteredOptions")] = QStringList();
+    result[QStringLiteral("skippedLines")] = QStringList();
+    result[QStringLiteral("error")] = QString();
+
+    const QString trimmedName = profileName.trimmed();
+    if (trimmedName.isEmpty()) {
+        result[QStringLiteral("error")] = QStringLiteral("Profile name is required.");
+        return result;
+    }
+    if (getMpvProfileNames().contains(trimmedName)) {
+        result[QStringLiteral("error")] = QStringLiteral("A profile with this name already exists.");
+        return result;
+    }
+
+    const QString cleanedPath = QDir::cleanPath(path.trimmed());
+    if (cleanedPath.isEmpty()) {
+        result[QStringLiteral("error")] = QStringLiteral("mpv.conf path is required.");
+        return result;
+    }
+
+    QFile file(cleanedPath);
+    if (!file.exists()) {
+        result[QStringLiteral("error")] = QStringLiteral("mpv.conf file does not exist.");
+        return result;
+    }
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        result[QStringLiteral("error")] = QStringLiteral("Could not read mpv.conf.");
+        return result;
+    }
+
+    QStringList importedArgs;
+    QStringList filteredArgs;
+    QStringList skippedLines;
+    QTextStream stream(&file);
+    stream.setEncoding(QStringConverter::Utf8);
+
+    int lineNumber = 0;
+    while (!stream.atEnd()) {
+        ++lineNumber;
+        const QString rawLine = stream.readLine();
+        const QString normalized = normalizeMpvConfLineToArg(rawLine);
+        if (normalized == QStringLiteral("[section]")) {
+            break;
+        }
+        if (normalized.isEmpty()) {
+            const QString trimmed = rawLine.trimmed();
+            if (!trimmed.isEmpty() && !trimmed.startsWith(QLatin1Char('#'))) {
+                skippedLines.append(QStringLiteral("%1: %2").arg(lineNumber).arg(trimmed));
+            }
+            continue;
+        }
+
+        if (MpvArgFilter::isBloomManagedOptionName(MpvArgFilter::optionNameForArg(normalized))) {
+            filteredArgs.append(normalized);
+            continue;
+        }
+
+        importedArgs.append(normalized);
+    }
+
+    QVariantMap profileData;
+    profileData[QStringLiteral("hwdecEnabled")] = true;
+    profileData[QStringLiteral("hwdecMethod")] = QStringLiteral("auto");
+    profileData[QStringLiteral("deinterlace")] = false;
+    profileData[QStringLiteral("deinterlaceMethod")] = QString();
+    profileData[QStringLiteral("videoOutput")] = QStringLiteral("gpu-next");
+    profileData[QStringLiteral("interpolation")] = false;
+    profileData[QStringLiteral("extraArgs")] = importedArgs;
+
+    setMpvProfile(trimmedName, profileData);
+
+    result[QStringLiteral("success")] = true;
+    result[QStringLiteral("profileName")] = trimmedName;
+    result[QStringLiteral("importedCount")] = importedArgs.size();
+    result[QStringLiteral("filteredOptions")] = filteredArgs;
+    result[QStringLiteral("skippedLines")] = skippedLines;
+    return result;
 }
 
 bool ConfigManager::deleteMpvProfile(const QString &name)

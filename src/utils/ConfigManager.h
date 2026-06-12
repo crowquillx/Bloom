@@ -305,6 +305,12 @@ public:
     
     /// Create or update a profile
     Q_INVOKABLE void setMpvProfile(const QString &name, const QVariantMap &profileData);
+
+    /// Detect existing user mpv.conf files that can be imported into a Bloom profile
+    Q_INVOKABLE QStringList detectMpvConfigImportCandidates() const;
+
+    /// Import global top-level mpv.conf options into a newly-created Bloom profile
+    Q_INVOKABLE QVariantMap importMpvConfigAsProfile(const QString &path, const QString &profileName);
     
     /// Delete a profile (cannot delete "Default" or "High Quality")
     Q_INVOKABLE bool deleteMpvProfile(const QString &name);

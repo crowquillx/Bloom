@@ -90,6 +90,11 @@ FocusScope {
         deleteProfileDialog.restoreFocusTarget = returnFocusTarget || null
         deleteProfileDialog.open()
     }
+
+    function openImportConfigDialog(returnFocusTarget) {
+        importMpvConfigDialog.restoreFocusTarget = returnFocusTarget || null
+        importMpvConfigDialog.open()
+    }
     
     // ========================================
     // Focus Management
@@ -349,6 +354,14 @@ FocusScope {
         }
     }
 
+    ImportMpvConfigDialog {
+        id: importMpvConfigDialog
+        onProfileImported: function(name) {
+            ConfigManager.defaultProfileName = name
+            mpvSection.selectProfile(name)
+        }
+    }
+
     // ========================================
     // Two-panel layout: Rail + Content
     // ========================================
@@ -394,6 +407,7 @@ FocusScope {
                 profileNames: root.profileNames
                 onRequestReturnToRail: root.returnToRail()
                 onOpenNewProfileDialog: function(returnTarget) { root.openNewProfileDialog(returnTarget) }
+                onOpenImportConfigDialog: function(returnTarget) { root.openImportConfigDialog(returnTarget) }
                 onOpenDeleteProfileDialog: function(name, returnTarget) { root.openDeleteProfileDialog(name, returnTarget) }
             }
 

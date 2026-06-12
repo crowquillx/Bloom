@@ -17,6 +17,7 @@
 #include <algorithm>
 
 #include "../../utils/BloomLogging.h"
+#include "../../utils/MpvArgFilter.h"
 
 #if defined(BLOOM_HAS_LIBMPV)
 extern "C" {
@@ -81,24 +82,6 @@ const char *endFileReasonToString(int reason)
 }
 #endif
 
-bool isEmbeddedUnsafeOptionName(const QString &name)
-{
-    if (name == QStringLiteral("input-ipc-server")
-        || name == QStringLiteral("idle")
-        || name == QStringLiteral("vo")
-        || name == QStringLiteral("hwdec")
-        || name == QStringLiteral("wid")
-        || name == QStringLiteral("fullscreen")
-        || name == QStringLiteral("gpu-context")
-        || name == QStringLiteral("gpu-api")) {
-        return true;
-    }
-
-    return name.startsWith(QStringLiteral("vulkan-"))
-        || name.startsWith(QStringLiteral("opengl-"))
-        || name.startsWith(QStringLiteral("wayland-"))
-        || name.startsWith(QStringLiteral("x11-"));
-}
 }
 
 LinuxMpvBackend::LinuxMpvBackend(QObject *parent)
@@ -707,7 +690,7 @@ void LinuxMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
             value = option.mid(equalsIndex + 1);
         }
 
-        if (isEmbeddedUnsafeOptionName(name)) {
+        if (MpvArgFilter::isBloomManagedOptionName(name)) {
             if (m_debugLogging) {
                 qCInfo(lcLinuxLibmpvBackend) << "Skipping unsafe embedded mpv option" << name;
             }

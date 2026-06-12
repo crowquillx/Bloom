@@ -19,6 +19,11 @@ private slots:
     void v19MigrationAddsThemeVariantSettings();
     void hdrPolicyDefaultsToMatchContent();
     void hdrMpvArgsRespectOutputMode();
+    void importMpvConfigCreatesProfile();
+    void importMpvConfigFiltersBloomManagedOptions();
+    void importMpvConfigIgnoresProfileSections();
+    void importMpvConfigRejectsDuplicateOrEmptyNames();
+    void importMpvConfigMissingFileReturnsError();
 };
 
 namespace {
@@ -83,6 +88,18 @@ QJsonObject minimalV19Config()
     config["version"] = 19;
     config["settings"] = settings;
     return config;
+}
+
+QString writeMpvConf(const QString &dirPath, const QString &contents)
+{
+    const QString path = QDir(dirPath).filePath(QStringLiteral("mpv.conf"));
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        return QString();
+    }
+    file.write(contents.toUtf8());
+    file.close();
+    return path;
 }
 
 } // namespace
@@ -230,6 +247,127 @@ void ConfigManagerThemeTest::hdrMpvArgsRespectOutputMode()
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
     QVERIFY(args.contains(QStringLiteral("--tone-mapping=auto")));
     QVERIFY(args.contains(QStringLiteral("--hdr-compute-peak=auto")));
+}
+
+void ConfigManagerThemeTest::importMpvConfigCreatesProfile()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    const QString confPath = writeMpvConf(tempDir.path(), QStringLiteral(
+        "# global options\n"
+        "profile-cond=p[\"video-params/primaries\"] == \"bt.2020\"\n"
+        "--save-position-on-quit\n"
+        "sub-font=\"Noto Sans\"\n"));
+    QVERIFY(!confPath.isEmpty());
+
+    ConfigManager config;
+    config.load();
+
+    const QVariantMap result = config.importMpvConfigAsProfile(confPath, QStringLiteral("Imported"));
+    QVERIFY(result.value(QStringLiteral("success")).toBool());
+    QCOMPARE(result.value(QStringLiteral("importedCount")).toInt(), 3);
+
+    const QVariantMap profile = config.getMpvProfile(QStringLiteral("Imported"));
+    const QStringList extraArgs = profile.value(QStringLiteral("extraArgs")).toStringList();
+    QCOMPARE(extraArgs, QStringList({
+        QStringLiteral("--profile-cond=p[\"video-params/primaries\"] == \"bt.2020\""),
+        QStringLiteral("--save-position-on-quit"),
+        QStringLiteral("--sub-font=\"Noto Sans\"")
+    }));
+}
+
+void ConfigManagerThemeTest::importMpvConfigFiltersBloomManagedOptions()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    const QString confPath = writeMpvConf(tempDir.path(), QStringLiteral(
+        "vo=gpu\n"
+        "hwdec=vaapi\n"
+        "vulkan-device=GPU-1\n"
+        "audio-file-auto=fuzzy\n"));
+    QVERIFY(!confPath.isEmpty());
+
+    ConfigManager config;
+    config.load();
+
+    const QVariantMap result = config.importMpvConfigAsProfile(confPath, QStringLiteral("Filtered"));
+    QVERIFY(result.value(QStringLiteral("success")).toBool());
+    QCOMPARE(result.value(QStringLiteral("importedCount")).toInt(), 1);
+    QCOMPARE(result.value(QStringLiteral("filteredOptions")).toStringList(),
+             QStringList({QStringLiteral("--vo=gpu"), QStringLiteral("--hwdec=vaapi"), QStringLiteral("--vulkan-device=GPU-1")}));
+
+    const QStringList extraArgs = config.getMpvProfile(QStringLiteral("Filtered"))
+                                      .value(QStringLiteral("extraArgs"))
+                                      .toStringList();
+    QCOMPARE(extraArgs, QStringList({QStringLiteral("--audio-file-auto=fuzzy")}));
+}
+
+void ConfigManagerThemeTest::importMpvConfigIgnoresProfileSections()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    const QString confPath = writeMpvConf(tempDir.path(), QStringLiteral(
+        "sub-auto=fuzzy\n"
+        "[high-quality]\n"
+        "scale=ewa_lanczossharp\n"));
+    QVERIFY(!confPath.isEmpty());
+
+    ConfigManager config;
+    config.load();
+
+    const QVariantMap result = config.importMpvConfigAsProfile(confPath, QStringLiteral("Global Only"));
+    QVERIFY(result.value(QStringLiteral("success")).toBool());
+    QCOMPARE(result.value(QStringLiteral("importedCount")).toInt(), 1);
+
+    const QStringList extraArgs = config.getMpvProfile(QStringLiteral("Global Only"))
+                                      .value(QStringLiteral("extraArgs"))
+                                      .toStringList();
+    QCOMPARE(extraArgs, QStringList({QStringLiteral("--sub-auto=fuzzy")}));
+}
+
+void ConfigManagerThemeTest::importMpvConfigRejectsDuplicateOrEmptyNames()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    const QString confPath = writeMpvConf(tempDir.path(), QStringLiteral("sub-auto=fuzzy\n"));
+    QVERIFY(!confPath.isEmpty());
+
+    ConfigManager config;
+    config.load();
+
+    const QStringList namesBefore = config.getMpvProfileNames();
+    QVariantMap result = config.importMpvConfigAsProfile(confPath, QStringLiteral("   "));
+    QVERIFY(!result.value(QStringLiteral("success")).toBool());
+    QCOMPARE(config.getMpvProfileNames(), namesBefore);
+
+    result = config.importMpvConfigAsProfile(confPath, QStringLiteral("Default"));
+    QVERIFY(!result.value(QStringLiteral("success")).toBool());
+    QCOMPARE(config.getMpvProfileNames(), namesBefore);
+}
+
+void ConfigManagerThemeTest::importMpvConfigMissingFileReturnsError()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    const QVariantMap result = config.importMpvConfigAsProfile(
+        QDir(tempDir.path()).filePath(QStringLiteral("missing.conf")),
+        QStringLiteral("Missing"));
+    QVERIFY(!result.value(QStringLiteral("success")).toBool());
+    QVERIFY(!result.value(QStringLiteral("error")).toString().isEmpty());
+    QVERIFY(!config.getMpvProfileNames().contains(QStringLiteral("Missing")));
 }
 
 QTEST_MAIN(ConfigManagerThemeTest)

@@ -57,6 +57,8 @@ qt_add_executable(Bloom
     updates/UpdateService.cpp
     utils/ConfigManager.cpp
     utils/ConfigManager.h
+    utils/MpvArgFilter.cpp
+    utils/MpvArgFilter.h
     utils/DetailViewCache.h
     utils/TrackPreferencesManager.cpp
     utils/TrackPreferencesManager.h
@@ -184,6 +186,7 @@ qt_add_qml_module(Bloom
         ui/settings/AboutAccountSettings.qml
         ui/settings/NewProfileDialog.qml
         ui/settings/DeleteProfileDialog.qml
+        ui/settings/ImportMpvConfigDialog.qml
         ui/SearchScreen.qml
         ui/MediaSourceSelectionDialog.qml
         ui/SeerrRequestDialog.qml
