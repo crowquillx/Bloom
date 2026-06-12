@@ -186,6 +186,7 @@ qt_add_qml_module(Bloom
         ui/settings/AboutAccountSettings.qml
         ui/settings/NewProfileDialog.qml
         ui/settings/DeleteProfileDialog.qml
+        ui/settings/RenameProfileDialog.qml
         ui/settings/ImportMpvConfigDialog.qml
         ui/SearchScreen.qml
         ui/MediaSourceSelectionDialog.qml

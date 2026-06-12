@@ -312,6 +312,9 @@ public:
     /// Import global top-level mpv.conf options into a newly-created Bloom profile
     Q_INVOKABLE QVariantMap importMpvConfigAsProfile(const QString &path, const QString &profileName);
     
+    /// Rename a custom profile while preserving assignments (cannot rename built-ins)
+    Q_INVOKABLE bool renameMpvProfile(const QString &oldName, const QString &newName);
+
     /// Delete a profile (cannot delete "Default" or "High Quality")
     Q_INVOKABLE bool deleteMpvProfile(const QString &name);
     

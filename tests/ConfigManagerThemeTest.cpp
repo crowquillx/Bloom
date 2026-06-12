@@ -20,6 +20,11 @@ private slots:
     void hdrPolicyDefaultsToMatchContent();
     void hdrMpvArgsRespectOutputMode();
     void importMpvConfigCreatesProfile();
+    void importMpvConfigNormalizesQuotedShaderArgs();
+    void existingMpvProfileArgsAreSanitizedOnLoad();
+    void setMpvProfileNormalizesExtraArgs();
+    void renameMpvProfilePreservesProfileAndAssignments();
+    void renameMpvProfileRejectsInvalidRequests();
     void importMpvConfigFiltersBloomManagedOptions();
     void importMpvConfigIgnoresProfileSections();
     void importMpvConfigRejectsDuplicateOrEmptyNames();
@@ -274,8 +279,183 @@ void ConfigManagerThemeTest::importMpvConfigCreatesProfile()
     QCOMPARE(extraArgs, QStringList({
         QStringLiteral("--profile-cond=p[\"video-params/primaries\"] == \"bt.2020\""),
         QStringLiteral("--save-position-on-quit"),
-        QStringLiteral("--sub-font=\"Noto Sans\"")
+        QStringLiteral("--sub-font=Noto Sans")
     }));
+}
+
+void ConfigManagerThemeTest::importMpvConfigNormalizesQuotedShaderArgs()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    const QString confPath = writeMpvConf(tempDir.path(), QStringLiteral(
+        "glsl-shader=\"C:\\path with spaces\\ArtCNN.glsl\"\n"
+        "glsl-shader-append='C:\\filters\\Other.glsl'\n"
+        "glsl-shaders-append=\"C:\\filters\\Third.glsl\"\n"
+        "glsl-shaders-clr\n"
+        "sub-font=\"Noto Sans\"\n"));
+    QVERIFY(!confPath.isEmpty());
+
+    ConfigManager config;
+    config.load();
+
+    const QVariantMap result = config.importMpvConfigAsProfile(confPath, QStringLiteral("Shaders"));
+    QVERIFY(result.value(QStringLiteral("success")).toBool());
+    QCOMPARE(result.value(QStringLiteral("importedCount")).toInt(), 4);
+
+    const QStringList extraArgs = config.getMpvProfile(QStringLiteral("Shaders"))
+                                      .value(QStringLiteral("extraArgs"))
+                                      .toStringList();
+    QCOMPARE(extraArgs, QStringList({
+        QStringLiteral("--glsl-shaders=C:\\path with spaces\\ArtCNN.glsl"),
+        QStringLiteral("--glsl-shaders=C:\\filters\\Other.glsl"),
+        QStringLiteral("--glsl-shaders=C:\\filters\\Third.glsl"),
+        QStringLiteral("--sub-font=Noto Sans")
+    }));
+}
+
+void ConfigManagerThemeTest::existingMpvProfileArgsAreSanitizedOnLoad()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager initialConfig;
+    initialConfig.load();
+
+    QFile configFile(ConfigManager::getConfigPath());
+    QVERIFY(configFile.open(QIODevice::ReadOnly));
+    QJsonObject configJson = QJsonDocument::fromJson(configFile.readAll()).object();
+    configFile.close();
+
+    QJsonObject settings = configJson.value(QStringLiteral("settings")).toObject();
+    QJsonObject profiles = settings.value(QStringLiteral("mpv_profiles")).toObject();
+    QJsonObject artcnn;
+    artcnn[QStringLiteral("hwdec_enabled")] = true;
+    artcnn[QStringLiteral("hwdec_method")] = QStringLiteral("auto");
+    artcnn[QStringLiteral("deinterlace")] = false;
+    artcnn[QStringLiteral("deinterlace_method")] = QString();
+    artcnn[QStringLiteral("video_output")] = QStringLiteral("gpu-next");
+    artcnn[QStringLiteral("interpolation")] = false;
+    artcnn[QStringLiteral("extra_args")] = QJsonArray{
+        QStringLiteral("--glsl-shader=\"C:\\path with spaces\\ArtCNN.glsl\""),
+        QStringLiteral("--glsl-shaders-clr")
+    };
+    profiles[QStringLiteral("artcnn")] = artcnn;
+    settings[QStringLiteral("mpv_profiles")] = profiles;
+    configJson[QStringLiteral("settings")] = settings;
+
+    QVERIFY(configFile.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    configFile.write(QJsonDocument(configJson).toJson());
+    configFile.close();
+
+    ConfigManager config;
+    config.load();
+
+    const QStringList extraArgs = config.getMpvProfile(QStringLiteral("artcnn"))
+                                      .value(QStringLiteral("extraArgs"))
+                                      .toStringList();
+    QCOMPARE(extraArgs, QStringList({QStringLiteral("--glsl-shaders=C:\\path with spaces\\ArtCNN.glsl")}));
+
+    const QStringList args = config.getMpvArgsForProfile(QStringLiteral("artcnn"));
+    QVERIFY(args.contains(QStringLiteral("--glsl-shaders=C:\\path with spaces\\ArtCNN.glsl")));
+    QVERIFY(!args.contains(QStringLiteral("--glsl-shaders-clr")));
+}
+
+void ConfigManagerThemeTest::setMpvProfileNormalizesExtraArgs()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    config.setMpvProfile(QStringLiteral("Edited"), QVariantMap{
+        {QStringLiteral("hwdecEnabled"), true},
+        {QStringLiteral("hwdecMethod"), QStringLiteral("auto")},
+        {QStringLiteral("deinterlace"), false},
+        {QStringLiteral("deinterlaceMethod"), QString()},
+        {QStringLiteral("videoOutput"), QStringLiteral("gpu-next")},
+        {QStringLiteral("interpolation"), false},
+        {QStringLiteral("extraArgs"), QStringList{
+            QStringLiteral("--glsl-shader=\"C:\\shader dir\\ArtCNN.glsl\""),
+            QStringLiteral("--sub-font=\"Noto Sans\"")
+        }}
+    });
+
+    const QStringList extraArgs = config.getMpvProfile(QStringLiteral("Edited"))
+                                      .value(QStringLiteral("extraArgs"))
+                                      .toStringList();
+    QCOMPARE(extraArgs, QStringList({
+        QStringLiteral("--glsl-shaders=C:\\shader dir\\ArtCNN.glsl"),
+        QStringLiteral("--sub-font=Noto Sans")
+    }));
+}
+
+void ConfigManagerThemeTest::renameMpvProfilePreservesProfileAndAssignments()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    config.setMpvProfile(QStringLiteral("Old Name"), QVariantMap{
+        {QStringLiteral("hwdecEnabled"), false},
+        {QStringLiteral("hwdecMethod"), QStringLiteral("no")},
+        {QStringLiteral("deinterlace"), true},
+        {QStringLiteral("deinterlaceMethod"), QStringLiteral("bwdif")},
+        {QStringLiteral("videoOutput"), QStringLiteral("gpu")},
+        {QStringLiteral("interpolation"), true},
+        {QStringLiteral("extraArgs"), QStringList{QStringLiteral("--sub-auto=fuzzy")}}
+    });
+    config.setDefaultProfileName(QStringLiteral("Old Name"));
+    config.setLibraryProfile(QStringLiteral("library-1"), QStringLiteral("Old Name"));
+    config.setSeriesProfile(QStringLiteral("series-1"), QStringLiteral("Old Name"));
+
+    QVERIFY(config.renameMpvProfile(QStringLiteral("Old Name"), QStringLiteral("New Name")));
+    QVERIFY(!config.getMpvProfileNames().contains(QStringLiteral("Old Name")));
+    QVERIFY(config.getMpvProfileNames().contains(QStringLiteral("New Name")));
+    QCOMPARE(config.getDefaultProfileName(), QStringLiteral("New Name"));
+    QCOMPARE(config.getLibraryProfile(QStringLiteral("library-1")), QStringLiteral("New Name"));
+    QCOMPARE(config.getSeriesProfile(QStringLiteral("series-1")), QStringLiteral("New Name"));
+
+    const QVariantMap profile = config.getMpvProfile(QStringLiteral("New Name"));
+    QCOMPARE(profile.value(QStringLiteral("hwdecEnabled")).toBool(), false);
+    QCOMPARE(profile.value(QStringLiteral("deinterlace")).toBool(), true);
+    QCOMPARE(profile.value(QStringLiteral("deinterlaceMethod")).toString(), QStringLiteral("bwdif"));
+    QCOMPARE(profile.value(QStringLiteral("videoOutput")).toString(), QStringLiteral("gpu"));
+    QCOMPARE(profile.value(QStringLiteral("interpolation")).toBool(), true);
+    QCOMPARE(profile.value(QStringLiteral("extraArgs")).toStringList(), QStringList({QStringLiteral("--sub-auto=fuzzy")}));
+}
+
+void ConfigManagerThemeTest::renameMpvProfileRejectsInvalidRequests()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    config.setMpvProfile(QStringLiteral("Custom"), QVariantMap{
+        {QStringLiteral("hwdecEnabled"), true},
+        {QStringLiteral("hwdecMethod"), QStringLiteral("auto")},
+        {QStringLiteral("deinterlace"), false},
+        {QStringLiteral("deinterlaceMethod"), QString()},
+        {QStringLiteral("videoOutput"), QStringLiteral("gpu-next")},
+        {QStringLiteral("interpolation"), false},
+        {QStringLiteral("extraArgs"), QStringList{QStringLiteral("--sub-auto=fuzzy")}}
+    });
+
+    const QStringList namesBefore = config.getMpvProfileNames();
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("Default"), QStringLiteral("Default Renamed")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("High Quality"), QStringLiteral("HQ Renamed")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("Custom"), QStringLiteral("Default")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("Custom"), QStringLiteral("   ")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("Missing"), QStringLiteral("New Missing")));
+    QVERIFY(!config.renameMpvProfile(QStringLiteral("Custom"), QStringLiteral("Custom")));
+    QCOMPARE(config.getMpvProfileNames(), namesBefore);
 }
 
 void ConfigManagerThemeTest::importMpvConfigFiltersBloomManagedOptions()

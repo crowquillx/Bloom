@@ -1232,7 +1232,7 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
         << "Applying direct libmpv startup options"
         << "argCount=" << args.size();
     Logger::instance().flush();
-    for (const QString &arg : args) {
+    for (const QString &arg : MpvArgFilter::sanitizeArgs(args)) {
         if (!arg.startsWith("--")) {
             continue;
         }

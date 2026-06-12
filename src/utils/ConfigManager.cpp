@@ -3220,7 +3220,10 @@ MpvProfile MpvProfile::fromJson(const QString &name, const QJsonObject &obj)
         for (const QJsonValue &val : extraArgsArray) {
             const QString arg = val.toString().trimmed();
             if (!arg.isEmpty()) {
-                profile.extraArgs << arg;
+                const QString sanitized = MpvArgFilter::sanitizeArg(arg);
+                if (!sanitized.isEmpty()) {
+                    profile.extraArgs << sanitized;
+                }
             }
         }
     } else if (extraArgsVal.isString()) {
@@ -3228,7 +3231,10 @@ MpvProfile MpvProfile::fromJson(const QString &name, const QJsonObject &obj)
         for (const QString &line : lines) {
             const QString arg = line.trimmed();
             if (!arg.isEmpty()) {
-                profile.extraArgs << arg;
+                const QString sanitized = MpvArgFilter::sanitizeArg(arg);
+                if (!sanitized.isEmpty()) {
+                    profile.extraArgs << sanitized;
+                }
             }
         }
     }
@@ -3337,8 +3343,7 @@ void ConfigManager::setMpvProfile(const QString &name, const QVariantMap &profil
         extraArgs = extraArgsVariant.toString().split('\n', Qt::SkipEmptyParts);
     }
 
-    for (const QString &argRaw : extraArgs) {
-        const QString arg = argRaw.trimmed();
+    for (const QString &arg : MpvArgFilter::sanitizeArgs(extraArgs)) {
         if (!arg.isEmpty()) {
             extraArgsArray.append(arg);
         }
@@ -3414,12 +3419,17 @@ QVariantMap ConfigManager::importMpvConfigAsProfile(const QString &path, const Q
             continue;
         }
 
-        if (MpvArgFilter::isBloomManagedOptionName(MpvArgFilter::optionNameForArg(normalized))) {
-            filteredArgs.append(normalized);
+        const QString sanitized = MpvArgFilter::sanitizeArg(normalized);
+        if (sanitized.isEmpty()) {
             continue;
         }
 
-        importedArgs.append(normalized);
+        if (MpvArgFilter::isBloomManagedOptionName(MpvArgFilter::optionNameForArg(sanitized))) {
+            filteredArgs.append(sanitized);
+            continue;
+        }
+
+        importedArgs.append(sanitized);
     }
 
     QVariantMap profileData;
@@ -3439,6 +3449,81 @@ QVariantMap ConfigManager::importMpvConfigAsProfile(const QString &path, const Q
     result[QStringLiteral("filteredOptions")] = filteredArgs;
     result[QStringLiteral("skippedLines")] = skippedLines;
     return result;
+}
+
+bool ConfigManager::renameMpvProfile(const QString &oldName, const QString &newName)
+{
+    const QString trimmedOldName = oldName.trimmed();
+    const QString trimmedNewName = newName.trimmed();
+    if (trimmedOldName.isEmpty() || trimmedNewName.isEmpty()) {
+        return false;
+    }
+    if (trimmedOldName == QStringLiteral("Default") || trimmedOldName == QStringLiteral("High Quality")) {
+        qWarning() << "ConfigManager: Cannot rename built-in profile:" << trimmedOldName;
+        return false;
+    }
+    if (trimmedOldName == trimmedNewName || getMpvProfileNames().contains(trimmedNewName)) {
+        return false;
+    }
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+
+    QJsonObject profiles;
+    if (settings.contains("mpv_profiles") && settings["mpv_profiles"].isObject()) {
+        profiles = settings["mpv_profiles"].toObject();
+    }
+
+    if (!profiles.contains(trimmedOldName)) {
+        return false;
+    }
+
+    profiles[trimmedNewName] = profiles.value(trimmedOldName);
+    profiles.remove(trimmedOldName);
+    settings["mpv_profiles"] = profiles;
+
+    bool defaultChanged = false;
+    bool libraryChanged = false;
+    bool seriesChanged = false;
+
+    if (settings.value("default_profile").toString() == trimmedOldName) {
+        settings["default_profile"] = trimmedNewName;
+        defaultChanged = true;
+    }
+
+    QJsonObject libraryProfiles = settings.value("library_profiles").toObject();
+    for (const QString &key : libraryProfiles.keys()) {
+        if (libraryProfiles.value(key).toString() == trimmedOldName) {
+            libraryProfiles[key] = trimmedNewName;
+            libraryChanged = true;
+        }
+    }
+    settings["library_profiles"] = libraryProfiles;
+
+    QJsonObject seriesProfiles = settings.value("series_profiles").toObject();
+    for (const QString &key : seriesProfiles.keys()) {
+        if (seriesProfiles.value(key).toString() == trimmedOldName) {
+            seriesProfiles[key] = trimmedNewName;
+            seriesChanged = true;
+        }
+    }
+    settings["series_profiles"] = seriesProfiles;
+
+    m_config["settings"] = settings;
+    save();
+    emit mpvProfilesChanged();
+    if (defaultChanged) {
+        emit defaultProfileNameChanged();
+    }
+    if (libraryChanged) {
+        emit libraryProfilesChanged();
+    }
+    if (seriesChanged) {
+        emit seriesProfilesChanged();
+    }
+    return true;
 }
 
 bool ConfigManager::deleteMpvProfile(const QString &name)

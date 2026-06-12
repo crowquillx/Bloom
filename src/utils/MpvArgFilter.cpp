@@ -44,6 +44,56 @@ bool isBloomManagedOptionName(const QString &name)
         || normalized.startsWith(QStringLiteral("x11-"));
 }
 
+QString sanitizeArg(const QString &arg)
+{
+    QString trimmed = arg.trimmed();
+    if (!trimmed.startsWith(QStringLiteral("--"))) {
+        return trimmed;
+    }
+
+    const QString name = optionNameForArg(trimmed);
+    if (name == QStringLiteral("glsl-shaders-clr")) {
+        return QString();
+    }
+
+    const int equalsIndex = trimmed.indexOf(QLatin1Char('='));
+    if (equalsIndex < 0) {
+        return trimmed;
+    }
+
+    QString value = trimmed.mid(equalsIndex + 1).trimmed();
+    if (value.size() >= 2) {
+        const QChar first = value.front();
+        const QChar last = value.back();
+        if ((first == QLatin1Char('"') && last == QLatin1Char('"'))
+            || (first == QLatin1Char('\'') && last == QLatin1Char('\''))) {
+            value = value.mid(1, value.size() - 2);
+        }
+    }
+
+    QString option = trimmed.mid(2, equalsIndex - 2);
+    if (name == QStringLiteral("glsl-shader")
+        || name == QStringLiteral("glsl-shader-append")
+        || name == QStringLiteral("glsl-shaders-append")) {
+        option = QStringLiteral("glsl-shaders");
+    }
+
+    return QStringLiteral("--") + option + QStringLiteral("=") + value;
+}
+
+QStringList sanitizeArgs(const QStringList &args)
+{
+    QStringList result;
+    result.reserve(args.size());
+    for (const QString &arg : args) {
+        const QString sanitized = sanitizeArg(arg);
+        if (!sanitized.isEmpty()) {
+            result.append(sanitized);
+        }
+    }
+    return result;
+}
+
 QStringList filterBloomManagedArgs(const QStringList &args, QStringList *filteredArgs)
 {
     QStringList result;

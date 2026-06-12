@@ -14,6 +14,7 @@ FocusScope {
     signal openNewProfileDialog(Item returnFocusTarget)
     signal openImportConfigDialog(Item returnFocusTarget)
     signal openDeleteProfileDialog(string profileName, Item returnFocusTarget)
+    signal openRenameProfileDialog(string profileName, Item returnFocusTarget)
 
     function enterFromRail() {
         var target = (_lastFocusedItem && _lastFocusedItem.visible) ? _lastFocusedItem : defaultProfileCombo
@@ -519,7 +520,7 @@ FocusScope {
                         Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
                         Keys.onDownPressed: profileEditor.forceActiveFocus()
                         Keys.onLeftPressed: editProfileCombo.forceActiveFocus()
-                        Keys.onRightPressed: importConfigBtn.forceActiveFocus()
+                        Keys.onRightPressed: duplicateProfileBtn.forceActiveFocus()
 
                         contentItem: Text {
                             text: newProfileBtn.text
@@ -561,10 +562,14 @@ FocusScope {
 
                         Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
                         Keys.onDownPressed: profileEditor.forceActiveFocus()
-                        Keys.onLeftPressed: importConfigBtn.forceActiveFocus()
+                        Keys.onLeftPressed: newProfileBtn.forceActiveFocus()
                         Keys.onRightPressed: {
-                            if (deleteProfileBtn.enabled) {
-                                deleteProfileBtn.forceActiveFocus()
+                            if (renameProfileBtn.enabled) {
+                                renameProfileBtn.forceActiveFocus()
+                                return
+                            }
+                            if (importConfigBtn.enabled) {
+                                importConfigBtn.forceActiveFocus()
                             }
                         }
 
@@ -621,6 +626,65 @@ FocusScope {
                     }
 
                     Button {
+                        id: renameProfileBtn
+                        text: qsTr("Rename")
+                        Accessible.role: Accessible.Button
+                        Accessible.name: qsTr("Rename selected profile")
+                        focusPolicy: enabled ? Qt.StrongFocus : Qt.NoFocus
+                        enabled: {
+                            var name = editProfileCombo.currentText || ""
+                            return name !== "" && name !== "Default" && name !== "High Quality"
+                        }
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                            }
+                        }
+
+                        Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
+                        Keys.onDownPressed: profileEditor.forceActiveFocus()
+                        Keys.onLeftPressed: duplicateProfileBtn.forceActiveFocus()
+                        Keys.onRightPressed: importConfigBtn.forceActiveFocus()
+
+                        onEnabledChanged: {
+                            if (!enabled && activeFocus) {
+                                duplicateProfileBtn.forceActiveFocus()
+                            }
+                        }
+
+                        function requestRenameSelectedProfile() {
+                            if (!enabled)
+                                return
+                            root.openRenameProfileDialog(editProfileCombo.currentText, renameProfileBtn)
+                        }
+
+                        contentItem: Text {
+                            text: renameProfileBtn.text
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: renameProfileBtn.enabled ? Theme.accentPrimary : Theme.textDisabled
+                            horizontalAlignment: Text.AlignHCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+
+                        background: Rectangle {
+                            implicitWidth: 120
+                            implicitHeight: Theme.buttonHeightSmall
+                            radius: Theme.radiusSmall
+                            color: renameProfileBtn.activeFocus || renameProfileBtn.hovered ? Qt.rgba(0.4, 0.6, 1, 0.2) : "transparent"
+                            border.color: renameProfileBtn.activeFocus ? Theme.focusBorder : Theme.accentPrimary
+                            border.width: renameProfileBtn.activeFocus ? 2 : 1
+                            opacity: renameProfileBtn.enabled ? 1.0 : 0.5
+                        }
+
+                        onClicked: requestRenameSelectedProfile()
+                        Keys.onReturnPressed: requestRenameSelectedProfile()
+                        Keys.onEnterPressed: requestRenameSelectedProfile()
+                    }
+
+                    Button {
                         id: importConfigBtn
                         text: qsTr("Import Config")
                         Accessible.role: Accessible.Button
@@ -636,8 +700,18 @@ FocusScope {
 
                         Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
                         Keys.onDownPressed: profileEditor.forceActiveFocus()
-                        Keys.onLeftPressed: newProfileBtn.forceActiveFocus()
-                        Keys.onRightPressed: duplicateProfileBtn.forceActiveFocus()
+                        Keys.onLeftPressed: {
+                            if (renameProfileBtn.enabled) {
+                                renameProfileBtn.forceActiveFocus()
+                            } else {
+                                duplicateProfileBtn.forceActiveFocus()
+                            }
+                        }
+                        Keys.onRightPressed: {
+                            if (deleteProfileBtn.enabled) {
+                                deleteProfileBtn.forceActiveFocus()
+                            }
+                        }
 
                         contentItem: Text {
                             text: importConfigBtn.text
@@ -682,7 +756,13 @@ FocusScope {
 
                         Keys.onUpPressed: profileEditorToggle.forceActiveFocus()
                         Keys.onDownPressed: profileEditor.forceActiveFocus()
-                        Keys.onLeftPressed: duplicateProfileBtn.forceActiveFocus()
+                        Keys.onLeftPressed: {
+                            if (renameProfileBtn.enabled) {
+                                importConfigBtn.forceActiveFocus()
+                            } else {
+                                duplicateProfileBtn.forceActiveFocus()
+                            }
+                        }
 
                         onEnabledChanged: {
                             if (!enabled && activeFocus) {

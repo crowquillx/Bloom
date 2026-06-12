@@ -91,6 +91,12 @@ FocusScope {
         deleteProfileDialog.open()
     }
 
+    function openRenameProfileDialog(profileName, returnFocusTarget) {
+        renameProfileDialog.profileToRename = profileName || ""
+        renameProfileDialog.restoreFocusTarget = returnFocusTarget || null
+        renameProfileDialog.open()
+    }
+
     function openImportConfigDialog(returnFocusTarget) {
         importMpvConfigDialog.restoreFocusTarget = returnFocusTarget || null
         importMpvConfigDialog.open()
@@ -354,6 +360,15 @@ FocusScope {
         }
     }
 
+    RenameProfileDialog {
+        id: renameProfileDialog
+        onProfileRenamed: function(oldName, newName) {
+            if (ConfigManager.renameMpvProfile(oldName, newName)) {
+                mpvSection.selectProfile(newName)
+            }
+        }
+    }
+
     ImportMpvConfigDialog {
         id: importMpvConfigDialog
         onProfileImported: function(name) {
@@ -409,6 +424,7 @@ FocusScope {
                 onOpenNewProfileDialog: function(returnTarget) { root.openNewProfileDialog(returnTarget) }
                 onOpenImportConfigDialog: function(returnTarget) { root.openImportConfigDialog(returnTarget) }
                 onOpenDeleteProfileDialog: function(name, returnTarget) { root.openDeleteProfileDialog(name, returnTarget) }
+                onOpenRenameProfileDialog: function(name, returnTarget) { root.openRenameProfileDialog(name, returnTarget) }
             }
 
             IntegrationsSettings {
