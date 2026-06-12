@@ -310,11 +310,17 @@ void ConfigManagerThemeTest::importMpvConfigNormalizesQuotedShaderArgs()
                                       .value(QStringLiteral("extraArgs"))
                                       .toStringList();
     QCOMPARE(extraArgs, QStringList({
-        QStringLiteral("--glsl-shaders=C:\\path with spaces\\ArtCNN.glsl"),
-        QStringLiteral("--glsl-shaders=C:\\filters\\Other.glsl"),
-        QStringLiteral("--glsl-shaders=C:\\filters\\Third.glsl"),
+        QStringLiteral("--glsl-shaders-append=C:\\path with spaces\\ArtCNN.glsl"),
+        QStringLiteral("--glsl-shaders-append=C:\\filters\\Other.glsl"),
+        QStringLiteral("--glsl-shaders-append=C:\\filters\\Third.glsl"),
         QStringLiteral("--sub-font=Noto Sans")
     }));
+
+    const QStringList args = config.getMpvArgsForProfile(QStringLiteral("Shaders"));
+    QVERIFY(args.contains(QStringLiteral("--glsl-shaders-clr")));
+    QVERIFY(args.contains(QStringLiteral("--glsl-shaders-append=C:\\path with spaces\\ArtCNN.glsl")));
+    QVERIFY(args.contains(QStringLiteral("--glsl-shaders-append=C:\\filters\\Other.glsl")));
+    QVERIFY(args.contains(QStringLiteral("--glsl-shaders-append=C:\\filters\\Third.glsl")));
 }
 
 void ConfigManagerThemeTest::existingMpvProfileArgsAreSanitizedOnLoad()
@@ -342,6 +348,8 @@ void ConfigManagerThemeTest::existingMpvProfileArgsAreSanitizedOnLoad()
     artcnn[QStringLiteral("interpolation")] = false;
     artcnn[QStringLiteral("extra_args")] = QJsonArray{
         QStringLiteral("--glsl-shader=\"C:\\path with spaces\\ArtCNN.glsl\""),
+        QStringLiteral("--glsl-shaders=C:\\filters\\KrigBilateral.glsl"),
+        QStringLiteral("--glsl-shaders-append=C:\\filters\\SSimDownscaler.glsl"),
         QStringLiteral("--glsl-shaders-clr")
     };
     profiles[QStringLiteral("artcnn")] = artcnn;
@@ -358,11 +366,20 @@ void ConfigManagerThemeTest::existingMpvProfileArgsAreSanitizedOnLoad()
     const QStringList extraArgs = config.getMpvProfile(QStringLiteral("artcnn"))
                                       .value(QStringLiteral("extraArgs"))
                                       .toStringList();
-    QCOMPARE(extraArgs, QStringList({QStringLiteral("--glsl-shaders=C:\\path with spaces\\ArtCNN.glsl")}));
+    QCOMPARE(extraArgs, QStringList({
+        QStringLiteral("--glsl-shaders-append=C:\\path with spaces\\ArtCNN.glsl"),
+        QStringLiteral("--glsl-shaders-append=C:\\filters\\KrigBilateral.glsl"),
+        QStringLiteral("--glsl-shaders-append=C:\\filters\\SSimDownscaler.glsl")
+    }));
 
     const QStringList args = config.getMpvArgsForProfile(QStringLiteral("artcnn"));
-    QVERIFY(args.contains(QStringLiteral("--glsl-shaders=C:\\path with spaces\\ArtCNN.glsl")));
-    QVERIFY(!args.contains(QStringLiteral("--glsl-shaders-clr")));
+    const int clearIndex = args.indexOf(QStringLiteral("--glsl-shaders-clr"));
+    QVERIFY(clearIndex >= 0);
+    QVERIFY(clearIndex < args.indexOf(QStringLiteral("--glsl-shaders-append=C:\\path with spaces\\ArtCNN.glsl")));
+    QVERIFY(args.indexOf(QStringLiteral("--glsl-shaders-append=C:\\path with spaces\\ArtCNN.glsl"))
+            < args.indexOf(QStringLiteral("--glsl-shaders-append=C:\\filters\\KrigBilateral.glsl")));
+    QVERIFY(args.indexOf(QStringLiteral("--glsl-shaders-append=C:\\filters\\KrigBilateral.glsl"))
+            < args.indexOf(QStringLiteral("--glsl-shaders-append=C:\\filters\\SSimDownscaler.glsl")));
 }
 
 void ConfigManagerThemeTest::setMpvProfileNormalizesExtraArgs()
@@ -393,7 +410,7 @@ void ConfigManagerThemeTest::setMpvProfileNormalizesExtraArgs()
                                       .value(QStringLiteral("extraArgs"))
                                       .toStringList();
     QCOMPARE(extraArgs, QStringList({
-        QStringLiteral("--glsl-shaders=C:\\shader dir\\ArtCNN.glsl"),
+        QStringLiteral("--glsl-shaders-append=C:\\shader dir\\ArtCNN.glsl"),
         QStringLiteral("--sub-font=Noto Sans")
     }));
 }

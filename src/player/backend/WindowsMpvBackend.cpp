@@ -539,6 +539,8 @@ void WindowsMpvBackend::logHdrDiagnostics(const QStringList &args, const QString
         }
         if (arg.startsWith(QStringLiteral("--glsl-shaders="))) {
             shaderArgs.append(arg.mid(QStringLiteral("--glsl-shaders=").size()));
+        } else if (arg.startsWith(QStringLiteral("--glsl-shaders-append="))) {
+            shaderArgs.append(arg.mid(QStringLiteral("--glsl-shaders-append=").size()));
         }
     }
 

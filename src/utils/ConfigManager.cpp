@@ -3744,7 +3744,7 @@ QString ConfigManager::resolveProfileForItem(const QString &libraryId, const QSt
 QStringList ConfigManager::getMpvArgsForProfile(const QString &profileName, bool isHdrContent, bool forceToneMapToSdr) const
 {
     MpvProfile profile = getMpvProfileStruct(profileName);
-    QStringList args = profile.buildArgs();
+    QStringList args = MpvArgFilter::expandShaderListArgs(profile.buildArgs());
 
     auto setOrAppendArg = [&args](const QString &name, const QString &value) {
         const QString prefix = QStringLiteral("--") + name + QStringLiteral("=");

@@ -76,8 +76,9 @@ QString sanitizeArg(const QString &arg)
     QString option = trimmed.mid(2, equalsIndex - 2);
     if (name == QStringLiteral("glsl-shader")
         || name == QStringLiteral("glsl-shader-append")
+        || name == QStringLiteral("glsl-shaders")
         || name == QStringLiteral("glsl-shaders-append")) {
-        option = QStringLiteral("glsl-shaders");
+        option = QStringLiteral("glsl-shaders-append");
     }
 
     return QStringLiteral("--") + option + QStringLiteral("=") + value;
@@ -93,6 +94,40 @@ QStringList sanitizeArgs(const QStringList &args)
             result.append(sanitized);
         }
     }
+    return result;
+}
+
+QStringList expandShaderListArgs(const QStringList &args)
+{
+    QStringList result;
+    result.reserve(args.size() + 1);
+
+    bool insertedShaderClear = false;
+    for (const QString &arg : args) {
+        const QString name = optionNameForArg(arg);
+        if (name == QStringLiteral("glsl-shaders")
+            || name == QStringLiteral("glsl-shader")
+            || name == QStringLiteral("glsl-shader-append")
+            || name == QStringLiteral("glsl-shaders-append")) {
+            if (!insertedShaderClear) {
+                result.append(QStringLiteral("--glsl-shaders-clr"));
+                insertedShaderClear = true;
+            }
+
+            const QString sanitized = sanitizeArg(arg);
+            if (!sanitized.isEmpty()) {
+                result.append(sanitized);
+            }
+            continue;
+        }
+
+        if (name == QStringLiteral("glsl-shaders-clr")) {
+            continue;
+        }
+
+        result.append(arg);
+    }
+
     return result;
 }
 
