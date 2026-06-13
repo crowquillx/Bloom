@@ -1,28 +1,39 @@
-## What's Changed in v0.6.6
+## What's Changed in v0.7.0
 
 ### New Features
 
-- **ui**: add Go to Series action from season episode view (#57)
-- chapter support (#54)
-- autoupdate update
+- different cache modes for remote mounts
+- add HDR and Windows mpv profile controls
+- add Windows render API profiles
+- normalize mpv profile imports and support rename
+- import mpv config profiles
+- library filters
+- minor ui/ux upgrades
+- add new themes and expand themeing system (#62)
 
 ### Bug Fixes
 
-- race condition on active screen binding
-- stale playback info causing nonexistent files to play
-- navigation around next up screen
-- defer up next display restore
-- better handling for the up-next screen (#56)
-- correctly stop playback
-- stabilize detail metadata shelves and playback readiness (#55)
+- shader path
+- shader path
+- **playback**: preserve multiple mpv shaders
+- **player**: recover after premature mpv eof stop ordering
+- **player**: recover premature mpv stream EOF
+- **player**: add windows mpv termination diagnostics
+- **library**: stabilize filter sorting and focus
+- **player**: harden windows hdr playback startup
+- hide unreliable library filters
+- address library filter review feedback
+- sync library filter resets
+- race condition that caused the player to think it was still playing
 
-### Documentation
+### Chores
 
-- **migration**: append Flutter shared-core contract notes (#59)
+- **deps**: bump mpv
 
 ### Other
 
-- gitignore
-- Update README.md
+- feat(player):update hdr handling
+- (feat): ux overhaul (#61)
+- Reduce log spam with categorized logging and image filters (#60)
 
-**Full changelog:** [v0.6.5...v0.6.6](https://github.com/crowquillx/Bloom/compare/v0.6.5...v0.6.6)
+**Full changelog:** [v0.6.6...v0.7.0](https://github.com/crowquillx/Bloom/compare/v0.6.6...v0.7.0)
