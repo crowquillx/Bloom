@@ -1,22 +1,22 @@
 {
-  "build_id": "0.6.6",
+  "build_id": "0.7.0",
   "channel": "stable",
   "installer": {
-    "filename": "Bloom-Setup-0.6.6.exe",
-    "sha256": "91a832b32655e50507106bca1beda6f2da793b098dd9c37d5bce0b7ea598b78e",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.6/Bloom-Setup-0.6.6.exe"
+    "filename": "Bloom-Setup-0.7.0.exe",
+    "sha256": "1c6c767b75cc085ba2ee4389449294ff406c025b58fa1c1174c990004422b1bf",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.7.0/Bloom-Setup-0.7.0.exe"
   },
-  "notes": "## What's Changed in v0.6.6\n\n### New Features\n\n- **ui**: add Go to Series action from season episode view (#57)\n- chapter support (#54)\n- autoupdate update\n\n### Bug Fixes\n\n- race condition on active screen binding\n- stale playback info causing nonexistent files to play\n- navigation around next up screen\n- defer up next display restore\n- better handling for the up-next screen (#56)\n- correctly stop playback\n- stabilize detail metadata shelves and playback readiness (#55)\n\n### Documentation\n\n- **migration**: append Flutter shared-core contract notes (#59)\n\n### Other\n\n- gitignore\n- Update README.md\n\n**Full changelog:** [v0.6.5...v0.6.6](https://github.com/crowquillx/Bloom/compare/v0.6.5...v0.6.6)",
+  "notes": "## What's Changed in v0.7.0\n\n### New Features\n\n- different cache modes for remote mounts\n- add HDR and Windows mpv profile controls\n- add Windows render API profiles\n- normalize mpv profile imports and support rename\n- import mpv config profiles\n- library filters\n- minor ui/ux upgrades\n- add new themes and expand themeing system (#62)\n\n### Bug Fixes\n\n- shader path\n- shader path\n- **playback**: preserve multiple mpv shaders\n- **player**: recover after premature mpv eof stop ordering\n- **player**: recover premature mpv stream EOF\n- **player**: add windows mpv termination diagnostics\n- **library**: stabilize filter sorting and focus\n- **player**: harden windows hdr playback startup\n- hide unreliable library filters\n- address library filter review feedback\n- sync library filter resets\n- race condition that caused the player to think it was still playing\n\n### Chores\n\n- **deps**: bump mpv\n\n### Other\n\n- feat(player):update hdr handling\n- (feat): ux overhaul (#61)\n- Reduce log spam with categorized logging and image filters (#60)\n\n**Full changelog:** [v0.6.6...v0.7.0](https://github.com/crowquillx/Bloom/compare/v0.6.6...v0.7.0)",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "1e8705bd9854a7dbc978ff87a37a18749639528ac1a7942d3316fbc37317eadd",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.6.6/Bloom-Windows.zip"
+    "sha256": "d65dd6fbfa32a7cc4f309d3c25082b10e6aba00f75a233c0cde0d5b81680fdcf",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.7.0/Bloom-Windows.zip"
   },
-  "published_at": "2026-06-01T02:48:13.4460521Z",
-  "release_tag": "v0.6.6",
+  "published_at": "2026-06-13T23:30:21.8314324Z",
+  "release_tag": "v0.7.0",
   "rollout": {
     "enabled": true,
-    "minimum_supported_version": "0.6.6"
+    "minimum_supported_version": "0.7.0"
   },
-  "version": "0.6.6"
+  "version": "0.7.0"
 }
