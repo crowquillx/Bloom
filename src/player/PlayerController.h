@@ -62,6 +62,7 @@ class PlayerController : public QObject
     Q_PROPERTY(QString stateName READ stateName NOTIFY stateChanged)
     Q_PROPERTY(bool isBuffering READ isBuffering NOTIFY isBufferingChanged)
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
+    Q_PROPERTY(bool isStartupBuffering READ isStartupBuffering NOTIFY isStartupBufferingChanged)
     Q_PROPERTY(bool isPaused READ isPaused NOTIFY playbackStateChanged)
     Q_PROPERTY(bool hasError READ hasError NOTIFY hasErrorChanged)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
@@ -161,6 +162,11 @@ public:
      * @returns `true` if loading, `false` otherwise.
      */
     bool isLoading() const;
+    /**
+     * Indicates whether the player should show the startup buffering experience.
+     * @returns `true` while loading or waiting for remote-mount initial cache, `false` otherwise.
+     */
+    bool isStartupBuffering() const;
     /**
      * Indicates whether playback is currently paused.
      * @returns `true` if paused, `false` otherwise.
@@ -320,6 +326,7 @@ signals:
     void stateChanged(const QString &state);
     void isBufferingChanged();
     void isLoadingChanged();
+    void isStartupBufferingChanged();
     void hasErrorChanged();
     void errorMessageChanged();
     void isRecoveringChanged();
@@ -464,6 +471,8 @@ private:
     void setPlaybackState(PlaybackState state);
     void setErrorMessage(const QString &message);
     void setBufferingProgress(int progress);
+    void setWaitingForRemoteMountInitialCache(bool waiting);
+    void completeRemoteMountStartupBuffering(double cacheSeconds, const char *reason);
     void beginRecovery();
     void cancelRecovery();
     void reportPlaybackStart();
@@ -786,6 +795,7 @@ private:
     bool m_isRecovering = false;
     bool m_lastErrorWasNetworkRecoverable = false;
     bool m_waitingForRemoteMountInitialCache = false;
+    bool m_completingRemoteMountStartupBuffering = false;
     static constexpr int kRecoveryPingIntervalMs = 5000;
     
     // State

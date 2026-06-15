@@ -826,7 +826,7 @@ void PlayerController::enterIdleStateImmediate()
     m_pendingUrl.clear();
     m_recoveryContext = RecoveryContext{};
     m_lastErrorWasNetworkRecoverable = false;
-    m_waitingForRemoteMountInitialCache = false;
+    setWaitingForRemoteMountInitialCache(false);
     m_currentPosition = 0;
     m_duration = 0;
     m_cacheEndSeconds = 0;
@@ -919,7 +919,9 @@ void PlayerController::onEnterBufferingState()
     qCDebug(lcPlayback) << "PlayerController: Entering Buffering state";
     
     // Start buffering timeout
-    m_bufferingTimeoutTimer->start(kBufferingTimeoutMs);
+    m_bufferingTimeoutTimer->start(m_waitingForRemoteMountInitialCache
+                                   ? kRemoteMountLoadingTimeoutMs
+                                   : kBufferingTimeoutMs);
     
     // Initialize buffering detection
     m_lastPositionUpdateTime.start();
@@ -1070,6 +1072,10 @@ void PlayerController::onLoadingTimeout()
 void PlayerController::onBufferingTimeout()
 {
     qCDebug(lcPlayback) << "PlayerController: Buffering timeout";
+    if (m_waitingForRemoteMountInitialCache) {
+        completeRemoteMountStartupBuffering(m_cacheEndSeconds, "timeout");
+        return;
+    }
     m_lastErrorWasNetworkRecoverable = true;
     setErrorMessage(tr("Buffering timed out. Network may be too slow."));
     requestTerminalTransition(TerminalReason::Error);
@@ -1135,7 +1141,7 @@ void PlayerController::onProcessError(const QString &error)
         return;
     }
 
-    m_waitingForRemoteMountInitialCache = false;
+    setWaitingForRemoteMountInitialCache(false);
     m_lastErrorWasNetworkRecoverable = isRecoverableBackendPlaybackError(error);
     setErrorMessage(m_lastErrorWasNetworkRecoverable
                     ? tr("Playback stream interrupted. Attempting to recover...")
@@ -1185,7 +1191,9 @@ void PlayerController::onPositionChanged(double seconds)
     // Reset buffering timeout when we receive position updates - mpv is still responsive
     // This prevents false timeouts during legitimate buffering (e.g., seeking, initial buffer)
     if (m_playbackState == Buffering && m_bufferingTimeoutTimer->isActive()) {
-        m_bufferingTimeoutTimer->start(kBufferingTimeoutMs);
+        m_bufferingTimeoutTimer->start(m_waitingForRemoteMountInitialCache
+                                       ? kRemoteMountLoadingTimeoutMs
+                                       : kBufferingTimeoutMs);
     }
     
     // Update buffering progress during Buffering state
@@ -1221,6 +1229,11 @@ void PlayerController::onDurationChanged(double seconds)
 void PlayerController::onPausedForCacheChanged(bool pausedForCache)
 {
     qCDebug(lcPlayback) << "PlayerController: Paused for cache:" << pausedForCache;
+
+    if (!pausedForCache && m_waitingForRemoteMountInitialCache) {
+        completeRemoteMountStartupBuffering(m_cacheEndSeconds, "paused-for-cache-false");
+        return;
+    }
     
     if (pausedForCache && m_playbackState == Playing) {
         // mpv reports actual buffering - transition to Buffering state
@@ -1241,17 +1254,9 @@ void PlayerController::onCacheEndChanged(double seconds)
     }
 
     if (m_waitingForRemoteMountInitialCache
-        && m_playbackState == Loading
+        && (m_playbackState == Loading || m_playbackState == Buffering)
         && seconds >= kRemoteMountInitialCacheSeconds) {
-        m_waitingForRemoteMountInitialCache = false;
-        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                << "] remote-mount initial cache ready"
-                                << "cacheSeconds=" << seconds;
-        m_playerBackend->sendVariantCommand(QVariantList{
-            QStringLiteral("set_property"),
-            QStringLiteral("pause"),
-            false,
-        });
+        completeRemoteMountStartupBuffering(seconds, "cache-ready");
     }
 }
 
@@ -2931,6 +2936,11 @@ bool PlayerController::isLoading() const
     return m_playbackState == Loading;
 }
 
+bool PlayerController::isStartupBuffering() const
+{
+    return m_playbackState == Loading || m_waitingForRemoteMountInitialCache;
+}
+
 bool PlayerController::hasError() const
 {
     return m_playbackState == Error;
@@ -4407,11 +4417,15 @@ void PlayerController::setPlaybackState(PlaybackState state)
 {
     if (m_playbackState != state) {
         const bool wasActive = isPlaybackActive();
+        const bool wasStartupBuffering = isStartupBuffering();
         m_playbackState = state;
         emit playbackStateChanged();
         emit stateChanged(stateName());
         emit isBufferingChanged();
         emit isLoadingChanged();
+        if (wasStartupBuffering != isStartupBuffering()) {
+            emit isStartupBufferingChanged();
+        }
         emit hasErrorChanged();
         if (wasActive != isPlaybackActive()) {
             emit isPlaybackActiveChanged();
@@ -4438,6 +4452,44 @@ void PlayerController::setBufferingProgress(int progress)
         m_bufferingProgress = progress;
         emit bufferingProgressChanged();
     }
+}
+
+void PlayerController::setWaitingForRemoteMountInitialCache(bool waiting)
+{
+    if (m_waitingForRemoteMountInitialCache == waiting) {
+        return;
+    }
+
+    const bool wasStartupBuffering = isStartupBuffering();
+    m_waitingForRemoteMountInitialCache = waiting;
+    if (wasStartupBuffering != isStartupBuffering()) {
+        emit isStartupBufferingChanged();
+    }
+}
+
+void PlayerController::completeRemoteMountStartupBuffering(double cacheSeconds, const char *reason)
+{
+    if (!m_waitingForRemoteMountInitialCache || m_completingRemoteMountStartupBuffering) {
+        return;
+    }
+
+    m_completingRemoteMountStartupBuffering = true;
+    setWaitingForRemoteMountInitialCache(false);
+    qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                            << "] remote-mount initial cache complete"
+                            << "reason=" << reason
+                            << "cacheSeconds=" << cacheSeconds
+                            << "state=" << stateToString(m_playbackState);
+    m_playerBackend->sendVariantCommand(QVariantList{
+        QStringLiteral("set_property"),
+        QStringLiteral("pause"),
+        false,
+    });
+
+    if (m_playbackState == Buffering) {
+        processEvent(Event::BufferComplete);
+    }
+    m_completingRemoteMountStartupBuffering = false;
 }
 
 void PlayerController::reportPlaybackStart()
@@ -5124,7 +5176,7 @@ void PlayerController::initiateMpvStart()
 
     const bool remoteMountStartupBuffering =
         m_config->resolveStartupBufferingModeForItem(m_currentLibraryId) == QStringLiteral("remote-mount");
-    m_waitingForRemoteMountInitialCache = remoteMountStartupBuffering;
+    setWaitingForRemoteMountInitialCache(remoteMountStartupBuffering);
     if (remoteMountStartupBuffering) {
         finalArgs << QStringLiteral("--pause=yes");
         finalArgs << QStringLiteral("--cache=yes");

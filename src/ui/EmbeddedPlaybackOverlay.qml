@@ -16,7 +16,7 @@ FocusScope {
                                                 && PlayerController.currentPositionSeconds <= 0
                                                 && PlayerController.durationSeconds <= 0
     readonly property bool startupBuffering: overlayActive
-                                             && (PlayerController.isLoading || waitingForFirstFrame)
+                                             && (PlayerController.isStartupBuffering || waitingForFirstFrame)
     readonly property bool playbackBuffering: overlayActive
                                              && !startupBuffering
                                              && (PlayerController.isBuffering || PlayerController.isRecovering)
