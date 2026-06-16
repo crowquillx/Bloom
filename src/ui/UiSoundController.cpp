@@ -3,6 +3,7 @@
 #include <QMediaPlayer>
 #include <QAudioOutput>
 #include "../utils/ConfigManager.h"
+#include "../utils/AudioOutputRouter.h"
 
 UiSoundController::UiSoundController(ConfigManager *config, QObject *parent)
     : QObject(parent)
@@ -11,6 +12,9 @@ UiSoundController::UiSoundController(ConfigManager *config, QObject *parent)
     , m_output(std::make_unique<QAudioOutput>())
 {
     m_player->setAudioOutput(m_output.get());
+    // Keep UI sounds routed to the chosen / current default output device,
+    // including devices hotplugged after launch. Owned via QObject parenting.
+    new AudioOutputRouter(m_output.get(), m_config, this);
     m_player->setSource(QUrl(QStringLiteral("qrc:/sounds/ui.opus")));
     m_player->setLoops(1);
     m_timer.start();
