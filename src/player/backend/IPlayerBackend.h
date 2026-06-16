@@ -41,6 +41,12 @@ signals:
     void muteChanged(bool muted);
     void audioTrackChanged(int trackIndex);
     void subtitleTrackChanged(int trackIndex);
+
+    /// Emitted whenever mpv's set of available audio output devices changes
+    /// (e.g. a Bluetooth headset connects/disconnects, an HDMI sink wakes up).
+    /// Each entry is a QVariantMap with "name" (the mpv audio-device id, e.g.
+    /// "wasapi/{...}" or "auto") and "description" (human readable label).
+    void audioDeviceListChanged(const QVariantList &devices);
     void playlistPositionChanged(int index);
     void scriptMessage(const QString &messageName, const QStringList &args);
 };

@@ -73,6 +73,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(int playbackCompletionThreshold READ getPlaybackCompletionThreshold WRITE setPlaybackCompletionThreshold NOTIFY playbackCompletionThresholdChanged)
     Q_PROPERTY(int skipButtonAutoHideSeconds READ getSkipButtonAutoHideSeconds WRITE setSkipButtonAutoHideSeconds NOTIFY skipButtonAutoHideSecondsChanged)
     Q_PROPERTY(int audioDelay READ getAudioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
+    Q_PROPERTY(QString audioOutputDevice READ getAudioOutputDevice WRITE setAudioOutputDevice NOTIFY audioOutputDeviceChanged)
     Q_PROPERTY(int playbackVolume READ getPlaybackVolume WRITE setPlaybackVolume NOTIFY playbackVolumeChanged)
     Q_PROPERTY(bool playbackMuted READ getPlaybackMuted WRITE setPlaybackMuted NOTIFY playbackMutedChanged)
     Q_PROPERTY(bool autoplayNextEpisode READ getAutoplayNextEpisode WRITE setAutoplayNextEpisode NOTIFY autoplayNextEpisodeChanged)
@@ -205,6 +206,12 @@ public:
     // Audio Delay (milliseconds)
     void setAudioDelay(int ms);
     int getAudioDelay() const;
+
+    // Audio output device (mpv audio-device id, e.g. "wasapi/{...}" or
+    // "auto"/"" to follow the system default device). When set to a specific
+    // device, Bloom passes --audio-device to mpv and re-applies it on hotplug.
+    void setAudioOutputDevice(const QString &device);
+    QString getAudioOutputDevice() const;
 
     // Playback volume state for player overlay/session persistence.
     void setPlaybackVolume(int volume);
@@ -470,6 +477,7 @@ signals:
     void playbackCompletionThresholdChanged();
     void skipButtonAutoHideSecondsChanged();
     void audioDelayChanged();
+    void audioOutputDeviceChanged();
     void playbackVolumeChanged();
     void playbackMutedChanged();
     void autoplayNextEpisodeChanged();

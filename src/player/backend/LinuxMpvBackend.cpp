@@ -18,17 +18,18 @@
 #include <algorithm>
 
 #include "MpvEmbeddedShaderUtils.h"
+#include "MpvNodeUtils.h"
+
+#if defined(BLOOM_HAS_LIBMPV)
+extern "C" {
+#include <mpv/render_gl.h>
+}
+#endif
 
 #include "../../utils/BloomLogging.h"
 #include "../../utils/ConfigManager.h"
 #include "../../utils/MpvArgFilter.h"
 
-#if defined(BLOOM_HAS_LIBMPV)
-extern "C" {
-#include <mpv/client.h>
-#include <mpv/render_gl.h>
-}
-#endif
 
 namespace {
 constexpr qint64 kRecentStreamFailureWindowMs = 30000;
@@ -672,6 +673,12 @@ void LinuxMpvBackend::processMpvEvents()
                     break;
                 }
 
+                if (node->format == MPV_FORMAT_NODE_ARRAY
+                    && propertyName == QStringLiteral("audio-device-list")) {
+                    emit audioDeviceListChanged(BloomBackend::parseMpvAudioDeviceList(node));
+                    break;
+                }
+
                 switch (node->format) {
                 case MPV_FORMAT_INT64:
                     value = static_cast<qlonglong>(node->u.int64);
@@ -725,6 +732,7 @@ void LinuxMpvBackend::observeMpvProperties(void *handlePtr)
     mpv_observe_property(handle, 0, "playlist-pos", MPV_FORMAT_INT64);
     mpv_observe_property(handle, 0, "playlist-count", MPV_FORMAT_INT64);
     mpv_observe_property(handle, 0, "demuxer-cache-time", MPV_FORMAT_DOUBLE);
+    mpv_observe_property(handle, 0, "audio-device-list", MPV_FORMAT_NODE);
 #endif
 }
 

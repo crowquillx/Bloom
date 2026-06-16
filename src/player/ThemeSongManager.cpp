@@ -10,6 +10,7 @@
 
 #include "../network/LibraryService.h"
 #include "../utils/ConfigManager.h"
+#include "../utils/AudioOutputRouter.h"
 #include "PlayerController.h"
 
 ThemeSongManager::ThemeSongManager(LibraryService *libraryService,
@@ -25,6 +26,10 @@ ThemeSongManager::ThemeSongManager(LibraryService *libraryService,
     , m_fadeAnimation(std::make_unique<QPropertyAnimation>())
 {
     m_mediaPlayer->setAudioOutput(m_audioOutput.get());
+    // Keep theme-song audio routed to the chosen / current default output
+    // device, including devices hotplugged after launch. Owned via QObject
+    // parenting so it is torn down with this manager.
+    new AudioOutputRouter(m_audioOutput.get(), m_config, this);
     applyLoopFromConfig();
     applyVolumeFromConfig();
     

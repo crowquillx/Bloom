@@ -18,6 +18,7 @@
 #include <QLoggingCategory>
 
 #include "MpvEmbeddedShaderUtils.h"
+#include "MpvNodeUtils.h"
 
 #include "../../utils/BloomLogging.h"
 #include "../../utils/ConfigManager.h"
@@ -29,6 +30,7 @@ extern "C" {
 #include <mpv/client.h>
 }
 #endif
+
 
 namespace {
 std::atomic<quint64> gWindowsMpvReplyUserdataCounter{0};
@@ -1223,6 +1225,12 @@ void WindowsMpvBackend::processMpvEvents()
                     break;
                 }
 
+                if (node->format == MPV_FORMAT_NODE_ARRAY
+                    && propertyName == QStringLiteral("audio-device-list")) {
+                    emit audioDeviceListChanged(BloomBackend::parseMpvAudioDeviceList(node));
+                    break;
+                }
+
                 switch (node->format) {
                 case MPV_FORMAT_INT64:
                     value = static_cast<qlonglong>(node->u.int64);
@@ -1281,6 +1289,7 @@ void WindowsMpvBackend::observeMpvProperties(void *handlePtr)
     mpv_observe_property(handle, 0, "sid", MPV_FORMAT_NODE);
     mpv_observe_property(handle, 0, "volume", MPV_FORMAT_DOUBLE);
     mpv_observe_property(handle, 0, "mute", MPV_FORMAT_FLAG);
+    mpv_observe_property(handle, 0, "audio-device-list", MPV_FORMAT_NODE);
     mpv_observe_property(handle, 0, "playlist-pos", MPV_FORMAT_INT64);
     mpv_observe_property(handle, 0, "playlist-count", MPV_FORMAT_INT64);
     mpv_observe_property(handle, 0, "demuxer-cache-time", MPV_FORMAT_DOUBLE);

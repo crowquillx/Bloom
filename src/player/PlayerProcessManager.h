@@ -39,6 +39,9 @@ signals:
     // Track change notifications use raw mpv track IDs (1-based per track type, -1 for none/off).
     void audioTrackChanged(int trackIndex);
     void subtitleTrackChanged(int trackIndex);
+
+    // Emitted when mpv's available audio output device list changes (hotplug).
+    void audioDeviceListChanged(const QVariantList &devices);
     
     // Script message from mpv scripts/extensions (via client-message event)
     void scriptMessage(const QString &messageName, const QStringList &args);

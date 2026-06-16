@@ -281,7 +281,8 @@ void PlayerProcessManager::onSocketConnected()
     sendVariantCommand(QVariantList{"observe_property", 9, "playlist-pos"});
     sendVariantCommand(QVariantList{"observe_property", 10, "playlist-count"});
     sendVariantCommand(QVariantList{"observe_property", 11, "demuxer-cache-time"});
-    
+    sendVariantCommand(QVariantList{"observe_property", 12, "audio-device-list"});  // Audio output device hotplug
+
     // Flush any commands that were queued while connecting
     flushPendingCommands();
 }
@@ -348,6 +349,22 @@ void PlayerProcessManager::onSocketReadyRead()
             } else if (name == "demuxer-cache-time") {
                 if (!obj["data"].isNull()) {
                     emit cacheEndChanged(obj["data"].toDouble());
+                }
+            } else if (name == "audio-device-list") {
+                if (obj["data"].isArray()) {
+                    QVariantList devices;
+                    const QJsonArray deviceArray = obj["data"].toArray();
+                    for (const QJsonValue &entry : deviceArray) {
+                        if (!entry.isObject()) {
+                            continue;
+                        }
+                        const QJsonObject deviceObj = entry.toObject();
+                        QVariantMap device;
+                        device["name"] = deviceObj["name"].toString();
+                        device["description"] = deviceObj["description"].toString();
+                        devices.append(device);
+                    }
+                    emit audioDeviceListChanged(devices);
                 }
             }
         } else if (obj["event"].toString() == "end-file") {
