@@ -1342,7 +1342,7 @@ void ConfigManager::setAudioOutputDevice(const QString &device)
     // Normalize empty string to the canonical "auto" so the saved value and the
     // value passed to mpv stay consistent.
     QString normalized = device.trimmed();
-    if (normalized.isEmpty()) {
+    if (normalized.isEmpty() || normalized.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
         normalized = QStringLiteral("auto");
     }
 
@@ -1372,7 +1372,10 @@ QString ConfigManager::getAudioOutputDevice() const
         if (settings.contains("playback") && settings["playback"].isObject()) {
             QJsonObject playback = settings["playback"].toObject();
             if (playback.contains("audio_output_device")) {
-                const QString stored = playback["audio_output_device"].toString().trimmed();
+                QString stored = playback["audio_output_device"].toString().trimmed();
+                if (stored.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
+                    stored = QStringLiteral("auto");
+                }
                 if (!stored.isEmpty()) {
                     return stored;
                 }

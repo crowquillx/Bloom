@@ -512,6 +512,7 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     connect(m_config, &ConfigManager::audioOutputDeviceChanged,
             this, [this]() {
                 if (m_playerBackend && m_playerBackend->isRunning()) {
+                    m_audioDeviceReloadTimer->stop();
                     applyAudioOutputDevice();
                 }
             });
@@ -4350,10 +4351,17 @@ void PlayerController::onAudioDeviceListChanged(const QVariantList &devices)
         return;
     }
 
+    const QString desired = m_config->getAudioOutputDevice();
+    if (desired.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
+        qCDebug(lcPlayback) << "PlayerController: audio device list changed ("
+                            << devices.size()
+                            << "devices ); keeping mpv on automatic audio output";
+        return;
+    }
+
     // The set of audio output devices changed while running (e.g. a Bluetooth
-    // headset connected/disconnected). Debounce and then re-apply the device so
-    // audio follows the new system default / reconnected device without needing
-    // a playback restart.
+    // headset connected/disconnected). Debounce and then re-apply the explicit
+    // device so a reconnected endpoint is used without needing a playback restart.
     qCInfo(lcPlayback) << "PlayerController: audio device list changed ("
                        << devices.size() << "devices ); scheduling audio output reload";
     if (m_playerBackend && m_playerBackend->isRunning()) {
