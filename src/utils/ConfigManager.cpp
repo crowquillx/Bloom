@@ -1344,6 +1344,8 @@ void ConfigManager::setAudioOutputDevice(const QString &device)
     QString normalized = device.trimmed();
     if (normalized.isEmpty()) {
         normalized = QStringLiteral("auto");
+    } else if (normalized.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
+        normalized = QStringLiteral("auto");
     }
 
     if (normalized == getAudioOutputDevice()) {
@@ -1372,7 +1374,10 @@ QString ConfigManager::getAudioOutputDevice() const
         if (settings.contains("playback") && settings["playback"].isObject()) {
             QJsonObject playback = settings["playback"].toObject();
             if (playback.contains("audio_output_device")) {
-                const QString stored = playback["audio_output_device"].toString().trimmed();
+                QString stored = playback["audio_output_device"].toString().trimmed();
+                if (stored.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
+                    stored = QStringLiteral("auto");
+                }
                 if (!stored.isEmpty()) {
                     return stored;
                 }

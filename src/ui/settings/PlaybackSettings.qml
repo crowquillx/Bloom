@@ -538,7 +538,7 @@ FocusScope {
                         }
 
                         Text {
-                            text: qsTr("Choose where audio plays. \"System Default\" follows Windows and switches automatically when devices connect or disconnect.")
+                            text: qsTr("Choose where audio plays. \"System Default\" follows the system and switches automatically when devices connect or disconnect.")
                             font.pixelSize: Theme.fontSizeSmall
                             font.family: Theme.fontPrimary
                             color: Theme.textSecondary
