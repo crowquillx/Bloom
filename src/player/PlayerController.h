@@ -101,6 +101,7 @@ class PlayerController : public QObject
     Q_PROPERTY(QString playSessionId READ playSessionId NOTIFY playSessionIdChanged)
     Q_PROPERTY(QVariantList availableAudioTracks READ availableAudioTracks NOTIFY availableTracksChanged)
     Q_PROPERTY(QVariantList availableSubtitleTracks READ availableSubtitleTracks NOTIFY availableTracksChanged)
+    Q_PROPERTY(QVariantList availableAudioDevices READ availableAudioDevices NOTIFY availableAudioDevicesChanged)
 
 public:
     /// Playback states for the state machine
@@ -185,6 +186,7 @@ public:
     QString playSessionId() const { return m_playSessionId; }
     QVariantList availableAudioTracks() const { return m_availableAudioTracks; }
     QVariantList availableSubtitleTracks() const { return m_availableSubtitleTracks; }
+    QVariantList availableAudioDevices() const { return m_availableAudioDevices; }
     
     // Audio Delay (ms)
     int audioDelay() const { return m_config->getAudioDelay(); }
@@ -355,6 +357,7 @@ signals:
     void mediaSourceIdChanged();
     void playSessionIdChanged();
     void availableTracksChanged();
+    void availableAudioDevicesChanged();
     
     /// Emitted when playback has stopped (user stop, playback end, or error)
     /// Use this to refresh UI elements that depend on playback state (e.g., watch progress)
@@ -642,6 +645,8 @@ private:
                                                  int preferredSubtitleIndex = -2) const;
     void syncBackendAudioTrack(int mpvTrackId);
     void syncBackendSubtitleTrack(int mpvTrackId);
+    void onAudioDeviceListChanged(const QVariantList &devices);
+    void applyAudioOutputDevice();
     void persistAudioPreferenceForCurrentScope(int index);
     void persistSubtitlePreferenceForCurrentScope(int index);
     void updateSeasonPreference(const QString &seasonId,
@@ -760,6 +765,12 @@ private:
     QTimer *m_progressReportTimer;
     QTimer *m_volumePersistTimer;
     QTimer *m_autoplayPlaybackInfoTimeoutTimer;
+
+    // Audio output device hotplug handling
+    QVariantList m_availableAudioDevices;
+    QTimer *m_audioDeviceReloadTimer = nullptr;
+    bool m_audioDeviceListInitialized = false;
+    static constexpr int kAudioDeviceReloadDebounceMs = 500;
     static constexpr int kProgressReportIntervalMs = 10000; // 10 seconds
     static constexpr int kVolumePersistDebounceMs = 250;
     static constexpr int kAutoplayPlaybackInfoTimeoutMs = 8000;

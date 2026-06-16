@@ -401,6 +401,7 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     , m_volumePersistTimer(new QTimer(this))
     , m_startDelayTimer(new QTimer(this))
     , m_autoplayPlaybackInfoTimeoutTimer(new QTimer(this))
+    , m_audioDeviceReloadTimer(new QTimer(this))
     , m_recoveryTimer(new QTimer(this))
 {
     if (!m_playerBackend) {
@@ -479,6 +480,12 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     connect(m_volumePersistTimer, &QTimer::timeout,
             this, &PlayerController::persistPlaybackVolumeState);
 
+    // Debounced re-application of the audio output device after a hotplug event.
+    m_audioDeviceReloadTimer->setSingleShot(true);
+    m_audioDeviceReloadTimer->setInterval(kAudioDeviceReloadDebounceMs);
+    connect(m_audioDeviceReloadTimer, &QTimer::timeout,
+            this, &PlayerController::applyAudioOutputDevice);
+
     m_autoplayPlaybackInfoTimeoutTimer->setSingleShot(true);
     m_autoplayPlaybackInfoTimeoutTimer->setInterval(kAutoplayPlaybackInfoTimeoutMs);
     connect(m_autoplayPlaybackInfoTimeoutTimer, &QTimer::timeout,
@@ -498,6 +505,14 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
                 if (m_playerBackend->isRunning()) {
                     double delaySeconds = static_cast<double>(m_config->getAudioDelay()) / 1000.0;
                     m_playerBackend->sendVariantCommand({"set_property", "audio-delay", delaySeconds});
+                }
+            });
+
+    // Re-apply the chosen audio output device immediately when the user changes it.
+    connect(m_config, &ConfigManager::audioOutputDeviceChanged,
+            this, [this]() {
+                if (m_playerBackend && m_playerBackend->isRunning()) {
+                    applyAudioOutputDevice();
                 }
             });
     
@@ -581,6 +596,8 @@ void PlayerController::connectBackendSignals(IPlayerBackend *backend)
             this, &PlayerController::syncBackendAudioTrack);
     connect(backend, &IPlayerBackend::subtitleTrackChanged,
             this, &PlayerController::syncBackendSubtitleTrack);
+    connect(backend, &IPlayerBackend::audioDeviceListChanged,
+            this, &PlayerController::onAudioDeviceListChanged);
 
     connect(backend, &IPlayerBackend::scriptMessage,
             this, &PlayerController::onScriptMessage);
@@ -4319,6 +4336,52 @@ void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
     m_pendingSubtitleTrackPersistenceFromBackend = false;
 }
 
+void PlayerController::onAudioDeviceListChanged(const QVariantList &devices)
+{
+    m_availableAudioDevices = devices;
+    emit availableAudioDevicesChanged();
+
+    if (!m_audioDeviceListInitialized) {
+        // First snapshot reported after mpv starts. The configured device was
+        // already applied via startup args, so there is nothing to reload yet.
+        m_audioDeviceListInitialized = true;
+        qCDebug(lcPlayback) << "PlayerController: initial audio device list ("
+                            << devices.size() << "devices )";
+        return;
+    }
+
+    // The set of audio output devices changed while running (e.g. a Bluetooth
+    // headset connected/disconnected). Debounce and then re-apply the device so
+    // audio follows the new system default / reconnected device without needing
+    // a playback restart.
+    qCInfo(lcPlayback) << "PlayerController: audio device list changed ("
+                       << devices.size() << "devices ); scheduling audio output reload";
+    if (m_playerBackend && m_playerBackend->isRunning()) {
+        m_audioDeviceReloadTimer->start();
+    }
+}
+
+void PlayerController::applyAudioOutputDevice()
+{
+    if (!m_playerBackend || !m_playerBackend->isRunning()) {
+        return;
+    }
+
+    QString desired = m_config->getAudioOutputDevice();
+    if (desired.isEmpty()) {
+        desired = QStringLiteral("auto");
+    }
+
+    qCInfo(lcPlayback) << "PlayerController: applying audio output device" << desired
+                       << "and reloading audio output";
+
+    // Point mpv at the desired device (a no-op if it already matches), then force
+    // the audio output to reinitialize. For "auto" this re-selects the current
+    // system default; for an explicit device it (re)opens that endpoint.
+    m_playerBackend->sendVariantCommand({"set_property", "audio-device", desired});
+    m_playerBackend->sendVariantCommand({"ao-reload"});
+}
+
 void PlayerController::persistAudioPreferenceForCurrentScope(int index)
 {
     if (!m_currentSeasonId.isEmpty()) {
@@ -5215,7 +5278,12 @@ void PlayerController::initiateMpvStart()
 #endif
 
     qCDebug(lcPlayback) << "PlayerController: Final mpv args:" << finalArgs;
-    
+
+    // The desired audio device is applied via startup args above; the first
+    // audio-device-list snapshot mpv reports should therefore not trigger a reload.
+    m_audioDeviceListInitialized = false;
+    m_audioDeviceReloadTimer->stop();
+
     m_playerBackend->startMpv(m_mpvBin, finalArgs, m_pendingUrl);
 }
 
