@@ -527,6 +527,20 @@ QStringList ConfigManager::getMpvConfigArgs() const
     
     // Disable mpv OSC; playback controls are handled by Bloom's native overlay.
     args << "--no-osc";
+
+    // Audio output routing.
+    // --audio-fallback-to-null keeps playback alive (instead of erroring) when no
+    // audio device is currently available. This lets Bloom recover via ao-reload
+    // once a device (re)appears, e.g. when a Bluetooth headset connects after the
+    // app/playback has already started.
+    args << "--audio-fallback-to-null=yes";
+
+    // When the user has selected an explicit output device, ask mpv to use it.
+    // "auto" (the default) follows the system default device.
+    const QString audioDevice = getAudioOutputDevice();
+    if (!audioDevice.isEmpty() && audioDevice != QStringLiteral("auto")) {
+        args << "--audio-device=" + audioDevice;
+    }
     
     QString mpvConfigDir = getMpvConfigDir();
     QDir dir(mpvConfigDir);
@@ -1321,6 +1335,51 @@ int ConfigManager::getAudioDelay() const
         }
     }
     return 0; // Default to 0ms
+}
+
+void ConfigManager::setAudioOutputDevice(const QString &device)
+{
+    // Normalize empty string to the canonical "auto" so the saved value and the
+    // value passed to mpv stay consistent.
+    QString normalized = device.trimmed();
+    if (normalized.isEmpty()) {
+        normalized = QStringLiteral("auto");
+    }
+
+    if (normalized == getAudioOutputDevice()) {
+        return;
+    }
+
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject playback;
+    if (settings.contains("playback") && settings["playback"].isObject()) {
+        playback = settings["playback"].toObject();
+    }
+    playback["audio_output_device"] = normalized;
+    settings["playback"] = playback;
+    m_config["settings"] = settings;
+    save();
+    emit audioOutputDeviceChanged();
+}
+
+QString ConfigManager::getAudioOutputDevice() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("playback") && settings["playback"].isObject()) {
+            QJsonObject playback = settings["playback"].toObject();
+            if (playback.contains("audio_output_device")) {
+                const QString stored = playback["audio_output_device"].toString().trimmed();
+                if (!stored.isEmpty()) {
+                    return stored;
+                }
+            }
+        }
+    }
+    return QStringLiteral("auto"); // Follow the system default output device
 }
 
 void ConfigManager::setPlaybackVolume(int volume)
