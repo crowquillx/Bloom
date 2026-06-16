@@ -41,6 +41,29 @@ FocusScope {
         return 0
     }
 
+    // Builds the option list for the audio output device selector. The first
+    // entry always follows the system default; live devices reported by mpv are
+    // appended. A currently-saved device that is not present in the live list
+    // (e.g. a Bluetooth headset that is powered off) is still shown so the
+    // preference remains visible and selectable.
+    function audioOutputDeviceOptions() {
+        var options = [{ label: qsTr("System Default (Automatic)"), value: "auto" }]
+        var seen = { "auto": true }
+        var devices = PlayerController.availableAudioDevices
+        for (var i = 0; i < devices.length; ++i) {
+            var name = devices[i].name
+            if (!name || seen[name]) continue
+            seen[name] = true
+            var description = devices[i].description
+            options.push({ label: (description && description.length > 0) ? description : name, value: name })
+        }
+        var saved = ConfigManager.audioOutputDevice
+        if (saved && saved.length > 0 && saved !== "auto" && !seen[saved]) {
+            options.push({ label: qsTr("%1 (not connected)").arg(saved), value: saved })
+        }
+        return options
+    }
+
     readonly property var globalStartupBufferingOptions: [
         { label: qsTr("Normal"), value: "normal" },
         { label: qsTr("Remote Mount"), value: "remote-mount" }
@@ -487,10 +510,113 @@ FocusScope {
                     onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
 
                     KeyNavigation.up: thresholdSlider
-                    KeyNavigation.down: defaultAudioTrackCombo
+                    KeyNavigation.down: audioOutputDeviceCombo
 
                     onSpinBoxValueChanged: function(newValue) {
                         ConfigManager.audioDelay = newValue
+                    }
+                }
+
+                // ── Group 3b: Audio output device ──
+
+                SettingsGroupDivider { Layout.fillWidth: true }
+
+                RowLayout {
+                    id: audioOutputDeviceRow
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        spacing: Math.round(4 * Theme.layoutScale)
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: qsTr("Audio Output Device")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+
+                        Text {
+                            text: qsTr("Choose where audio plays. \"System Default\" follows Windows and switches automatically when devices connect or disconnect.")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    SettingsComboBox {
+                        id: audioOutputDeviceCombo
+                        property var options: root.audioOutputDeviceOptions()
+                        model: options
+                        textRole: "label"
+                        valueRole: "value"
+                        currentIndex: root.optionIndexForValue(options, ConfigManager.audioOutputDevice)
+                        Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
+                        focusPolicy: Qt.StrongFocus
+                        property bool initialized: false
+                        property bool updatingSelection: false
+
+                        function refreshOptions() {
+                            updatingSelection = true
+                            options = root.audioOutputDeviceOptions()
+                            currentIndex = root.optionIndexForValue(options, ConfigManager.audioOutputDevice)
+                            updatingSelection = false
+                        }
+
+                        Component.onCompleted: {
+                            refreshOptions()
+                            initialized = true
+                        }
+
+                        Connections {
+                            target: ConfigManager
+                            function onAudioOutputDeviceChanged() {
+                                audioOutputDeviceCombo.refreshOptions()
+                            }
+                        }
+
+                        Connections {
+                            target: PlayerController
+                            function onAvailableAudioDevicesChanged() {
+                                audioOutputDeviceCombo.refreshOptions()
+                            }
+                        }
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                                InputModeManager.setNavigationMode("keyboard")
+                                InputModeManager.hideCursor(true)
+                            } else if (!popup.visible) {
+                                InputModeManager.setNavigationMode("pointer")
+                                InputModeManager.hideCursor(false)
+                            }
+                        }
+
+                        onCurrentIndexChanged: {
+                            if (!initialized || updatingSelection || currentIndex < 0) return
+                            var value = options[currentIndex].value
+                            if (value !== ConfigManager.audioOutputDevice) {
+                                ConfigManager.audioOutputDevice = value
+                            }
+                        }
+
+                        Keys.onUpPressed: function(event) {
+                            if (!popup.visible) {
+                                audioDelaySpinBox.forceActiveFocus()
+                                event.accepted = true
+                            }
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (!popup.visible) {
+                                defaultAudioTrackCombo.forceActiveFocus()
+                                event.accepted = true
+                            }
+                        }
                     }
                 }
 
@@ -578,7 +704,7 @@ FocusScope {
 
                         Keys.onUpPressed: function(event) {
                             if (!popup.visible) {
-                                audioDelaySpinBox.forceActiveFocus()
+                                audioOutputDeviceCombo.forceActiveFocus()
                                 event.accepted = true
                             }
                         }
