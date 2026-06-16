@@ -30,6 +30,8 @@ ExternalMpvBackend::ExternalMpvBackend(QObject *parent)
             this, &ExternalMpvBackend::audioTrackChanged);
     connect(m_processManager, &PlayerProcessManager::subtitleTrackChanged,
             this, &ExternalMpvBackend::subtitleTrackChanged);
+    connect(m_processManager, &PlayerProcessManager::audioDeviceListChanged,
+            this, &ExternalMpvBackend::audioDeviceListChanged);
     connect(m_processManager, &PlayerProcessManager::scriptMessage,
             this, &ExternalMpvBackend::scriptMessage);
 }
