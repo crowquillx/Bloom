@@ -1342,9 +1342,7 @@ void ConfigManager::setAudioOutputDevice(const QString &device)
     // Normalize empty string to the canonical "auto" so the saved value and the
     // value passed to mpv stay consistent.
     QString normalized = device.trimmed();
-    if (normalized.isEmpty()) {
-        normalized = QStringLiteral("auto");
-    } else if (normalized.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
+    if (normalized.isEmpty() || normalized.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
         normalized = QStringLiteral("auto");
     }
 

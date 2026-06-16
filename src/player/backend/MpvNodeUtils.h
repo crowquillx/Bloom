@@ -9,6 +9,8 @@ extern "C" {
 #include <mpv/client.h>
 }
 
+namespace BloomBackend {
+
 // Convert mpv's "audio-device-list" node (an array of {name, description} maps)
 // into a QVariantList of QVariantMaps for consumption by the rest of Bloom.
 inline QVariantList parseMpvAudioDeviceList(const mpv_node *node)
@@ -43,4 +45,6 @@ inline QVariantList parseMpvAudioDeviceList(const mpv_node *node)
 
     return devices;
 }
+
+} // namespace BloomBackend
 #endif

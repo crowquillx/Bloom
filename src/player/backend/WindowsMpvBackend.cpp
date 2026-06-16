@@ -1227,7 +1227,7 @@ void WindowsMpvBackend::processMpvEvents()
 
                 if (node->format == MPV_FORMAT_NODE_ARRAY
                     && propertyName == QStringLiteral("audio-device-list")) {
-                    emit audioDeviceListChanged(parseMpvAudioDeviceList(node));
+                    emit audioDeviceListChanged(BloomBackend::parseMpvAudioDeviceList(node));
                     break;
                 }
 
