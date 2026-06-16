@@ -50,6 +50,14 @@ Windows embedded overlay layering model
 - Windows playback-start logs include the selected profile, `windows_render_api`, effective `vo`, `gpu-api`, `gpu-context`, 10-bit D3D11 output state, HDR output args, and shader filenames. Use mpv stats/log overlays with `BLOOM_WINDOWS_LIBMPV_MPV_LOG=info` or `debug` to verify input/output colorspace, HDR signaling, renderer selection, and shader application during runtime validation.
 - Embedded libmpv backends (`win-libmpv`, `linux-libmpv-opengl`) apply profile shaders after `mpv_initialize` using `change-list glsl-shaders clr/append` with absolute paths resolved from Bloom's mpv config directory (`~~/shaders/...` expands to `{config}/mpv/shaders/...`). CLI-style `--glsl-shaders-append` remains for external mpv only.
 
+Audio output device & hotplug handling
+- Goal: audio should follow the device the user actually wants, including devices that connect *after* Bloom (or playback) has already started — e.g. powering on a Bluetooth headset mid-session — without restarting the app.
+- Setting: `ConfigManager.audioOutputDevice` (`settings.playback.audio_output_device`, default `auto`). `auto`/empty follows the system default output device; a specific value is an mpv audio-device id such as `wasapi/{...}`. A picker lives in **Settings > Playback > Audio Output Device**, populated from the live device list plus the saved selection.
+- Startup: `ConfigManager::getMpvConfigArgs()` always passes `--audio-fallback-to-null=yes` so playback keeps running (instead of erroring) when no usable device exists at a given moment, and passes `--audio-device=<id>` when a non-`auto` device is selected.
+- Hotplug detection: every backend observes mpv's `audio-device-list` property and emits `IPlayerBackend::audioDeviceListChanged(devices)` (each entry is `{name, description}`). `PlayerProcessManager` parses the IPC JSON; `LinuxMpvBackend`/`WindowsMpvBackend` parse the `MPV_FORMAT_NODE` array.
+- Reaction: `PlayerController` caches the list (exposed to QML as `availableAudioDevices`). The first snapshot after an mpv start is treated as the baseline and does not trigger a reload (the device was already applied via startup args). Subsequent changes are debounced (~500ms) and then re-applied via `set_property audio-device <desired>` followed by `ao-reload`, which forces mpv to reinitialize its audio output. For `auto` this re-selects the current system default; for an explicit device it (re)opens that endpoint when it returns.
+- Changing the device in Settings during playback applies immediately through the same `applyAudioOutputDevice()` path.
+
 Reference implementation notes (Plezy)
 - External reference: https://github.com/edde746/plezy
 - Bloom should use Plezy as a design reference for mpv integration choices (embedded window lifecycle, async command/event flow, observed-property mapping, and transition/flicker mitigation patterns), not as a direct code drop.
