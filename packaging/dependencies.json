@@ -24,5 +24,9 @@
     "branch": "6.10",
     "sdk_commit": "362d29ef048c5e7527d1755febd7c3f3e098be64bc7546c4274b32a98720a37e",
     "platform_commit": "bf12aa1a74c99ff1c74c90a7caf2234056d8b4e0b19f94c7f3ddc4ade7a639a6"
+  },
+  "gtest": {
+    "version": "1.17.0",
+    "commit": "52eb8108c5bdec04579160ae17225d66034bd723"
   }
 }

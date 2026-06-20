@@ -107,7 +107,9 @@
                   (.mpv.version | type == "string") and
                   (.portable.image | startswith("docker://")) and
                   (.flatpak.sdk_commit | length == 64) and
-                  (.flatpak.platform_commit | length == 64)
+                  (.flatpak.platform_commit | length == 64) and
+                  (.gtest.version | type == "string") and
+                  (.gtest.commit | length == 40)
                 ' ${./packaging/dependencies.json} >/dev/null
                 touch "$out"
               '';
