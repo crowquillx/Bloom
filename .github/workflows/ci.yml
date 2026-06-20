@@ -122,7 +122,9 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "aqtinstall==3.3.*" "py7zr==1.0.*"
+          # aqtinstall 3.3.0 cannot install Qt 6.11+ on Windows (repo layout
+          # changed); use the fix on master until 3.3.1 is released.
+          python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@bbfb1f7c0590b9eb3fa91356e75bb64fb15d3643" "py7zr==1.0.*"
           python -m aqt install-qt -O "$env:RUNNER_WORKSPACE\Qt" windows desktop `
             "$env:BLOOM_QT_VERSION" "$env:BLOOM_QT_ARCH" `
             -m qtmultimedia qtshadertools qtimageformats qt5compat
