@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DIR="${1:-dist}"
-VERSION="$(tr -d '\n' < VERSION)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DIR="${1:-$ROOT/dist}"
+VERSION="$(tr -d '\n' < "$ROOT/VERSION")"
 required=(
     "Bloom-${VERSION}-linux-x86_64.AppImage"
     "Bloom-${VERSION}-linux-x86_64.flatpak"

@@ -10,7 +10,8 @@ apt-get install -y --no-install-recommends \
     zsync
 
 DEPS=/workspace/packaging/dependencies.json
-QT_VERSION="$(jq_read() { python3 -c "import json; print(json.load(open('$DEPS'))$1)"; }; jq_read "['qt']['version']")"
+jq_read() { python3 -c "import json; print(json.load(open('$DEPS'))$1)"; }
+QT_VERSION="$(jq_read "['qt']['version']")"
 LINUXDEPLOY_VERSION="$(jq_read "['portable']['linuxdeploy_version']")"
 LINUXDEPLOY_SHA="$(jq_read "['portable']['linuxdeploy_sha256']")"
 QT_PLUGIN_VERSION="$(jq_read "['portable']['linuxdeploy_qt_version']")"
