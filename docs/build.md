@@ -104,8 +104,9 @@ pull request that introduces them. The public `crowquillx-bloom` Cachix cache
 only substitutes store paths whose hashes match the locked derivations; it
 does not alter reproducibility.
 
-As of June 20, 2026, nixpkgs supplies Qt 6.11.0 while Qt's online installer
-supplies Qt 6.12.0 for portable Linux and Windows builds.
+As of June 20, 2026, nixpkgs supplies Qt 6.11.0. Portable Linux and Windows
+builds use Qt 6.11.1 via aqtinstall; Qt 6.12.0 is available upstream but
+aqtinstall cannot install it yet (miurahr/aqtinstall#1024).
 
 ## Release artifacts
 
