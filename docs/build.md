@@ -89,6 +89,15 @@ validated in that environment:
 .\scripts\package-windows.ps1 -InstallDir install-windows -OutputDir Bloom-Windows
 ```
 
+`build.ps1` defaults to `-DBUILD_TESTING=OFF` on Windows (CI builds the
+application only). Pass `-BuildTests` to configure and build the test
+targets so `run-windows-tests.ps1` has something to run:
+
+```powershell
+.\scripts\build.ps1 -Clean -BuildTests
+.\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure
+```
+
 The Windows scripts and GitHub workflow read Qt and libmpv pins from
 `packaging/dependencies.json`.
 

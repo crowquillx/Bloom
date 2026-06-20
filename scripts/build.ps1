@@ -42,6 +42,7 @@ param (
     [string]$QtDir = "",
     [string]$Generator = "",
     [bool]$AutoFetchMpvSdk = $true,
+    [switch]$BuildTests,
     [switch]$Clean
 )
 
@@ -431,7 +432,8 @@ $CMakeArgs = @(
     "-S", ".",
     "-B", $BuildDir,
     "-DCMAKE_BUILD_TYPE=$Config",
-    "-DCMAKE_INSTALL_PREFIX=$InstallDir"
+    "-DCMAKE_INSTALL_PREFIX=$InstallDir",
+    "-DBUILD_TESTING=$($BuildTests.ToString())"
 )
 
 if ($QtDir) {

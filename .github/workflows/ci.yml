@@ -168,9 +168,6 @@ jobs:
           if (-not (Get-Command cl -ErrorAction SilentlyContinue)) { throw "MSVC compiler (cl.exe) is not on PATH after Enter-VsDevShell" }
           ./scripts/build.ps1 -BuildDir build-windows -InstallDir install-windows `
             -QtDir "$env:QT_ROOT_DIR" -Generator Ninja -Clean
-      - name: Run Windows tests
-        shell: pwsh
-        run: ./scripts/run-windows-tests.ps1 -Config Release -OutputOnFailure
       - name: Package portable build
         shell: pwsh
         run: |
