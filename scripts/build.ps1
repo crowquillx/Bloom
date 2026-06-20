@@ -227,8 +227,14 @@ function Fetch-MpvSdk {
         New-Item -ItemType Directory -Path $DestinationRoot | Out-Null
     }
 
-    $mpvReleaseTag = "20260610"
-    $mpvSdkVersion = "20260610-git-304426c"
+    $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    $dependencyManifest = Join-Path $projectRoot "packaging\dependencies.json"
+    if (-not (Test-Path $dependencyManifest)) {
+        throw "Dependency manifest not found: $dependencyManifest"
+    }
+    $dependencies = Get-Content $dependencyManifest -Raw | ConvertFrom-Json
+    $mpvReleaseTag = $dependencies.mpv.windows_release_tag
+    $mpvSdkVersion = $dependencies.mpv.windows_sdk_version
     $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
     $downloadUrl = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$mpvReleaseTag/$mpvSdkFile"
 

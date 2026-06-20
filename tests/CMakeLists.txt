@@ -383,6 +383,7 @@ endif()
 
 add_test(NAME UpdateServiceTest COMMAND UpdateServiceTest)
 
+if(BLOOM_BUILD_VISUAL_TESTS)
 # ============================================================================
 # Visual Regression Test Fixtures
 # ============================================================================
@@ -650,3 +651,4 @@ endif()
 # Create diffs and captures directories in build
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/diffs")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/captures")
+endif()

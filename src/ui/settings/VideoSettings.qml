@@ -335,6 +335,8 @@ FocusScope {
 
                     SettingsTextInputRow {
                         id: linuxRefreshRateInput
+                        visible: Qt.platform.os === "linux"
+                                 && SystemPowerController.hostPowerActionsAvailable
                         label: qsTr("Linux Refresh Rate Command")
                         placeholderText: "xrandr --output HDMI-1 --rate {RATE}"
                         text: ConfigManager.linuxRefreshRateCommand
@@ -347,6 +349,8 @@ FocusScope {
 
                     SettingsTextInputRow {
                         id: linuxHDRInput
+                        visible: Qt.platform.os === "linux"
+                                 && SystemPowerController.hostPowerActionsAvailable
                         label: qsTr("Linux HDR Command")
                         placeholderText: qsTr("(not commonly available)")
                         text: ConfigManager.linuxHDRCommand

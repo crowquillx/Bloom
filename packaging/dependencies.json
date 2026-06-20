@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "qt": {
+    "version": "6.12.0",
+    "windows_arch": "win64_msvc2022_64"
+  },
+  "mpv": {
+    "version": "0.41.0",
+    "windows_release_tag": "20260610",
+    "windows_sdk_version": "20260610-git-304426c"
+  },
+  "portable": {
+    "baseline": "ubuntu-24.04",
+    "image": "docker://ubuntu@sha256:023f8a753c22258c9fe2d0005a7d28258038da7d620e9f93e9ad78aa266f9f11",
+    "linuxdeploy_version": "1-alpha-20251107-1",
+    "linuxdeploy_sha256": "c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d",
+    "linuxdeploy_qt_version": "1-alpha-20250213-1",
+    "linuxdeploy_qt_sha256": "15106be885c1c48a021198e7e1e9a48ce9d02a86dd0a1848f00bdbf3c1c92724"
+  },
+  "flatpak": {
+    "runtime": "org.kde.Platform",
+    "sdk": "org.kde.Sdk",
+    "branch": "6.10",
+    "sdk_commit": "362d29ef048c5e7527d1755febd7c3f3e098be64bc7546c4274b32a98720a37e",
+    "platform_commit": "bf12aa1a74c99ff1c74c90a7caf2234056d8b4e0b19f94c7f3ddc4ade7a639a6"
+  }
+}

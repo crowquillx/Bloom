@@ -283,12 +283,12 @@ The responsive layout system includes automated visual regression testing to cat
 
 1. Build the project using the approved wrapper (see [`docs/build.md`](./build.md)):
    ```bash
-   ./scripts/build-docker.sh
+   nix flake check
    ```
 
 2. Run the visual regression tests:
    ```bash
-   ./build-docker/tests/VisualRegressionTest
+   nix develop --command cmake --build build-quarantine --target VisualRegressionTest
    ```
 
 ### Test Mode
@@ -296,7 +296,7 @@ The responsive layout system includes automated visual regression testing to cat
 The application supports a `--test-mode` flag for visual regression testing:
 
 ```bash
-./build-docker/src/Bloom --test-mode --test-resolution 1920x1080
+nix run . -- --test-mode --test-resolution 1920x1080
 ```
 
 Options:
@@ -324,7 +324,7 @@ Golden screenshots are stored in `tests/golden/` and are generated automatically
 
 2. Run the tests again:
    ```bash
-   ./build-docker/tests/VisualRegressionTest
+   nix develop --command cmake --build build-quarantine --target VisualRegressionTest
    ```
 
 3. New golden screenshots will be created

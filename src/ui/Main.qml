@@ -552,6 +552,7 @@ Window {
 
             PowerMenuButton {
                 id: restartPcButton
+                visible: SystemPowerController.hostPowerActionsAvailable
                 text: qsTr("Restart PC")
                 iconText: Icons.refresh
                 destructive: true
@@ -562,6 +563,7 @@ Window {
 
             PowerMenuButton {
                 id: shutdownButton
+                visible: SystemPowerController.hostPowerActionsAvailable
                 text: qsTr("Shutdown")
                 iconText: Icons.power
                 destructive: true
