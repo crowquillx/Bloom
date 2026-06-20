@@ -2,6 +2,10 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Under `nix run`, BASH_SOURCE lives at the store root (/nix/store/<hash>.sh)
+# so the path above resolves to /nix; fall back to the invocation directory.
+[[ -f "$ROOT/VERSION" ]] || ROOT="$PWD"
+[[ -f "$ROOT/VERSION" ]] || { echo "Cannot locate Bloom source root (VERSION not found) from $PWD." >&2; exit 1; }
 OUTPUT="$ROOT/dist"
 CHANNEL="${BLOOM_BUILD_CHANNEL:-stable}"
 BUILD_ID="${BLOOM_BUILD_ID:-}"
