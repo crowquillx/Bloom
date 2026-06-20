@@ -10,8 +10,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
 
 env:
   CACHIX_CACHE: crowquillx-bloom
@@ -22,12 +20,12 @@ jobs:
     name: Nix checks
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: cachix/install-nix-action@v31
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
         with:
           extra_nix_config: |
             accept-flake-config = true
-      - uses: cachix/cachix-action@v16
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
         with:
           name: ${{ env.CACHIX_CACHE }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -40,9 +38,9 @@ jobs:
     runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
-      - uses: cachix/install-nix-action@v31
-      - uses: cachix/cachix-action@v16
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
         with:
           name: ${{ env.CACHIX_CACHE }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
@@ -63,15 +61,15 @@ jobs:
     needs: nix
     if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v6
-      - uses: cachix/install-nix-action@v31
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
       - name: Build AppImage, deb, and tarball
         env:
           BLOOM_BUILD_CHANNEL: ${{ startsWith(github.ref, 'refs/tags/v') && 'stable' || 'dev' }}
           BLOOM_BUILD_ID: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || github.sha }}
           BLOOM_GIT_SHA: ${{ github.sha }}
         run: nix run .#package-linux -- --output dist
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Bloom-Linux
           path: |
@@ -87,11 +85,11 @@ jobs:
     needs: nix
     if: github.event_name != 'pull_request'
     steps:
-      - uses: actions/checkout@v6
-      - uses: cachix/install-nix-action@v31
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
       - name: Build Flatpak bundle
         run: nix run .#package-flatpak -- --output dist
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Bloom-Flatpak
           path: |
@@ -103,8 +101,8 @@ jobs:
     name: Windows x86_64
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: '3.13'
       - name: Read dependency pins
@@ -113,7 +111,14 @@ jobs:
           $deps = Get-Content packaging/dependencies.json -Raw | ConvertFrom-Json
           "BLOOM_QT_VERSION=$($deps.qt.version)" >> $env:GITHUB_ENV
           "BLOOM_QT_ARCH=$($deps.qt.windows_arch)" >> $env:GITHUB_ENV
+      - name: Cache Qt SDK
+        id: cache-qt
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.workspace }}\Qt
+          key: qt-${{ env.BLOOM_QT_VERSION }}-${{ env.BLOOM_QT_ARCH }}-${{ hashFiles('packaging/dependencies.json') }}
       - name: Install Qt
+        if: steps.cache-qt.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
@@ -121,6 +126,9 @@ jobs:
           python -m aqt install-qt -O "$env:RUNNER_WORKSPACE\Qt" windows desktop `
             "$env:BLOOM_QT_VERSION" "$env:BLOOM_QT_ARCH" `
             -m qtmultimedia qtshadertools qtimageformats qt5compat
+      - name: Configure Qt environment
+        shell: pwsh
+        run: |
           $qtRoot = Join-Path $env:RUNNER_WORKSPACE "Qt\$env:BLOOM_QT_VERSION\$env:BLOOM_QT_ARCH"
           "QT_ROOT_DIR=$qtRoot" >> $env:GITHUB_ENV
           "CMAKE_PREFIX_PATH=$qtRoot" >> $env:GITHUB_ENV
@@ -131,6 +139,18 @@ jobs:
       - name: Build and install
         shell: pwsh
         run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found at $vswhere" }
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) { throw "No Visual Studio installation with MSVC x64 tools was found" }
+          $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+          if (-not (Test-Path $vcvars)) { throw "vcvars64.bat not found at $vcvars" }
+          cmd /c "`"$vcvars`" -arch=x64 && set" | ForEach-Object {
+              if ($_ -match '^([^=]+)=(.*)$') {
+                  [Environment]::SetEnvironmentVariable($matches[1], $matches[2], 'Process')
+              }
+          }
+          if (-not (Get-Command cl -ErrorAction SilentlyContinue)) { throw "MSVC compiler (cl.exe) is not on PATH after activating vcvars64.bat" }
           ./scripts/build.ps1 -BuildDir build-windows -InstallDir install-windows `
             -QtDir "$env:QT_ROOT_DIR" -Generator Ninja -Clean
       - name: Run Windows tests
@@ -146,7 +166,7 @@ jobs:
       - name: Build installer
         shell: pwsh
         run: '& "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi'
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Bloom-Windows
           path: |
@@ -164,10 +184,10 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           pattern: Bloom-*
           path: release-assets
@@ -177,7 +197,7 @@ jobs:
           cd release-assets
           find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -print0 |
             sort -z | xargs -0 sha256sum > SHA256SUMS.txt
-      - uses: actions/attest-build-provenance@v3
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: |
             release-assets/*.AppImage
@@ -198,7 +218,7 @@ jobs:
             echo "tag=dev-latest" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ steps.release.outputs.tag }}
           prerelease: ${{ steps.release.outputs.prerelease }}

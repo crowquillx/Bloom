@@ -13,15 +13,15 @@ jobs:
   update:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-      - uses: cachix/install-nix-action@v31
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
       - name: Refresh flake inputs
         run: nix flake update
       - name: Validate updated inputs
         env:
           BLOOM_BUILD_JOBS: '2'
         run: nix flake check --print-build-logs --option max-jobs 1 --option cores 2
-      - uses: peter-evans/create-pull-request@v8
+      - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
           branch: automation/update-dependencies
           delete-branch: true
