@@ -281,14 +281,22 @@ The responsive layout system includes automated visual regression testing to cat
 
 ### Running Tests Locally
 
-1. Build the project using the approved wrapper (see [`docs/build.md`](./build.md)):
+1. Configure and build the quarantine targets (the `nix flake check` run builds
+   inside the Nix store and does not create a local `build-quarantine`
+   directory, so it must be configured explicitly first):
    ```bash
-   nix flake check
+   nix develop --command bash -c '
+     cmake -S . -B build-quarantine -G Ninja -DBUILD_TESTING=ON
+     cmake --build build-quarantine --target VisualRegressionTest
+   '
    ```
 
 2. Run the visual regression tests:
    ```bash
-   nix develop --command cmake --build build-quarantine --target VisualRegressionTest
+   nix develop --command bash -c '
+     QT_QPA_PLATFORM=offscreen ctest --test-dir build-quarantine \
+       --output-on-failure --tests-regex "^VisualRegressionTest$"
+   '
    ```
 
 ### Test Mode
@@ -322,9 +330,14 @@ Golden screenshots are stored in `tests/golden/` and are generated automatically
    rm tests/golden/*.png
    ```
 
-2. Run the tests again:
+2. Configure (if `build-quarantine` does not already exist) and run the tests again:
    ```bash
-   nix develop --command cmake --build build-quarantine --target VisualRegressionTest
+   nix develop --command bash -c '
+     cmake -S . -B build-quarantine -G Ninja -DBUILD_TESTING=ON
+     cmake --build build-quarantine --target VisualRegressionTest
+     QT_QPA_PLATFORM=offscreen ctest --test-dir build-quarantine \
+       --output-on-failure --tests-regex "^VisualRegressionTest$"
+   '
    ```
 
 3. New golden screenshots will be created
