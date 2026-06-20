@@ -9,6 +9,10 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+if(WIN32)
+    add_compile_definitions(NOMINMAX)
+endif()
+
 set(BLOOM_BUILD_CHANNEL "stable" CACHE STRING "Bloom build channel metadata")
 set(BLOOM_BUILD_ID "${PROJECT_VERSION}" CACHE STRING "Bloom build identifier metadata")
 set(BLOOM_GIT_SHA "$ENV{GITHUB_SHA}" CACHE STRING "Bloom Git SHA metadata")
