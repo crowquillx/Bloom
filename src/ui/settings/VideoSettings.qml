@@ -14,6 +14,8 @@ FocusScope {
     readonly property var hdrOutputModeLabels: [qsTr("Match Content"), qsTr("Tone-map to SDR"), qsTr("Force HDR (Experimental)")]
     readonly property var dolbyVisionFallbackModeValues: ["prefer-compatible-hdr", "tone-map-unsupported", "experimental-direct-play"]
     readonly property var dolbyVisionFallbackModeLabels: [qsTr("Prefer Compatible HDR"), qsTr("Tone-map Unsupported"), qsTr("Experimental Direct Play")]
+    readonly property bool linuxDisplayCommandsVisible: Qt.platform.os === "linux"
+                                                         && !SystemPowerController.isFlatpak
 
     function enterFromRail() {
         var target = (_lastFocusedItem && _lastFocusedItem.visible) ? _lastFocusedItem : preferredEntryItem
@@ -324,7 +326,10 @@ FocusScope {
                             }
                             Keys.onDownPressed: function(event) {
                                 if (!popup.visible) {
-                                    linuxRefreshRateInput.input.forceActiveFocus()
+                                    var target = root.linuxDisplayCommandsVisible
+                                                  ? linuxRefreshRateInput.input
+                                                  : windowsHDRInput.input
+                                    target.forceActiveFocus()
                                     event.accepted = true
                                 }
                             }
@@ -335,8 +340,7 @@ FocusScope {
 
                     SettingsTextInputRow {
                         id: linuxRefreshRateInput
-                        visible: Qt.platform.os === "linux"
-                                 && SystemPowerController.hostPowerActionsAvailable
+                        visible: root.linuxDisplayCommandsVisible
                         label: qsTr("Linux Refresh Rate Command")
                         placeholderText: "xrandr --output HDMI-1 --rate {RATE}"
                         text: ConfigManager.linuxRefreshRateCommand
@@ -349,8 +353,7 @@ FocusScope {
 
                     SettingsTextInputRow {
                         id: linuxHDRInput
-                        visible: Qt.platform.os === "linux"
-                                 && SystemPowerController.hostPowerActionsAvailable
+                        visible: root.linuxDisplayCommandsVisible
                         label: qsTr("Linux HDR Command")
                         placeholderText: qsTr("(not commonly available)")
                         text: ConfigManager.linuxHDRCommand
@@ -367,7 +370,14 @@ FocusScope {
                         placeholderText: qsTr("(uses native API by default)")
                         text: ConfigManager.windowsCustomHDRCommand
                         ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
-                        keyUpTarget: linuxHDRInput.input
+                        keyUpHandler: function(event) {
+                            if (root.linuxDisplayCommandsVisible) {
+                                linuxHDRInput.input.forceActiveFocus()
+                            } else {
+                                dolbyVisionFallbackCombo.forceActiveFocus()
+                            }
+                            event.accepted = true
+                        }
                         keyDownTarget: null
                         onEditingFinished: ConfigManager.windowsCustomHDRCommand = text
                         onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }

@@ -15,8 +15,13 @@ SystemPowerController::SystemPowerController(ConfigManager* configManager,
 
 bool SystemPowerController::hostPowerActionsAvailable() const
 {
-    return qEnvironmentVariableIsEmpty("FLATPAK_ID")
-        && qEnvironmentVariableIsEmpty("BLOOM_FLATPAK");
+    return !isFlatpak();
+}
+
+bool SystemPowerController::isFlatpak() const
+{
+    return !qEnvironmentVariableIsEmpty("FLATPAK_ID")
+        || !qEnvironmentVariableIsEmpty("BLOOM_FLATPAK");
 }
 
 bool SystemPowerController::quitApplication()

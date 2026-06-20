@@ -546,7 +546,7 @@ Window {
                 text: qsTr("Restart App")
                 iconText: Icons.refresh
                 KeyNavigation.up: quitButton
-                KeyNavigation.down: restartPcButton
+                KeyNavigation.down: restartPcButton.visible ? restartPcButton : null
                 onClicked: homePowerDialog.runPowerAction(function() { return SystemPowerController.restartApplication() })
             }
 

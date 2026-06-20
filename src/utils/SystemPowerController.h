@@ -11,12 +11,14 @@ class SystemPowerController : public QObject
     Q_OBJECT
     Q_PROPERTY(QString lastError READ lastError NOTIFY lastErrorChanged)
     Q_PROPERTY(bool hostPowerActionsAvailable READ hostPowerActionsAvailable CONSTANT)
+    Q_PROPERTY(bool isFlatpak READ isFlatpak CONSTANT)
 
 public:
     explicit SystemPowerController(ConfigManager* configManager, QObject* parent = nullptr);
 
     QString lastError() const { return m_lastError; }
     bool hostPowerActionsAvailable() const;
+    bool isFlatpak() const;
 
     Q_INVOKABLE bool quitApplication();
     Q_INVOKABLE bool restartApplication();
