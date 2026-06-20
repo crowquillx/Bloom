@@ -131,7 +131,13 @@ jobs:
       - name: Configure Qt environment
         shell: pwsh
         run: |
-          $qtRoot = Join-Path $env:RUNNER_WORKSPACE "Qt\$env:BLOOM_QT_VERSION\$env:BLOOM_QT_ARCH"
+          # aqtinstall installs to <outputdir>/<version>/<arch-dir>/ where
+          # <arch-dir> drops the "win64_" prefix from the package selector.
+          $qtArchDir = $env:BLOOM_QT_ARCH -replace '^win64_', ''
+          $qtRoot = Join-Path $env:RUNNER_WORKSPACE "Qt\$env:BLOOM_QT_VERSION\$qtArchDir"
+          if (-not (Test-Path "$qtRoot\lib\cmake\Qt6\Qt6Config.cmake")) {
+            throw "Qt6Config.cmake not found under $qtRoot"
+          }
           "QT_ROOT_DIR=$qtRoot" >> $env:GITHUB_ENV
           "CMAKE_PREFIX_PATH=$qtRoot" >> $env:GITHUB_ENV
           "$qtRoot\bin" >> $env:GITHUB_PATH
