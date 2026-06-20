@@ -21,6 +21,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
       - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
         with:
           extra_nix_config: |
@@ -39,6 +41,8 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
       - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
       - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
         with:
@@ -62,6 +66,8 @@ jobs:
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
       - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
       - name: Build AppImage, deb, and tarball
         env:
@@ -86,6 +92,8 @@ jobs:
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
       - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
       - name: Build Flatpak bundle
         run: nix run .#package-flatpak -- --output dist
@@ -102,6 +110,8 @@ jobs:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
         with:
           python-version: '3.13'
@@ -115,7 +125,7 @@ jobs:
         id: cache-qt
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ${{ runner.workspace }}\Qt
+          path: ${{ runner.tool_cache }}\Qt
           key: qt-${{ env.BLOOM_QT_VERSION }}-${{ env.BLOOM_QT_ARCH }}-${{ hashFiles('packaging/dependencies.json') }}
       - name: Install Qt
         if: steps.cache-qt.outputs.cache-hit != 'true'
@@ -125,7 +135,7 @@ jobs:
           # aqtinstall 3.3.0 cannot install Qt 6.11+ on Windows (repo layout
           # changed); use the fix on master until 3.3.1 is released.
           python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@bbfb1f7c0590b9eb3fa91356e75bb64fb15d3643" "py7zr==1.0.*"
-          python -m aqt install-qt -O "$env:RUNNER_WORKSPACE\Qt" windows desktop `
+          python -m aqt install-qt -O "$env:RUNNER_TOOL_CACHE\Qt" windows desktop `
             "$env:BLOOM_QT_VERSION" "$env:BLOOM_QT_ARCH" `
             -m qtmultimedia qtshadertools qtimageformats qt5compat
       - name: Configure Qt environment
@@ -134,7 +144,7 @@ jobs:
           # aqtinstall installs to <outputdir>/<version>/<arch-dir>/ where
           # <arch-dir> drops the "win64_" prefix from the package selector.
           $qtArchDir = $env:BLOOM_QT_ARCH -replace '^win64_', ''
-          $qtRoot = Join-Path $env:RUNNER_WORKSPACE "Qt\$env:BLOOM_QT_VERSION\$qtArchDir"
+          $qtRoot = Join-Path $env:RUNNER_TOOL_CACHE "Qt\$env:BLOOM_QT_VERSION\$qtArchDir"
           if (-not (Test-Path "$qtRoot\lib\cmake\Qt6\Qt6Config.cmake")) {
             throw "Qt6Config.cmake not found under $qtRoot"
           }
