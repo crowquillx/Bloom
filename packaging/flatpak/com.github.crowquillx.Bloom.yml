@@ -10,7 +10,6 @@ finish-args:
   - --socket=fallback-x11
   - --socket=pulseaudio
   - --device=dri
-  - --device=all
   - --talk-name=org.freedesktop.secrets
   - --env=BLOOM_FLATPAK=1
 modules:
