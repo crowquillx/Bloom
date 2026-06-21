@@ -1,18 +1,18 @@
 {
-  "build_id": "20260616194956-9bd3911",
+  "build_id": "7516e57e27f4dc897f57c0e0e1def1f99ca50760",
   "channel": "dev",
   "installer": {
-    "filename": "Bloom-Setup-dev.exe",
-    "sha256": "9a284127d47ec720810287e5c197d5b54bc1c139cd91d8f59713d38d95911a39",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-dev.exe"
+    "filename": "Bloom-Setup-0.7.0.exe",
+    "sha256": "82b4c08bb96017cdf4c3d754e9170e31ae5e5f6b686b4472b0ff20297380685e",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-0.7.0.exe"
   },
-  "notes": "Latest development build from main branch.\n\n## Windows\nPortable ZIP (`Bloom-Windows.zip`)\nSHA256: `f3da5aa7f013dc131c0302766eb3d3ada43b6c91e1245347a874cf1ef5f12fc1`\n\nInstaller (`Bloom-Setup-dev.exe`)\nSHA256: `9a284127d47ec720810287e5c197d5b54bc1c139cd91d8f59713d38d95911a39`\n\n## Linux\nDebian package (`bloom_dev_amd64.deb`)\nSHA256: `7f106bcf03d2ab79b7863d67cddc2acd00057464e4afa48dd98f98fea57748f4`\n\nTarball (`Bloom-Linux.tar.gz`)\nSHA256: `7e18d3153f58a3b989d096a44be56693391a325f2fce1f5bc886a4912eea8da2`",
+  "notes": "Latest development build from main branch.\n\n## Windows\nPortable ZIP (`Bloom-Windows.zip`)\nSHA256: `f3da5aa7f013dc131c0302766eb3d3ada43b6c91e1245347a874cf1ef5f12fc1`\n\nInstaller (`Bloom-Setup-dev.exe`)\nSHA256: `9a284127d47ec720810287e5c197d5b54bc1c139cd91d8f59713d38d95911a39`\n\n## Linux\nDebian package (`bloom_dev_amd64.deb`)\nSHA256: `7f106bcf03d2ab79b7863d67cddc2acd00057464e4afa48dd98f98fea57748f4`\n\nTarball (`Bloom-Linux.tar.gz`)\nSHA256: `7e18d3153f58a3b989d096a44be56693391a325f2fce1f5bc886a4912eea8da2`\n\n\n## What's Changed\n* feat: follow system audio output device and add output device selector by @crowquillx in https://github.com/crowquillx/Bloom/pull/64\n* ci:nixification by @crowquillx in https://github.com/crowquillx/Bloom/pull/66\n* chore(deps): bump the github-actions group with 6 updates by @dependabot[bot] in https://github.com/crowquillx/Bloom/pull/67\n\n## New Contributors\n* @dependabot[bot] made their first contribution in https://github.com/crowquillx/Bloom/pull/67\n\n**Full Changelog**: https://github.com/crowquillx/Bloom/compare/v0.7.0...dev-latest",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "f3da5aa7f013dc131c0302766eb3d3ada43b6c91e1245347a874cf1ef5f12fc1",
+    "sha256": "1f2eed0f833ceec36d9ce28e9ea207da57f0e75e6531694939d6dd85c38626cf",
     "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
   },
-  "published_at": "2026-06-16T19:50:11Z",
+  "published_at": "2026-06-21T06:32:27Z",
   "release_tag": "dev-latest",
   "rollout": {
     "enabled": true,
