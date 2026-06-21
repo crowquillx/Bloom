@@ -21,12 +21,41 @@ modules:
       - -Dbuild-date=false
       - -Dlua=disabled
       - -Djavascript=disabled
+      - -Dlibarchive=disabled
+      - -Duchardet=disabled
+      - -Dvulkan=disabled
+      - -Dshaderc=disabled
       - -Dmanpage-build=disabled
       - -Dtests=false
     sources:
       - type: archive
         url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz
         sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
+    modules:
+      - name: libass
+        config-opts:
+          - --disable-static
+        cleanup:
+          - /include
+          - /lib/pkgconfig
+        sources:
+          - type: archive
+            url: https://github.com/libass/libass/releases/download/0.17.4/libass-0.17.4.tar.xz
+            sha256: 78f1179b838d025e9c26e8fef33f8092f65611444ffa1bfc0cfac6a33511a05a
+      - name: libplacebo
+        buildsystem: meson
+        config-opts:
+          - -Dvulkan=disabled
+          - -Dshaderc=disabled
+          - -Ddemos=false
+        cleanup:
+          - /include
+          - /lib/pkgconfig
+        sources:
+          - type: git
+            url: https://github.com/haasn/libplacebo.git
+            tag: v7.360.1
+            commit: cee9b076f2c63104ccfd497fa79c39a867293ec4
   - name: bloom
     buildsystem: cmake-ninja
     config-opts:

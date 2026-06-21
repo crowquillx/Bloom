@@ -77,7 +77,9 @@ nix run .#package-flatpak -- --output dist
 
 The command installs the exact KDE SDK/runtime commits recorded in the
 dependency manifest, builds a temporary local repository, and emits a
-single-file Flatpak bundle.
+single-file Flatpak bundle. The manifest builds mpv's required libass and
+libplacebo dependencies explicitly instead of relying on incidental SDK
+contents.
 
 The Flatpak supports network access, Secret Service, Wayland/X11, audio, GPU
 rendering, and gamepad devices. Host shutdown/restart and arbitrary display
@@ -87,6 +89,10 @@ Flatpak Builder requires unprivileged user and network namespaces. Ubuntu
 24.04 GitHub-hosted runners restrict these through AppArmor by default, so the
 Flatpak job disables `kernel.apparmor_restrict_unprivileged_userns` on its
 ephemeral runner and verifies a minimal Bubblewrap sandbox before building.
+
+Portable artifacts bundle Qt's XCB and Wayland platform plugins. Packaging
+validates that both platform backends exist, rejects unresolved ELF
+dependencies, and smoke-tests Bloom and mpv before publishing artifacts.
 
 ## Windows
 

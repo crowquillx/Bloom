@@ -36,6 +36,7 @@
               pkgs.writeShellApplication {
                 inherit name;
                 runtimeInputs = with pkgs; [
+                  appstream
                   bash
                   bubblewrap
                   coreutils
@@ -46,11 +47,14 @@
                   flatpak-builder
                   git
                   jq
+                  librsvg
                   nix
                   podman
                   python3
                   skopeo
                 ];
+                runtimeEnv.GDK_PIXBUF_MODULE_FILE =
+                  "${pkgs.librsvg}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache";
                 inherit text;
               }
             }/bin/${name}";

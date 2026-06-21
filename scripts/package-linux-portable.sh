@@ -44,7 +44,7 @@ mkdir -p "$OUTPUT"
 
 ENGINE_ARGS=(run --rm --network=host)
 if [[ "$CONTAINER_ENGINE" == podman ]]; then
-    ENGINE_ARGS+=(--userns=keep-id)
+    ENGINE_ARGS+=(--userns=keep-id:uid=0,gid=0)
 fi
 
 if [[ "$CONTAINER_ENGINE" == docker ]]; then

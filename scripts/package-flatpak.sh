@@ -28,6 +28,9 @@ SDK_COMMIT="$(jq -r .flatpak.sdk_commit "$ROOT/packaging/dependencies.json")"
 PLATFORM_COMMIT="$(jq -r .flatpak.platform_commit "$ROOT/packaging/dependencies.json")"
 mkdir -p "$OUTPUT"
 
+appstreamcli validate --no-net \
+    "$ROOT/src/resources/linux/com.github.crowquillx.Bloom.metainfo.xml"
+
 bwrap --unshare-user --unshare-net --ro-bind / / true || {
     echo "Bubblewrap cannot create the namespaces required by flatpak-builder." >&2
     echo "On Ubuntu 24.04 CI, disable kernel.apparmor_restrict_unprivileged_userns first." >&2
@@ -47,7 +50,13 @@ flatpak update --user --noninteractive --commit="$PLATFORM_COMMIT" "$PLATFORM_ID
 rm -rf "$ROOT/.flatpak-builder/build" "$ROOT/.flatpak-builder/repo"
 flatpak-builder --user --force-clean --repo="$ROOT/.flatpak-builder/repo" \
     "$ROOT/.flatpak-builder/build" "$ROOT/packaging/flatpak/com.github.crowquillx.Bloom.yml"
+flatpak-builder --run "$ROOT/.flatpak-builder/build" \
+    "$ROOT/packaging/flatpak/com.github.crowquillx.Bloom.yml" \
+    env QT_QPA_PLATFORM=offscreen bloom --version
+flatpak-builder --run "$ROOT/.flatpak-builder/build" \
+    "$ROOT/packaging/flatpak/com.github.crowquillx.Bloom.yml" mpv --version
 flatpak build-bundle "$ROOT/.flatpak-builder/repo" \
     "$OUTPUT/Bloom-${VERSION}-linux-x86_64.flatpak" com.github.crowquillx.Bloom
 sha256sum "$OUTPUT/Bloom-${VERSION}-linux-x86_64.flatpak" \
     > "$OUTPUT/SHA256SUMS-flatpak-x86_64.txt"
+sha256sum -c "$OUTPUT/SHA256SUMS-flatpak-x86_64.txt"
