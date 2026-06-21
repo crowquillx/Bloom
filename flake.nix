@@ -148,8 +148,28 @@
               skopeo
             ];
             shellHook = ''
+              export QT_PLUGIN_PATH="${
+                pkgs.lib.makeSearchPath "lib/qt-6/plugins" [
+                  pkgs.qt6.qtbase
+                  pkgs.qt6.qtdeclarative
+                  pkgs.qt6.qtmultimedia
+                  pkgs.qt6.qtsvg
+                  pkgs.qt6.qtwayland
+                ]
+              }''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
+              export QML2_IMPORT_PATH="${
+                pkgs.lib.makeSearchPath "lib/qt-6/qml" [
+                  pkgs.qt6.qt5compat
+                  pkgs.qt6.qtbase
+                  pkgs.qt6.qtdeclarative
+                  pkgs.qt6.qtmultimedia
+                  pkgs.qt6.qtsvg
+                  pkgs.qt6.qtwayland
+                ]
+              }''${QML2_IMPORT_PATH:+:$QML2_IMPORT_PATH}"
               export QT_QUICK_CONTROLS_STYLE="''${QT_QUICK_CONTROLS_STYLE:-Basic}"
               export QML_DISABLE_DISK_CACHE="''${QML_DISABLE_DISK_CACHE:-1}"
+              export QT_MEDIA_BACKEND="''${QT_MEDIA_BACKEND:-ffmpeg}"
               echo "Bloom development shell"
               echo "  build:    nix build"
               echo "  run:      nix run"

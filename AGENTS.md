@@ -31,10 +31,13 @@ nix build
 nix run
 nix flake check
 ```
-Use the flake for development, builds, tests, and packaging. Do not run CMake
-or Make directly for supported Linux builds. Portable Linux artifacts are
-orchestrated by Nix through a pinned Ubuntu compatibility container; Windows
-remains a native MSVC build.
+Use the flake for development, builds, tests, and packaging. For local builds
+after making code changes, `./scripts/dev-build.sh` is the blessed incremental
+build path; it runs CMake/Ninja inside `nix develop` and keeps a persistent
+build directory. Do not run CMake or Make directly for supported Linux builds.
+Use `nix build` and `nix flake check` for clean final verification. Portable
+Linux artifacts are orchestrated by Nix through a pinned Ubuntu compatibility
+container; Windows remains a native MSVC build.
 
 When to update: Only edit this file for architecture, conventions, or global policy changes. Implementation details live in `docs/*` and should be updated there.
 

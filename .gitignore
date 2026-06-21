@@ -5,6 +5,7 @@
 # Build Directories
 # ===========================
 build/
+build-dev/
 build_verify/
 build-docker/
 build-windows/

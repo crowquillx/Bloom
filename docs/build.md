@@ -29,6 +29,30 @@ The package installs a lowercase `bloom` executable and desktop metadata. It
 uses the dependency versions pinned by `flake.lock`; it does not use libraries
 from the host distribution.
 
+## Fast incremental development builds
+
+For local edit/build cycles, use the persistent Ninja build wrapper:
+
+```bash
+./scripts/dev-build.sh
+./scripts/dev-build.sh --run
+```
+
+The script enters `nix develop` automatically, configures `build-dev/`, enables
+ccache, supplies the pinned Qt plugin/QML runtime paths, and rebuilds only
+changed targets on later runs. Useful options include:
+
+```bash
+./scripts/dev-build.sh --tests
+./scripts/dev-build.sh --build-type RelWithDebInfo
+./scripts/dev-build.sh --clean
+./scripts/dev-build.sh --jobs 4
+```
+
+`build-dev/` is intentionally outside the Nix store and is ignored by Git.
+Use `nix build` and `nix flake check` for clean reproducibility and final
+verification.
+
 ## Local checks
 
 ```bash
