@@ -224,28 +224,34 @@ jobs:
         id: manifest
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           VERSION="$(tr -d '\n' < VERSION)"
           INSTALLER="$(find release-assets -maxdepth 1 -name 'Bloom-Setup-*.exe' -printf '%f\n' | head -1)"
           PORTABLE="Bloom-Windows.zip"
           INSTALLER_HASH="$(sha256sum "release-assets/$INSTALLER" | cut -d' ' -f1)"
           PORTABLE_HASH="$(sha256sum "release-assets/$PORTABLE" | cut -d' ' -f1)"
-          CHANNEL="${{ steps.release.outputs.tag == 'dev-latest' && 'dev' || 'stable' }}"
-          BUILD_ID="${{ steps.release.outputs.tag == 'dev-latest' && github.sha || '' }}"
+          if [[ "$RELEASE_TAG" == "dev-latest" ]]; then
+            CHANNEL="dev"
+            BUILD_ID="$GITHUB_SHA"
+          else
+            CHANNEL="stable"
+            BUILD_ID=""
+          fi
           BUILD_ID="${BUILD_ID:-$VERSION}"
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${{ steps.release.outputs.tag }}" \
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
             --jq '.body // ""' > GENERATED_RELEASE_NOTES.md
           python3 scripts/generate-update-manifest.py \
             --channel "$CHANNEL" \
             --version "$VERSION" \
             --build-id "$BUILD_ID" \
-            --release-tag "${{ steps.release.outputs.tag }}" \
+            --release-tag "$RELEASE_TAG" \
             --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             --notes-file GENERATED_RELEASE_NOTES.md \
-            --installer-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.release.outputs.tag }}/$INSTALLER" \
+            --installer-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/$INSTALLER" \
             --installer-filename "$INSTALLER" \
             --installer-sha256 "$INSTALLER_HASH" \
-            --portable-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.release.outputs.tag }}/$PORTABLE" \
+            --portable-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/$PORTABLE" \
             --portable-filename "$PORTABLE" \
             --portable-sha256 "$PORTABLE_HASH" \
             --minimum-supported-version "$VERSION" \

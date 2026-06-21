@@ -31,8 +31,8 @@ if(BUILD_TESTING)
     find_package(GTest QUIET)
     if(NOT GTest_FOUND)
         # Fall back to a pinned FetchContent build for platforms without a
-        # system GoogleTest (e.g. Windows CI). The commit is pinned in
-        # packaging/dependencies.json for supply-chain traceability.
+        # system GoogleTest (e.g. Windows CI). Keep this hardcoded commit in
+        # sync with the gtest commit in packaging/dependencies.json.
         include(FetchContent)
         FetchContent_Declare(
             googletest
