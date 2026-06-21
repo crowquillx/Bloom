@@ -41,6 +41,47 @@ QString normalizeLogLevelValue(const QString &level)
     return QStringLiteral("info");
 }
 
+QString normalizeHeroBannerSourceValue(const QString &source)
+{
+    const QString normalized = source.trimmed().toLower();
+    if (normalized == QStringLiteral("continue") || normalized == QStringLiteral("continueWatching")
+        || normalized == QStringLiteral("continue-watching")) {
+        return QStringLiteral("continueWatching");
+    }
+    if (normalized == QStringLiteral("upnext") || normalized == QStringLiteral("up-next")
+        || normalized == QStringLiteral("nextup") || normalized == QStringLiteral("next-up")) {
+        return QStringLiteral("upNext");
+    }
+    if (normalized == QStringLiteral("library") || normalized == QStringLiteral("from-library")) {
+        return QStringLiteral("library");
+    }
+    if (normalized == QStringLiteral("mixed")) {
+        return QStringLiteral("mixed");
+    }
+    return QStringLiteral("recentlyAdded");
+}
+
+QString normalizeHeroBannerPlacementValue(const QString &placement, bool allowCenterLarge)
+{
+    QString normalized = placement.trimmed();
+    normalized.remove(QLatin1Char('-'));
+    normalized.remove(QLatin1Char('_'));
+    normalized = normalized.toLower();
+
+    if (normalized == QStringLiteral("topleft")) return QStringLiteral("topLeft");
+    if (normalized == QStringLiteral("topright")) return QStringLiteral("topRight");
+    if (normalized == QStringLiteral("bottomleft")) return QStringLiteral("bottomLeft");
+    if (normalized == QStringLiteral("bottomright")) return QStringLiteral("bottomRight");
+    if (normalized == QStringLiteral("bottomcenter")) return QStringLiteral("bottomCenter");
+    if (normalized == QStringLiteral("topcenter")) return QStringLiteral("topCenter");
+    if (normalized == QStringLiteral("center")) return QStringLiteral("center");
+    if (allowCenterLarge
+        && (normalized == QStringLiteral("centerlarge") || normalized == QStringLiteral("largecenter"))) {
+        return QStringLiteral("centerLarge");
+    }
+    return QStringLiteral("bottomLeft");
+}
+
 QVariantList supportedTrackLanguageOptions()
 {
     return {
@@ -1160,6 +1201,21 @@ QString ConfigManager::normalizeStartupBufferingMode(const QString &raw, bool al
     return normalizeStartupBufferingModeValue(raw, allowDefault);
 }
 
+QString ConfigManager::normalizeHeroBannerSource(const QString &raw) const
+{
+    return normalizeHeroBannerSourceValue(raw);
+}
+
+QString ConfigManager::normalizeHeroBannerLogoPlacement(const QString &raw) const
+{
+    return normalizeHeroBannerPlacementValue(raw, true);
+}
+
+QString ConfigManager::normalizeHeroBannerInfoPlacement(const QString &raw) const
+{
+    return normalizeHeroBannerPlacementValue(raw, false);
+}
+
 bool ConfigManager::envOverridesRoundedPreprocess(bool current) const
 {
     auto parseBool = [](const QByteArray &value, bool fallback) {
@@ -2078,6 +2134,241 @@ bool ConfigManager::getUiAnimationsEnabled() const
         }
     }
     return true; // Default: animations enabled
+}
+
+// ============================================================================
+// Hero Banner settings (settings.ui.hero_banner.*)
+// ============================================================================
+
+QJsonObject ConfigManager::readHeroBannerObject() const
+{
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        QJsonObject settings = m_config["settings"].toObject();
+        if (settings.contains("ui") && settings["ui"].isObject()) {
+            QJsonObject ui = settings["ui"].toObject();
+            if (ui.contains("hero_banner") && ui["hero_banner"].isObject()) {
+                return ui["hero_banner"].toObject();
+            }
+        }
+    }
+    return {};
+}
+
+void ConfigManager::writeHeroBannerObject(const QJsonObject &heroBanner)
+{
+    QJsonObject settings;
+    if (m_config.contains("settings") && m_config["settings"].isObject()) {
+        settings = m_config["settings"].toObject();
+    }
+    QJsonObject ui;
+    if (settings.contains("ui") && settings["ui"].isObject()) {
+        ui = settings["ui"].toObject();
+    }
+    ui["hero_banner"] = heroBanner;
+    settings["ui"] = ui;
+    m_config["settings"] = settings;
+    save();
+}
+
+void ConfigManager::setHeroBannerEnabled(bool enabled)
+{
+    if (enabled == getHeroBannerEnabled()) return;
+    QJsonObject hb = readHeroBannerObject();
+    hb["enabled"] = enabled;
+    writeHeroBannerObject(hb);
+    emit heroBannerEnabledChanged();
+}
+
+bool ConfigManager::getHeroBannerEnabled() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    if (hb.contains("enabled")) return hb["enabled"].toBool();
+    return true; // Default: hero banner enabled
+}
+
+void ConfigManager::setHeroBannerSource(const QString &source)
+{
+    const QString normalized = normalizeHeroBannerSource(source);
+    if (normalized == getHeroBannerSource()) return;
+    QJsonObject hb = readHeroBannerObject();
+    hb["source"] = normalized;
+    writeHeroBannerObject(hb);
+    emit heroBannerSourceChanged();
+}
+
+QString ConfigManager::getHeroBannerSource() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    if (hb.contains("source")) return normalizeHeroBannerSource(hb["source"].toString());
+    return QStringLiteral("recentlyAdded");
+}
+
+void ConfigManager::setHeroBannerMaxItems(int maxItems)
+{
+    const int clamped = qBound(1, maxItems, 25);
+    if (clamped == getHeroBannerMaxItems()) return;
+    QJsonObject hb = readHeroBannerObject();
+    hb["max_items"] = clamped;
+    writeHeroBannerObject(hb);
+    emit heroBannerMaxItemsChanged();
+}
+
+int ConfigManager::getHeroBannerMaxItems() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    if (hb.contains("max_items")) return qBound(1, hb["max_items"].toInt(), 25);
+    return 10; // Default
+}
+
+void ConfigManager::setHeroBannerAutoCycleEnabled(bool enabled)
+{
+    if (enabled == getHeroBannerAutoCycleEnabled()) return;
+    QJsonObject hb = readHeroBannerObject();
+    hb["auto_cycle_enabled"] = enabled;
+    writeHeroBannerObject(hb);
+    emit heroBannerAutoCycleEnabledChanged();
+}
+
+bool ConfigManager::getHeroBannerAutoCycleEnabled() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    if (hb.contains("auto_cycle_enabled")) return hb["auto_cycle_enabled"].toBool();
+    return true; // Default: auto-cycle on
+}
+
+void ConfigManager::setHeroBannerAutoCycleInterval(int ms)
+{
+    const int clamped = qBound(3000, ms, 120000);
+    if (clamped == getHeroBannerAutoCycleInterval()) return;
+    QJsonObject hb = readHeroBannerObject();
+    hb["auto_cycle_interval"] = clamped;
+    writeHeroBannerObject(hb);
+    emit heroBannerAutoCycleIntervalChanged();
+}
+
+int ConfigManager::getHeroBannerAutoCycleInterval() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    if (hb.contains("auto_cycle_interval")) return qBound(3000, hb["auto_cycle_interval"].toInt(), 120000);
+    return 10000; // Default 10s
+}
+
+void ConfigManager::setHeroBannerBackdropSyncEnabled(bool enabled)
+{
+    if (enabled == getHeroBannerBackdropSyncEnabled()) return;
+    QJsonObject hb = readHeroBannerObject();
+    hb["backdrop_sync_enabled"] = enabled;
+    writeHeroBannerObject(hb);
+    emit heroBannerBackdropSyncEnabledChanged();
+}
+
+bool ConfigManager::getHeroBannerBackdropSyncEnabled() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    if (hb.contains("backdrop_sync_enabled")) return hb["backdrop_sync_enabled"].toBool();
+    return true; // Default: backdrop sync on
+}
+
+void ConfigManager::setHeroBannerHiddenItemTypes(const QStringList &types)
+{
+    if (types == getHeroBannerHiddenItemTypes()) return;
+    QJsonObject hb = readHeroBannerObject();
+    QJsonArray arr;
+    for (const QString &t : types) arr.append(t);
+    hb["hidden_item_types"] = arr;
+    writeHeroBannerObject(hb);
+    emit heroBannerHiddenItemTypesChanged();
+}
+
+QStringList ConfigManager::getHeroBannerHiddenItemTypes() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    QStringList result;
+    if (hb.contains("hidden_item_types") && hb["hidden_item_types"].isArray()) {
+        const QJsonArray arr = hb["hidden_item_types"].toArray();
+        for (const QJsonValue &v : arr) {
+            if (v.isString()) result.append(v.toString());
+        }
+    }
+    return result;
+}
+
+void ConfigManager::setHeroBannerLibraryUnwatchedOnly(bool enabled)
+{
+    if (enabled == getHeroBannerLibraryUnwatchedOnly()) return;
+    QJsonObject hb = readHeroBannerObject();
+    hb["library_unwatched_only"] = enabled;
+    writeHeroBannerObject(hb);
+    emit heroBannerLibraryUnwatchedOnlyChanged();
+}
+
+bool ConfigManager::getHeroBannerLibraryUnwatchedOnly() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    if (hb.contains("library_unwatched_only")) return hb["library_unwatched_only"].toBool();
+    return false; // Default: include watched
+}
+
+void ConfigManager::setHeroBannerLibraryIds(const QStringList &libraryIds)
+{
+    if (libraryIds == getHeroBannerLibraryIds()) return;
+    QJsonObject hb = readHeroBannerObject();
+    QJsonArray arr;
+    for (const QString &id : libraryIds) arr.append(id);
+    hb["library_ids"] = arr;
+    writeHeroBannerObject(hb);
+    emit heroBannerLibraryIdsChanged();
+}
+
+QStringList ConfigManager::getHeroBannerLibraryIds() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    QStringList result;
+    if (hb.contains("library_ids") && hb["library_ids"].isArray()) {
+        const QJsonArray arr = hb["library_ids"].toArray();
+        for (const QJsonValue &v : arr) {
+            if (v.isString()) result.append(v.toString());
+        }
+    }
+    return result; // Default: empty = all libraries
+}
+
+void ConfigManager::setHeroBannerLogoPlacement(const QString &placement)
+{
+    const QString normalized = normalizeHeroBannerLogoPlacement(placement);
+    if (normalized == getHeroBannerLogoPlacement()) return;
+    QJsonObject hb = readHeroBannerObject();
+    hb["logo_placement"] = normalized;
+    writeHeroBannerObject(hb);
+    emit heroBannerLogoPlacementChanged();
+}
+
+QString ConfigManager::getHeroBannerLogoPlacement() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    if (hb.contains("logo_placement")) {
+        return normalizeHeroBannerLogoPlacement(hb["logo_placement"].toString());
+    }
+    return QStringLiteral("bottomLeft");
+}
+
+void ConfigManager::setHeroBannerInfoPlacement(const QString &placement)
+{
+    const QString normalized = normalizeHeroBannerInfoPlacement(placement);
+    if (normalized == getHeroBannerInfoPlacement()) return;
+    QJsonObject hb = readHeroBannerObject();
+    hb["info_placement"] = normalized;
+    writeHeroBannerObject(hb);
+    emit heroBannerInfoPlacementChanged();
+}
+
+QString ConfigManager::getHeroBannerInfoPlacement() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    if (hb.contains("info_placement")) {
+        return normalizeHeroBannerInfoPlacement(hb["info_placement"].toString());
+    }
+    return QStringLiteral("bottomLeft");
 }
 
 void ConfigManager::setUpdateChannel(const QString &channel)
@@ -3567,6 +3858,22 @@ QJsonObject ConfigManager::defaultConfig() const
     ui["theme"] = QStringLiteral("Jellyfin");
     ui["theme_flavor"] = QString();
     ui["theme_color_scheme"] = QStringLiteral("blue");
+
+    // Hero Banner defaults (settings.ui.hero_banner.*)
+    QJsonObject heroBanner;
+    heroBanner["enabled"] = true;
+    heroBanner["source"] = QStringLiteral("recentlyAdded");
+    heroBanner["max_items"] = 10;
+    heroBanner["auto_cycle_enabled"] = true;
+    heroBanner["auto_cycle_interval"] = 10000;
+    heroBanner["backdrop_sync_enabled"] = true;
+    heroBanner["hidden_item_types"] = QJsonArray();
+    heroBanner["library_unwatched_only"] = false;
+    heroBanner["library_ids"] = QJsonArray();
+    heroBanner["logo_placement"] = QStringLiteral("bottomLeft");
+    heroBanner["info_placement"] = QStringLiteral("bottomLeft");
+    ui["hero_banner"] = heroBanner;
+
     settings["ui"] = ui;
 
     // Manual DPI Scale Override

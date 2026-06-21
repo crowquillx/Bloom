@@ -76,6 +76,17 @@ FocusScope {
         function onUpdateChannelChanged() { root.scheduleSettingsSavedToast() }
         function onAutoUpdateCheckEnabledChanged() { root.scheduleSettingsSavedToast() }
         function onLogLevelChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerEnabledChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerSourceChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerMaxItemsChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerAutoCycleEnabledChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerAutoCycleIntervalChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerBackdropSyncEnabledChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerHiddenItemTypesChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerLibraryUnwatchedOnlyChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerLibraryIdsChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerLogoPlacementChanged() { root.scheduleSettingsSavedToast() }
+        function onHeroBannerInfoPlacementChanged() { root.scheduleSettingsSavedToast() }
     }
 
     signal signOutRequested()
@@ -145,11 +156,12 @@ FocusScope {
     function currentSectionItem() {
         switch (contentStack.currentIndex) {
         case 0: return playbackSection
-        case 1: return displaySection
-        case 2: return videoSection
-        case 3: return mpvSection
-        case 4: return integrationsSection
-        case 5: return aboutAccountSection
+        case 1: return homeSection
+        case 2: return displaySection
+        case 3: return videoSection
+        case 4: return mpvSection
+        case 5: return integrationsSection
+        case 6: return aboutAccountSection
         default: return null
         }
     }
@@ -405,6 +417,11 @@ FocusScope {
 
             PlaybackSettings {
                 id: playbackSection
+                onRequestReturnToRail: root.returnToRail()
+            }
+
+            HomeSettings {
+                id: homeSection
                 onRequestReturnToRail: root.returnToRail()
             }
 

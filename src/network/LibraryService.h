@@ -119,6 +119,11 @@ public:
     // Search
     Q_INVOKABLE virtual void search(const QString &searchTerm, int limit = 50);
     Q_INVOKABLE virtual void getRandomItems(int limit = 20);
+
+    // Hero Banner: random library sample (Movies + Series). When parentIds is empty,
+    // all libraries are sampled. When unwatchedOnly is true, only unplayed items are
+    // returned. Used by the Home screen "Library" hero source.
+    Q_INVOKABLE virtual void getHeroLibraryItems(int limit, const QStringList &parentIds, bool unwatchedOnly);
     
     // URL helpers
     Q_INVOKABLE virtual QString getStreamUrl(const QString &itemId);
@@ -175,6 +180,7 @@ signals:
     void themeSongsLoaded(const QString &seriesId, const QStringList &urls);
     void searchResultsLoaded(const QString &searchTerm, const QJsonArray &movies, const QJsonArray &series);
     void randomItemsLoaded(const QJsonArray &items);
+    void heroLibraryItemsLoaded(const QJsonArray &items);
     
     // Error signals
     void errorOccurred(const QString &endpoint, const QString &error);

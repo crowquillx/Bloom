@@ -50,6 +50,18 @@ FocusScope {
     property bool loadingGlobalBackdropPool: false
     property bool useSectionBackdropFallback: false
     property bool fullBackdropIndexRequested: false
+    readonly property bool heroBackdropActive: ConfigManager.heroBannerEnabled
+                                                && ConfigManager.heroBannerBackdropSyncEnabled
+                                                && heroBanner.visible && heroBanner.currentBackdropUrl !== ""
+
+    HeroBannerProvider {
+        id: heroProvider
+        librariesModel: root.librariesModel
+        recentlyAddedMap: root.recentlyAddedMap
+        nextUpModel: root.nextUpModel
+        continueWatchingModel: root.continueWatchingModel
+        displayedNextUpModel: root.displayedNextUpModel
+    }
 
     Settings {
         id: homeBackdropSettings
@@ -201,6 +213,16 @@ FocusScope {
         }
         continueWatchingModel = inProgress
         displayedNextUpModel = ConfigManager.mergeContinueWatchingWithNextUp ? nextUpModel : nextItems
+        heroProvider.rebuild()
+    }
+
+    Connections {
+        target: ConfigManager
+        function onHeroBannerSourceChanged() { heroProvider.rebuild() }
+        function onHeroBannerMaxItemsChanged() { heroProvider.rebuild() }
+        function onHeroBannerHiddenItemTypesChanged() { heroProvider.rebuild() }
+        function onHeroBannerLibraryUnwatchedOnlyChanged() { heroProvider.rebuild() }
+        function onHeroBannerLibraryIdsChanged() { heroProvider.rebuild() }
     }
 
     Connections {
@@ -263,7 +285,10 @@ FocusScope {
         var index = 0
         
         // Check which list has active focus
-        if (myMediaList.activeFocus) {
+        if (heroBanner.activeFocus || heroBanner.buttonsFocused) {
+            section = "hero"
+            index = heroBanner.currentIndex
+        } else if (myMediaList.activeFocus) {
             section = "myMedia"
             index = myMediaList.currentIndex
         } else if (continueWatchingList.activeFocus) {
@@ -300,7 +325,15 @@ FocusScope {
         var targetList = null
         var targetSection = null
         
-        if (lastFocusedSection === "myMedia") {
+        if (lastFocusedSection === "hero" && heroBanner.visible) {
+            heroBanner.currentIndex = Math.min(lastFocusedIndex, Math.max(0, heroProvider.heroModel.length - 1))
+            ensureSectionVisible(heroBanner)
+            Qt.callLater(function() {
+                heroBanner.resetToCarousel()
+                heroBanner.forceActiveFocus()
+            })
+            return
+        } else if (lastFocusedSection === "myMedia") {
             targetList = myMediaList
             targetSection = myMediaSection
         } else if (lastFocusedSection === "continueWatching") {
@@ -380,7 +413,7 @@ FocusScope {
         id: backdropRotationTimer
         interval: ConfigManager.backdropRotationInterval
         repeat: true
-        running: backdropCandidates.length > 1 && !PlayerController.isPlaybackActive
+        running: backdropCandidates.length > 1 && !PlayerController.isPlaybackActive && !root.heroBackdropActive
         onTriggered: selectRandomBackdrop()
     }
     
@@ -568,6 +601,28 @@ FocusScope {
             
             // Top spacing
             Item { Layout.preferredHeight: Theme.paddingLarge }
+
+            HeroBanner {
+                id: heroBanner
+                Layout.fillWidth: true
+                visible: ConfigManager.heroBannerEnabled && heroProvider.hasContent
+                heroModel: heroProvider.heroModel
+                scrolling: mainFlickable.moving
+                onCurrentBackdropUrlChanged: {
+                    if (root.heroBackdropActive) root.currentBackdropUrl = currentBackdropUrl
+                }
+                onActiveFocusChanged: {
+                    if (activeFocus) {
+                        root.lastFocusedSection = "hero"
+                        root.ensureSectionVisible(heroBanner)
+                    } else {
+                        heroBanner.resetToCarousel()
+                    }
+                }
+                onMoveDownRequested: myMediaList.forceActiveFocus()
+                onDetailsRequested: function(item) { root.handleHeroSelection(item) }
+                onPlayRequested: function(item) { root.playHeroItem(item) }
+            }
             
             // My Media Section
             ColumnLayout {
@@ -744,6 +799,12 @@ FocusScope {
                     Keys.onEnterPressed: {
                         if (currentIndex >= 0 && currentIndex < librariesModel.length) {
                             handleLibrarySelection(librariesModel[currentIndex])
+                        }
+                    }
+                    Keys.onUpPressed: {
+                        if (heroBanner.visible) {
+                            heroBanner.resetToCarousel()
+                            heroBanner.forceActiveFocus()
                         }
                     }
                     Keys.onDownPressed: {
@@ -1479,6 +1540,34 @@ FocusScope {
         
         navigateToEpisode(item, seriesId, libraryId, libraryName)
     }
+
+    function handleHeroSelection(item) {
+        if (!item) return
+        saveFocusState()
+        if (item.Type === "Movie") navigateToMovie(item, item.ParentId || "", "")
+        else if (item.Type === "Series") navigateToSeries(item.Id, item.ParentId || "", "")
+        else if (item.Type === "Episode") navigateToEpisode(item, item.SeriesId || "", item.ParentId || "", "")
+    }
+
+    function playHeroItem(item) {
+        if (!item || item.Type === "Series") return
+        var startTicks = item.UserData ? (item.UserData.PlaybackPositionTicks || 0) : 0
+        PlayerController.requestPlayback({
+            itemId: item.Id,
+            startPositionTicks: startTicks,
+            seriesId: item.SeriesId || "",
+            seasonId: item.ParentId || "",
+            overlayTitle: item.SeriesName || item.Name || qsTr("Now Playing"),
+            overlaySubtitle: item.Type === "Episode" ? (item.Name || "") : "",
+            overlayBackdropUrl: heroBanner.currentBackdropUrl,
+            overlayLogoUrl: item.ImageTags && item.ImageTags.Logo
+                            ? LibraryService.getCachedImageUrlWithWidth(item.Id, "Logo", 600) : "",
+            preferredAudioIndex: -2,
+            preferredSubtitleIndex: -2,
+            isMovie: item.Type === "Movie",
+            allowVersionPrompt: true
+        })
+    }
     
     function handleRecentlyAddedSelection(item, libraryId) {
         console.log("[Home] Selected Recently Added:", item.Name, "Type:", item.Type, "Library:", libraryId)
@@ -1578,6 +1667,7 @@ FocusScope {
         function onViewsLoaded(views) {
             var orderedViews = orderLibraries(views)
             librariesModel = orderedViews
+            heroProvider.rebuild()
             if (orderedViews.length > 0) {
                 if (myMediaList.currentIndex < 0) {
                     myMediaList.currentIndex = 0
@@ -1587,8 +1677,14 @@ FocusScope {
                 if (!hasBeenActivated && lastFocusedSection === "myMedia" && root.StackView.status === StackView.Active) {
                     Qt.callLater(function() {
                         if (!hasBeenActivated && lastFocusedSection === "myMedia" && root.StackView.status === StackView.Active) {
-                            myMediaList.forceActiveFocus()
-                            root.ensureSectionVisible(myMediaSection)
+                            if (heroBanner.visible) {
+                                heroBanner.resetToCarousel()
+                                heroBanner.forceActiveFocus()
+                                root.ensureSectionVisible(heroBanner)
+                            } else {
+                                myMediaList.forceActiveFocus()
+                                root.ensureSectionVisible(myMediaSection)
+                            }
                         }
                     })
                 }
@@ -1643,6 +1739,7 @@ FocusScope {
             }
             newMap[parentId] = items
             recentlyAddedMap = newMap
+            heroProvider.rebuild()
             
             // Use section fallback only if global pool is unavailable.
             if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
@@ -1673,6 +1770,10 @@ FocusScope {
                 root.invalidateBackdropShuffle()
                 root.selectRandomBackdrop()
             }
+        }
+
+        function onHeroLibraryItemsLoaded(items) {
+            heroProvider.handleHeroLibraryItemsLoaded(items)
         }
         
         function onErrorOccurred(endpoint, error) {
@@ -1749,5 +1850,6 @@ FocusScope {
         }
         console.log("[FocusDebug] HomeScreen completed, requesting initial views")
         LibraryService.getViews()
+        heroProvider.rebuild()
     }
 }

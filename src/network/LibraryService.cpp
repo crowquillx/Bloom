@@ -614,7 +614,7 @@ void LibraryService::getNextUp()
         return;
     }
     
-    QString endpoint = QString("/Shows/NextUp?UserId=%1&Limit=10&Fields=Path,Overview,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,SeriesThumbImageTag,ParentThumbImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,UserData,RunTimeTicks&EnableImageTypes=Primary,Thumb,Backdrop")
+    QString endpoint = QString("/Shows/NextUp?UserId=%1&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,SeriesThumbImageTag,ParentThumbImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,UserData,RunTimeTicks&EnableImageTypes=Primary,Thumb,Backdrop,Logo")
         .arg(m_authService->getUserId());
     
     sendRequestWithRetry(endpoint,
@@ -650,7 +650,7 @@ void LibraryService::getLatestMedia(const QString &parentId)
         return;
     }
     
-    QString endpoint = QString("/Users/%1/Items/Latest?ParentId=%2&Limit=10&Fields=Path,Overview,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,ProductionYear,Status,EndDate,ParentIndexNumber,IndexNumber,UserData")
+    QString endpoint = QString("/Users/%1/Items/Latest?ParentId=%2&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,ProductionYear,Status,EndDate,ParentIndexNumber,IndexNumber,UserData&EnableImageTypes=Primary,Backdrop,Thumb,Logo")
         .arg(m_authService->getUserId(), parentId);
     
     sendRequestWithRetry(endpoint,
@@ -1449,6 +1449,133 @@ void LibraryService::getRandomItems(int limit)
 // ============================================================================
 // URL Helpers
 // ============================================================================
+
+void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds, bool unwatchedOnly)
+{
+    if (!m_authService->isAuthenticated()) {
+        NetworkError error;
+        error.endpoint = "getHeroLibraryItems";
+        error.code = -1;
+        error.userMessage = tr("Not authenticated");
+        emitError(error);
+        return;
+    }
+
+    const int clampedLimit = qBound(1, limit, 25);
+    const QStringList fields = {
+        "Overview", "SeriesName", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
+        "ParentBackdropItemId", "ParentId", "SeriesId", "SeriesPrimaryImageTag",
+        "ParentPrimaryImageTag", "ProductionYear", "PremiereDate", "UserData",
+        "RunTimeTicks", "CommunityRating", "OfficialRating", "Genres", "Studios", "Tags"
+    };
+
+    // Filter out empty parentIds. When none remain, sample across all libraries.
+    QStringList ids;
+    for (const QString &id : parentIds) {
+        if (!id.trimmed().isEmpty()) ids.append(id.trimmed());
+    }
+
+    auto buildEndpoint = [this, clampedLimit, unwatchedOnly, fields](const QString &parentId) {
+        QString base = QString("/Users/%1/Items?IncludeItemTypes=Movie,Series&Recursive=true"
+                               "&SortBy=Random&Limit=%2&Fields=%3"
+                               "&EnableImageTypes=Primary,Backdrop,Thumb,Logo&ImageTypeLimit=1")
+                           .arg(m_authService->getUserId())
+                           .arg(clampedLimit)
+                           .arg(fields.join(","));
+        if (!parentId.isEmpty()) {
+            base += "&ParentId=" + parentId;
+        }
+        if (unwatchedOnly) {
+            base += "&IsPlayed=false";
+        }
+        return base;
+    };
+
+    // No parent filters: single request across all libraries.
+    if (ids.isEmpty()) {
+        const QString endpoint = buildEndpoint(QString());
+        sendRequestWithRetry(endpoint,
+            [this, endpoint]() {
+                QNetworkRequest request = m_authService->createRequest(endpoint);
+                return m_authService->networkManager()->get(request);
+            },
+            [this](QNetworkReply *reply) {
+                QByteArray data = reply->readAll();
+                QJsonDocument doc = QJsonDocument::fromJson(data);
+                if (!doc.isObject()) {
+                    NetworkError error;
+                    error.endpoint = "getHeroLibraryItems";
+                    error.code = -2;
+                    error.userMessage = tr("Invalid hero library items response");
+                    emitError(error);
+                    return;
+                }
+                emit heroLibraryItemsLoaded(doc.object()["Items"].toArray());
+            });
+        return;
+    }
+
+    // Single parentId: one request.
+    if (ids.size() == 1) {
+        const QString endpoint = buildEndpoint(ids.first());
+        sendRequestWithRetry(endpoint,
+            [this, endpoint]() {
+                QNetworkRequest request = m_authService->createRequest(endpoint);
+                return m_authService->networkManager()->get(request);
+            },
+            [this](QNetworkReply *reply) {
+                QByteArray data = reply->readAll();
+                QJsonDocument doc = QJsonDocument::fromJson(data);
+                if (!doc.isObject()) {
+                    NetworkError error;
+                    error.endpoint = "getHeroLibraryItems";
+                    error.code = -2;
+                    error.userMessage = tr("Invalid hero library items response");
+                    emitError(error);
+                    return;
+                }
+                emit heroLibraryItemsLoaded(doc.object()["Items"].toArray());
+            });
+        return;
+    }
+
+    // Multiple parentIds: fan out concurrently and aggregate. Each request asks
+    // for `clampedLimit` items so the union is a bounded random sample across the
+    // selected libraries; the provider caps the final list client-side.
+    auto aggregate = std::make_shared<QJsonArray>();
+    auto remaining = std::make_shared<int>(ids.size());
+    for (const QString &parentId : ids) {
+        const QString endpoint = buildEndpoint(parentId);
+        sendRequestWithRetry(endpoint,
+            [this, endpoint]() {
+                QNetworkRequest request = m_authService->createRequest(endpoint);
+                return m_authService->networkManager()->get(request);
+            },
+            [this, aggregate, remaining, clampedLimit](QNetworkReply *reply) {
+                QByteArray data = reply->readAll();
+                QJsonDocument doc = QJsonDocument::fromJson(data);
+                if (doc.isObject()) {
+                    const QJsonArray items = doc.object()["Items"].toArray();
+                    for (const QJsonValue &v : items) {
+                        if (aggregate->size() >= clampedLimit) break;
+                        aggregate->append(v);
+                    }
+                }
+                if (--(*remaining) <= 0) {
+                    // Trim to the requested cap before emitting.
+                    QJsonArray trimmed;
+                    const int total = qMin(aggregate->size(), clampedLimit);
+                    for (int i = 0; i < total; ++i) trimmed.append(aggregate->at(i));
+                    emit heroLibraryItemsLoaded(trimmed);
+                }
+            },
+            [this, remaining](const NetworkError &) {
+                if (--(*remaining) <= 0) {
+                    emit heroLibraryItemsLoaded(QJsonArray());
+                }
+            });
+    }
+}
 
 QString LibraryService::getStreamUrl(const QString &itemId)
 {

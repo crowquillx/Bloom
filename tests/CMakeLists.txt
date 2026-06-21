@@ -519,6 +519,9 @@ set(QML_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/SeriesSeasonEpisodeView.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MovieDetailsView.qml
     ${CMAKE_SOURCE_DIR}/src/ui/HomeScreen.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/HeroBanner.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/HeroBannerProvider.qml
+    ${CMAKE_SOURCE_DIR}/src/ui/settings/HomeSettings.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SettingsScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/SearchScreen.qml
     ${CMAKE_SOURCE_DIR}/src/ui/MediaSourceSelectionDialog.qml

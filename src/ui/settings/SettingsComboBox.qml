@@ -8,6 +8,7 @@ ComboBox {
     id: control
 
     property string placeholderText: ""
+    property bool _closedFromSelection: false
 
     signal selectionAccepted(int index)
 
@@ -114,7 +115,18 @@ ComboBox {
             settingsComboPopupList.forceActiveFocus()
         }
 
-        onClosed: control.forceActiveFocus()
+        onClosed: {
+            if (control._closedFromSelection) {
+                control._closedFromSelection = false
+                if (KeyNavigation.down) {
+                    Qt.callLater(function() { KeyNavigation.down.forceActiveFocus() })
+                } else {
+                    control.forceActiveFocus()
+                }
+            } else {
+                control.forceActiveFocus()
+            }
+        }
 
         contentItem: ListView {
             id: settingsComboPopupList
@@ -150,6 +162,7 @@ ComboBox {
                 onClicked: {
                     control.currentIndex = popupDelegate.index
                     control.selectionAccepted(popupDelegate.index)
+                    control._closedFromSelection = true
                     control.popup.close()
                 }
             }
@@ -157,6 +170,7 @@ ComboBox {
             Keys.onReturnPressed: function(event) {
                 control.currentIndex = currentIndex
                 control.selectionAccepted(currentIndex)
+                control._closedFromSelection = true
                 control.popup.close()
                 event.accepted = true
             }
@@ -164,6 +178,7 @@ ComboBox {
             Keys.onEnterPressed: function(event) {
                 control.currentIndex = currentIndex
                 control.selectionAccepted(currentIndex)
+                control._closedFromSelection = true
                 control.popup.close()
                 event.accepted = true
             }
@@ -192,6 +207,20 @@ ComboBox {
     Keys.onEnterPressed: function(event) {
         if (!popup.visible) {
             popup.open()
+            event.accepted = true
+        }
+    }
+
+    Keys.onUpPressed: function(event) {
+        if (!popup.visible && KeyNavigation.up) {
+            KeyNavigation.up.forceActiveFocus()
+            event.accepted = true
+        }
+    }
+
+    Keys.onDownPressed: function(event) {
+        if (!popup.visible && KeyNavigation.down) {
+            KeyNavigation.down.forceActiveFocus()
             event.accepted = true
         }
     }

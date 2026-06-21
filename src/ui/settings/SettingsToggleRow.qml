@@ -77,7 +77,7 @@ FocusScope {
 
     RowLayout {
         id: content
-        anchors.fill: parent
+        width: parent.width
         spacing: Theme.spacingMedium
 
         ColumnLayout {
@@ -104,6 +104,7 @@ FocusScope {
 
         Rectangle {
             id: switchTrack
+            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
             width: 52
             height: 28
             radius: 14

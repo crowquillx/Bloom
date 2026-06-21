@@ -174,6 +174,9 @@ qt_add_qml_module(Bloom
         ui/SeriesSeasonEpisodeView.qml
         ui/MovieDetailsView.qml
         ui/HomeScreen.qml
+        ui/HeroBanner.qml
+        ui/HeroBannerLayoutHost.qml
+        ui/HeroBannerProvider.qml
         ui/SettingsScreen.qml
         ui/settings/SettingsRail.qml
         ui/settings/SettingsToggleRow.qml
@@ -185,6 +188,7 @@ qt_add_qml_module(Bloom
         ui/settings/SettingsGroupDivider.qml
         ui/settings/PlaybackSettings.qml
         ui/settings/DisplaySettings.qml
+        ui/settings/HomeSettings.qml
         ui/settings/VideoSettings.qml
         ui/settings/MpvSettings.qml
         ui/settings/IntegrationsSettings.qml

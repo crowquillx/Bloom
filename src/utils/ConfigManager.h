@@ -31,7 +31,7 @@ struct MpvProfile {
 public:
     QString name;                    // Display name
     QStringList args;                // Full computed args (for backward compat / simple use)
-    
+
     // Structured options (used by UI)
     bool hwdecEnabled = true;
     QString hwdecMethod = "auto";    // auto, vaapi, nvdec, videotoolbox, d3d11va, etc.
@@ -140,6 +140,19 @@ class ConfigManager : public QObject
     
     // Manual DPI Scale Override
     Q_PROPERTY(qreal manualDpiScaleOverride READ getManualDpiScaleOverride WRITE setManualDpiScaleOverride NOTIFY manualDpiScaleOverrideChanged)
+    
+    // Hero Banner (Home screen cinematic banner)
+    Q_PROPERTY(bool heroBannerEnabled READ getHeroBannerEnabled WRITE setHeroBannerEnabled NOTIFY heroBannerEnabledChanged)
+    Q_PROPERTY(QString heroBannerSource READ getHeroBannerSource WRITE setHeroBannerSource NOTIFY heroBannerSourceChanged)
+    Q_PROPERTY(int heroBannerMaxItems READ getHeroBannerMaxItems WRITE setHeroBannerMaxItems NOTIFY heroBannerMaxItemsChanged)
+    Q_PROPERTY(bool heroBannerAutoCycleEnabled READ getHeroBannerAutoCycleEnabled WRITE setHeroBannerAutoCycleEnabled NOTIFY heroBannerAutoCycleEnabledChanged)
+    Q_PROPERTY(int heroBannerAutoCycleInterval READ getHeroBannerAutoCycleInterval WRITE setHeroBannerAutoCycleInterval NOTIFY heroBannerAutoCycleIntervalChanged)
+    Q_PROPERTY(bool heroBannerBackdropSyncEnabled READ getHeroBannerBackdropSyncEnabled WRITE setHeroBannerBackdropSyncEnabled NOTIFY heroBannerBackdropSyncEnabledChanged)
+    Q_PROPERTY(QStringList heroBannerHiddenItemTypes READ getHeroBannerHiddenItemTypes WRITE setHeroBannerHiddenItemTypes NOTIFY heroBannerHiddenItemTypesChanged)
+    Q_PROPERTY(bool heroBannerLibraryUnwatchedOnly READ getHeroBannerLibraryUnwatchedOnly WRITE setHeroBannerLibraryUnwatchedOnly NOTIFY heroBannerLibraryUnwatchedOnlyChanged)
+    Q_PROPERTY(QStringList heroBannerLibraryIds READ getHeroBannerLibraryIds WRITE setHeroBannerLibraryIds NOTIFY heroBannerLibraryIdsChanged)
+    Q_PROPERTY(QString heroBannerLogoPlacement READ getHeroBannerLogoPlacement WRITE setHeroBannerLogoPlacement NOTIFY heroBannerLogoPlacementChanged)
+    Q_PROPERTY(QString heroBannerInfoPlacement READ getHeroBannerInfoPlacement WRITE setHeroBannerInfoPlacement NOTIFY heroBannerInfoPlacementChanged)
     
     // UI Animations
     Q_PROPERTY(bool uiAnimationsEnabled READ getUiAnimationsEnabled WRITE setUiAnimationsEnabled NOTIFY uiAnimationsEnabledChanged)
@@ -452,6 +465,30 @@ public:
     void setUiAnimationsEnabled(bool enabled);
     bool getUiAnimationsEnabled() const;
 
+    // Hero Banner
+    void setHeroBannerEnabled(bool enabled);
+    bool getHeroBannerEnabled() const;
+    void setHeroBannerSource(const QString &source);
+    QString getHeroBannerSource() const;
+    void setHeroBannerMaxItems(int maxItems);
+    int getHeroBannerMaxItems() const;
+    void setHeroBannerAutoCycleEnabled(bool enabled);
+    bool getHeroBannerAutoCycleEnabled() const;
+    void setHeroBannerAutoCycleInterval(int ms);
+    int getHeroBannerAutoCycleInterval() const;
+    void setHeroBannerBackdropSyncEnabled(bool enabled);
+    bool getHeroBannerBackdropSyncEnabled() const;
+    void setHeroBannerHiddenItemTypes(const QStringList &types);
+    QStringList getHeroBannerHiddenItemTypes() const;
+    void setHeroBannerLibraryUnwatchedOnly(bool enabled);
+    bool getHeroBannerLibraryUnwatchedOnly() const;
+    void setHeroBannerLibraryIds(const QStringList &libraryIds);
+    QStringList getHeroBannerLibraryIds() const;
+    void setHeroBannerLogoPlacement(const QString &placement);
+    QString getHeroBannerLogoPlacement() const;
+    void setHeroBannerInfoPlacement(const QString &placement);
+    QString getHeroBannerInfoPlacement() const;
+
     // Updates
     void setUpdateChannel(const QString &channel);
     QString getUpdateChannel() const;
@@ -522,6 +559,18 @@ signals:
     void skippedUpdateVersionChanged();
     void logLevelChanged();
 
+    void heroBannerEnabledChanged();
+    void heroBannerSourceChanged();
+    void heroBannerMaxItemsChanged();
+    void heroBannerAutoCycleEnabledChanged();
+    void heroBannerAutoCycleIntervalChanged();
+    void heroBannerBackdropSyncEnabledChanged();
+    void heroBannerHiddenItemTypesChanged();
+    void heroBannerLibraryUnwatchedOnlyChanged();
+    void heroBannerLibraryIdsChanged();
+    void heroBannerLogoPlacementChanged();
+    void heroBannerInfoPlacementChanged();
+
 private:
     QString normalizeLogLevelValue(const QString &level) const;
     void applyLoggingSettings();
@@ -529,6 +578,11 @@ private:
     QString normalizePlayerBackendName(const QString &backendName) const;
     QString normalizeRoundedMode(const QString &raw) const;
     QString normalizeStartupBufferingMode(const QString &raw, bool allowDefault = false) const;
+    QString normalizeHeroBannerSource(const QString &raw) const;
+    QString normalizeHeroBannerLogoPlacement(const QString &raw) const;
+    QString normalizeHeroBannerInfoPlacement(const QString &raw) const;
+    QJsonObject readHeroBannerObject() const;
+    void writeHeroBannerObject(const QJsonObject &heroBanner);
     bool envOverridesRoundedPreprocess(bool current) const;
 
     QJsonObject m_config;

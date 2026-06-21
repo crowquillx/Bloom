@@ -9,7 +9,11 @@ SeasonView 1.0 SeasonView.qml
 SeriesSeasonEpisodeView 1.0 SeriesSeasonEpisodeView.qml
 MovieDetailsView 1.0 MovieDetailsView.qml
 HomeScreen 1.0 HomeScreen.qml
+HeroBanner 1.0 HeroBanner.qml
+HeroBannerLayoutHost 1.0 HeroBannerLayoutHost.qml
+HeroBannerProvider 1.0 HeroBannerProvider.qml
 SettingsScreen 1.0 SettingsScreen.qml
+HomeSettings 1.0 settings/HomeSettings.qml
 SearchScreen 1.0 SearchScreen.qml
 SearchResultCard 1.0 SearchResultCard.qml
 SeerrComboBox 1.0 SeerrComboBox.qml
@@ -24,7 +28,6 @@ UpNextScreen 1.0 UpNextScreen.qml
 A11yButton 1.0 A11yButton.qml
 RetryButton 1.0 RetryButton.qml
 singleton AccessibilityHelpers 1.0 AccessibilityHelpers.qml
-
 
 
 

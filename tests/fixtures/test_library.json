@@ -5,8 +5,10 @@
       "ServerId": "test_server",
       "Id": "test_movie_1",
       "Type": "Movie",
+      "BackdropImageTags": ["backdrop-1"],
       "ImageTags": {
-        "Primary": "tag1"
+        "Primary": "tag1",
+        "Logo": "logo-1"
       }
     }
   ],

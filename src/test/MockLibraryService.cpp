@@ -466,6 +466,42 @@ void MockLibraryService::getRandomItems(int limit)
     emit randomItemsLoaded(result);
 }
 
+void MockLibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds, bool unwatchedOnly)
+{
+    QJsonArray allItems;
+    for (const QJsonValue &val : m_movies["Items"].toArray()) allItems.append(val);
+    for (const QJsonValue &val : m_series["Items"].toArray()) allItems.append(val);
+
+    QStringList ids;
+    for (const QString &id : parentIds) {
+        if (!id.trimmed().isEmpty()) ids.append(id.trimmed());
+    }
+
+    QJsonArray filtered;
+    for (const QJsonValue &val : allItems) {
+        QJsonObject item = val.toObject();
+        if (ids.isEmpty()) {
+            // No parent filter: include all.
+        } else {
+            // Match by ParentId or direct Id for series items that represent a library root.
+            const QString parentId = item.value("ParentId").toString();
+            if (!ids.contains(parentId)) continue;
+        }
+        if (unwatchedOnly) {
+            const QJsonObject userData = item.value("UserData").toObject();
+            if (userData.value("Played").toBool(false)) continue;
+        }
+        filtered.append(item);
+    }
+
+    const int count = qMin(qBound(1, limit, 25), static_cast<int>(filtered.size()));
+    QJsonArray result;
+    for (int i = 0; i < count; ++i) result.append(filtered[i]);
+
+    qCDebug(lcTest) << "MockLibraryService::getHeroLibraryItems(" << limit << "," << ids.size() << "," << unwatchedOnly << ") ->" << result.size() << "items";
+    emit heroLibraryItemsLoaded(result);
+}
+
 QString MockLibraryService::getStreamUrl(const QString &itemId)
 {
     Q_UNUSED(itemId)

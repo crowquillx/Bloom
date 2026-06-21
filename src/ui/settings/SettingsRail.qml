@@ -15,6 +15,7 @@ FocusScope {
 
     readonly property var sectionModel: [
         { sectionKey: "playback",        name: qsTr("Playback"),        icon: "\ue037" },
+        { sectionKey: "home",            name: qsTr("Home"),            icon: "\ue88a" },
         { sectionKey: "display",         name: qsTr("Display"),         icon: "\ue40a" },
         { sectionKey: "video",           name: qsTr("Video"),           icon: "\ue04b" },
         { sectionKey: "mpv",             name: qsTr("MPV"),             icon: "\ue429" },

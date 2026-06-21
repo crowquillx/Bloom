@@ -64,6 +64,7 @@ See also:
 - docs/build.md     — Nix build, packaging, CI, and Windows instructions
 - docs/playback.md  — mpv and playback/reporting integration
 - docs/media-segments.md — External intro/recap/credits provider integration and precedence
+- docs/hero-banner.md — Home hero sources, settings, focus behavior, and backdrop synchronization
 - docs/theme.md     — Theme.qml tokens and design system
 - docs/services.md  — ServiceLocator pattern & initialization order
 - docs/updates.md   — Windows updater flow, release manifests, channels, and notify-only behavior

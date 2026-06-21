@@ -163,3 +163,11 @@ Video settings
   - `tone-map-unsupported`: locally tone-map unsupported Dolby Vision to SDR.
   - `experimental-direct-play`: allow uncertain Dolby Vision direct playback for validation.
 - `settings.video.linux_refresh_rate_command`, `settings.video.linux_hdr_command`, and `settings.video.windows_custom_hdr_command` store the optional OS-specific commands that Bloom executes when switching refresh rate or HDR modes; leave them blank to use the bundled defaults or specify custom commands for your display hardware.
+# Hero banner
+
+Home hero settings are stored under `settings.ui.hero_banner`: `enabled`, `source`, `max_items`,
+`auto_cycle_enabled`, `auto_cycle_interval`, `backdrop_sync_enabled`, `hidden_item_types`,
+`library_unwatched_only`, `library_ids`, `logo_placement`, and `info_placement`. Item count is
+clamped to 1–25 and the interval to 3,000–120,000 milliseconds. An empty `library_ids` list means
+all libraries. Placement values are normalized camelCase strings (`bottomLeft`, `topRight`,
+`center`, `centerLarge` for logo only); unknown values fall back to `bottomLeft`.

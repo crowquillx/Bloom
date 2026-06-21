@@ -70,6 +70,7 @@ public:
     // Search - searches across movies and series
     Q_INVOKABLE void search(const QString &searchTerm, int limit = 50) override;
     Q_INVOKABLE void getRandomItems(int limit = 20) override;
+    Q_INVOKABLE void getHeroLibraryItems(int limit, const QStringList &parentIds, bool unwatchedOnly) override;
     
     // URL helpers - returns placeholder URLs for test images
     Q_INVOKABLE QString getStreamUrl(const QString &itemId) override;
