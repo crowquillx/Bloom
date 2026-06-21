@@ -28,6 +28,12 @@ SDK_COMMIT="$(jq -r .flatpak.sdk_commit "$ROOT/packaging/dependencies.json")"
 PLATFORM_COMMIT="$(jq -r .flatpak.platform_commit "$ROOT/packaging/dependencies.json")"
 mkdir -p "$OUTPUT"
 
+bwrap --unshare-user --unshare-net --ro-bind / / true || {
+    echo "Bubblewrap cannot create the namespaces required by flatpak-builder." >&2
+    echo "On Ubuntu 24.04 CI, disable kernel.apparmor_restrict_unprivileged_userns first." >&2
+    exit 1
+}
+
 if ! flatpak remote-info --user flathub >/dev/null 2>&1; then
     flatpak remote-add --user --if-not-exists flathub \
         https://dl.flathub.org/repo/flathub.flatpakrepo

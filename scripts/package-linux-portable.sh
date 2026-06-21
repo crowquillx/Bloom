@@ -37,11 +37,20 @@ command -v "$CONTAINER_ENGINE" >/dev/null || {
 VERSION="$(tr -d '\n' < "$ROOT/VERSION")"
 BUILD_ID="${BUILD_ID:-$VERSION}"
 IMAGE="$(jq -r .portable.image "$ROOT/packaging/dependencies.json")"
+if [[ "$CONTAINER_ENGINE" == docker ]]; then
+    IMAGE="${IMAGE#docker://}"
+fi
 mkdir -p "$OUTPUT"
 
 ENGINE_ARGS=(run --rm --network=host)
 if [[ "$CONTAINER_ENGINE" == podman ]]; then
     ENGINE_ARGS+=(--userns=keep-id)
+fi
+
+if [[ "$CONTAINER_ENGINE" == docker ]]; then
+    docker image inspect "$IMAGE" >/dev/null 2>&1 || docker pull "$IMAGE" >/dev/null
+else
+    podman image exists "$IMAGE" || podman pull "$IMAGE" >/dev/null
 fi
 
 "$CONTAINER_ENGINE" "${ENGINE_ARGS[@]}" \

@@ -66,6 +66,8 @@ environment. Versions, URLs, hashes, and the container digest live in
 
 Set `BLOOM_CONTAINER_ENGINE=docker` to use Docker instead of Podman. CI uses
 Docker because rootless Podman re-exec is restricted on GitHub-hosted runners.
+The packaging wrapper converts the manifest's `docker://` transport reference
+to Docker's native image-reference format when Docker is selected.
 
 ## Flatpak
 
@@ -80,6 +82,11 @@ single-file Flatpak bundle.
 The Flatpak supports network access, Secret Service, Wayland/X11, audio, GPU
 rendering, and gamepad devices. Host shutdown/restart and arbitrary display
 command settings are intentionally unavailable in the sandbox.
+
+Flatpak Builder requires unprivileged user and network namespaces. Ubuntu
+24.04 GitHub-hosted runners restrict these through AppArmor by default, so the
+Flatpak job disables `kernel.apparmor_restrict_unprivileged_userns` on its
+ephemeral runner and verifies a minimal Bubblewrap sandbox before building.
 
 ## Windows
 

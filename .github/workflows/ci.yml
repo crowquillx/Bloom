@@ -51,6 +51,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - name: Validate Docker packaging environment
+        run: |
+          docker version
+          image="$(jq -r .portable.image packaging/dependencies.json)"
+          image="${image#docker://}"
+          docker image inspect "$image" >/dev/null 2>&1 || docker pull "$image" >/dev/null
       - name: Build AppImage, deb, and tarball
         env:
           BLOOM_CONTAINER_ENGINE: docker
@@ -78,6 +84,14 @@ jobs:
         with:
           persist-credentials: false
       - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - name: Enable Flatpak build sandbox
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 0
+      - name: Validate Flatpak build sandbox
+        run: |
+          nix shell --inputs-from . nixpkgs#bubblewrap --command \
+            bwrap --unshare-user --unshare-net --ro-bind / / true
       - name: Build Flatpak bundle
         run: nix run .#package-flatpak -- --output dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

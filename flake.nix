@@ -37,6 +37,7 @@
                 inherit name;
                 runtimeInputs = with pkgs; [
                   bash
+                  bubblewrap
                   coreutils
                   curl
                   docker-client
