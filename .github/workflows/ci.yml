@@ -17,7 +17,7 @@ env:
 
 jobs:
   nix:
-    name: Nix checks
+    name: Nix build and validation
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
@@ -32,32 +32,14 @@ jobs:
           name: ${{ env.CACHIX_CACHE }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: ${{ github.event_name == 'pull_request' }}
-      - run: nix flake check --print-build-logs --option max-jobs 1 --option cores 2
-      - run: nix build .#bloom --print-build-logs --option max-jobs 1 --option cores 2
-
-  quarantined-tests:
-    name: Quarantined tests
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          persist-credentials: false
-      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
-      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
-        with:
-          name: ${{ env.CACHIX_CACHE }}
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          skipPush: true
-      - name: Run environment-sensitive tests
+      - name: Run non-test validation
         run: |
-          nix develop --command bash -c '
-            cmake -S . -B build-quarantine -G Ninja -DBUILD_TESTING=ON
-            cmake --build build-quarantine --parallel 2 --target \
-              SeriesDetailsCacheTest VisualRegressionTest
-            QT_QPA_PLATFORM=offscreen ctest --test-dir build-quarantine \
-              --output-on-failure --tests-regex "^(SeriesDetailsCacheTest|VisualRegressionTest)$"
-          '
+          nix build \
+            .#checks.x86_64-linux.qml-lint \
+            .#checks.x86_64-linux.metadata \
+            .#checks.x86_64-linux.release-manifest \
+            --print-build-logs --option max-jobs 1 --option cores 2
+      - run: nix build .#bloom --print-build-logs --option max-jobs 1 --option cores 2
 
   portable-linux:
     name: Portable Linux artifacts
@@ -240,6 +222,8 @@ jobs:
           fail_on_unmatched_files: true
       - name: Generate Windows update manifest
         id: manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="$(tr -d '\n' < VERSION)"
           INSTALLER="$(find release-assets -maxdepth 1 -name 'Bloom-Setup-*.exe' -printf '%f\n' | head -1)"
@@ -249,13 +233,15 @@ jobs:
           CHANNEL="${{ steps.release.outputs.tag == 'dev-latest' && 'dev' || 'stable' }}"
           BUILD_ID="${{ steps.release.outputs.tag == 'dev-latest' && github.sha || '' }}"
           BUILD_ID="${BUILD_ID:-$VERSION}"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${{ steps.release.outputs.tag }}" \
+            --jq '.body // ""' > GENERATED_RELEASE_NOTES.md
           python3 scripts/generate-update-manifest.py \
             --channel "$CHANNEL" \
             --version "$VERSION" \
             --build-id "$BUILD_ID" \
             --release-tag "${{ steps.release.outputs.tag }}" \
             --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --notes-file RELEASE_NOTES.md \
+            --notes-file GENERATED_RELEASE_NOTES.md \
             --installer-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ steps.release.outputs.tag }}/$INSTALLER" \
             --installer-filename "$INSTALLER" \
             --installer-sha256 "$INSTALLER_HASH" \

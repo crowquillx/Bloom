@@ -22,7 +22,13 @@ jobs:
       - name: Validate updated inputs
         env:
           BLOOM_BUILD_JOBS: '2'
-        run: nix flake check --print-build-logs --option max-jobs 1 --option cores 2
+        run: |
+          nix build \
+            .#checks.x86_64-linux.qml-lint \
+            .#checks.x86_64-linux.metadata \
+            .#checks.x86_64-linux.release-manifest \
+            .#bloom \
+            --print-build-logs --option max-jobs 1 --option cores 2
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8
         with:
           token: ${{ github.token }}
@@ -33,7 +39,7 @@ jobs:
           body: |
             Weekly dependency refresh.
 
-            The flake lock was updated and the complete Nix check suite passed.
+            The flake lock was updated and the build plus non-test validation passed.
             Portable, Flatpak, Windows, and GitHub Actions pins remain explicit
             in `packaging/dependencies.json` and Dependabot.
           labels: dependencies

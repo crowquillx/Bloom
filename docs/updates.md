@@ -16,6 +16,8 @@
 
 Manifest format
 - Bloom reads JSON manifests from the `update-manifests` branch by default.
+- CI copies the published GitHub release body into each manifest's `notes`
+  field after the release is created.
 - Files:
   - `stable.json`
   - `dev.json`

@@ -73,7 +73,6 @@ See also:
 
 License: See `LICENSE`.
 
-Known test quarantine:
-- `VisualRegressionTest` golden image mismatches are environment-sensitive.
-- `SeriesDetailsCacheTest` has two known failures (`seriesCacheRespectsFreshness`, `itemsCacheRespectsFreshness`).
-- Both run in a separate non-blocking CI job; all other tests are blocking Nix checks.
+Testing policy:
+- Automated tests are currently local-only and are not run in CI.
+- `nix flake check` remains the blessed local command for the full check suite.

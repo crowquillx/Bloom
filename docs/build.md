@@ -28,17 +28,16 @@ The package installs a lowercase `bloom` executable and desktop metadata. It
 uses the dependency versions pinned by `flake.lock`; it does not use libraries
 from the host distribution.
 
-## Checks
+## Local checks
 
 ```bash
 BLOOM_BUILD_JOBS=2 nix flake check --print-build-logs \
   --option max-jobs 1 --option cores 2
 ```
 
-This builds Bloom and runs reliable unit tests, QML lint, desktop/AppStream
-validation, and release-manifest validation. `SeriesDetailsCacheTest` and
-`VisualRegressionTest` are currently quarantined in a separate non-blocking CI
-job because they have known environment-sensitive failures.
+This builds Bloom and runs unit tests, QML lint, desktop/AppStream validation,
+and release-manifest validation. Tests are currently local-only; CI builds the
+application and runs the non-test validation derivations.
 
 Each Nix derivation caps C++ compilation at two concurrent jobs by default.
 The command above also serializes derivations, preventing concurrent flake
@@ -131,4 +130,4 @@ attestations to AppImage, Flatpak, Debian, tarball, and Windows artifacts.
 - RPM packaging.
 - Flathub submission and portal-based host power/display integration.
 - Windows ARM64 and macOS.
-- Restore quarantined tests as blocking checks.
+- Restore automated tests when the CI strategy is revisited.
