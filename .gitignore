@@ -234,6 +234,8 @@ Bloom-Windows/
 result
 result-*
 .direnv/
+.flatpak-builder/
+dist/
 _codeql_detected_source_root
 .agent/rules/agents.md
 .agent/

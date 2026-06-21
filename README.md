@@ -47,33 +47,23 @@ Windows release artifacts include `libmpv` runtime DLLs in the package.
 
 ## Building
 
-### Using Docker (recommended)
+### Using Nix (supported)
 
 ```bash
-./scripts/build-docker.sh
-# Binary: build-docker/src/Bloom
+nix build
+nix run
+nix flake check
 ```
 
-### Using Nix
+Portable Linux release artifacts:
 
 ```bash
-nix develop
-mkdir build && cd build
-cmake .. -G Ninja
-ninja
+nix run .#package-linux -- --output dist
+nix run .#package-flatpak -- --output dist
 ```
 
-### Manual
-
-Install Qt 6 and dependencies for your platform, then:
-
-```bash
-mkdir build && cd build
-cmake .. -G Ninja
-ninja
-```
-
-See [docs/build.md](docs/build.md) for detailed instructions.
+See [docs/build.md](docs/build.md) for development shells, packaging,
+dependency policy, compatibility targets, and Windows instructions.
 
 ### Windows local build note (`libmpv`)
 For local Windows builds, provide a libmpv SDK via one of:
@@ -100,10 +90,10 @@ Windows CI and `scripts/build.ps1` are pinned to `mpv-dev-x86_64-20260610-git-30
 Examples:
 ```bash
 # Stable path (recommended on Linux currently)
-BLOOM_PLAYER_BACKEND=external-mpv-ipc ./build-docker/src/Bloom
+BLOOM_PLAYER_BACKEND=external-mpv-ipc nix run
 
 # Embedded Linux validation path (experimental)
-BLOOM_PLAYER_BACKEND=linux-libmpv-opengl BLOOM_ENABLE_WAYLAND_LIBMPV=1 ./build-docker/src/Bloom
+BLOOM_PLAYER_BACKEND=linux-libmpv-opengl BLOOM_ENABLE_WAYLAND_LIBMPV=1 nix run
 ```
 
 ### Windows

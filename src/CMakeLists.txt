@@ -238,7 +238,7 @@ if(UNIX AND NOT APPLE)
             HINTS ${LIBMPV_LIBRARY_DIRS}
         )
 
-        if(BLOOM_LINUX_MPV_RUNTIME)
+        if(BLOOM_LINUX_MPV_RUNTIME AND BLOOM_BUNDLE_LIBMPV)
             add_custom_command(TARGET Bloom POST_BUILD
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
                     ${BLOOM_LINUX_MPV_RUNTIME}
@@ -253,7 +253,7 @@ if(UNIX AND NOT APPLE)
             # Ensure bundled runtime libs are discoverable from bin/Bloom.
             set_property(TARGET Bloom APPEND PROPERTY BUILD_RPATH "$ORIGIN")
             set_property(TARGET Bloom APPEND PROPERTY INSTALL_RPATH "$ORIGIN/../${CMAKE_INSTALL_LIBDIR}/bloom")
-        else()
+        elseif(BLOOM_BUNDLE_LIBMPV)
             message(WARNING "libmpv runtime library path not found; Linux embedded backend may fail on systems without system libmpv.")
         endif()
     else()

@@ -1,758 +1,267 @@
-name: CI
+name: CI and Release
 
 on:
   push:
     branches: [main]
     tags: ['v*']
-    paths-ignore:
-      - '*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.clang-tidy'
-      - '.clangd'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '*.md'
-      - 'docs/**'
-      - 'LICENSE'
-      - '.gitignore'
-      - '.clang-tidy'
-      - '.clangd'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  CACHIX_CACHE: crowquillx-bloom
+  BLOOM_BUILD_JOBS: '2'
 
 jobs:
-  windows:
-    name: Windows
-    runs-on: windows-latest
+  nix:
+    name: Nix build and validation
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
-          python-version: "3.13"
+          persist-credentials: false
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+      - uses: cachix/cachix-action@3ba601ff5bbb07c7220846facfa2cd81eeee15a1 # v16
+        with:
+          name: ${{ env.CACHIX_CACHE }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' }}
+      - name: Run non-test validation
+        run: |
+          nix build \
+            .#checks.x86_64-linux.qml-lint \
+            .#checks.x86_64-linux.metadata \
+            .#checks.x86_64-linux.release-manifest \
+            --print-build-logs --option max-jobs 1 --option cores 2
+      - run: nix build .#bloom --print-build-logs --option max-jobs 1 --option cores 2
 
-      - name: Determine build metadata
-        id: build_meta
+  portable-linux:
+    name: Portable Linux artifacts
+    runs-on: ubuntu-24.04
+    needs: nix
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - name: Build AppImage, deb, and tarball
+        env:
+          BLOOM_BUILD_CHANNEL: ${{ startsWith(github.ref, 'refs/tags/v') && 'stable' || 'dev' }}
+          BLOOM_BUILD_ID: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || github.sha }}
+          BLOOM_GIT_SHA: ${{ github.sha }}
+        run: nix run .#package-linux -- --output dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Bloom-Linux
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/*.tar.gz
+            dist/SHA256SUMS-linux-x86_64.txt
+          if-no-files-found: error
+
+  flatpak:
+    name: Flatpak artifact
+    runs-on: ubuntu-24.04
+    needs: nix
+    if: github.event_name != 'pull_request'
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31
+      - name: Build Flatpak bundle
+        run: nix run .#package-flatpak -- --output dist
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: Bloom-Flatpak
+          path: |
+            dist/*.flatpak
+            dist/SHA256SUMS-flatpak-x86_64.txt
+          if-no-files-found: error
+
+  windows:
+    name: Windows x86_64
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: '3.13'
+      - name: Read dependency pins
         shell: pwsh
         run: |
-          $projectVersion = (Get-Content VERSION -Raw).Trim()
-          if (-not $projectVersion) {
-            Write-Error "Could not determine Bloom project version"
-            exit 1
-          }
-
-          $buildChannel = if ("${{ github.ref }}" -eq "refs/heads/main") { "dev" } else { "stable" }
-          $shortSha = $env:GITHUB_SHA.Substring(0, 7)
-          $buildId = if ($buildChannel -eq "dev") { "$(Get-Date -AsUTC -Format yyyyMMddHHmmss)-$shortSha" } else { $projectVersion }
-          $installerName = "Bloom-Setup-$projectVersion.exe"
-
-          "project_version=$projectVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "build_channel=$buildChannel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "build_id=$buildId" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          "installer_name=$installerName" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
+          $deps = Get-Content packaging/dependencies.json -Raw | ConvertFrom-Json
+          "BLOOM_QT_VERSION=$($deps.qt.version)" >> $env:GITHUB_ENV
+          "BLOOM_QT_ARCH=$($deps.qt.windows_arch)" >> $env:GITHUB_ENV
       - name: Cache Qt SDK
-        id: cache_qt_windows
-        uses: actions/cache@v5
-        continue-on-error: true
+        id: cache-qt
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: ${{ runner.workspace }}/Qt
-          key: windows-qt-6.10.0-win64_msvc2022_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-v2
-          restore-keys: |
-            windows-qt-6.10.0-win64_msvc2022_64-qtmultimedia-qtshadertools-qtimageformats-qt5compat-
-
-      - name: Install aqtinstall
+          path: ${{ runner.tool_cache }}\Qt
+          key: qt-${{ env.BLOOM_QT_VERSION }}-${{ env.BLOOM_QT_ARCH }}-${{ hashFiles('packaging/dependencies.json') }}
+      - name: Install Qt
+        if: steps.cache-qt.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install "aqtinstall==3.3.*" "py7zr==1.0.*"
-
-      - name: Install Qt
-        if: steps.cache_qt_windows.outputs.cache-hit != 'true'
+          # aqtinstall 3.3.0 cannot install Qt 6.11+ on Windows (repo layout
+          # changed); use the fix on master until 3.3.1 is released.
+          python -m pip install "aqtinstall @ git+https://github.com/miurahr/aqtinstall.git@bbfb1f7c0590b9eb3fa91356e75bb64fb15d3643" "py7zr==1.0.*"
+          python -m aqt install-qt -O "$env:RUNNER_TOOL_CACHE\Qt" windows desktop `
+            "$env:BLOOM_QT_VERSION" "$env:BLOOM_QT_ARCH" `
+            -m qtmultimedia qtshadertools qtimageformats qt5compat
+      - name: Configure Qt environment
         shell: pwsh
         run: |
-          python -m aqt install-qt -O "$env:RUNNER_WORKSPACE\Qt" windows desktop 6.10.0 win64_msvc2022_64 -m qtmultimedia qtshadertools qtimageformats qt5compat
-
-      - name: Export Qt environment
+          # aqtinstall installs to <outputdir>/<version>/<arch-dir>/ where
+          # <arch-dir> drops the "win64_" prefix from the package selector.
+          $qtArchDir = $env:BLOOM_QT_ARCH -replace '^win64_', ''
+          $qtRoot = Join-Path $env:RUNNER_TOOL_CACHE "Qt\$env:BLOOM_QT_VERSION\$qtArchDir"
+          if (-not (Test-Path "$qtRoot\lib\cmake\Qt6\Qt6Config.cmake")) {
+            throw "Qt6Config.cmake not found under $qtRoot"
+          }
+          "QT_ROOT_DIR=$qtRoot" >> $env:GITHUB_ENV
+          "CMAKE_PREFIX_PATH=$qtRoot" >> $env:GITHUB_ENV
+          "$qtRoot\bin" >> $env:GITHUB_PATH
+      - name: Install build tools
+        shell: pwsh
+        run: choco install ninja 7zip -y --no-progress
+      - name: Build and install
         shell: pwsh
         run: |
-          $qtVersionRoot = Join-Path $env:RUNNER_WORKSPACE "Qt\6.10.0"
-          $qtRoot = Get-ChildItem -Path $qtVersionRoot -Directory |
-            Where-Object { Test-Path (Join-Path $_.FullName "bin\qmake.exe") } |
-            Select-Object -First 1
-
-          if (-not $qtRoot) {
-            Write-Error "Could not locate Qt root under $qtVersionRoot"
-            exit 1
-          }
-
-          $qtRootPath = $qtRoot.FullName
-          "QT_ROOT_DIR=$qtRootPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "CMAKE_PREFIX_PATH=$qtRootPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "QT_PLUGIN_PATH=$(Join-Path $qtRootPath 'plugins')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          "QML2_IMPORT_PATH=$(Join-Path $qtRootPath 'qml')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          (Join-Path $qtRootPath 'bin') | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Configure MSVC environment
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found at $vswhere" }
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) { throw "No Visual Studio installation with MSVC x64 tools was found" }
+          $devShell = Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll"
+          if (-not (Test-Path $devShell)) { throw "VS DevShell module not found at $devShell" }
+          Import-Module $devShell
+          Enter-VsDevShell -VsInstallPath $vsPath -Arch x64 -HostArch x64 -SkipAutomaticLocation
+          if (-not (Get-Command cl -ErrorAction SilentlyContinue)) { throw "MSVC compiler (cl.exe) is not on PATH after Enter-VsDevShell" }
+          ./scripts/build.ps1 -BuildDir build-windows -InstallDir install-windows `
+            -QtDir "$env:QT_ROOT_DIR" -Generator Ninja -Clean
+      - name: Package portable build
         shell: pwsh
         run: |
-          $vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-          if (-not (Test-Path $vswhere)) {
-            Write-Error "vswhere.exe not found at $vswhere"
-            exit 1
-          }
-
-          $installationPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          if (-not $installationPath) {
-            Write-Error "Could not find a Visual Studio installation with C++ tools"
-            exit 1
-          }
-
-          $vsDevCmd = Join-Path $installationPath "Common7\Tools\VsDevCmd.bat"
-          if (-not (Test-Path $vsDevCmd)) {
-            Write-Error "VsDevCmd.bat not found at $vsDevCmd"
-            exit 1
-          }
-
-          $envDump = & cmd.exe /s /c "call `"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && set"
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to initialize the MSVC developer environment"
-            exit 1
-          }
-
-          foreach ($line in $envDump) {
-            if ($line -match '^[^=][^=]*=.*$') {
-              $line | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-            }
-          }
-
-      - name: Install Ninja
-        run: choco install ninja -y
+          ./scripts/package-windows.ps1 -InstallDir install-windows `
+            -OutputDir Bloom-Windows -QtDir "$env:QT_ROOT_DIR"
+          Compress-Archive Bloom-Windows/* Bloom-Windows.zip -Force
+      - uses: ./.github/actions/setup-nsis
+      - name: Build installer
         shell: pwsh
-
-      - name: Install 7zip
-        run: choco install 7zip -y
-        shell: pwsh
-
-      - name: Fetch libmpv SDK
-        shell: pwsh
-        run: |
-          # Pin to a validated shinchiro mpv-winbuild-cmake release instead of following latest git dynamically.
-          $mpvReleaseTag = "20260610"
-          $mpvSdkVersion = "20260610-git-304426c"
-          $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
-          $downloadUrl = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$mpvReleaseTag/$mpvSdkFile"
-
-          Write-Host "Downloading pinned libmpv SDK: $mpvSdkFile"
-          $downloadPath = Join-Path $PWD $mpvSdkFile
-          & curl.exe -fL --retry 3 --retry-all-errors --output $downloadPath $downloadUrl
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to download $mpvSdkFile from $downloadUrl"
-            exit 1
-          }
-          $downloadedFile = Get-Item $downloadPath -ErrorAction Stop
-          if ($downloadedFile.Length -lt 1048576) {
-            Write-Error "Downloaded file is unexpectedly small ($($downloadedFile.Length) bytes): $downloadPath"
-            exit 1
-          }
-
-          $extractRoot = Join-Path $PWD "third_party\mpv"
-          if (Test-Path $extractRoot) { Remove-Item -Recurse -Force $extractRoot }
-          New-Item -ItemType Directory -Path $extractRoot | Out-Null
-
-          & 7z x $downloadPath "-o$extractRoot" -y | Out-Null
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "Failed to extract $mpvSdkFile with 7z."
-            exit 1
-          }
-
-          $mpvRootCandidate = Get-ChildItem -Path $extractRoot -Directory -Recurse |
-            Where-Object { Test-Path (Join-Path $_.FullName "include\mpv\client.h") } |
-            Select-Object -First 1
-
-          if ($mpvRootCandidate) {
-            $mpvRoot = $mpvRootCandidate.FullName
-          } elseif (Test-Path (Join-Path $extractRoot "include\mpv\client.h")) {
-            $mpvRoot = $extractRoot
-          } else {
-            Write-Error "Extracted mpv-dev SDK does not contain include\\mpv\\client.h"
-            exit 1
-          }
-
-          $importLib = Get-ChildItem -Path $mpvRoot -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -in @("libmpv-2.lib", "mpv-2.lib", "libmpv.lib", "mpv.lib") } |
-            Select-Object -First 1
-
-          if (-not $importLib) {
-            $mpvDll = Get-ChildItem -Path $mpvRoot -Recurse -File -ErrorAction SilentlyContinue |
-              Where-Object { $_.Name -in @("libmpv-2.dll", "mpv-2.dll", "mpv.dll") } |
-              Select-Object -First 1
-
-            if (-not $mpvDll) {
-              Write-Error "Pinned mpv-dev bundle has no import library and no runtime DLL to generate one from."
-              exit 1
-            }
-
-            $libDir = Join-Path $mpvRoot "lib"
-            if (-not (Test-Path $libDir)) {
-              New-Item -ItemType Directory -Path $libDir | Out-Null
-            }
-
-            $exportsRaw = & dumpbin /exports $mpvDll.FullName
-            if ($LASTEXITCODE -ne 0) {
-              Write-Error "dumpbin failed while reading exports from $($mpvDll.FullName)"
-              exit 1
-            }
-
-            $exportNames = New-Object System.Collections.Generic.List[string]
-            foreach ($line in $exportsRaw) {
-              if ($line -match "^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)$") {
-                $name = $matches[1]
-                if ($name -and $name -ne "[NONAME]") {
-                  $exportNames.Add($name)
-                }
-              }
-            }
-
-            if ($exportNames.Count -eq 0) {
-              Write-Error "No exports parsed from $($mpvDll.FullName); cannot generate import library."
-              exit 1
-            }
-
-            $defPath = Join-Path $libDir "libmpv-2.def"
-            $defContent = @("LIBRARY libmpv-2.dll", "EXPORTS") + ($exportNames | Sort-Object -Unique)
-            Set-Content -Path $defPath -Value $defContent -Encoding ascii
-
-            $outLib = Join-Path $libDir "libmpv-2.lib"
-            & lib /def:$defPath /machine:x64 /out:$outLib
-            if ($LASTEXITCODE -ne 0 -or -not (Test-Path $outLib)) {
-              Write-Error "Failed to generate MSVC import library at $outLib"
-              exit 1
-            }
-
-            Write-Host "Generated import library: $outLib"
-          }
-
-          "MPV_ROOT=$mpvRoot" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Using MPV_ROOT=$mpvRoot"
-
-      - name: Cache sccache
-        uses: actions/cache@v5
-        continue-on-error: true
-        id: cache_sccache_windows
+        run: '& "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi'
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          path: .sccache
-          key: ${{ runner.os }}-sccache-msvc2022-qt610-v3
-          restore-keys: |
-            ${{ runner.os }}-sccache-msvc2022-qt610-
-            ${{ runner.os }}-sccache-
-
-      - name: Setup sccache
-        run: |
-          $version = "v0.8.1"
-          $url = "https://github.com/mozilla/sccache/releases/download/$version/sccache-$version-x86_64-pc-windows-msvc.zip"
-          Invoke-WebRequest -Uri $url -OutFile sccache.zip
-          Expand-Archive sccache.zip -DestinationPath sccache
-          echo "$PWD\sccache\sccache-$version-x86_64-pc-windows-msvc" >> $env:GITHUB_PATH
-        shell: pwsh
-
-      - name: Build
-        env:
-          SCCACHE_DIR: ${{ github.workspace }}/.sccache
-          SCCACHE_CACHE_SIZE: "4G"
-        shell: pwsh
-        run: |
-          sccache --start-server
-          $installPrefix = [System.IO.Path]::GetFullPath((Join-Path $PWD "install-windows"))
-          if (-Not (Test-Path build-windows)) {
-            New-Item -ItemType Directory -Path build-windows
-          }
-          cd build-windows
-          cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DCMAKE_INSTALL_PREFIX="$installPrefix" -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache -DBLOOM_BUILD_CHANNEL="${{ steps.build_meta.outputs.build_channel }}" -DBLOOM_BUILD_ID="${{ steps.build_meta.outputs.build_id }}" -DBLOOM_GIT_SHA="$env:GITHUB_SHA"
-          cmake --build .
-          cmake --install . --config Release
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $cacheFile = Join-Path $PWD "CMakeCache.txt"
-          if (Test-Path $cacheFile) {
-            $hasMpvHeaders = Select-String -Path $cacheFile -Pattern "^BLOOM_MPV_INCLUDE_DIR:PATH=.*$" | Select-Object -First 1
-            $hasMpvLib = Select-String -Path $cacheFile -Pattern "^BLOOM_MPV_LIBRARY:FILEPATH=.*$" | Select-Object -First 1
-            $mpvMissing = (($hasMpvHeaders -and $hasMpvHeaders.Line -match "NOTFOUND") -or ($hasMpvLib -and $hasMpvLib.Line -match "NOTFOUND") -or (-not $hasMpvHeaders) -or (-not $hasMpvLib))
-            if ($mpvMissing) {
-              Write-Error "libmpv SDK not detected during configure (BLOOM_MPV_INCLUDE_DIR/BLOOM_MPV_LIBRARY). Windows build requires direct libmpv support."
-              exit 1
-            }
-          }
-          if (Test-Path "$installPrefix\bin\Bloom.exe") {
-            Write-Host "Installed Bloom.exe at $installPrefix\bin\Bloom.exe"
-          } else {
-            Write-Warning "Bloom.exe not found at expected install path: $installPrefix\bin\Bloom.exe"
-            Get-ChildItem -Path "$installPrefix" -Recurse -ErrorAction SilentlyContinue | Select-Object FullName
-          }
-          sccache --show-stats
-          sccache --stop-server
-
-      - name: Package App
-        shell: pwsh
-        run: |
-          ./scripts/package-windows.ps1 -InstallDir install-windows -OutputDir Bloom-Windows
-
-      - name: Verify libmpv Runtime Present
-        shell: pwsh
-        run: |
-          $libmpv = Get-ChildItem -Path Bloom-Windows -Filter "*mpv*.dll" -File -Recurse -ErrorAction SilentlyContinue
-          if (-not $libmpv) {
-            Write-Error "No libmpv runtime DLL found in Bloom-Windows package. Windows playback policy requires bundled libmpv."
-            exit 1
-          }
-          Write-Host "Found libmpv runtime: $($libmpv[0].Name)"
-
-      - name: Install NSIS
-        uses: ./.github/actions/setup-nsis
-
-      - name: Build Installer
-        run: |
-          & "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi
-        shell: pwsh
-
-      - name: Create ZIP Archive and Hash
-        id: archive
-        run: |
-          Compress-Archive -Path Bloom-Windows/* -DestinationPath Bloom-Windows.zip -Force
-          $zipHash = (Get-FileHash Bloom-Windows.zip -Algorithm SHA256).Hash
-          echo "zip_hash=$zipHash" >> $env:GITHUB_OUTPUT
-          echo "ZIP Hash: $zipHash"
-
-          $installerName = "${{ steps.build_meta.outputs.installer_name }}"
-          if (Test-Path $installerName) {
-            $installerHash = (Get-FileHash $installerName -Algorithm SHA256).Hash
-            echo "installer_hash=$installerHash" >> $env:GITHUB_OUTPUT
-            echo "Installer Hash: $installerHash"
-          }
-        shell: pwsh
-
-      - name: Create Tagged Release
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: Bloom ${{ github.ref_name }}
-          body_path: RELEASE_NOTES.md
-          prerelease: false
-          files: |
+          name: Bloom-Windows
+          path: |
             Bloom-Windows.zip
-            ${{ steps.build_meta.outputs.installer_name }}
-          fail_on_unmatched_files: true
-
-      - name: Generate stable update manifest
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
-        run: |
-          python ./scripts/generate-update-manifest.py `
-            --channel stable `
-            --version "${{ steps.build_meta.outputs.project_version }}" `
-            --build-id "${{ steps.build_meta.outputs.project_version }}" `
-            --release-tag "${{ github.ref_name }}" `
-            --published-at "$(Get-Date -AsUTC -Format o)" `
-            --notes-file RELEASE_NOTES.md `
-            --installer-url "https://github.com/crowquillx/Bloom/releases/download/${{ github.ref_name }}/${{ steps.build_meta.outputs.installer_name }}" `
-            --installer-filename "${{ steps.build_meta.outputs.installer_name }}" `
-            --installer-sha256 "${{ steps.archive.outputs.installer_hash }}" `
-            --portable-url "https://github.com/crowquillx/Bloom/releases/download/${{ github.ref_name }}/Bloom-Windows.zip" `
-            --portable-filename "Bloom-Windows.zip" `
-            --portable-sha256 "${{ steps.archive.outputs.zip_hash }}" `
-            --minimum-supported-version "${{ steps.build_meta.outputs.project_version }}" `
-            --output stable.json
-
-      - name: Publish stable update manifest
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" manifest-repo
-          cd manifest-repo
-          if git ls-remote --exit-code --heads origin update-manifests >/dev/null 2>&1; then
-            git checkout update-manifests
-          else
-            git checkout --orphan update-manifests
-            git rm -rf . >/dev/null 2>&1 || true
-          fi
-          cp ../stable.json stable.json
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add stable.json
-          git commit -m "chore: update stable manifest" || true
-          git push origin update-manifests
-
-      - name: Trigger Scoop Bucket Update (Stable)
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}"
-          $version = $tag.TrimStart('v')
-          $payload = @{
-            event_type = "update-stable-manifest"
-            client_payload = @{
-              hash = "${{ steps.archive.outputs.zip_hash }}"
-              url = "https://github.com/crowquillx/Bloom/releases/download/$tag/Bloom-Windows.zip"
-              version = $version
-            }
-          } | ConvertTo-Json -Compress
-          
-          curl.exe -X POST `
-            -H "Accept: application/vnd.github+json" `
-            -H "Authorization: Bearer ${{ secrets.SCOOP_REPO_TOKEN }}" `
-            https://api.github.com/repos/crowquillx/scoop-bloom/dispatches `
-            -d $payload
-
-      - name: Upload ZIP Artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: Bloom-Windows-Portable
-          path: Bloom-Windows.zip
-
-      - name: Upload Installer Artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: Bloom-Windows-Installer
-          path: ${{ steps.build_meta.outputs.installer_name }}
+            Bloom-Setup-*.exe
           if-no-files-found: error
 
-  linux:
-    name: Linux Build & Package
-    runs-on: ubuntu-latest
-
+  release:
+    name: Publish release artifacts
+    runs-on: ubuntu-24.04
+    needs: [portable-linux, flatpak, windows]
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Determine build metadata
-        id: build_meta_linux
-        run: |
-          PROJECT_VERSION=$(tr -d '\n' < VERSION)
-          if [ -z "$PROJECT_VERSION" ]; then
-            echo "Could not determine Bloom project version" >&2
-            exit 1
-          fi
-          if [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            BUILD_CHANNEL=dev
-            BUILD_ID="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
-          else
-            BUILD_CHANNEL=stable
-            BUILD_ID="$PROJECT_VERSION"
-          fi
-          {
-            echo "project_version=$PROJECT_VERSION"
-            echo "build_channel=$BUILD_CHANNEL"
-            echo "build_id=$BUILD_ID"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            cmake \
-            ninja-build \
-            pkg-config \
-            libgl1-mesa-dev \
-            libxkbcommon-dev \
-            libwayland-dev \
-            libsecret-1-dev \
-            libmpv-dev \
-            libsqlite3-dev \
-            libtiff-dev \
-            libfuse2 \
-            dpkg-dev \
-            file \
-            qt6-base-dev \
-            qt6-base-dev-tools \
-            qt6-declarative-dev \
-            qt6-declarative-dev-tools \
-            qt6-multimedia-dev \
-            qt6-shadertools-dev \
-            qt6-5compat-dev \
-            qt6-image-formats-plugins \
-            qt6-tools-dev \
-            qt6-tools-dev-tools \
-            qt6-wayland \
-            qt6-wayland-dev
-
-      - name: Export Qt environment
-        run: |
-          echo "/usr/lib/qt6/bin" >> "$GITHUB_PATH"
-          echo "QT_PLUGIN_PATH=/usr/lib/x86_64-linux-gnu/qt6/plugins" >> "$GITHUB_ENV"
-          echo "QML2_IMPORT_PATH=/usr/lib/x86_64-linux-gnu/qt6/qml" >> "$GITHUB_ENV"
-
-      - name: Configure CMake
-        run: |
-          cmake -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_INSTALL_PREFIX=/usr \
-            -DBUILD_TESTING=OFF \
-            -DBLOOM_BUILD_CHANNEL="${{ steps.build_meta_linux.outputs.build_channel }}" \
-            -DBLOOM_BUILD_ID="${{ steps.build_meta_linux.outputs.build_id }}" \
-            -DBLOOM_GIT_SHA="${GITHUB_SHA}"
-
-      - name: Build
-        run: cmake --build build --parallel
-
-      - name: Install to staging directory
-        run: |
-          DESTDIR=${{ github.workspace }}/install-linux cmake --install build
-          echo "=== Install tree ==="
-          find ${{ github.workspace }}/install-linux -type f | head -50
-
-      - name: Build .deb package
-        env:
-          INSTALL_DIR: ${{ github.workspace }}/install-linux/usr
-          OUTPUT_DIR: ${{ github.workspace }}/artifacts
-        run: |
-          VERSION=$(date -u +%Y.%m.%d.%H%M)
-          ./scripts/package-linux-deb.sh \
-            --install-dir "$INSTALL_DIR" \
-            --output-dir "$OUTPUT_DIR" \
-            --version "$VERSION"
-
-      - name: Create Linux tarball
-        run: |
-          cd ${{ github.workspace }}/install-linux
-          tar -czf ${{ github.workspace }}/artifacts/Bloom-Linux.tar.gz .
-
-      - name: Compute SHA256 hashes
-        id: linux_hashes
-        run: |
-          cd ${{ github.workspace }}/artifacts
-          echo "=== Linux Artifacts ==="
-          ls -la
-
-          DEB=$(ls bloom_*.deb 2>/dev/null | head -1)
-
-          if [ -n "$DEB" ]; then
-            DEB_HASH=$(sha256sum "$DEB" | cut -d' ' -f1)
-            echo "deb_hash=$DEB_HASH" >> $GITHUB_OUTPUT
-            echo "deb_name=$DEB" >> $GITHUB_OUTPUT
-            echo ".deb SHA256: $DEB_HASH"
-          fi
-
-          TARBALL_HASH=$(sha256sum Bloom-Linux.tar.gz | cut -d' ' -f1)
-          echo "tarball_hash=$TARBALL_HASH" >> $GITHUB_OUTPUT
-          echo "Tarball SHA256: $TARBALL_HASH"
-
-      - name: Upload .deb artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: Bloom-Linux-Deb
-          path: artifacts/bloom_*.deb
-          if-no-files-found: warn
-
-      - name: Upload tarball artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: Bloom-Linux-Tarball
-          path: artifacts/Bloom-Linux.tar.gz
-
-      - name: Update tagged release with Linux artifacts
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/v')
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: Bloom ${{ github.ref_name }}
-          prerelease: false
-          files: |
-            artifacts/bloom_*.deb
-            artifacts/Bloom-Linux.tar.gz
-          fail_on_unmatched_files: false
-
-  publish-dev-release:
-    name: Publish Rolling Dev Release
-    runs-on: ubuntu-latest
-    needs:
-      - windows
-      - linux
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           fetch-depth: 0
-
-      - name: Determine release metadata
-        id: dev_meta
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: Bloom-*
+          path: release-assets
+          merge-multiple: true
+      - name: Generate combined checksums
         run: |
-          PROJECT_VERSION=$(tr -d '\n' < VERSION)
-          if [ -z "$PROJECT_VERSION" ]; then
-            echo "Could not determine Bloom project version" >&2
-            exit 1
+          cd release-assets
+          find . -maxdepth 1 -type f ! -name 'SHA256SUMS*' -print0 |
+            sort -z | xargs -0 sha256sum > SHA256SUMS.txt
+      - uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            release-assets/*.AppImage
+            release-assets/*.deb
+            release-assets/*.flatpak
+            release-assets/*.tar.gz
+            release-assets/*.zip
+            release-assets/*.exe
+      - name: Select release tag
+        id: release
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            git tag -f dev-latest "$GITHUB_SHA"
+            git push origin refs/tags/dev-latest --force
+            echo "tag=dev-latest" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
-          BUILD_ID="$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}"
-          INSTALLER_NAME="Bloom-Setup-${PROJECT_VERSION}.exe"
-          {
-            echo "project_version=$PROJECT_VERSION"
-            echo "build_id=$BUILD_ID"
-            echo "installer_name=$INSTALLER_NAME"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Download Windows portable artifact
-        uses: actions/download-artifact@v8
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          name: Bloom-Windows-Portable
-          path: dev-artifacts/windows
-
-      - name: Download Windows installer artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: Bloom-Windows-Installer
-          path: dev-artifacts/windows-installer
-
-      - name: Download Linux .deb artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: Bloom-Linux-Deb
-          path: dev-artifacts/linux-deb
-
-      - name: Download Linux tarball artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: Bloom-Linux-Tarball
-          path: dev-artifacts/linux-tarball
-
-      - name: Move dev-latest tag to current main
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag -f dev-latest "$GITHUB_SHA"
-          git push origin refs/tags/dev-latest --force
-
-      - name: Normalize dev release assets
-        id: normalize_assets
-        run: |
-          set -euo pipefail
-
-          mkdir -p release-assets
-
-          cp dev-artifacts/windows/Bloom-Windows.zip release-assets/Bloom-Windows.zip
-          cp "dev-artifacts/windows-installer/${{ steps.dev_meta.outputs.installer_name }}" release-assets/Bloom-Setup-dev.exe
-
-          DEB=$(find dev-artifacts/linux-deb -maxdepth 1 -type f -name 'bloom_*.deb' | head -1)
-          TARBALL=$(find dev-artifacts/linux-tarball -maxdepth 1 -type f -name 'Bloom-Linux.tar.gz' | head -1)
-
-          if [ -z "$DEB" ] || [ -z "$TARBALL" ]; then
-            echo "Expected Linux artifacts were not downloaded correctly." >&2
-            exit 1
-          fi
-
-          cp "$DEB" release-assets/bloom_dev_amd64.deb
-          cp "$TARBALL" release-assets/Bloom-Linux.tar.gz
-
-          WINDOWS_ZIP_HASH=$(sha256sum release-assets/Bloom-Windows.zip | cut -d' ' -f1)
-          WINDOWS_INSTALLER_HASH=$(sha256sum release-assets/Bloom-Setup-dev.exe | cut -d' ' -f1)
-          DEB_HASH=$(sha256sum release-assets/bloom_dev_amd64.deb | cut -d' ' -f1)
-          TARBALL_HASH=$(sha256sum release-assets/Bloom-Linux.tar.gz | cut -d' ' -f1)
-
-          {
-            echo "windows_zip_hash=$WINDOWS_ZIP_HASH"
-            echo "windows_installer_hash=$WINDOWS_INSTALLER_HASH"
-            echo "deb_hash=$DEB_HASH"
-            echo "tarball_hash=$TARBALL_HASH"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Build dev release notes
-        run: |
-          cat > dev-release-notes.md <<'EOF'
-          Latest development build from main branch.
-
-          ## Windows
-          Portable ZIP (`Bloom-Windows.zip`)
-          SHA256: `${{ steps.normalize_assets.outputs.windows_zip_hash }}`
-
-          Installer (`Bloom-Setup-dev.exe`)
-          SHA256: `${{ steps.normalize_assets.outputs.windows_installer_hash }}`
-
-          ## Linux
-          Debian package (`bloom_dev_amd64.deb`)
-          SHA256: `${{ steps.normalize_assets.outputs.deb_hash }}`
-
-          Tarball (`Bloom-Linux.tar.gz`)
-          SHA256: `${{ steps.normalize_assets.outputs.tarball_hash }}`
-          EOF
-
-      - name: Remove existing dev release assets
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const { owner, repo } = context.repo;
-            let release;
-            try {
-              release = await github.rest.repos.getReleaseByTag({
-                owner,
-                repo,
-                tag: 'dev-latest'
-              });
-            } catch (error) {
-              if (error.status === 404) {
-                core.info('dev-latest release does not exist yet; nothing to delete.');
-                return;
-              }
-              throw error;
-            }
-
-            for (const asset of release.data.assets) {
-              core.info(`Deleting stale asset ${asset.name}`);
-              await github.rest.repos.deleteReleaseAsset({
-                owner,
-                repo,
-                asset_id: asset.id
-              });
-            }
-
-      - name: Publish dev-latest release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: dev-latest
-          target_commitish: ${{ github.sha }}
-          name: Development Build
-          body_path: dev-release-notes.md
-          prerelease: true
+          tag_name: ${{ steps.release.outputs.tag }}
+          prerelease: ${{ steps.release.outputs.prerelease }}
+          generate_release_notes: true
           overwrite_files: true
-          files: |
-            release-assets/Bloom-Windows.zip
-            release-assets/Bloom-Setup-dev.exe
-            release-assets/bloom_dev_amd64.deb
-            release-assets/Bloom-Linux.tar.gz
+          files: release-assets/*
           fail_on_unmatched_files: true
-
-      - name: Generate dev update manifest
-        run: |
-          python3 ./scripts/generate-update-manifest.py \
-            --channel dev \
-            --version "${{ steps.dev_meta.outputs.project_version }}" \
-            --build-id "${{ steps.dev_meta.outputs.build_id }}" \
-            --release-tag "dev-latest" \
-            --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --notes-file dev-release-notes.md \
-            --installer-url "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-dev.exe" \
-            --installer-filename "Bloom-Setup-dev.exe" \
-            --installer-sha256 "${{ steps.normalize_assets.outputs.windows_installer_hash }}" \
-            --portable-url "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip" \
-            --portable-filename "Bloom-Windows.zip" \
-            --portable-sha256 "${{ steps.normalize_assets.outputs.windows_zip_hash }}" \
-            --minimum-supported-version "${{ steps.dev_meta.outputs.project_version }}" \
-            --output dev.json
-
-      - name: Publish dev update manifest
-        shell: bash
+      - name: Generate Windows update manifest
+        id: manifest
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
-          set -euo pipefail
-          git clone "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" manifest-repo
+          VERSION="$(tr -d '\n' < VERSION)"
+          INSTALLER="$(find release-assets -maxdepth 1 -name 'Bloom-Setup-*.exe' -printf '%f\n' | head -1)"
+          PORTABLE="Bloom-Windows.zip"
+          INSTALLER_HASH="$(sha256sum "release-assets/$INSTALLER" | cut -d' ' -f1)"
+          PORTABLE_HASH="$(sha256sum "release-assets/$PORTABLE" | cut -d' ' -f1)"
+          if [[ "$RELEASE_TAG" == "dev-latest" ]]; then
+            CHANNEL="dev"
+            BUILD_ID="$GITHUB_SHA"
+          else
+            CHANNEL="stable"
+            BUILD_ID=""
+          fi
+          BUILD_ID="${BUILD_ID:-$VERSION}"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
+            --jq '.body // ""' > GENERATED_RELEASE_NOTES.md
+          python3 scripts/generate-update-manifest.py \
+            --channel "$CHANNEL" \
+            --version "$VERSION" \
+            --build-id "$BUILD_ID" \
+            --release-tag "$RELEASE_TAG" \
+            --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --notes-file GENERATED_RELEASE_NOTES.md \
+            --installer-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/$INSTALLER" \
+            --installer-filename "$INSTALLER" \
+            --installer-sha256 "$INSTALLER_HASH" \
+            --portable-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/$PORTABLE" \
+            --portable-filename "$PORTABLE" \
+            --portable-sha256 "$PORTABLE_HASH" \
+            --minimum-supported-version "$VERSION" \
+            --output "$CHANNEL.json"
+          echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
+      - name: Publish update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" manifest-repo
           cd manifest-repo
           if git ls-remote --exit-code --heads origin update-manifests >/dev/null 2>&1; then
             git checkout update-manifests
@@ -760,26 +269,9 @@ jobs:
             git checkout --orphan update-manifests
             git rm -rf . >/dev/null 2>&1 || true
           fi
-          cp ../dev.json dev.json
+          cp "../${{ steps.manifest.outputs.channel }}.json" .
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add dev.json
-          git commit -m "chore: update dev manifest" || true
+          git add "${{ steps.manifest.outputs.channel }}.json"
+          git commit -m "chore: update ${{ steps.manifest.outputs.channel }} manifest" || true
           git push origin update-manifests
-
-      - name: Trigger Scoop Bucket Update (Dev)
-        env:
-          SCOOP_REPO_TOKEN: ${{ secrets.SCOOP_REPO_TOKEN }}
-        run: |
-          VERSION=$(date -u +%Y.%m.%d.%H%M)
-          PAYLOAD=$(jq -cn \
-            --arg hash "${{ steps.normalize_assets.outputs.windows_zip_hash }}" \
-            --arg url "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip" \
-            --arg version "$VERSION" \
-            '{event_type:"update-manifest",client_payload:{hash:$hash,url:$url,version:$version}}')
-
-          curl -fsSL -X POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $SCOOP_REPO_TOKEN" \
-            https://api.github.com/repos/crowquillx/scoop-bloom/dispatches \
-            -d "$PAYLOAD"

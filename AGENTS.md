@@ -25,11 +25,16 @@ Windows embedded playback guardrail (regression prevention):
 
 Backend policy (high level): Windows always uses embedded libmpv (`win-libmpv`) for playback. Linux embedded libmpv remains experimental/validation-only; keep current Linux fallback behavior (Wayland defaults to `external-mpv-ipc` unless explicitly opted in for validation, and unsupported embedded runtime conditions fall back to `external-mpv-ipc`).
 
-Build & run:
+Build & run (blessed path):
 ```
-./scripts/build-docker.sh 
+nix build
+nix run
+nix flake check
 ```
-DO NOT run `cmake` or `make` directly; use the provided script to ensure dependencies are set up correctly.
+Use the flake for development, builds, tests, and packaging. Do not run CMake
+or Make directly for supported Linux builds. Portable Linux artifacts are
+orchestrated by Nix through a pinned Ubuntu compatibility container; Windows
+remains a native MSVC build.
 
 When to update: Only edit this file for architecture, conventions, or global policy changes. Implementation details live in `docs/*` and should be updated there.
 
@@ -53,7 +58,7 @@ PR checklist (docs):
 If unsure whether a change requires `AGENTS.md` or `docs/` updates, open an issue or tag a maintainer and include a short explanation and proposed doc edits.
 
 See also:
-- docs/build.md     — Build instructions for Linux, Docker, and Windows
+- docs/build.md     — Nix build, packaging, CI, and Windows instructions
 - docs/playback.md  — mpv and playback/reporting integration
 - docs/media-segments.md — External intro/recap/credits provider integration and precedence
 - docs/theme.md     — Theme.qml tokens and design system
@@ -68,39 +73,6 @@ See also:
 
 License: See `LICENSE`.
 
-## Cursor Cloud specific instructions
-
-### Building
-- Docker must be running before building. Start the daemon with `dockerd &` and wait a few seconds.
-- Run `xhost +local:` before launching the app inside a Docker container so it can access the X display.
-- The canonical build command is `./scripts/build-docker.sh`. For development iteration where you only need the main binary (no tests), you can build faster inside the container with `-DBUILD_TESTING=OFF`:
-  ```
-  docker run --rm --network=host -v "$(pwd):/workspace" bloom-build bash -c \
-    'cd /workspace && mkdir -p build-docker && cd build-docker && cmake .. -G Ninja -DBUILD_TESTING=OFF && ninja'
-  ```
-- A full build with tests uses the same command without `-DBUILD_TESTING=OFF` (or simply `./scripts/build-docker.sh`).
-
-### Running tests
-- Tests must be run inside the Docker container since the binary is linked against the container's Qt6/mpv libraries.
-- Set `QT_QPA_PLATFORM=offscreen` when running tests in a headless environment:
-  ```
-  docker run --rm --network=host -e QT_QPA_PLATFORM=offscreen -v "$(pwd):/workspace" bloom-build \
-    bash -c 'cd /workspace/build-docker && ctest --output-on-failure'
-  ```
-- `VisualRegressionTest` golden image mismatches are expected in different environments (pixel-perfect comparisons).
-- `SeriesDetailsCacheTest` has two known pre-existing failures (`seriesCacheRespectsFreshness`, `itemsCacheRespectsFreshness`).
-
-### Running the application
-- Launch inside the container with display forwarding:
-  ```
-  docker run --rm --network=host -e DISPLAY=:1 -e QT_QPA_PLATFORM=xcb -e XDG_RUNTIME_DIR=/tmp \
-    -v /tmp/.X11-unix:/tmp/.X11-unix -v "$(pwd):/workspace" bloom-build /workspace/build-docker/src/Bloom
-  ```
-- The app requires a Jellyfin server to be fully functional beyond the login screen.
-
-### QML lint
-- QML lint runs as part of `./scripts/build-docker.sh` automatically. To run it manually:
-  ```
-  docker run --rm -v "$(pwd):/workspace" bloom-build bash -c \
-    'qmllint -I /workspace/build-docker/src -I /usr/lib/qt6/qml $(find /workspace/build-docker/src/BloomUI/ui -name "*.qml" | sort)'
-  ```
+Testing policy:
+- Automated tests are currently local-only and are not run in CI.
+- `nix flake check` remains the blessed local command for the full check suite.

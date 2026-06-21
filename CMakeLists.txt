@@ -9,10 +9,16 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+if(WIN32)
+    add_compile_definitions(NOMINMAX)
+endif()
+
 set(BLOOM_BUILD_CHANNEL "stable" CACHE STRING "Bloom build channel metadata")
 set(BLOOM_BUILD_ID "${PROJECT_VERSION}" CACHE STRING "Bloom build identifier metadata")
 set(BLOOM_GIT_SHA "$ENV{GITHUB_SHA}" CACHE STRING "Bloom Git SHA metadata")
 set(BLOOM_UPDATE_MANIFEST_BASE_URL "https://raw.githubusercontent.com/crowquillx/Bloom/update-manifests" CACHE STRING "Base URL for update manifests")
+option(BLOOM_BUNDLE_LIBMPV "Install the discovered libmpv runtime beside Bloom" ON)
+option(BLOOM_BUILD_VISUAL_TESTS "Build the environment-sensitive visual regression test" ON)
 set(BLOOM_ALLOWED_BUILD_CHANNELS stable dev)
 if(NOT BLOOM_BUILD_CHANNEL IN_LIST BLOOM_ALLOWED_BUILD_CHANNELS)
     message(FATAL_ERROR "Invalid BLOOM_BUILD_CHANNEL '${BLOOM_BUILD_CHANNEL}'. Allowed values: ${BLOOM_ALLOWED_BUILD_CHANNELS}")
@@ -22,7 +28,25 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network Sql C
 find_package(Qt6 COMPONENTS MultimediaQuick QUIET)
 include(CTest)
 if(BUILD_TESTING)
-    find_package(GTest REQUIRED)
+    find_package(GTest QUIET)
+    if(NOT GTest_FOUND)
+        # Fall back to a pinned FetchContent build for platforms without a
+        # system GoogleTest (e.g. Windows CI). Keep this hardcoded commit in
+        # sync with the gtest commit in packaging/dependencies.json.
+        include(FetchContent)
+        FetchContent_Declare(
+            googletest
+            GIT_REPOSITORY https://github.com/google/googletest.git
+            GIT_TAG 52eb8108c5bdec04579160ae17225d66034bd723
+            GIT_SHALLOW TRUE
+        )
+        set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(googletest)
+        if(TARGET gtest AND NOT TARGET GTest::gtest)
+            add_library(GTest::gtest ALIAS gtest)
+            add_library(GTest::gtest_main ALIAS gtest_main)
+        endif()
+    endif()
 endif()
 
 # Platform-specific secure storage dependencies

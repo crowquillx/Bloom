@@ -13,6 +13,17 @@ SystemPowerController::SystemPowerController(ConfigManager* configManager,
 {
 }
 
+bool SystemPowerController::hostPowerActionsAvailable() const
+{
+    return !isFlatpak();
+}
+
+bool SystemPowerController::isFlatpak() const
+{
+    return !qEnvironmentVariableIsEmpty("FLATPAK_ID")
+        || !qEnvironmentVariableIsEmpty("BLOOM_FLATPAK");
+}
+
 bool SystemPowerController::quitApplication()
 {
     if (m_configManager) {
@@ -50,6 +61,10 @@ bool SystemPowerController::restartApplication()
 
 bool SystemPowerController::restartComputer()
 {
+    if (!hostPowerActionsAvailable()) {
+        setLastError(tr("Restarting the computer is unavailable in the Flatpak build."));
+        return false;
+    }
 #if defined(Q_OS_WIN)
     return runCheckedPowerCommand(QStringLiteral("shutdown"), { QStringLiteral("/r"), QStringLiteral("/t"), QStringLiteral("0") });
 #elif defined(Q_OS_MACOS)
@@ -61,6 +76,10 @@ bool SystemPowerController::restartComputer()
 
 bool SystemPowerController::shutdownComputer()
 {
+    if (!hostPowerActionsAvailable()) {
+        setLastError(tr("Shutting down the computer is unavailable in the Flatpak build."));
+        return false;
+    }
 #if defined(Q_OS_WIN)
     return runCheckedPowerCommand(QStringLiteral("shutdown"), { QStringLiteral("/s"), QStringLiteral("/t"), QStringLiteral("0") });
 #elif defined(Q_OS_MACOS)

@@ -42,6 +42,7 @@ param (
     [string]$QtDir = "",
     [string]$Generator = "",
     [bool]$AutoFetchMpvSdk = $true,
+    [switch]$BuildTests,
     [switch]$Clean
 )
 
@@ -227,8 +228,15 @@ function Fetch-MpvSdk {
         New-Item -ItemType Directory -Path $DestinationRoot | Out-Null
     }
 
-    $mpvReleaseTag = "20260610"
-    $mpvSdkVersion = "20260610-git-304426c"
+    $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+    $dependencyManifest = Join-Path $projectRoot "packaging\dependencies.json"
+    if (-not (Test-Path $dependencyManifest)) {
+        throw "Dependency manifest not found: $dependencyManifest"
+    }
+    $dependencies = Get-Content $dependencyManifest -Raw | ConvertFrom-Json
+    $mpvReleaseTag = $dependencies.mpv.windows_release_tag
+    $mpvSdkVersion = $dependencies.mpv.windows_sdk_version
+    $mpvSdkSha256 = $dependencies.mpv.windows_sdk_sha256
     $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
     $downloadUrl = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$mpvReleaseTag/$mpvSdkFile"
 
@@ -242,6 +250,18 @@ function Fetch-MpvSdk {
     $downloadedFile = Get-Item $downloadPath -ErrorAction Stop
     if ($downloadedFile.Length -lt 1048576) {
         throw "Downloaded file is unexpectedly small ($($downloadedFile.Length) bytes): $downloadPath"
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($mpvSdkSha256)) {
+        Write-Host "Verifying mpv-dev SDK SHA256 checksum..." -ForegroundColor Cyan
+        $actualHash = (Get-FileHash -Algorithm SHA256 -Path $downloadPath).Hash
+        $expectedHash = $mpvSdkSha256.ToUpperInvariant()
+        if ($actualHash -ne $expectedHash) {
+            throw "mpv-dev SDK SHA256 mismatch: expected $expectedHash, got $actualHash. Downloaded file: $downloadPath"
+        }
+        Write-Host "Checksum verified: $actualHash" -ForegroundColor Gray
+    } else {
+        Write-Warning "No windows_sdk_sha256 pin found in dependency manifest; skipping checksum verification."
     }
 
     $extractRoot = Join-Path $DestinationRoot "mpv-sdk"
@@ -412,7 +432,8 @@ $CMakeArgs = @(
     "-S", ".",
     "-B", $BuildDir,
     "-DCMAKE_BUILD_TYPE=$Config",
-    "-DCMAKE_INSTALL_PREFIX=$InstallDir"
+    "-DCMAKE_INSTALL_PREFIX=$InstallDir",
+    "-DBUILD_TESTING=$($BuildTests.ToString())"
 )
 
 if ($QtDir) {

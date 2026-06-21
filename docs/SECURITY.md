@@ -76,13 +76,12 @@ Secure storage is enabled by default and requires:
 
 To build:
 ```bash
-./scripts/build-docker.sh  # Uses Docker with libsecret pre-installed
+nix build
 ```
 
 Or locally:
 ```bash
-cmake -B build -G Ninja
-ninja -C build
+nix flake check
 ```
 
 ### Disabling Secure Storage (Dev Only)

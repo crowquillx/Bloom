@@ -546,12 +546,13 @@ Window {
                 text: qsTr("Restart App")
                 iconText: Icons.refresh
                 KeyNavigation.up: quitButton
-                KeyNavigation.down: restartPcButton
+                KeyNavigation.down: restartPcButton.visible ? restartPcButton : null
                 onClicked: homePowerDialog.runPowerAction(function() { return SystemPowerController.restartApplication() })
             }
 
             PowerMenuButton {
                 id: restartPcButton
+                visible: SystemPowerController.hostPowerActionsAvailable
                 text: qsTr("Restart PC")
                 iconText: Icons.refresh
                 destructive: true
@@ -562,6 +563,7 @@ Window {
 
             PowerMenuButton {
                 id: shutdownButton
+                visible: SystemPowerController.hostPowerActionsAvailable
                 text: qsTr("Shutdown")
                 iconText: Icons.power
                 destructive: true
