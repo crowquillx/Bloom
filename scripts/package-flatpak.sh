@@ -7,6 +7,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 [[ -f "$ROOT/VERSION" ]] || ROOT="$PWD"
 [[ -f "$ROOT/VERSION" ]] || { echo "Cannot locate Bloom source root (VERSION not found) from $PWD." >&2; exit 1; }
 OUTPUT="$ROOT/dist"
+CHANNEL="${BLOOM_BUILD_CHANNEL:-stable}"
+BUILD_ID="${BLOOM_BUILD_ID:-}"
+GIT_SHA="${BLOOM_GIT_SHA:-$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)}"
 while (($#)); do
     case "$1" in
         --output)
@@ -21,6 +24,7 @@ while (($#)); do
 done
 
 VERSION="$(tr -d '\n' < "$ROOT/VERSION")"
+BUILD_ID="${BUILD_ID:-$VERSION}"
 BRANCH="$(jq -r .flatpak.branch "$ROOT/packaging/dependencies.json")"
 SDK_ID="$(jq -r .flatpak.sdk "$ROOT/packaging/dependencies.json")"
 PLATFORM_ID="$(jq -r .flatpak.runtime "$ROOT/packaging/dependencies.json")"
@@ -48,13 +52,20 @@ flatpak update --user --noninteractive --commit="$SDK_COMMIT" "$SDK_ID/x86_64/$B
 flatpak update --user --noninteractive --commit="$PLATFORM_COMMIT" "$PLATFORM_ID/x86_64/$BRANCH"
 
 rm -rf "$ROOT/.flatpak-builder/build" "$ROOT/.flatpak-builder/repo"
+MANIFEST="$(mktemp "$ROOT/packaging/flatpak/.ci-manifest.XXXXXX.yml")"
+trap 'rm -f "$MANIFEST"' EXIT
+sed \
+    -e "s|-DBLOOM_BUILD_CHANNEL=stable|-DBLOOM_BUILD_CHANNEL=$CHANNEL|" \
+    -e "/-DBLOOM_BUILD_CHANNEL=$CHANNEL/a\\      - -DBLOOM_BUILD_ID=$BUILD_ID\\
+      - -DBLOOM_GIT_SHA=$GIT_SHA" \
+    "$ROOT/packaging/flatpak/com.github.crowquillx.Bloom.yml" > "$MANIFEST"
 flatpak-builder --user --force-clean --repo="$ROOT/.flatpak-builder/repo" \
-    "$ROOT/.flatpak-builder/build" "$ROOT/packaging/flatpak/com.github.crowquillx.Bloom.yml"
+    "$ROOT/.flatpak-builder/build" "$MANIFEST"
 flatpak-builder --run "$ROOT/.flatpak-builder/build" \
-    "$ROOT/packaging/flatpak/com.github.crowquillx.Bloom.yml" \
+    "$MANIFEST" \
     env QT_QPA_PLATFORM=offscreen bloom --version
 flatpak-builder --run "$ROOT/.flatpak-builder/build" \
-    "$ROOT/packaging/flatpak/com.github.crowquillx.Bloom.yml" mpv --version
+    "$MANIFEST" mpv --version
 flatpak build-bundle "$ROOT/.flatpak-builder/repo" \
     "$OUTPUT/Bloom-${VERSION}-linux-x86_64.flatpak" com.github.crowquillx.Bloom
 sha256sum "$OUTPUT/Bloom-${VERSION}-linux-x86_64.flatpak" \

@@ -7,7 +7,9 @@
 
 ## Channels
 - `stable`: latest non-prerelease tagged release.
-- `dev`: rolling `dev-latest` release built from `main`.
+- `dev`: rolling `dev-latest` prerelease built from `main`. The release is
+  always named `Development Build`, is never marked as GitHub's latest stable
+  release, and contains only the assets from the newest successful main build.
 
 ## Runtime behavior
 - Bloom can check for updates automatically at startup when `settings.updates.auto_check_enabled` is true. This is opt-in for now and defaults to false.
@@ -17,10 +19,15 @@
 Manifest format
 - Bloom reads JSON manifests from the `update-manifests` branch by default.
 - CI copies the published GitHub release body into each manifest's `notes`
-  field after the release is created.
+  field. Stable notes come from `RELEASE_NOTES.md`; development notes identify
+  the main commit, base version, build ID, and build time.
 - Files:
   - `stable.json`
   - `dev.json`
+
+Development build IDs use `YYYYMMDDhhmmss-<short-sha>` so the updater can
+compare rolling builds lexicographically. Development binaries are compiled
+with the same channel and build ID written to `dev.json`.
 
 Example shape:
 

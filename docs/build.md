@@ -137,9 +137,28 @@ install Qt 6.11+ on Windows (repo layout changed); revert to
 
 ## Release artifacts
 
-Pushes to `main` publish a rolling `dev-latest` release. Version tags publish
-stable releases. CI attaches SHA-256 manifests and GitHub build-provenance
-attestations to AppImage, Flatpak, Debian, tarball, and Windows artifacts.
+Pull requests run validation and produce workflow artifacts, but do not publish
+GitHub releases. Successful pushes to `main` replace the rolling
+`dev-latest` prerelease named `Development Build`. Its tag follows the current
+`main` commit, its assets use stable development filenames such as
+`Bloom-Setup-dev.exe` and `bloom_dev_amd64.deb`, and the previous prerelease is
+deleted before the new one is published. Development binaries embed a
+timestamp plus short commit SHA as their build ID and never become GitHub's
+latest stable release.
+
+Stable releases are created only from matching `vX.Y.Z` tags. Use
+`./scripts/bump-version.sh X.Y.Z --tag` or
+`.\scripts\bump-version.ps1 X.Y.Z -Tag`, review the generated release commit
+and annotated tag, then push both with `git push origin main vX.Y.Z`. CI rejects
+a version tag that does not match `VERSION`, publishes the committed
+`RELEASE_NOTES.md`, and retains versioned artifact filenames.
+
+Both release channels attach SHA-256 manifests and GitHub build-provenance
+attestations to AppImage, Flatpak, Debian, tarball, and Windows artifacts. Once
+published, CI dispatches the Windows ZIP URL, SHA-256, and version to
+`crowquillx/scoop-bloom`: main builds update `bloom-dev.json`, while version
+tags update `bloom.json`. This requires the `SCOOP_REPO_TOKEN` repository
+secret.
 
 ## Roadmap
 

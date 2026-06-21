@@ -58,10 +58,6 @@ sed -i "s/!define VERSIONMINOR [0-9]\+/!define VERSIONMINOR $MINOR/" "$REPO_ROOT
 sed -i "s/!define VERSIONBUILD [0-9]\+/!define VERSIONBUILD $PATCH/" "$REPO_ROOT/installer.nsi"
 echo -e "  \033[32mUpdated installer.nsi\033[0m"
 
-# --- ci.yml (installer filename references) ---
-sed -i "s/Bloom-Setup-[0-9]\+\.[0-9]\+\.[0-9]\+\.exe/Bloom-Setup-$VERSION.exe/g" "$REPO_ROOT/.github/workflows/ci.yml"
-echo -e "  \033[32mUpdated ci.yml\033[0m"
-
 echo ""
 echo -e "\033[36m========================================\033[0m"
 echo -e "\033[36m Version bumped to $VERSION\033[0m"
@@ -83,8 +79,7 @@ if $TAG; then
     echo "  1. Push to trigger the release CI:"
     echo "     git push origin main v$VERSION"
     echo "  2. CI will automatically create a GitHub Release 'Bloom v$VERSION'"
-    echo "     with Windows (ZIP + installer) and Linux (.deb + tarball) artifacts."
-    echo "  3. Scoop stable manifest will be updated via repository dispatch."
+    echo "     with versioned Windows and Linux artifacts."
 else
     echo -e "\n\033[33m Next steps:\033[0m"
     echo "  1. Review the changes:  git diff"

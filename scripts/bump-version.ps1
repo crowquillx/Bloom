@@ -3,14 +3,14 @@
     Bumps the Bloom project version across all relevant files.
 
 .DESCRIPTION
-    Updates the shared VERSION file, PKGBUILD, installer.nsi, and ci.yml
-    (installer filename references). Optionally commits, tags, and pushes.
+    Updates the shared VERSION file, PKGBUILD, and installer.nsi.
+    Optionally commits and creates an annotated tag.
 
 .PARAMETER Version
     The new version in X.Y.Z format (e.g. 0.4.0).
 
 .PARAMETER Tag
-    If set, commits changes, creates an annotated tag, and pushes to origin.
+    If set, commits changes and creates an annotated tag.
 
 .EXAMPLE
     .\scripts\bump-version.ps1 0.4.0
@@ -55,13 +55,6 @@ $nsi = $nsi -replace '!define VERSIONBUILD \d+', "!define VERSIONBUILD $patch"
 Set-Content $nsiPath $nsi -NoNewline
 Write-Host "  Updated installer.nsi" -ForegroundColor Green
 
-# --- ci.yml (installer filename references) ---
-$ciPath = Join-Path $repoRoot '.github\workflows\ci.yml'
-$ci = Get-Content $ciPath -Raw
-$ci = $ci -replace 'Bloom-Setup-\d+\.\d+\.\d+\.exe', "Bloom-Setup-$Version.exe"
-Set-Content $ciPath $ci -NoNewline
-Write-Host "  Updated ci.yml" -ForegroundColor Green
-
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host " Version bumped to $Version" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
@@ -83,8 +76,7 @@ if ($Tag) {
     Write-Host "  1. Push to trigger the release CI:" -ForegroundColor White
     Write-Host "     git push origin main v$Version" -ForegroundColor Gray
     Write-Host "  2. CI will automatically create a GitHub Release 'Bloom v$Version'" -ForegroundColor White
-    Write-Host "     with Windows (ZIP + installer) and Linux (.deb + tarball) artifacts." -ForegroundColor White
-    Write-Host "  3. Scoop stable manifest will be updated via repository dispatch." -ForegroundColor White
+    Write-Host "     with versioned Windows and Linux artifacts." -ForegroundColor White
 }
 else {
     Write-Host "`n Next steps:" -ForegroundColor Yellow

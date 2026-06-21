@@ -8,6 +8,10 @@ on:
     branches: [main]
   workflow_dispatch:
 
+concurrency:
+  group: bloom-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -16,6 +20,49 @@ env:
   BLOOM_BUILD_JOBS: '2'
 
 jobs:
+  metadata:
+    name: Determine build metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      channel: ${{ steps.metadata.outputs.channel }}
+      build_id: ${{ steps.metadata.outputs.build_id }}
+      git_sha: ${{ steps.metadata.outputs.git_sha }}
+      is_tagged_release: ${{ steps.metadata.outputs.is_tagged_release }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+      - name: Resolve event metadata
+        id: metadata
+        env:
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          VERSION="$(tr -d '\n' < VERSION)"
+          if [[ "$REF" == refs/tags/v* ]]; then
+            if [[ "$REF_NAME" != "v$VERSION" ]]; then
+              echo "Tag $REF_NAME does not match VERSION ($VERSION)." >&2
+              exit 1
+            fi
+            CHANNEL="stable"
+            BUILD_ID="$VERSION"
+            IS_TAGGED_RELEASE="true"
+          else
+            CHANNEL="dev"
+            BUILD_ID="$(date -u +%Y%m%d%H%M%S)-${SHA::7}"
+            IS_TAGGED_RELEASE="false"
+          fi
+          {
+            echo "version=$VERSION"
+            echo "channel=$CHANNEL"
+            echo "build_id=$BUILD_ID"
+            echo "git_sha=$SHA"
+            echo "is_tagged_release=$IS_TAGGED_RELEASE"
+          } >> "$GITHUB_OUTPUT"
+
   nix:
     name: Nix build and validation
     runs-on: ubuntu-24.04
@@ -44,7 +91,7 @@ jobs:
   portable-linux:
     name: Portable Linux artifacts
     runs-on: ubuntu-24.04
-    needs: nix
+    needs: [metadata, nix]
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -60,9 +107,9 @@ jobs:
       - name: Build AppImage, deb, and tarball
         env:
           BLOOM_CONTAINER_ENGINE: docker
-          BLOOM_BUILD_CHANNEL: ${{ startsWith(github.ref, 'refs/tags/v') && 'stable' || 'dev' }}
-          BLOOM_BUILD_ID: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || github.sha }}
-          BLOOM_GIT_SHA: ${{ github.sha }}
+          BLOOM_BUILD_CHANNEL: ${{ needs.metadata.outputs.channel }}
+          BLOOM_BUILD_ID: ${{ needs.metadata.outputs.build_id }}
+          BLOOM_GIT_SHA: ${{ needs.metadata.outputs.git_sha }}
         run: nix run .#package-linux -- --output dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -77,7 +124,7 @@ jobs:
   flatpak:
     name: Flatpak artifact
     runs-on: ubuntu-24.04
-    needs: nix
+    needs: [metadata, nix]
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -93,6 +140,10 @@ jobs:
           nix shell --inputs-from . nixpkgs#bubblewrap --command \
             bwrap --unshare-user --unshare-net --ro-bind / / true
       - name: Build Flatpak bundle
+        env:
+          BLOOM_BUILD_CHANNEL: ${{ needs.metadata.outputs.channel }}
+          BLOOM_BUILD_ID: ${{ needs.metadata.outputs.build_id }}
+          BLOOM_GIT_SHA: ${{ needs.metadata.outputs.git_sha }}
         run: nix run .#package-flatpak -- --output dist
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -105,6 +156,7 @@ jobs:
   windows:
     name: Windows x86_64
     runs-on: windows-2025
+    needs: metadata
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -164,7 +216,10 @@ jobs:
           Enter-VsDevShell -VsInstallPath $vsPath -Arch x64 -HostArch x64 -SkipAutomaticLocation
           if (-not (Get-Command cl -ErrorAction SilentlyContinue)) { throw "MSVC compiler (cl.exe) is not on PATH after Enter-VsDevShell" }
           ./scripts/build.ps1 -BuildDir build-windows -InstallDir install-windows `
-            -QtDir "$env:QT_ROOT_DIR" -Generator Ninja -Clean
+            -QtDir "$env:QT_ROOT_DIR" -Generator Ninja `
+            -BuildChannel "${{ needs.metadata.outputs.channel }}" `
+            -BuildId "${{ needs.metadata.outputs.build_id }}" `
+            -GitSha "${{ needs.metadata.outputs.git_sha }}" -Clean
       - name: Package portable build
         shell: pwsh
         run: |
@@ -186,8 +241,11 @@ jobs:
   release:
     name: Publish release artifacts
     runs-on: ubuntu-24.04
-    needs: [portable-linux, flatpak, windows]
+    needs: [metadata, portable-linux, flatpak, windows]
     if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    concurrency:
+      group: bloom-release-publish
+      cancel-in-progress: false
     permissions:
       contents: write
       id-token: write
@@ -201,6 +259,62 @@ jobs:
           pattern: Bloom-*
           path: release-assets
           merge-multiple: true
+      - name: Prepare release metadata and assets
+        id: release
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          BUILD_ID: ${{ needs.metadata.outputs.build_id }}
+          IS_TAGGED_RELEASE: ${{ needs.metadata.outputs.is_tagged_release }}
+        run: |
+          set -euo pipefail
+          PUBLISHED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          if [[ "$IS_TAGGED_RELEASE" == "true" ]]; then
+            TAG="$GITHUB_REF_NAME"
+            RELEASE_NAME="Bloom $GITHUB_REF_NAME"
+            NOTES_FILE="RELEASE_NOTES.md"
+            INSTALLER="$(find release-assets -maxdepth 1 -name 'Bloom-Setup-*.exe' -printf '%f\n' | head -1)"
+            PRERELEASE="false"
+            MAKE_LATEST="true"
+          else
+            TAG="dev-latest"
+            RELEASE_NAME="Development Build"
+            PRERELEASE="true"
+            MAKE_LATEST="false"
+            mv release-assets/Bloom-Setup-*.exe release-assets/Bloom-Setup-dev.exe
+            mv release-assets/Bloom-*-linux-x86_64.AppImage release-assets/Bloom-x86_64.AppImage
+            mv release-assets/Bloom-*-linux-x86_64.flatpak release-assets/Bloom-x86_64.flatpak
+            mv release-assets/Bloom-*-linux-x86_64.tar.gz release-assets/Bloom-Linux.tar.gz
+            mv release-assets/bloom_*_amd64.deb release-assets/bloom_dev_amd64.deb
+            (
+              cd release-assets
+              sha256sum \
+                Bloom-x86_64.AppImage \
+                Bloom-Linux.tar.gz \
+                bloom_dev_amd64.deb > SHA256SUMS-linux-x86_64.txt
+              sha256sum Bloom-x86_64.flatpak > SHA256SUMS-flatpak-x86_64.txt
+            )
+            INSTALLER="Bloom-Setup-dev.exe"
+            NOTES_FILE="dev-release-notes.md"
+            cat > "$NOTES_FILE" <<EOF
+          Latest development build from the \`main\` branch.
+
+          - Build ID: \`$BUILD_ID\`
+          - Commit: \`$GITHUB_SHA\`
+          - Base version: \`$VERSION\`
+          - Built: \`$PUBLISHED_AT\`
+          EOF
+            git tag -f dev-latest "$GITHUB_SHA"
+            git push origin refs/tags/dev-latest --force
+          fi
+          {
+            echo "tag=$TAG"
+            echo "name=$RELEASE_NAME"
+            echo "prerelease=$PRERELEASE"
+            echo "make_latest=$MAKE_LATEST"
+            echo "notes_file=$NOTES_FILE"
+            echo "installer=$INSTALLER"
+            echo "published_at=$PUBLISHED_AT"
+          } >> "$GITHUB_OUTPUT"
       - name: Generate combined checksums
         run: |
           cd release-assets
@@ -215,54 +329,65 @@ jobs:
             release-assets/*.tar.gz
             release-assets/*.zip
             release-assets/*.exe
-      - name: Select release tag
-        id: release
-        run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
-          else
-            git tag -f dev-latest "$GITHUB_SHA"
-            git push origin refs/tags/dev-latest --force
-            echo "tag=dev-latest" >> "$GITHUB_OUTPUT"
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          fi
-      - uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
+      - name: Remove previous development release
+        if: needs.metadata.outputs.is_tagged_release != 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            let release;
+            try {
+              release = await github.rest.repos.getReleaseByTag({
+                owner,
+                repo,
+                tag: "dev-latest"
+              });
+            } catch (error) {
+              if (error.status === 404) {
+                core.info("dev-latest release does not exist yet.");
+                return;
+              }
+              throw error;
+            }
+            core.info(`Deleting previous dev-latest release ${release.data.id}`);
+            await github.rest.repos.deleteRelease({
+              owner,
+              repo,
+              release_id: release.data.id
+            });
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           tag_name: ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: ${{ steps.release.outputs.name }}
+          body_path: ${{ steps.release.outputs.notes_file }}
           prerelease: ${{ steps.release.outputs.prerelease }}
-          generate_release_notes: true
+          make_latest: ${{ steps.release.outputs.make_latest }}
           overwrite_files: true
           files: release-assets/*
           fail_on_unmatched_files: true
       - name: Generate Windows update manifest
         id: manifest
         env:
-          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          CHANNEL: ${{ needs.metadata.outputs.channel }}
+          BUILD_ID: ${{ needs.metadata.outputs.build_id }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          INSTALLER: ${{ steps.release.outputs.installer }}
+          NOTES_FILE: ${{ steps.release.outputs.notes_file }}
+          PUBLISHED_AT: ${{ steps.release.outputs.published_at }}
         run: |
-          VERSION="$(tr -d '\n' < VERSION)"
-          INSTALLER="$(find release-assets -maxdepth 1 -name 'Bloom-Setup-*.exe' -printf '%f\n' | head -1)"
           PORTABLE="Bloom-Windows.zip"
           INSTALLER_HASH="$(sha256sum "release-assets/$INSTALLER" | cut -d' ' -f1)"
           PORTABLE_HASH="$(sha256sum "release-assets/$PORTABLE" | cut -d' ' -f1)"
-          if [[ "$RELEASE_TAG" == "dev-latest" ]]; then
-            CHANNEL="dev"
-            BUILD_ID="$GITHUB_SHA"
-          else
-            CHANNEL="stable"
-            BUILD_ID=""
-          fi
-          BUILD_ID="${BUILD_ID:-$VERSION}"
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" \
-            --jq '.body // ""' > GENERATED_RELEASE_NOTES.md
           python3 scripts/generate-update-manifest.py \
             --channel "$CHANNEL" \
             --version "$VERSION" \
             --build-id "$BUILD_ID" \
             --release-tag "$RELEASE_TAG" \
-            --published-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --notes-file GENERATED_RELEASE_NOTES.md \
+            --published-at "$PUBLISHED_AT" \
+            --notes-file "$NOTES_FILE" \
             --installer-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/$INSTALLER" \
             --installer-filename "$INSTALLER" \
             --installer-sha256 "$INSTALLER_HASH" \
@@ -290,3 +415,43 @@ jobs:
           git add "${{ steps.manifest.outputs.channel }}.json"
           git commit -m "chore: update ${{ steps.manifest.outputs.channel }} manifest" || true
           git push origin update-manifests
+      - name: Update Scoop manifest
+        env:
+          SCOOP_REPO_TOKEN: ${{ secrets.SCOOP_REPO_TOKEN }}
+          CHANNEL: ${{ needs.metadata.outputs.channel }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          PUBLISHED_AT: ${{ steps.release.outputs.published_at }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$SCOOP_REPO_TOKEN" ]]; then
+            echo "SCOOP_REPO_TOKEN is required to update crowquillx/scoop-bloom." >&2
+            exit 1
+          fi
+
+          ZIP="Bloom-Windows.zip"
+          ZIP_HASH="$(sha256sum "release-assets/$ZIP" | cut -d' ' -f1)"
+          ZIP_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${RELEASE_TAG}/${ZIP}"
+
+          if [[ "$CHANNEL" == "stable" ]]; then
+            EVENT_TYPE="update-stable-manifest"
+            SCOOP_VERSION="$VERSION"
+          else
+            EVENT_TYPE="update-manifest"
+            SCOOP_VERSION="$(date -u -d "$PUBLISHED_AT" +%Y.%m.%d.%H%M)"
+          fi
+
+          PAYLOAD="$(jq -cn \
+            --arg event_type "$EVENT_TYPE" \
+            --arg hash "$ZIP_HASH" \
+            --arg url "$ZIP_URL" \
+            --arg version "$SCOOP_VERSION" \
+            '{event_type:$event_type,client_payload:{hash:$hash,url:$url,version:$version}}')"
+
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer $SCOOP_REPO_TOKEN" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/crowquillx/scoop-bloom/dispatches" \
+            --data "$PAYLOAD"

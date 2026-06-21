@@ -23,6 +23,15 @@
     Optional CMake generator to use (e.g., "Visual Studio 17 2022", "MinGW Makefiles", "Ninja").
     If not provided, CMake chooses the default.
 
+.PARAMETER BuildChannel
+    Build metadata channel: stable or dev.
+
+.PARAMETER BuildId
+    Ordered build identifier embedded in the application.
+
+.PARAMETER GitSha
+    Git commit SHA embedded in the application.
+
 .PARAMETER Clean
     If set, removes the build directory before building.
 
@@ -41,12 +50,23 @@ param (
     [string]$Config = "Release",
     [string]$QtDir = "",
     [string]$Generator = "",
+    [string]$BuildChannel = "stable",
+    [string]$BuildId = "",
+    [string]$GitSha = "",
     [bool]$AutoFetchMpvSdk = $true,
     [switch]$BuildTests,
     [switch]$Clean
 )
 
 $ErrorActionPreference = "Stop"
+
+if ($BuildChannel -notin @("stable", "dev")) {
+    throw "BuildChannel must be 'stable' or 'dev' (got '$BuildChannel')."
+}
+
+if ([string]::IsNullOrWhiteSpace($BuildId)) {
+    $BuildId = (Get-Content (Join-Path $PSScriptRoot "..\VERSION") -Raw).Trim()
+}
 
 function Test-CommandExists {
     param ($Command)
@@ -433,7 +453,10 @@ $CMakeArgs = @(
     "-B", $BuildDir,
     "-DCMAKE_BUILD_TYPE=$Config",
     "-DCMAKE_INSTALL_PREFIX=$InstallDir",
-    "-DBUILD_TESTING=$($BuildTests.ToString())"
+    "-DBUILD_TESTING=$($BuildTests.ToString())",
+    "-DBLOOM_BUILD_CHANNEL=$BuildChannel",
+    "-DBLOOM_BUILD_ID=$BuildId",
+    "-DBLOOM_GIT_SHA=$GitSha"
 )
 
 if ($QtDir) {
