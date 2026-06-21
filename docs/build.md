@@ -8,7 +8,8 @@ graph.
 
 - Nix 2.18 or newer with flakes enabled.
 - Linux x86_64.
-- Podman only when producing Ubuntu-compatible portable artifacts.
+- Podman (the local default) or Docker when producing Ubuntu-compatible
+  portable artifacts.
 - Flatpak only when producing the Flatpak bundle.
 
 The development shell provides the optional packaging tools:
@@ -62,6 +63,9 @@ These artifacts target Ubuntu 24.04 and newer (glibc 2.39). The packaging
 container is a compatibility boundary, not an alternate development
 environment. Versions, URLs, hashes, and the container digest live in
 `packaging/dependencies.json`.
+
+Set `BLOOM_CONTAINER_ENGINE=docker` to use Docker instead of Podman. CI uses
+Docker because rootless Podman re-exec is restricted on GitHub-hosted runners.
 
 ## Flatpak
 

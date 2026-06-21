@@ -39,6 +39,7 @@
                   bash
                   coreutils
                   curl
+                  docker-client
                   findutils
                   flatpak
                   flatpak-builder

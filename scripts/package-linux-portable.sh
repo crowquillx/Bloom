@@ -24,8 +24,13 @@ while (($#)); do
     esac
 done
 
-command -v podman >/dev/null || {
-    echo "podman is required; run this command through 'nix run .#package-linux'." >&2
+CONTAINER_ENGINE="${BLOOM_CONTAINER_ENGINE:-podman}"
+case "$CONTAINER_ENGINE" in
+    podman|docker) ;;
+    *) echo "Unsupported container engine: $CONTAINER_ENGINE (expected podman or docker)." >&2; exit 2 ;;
+esac
+command -v "$CONTAINER_ENGINE" >/dev/null || {
+    echo "$CONTAINER_ENGINE is required; run this command through 'nix run .#package-linux'." >&2
     exit 1
 }
 
@@ -34,8 +39,12 @@ BUILD_ID="${BUILD_ID:-$VERSION}"
 IMAGE="$(jq -r .portable.image "$ROOT/packaging/dependencies.json")"
 mkdir -p "$OUTPUT"
 
-podman run --rm --network=host \
-    --userns=keep-id \
+ENGINE_ARGS=(run --rm --network=host)
+if [[ "$CONTAINER_ENGINE" == podman ]]; then
+    ENGINE_ARGS+=(--userns=keep-id)
+fi
+
+"$CONTAINER_ENGINE" "${ENGINE_ARGS[@]}" \
     -e BLOOM_VERSION="$VERSION" \
     -e BLOOM_BUILD_CHANNEL="$CHANNEL" \
     -e BLOOM_BUILD_ID="$BUILD_ID" \

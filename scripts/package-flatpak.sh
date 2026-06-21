@@ -28,6 +28,10 @@ SDK_COMMIT="$(jq -r .flatpak.sdk_commit "$ROOT/packaging/dependencies.json")"
 PLATFORM_COMMIT="$(jq -r .flatpak.platform_commit "$ROOT/packaging/dependencies.json")"
 mkdir -p "$OUTPUT"
 
+if ! flatpak remote-info --user flathub >/dev/null 2>&1; then
+    flatpak remote-add --user --if-not-exists flathub \
+        https://dl.flathub.org/repo/flathub.flatpakrepo
+fi
 flatpak install --user --noninteractive flathub \
     "$SDK_ID/x86_64/$BRANCH" \
     "$PLATFORM_ID/x86_64/$BRANCH"
