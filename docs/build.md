@@ -64,6 +64,14 @@ This builds Bloom and runs unit tests, QML lint, desktop/AppStream validation,
 and release-manifest validation. Tests are currently local-only; CI builds the
 application and runs the non-test validation derivations.
 
+The CI `nix` job wraps each `nix build` invocation in a retry loop with
+exponential backoff. `cache.nixos.org` nar downloads occasionally drop
+mid-transfer on GitHub-hosted runners (broken pipe or `HTTP 416` on a resumed
+range), which cascades through `mpv-with-scripts`/`qtmultimedia` and fails
+otherwise-unrelated derivations such as `qml-lint`. The retry recovers from
+these transient substituter failures without code changes; a genuinely missing
+path still fails after three attempts.
+
 Each Nix derivation caps C++ compilation at two concurrent jobs by default.
 The command above also serializes derivations, preventing concurrent flake
 checks from saturating interactive workstations.

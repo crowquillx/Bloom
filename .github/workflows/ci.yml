@@ -79,14 +79,33 @@ jobs:
           name: ${{ env.CACHIX_CACHE }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
           skipPush: ${{ github.event_name == 'pull_request' }}
-      - name: Run non-test validation
+      - name: Build checks and application
         run: |
-          nix build \
+          set -euo pipefail
+          # cache.nixos.org nar downloads occasionally drop mid-transfer on
+          # GitHub-hosted runners (broken pipe / HTTP 416 on resumed ranges),
+          # which cascades through mpv/qtmultimedia and fails unrelated
+          # derivations. Retry the whole nix invocation with backoff so a
+          # transient substituter failure does not fail the run.
+          retry() {
+            local attempt=0 max=3 delay=20
+            until "$@"; do
+              attempt=$((attempt + 1))
+              if [[ $attempt -ge $max ]]; then
+                echo "::error::nix build failed after $attempt attempts: $*" >&2
+                return 1
+              fi
+              echo "::warning::nix build attempt $attempt failed; retrying in ${delay}s: $*" >&2
+              sleep "$delay"
+              delay=$((delay * 2))
+            done
+          }
+          retry nix build \
             .#checks.x86_64-linux.qml-lint \
             .#checks.x86_64-linux.metadata \
             .#checks.x86_64-linux.release-manifest \
             --print-build-logs --option max-jobs 1 --option cores 2
-      - run: nix build .#bloom --print-build-logs --option max-jobs 1 --option cores 2
+          retry nix build .#bloom --print-build-logs --option max-jobs 1 --option cores 2
 
   portable-linux:
     name: Portable Linux artifacts
