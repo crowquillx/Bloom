@@ -18,6 +18,9 @@ Item {
     property string backdropAUrl: ""
     property string backdropBUrl: ""
     property var savedFocusItem: null
+    property var restoreWindow: null
+    property string savedNavigationMode: "pointer"
+    property string requestedUserId: ""
     property string currentBackdropUrl: showBackdropA ? backdropAUrl : backdropBUrl
     property var currentItem: currentIndex >= 0 && currentIndex < items.length ? items[currentIndex] : ({})
     property real logoX: Math.round(width * 0.08)
@@ -31,7 +34,13 @@ Item {
 
     onVisibleChanged: {
         if (visible) {
+            if (typeof InputModeManager !== "undefined") {
+                savedNavigationMode = InputModeManager.pointerActive ? "pointer" : "keyboard"
+                InputModeManager.setNavigationMode("keyboard")
+                InputModeManager.hideCursor(true)
+            }
             if (artworkMode && items.length === 0) {
+                requestedUserId = AuthenticationService.userId || ""
                 LibraryService.getScreensaverItems(80)
             }
             selectNextItem()
@@ -41,6 +50,13 @@ Item {
             cycleTimer.stop()
             bounceTimer.stop()
             Qt.callLater(function() {
+                if (typeof InputModeManager !== "undefined") {
+                    InputModeManager.setNavigationMode(savedNavigationMode)
+                    InputModeManager.hideCursor(savedNavigationMode !== "pointer")
+                }
+                if (restoreWindow && typeof restoreWindow.requestActivate === "function") {
+                    restoreWindow.requestActivate()
+                }
                 if (savedFocusItem && savedFocusItem.parent && typeof savedFocusItem.forceActiveFocus === "function") {
                     savedFocusItem.forceActiveFocus()
                 }
@@ -70,6 +86,7 @@ Item {
     }
 
     function resetArtwork() {
+        requestedUserId = ""
         root.items = []
         root.currentIndex = -1
         root.placementIndex = 0
@@ -292,7 +309,10 @@ Item {
     }
 
     Text {
-        visible: root.artworkMode && root.bouncingLogoMode && bouncingLogo.status === Image.Error
+        visible: root.artworkMode
+                 && root.bouncingLogoMode
+                 && root.currentIndex >= 0
+                 && (bouncingLogo.source.toString().length === 0 || bouncingLogo.status === Image.Error)
         text: root.currentItem.Name || ""
         x: root.logoX
         y: root.logoY
@@ -342,6 +362,12 @@ Item {
     Connections {
         target: LibraryService
         function onScreensaverItemsLoaded(loadedItems) {
+            if (!AuthenticationService.authenticated
+                    || !root.visible
+                    || root.requestedUserId === ""
+                    || AuthenticationService.userId !== root.requestedUserId) {
+                return
+            }
             var filtered = []
             for (var i = 0; loadedItems && i < loadedItems.length; ++i) {
                 var item = loadedItems[i]

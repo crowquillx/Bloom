@@ -31,7 +31,7 @@ Window {
     Binding {
         target: ScreensaverController
         property: "appWindowVisible"
-        value: window.visible && window.visibility !== Window.Minimized
+        value: window.appWindowEligible
     }
     
     // ========================================
@@ -77,6 +77,9 @@ Window {
     readonly property bool awaitingUpNextTransition: PlayerController.awaitingNextEpisodeResolution
                                                   && !PlayerController.isPlaybackActive
     property bool pendingStartupUpdatePopup: false
+    readonly property bool appWindowEligible: window.visible
+                                           && window.visibility !== Window.Minimized
+                                           && Qt.application.state === Qt.ApplicationActive
 
     function ensureMediaSourceSelectionDialog() {
         if (!mediaSourceSelectionDialogLoader.active) {
@@ -188,25 +191,27 @@ Window {
         flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         transientParent: window
         modality: Qt.NonModal
-        color: "black"
+        color: "transparent"
         visible: useDetachedScreensaverWindow
-                     && window.visible
-                     && window.visibility !== Window.Minimized
+                     && window.appWindowEligible
                      && ScreensaverController.active
         x: window.x
         y: window.y
         width: window.width
         height: window.height
         onVisibleChanged: {
-            if (visible) {
+            if (visible && window.appWindowEligible) {
                 requestActivate()
+            } else if (!visible && window.appWindowEligible) {
+                window.requestActivate()
             }
         }
 
         ScreensaverOverlay {
             anchors.fill: parent
-            active: ScreensaverController.active
-            focusWindow: window
+            active: useDetachedScreensaverWindow && ScreensaverController.active
+            focusWindow: embeddedOverlayWindow
+            restoreWindow: window
         }
     }
 

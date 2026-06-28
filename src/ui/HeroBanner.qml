@@ -18,11 +18,14 @@ FocusScope {
     property int pendingDirection: 0
     property real contentOpacity: 1.0
     property real contentSlideX: 0
+    property bool committingPendingIndex: false
     readonly property real contentSlideOffset: Theme.spacingLarge
 
     readonly property bool hasContent: heroModel && heroModel.length > 0
     readonly property var currentItem: hasContent ? heroModel[Math.min(currentIndex, heroModel.length - 1)] : null
-    readonly property string currentBackdropUrl: imageUrl(currentItem, "Backdrop", Math.round(width * 2))
+    readonly property int backdropIndex: heroTransition.running ? pendingIndex : currentIndex
+    readonly property var backdropItem: hasContent ? heroModel[Math.min(backdropIndex, heroModel.length - 1)] : null
+    readonly property string currentBackdropUrl: imageUrl(backdropItem, "Backdrop", Math.round(width * 2))
     readonly property string currentLogoUrl: logoImageUrl(currentItem)
     readonly property bool buttonsFocused: contentLoader.item
                                          && contentLoader.item.playButton
@@ -103,7 +106,6 @@ FocusScope {
         if (heroTransition.running) {
             if (newIndex === pendingIndex) return
             heroTransition.stop()
-            currentIndex = pendingIndex
             contentOpacity = 1.0
             contentSlideX = 0
         }
@@ -378,11 +380,18 @@ FocusScope {
     onHeroModelChanged: {
         if (heroTransition.running) {
             heroTransition.stop()
-            currentIndex = pendingIndex
             contentOpacity = 1.0
             contentSlideX = 0
         }
         currentIndex = Math.min(currentIndex, Math.max(0, heroModel.length - 1))
+    }
+    onCurrentIndexChanged: {
+        if (heroTransition.running && !committingPendingIndex) {
+            pendingIndex = currentIndex
+            heroTransition.stop()
+            contentOpacity = 1.0
+            contentSlideX = 0
+        }
     }
     onActiveFocusChanged: {
         if (!activeFocus)
@@ -453,7 +462,9 @@ FocusScope {
         }
         ScriptAction {
             script: {
+                root.committingPendingIndex = true
                 root.currentIndex = root.pendingIndex
+                root.committingPendingIndex = false
                 root.contentSlideX = root.contentSlideOffset * (root.pendingDirection || 1)
             }
         }
@@ -464,9 +475,14 @@ FocusScope {
     }
 
     onCurrentBackdropUrlChanged: {
+        if (currentBackdropUrl === "") {
+            heroCard.clearBackdrop()
+            return
+        }
         var target = heroCard.showBackdropA ? heroBackdropB : heroBackdropA
         if (target.source.toString() === currentBackdropUrl && target.status === Image.Ready) {
             heroCard.showBackdropA = (target === heroBackdropA)
+            heroCard.showBackdropNeutral = false
             return
         }
         target.source = currentBackdropUrl
@@ -485,11 +501,34 @@ FocusScope {
         Behavior on scale { NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0 } }
 
         property bool showBackdropA: true
+        property bool showBackdropNeutral: true
+
+        function clearBackdrop() {
+            showBackdropNeutral = true
+            if (showBackdropA) {
+                heroBackdropB.source = ""
+            } else {
+                heroBackdropA.source = ""
+            }
+        }
 
         function checkBackdropStatus(img) {
+            if (img.source.toString() === "") {
+                if (root.currentBackdropUrl === "") {
+                    clearBackdrop()
+                }
+                return
+            }
+            if (img.status === Image.Error) {
+                if (img.source.toString() === root.currentBackdropUrl) {
+                    clearBackdrop()
+                }
+                return
+            }
             if (img.status !== Image.Ready) return
             // Only switch if this image is the one we last pointed at the current URL.
             if (img.source.toString() !== root.currentBackdropUrl) return
+            showBackdropNeutral = false
             showBackdropA = (img === heroBackdropA)
         }
 
@@ -499,7 +538,7 @@ FocusScope {
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: true
-            opacity: heroCard.showBackdropA ? 1.0 : 0.0
+            opacity: !heroCard.showBackdropNeutral && heroCard.showBackdropA ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
             onStatusChanged: heroCard.checkBackdropStatus(this)
 
@@ -516,7 +555,7 @@ FocusScope {
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: true
-            opacity: heroCard.showBackdropA ? 0.0 : 1.0
+            opacity: !heroCard.showBackdropNeutral && !heroCard.showBackdropA ? 1.0 : 0.0
             Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
             onStatusChanged: heroCard.checkBackdropStatus(this)
 

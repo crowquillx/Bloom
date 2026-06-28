@@ -801,6 +801,7 @@ void LibraryService::getScreensaverItems(int limit)
     }
 
     const int requestedLimit = qBound(10, limit > 0 ? limit : 80, 200);
+    const QString requestUserId = m_authService->getUserId();
     const QStringList fields = {
         "Id",
         "Name",
@@ -817,7 +818,7 @@ void LibraryService::getScreensaverItems(int limit)
     };
 
     const QString endpoint = QString("/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series&SortBy=Random&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop,Logo&ImageTypeLimit=1&EnableTotalRecordCount=false&Limit=%3")
-                                 .arg(m_authService->getUserId())
+                                 .arg(requestUserId)
                                  .arg(fields.join(","))
                                  .arg(requestedLimit);
 
@@ -826,7 +827,10 @@ void LibraryService::getScreensaverItems(int limit)
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this](QNetworkReply *reply) {
+        [this, requestUserId](QNetworkReply *reply) {
+            if (!m_authService->isAuthenticated() || m_authService->getUserId() != requestUserId) {
+                return;
+            }
             const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             if (!doc.isObject()) {
                 NetworkError error;

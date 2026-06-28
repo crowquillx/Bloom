@@ -239,6 +239,23 @@ void AuthenticationService::restoreSession(const QString &serverUrl, const QStri
     });
 }
 
+void AuthenticationService::seedSession(const QString &serverUrl,
+                                        const QString &userId,
+                                        const QString &accessToken,
+                                        const QString &username)
+{
+    m_serverUrl = normalizeUrl(serverUrl);
+    m_userId = userId;
+    m_accessToken = accessToken;
+    m_username = username;
+    m_sessionExpiredPending = false;
+    m_sessionExpiredEmitted = false;
+
+    emit serverUrlChanged();
+    emit userIdChanged();
+    emit authenticatedChanged();
+}
+
 void AuthenticationService::logout()
 {
     qCDebug(lcAuth) << "Logging out user:" << m_userId;

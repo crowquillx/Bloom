@@ -292,7 +292,8 @@ void MockLibraryService::getScreensaverItems(int limit)
     }
 
     QJsonArray result;
-    const int count = (limit > 0) ? qMin(limit, allItems.size()) : allItems.size();
+    const int requestedLimit = qBound(10, limit > 0 ? limit : 80, 200);
+    const int count = qMin(requestedLimit, allItems.size());
     for (int i = 0; i < count; ++i) {
         result.append(allItems[i]);
     }

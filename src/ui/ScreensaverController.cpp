@@ -31,6 +31,10 @@ ScreensaverController::ScreensaverController(QGuiApplication *app,
     if (m_config) {
         connect(m_config, &ConfigManager::screensaverEnabledChanged, this, [this]() {
             emit effectiveSettingsChanged();
+            if (!effectiveEnabled()) {
+                dismiss();
+                return;
+            }
             schedule();
         });
         connect(m_config, &ConfigManager::screensaverModeChanged, this, [this]() {
@@ -167,10 +171,7 @@ bool ScreensaverController::eventCountsAsActivity(QEvent *event) const
 {
     switch (event->type()) {
     case QEvent::KeyPress:
-    {
-        auto *keyEvent = static_cast<QKeyEvent*>(event);
-        return keyEvent && !keyEvent->isAutoRepeat();
-    }
+        return true;
     case QEvent::MouseMove:
     case QEvent::MouseButtonPress:
     case QEvent::MouseButtonRelease:

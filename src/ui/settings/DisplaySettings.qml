@@ -270,7 +270,11 @@ FocusScope {
 
                         Keys.onUpPressed: function(event) {
                             if (!popup.visible) {
-                                screensaverTimeoutRow.forceActiveFocus()
+                                if (ConfigManager.screensaverEnabled) {
+                                    screensaverTimeoutRow.forceActiveFocus()
+                                } else {
+                                    screensaverEnabledRow.forceActiveFocus()
+                                }
                             }
                         }
                         Keys.onDownPressed: function(event) {
