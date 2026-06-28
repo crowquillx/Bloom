@@ -19,6 +19,7 @@ Item {
     property string backdropBUrl: ""
     property var savedFocusItem: null
     property var restoreWindow: null
+    property bool restoreWindowEligible: true
     property string savedNavigationMode: "pointer"
     property string currentBackdropUrl: showBackdropA ? backdropAUrl : backdropBUrl
     property var currentItem: currentIndex >= 0 && currentIndex < items.length ? items[currentIndex] : ({})
@@ -55,7 +56,7 @@ Item {
                     InputModeManager.setNavigationMode(savedNavigationMode)
                     InputModeManager.hideCursor(savedNavigationMode !== "pointer")
                 }
-                if (restoreWindow && typeof restoreWindow.requestActivate === "function") {
+                if (restoreWindowEligible && restoreWindow && typeof restoreWindow.requestActivate === "function") {
                     restoreWindow.requestActivate()
                 }
                 if (savedFocusItem && savedFocusItem.parent && typeof savedFocusItem.forceActiveFocus === "function") {

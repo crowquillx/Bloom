@@ -212,6 +212,7 @@ Window {
             active: useDetachedScreensaverWindow && ScreensaverController.active
             focusWindow: embeddedOverlayWindow
             restoreWindow: window
+            restoreWindowEligible: window.appWindowEligible
         }
     }
 
@@ -431,6 +432,7 @@ Window {
         z: 100000
         active: ScreensaverController.active && !useDetachedScreensaverWindow
         focusWindow: window
+        restoreWindowEligible: window.appWindowEligible
     }
 
     Loader {
