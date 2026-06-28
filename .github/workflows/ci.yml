@@ -248,7 +248,7 @@ jobs:
       - uses: ./.github/actions/setup-nsis
       - name: Build installer
         shell: pwsh
-        run: '& "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi'
+        run: '& "$env:BLOOM_NSIS_EXE" installer.nsi'
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: Bloom-Windows
