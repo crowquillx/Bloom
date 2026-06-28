@@ -6,6 +6,7 @@ Purpose
 QML & Focus
 - Use `FocusScope` as the root of navigable views; QML `Item` should be used if the view is not intended to be focusable.
 - For keyboard/remote UX, `InputModeManager` should detect pointer vs keyboard navigation; hide cursor while navigating via keyboard.
+- Keyboard/controller shortcuts should be added as `InputBindingManager` actions instead of hard-coded key checks; see `docs/input-bindings.md`.
 - Use `Qt.callLater` to restore focus after async view/model updates or cache reloads.
 - For query controls that reload models (sort, search, filters), record the initiating control and restore it after load completion so keyboard/gamepad users stay in context.
 - Settings UX: keep explicit `KeyNavigation`/`Keys` wiring on interactive rows and preserve the home-style rotating backdrop + gradient readability overlay used by `SettingsScreen.qml`.

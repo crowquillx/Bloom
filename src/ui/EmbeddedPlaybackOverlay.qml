@@ -374,62 +374,94 @@ FocusScope {
         showControls()
     }
 
+    function handlePlaybackAction(actionId) {
+        if (!overlayActive || !actionId || actionId.length === 0) {
+            return false
+        }
+        if (actionId === "playback.volumeUp") {
+            adjustVolumeBy(5)
+            return true
+        }
+        if (actionId === "playback.volumeDown") {
+            adjustVolumeBy(-5)
+            return true
+        }
+        if (actionId === "playback.volumePanel") {
+            openVolumeSelector()
+            return true
+        }
+        if (actionId === "playback.audioSelector") {
+            openAudioSelector()
+            return true
+        }
+        if (actionId === "playback.subtitleSelector") {
+            openSubtitleSelector()
+            return true
+        }
+        if (actionId === "playback.subtitleOverride") {
+            PlayerController.toggleSubtitleAssOverride()
+            return true
+        }
+        if (actionId === "playback.deband") {
+            PlayerController.toggleDeband()
+            return true
+        }
+        if (actionId === "playback.playPause") {
+            PlayerController.togglePause()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.seekBack") {
+            PlayerController.seekRelative(-10)
+            showSeekPreview(true)
+            return true
+        }
+        if (actionId === "playback.seekForward") {
+            PlayerController.seekRelative(10)
+            showSeekPreview(true)
+            return true
+        }
+        if (actionId === "playback.previousChapter") {
+            PlayerController.previousChapter()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.nextChapter") {
+            PlayerController.nextChapter()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.skipSegment") {
+            triggerActiveSkip()
+            return true
+        }
+        if (actionId === "playback.mute") {
+            PlayerController.toggleMute()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.stats") {
+            PlayerController.toggleMpvStats()
+            return true
+        }
+        if (actionId === "playback.statsOnce") {
+            PlayerController.showMpvStatsOnce()
+            return true
+        }
+        return false
+    }
+
     function handlePlaybackShortcut(event) {
         if (!overlayActive) {
             return false
         }
 
-        if (event.key === Qt.Key_Plus
-                || event.key === Qt.Key_Equal
-                || event.key === Qt.Key_VolumeUp) {
-            adjustVolumeBy(5)
-            return true
-        }
-
-        if (event.key === Qt.Key_Minus
-                || event.key === Qt.Key_VolumeDown) {
-            adjustVolumeBy(-5)
-            return true
-        }
-
-        if (event.key === Qt.Key_V) {
+        var actionId = InputBindingManager.actionForKeyboardEvent(event.key, event.modifiers)
+        if (actionId && actionId.length > 0) {
             if (event.isAutoRepeat) {
                 return true
             }
-            openVolumeSelector()
-            return true
-        }
-
-        if (event.key === Qt.Key_A) {
-            if (event.isAutoRepeat) {
-                return true
-            }
-            openAudioSelector()
-            return true
-        }
-
-        if (event.key === Qt.Key_K) {
-            if (event.isAutoRepeat) {
-                return true
-            }
-            PlayerController.toggleSubtitleAssOverride()
-            return true
-        }
-
-        if (event.key === Qt.Key_B) {
-            if (event.isAutoRepeat) {
-                return true
-            }
-            PlayerController.toggleDeband()
-            return true
-        }
-
-        if (event.key === Qt.Key_S || event.key === Qt.Key_T || event.key === Qt.Key_C) {
-            if (event.isAutoRepeat) {
-                return true
-            }
-            openSubtitleSelector()
-            return true
+            return handlePlaybackAction(actionId)
         }
 
         return false
@@ -735,6 +767,13 @@ FocusScope {
             if (!root.controlsVisible && root.overlayHotzoneContains(mouse.y)) {
                 root.showControls()
             }
+        }
+    }
+
+    Connections {
+        target: InputBindingManager
+        function onActionTriggered(actionId) {
+            root.handlePlaybackAction(actionId)
         }
     }
 

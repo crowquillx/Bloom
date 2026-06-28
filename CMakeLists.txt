@@ -54,6 +54,7 @@ if(UNIX AND NOT APPLE)
     # Linux: use pkg-config to find libsecret-1
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBSECRET REQUIRED libsecret-1)
+    pkg_check_modules(SDL2 QUIET sdl2)
 endif()
 
 

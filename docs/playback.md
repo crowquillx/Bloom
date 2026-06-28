@@ -234,7 +234,7 @@ UI Components for Track Selection
   - Left group: audio/subtitle icon buttons (runtime track cycling via `PlayerController`).
   - Center group: skip back 10s, previous chapter, play/pause, next chapter, skip forward 10s.
   - Right group: volume icon button opens a native volume panel (slider + muted state) with left/right keyboard/gamepad adjustment and Enter/Space mute toggle.
-  - Direct playback shortcuts: `+`/`=` or media volume-up increases volume, `-` or media volume-down decreases volume, `V` opens the volume panel, `A` opens the audio track selector, and `S`/`T`/`C` open the subtitle selector.
+  - Direct playback shortcuts are resolved through `InputBindingManager` so keyboard and controller bindings are configurable in Settings > Input. Defaults include `+`/`=` or media volume-up for volume up, `-` or media volume-down for volume down, `V` for the volume panel, `A` for audio tracks, and `S`/`T`/`C` for subtitles.
   - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
   - Escape first dismisses visible playback chrome (full controls, seek preview, skip-intro popup, or open track/volume panels); a second Escape stops playback when the overlay is already hidden. The header back control exits playback immediately while controls are visible.
   - Trickplay preview bubble: renders processed Jellyfin trickplay thumbnails from `PlayerController` and is hidden entirely when trickplay images are unavailable.
@@ -312,7 +312,7 @@ mpv config hints
 - Built-in MPV profiles are `Low Quality`, `Medium Quality`, `High Quality`, `ArtCNN`, `ArtCNN-Deband`, `nnedi3`, and `nnedi3-deband`. The shader profiles append Bloom-bundled GLSL/hook shaders from `~~/shaders/`, and `ConfigManager` keeps those shader files plus Gandhi Sans subtitle fonts refreshed under Bloom's mpv config directory.
 - Settings -> MPV Profiles now edits `extra_args` as an ordered list of one argument per entry (add/remove per row) for keyboard-first 10-foot usability.
 - Migration compatibility: `extra_args` accepts both array and legacy newline-delimited string formats and normalizes to array on save.
-- Embedded playback shortcuts include `K` to toggle `sub-ass-override` between `no` and `yes`, and `B` to toggle mpv debanding between `no` and `yes`. Gamepad/controller mappings should call the same `PlayerController.toggleSubtitleAssOverride()` and `PlayerController.toggleDeband()` methods.
+- Embedded playback shortcuts include `K` to toggle `sub-ass-override` between `no` and `yes`, and `B` to toggle mpv debanding between `no` and `yes`. Controller mappings route through the same `InputBindingManager` actions and call `PlayerController.toggleSubtitleAssOverride()` / `PlayerController.toggleDeband()`.
 
 Jellyfin integration
 - Key endpoints used frequently:

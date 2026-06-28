@@ -32,6 +32,7 @@ private slots:
     void v23MigrationPreservesCustomizedBuiltInProfiles();
     void v24MigrationAddsScreensaverSettings();
     void v25MigrationAddsHeroEpisodeSynopsisSetting();
+    void v26MigrationAddsInputBindings();
     void startupBufferingModesDefaultNormalizeAndPersist();
     void bundledMpvShadersAreCopied();
     void bundledMpvFontsAreCopied();
@@ -380,7 +381,7 @@ void ConfigManagerThemeTest::v19MigrationAddsThemeVariantSettings()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 26);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 27);
     const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
     QVERIFY(ui.contains(QStringLiteral("theme_flavor")));
     QCOMPARE(ui.value(QStringLiteral("theme_color_scheme")).toString(), QStringLiteral("blue"));
@@ -705,7 +706,7 @@ void ConfigManagerThemeTest::v24MigrationAddsScreensaverSettings()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 26);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 27);
     const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
     const QJsonObject screensaver = ui.value(QStringLiteral("screensaver")).toObject();
     QCOMPARE(screensaver.value(QStringLiteral("enabled")).toBool(), false);
@@ -745,11 +746,46 @@ void ConfigManagerThemeTest::v25MigrationAddsHeroEpisodeSynopsisSetting()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 26);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 27);
     const QJsonObject heroBanner = migrated.value(QStringLiteral("settings")).toObject()
                                        .value(QStringLiteral("ui")).toObject()
                                        .value(QStringLiteral("hero_banner")).toObject();
     QCOMPARE(heroBanner.value(QStringLiteral("episode_synopsis_enabled")).toBool(), false);
+}
+
+void ConfigManagerThemeTest::v26MigrationAddsInputBindings()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    QVERIFY(QDir().mkpath(ConfigManager::getConfigDir()));
+    QJsonObject configObject = minimalV19Config();
+    configObject[QStringLiteral("version")] = 26;
+
+    QFile configFile(ConfigManager::getConfigPath());
+    QVERIFY(configFile.open(QIODevice::WriteOnly));
+    configFile.write(QJsonDocument(configObject).toJson(QJsonDocument::Indented));
+    configFile.close();
+
+    ConfigManager config;
+    config.load();
+
+    const QVariantMap inputBindings = config.getInputBindings();
+    QCOMPARE(inputBindings.value(QStringLiteral("schema")).toInt(), 1);
+    QVERIFY(inputBindings.value(QStringLiteral("keyboard")).toMap().isEmpty());
+    QVERIFY(inputBindings.value(QStringLiteral("gamepad")).toMap().isEmpty());
+    config.save();
+
+    QFile migratedFile(ConfigManager::getConfigPath());
+    QVERIFY(migratedFile.open(QIODevice::ReadOnly));
+    const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 27);
+    const QJsonObject settings = migrated.value(QStringLiteral("settings")).toObject();
+    const QJsonObject storedBindings = settings.value(QStringLiteral("input_bindings")).toObject();
+    QCOMPARE(storedBindings.value(QStringLiteral("schema")).toInt(), 1);
+    QVERIFY(storedBindings.value(QStringLiteral("keyboard")).toObject().isEmpty());
+    QVERIFY(storedBindings.value(QStringLiteral("gamepad")).toObject().isEmpty());
 }
 
 void ConfigManagerThemeTest::startupBufferingModesDefaultNormalizeAndPersist()

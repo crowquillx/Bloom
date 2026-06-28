@@ -71,6 +71,8 @@ qt_add_executable(Bloom
     utils/LibraryCacheStore.h
     utils/InputModeManager.cpp
     utils/InputModeManager.h
+    utils/InputBindingManager.cpp
+    utils/InputBindingManager.h
     utils/DisplayManager.cpp
     utils/DisplayManager.h
     utils/SidebarSettings.h
@@ -194,6 +196,7 @@ qt_add_qml_module(Bloom
         ui/settings/VideoSettings.qml
         ui/settings/MpvSettings.qml
         ui/settings/IntegrationsSettings.qml
+        ui/settings/InputSettings.qml
         ui/settings/AboutAccountSettings.qml
         ui/settings/NewProfileDialog.qml
         ui/settings/DeleteProfileDialog.qml
@@ -265,6 +268,14 @@ if(UNIX AND NOT APPLE)
         endif()
     else()
         message(STATUS "libmpv development package not found; Linux embedded backend remains scaffold-only")
+    endif()
+
+    if(SDL2_FOUND)
+        target_include_directories(Bloom PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(Bloom PRIVATE ${SDL2_LIBRARIES})
+        target_compile_definitions(Bloom PRIVATE BLOOM_HAS_SDL=1)
+    else()
+        message(STATUS "SDL2 development package not found; gamepad input backend disabled")
     endif()
 endif()
 

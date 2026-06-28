@@ -3694,6 +3694,23 @@ public:
         newConfig[QStringLiteral("settings")] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV26ToV27(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig[QStringLiteral("version")] = 27;
+
+        QJsonObject settings = newConfig[QStringLiteral("settings")].toObject();
+        if (!settings.value(QStringLiteral("input_bindings")).isObject()) {
+            QJsonObject inputBindings;
+            inputBindings[QStringLiteral("schema")] = 1;
+            inputBindings[QStringLiteral("keyboard")] = QJsonObject();
+            inputBindings[QStringLiteral("gamepad")] = QJsonObject();
+            settings[QStringLiteral("input_bindings")] = inputBindings;
+        }
+        newConfig[QStringLiteral("settings")] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -3922,6 +3939,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 26) {
+            m_config = ConfigMigrator::migrateV26ToV27(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -4067,6 +4092,12 @@ QJsonObject ConfigManager::defaultConfig() const
     updates["last_check_at"] = QString();
     updates["skipped_update_version"] = QString();
     settings["updates"] = updates;
+
+    QJsonObject inputBindings;
+    inputBindings["schema"] = 1;
+    inputBindings["keyboard"] = QJsonObject();
+    inputBindings["gamepad"] = QJsonObject();
+    settings["input_bindings"] = inputBindings;
 
     cfg["settings"] = settings;
     return cfg;
@@ -4988,4 +5019,36 @@ QString ConfigManager::getThemeColorScheme() const
         }
     }
     return QStringLiteral("blue");
+}
+
+QVariantMap ConfigManager::getInputBindings() const
+{
+    if (!m_config.value(QStringLiteral("settings")).isObject()) {
+        return {};
+    }
+    const QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    const QJsonObject inputBindings = settings.value(QStringLiteral("input_bindings")).toObject();
+    return inputBindings.toVariantMap();
+}
+
+void ConfigManager::setInputBindings(const QVariantMap &bindings)
+{
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject inputBindings = QJsonObject::fromVariantMap(bindings);
+    if (!inputBindings.value(QStringLiteral("schema")).isDouble()) {
+        inputBindings[QStringLiteral("schema")] = 1;
+    }
+    if (!inputBindings.value(QStringLiteral("keyboard")).isObject()) {
+        inputBindings[QStringLiteral("keyboard")] = QJsonObject();
+    }
+    if (!inputBindings.value(QStringLiteral("gamepad")).isObject()) {
+        inputBindings[QStringLiteral("gamepad")] = QJsonObject();
+    }
+    if (settings.value(QStringLiteral("input_bindings")).toObject() == inputBindings) {
+        return;
+    }
+    settings[QStringLiteral("input_bindings")] = inputBindings;
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+    emit inputBindingsChanged();
 }

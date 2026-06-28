@@ -75,6 +75,7 @@ See also:
 - docs/developer_notes.md — Conventions, focus, QML patterns, and best practices
 - docs/viewmodels.md — BaseViewModel patterns and MovieDetailsViewModel
 - docs/screensaver.md — in-app OLED-safe screensaver controller, arming rules, focus contract, and known limitations
+- docs/input-bindings.md — configurable keyboard/controller action bindings and SDL gamepad dispatch
 - docs/conventional-commits.md — commit messages must follow the Conventional Commits spec so tooling and changelogs stay accurate
 
 License: See `LICENSE`.

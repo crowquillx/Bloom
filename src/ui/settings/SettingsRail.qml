@@ -19,6 +19,7 @@ FocusScope {
         { sectionKey: "display",         name: qsTr("Display"),         icon: "\ue40a" },
         { sectionKey: "video",           name: qsTr("Video"),           icon: "\ue04b" },
         { sectionKey: "mpv",             name: qsTr("MPV"),             icon: "\ue429" },
+        { sectionKey: "input",           name: qsTr("Input"),           icon: "\ue312" },
         { sectionKey: "integrations",    name: qsTr("Integrations"),    icon: "\ue2c3" },
         { sectionKey: aboutAccountSectionKey, name: qsTr("About & Account"), icon: "\ue88e" }
     ]

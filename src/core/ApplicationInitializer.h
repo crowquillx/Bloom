@@ -18,6 +18,7 @@ class SeerrService;
 class PlayerController;
 class ThemeSongManager;
 class InputModeManager;
+class InputBindingManager;
 class LibraryViewModel;
 class SeriesDetailsViewModel;
 class MovieDetailsViewModel;
@@ -111,6 +112,7 @@ private:
     std::unique_ptr<PlayerController> m_playerController;
     std::unique_ptr<ThemeSongManager> m_themeSongManager;
     std::unique_ptr<InputModeManager> m_inputModeManager;
+    std::unique_ptr<InputBindingManager> m_inputBindingManager;
     std::unique_ptr<LibraryViewModel> m_libraryViewModel;
     std::unique_ptr<SeriesDetailsViewModel> m_seriesDetailsViewModel;
     std::unique_ptr<MovieDetailsViewModel> m_movieDetailsViewModel;
