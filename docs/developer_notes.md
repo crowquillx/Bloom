@@ -12,6 +12,7 @@ QML & Focus
 - Settings dropdowns should use `SettingsComboBox` instead of raw `ComboBox` so primitive and role-based models render the selected text reliably after async model/index updates.
 - Settings boolean controls should use `SettingsToggleRow` for consistent focus treatment, accessibility metadata, and keyboard/gamepad toggling.
 - Global app-shell shortcuts live in `Main.qml`; ESC on the root home screen opens the power menu, while deeper screens keep the normal back-stack behavior.
+- The screensaver is controlled by `ScreensaverController` and rendered by `ScreensaverOverlay.qml`. It may activate during app navigation or paused playback, but playing/loading/buffering video must always cancel or block activation.
 
 C++ conventions
 - PascalCase class names, camelCase method names, `m_` prefix for member variables.
@@ -30,6 +31,7 @@ Performance
 - Offload heavy JSON parsing or expensive calculations to background threads and report results back to the UI thread.
 - Reuse delegates and avoid excessive property bindings that cause frequent re-evaluations.
 - Home rotating backdrops should use `LibraryService.getHomeBackdropItems(limit)` (single lightweight random query over recursive media) instead of only section-bound lists like Next Up/Latest.
+- Screensaver artwork should use `LibraryService.getScreensaverItems(limit)` so the Home backdrop query stays lightweight while the screensaver gets synopsis/logo metadata.
 
 Coding style
 - Keep components small and single-purpose.

@@ -281,6 +281,53 @@ void MockLibraryService::getHomeBackdropItems(int limit)
     emit homeBackdropItemsLoaded(result);
 }
 
+void MockLibraryService::getScreensaverItems(int limit)
+{
+    QJsonArray allItems;
+    for (const QJsonValue &val : m_movies["Items"].toArray()) {
+        allItems.append(val);
+    }
+    for (const QJsonValue &val : m_series["Items"].toArray()) {
+        allItems.append(val);
+    }
+
+    QJsonArray result;
+    const int requestedLimit = qBound(10, limit > 0 ? limit : 80, 200);
+    for (int i = 0; i < allItems.size() && result.size() < requestedLimit; ++i) {
+        QJsonObject item = allItems[i].toObject();
+        QString itemId = item.value("Id").toString();
+        QString tag;
+        const QJsonArray backdropTags = item.value("BackdropImageTags").toArray();
+        if (!backdropTags.isEmpty()) {
+            tag = backdropTags.first().toString();
+        } else {
+            tag = item.value("ImageTags").toObject().value("Backdrop").toString();
+        }
+        const QJsonArray parentBackdropTags = item.value("ParentBackdropImageTags").toArray();
+        if (tag.isEmpty() && !parentBackdropTags.isEmpty()) {
+            tag = parentBackdropTags.first().toString();
+            itemId = item.value("ParentBackdropItemId").toString(
+                item.value("SeriesId").toString(item.value("Id").toString()));
+        }
+        if (itemId.isEmpty() || tag.isEmpty()) {
+            continue;
+        }
+        item.insert(QStringLiteral("BackdropUrl"),
+                    getCachedImageUrlWithWidth(itemId, QStringLiteral("Backdrop"), 1920)
+                        + QStringLiteral("?tag=") + tag);
+        if (item.value("ImageTags").toObject().contains(QStringLiteral("Logo"))) {
+            item.insert(QStringLiteral("LogoUrl"),
+                        getCachedImageUrlWithWidth(item.value("Id").toString(),
+                                                   QStringLiteral("Logo"),
+                                                   700));
+        }
+        result.append(item);
+    }
+
+    qCDebug(lcTest) << "MockLibraryService::getScreensaverItems(" << limit << ") ->" << result.size() << "items";
+    emit screensaverItemsLoaded(result);
+}
+
 void MockLibraryService::getItem(const QString &itemId)
 {
     getItem(itemId, QString());

@@ -23,6 +23,7 @@
 #include "utils/SidebarSettings.h"
 #include "utils/SystemPowerController.h"
 #include "ui/UiSoundController.h"
+#include "ui/ScreensaverController.h"
 #include "utils/GpuMemoryTrimmer.h"
 #include "utils/Logger.h"
 #include "utils/LoggingConfig.h"
@@ -252,6 +253,22 @@ void ApplicationInitializer::registerServices()
     // 5. InputModeManager - Depends on QGuiApplication
     m_inputModeManager = std::make_unique<InputModeManager>(m_app);
     ServiceLocator::registerService<InputModeManager>(m_inputModeManager.get());
+
+    // 5.5 ScreensaverController - Depends on app input, config, playback, and auth
+    if (isTestMode) {
+        m_screensaverController = std::make_unique<ScreensaverController>(
+            m_app,
+            m_configManager.get(),
+            m_playerController.get(),
+            m_mockAuthService.get());
+    } else {
+        m_screensaverController = std::make_unique<ScreensaverController>(
+            m_app,
+            m_configManager.get(),
+            m_playerController.get(),
+            m_authService.get());
+    }
+    ServiceLocator::registerService<ScreensaverController>(m_screensaverController.get());
     
     // 6. LibraryViewModel
     m_libraryViewModel = std::make_unique<LibraryViewModel>();

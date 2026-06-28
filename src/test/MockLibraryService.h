@@ -47,6 +47,7 @@ public:
     
     // Global home backdrop pool
     Q_INVOKABLE void getHomeBackdropItems(int limit = 0) override;
+    Q_INVOKABLE void getScreensaverItems(int limit = 80) override;
     
     // Generic Item Details - searches all fixture items
     Q_INVOKABLE void getItem(const QString &itemId) override;

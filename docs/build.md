@@ -149,6 +149,10 @@ targets so `run-windows-tests.ps1` has something to run:
 The Windows scripts and GitHub workflow read Qt and libmpv pins from
 `packaging/dependencies.json`.
 
+Windows CI installs NSIS through `.github/actions/setup-nsis`. The action first
+tries Chocolatey, then falls back to the checksum-pinned official NSIS archive
+and exposes the selected `makensis.exe` path through `BLOOM_NSIS_EXE`.
+
 ## Dependency policy
 
 Bloom tracks current `nixos-unstable` and the latest portable/Windows

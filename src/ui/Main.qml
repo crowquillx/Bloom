@@ -27,6 +27,12 @@ Window {
 
         startupUpdateTimer.start()
     }
+
+    Binding {
+        target: ScreensaverController
+        property: "appWindowVisible"
+        value: window.appWindowEligible
+    }
     
     // ========================================
     // Font Loader for Material Symbols
@@ -62,6 +68,7 @@ Window {
     }
     readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
     readonly property bool useDetachedPlaybackOverlayWindow: Qt.platform.os === "windows"
+    readonly property bool useDetachedScreensaverWindow: useDetachedPlaybackOverlayWindow && embeddedPlaybackActive
     readonly property bool playbackOverlayNavigationActive: embeddedPlaybackActive
                                                          && (activeEmbeddedPlaybackOverlay.fullControlsVisible
                                                              || activeEmbeddedPlaybackOverlay.chapterMode)
@@ -70,6 +77,9 @@ Window {
     readonly property bool awaitingUpNextTransition: PlayerController.awaitingNextEpisodeResolution
                                                   && !PlayerController.isPlaybackActive
     property bool pendingStartupUpdatePopup: false
+    readonly property bool appWindowEligible: window.visible
+                                           && window.visibility !== Window.Minimized
+                                           && Qt.application.state === Qt.ApplicationActive
 
     function ensureMediaSourceSelectionDialog() {
         if (!mediaSourceSelectionDialogLoader.active) {
@@ -161,6 +171,7 @@ Window {
                      && window.visible
                      && window.visibility !== Window.Minimized
                      && embeddedPlaybackActive
+                     && !ScreensaverController.active
         x: window.x
         y: window.y
         width: window.width
@@ -172,6 +183,36 @@ Window {
         EmbeddedPlaybackOverlay {
             id: embeddedPlaybackOverlayDetached
             anchors.fill: parent
+        }
+    }
+
+    Window {
+        id: screensaverWindow
+        flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        transientParent: window
+        modality: Qt.NonModal
+        color: "transparent"
+        visible: useDetachedScreensaverWindow
+                     && window.appWindowEligible
+                     && ScreensaverController.active
+        x: window.x
+        y: window.y
+        width: window.width
+        height: window.height
+        onVisibleChanged: {
+            if (visible && window.appWindowEligible) {
+                requestActivate()
+            } else if (!visible && window.appWindowEligible) {
+                window.requestActivate()
+            }
+        }
+
+        ScreensaverOverlay {
+            anchors.fill: parent
+            active: useDetachedScreensaverWindow && ScreensaverController.active
+            focusWindow: embeddedOverlayWindow
+            restoreWindow: window
+            restoreWindowEligible: window.appWindowEligible
         }
     }
 
@@ -383,6 +424,15 @@ Window {
                 })
             }
         }
+    }
+
+    ScreensaverOverlay {
+        parent: Overlay.overlay
+        anchors.fill: parent
+        z: 100000
+        active: ScreensaverController.active && !useDetachedScreensaverWindow
+        focusWindow: window
+        restoreWindowEligible: window.appWindowEligible
     }
 
     Loader {

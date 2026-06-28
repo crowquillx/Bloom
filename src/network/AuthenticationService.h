@@ -114,6 +114,12 @@ signals:
     void authenticatedChanged();
     void isRestoringSessionChanged();
 
+protected:
+    void seedSession(const QString &serverUrl,
+                     const QString &userId,
+                     const QString &accessToken,
+                     const QString &username = QString());
+
 private slots:
     void onAuthenticateFinished(QNetworkReply *reply);
 

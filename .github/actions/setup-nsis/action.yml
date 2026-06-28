@@ -1,5 +1,5 @@
 name: Setup NSIS
-description: Installs NSIS with Chocolatey retry and fallback to official installer
+description: Installs NSIS with Chocolatey retry and fallback to official portable archive
 runs:
   using: composite
   steps:
@@ -11,6 +11,7 @@ runs:
 
         if (Test-Path $nsisExe) {
           Write-Host "NSIS already present at $nsisExe"
+          "BLOOM_NSIS_EXE=$nsisExe" >> $env:GITHUB_ENV
           exit 0
         }
 
@@ -21,6 +22,7 @@ runs:
             choco install nsis -y --no-progress
             if (Test-Path $nsisExe) {
               Write-Host "NSIS installed via Chocolatey at $nsisExe"
+              "BLOOM_NSIS_EXE=$nsisExe" >> $env:GITHUB_ENV
               exit 0
             }
           } catch {
@@ -34,21 +36,30 @@ runs:
           }
         }
 
-        Write-Warning "Chocolatey installation did not succeed. Falling back to official NSIS installer."
-        $installerPath = Join-Path $env:RUNNER_TEMP "nsis-3.11-setup.exe"
-        $downloadUrl = "https://prdownloads.sourceforge.net/nsis/nsis-3.11-setup.exe?download"
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $installerPath
-        $expectedSha256 = "38d49f8fe09b1c332b01d0940e57b7258f4447733643273a01c59959ad9d3b0a"
-        $actualSha256 = (Get-FileHash -Path $installerPath -Algorithm SHA256).Hash.ToLower()
+        Write-Warning "Chocolatey installation did not succeed. Falling back to official NSIS archive."
+        $archivePath = Join-Path $env:RUNNER_TEMP "nsis-3.11.zip"
+        $downloadUrl = "https://downloads.sourceforge.net/project/nsis/NSIS%203/3.11/nsis-3.11.zip"
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $archivePath
+        $expectedSha256 = "c7d27f780ddb6cffb4730138cd1591e841f4b7edb155856901cdf5f214394fa1"
+        $actualSha256 = (Get-FileHash -Path $archivePath -Algorithm SHA256).Hash.ToLower()
         if ($actualSha256 -ne $expectedSha256) {
-          Write-Error "NSIS installer checksum mismatch. Expected: $expectedSha256, Actual: $actualSha256"
+          Write-Error "NSIS archive checksum mismatch. Expected: $expectedSha256, Actual: $actualSha256"
           exit 1
         }
-        Start-Process -FilePath $installerPath -ArgumentList "/S" -Wait -NoNewWindow
+        $nsisRoot = Join-Path $env:RUNNER_TOOL_CACHE "nsis\3.11"
+        if (Test-Path $nsisRoot) {
+          Remove-Item -Path $nsisRoot -Recurse -Force
+        }
+        New-Item -ItemType Directory -Path $nsisRoot -Force | Out-Null
+        Expand-Archive -Path $archivePath -DestinationPath $nsisRoot -Force
+        $fallbackNsisExe = Join-Path $nsisRoot "nsis-3.11\makensis.exe"
 
-        if (-not (Test-Path $nsisExe)) {
-          Write-Error "NSIS installation failed after Chocolatey retries and fallback installer."
+        if (-not (Test-Path $fallbackNsisExe)) {
+          Write-Error "NSIS setup failed after Chocolatey retries and fallback archive."
           exit 1
         }
 
-        Write-Host "NSIS installed via fallback at $nsisExe"
+        $fallbackNsisBin = Split-Path -Parent $fallbackNsisExe
+        "$fallbackNsisBin" >> $env:GITHUB_PATH
+        "BLOOM_NSIS_EXE=$fallbackNsisExe" >> $env:GITHUB_ENV
+        Write-Host "NSIS available via fallback at $fallbackNsisExe"

@@ -40,3 +40,35 @@ Leaving the hero resets to carousel mode. Auto-cycle pauses during focus, scroll
 When backdrop synchronization is enabled, the selected hero image drives Home's existing
 cross-fading backdrop and pauses normal backdrop rotation. Settings are stored below
 `settings.ui.hero_banner` and exposed on the Settings > Home page.
+
+## Transitions
+
+When the hero item changes (manual cycle via Left/Right, or auto-cycle), the banner
+animates rather than snapping:
+
+- **In-card backdrop cross-fade**: `heroCard` carries two stacked `Image`s
+  (`heroBackdropA`/`heroBackdropB`) and a `showBackdropA` toggle. On
+  `currentBackdropUrlChanged`, the new URL is loaded into the inactive image and the
+  toggle flips when that image reaches `Image.Ready`, so the in-card backdrop cross-fades
+  over `Theme.durationFade` in lockstep with Home's full-screen backdrop cross-fade.
+- **Content transition**: `contentLoader` (logo/title/badge/metadata/buttons) is driven
+  by a `SequentialAnimation` (`heroTransition`) wrapping a `transitionToIndex(newIndex,
+  direction)` helper. Each half runs `Theme.durationFade / 2`:
+  1. Fade `contentOpacity 1 → 0` and slide `contentSlideX → -contentSlideOffset *
+     direction` (old content exits in the navigation direction).
+  2. `ScriptAction` commits `currentIndex = pendingIndex` and parks the slide offset on
+     the opposite side.
+  3. Fade `contentOpacity 0 → 1` and slide `contentSlideX → 0` (new content enters from
+     the navigation direction).
+  The total `Theme.durationFade` matches the backdrop cross-fade, so the content swap
+  lands at the backdrop's midpoint.
+- **Rapid cycling**: an in-flight transition is force-completed (the pending index is
+  committed and visual state is reset) before the next transition starts, so no hero item
+  is ever skipped or left stuck invisible.
+- **Page indicator dots** animate their `width` and `color` over `Theme.durationNormal`.
+
+All three animations are gated by `Theme.uiAnimationsEnabled`: when animations are
+disabled, `Theme.durationFade`/`Theme.durationNormal` resolve to `0`, so all transitions
+collapse to an instantaneous swap and the behavior matches the previous instant change.
+Initial load and model refresh (`onHeroModelChanged`) bypass the transition and assign
+`currentIndex` directly.

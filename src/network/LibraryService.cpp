@@ -789,6 +789,100 @@ void LibraryService::getHomeBackdropItems(int limit)
     (*fetchPage)(0);
 }
 
+void LibraryService::getScreensaverItems(int limit)
+{
+    if (!m_authService->isAuthenticated()) {
+        NetworkError error;
+        error.endpoint = "getScreensaverItems";
+        error.code = -1;
+        error.userMessage = tr("Not authenticated");
+        emitError(error);
+        return;
+    }
+
+    const int requestedLimit = qBound(10, limit > 0 ? limit : 80, 200);
+    const QString requestUserId = m_authService->getUserId();
+    const QStringList fields = {
+        "Id",
+        "Name",
+        "Overview",
+        "Type",
+        "SeriesName",
+        "SeriesId",
+        "ImageTags",
+        "BackdropImageTags",
+        "ParentBackdropImageTags",
+        "ParentBackdropItemId",
+        "ParentId",
+        "ProductionYear"
+    };
+
+    const QString endpoint = QString("/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series&SortBy=Random&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop,Logo&ImageTypeLimit=1&EnableTotalRecordCount=false&Limit=%3")
+                                 .arg(requestUserId)
+                                 .arg(fields.join(","))
+                                 .arg(requestedLimit);
+
+    sendRequestWithRetry(endpoint,
+        [this, endpoint]() {
+            QNetworkRequest request = m_authService->createRequest(endpoint);
+            return m_authService->networkManager()->get(request);
+        },
+        [this, requestUserId](QNetworkReply *reply) {
+            if (!m_authService->isAuthenticated() || m_authService->getUserId() != requestUserId) {
+                return;
+            }
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (!doc.isObject()) {
+                NetworkError error;
+                error.endpoint = "getScreensaverItems";
+                error.code = -2;
+                error.userMessage = tr("Invalid screensaver response");
+                emitError(error);
+                return;
+            }
+            QJsonArray filteredItems;
+            const QJsonArray items = doc.object().value("Items").toArray();
+            for (const QJsonValue &value : items) {
+                QJsonObject item = value.toObject();
+                QString itemId = item.value("Id").toString();
+                QString tag;
+                const QJsonArray backdropTags = item.value("BackdropImageTags").toArray();
+                if (!backdropTags.isEmpty()) {
+                    tag = backdropTags.first().toString();
+                } else {
+                    tag = item.value("ImageTags").toObject().value("Backdrop").toString();
+                }
+
+                const QJsonArray parentBackdropTags = item.value("ParentBackdropImageTags").toArray();
+                if (tag.isEmpty() && !parentBackdropTags.isEmpty()) {
+                    tag = parentBackdropTags.first().toString();
+                    itemId = item.value("ParentBackdropItemId").toString(
+                        item.value("SeriesId").toString(item.value("Id").toString()));
+                }
+
+                if (itemId.isEmpty() || tag.isEmpty()) {
+                    continue;
+                }
+
+                QString backdropUrl = getCachedImageUrlWithWidth(itemId, QStringLiteral("Backdrop"), 1920);
+                if (backdropUrl.isEmpty()) {
+                    continue;
+                }
+                backdropUrl += QStringLiteral("?tag=") + tag;
+                item.insert(QStringLiteral("BackdropUrl"), backdropUrl);
+
+                if (item.value("ImageTags").toObject().contains(QStringLiteral("Logo"))) {
+                    item.insert(QStringLiteral("LogoUrl"),
+                                getCachedImageUrlWithWidth(item.value("Id").toString(),
+                                                           QStringLiteral("Logo"),
+                                                           700));
+                }
+                filteredItems.append(item);
+            }
+            emit screensaverItemsLoaded(filteredItems);
+        });
+}
+
 // ============================================================================
 // Generic Item Details
 // ============================================================================

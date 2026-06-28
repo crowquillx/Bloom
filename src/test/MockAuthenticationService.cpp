@@ -9,13 +9,15 @@ MockAuthenticationService::MockAuthenticationService(ISecretStore *secretStore, 
 
 void MockAuthenticationService::initialize(ConfigManager *configManager)
 {
-    // Use restoreSession to set server URL and internal state consistently
-    // Set this BEFORE base initialization so that any base class logic that relies on
-    // established session state sees the mock values immediately (avoiding network restoration).
-    restoreSession(QStringLiteral("test://mock"), QStringLiteral("test-user-001"), QStringLiteral("test-access-token-001"));
+    Q_UNUSED(configManager)
 
-    // Initialize the base class to set up config manager and secret store members
-    AuthenticationService::initialize(configManager);
+    seedSession(QStringLiteral("test://mock"),
+                QStringLiteral("test-user-001"),
+                QStringLiteral("test-access-token-001"),
+                QStringLiteral("Test User"));
+    emit loginSuccess(QStringLiteral("test-user-001"),
+                      QStringLiteral("test-access-token-001"),
+                      QStringLiteral("Test User"));
     
     qCDebug(lcTest) << "MockAuthenticationService: Initialized with pre-authenticated session";
 }
@@ -26,22 +28,22 @@ void MockAuthenticationService::authenticate(const QString &serverUrl, const QSt
     
     qCDebug(lcTest) << "MockAuthenticationService::authenticate(" << serverUrl << "," << username << ")";
     
-    // Immediately emit success
-    emit loginSuccess("test-user-001", "test-access-token-001", username);
+    seedSession(serverUrl, QStringLiteral("test-user-001"), QStringLiteral("test-access-token-001"), username);
+    emit loginSuccess(QStringLiteral("test-user-001"), QStringLiteral("test-access-token-001"), username);
 }
 
 void MockAuthenticationService::restoreSession(const QString &serverUrl, const QString &userId, const QString &accessToken)
 {
     qCDebug(lcTest) << "MockAuthenticationService::restoreSession(" << serverUrl << "," << userId << ")";
     
-    // Immediately emit success
+    seedSession(serverUrl, userId, accessToken);
     emit loginSuccess(userId, accessToken, QString());
 }
 
 void MockAuthenticationService::logout()
 {
     qCDebug(lcTest) << "MockAuthenticationService::logout()";
-    
+    seedSession(QString(), QString(), QString());
     emit loggedOut();
 }
 
