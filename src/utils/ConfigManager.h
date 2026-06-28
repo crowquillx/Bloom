@@ -93,6 +93,9 @@ class ConfigManager : public QObject
     Q_PROPERTY(bool uiSoundsEnabled READ getUiSoundsEnabled WRITE setUiSoundsEnabled NOTIFY uiSoundsEnabledChanged)
     Q_PROPERTY(int uiSoundsVolume READ getUiSoundsVolume WRITE setUiSoundsVolume NOTIFY uiSoundsVolumeChanged)
     Q_PROPERTY(bool performanceModeEnabled READ getPerformanceModeEnabled WRITE setPerformanceModeEnabled NOTIFY performanceModeEnabledChanged)
+    Q_PROPERTY(bool screensaverEnabled READ getScreensaverEnabled WRITE setScreensaverEnabled NOTIFY screensaverEnabledChanged)
+    Q_PROPERTY(QString screensaverMode READ getScreensaverMode WRITE setScreensaverMode NOTIFY screensaverModeChanged)
+    Q_PROPERTY(int screensaverTimeoutSeconds READ getScreensaverTimeoutSeconds WRITE setScreensaverTimeoutSeconds NOTIFY screensaverTimeoutSecondsChanged)
     
     // Video Settings
     Q_PROPERTY(bool enableFramerateMatching READ getEnableFramerateMatching WRITE setEnableFramerateMatching NOTIFY enableFramerateMatchingChanged)
@@ -287,6 +290,14 @@ public:
     // Backdrop Rotation Interval (milliseconds)
     void setBackdropRotationInterval(int ms);
     int getBackdropRotationInterval() const;
+
+    // OLED-safe screensaver
+    void setScreensaverEnabled(bool enabled);
+    bool getScreensaverEnabled() const;
+    void setScreensaverMode(const QString &mode);
+    QString getScreensaverMode() const;
+    void setScreensaverTimeoutSeconds(int seconds);
+    int getScreensaverTimeoutSeconds() const;
 
     // Launch in Fullscreen
     void setLaunchInFullscreen(bool enabled);
@@ -570,6 +581,9 @@ signals:
     void heroBannerLibraryIdsChanged();
     void heroBannerLogoPlacementChanged();
     void heroBannerInfoPlacementChanged();
+    void screensaverEnabledChanged();
+    void screensaverModeChanged();
+    void screensaverTimeoutSecondsChanged();
 
 private:
     QString normalizeLogLevelValue(const QString &level) const;
@@ -581,12 +595,15 @@ private:
     QString normalizeHeroBannerSource(const QString &raw) const;
     QString normalizeHeroBannerLogoPlacement(const QString &raw) const;
     QString normalizeHeroBannerInfoPlacement(const QString &raw) const;
+    QString normalizeScreensaverMode(const QString &raw) const;
+    QJsonObject readScreensaverObject() const;
+    void writeScreensaverObject(const QJsonObject &screensaver);
     QJsonObject readHeroBannerObject() const;
     void writeHeroBannerObject(const QJsonObject &heroBanner);
     bool envOverridesRoundedPreprocess(bool current) const;
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 24;
+    static constexpr int kCurrentConfigVersion = 25;
     QJsonObject defaultConfig() const;
 };

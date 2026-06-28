@@ -17,6 +17,7 @@ class ConfigManagerThemeTest : public QObject
 private slots:
     void defaultsIncludeThemeVariants();
     void defaultsContainNewBuiltinMpvProfiles();
+    void screensaverDefaultsAndSettersPersist();
     void themeVariantSettersPersistAndEmit();
     void v19MigrationAddsThemeVariantSettings();
     void v20MigrationRenamesDefaultProfileAssignments();
@@ -28,6 +29,7 @@ private slots:
     void mpvProfileHdrAndWindowsOutputFieldsDefaultAndPersist();
     void hdrMpvArgsUseProfileMetadataMode();
     void v23MigrationPreservesCustomizedBuiltInProfiles();
+    void v24MigrationAddsScreensaverSettings();
     void startupBufferingModesDefaultNormalizeAndPersist();
     void bundledMpvShadersAreCopied();
     void bundledMpvFontsAreCopied();
@@ -254,6 +256,45 @@ void ConfigManagerThemeTest::defaultsContainNewBuiltinMpvProfiles()
     QVERIFY(!names.contains(QStringLiteral("Default")));
 }
 
+void ConfigManagerThemeTest::screensaverDefaultsAndSettersPersist()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getScreensaverEnabled(), false);
+    QCOMPARE(config.getScreensaverMode(), QStringLiteral("libraryBackdrops"));
+    QCOMPARE(config.getScreensaverTimeoutSeconds(), 300);
+
+    QSignalSpy enabledSpy(&config, &ConfigManager::screensaverEnabledChanged);
+    QSignalSpy modeSpy(&config, &ConfigManager::screensaverModeChanged);
+    QSignalSpy timeoutSpy(&config, &ConfigManager::screensaverTimeoutSecondsChanged);
+
+    config.setScreensaverEnabled(true);
+    config.setScreensaverMode(QStringLiteral("bouncingLogo"));
+    config.setScreensaverTimeoutSeconds(120);
+
+    QCOMPARE(enabledSpy.count(), 1);
+    QCOMPARE(modeSpy.count(), 1);
+    QCOMPARE(timeoutSpy.count(), 1);
+
+    config.setScreensaverMode(QStringLiteral("invalid"));
+    QCOMPARE(config.getScreensaverMode(), QStringLiteral("libraryBackdrops"));
+    QCOMPARE(modeSpy.count(), 2);
+
+    config.setScreensaverTimeoutSeconds(1);
+    QCOMPARE(config.getScreensaverTimeoutSeconds(), 15);
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getScreensaverEnabled(), true);
+    QCOMPARE(reloaded.getScreensaverMode(), QStringLiteral("libraryBackdrops"));
+    QCOMPARE(reloaded.getScreensaverTimeoutSeconds(), 15);
+}
+
 void ConfigManagerThemeTest::themeVariantSettersPersistAndEmit()
 {
     QTemporaryDir tempDir;
@@ -313,7 +354,7 @@ void ConfigManagerThemeTest::v19MigrationAddsThemeVariantSettings()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 24);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 25);
     const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
     QVERIFY(ui.contains(QStringLiteral("theme_flavor")));
     QCOMPARE(ui.value(QStringLiteral("theme_color_scheme")).toString(), QStringLiteral("blue"));
@@ -607,6 +648,43 @@ void ConfigManagerThemeTest::v23MigrationPreservesCustomizedBuiltInProfiles()
              QStringLiteral("vulkan"));
     QCOMPARE(config.getMpvProfile(QStringLiteral("nnedi3-deband")).value(QStringLiteral("windowsRenderApi")).toString(),
 	             QStringLiteral("vulkan"));
+}
+
+void ConfigManagerThemeTest::v24MigrationAddsScreensaverSettings()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    QVERIFY(QDir().mkpath(ConfigManager::getConfigDir()));
+    QJsonObject configObject = minimalV22ConfigWithCustomizedAnimeProfile();
+    configObject[QStringLiteral("version")] = 24;
+    QJsonObject settings = configObject.value(QStringLiteral("settings")).toObject();
+    settings[QStringLiteral("ui")] = QJsonObject{{QStringLiteral("theme"), QStringLiteral("Jellyfin")}};
+    configObject[QStringLiteral("settings")] = settings;
+
+    QFile configFile(ConfigManager::getConfigPath());
+    QVERIFY(configFile.open(QIODevice::WriteOnly));
+    configFile.write(QJsonDocument(configObject).toJson(QJsonDocument::Indented));
+    configFile.close();
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getScreensaverEnabled(), false);
+    QCOMPARE(config.getScreensaverMode(), QStringLiteral("libraryBackdrops"));
+    QCOMPARE(config.getScreensaverTimeoutSeconds(), 300);
+    config.save();
+
+    QFile migratedFile(ConfigManager::getConfigPath());
+    QVERIFY(migratedFile.open(QIODevice::ReadOnly));
+    const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 25);
+    const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
+    const QJsonObject screensaver = ui.value(QStringLiteral("screensaver")).toObject();
+    QCOMPARE(screensaver.value(QStringLiteral("enabled")).toBool(), false);
+    QCOMPARE(screensaver.value(QStringLiteral("mode")).toString(), QStringLiteral("libraryBackdrops"));
+    QCOMPARE(screensaver.value(QStringLiteral("timeout_seconds")).toInt(), 300);
 }
 
 void ConfigManagerThemeTest::startupBufferingModesDefaultNormalizeAndPersist()

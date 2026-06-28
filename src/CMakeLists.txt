@@ -99,6 +99,8 @@ qt_add_executable(Bloom
     ui/ImageCacheProvider.cpp
     ui/UiSoundController.h
     ui/UiSoundController.cpp
+    ui/ScreensaverController.h
+    ui/ScreensaverController.cpp
     ui/ResponsiveLayoutManager.h
     ui/ResponsiveLayoutManager.cpp
     security/ISecretStore.h
@@ -211,6 +213,7 @@ qt_add_qml_module(Bloom
         ui/MpvProfileEditor.qml
         ui/VideoSurface.qml
         ui/EmbeddedPlaybackOverlay.qml
+        ui/ScreensaverOverlay.qml
         ui/TrackSelector.qml
         ui/WheelStepScroller.qml
         ui/MediaInfoPanel.qml

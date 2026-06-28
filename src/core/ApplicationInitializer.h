@@ -31,6 +31,7 @@ class SessionService;
 class UpdateService;
 class MockAuthenticationService;
 class MockLibraryService;
+class ScreensaverController;
 
 /**
  * @brief Owns and wires all application-level services during startup.
@@ -121,6 +122,7 @@ private:
     std::unique_ptr<SessionService> m_sessionService;
     std::unique_ptr<UpdateService> m_updateService;
     std::unique_ptr<ResponsiveLayoutManager> m_responsiveLayoutManager;
+    std::unique_ptr<ScreensaverController> m_screensaverController;
     
     // Test mode mock services
     std::unique_ptr<MockAuthenticationService> m_mockAuthService;

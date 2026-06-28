@@ -8,7 +8,7 @@ FocusScope {
 
     signal requestReturnToRail()
 
-    readonly property Item preferredEntryItem: themeCombo
+    readonly property Item preferredEntryItem: screensaverEnabledRow
     property Item _lastFocusedItem: null
 
     function enterFromRail() {
@@ -34,6 +34,11 @@ FocusScope {
 
     function previousColorSchemeControl() {
         return flavorRow.visible ? flavorCombo : themeCombo
+    }
+
+    function screensaverModeIndex() {
+        var values = ["libraryBackdrops", "bouncingLogo", "black"]
+        return Math.max(0, values.indexOf(ConfigManager.screensaverMode))
     }
 
     function syncThemeVariants(themeName, useDefaults) {
@@ -136,6 +141,84 @@ FocusScope {
                 width: flickable.width - 2 * Theme.spacingSmall
                 spacing: Theme.spacingMedium
 
+                // --- Screensaver ---
+                Text {
+                    text: qsTr("Screensaver")
+                    font.pixelSize: Theme.fontSizeBody
+                    font.family: Theme.fontPrimary
+                    font.weight: Font.DemiBold
+                    color: Theme.textPrimary
+                }
+
+                SettingsToggleRow {
+                    id: screensaverEnabledRow
+                    label: qsTr("Enable Screensaver")
+                    description: qsTr("Start an OLED-safe overlay after the app is idle.")
+                    checked: ConfigManager.screensaverEnabled
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onToggled: function(value) { ConfigManager.screensaverEnabled = value }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.down: screensaverModeCombo
+                }
+
+                SettingsComboBox {
+                    id: screensaverModeCombo
+                    Layout.preferredWidth: Math.round(300 * Theme.layoutScale)
+                    enabled: ConfigManager.screensaverEnabled
+                    model: [qsTr("Library Backdrops"), qsTr("Bouncing Logo"), qsTr("Black Screen")]
+
+                    property bool _syncingFromConfig: false
+                    function modeValues() {
+                        return ["libraryBackdrops", "bouncingLogo", "black"]
+                    }
+                    function applyModeAt(index) {
+                        if (_syncingFromConfig || index < 0) return
+                        var values = modeValues()
+                        if (index >= values.length) return
+                        ConfigManager.screensaverMode = values[index]
+                    }
+                    function syncFromConfig() {
+                        _syncingFromConfig = true
+                        currentIndex = root.screensaverModeIndex()
+                        _syncingFromConfig = false
+                    }
+
+                    Component.onCompleted: syncFromConfig()
+                    Connections {
+                        target: ConfigManager
+                        function onScreensaverModeChanged() { screensaverModeCombo.syncFromConfig() }
+                    }
+                    onSelectionAccepted: function(index) { applyModeAt(index) }
+                    onActivated: function(index) { applyModeAt(index) }
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            root._lastFocusedItem = this
+                            flickable.ensureFocusVisible(this)
+                        }
+                    }
+                    KeyNavigation.up: screensaverEnabledRow
+                    KeyNavigation.down: screensaverTimeoutRow
+                }
+
+                SettingsSpinBoxRow {
+                    id: screensaverTimeoutRow
+                    label: qsTr("Screensaver timeout")
+                    description: qsTr("Minutes of inactivity before the screensaver starts.")
+                    from: 1
+                    to: 1440
+                    stepSize: 1
+                    unit: "min"
+                    value: Math.max(1, Math.round(ConfigManager.screensaverTimeoutSeconds / 60))
+                    enabled: ConfigManager.screensaverEnabled
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onSpinBoxValueChanged: ConfigManager.screensaverTimeoutSeconds = Math.max(1, newValue) * 60
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.up: screensaverModeCombo
+                    KeyNavigation.down: themeCombo
+                }
+
+                SettingsGroupDivider { Layout.fillWidth: true }
+
                 // --- Theme ---
                 RowLayout {
                     Layout.fillWidth: true
@@ -187,7 +270,7 @@ FocusScope {
 
                         Keys.onUpPressed: function(event) {
                             if (!popup.visible) {
-                                // First control — nowhere to go
+                                screensaverTimeoutRow.forceActiveFocus()
                             }
                         }
                         Keys.onDownPressed: function(event) {

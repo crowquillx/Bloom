@@ -281,6 +281,26 @@ void MockLibraryService::getHomeBackdropItems(int limit)
     emit homeBackdropItemsLoaded(result);
 }
 
+void MockLibraryService::getScreensaverItems(int limit)
+{
+    QJsonArray allItems;
+    for (const QJsonValue &val : m_movies["Items"].toArray()) {
+        allItems.append(val);
+    }
+    for (const QJsonValue &val : m_series["Items"].toArray()) {
+        allItems.append(val);
+    }
+
+    QJsonArray result;
+    const int count = (limit > 0) ? qMin(limit, allItems.size()) : allItems.size();
+    for (int i = 0; i < count; ++i) {
+        result.append(allItems[i]);
+    }
+
+    qCDebug(lcTest) << "MockLibraryService::getScreensaverItems(" << limit << ") ->" << result.size() << "items";
+    emit screensaverItemsLoaded(result);
+}
+
 void MockLibraryService::getItem(const QString &itemId)
 {
     getItem(itemId, QString());

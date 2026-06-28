@@ -789,6 +789,57 @@ void LibraryService::getHomeBackdropItems(int limit)
     (*fetchPage)(0);
 }
 
+void LibraryService::getScreensaverItems(int limit)
+{
+    if (!m_authService->isAuthenticated()) {
+        NetworkError error;
+        error.endpoint = "getScreensaverItems";
+        error.code = -1;
+        error.userMessage = tr("Not authenticated");
+        emitError(error);
+        return;
+    }
+
+    const int requestedLimit = qBound(10, limit > 0 ? limit : 80, 200);
+    const QStringList fields = {
+        "Id",
+        "Name",
+        "Overview",
+        "Type",
+        "SeriesName",
+        "SeriesId",
+        "ImageTags",
+        "BackdropImageTags",
+        "ParentBackdropImageTags",
+        "ParentBackdropItemId",
+        "ParentId",
+        "ProductionYear"
+    };
+
+    const QString endpoint = QString("/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series&SortBy=Random&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop,Logo&ImageTypeLimit=1&EnableTotalRecordCount=false&Limit=%3")
+                                 .arg(m_authService->getUserId())
+                                 .arg(fields.join(","))
+                                 .arg(requestedLimit);
+
+    sendRequestWithRetry(endpoint,
+        [this, endpoint]() {
+            QNetworkRequest request = m_authService->createRequest(endpoint);
+            return m_authService->networkManager()->get(request);
+        },
+        [this](QNetworkReply *reply) {
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            if (!doc.isObject()) {
+                NetworkError error;
+                error.endpoint = "getScreensaverItems";
+                error.code = -2;
+                error.userMessage = tr("Invalid screensaver response");
+                emitError(error);
+                return;
+            }
+            emit screensaverItemsLoaded(doc.object().value("Items").toArray());
+        });
+}
+
 // ============================================================================
 // Generic Item Details
 // ============================================================================

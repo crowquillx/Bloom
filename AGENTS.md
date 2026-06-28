@@ -12,7 +12,7 @@ QML & Focus
 Stack: C++23 (Qt 6/QML) • CMake • mpv (external JSON IPC)
 Keep as much logic as possible in C++ (network, data models, services); QML for UI, animations, and theming.
 
-Key files: `src/core/ServiceLocator.h`, `utils/ConfigManager.*`, `network/JellyfinClient.*`, `player/*`, `ui/Theme.qml`, `ui/ResponsiveLayoutManager.*`.
+Key files: `src/core/ServiceLocator.h`, `utils/ConfigManager.*`, `network/JellyfinClient.*`, `player/*`, `ui/Theme.qml`, `ui/ResponsiveLayoutManager.*`, `src/ui/ScreensaverController.*`, `src/ui/ScreensaverOverlay.qml`.
 
 Conventions: C++ PascalCase classes, camelCase methods, `m_` prefix; QML PascalCase components, camelCase props; use `FocusScope` for navigable views; keep `Theme.qml` as the single source for tokens.
 
@@ -20,6 +20,7 @@ Playback & API: Key endpoints `/Users/{userId}/Items`, `/Shows/NextUp`, `/Playba
 
 Windows embedded playback guardrail (regression prevention):
 - When using `win-libmpv` embedded playback (`--wid` child window), playback controls MUST render in a dedicated transparent top-level overlay `Window` synced to the app window geometry.
+- Any app-level overlay that must be visible during Windows embedded playback (for example the screensaver while paused) MUST also render in a synced top-level overlay `Window`.
 - Do NOT rely on in-scene sibling layering above `VideoSurface` for Windows embedded playback; native child-window composition can occlude QML overlays.
 - Any PR touching Windows playback layering/geometry (`src/ui/Main.qml`, `src/ui/VideoSurface.qml`, `src/ui/EmbeddedPlaybackOverlay.qml`, `src/player/backend/WindowsMpvBackend.*`) must include manual runtime validation: controls visible above video, and no video move/clip during show/hide, resize, minimize/restore, maximize, and fullscreen transitions.
 
@@ -73,6 +74,7 @@ See also:
 - docs/responsive.md — Deprecated: see docs/theme.md for ResponsiveLayoutManager
 - docs/developer_notes.md — Conventions, focus, QML patterns, and best practices
 - docs/viewmodels.md — BaseViewModel patterns and MovieDetailsViewModel
+- docs/screensaver.md — in-app OLED-safe screensaver controller, arming rules, focus contract, and known limitations
 - docs/conventional-commits.md — commit messages must follow the Conventional Commits spec so tooling and changelogs stay accurate
 
 License: See `LICENSE`.

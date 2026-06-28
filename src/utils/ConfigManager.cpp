@@ -2371,6 +2371,86 @@ QString ConfigManager::getHeroBannerInfoPlacement() const
     return QStringLiteral("bottomLeft");
 }
 
+QString ConfigManager::normalizeScreensaverMode(const QString &raw) const
+{
+    const QString normalized = raw.trimmed();
+    if (normalized == QStringLiteral("libraryBackdrops")
+        || normalized == QStringLiteral("bouncingLogo")
+        || normalized == QStringLiteral("black")) {
+        return normalized;
+    }
+    return QStringLiteral("libraryBackdrops");
+}
+
+QJsonObject ConfigManager::readScreensaverObject() const
+{
+    const QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    const QJsonObject ui = settings.value(QStringLiteral("ui")).toObject();
+    QJsonObject screensaver = ui.value(QStringLiteral("screensaver")).toObject();
+    if (!screensaver.contains(QStringLiteral("enabled"))) {
+        screensaver[QStringLiteral("enabled")] = false;
+    }
+    screensaver[QStringLiteral("mode")] =
+        normalizeScreensaverMode(screensaver.value(QStringLiteral("mode")).toString());
+    const int timeout = screensaver.value(QStringLiteral("timeout_seconds")).toInt(300);
+    screensaver[QStringLiteral("timeout_seconds")] = qBound(15, timeout, 86400);
+    return screensaver;
+}
+
+void ConfigManager::writeScreensaverObject(const QJsonObject &screensaver)
+{
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject ui = settings.value(QStringLiteral("ui")).toObject();
+    ui[QStringLiteral("screensaver")] = screensaver;
+    settings[QStringLiteral("ui")] = ui;
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+}
+
+void ConfigManager::setScreensaverEnabled(bool enabled)
+{
+    if (enabled == getScreensaverEnabled()) return;
+    QJsonObject screensaver = readScreensaverObject();
+    screensaver[QStringLiteral("enabled")] = enabled;
+    writeScreensaverObject(screensaver);
+    emit screensaverEnabledChanged();
+}
+
+bool ConfigManager::getScreensaverEnabled() const
+{
+    return readScreensaverObject().value(QStringLiteral("enabled")).toBool(false);
+}
+
+void ConfigManager::setScreensaverMode(const QString &mode)
+{
+    const QString normalized = normalizeScreensaverMode(mode);
+    if (normalized == getScreensaverMode()) return;
+    QJsonObject screensaver = readScreensaverObject();
+    screensaver[QStringLiteral("mode")] = normalized;
+    writeScreensaverObject(screensaver);
+    emit screensaverModeChanged();
+}
+
+QString ConfigManager::getScreensaverMode() const
+{
+    return readScreensaverObject().value(QStringLiteral("mode")).toString(QStringLiteral("libraryBackdrops"));
+}
+
+void ConfigManager::setScreensaverTimeoutSeconds(int seconds)
+{
+    const int normalized = qBound(15, seconds, 86400);
+    if (normalized == getScreensaverTimeoutSeconds()) return;
+    QJsonObject screensaver = readScreensaverObject();
+    screensaver[QStringLiteral("timeout_seconds")] = normalized;
+    writeScreensaverObject(screensaver);
+    emit screensaverTimeoutSecondsChanged();
+}
+
+int ConfigManager::getScreensaverTimeoutSeconds() const
+{
+    return readScreensaverObject().value(QStringLiteral("timeout_seconds")).toInt(300);
+}
+
 void ConfigManager::setUpdateChannel(const QString &channel)
 {
     const QString normalized = normalizeUpdateChannelValue(channel);
@@ -3556,6 +3636,31 @@ public:
         newConfig[QStringLiteral("settings")] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV24ToV25(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig[QStringLiteral("version")] = 25;
+
+        QJsonObject settings = newConfig[QStringLiteral("settings")].toObject();
+        QJsonObject ui = settings.value(QStringLiteral("ui")).toObject();
+        QJsonObject screensaver = ui.value(QStringLiteral("screensaver")).toObject();
+        if (!screensaver.contains(QStringLiteral("enabled"))) {
+            screensaver[QStringLiteral("enabled")] = false;
+        }
+        const QString mode = screensaver.value(QStringLiteral("mode")).toString();
+        if (mode != QStringLiteral("libraryBackdrops")
+            && mode != QStringLiteral("bouncingLogo")
+            && mode != QStringLiteral("black")) {
+            screensaver[QStringLiteral("mode")] = QStringLiteral("libraryBackdrops");
+        }
+        screensaver[QStringLiteral("timeout_seconds")] =
+            qBound(15, screensaver.value(QStringLiteral("timeout_seconds")).toInt(300), 86400);
+        ui[QStringLiteral("screensaver")] = screensaver;
+        settings[QStringLiteral("ui")] = ui;
+        newConfig[QStringLiteral("settings")] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -3768,6 +3873,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 24) {
+            m_config = ConfigMigrator::migrateV24ToV25(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -3873,6 +3986,12 @@ QJsonObject ConfigManager::defaultConfig() const
     heroBanner["logo_placement"] = QStringLiteral("bottomLeft");
     heroBanner["info_placement"] = QStringLiteral("bottomLeft");
     ui["hero_banner"] = heroBanner;
+
+    QJsonObject screensaver;
+    screensaver["enabled"] = false;
+    screensaver["mode"] = QStringLiteral("libraryBackdrops");
+    screensaver["timeout_seconds"] = 300;
+    ui["screensaver"] = screensaver;
 
     settings["ui"] = ui;
 

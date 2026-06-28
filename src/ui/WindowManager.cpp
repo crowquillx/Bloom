@@ -6,6 +6,7 @@
 #include "utils/DisplayManager.h"
 #include "ui/ResponsiveLayoutManager.h"
 #include "utils/SidebarSettings.h"
+#include "ui/ScreensaverController.h"
 #include "utils/SystemPowerController.h"
 #include "utils/InputModeManager.h"
 #include "ui/UiSoundController.h"
@@ -157,6 +158,7 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("ResponsiveLayoutManager", ServiceLocator::get<ResponsiveLayoutManager>());
     
     context->setContextProperty("UiSoundController", ServiceLocator::get<UiSoundController>());
+    context->setContextProperty("ScreensaverController", ServiceLocator::get<ScreensaverController>());
     context->setContextProperty("SystemPowerController", ServiceLocator::get<SystemPowerController>());
 
     context->setContextProperty("AuthenticationService", ServiceLocator::get<AuthenticationService>());

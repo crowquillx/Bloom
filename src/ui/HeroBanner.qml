@@ -11,6 +11,15 @@ FocusScope {
     property int currentIndex: 0
     property bool scrolling: false
     property bool actionsFocused: false
+
+    // Hero item transition state. Commits happen mid-transition via a ScriptAction
+    // so logo/title/badge/metadata/buttons update while content is invisible.
+    property int pendingIndex: 0
+    property int pendingDirection: 0
+    property real contentOpacity: 1.0
+    property real contentSlideX: 0
+    readonly property real contentSlideOffset: Theme.spacingLarge
+
     readonly property bool hasContent: heroModel && heroModel.length > 0
     readonly property var currentItem: hasContent ? heroModel[Math.min(currentIndex, heroModel.length - 1)] : null
     readonly property string currentBackdropUrl: imageUrl(currentItem, "Backdrop", Math.round(width * 2))
@@ -90,9 +99,23 @@ FocusScope {
         return "S" + String(item.ParentIndexNumber || 0).padStart(2, "0")
              + "E" + String(item.IndexNumber || 0).padStart(2, "0")
     }
+    function transitionToIndex(newIndex, direction) {
+        if (heroTransition.running) {
+            if (newIndex === pendingIndex) return
+            heroTransition.stop()
+            currentIndex = pendingIndex
+            contentOpacity = 1.0
+            contentSlideX = 0
+        }
+        if (newIndex === currentIndex) return
+        pendingDirection = direction
+        pendingIndex = newIndex
+        heroTransition.start()
+    }
+
     function cycle(delta) {
         if (!hasContent || heroModel.length < 2) return
-        currentIndex = (currentIndex + delta + heroModel.length) % heroModel.length
+        transitionToIndex((currentIndex + delta + heroModel.length) % heroModel.length, delta)
         cycleTimer.stop()
         manualPause.restart()
     }
@@ -352,7 +375,15 @@ FocusScope {
         }
     }
 
-    onHeroModelChanged: currentIndex = Math.min(currentIndex, Math.max(0, heroModel.length - 1))
+    onHeroModelChanged: {
+        if (heroTransition.running) {
+            heroTransition.stop()
+            currentIndex = pendingIndex
+            contentOpacity = 1.0
+            contentSlideX = 0
+        }
+        currentIndex = Math.min(currentIndex, Math.max(0, heroModel.length - 1))
+    }
     onActiveFocusChanged: {
         if (!activeFocus)
             resetToCarousel()
@@ -404,9 +435,42 @@ FocusScope {
         running: ConfigManager.heroBannerEnabled && ConfigManager.heroBannerAutoCycleEnabled
                  && root.heroModel.length > 1 && !root.activeFocus && !root.buttonsFocused
                  && !root.actionsFocused && !root.scrolling && !PlayerController.isPlaybackActive && !manualPause.running
-        onTriggered: root.currentIndex = (root.currentIndex + 1) % root.heroModel.length
+        onTriggered: root.transitionToIndex((root.currentIndex + 1) % root.heroModel.length, 1)
     }
     Timer { id: manualPause; interval: 3000 }
+
+    // Directional cross-fade content transition. The two halves are each
+    // Theme.durationFade / 2, so the swap lands at the midpoint of the in-card
+    // backdrop cross-fade (which runs full Theme.durationFade). With animations
+    // disabled, all durations are 0 and the swap is instantaneous.
+    SequentialAnimation {
+        id: heroTransition
+        running: false
+
+        ParallelAnimation {
+            NumberAnimation { target: root; property: "contentOpacity"; to: 0.0; duration: Theme.durationFade / 2; easing.type: Easing.OutQuad }
+            NumberAnimation { target: root; property: "contentSlideX"; to: -root.contentSlideOffset * (root.pendingDirection || 1); duration: Theme.durationFade / 2; easing.type: Easing.OutQuad }
+        }
+        ScriptAction {
+            script: {
+                root.currentIndex = root.pendingIndex
+                root.contentSlideX = root.contentSlideOffset * (root.pendingDirection || 1)
+            }
+        }
+        ParallelAnimation {
+            NumberAnimation { target: root; property: "contentOpacity"; to: 1.0; duration: Theme.durationFade / 2; easing.type: Easing.InQuad }
+            NumberAnimation { target: root; property: "contentSlideX"; to: 0; duration: Theme.durationFade / 2; easing.type: Easing.InQuad }
+        }
+    }
+
+    onCurrentBackdropUrlChanged: {
+        var target = heroCard.showBackdropA ? heroBackdropB : heroBackdropA
+        if (target.source.toString() === currentBackdropUrl && target.status === Image.Ready) {
+            heroCard.showBackdropA = (target === heroBackdropA)
+            return
+        }
+        target.source = currentBackdropUrl
+    }
 
     Rectangle {
         id: heroCard
@@ -420,12 +484,41 @@ FocusScope {
         scale: root.activeFocus && !root.actionsFocused ? 1.01 : 1
         Behavior on scale { NumberAnimation { duration: Theme.uiAnimationsEnabled ? Theme.durationShort : 0 } }
 
+        property bool showBackdropA: true
+
+        function checkBackdropStatus(img) {
+            if (img.status !== Image.Ready) return
+            // Only switch if this image is the one we last pointed at the current URL.
+            if (img.source.toString() !== root.currentBackdropUrl) return
+            showBackdropA = (img === heroBackdropA)
+        }
+
         Image {
+            id: heroBackdropA
             anchors.fill: parent
-            source: root.currentBackdropUrl
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: true
+            opacity: heroCard.showBackdropA ? 1.0 : 0.0
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
+            onStatusChanged: heroCard.checkBackdropStatus(this)
+
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                maskEnabled: true
+                maskSource: heroMask
+            }
+        }
+
+        Image {
+            id: heroBackdropB
+            anchors.fill: parent
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            cache: true
+            opacity: heroCard.showBackdropA ? 0.0 : 1.0
+            Behavior on opacity { NumberAnimation { duration: Theme.durationFade } enabled: Theme.uiAnimationsEnabled }
+            onStatusChanged: heroCard.checkBackdropStatus(this)
 
             layer.enabled: true
             layer.effect: MultiEffect {
@@ -458,6 +551,8 @@ FocusScope {
             id: contentLoader
             anchors.fill: parent
             z: 1
+            opacity: root.contentOpacity
+            transform: Translate { x: root.contentSlideX }
             sourceComponent: root.combinedLayout ? combinedLayoutComponent : splitLayoutComponent
 
             onSourceComponentChanged: Qt.callLater(root.reapplyHeroPlacements)
@@ -476,6 +571,8 @@ FocusScope {
                     height: Theme.spacingSmall
                     radius: height / 2
                     color: index === root.currentIndex ? Theme.accentPrimary : Theme.textSecondary
+                    Behavior on width { NumberAnimation { duration: Theme.durationNormal; easing.type: Easing.OutCubic } enabled: Theme.uiAnimationsEnabled }
+                    Behavior on color { ColorAnimation { duration: Theme.durationNormal } enabled: Theme.uiAnimationsEnabled }
                 }
             }
         }

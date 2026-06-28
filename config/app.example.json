@@ -1,5 +1,5 @@
 {
-    "version": 23,
+    "version": 25,
     "settings": {
         "mpv": {
             "path": "mpv",
@@ -47,7 +47,12 @@
         "ui": {
             "backdrop_rotation_interval": 30000,
             "launch_in_fullscreen": false,
-            "ui_animations_enabled": true
+            "ui_animations_enabled": true,
+            "screensaver": {
+                "enabled": false,
+                "mode": "libraryBackdrops",
+                "timeout_seconds": 300
+            }
         },
         "manualDpiScaleOverride": 1.0,
         "mpv_profiles": {

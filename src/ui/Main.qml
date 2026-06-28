@@ -27,6 +27,12 @@ Window {
 
         startupUpdateTimer.start()
     }
+
+    Binding {
+        target: ScreensaverController
+        property: "appWindowVisible"
+        value: window.visible && window.visibility !== Window.Minimized
+    }
     
     // ========================================
     // Font Loader for Material Symbols
@@ -62,6 +68,7 @@ Window {
     }
     readonly property bool embeddedPlaybackActive: PlayerController.supportsEmbeddedVideo && PlayerController.isPlaybackActive
     readonly property bool useDetachedPlaybackOverlayWindow: Qt.platform.os === "windows"
+    readonly property bool useDetachedScreensaverWindow: useDetachedPlaybackOverlayWindow && embeddedPlaybackActive
     readonly property bool playbackOverlayNavigationActive: embeddedPlaybackActive
                                                          && (activeEmbeddedPlaybackOverlay.fullControlsVisible
                                                              || activeEmbeddedPlaybackOverlay.chapterMode)
@@ -161,6 +168,7 @@ Window {
                      && window.visible
                      && window.visibility !== Window.Minimized
                      && embeddedPlaybackActive
+                     && !ScreensaverController.active
         x: window.x
         y: window.y
         width: window.width
@@ -172,6 +180,33 @@ Window {
         EmbeddedPlaybackOverlay {
             id: embeddedPlaybackOverlayDetached
             anchors.fill: parent
+        }
+    }
+
+    Window {
+        id: screensaverWindow
+        flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        transientParent: window
+        modality: Qt.NonModal
+        color: "black"
+        visible: useDetachedScreensaverWindow
+                     && window.visible
+                     && window.visibility !== Window.Minimized
+                     && ScreensaverController.active
+        x: window.x
+        y: window.y
+        width: window.width
+        height: window.height
+        onVisibleChanged: {
+            if (visible) {
+                requestActivate()
+            }
+        }
+
+        ScreensaverOverlay {
+            anchors.fill: parent
+            active: ScreensaverController.active
+            focusWindow: window
         }
     }
 
@@ -383,6 +418,14 @@ Window {
                 })
             }
         }
+    }
+
+    ScreensaverOverlay {
+        parent: Overlay.overlay
+        anchors.fill: parent
+        z: 100000
+        active: ScreensaverController.active && !useDetachedScreensaverWindow
+        focusWindow: window
     }
 
     Loader {

@@ -9,7 +9,7 @@ Overview
 
 Responsibilities
 - Persist session information: server URL, access tokens (obfuscated or protected as feasible).
-- Persist app-specific settings: `playbackCompletionThreshold`, `autoplayNextEpisode`, `backdropRotationInterval`, mpv extra flags.
+- Persist app-specific settings: `playbackCompletionThreshold`, `autoplayNextEpisode`, `backdropRotationInterval`, `screensaver*`, mpv extra flags.
 - Emit change signals to allow QML to react to setting updates.
 
 Best practices
@@ -50,6 +50,7 @@ MPV profile management
 - Config v22 adds the protected `ArtCNN`, `ArtCNN-Deband`, `nnedi3`, and `nnedi3-deband` built-ins without changing existing default, library, or series assignments.
 - Config v23 adds profile-level `hdr_metadata_mode` and `windows_10bit_output` fields. Missing fields default to `target` and `false`; canonical shader-heavy anime built-ins move to `windows_render_api=vulkan` unless the stored profile was customized.
 - Config v24 adds startup buffering mode settings. `settings.playback.startup_buffering_mode` defaults to `normal`; `settings.library_startup_buffering_modes` stores optional per-library overrides keyed by Jellyfin library ID. Valid values are `normal` and `remote-mount`; missing library entries use the global value.
+- Config v25 adds OLED-safe screensaver settings under `settings.ui.screensaver`: `enabled` (default false), `mode` (default `libraryBackdrops`), and `timeout_seconds` (default 300).
 - Built-in profile behavior: `Low Quality` uses mpv `--profile=fast`; `Medium Quality` uses `--profile=high-quality`; `High Quality` uses `--profile=high-quality` plus bundled FSRCNNX, KrigBilateral, and SSimDownscaler GLSL shaders loaded from `~~/shaders/...`. The ArtCNN/nnedi3 profiles use `--profile=high-quality`, `--hwdec=no`, a single selected bundled shader, Gandhi Sans Bold subtitle styling from `~~/fonts`, and optional mpv deband tuning for the `-Deband` variants.
 - Settings > MPV > Edit Profiles > Import Config creates a new profile from an existing `mpv.conf`. v1 imports only global top-level options before the first `[profile]` section and stores them as normalized `extra_args` entries (`--option=value` or `--option`) in `settings.mpv_profiles`; it never overwrites an existing profile.
 - MPV profile import/save/load normalizes one surrounding quote pair from `--option=value` and stores common shader aliases (`--glsl-shader`, `--glsl-shader-append`, `--glsl-shaders`, `--glsl-shaders-append`) as ordered `--glsl-shaders-append=...` entries. On playback, Bloom emits a single `--glsl-shaders-clr` before the profile shader appends so multiple shaders load in profile order while replacing any inherited shader list.
@@ -121,6 +122,10 @@ UI settings
 - `settings.ui.launch_in_fullscreen` (Q_PROPERTY `launchInFullscreen`): When true, the application starts in fullscreen mode. Default true; configurable via Settings > Display > Launch in Fullscreen.
 - `settings.ui.backdrop_rotation_interval`: Backdrop rotation interval in milliseconds. Default 30000 (30 seconds).
 - `settings.ui.ui_animations_enabled` (Q_PROPERTY `uiAnimationsEnabled`): Toggle the QML transition/animation flourishes for keyboard/remote navigation; defaults to true but can be toggled to reduce GPU load.
+- `settings.ui.screensaver.enabled` (Q_PROPERTY `screensaverEnabled`): Enables the in-app OLED-safe screensaver. Default false.
+- `settings.ui.screensaver.mode` (Q_PROPERTY `screensaverMode`): `libraryBackdrops`, `bouncingLogo`, or `black`. Default `libraryBackdrops`.
+- `settings.ui.screensaver.timeout_seconds` (Q_PROPERTY `screensaverTimeoutSeconds`): Inactivity timeout before activation. Default 300 seconds; Settings > Display edits it in minutes.
+- Screensaver debug override: set `BLOOM_SCREENSAVER_DEBUG=1` to force-enable for one run without persisting, and optionally set `BLOOM_SCREENSAVER_DEBUG_TIMEOUT_MS=3000` or another positive millisecond value for fast testing.
 
 Update settings
 - `settings.updates.channel` (Q_PROPERTY `updateChannel`): Update track to query. Valid values are `stable` and `dev`. Default `stable`.
