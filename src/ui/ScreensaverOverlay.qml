@@ -20,7 +20,6 @@ Item {
     property var savedFocusItem: null
     property var restoreWindow: null
     property string savedNavigationMode: "pointer"
-    property string requestedUserId: ""
     property string currentBackdropUrl: showBackdropA ? backdropAUrl : backdropBUrl
     property var currentItem: currentIndex >= 0 && currentIndex < items.length ? items[currentIndex] : ({})
     property real logoX: Math.round(width * 0.08)
@@ -34,18 +33,20 @@ Item {
 
     onVisibleChanged: {
         if (visible) {
+            restoreWindow = restoreWindow || focusWindow || root.Window.window || null
             if (typeof InputModeManager !== "undefined") {
                 savedNavigationMode = InputModeManager.pointerActive ? "pointer" : "keyboard"
                 InputModeManager.setNavigationMode("keyboard")
                 InputModeManager.hideCursor(true)
             }
             if (artworkMode && items.length === 0) {
-                requestedUserId = AuthenticationService.userId || ""
                 LibraryService.getScreensaverItems(80)
             }
             selectNextItem()
             cycleTimer.restart()
-            bounceTimer.restart()
+            if (bouncingLogoMode) {
+                bounceTimer.restart()
+            }
         } else {
             cycleTimer.stop()
             bounceTimer.stop()
@@ -72,6 +73,7 @@ Item {
         target: ScreensaverController
         function onActiveChanged() {
             if (root.active) {
+                restoreWindow = restoreWindow || focusWindow || root.Window.window || null
                 savedFocusItem = root.focusWindow
                         ? root.focusWindow.activeFocusItem
                         : root.Window.activeFocusItem
@@ -83,10 +85,10 @@ Item {
         target: AuthenticationService
         function onLoggedOut() { root.resetArtwork() }
         function onSessionExpired() { root.resetArtwork() }
+        function onSessionExpiredAfterPlayback() { root.resetArtwork() }
     }
 
     function resetArtwork() {
-        requestedUserId = ""
         root.items = []
         root.currentIndex = -1
         root.placementIndex = 0
@@ -95,35 +97,12 @@ Item {
         root.backdropBUrl = ""
     }
 
-    function imageUrlFor(item, imageType, width) {
-        if (!item || !item.Id)
-            return ""
-        return LibraryService.getCachedImageUrlWithWidth(item.Id, imageType, width)
-    }
-
     function backdropUrlFor(item) {
-        if (!item)
-            return ""
-        var itemId = item.Id || ""
-        var tag = ""
-        if (item.BackdropImageTags && item.BackdropImageTags.length > 0) {
-            tag = item.BackdropImageTags[0]
-        } else if (item.ImageTags && item.ImageTags.Backdrop) {
-            tag = item.ImageTags.Backdrop
-        } else if (item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0) {
-            tag = item.ParentBackdropImageTags[0]
-            itemId = item.ParentBackdropItemId || item.SeriesId || item.Id || ""
-        }
-        if (!itemId || !tag)
-            return ""
-        var url = LibraryService.getCachedImageUrlWithWidth(itemId, "Backdrop", 1920)
-        return url ? url + "?tag=" + tag : ""
+        return item && item.BackdropUrl ? item.BackdropUrl : ""
     }
 
     function logoUrlFor(item) {
-        return item && item.ImageTags && item.ImageTags.Logo
-                ? LibraryService.getCachedImageUrlWithWidth(item.Id, "Logo", 700)
-                : ""
+        return item && item.LogoUrl ? item.LogoUrl : ""
     }
 
     function selectNextItem() {
@@ -362,20 +341,10 @@ Item {
     Connections {
         target: LibraryService
         function onScreensaverItemsLoaded(loadedItems) {
-            if (!AuthenticationService.authenticated
-                    || !root.visible
-                    || root.requestedUserId === ""
-                    || AuthenticationService.userId !== root.requestedUserId) {
+            if (!root.visible) {
                 return
             }
-            var filtered = []
-            for (var i = 0; loadedItems && i < loadedItems.length; ++i) {
-                var item = loadedItems[i]
-                if (root.backdropUrlFor(item) !== "") {
-                    filtered.push(item)
-                }
-            }
-            root.items = filtered
+            root.items = loadedItems || []
             root.currentIndex = -1
             root.selectNextItem()
         }

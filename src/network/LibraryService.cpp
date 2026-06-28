@@ -840,7 +840,46 @@ void LibraryService::getScreensaverItems(int limit)
                 emitError(error);
                 return;
             }
-            emit screensaverItemsLoaded(doc.object().value("Items").toArray());
+            QJsonArray filteredItems;
+            const QJsonArray items = doc.object().value("Items").toArray();
+            for (const QJsonValue &value : items) {
+                QJsonObject item = value.toObject();
+                QString itemId = item.value("Id").toString();
+                QString tag;
+                const QJsonArray backdropTags = item.value("BackdropImageTags").toArray();
+                if (!backdropTags.isEmpty()) {
+                    tag = backdropTags.first().toString();
+                } else {
+                    tag = item.value("ImageTags").toObject().value("Backdrop").toString();
+                }
+
+                const QJsonArray parentBackdropTags = item.value("ParentBackdropImageTags").toArray();
+                if (tag.isEmpty() && !parentBackdropTags.isEmpty()) {
+                    tag = parentBackdropTags.first().toString();
+                    itemId = item.value("ParentBackdropItemId").toString(
+                        item.value("SeriesId").toString(item.value("Id").toString()));
+                }
+
+                if (itemId.isEmpty() || tag.isEmpty()) {
+                    continue;
+                }
+
+                QString backdropUrl = getCachedImageUrlWithWidth(itemId, QStringLiteral("Backdrop"), 1920);
+                if (backdropUrl.isEmpty()) {
+                    continue;
+                }
+                backdropUrl += QStringLiteral("?tag=") + tag;
+                item.insert(QStringLiteral("BackdropUrl"), backdropUrl);
+
+                if (item.value("ImageTags").toObject().contains(QStringLiteral("Logo"))) {
+                    item.insert(QStringLiteral("LogoUrl"),
+                                getCachedImageUrlWithWidth(item.value("Id").toString(),
+                                                           QStringLiteral("Logo"),
+                                                           700));
+                }
+                filteredItems.append(item);
+            }
+            emit screensaverItemsLoaded(filteredItems);
         });
 }
 

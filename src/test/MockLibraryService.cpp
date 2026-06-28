@@ -293,9 +293,35 @@ void MockLibraryService::getScreensaverItems(int limit)
 
     QJsonArray result;
     const int requestedLimit = qBound(10, limit > 0 ? limit : 80, 200);
-    const int count = qMin(requestedLimit, allItems.size());
-    for (int i = 0; i < count; ++i) {
-        result.append(allItems[i]);
+    for (int i = 0; i < allItems.size() && result.size() < requestedLimit; ++i) {
+        QJsonObject item = allItems[i].toObject();
+        QString itemId = item.value("Id").toString();
+        QString tag;
+        const QJsonArray backdropTags = item.value("BackdropImageTags").toArray();
+        if (!backdropTags.isEmpty()) {
+            tag = backdropTags.first().toString();
+        } else {
+            tag = item.value("ImageTags").toObject().value("Backdrop").toString();
+        }
+        const QJsonArray parentBackdropTags = item.value("ParentBackdropImageTags").toArray();
+        if (tag.isEmpty() && !parentBackdropTags.isEmpty()) {
+            tag = parentBackdropTags.first().toString();
+            itemId = item.value("ParentBackdropItemId").toString(
+                item.value("SeriesId").toString(item.value("Id").toString()));
+        }
+        if (itemId.isEmpty() || tag.isEmpty()) {
+            continue;
+        }
+        item.insert(QStringLiteral("BackdropUrl"),
+                    getCachedImageUrlWithWidth(itemId, QStringLiteral("Backdrop"), 1920)
+                        + QStringLiteral("?tag=") + tag);
+        if (item.value("ImageTags").toObject().contains(QStringLiteral("Logo"))) {
+            item.insert(QStringLiteral("LogoUrl"),
+                        getCachedImageUrlWithWidth(item.value("Id").toString(),
+                                                   QStringLiteral("Logo"),
+                                                   700));
+        }
+        result.append(item);
     }
 
     qCDebug(lcTest) << "MockLibraryService::getScreensaverItems(" << limit << ") ->" << result.size() << "items";

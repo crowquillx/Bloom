@@ -9,8 +9,8 @@ MockAuthenticationService::MockAuthenticationService(ISecretStore *secretStore, 
 
 void MockAuthenticationService::initialize(ConfigManager *configManager)
 {
-    // Initialize the base class to set up config manager and secret store members
-    AuthenticationService::initialize(configManager);
+    Q_UNUSED(configManager)
+
     seedSession(QStringLiteral("test://mock"),
                 QStringLiteral("test-user-001"),
                 QStringLiteral("test-access-token-001"),
