@@ -1,18 +1,18 @@
 {
-  "build_id": "20260622002902-65e5480",
+  "build_id": "20260628181441-96ada6b",
   "channel": "dev",
   "installer": {
     "filename": "Bloom-Setup-dev.exe",
-    "sha256": "8262823ec1769fa36c36366b12e740649445119551e6f678c6a3660e95beee0a",
+    "sha256": "1ea6bdff65d25781e2953850d6b3e316fd1ae769bab4facc2ab0d28cd1e1fa77",
     "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-dev.exe"
   },
-  "notes": "Latest development build from the `main` branch.\n\n- Build ID: `20260622002902-65e5480`\n- Commit: `65e5480e30f27746df47cc018939fbb10360ef48`\n- Base version: `0.7.0`\n- Built: `2026-06-22T00:40:05Z`",
+  "notes": "Latest development build from the `main` branch.\n\n- Build ID: `20260628181441-96ada6b`\n- Commit: `96ada6ba1736e001d168020b115fd30137d3500d`\n- Base version: `0.7.0`\n- Built: `2026-06-28T18:25:38Z`",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "5ef724cac070c5e1a5e78e0c93e41e097998370615d220cf916c077d38555d5d",
+    "sha256": "d1e1b0bfafdd3f5de9182b0e51cbd3a9d674afc74d2babe1c8c6accabba98f75",
     "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
   },
-  "published_at": "2026-06-22T00:40:05Z",
+  "published_at": "2026-06-28T18:25:38Z",
   "release_tag": "dev-latest",
   "rollout": {
     "enabled": true,
