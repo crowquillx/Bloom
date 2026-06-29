@@ -112,6 +112,10 @@ void InputBindingManagerTest::sameContextConflictCanBeReassigned()
     BindingFixture fixture;
     InputBindingManager manager(nullptr, &fixture.config);
 
+    const QVariantList originalSubtitleBindings =
+        manager.bindingsForAction(QStringLiteral("keyboard"), QStringLiteral("playback.subtitleSelector"));
+    QVERIFY(originalSubtitleBindings.contains(QStringLiteral("key:s")));
+
     QVERIFY(manager.setBindingForAction(QStringLiteral("keyboard"),
                                         QStringLiteral("playback.audioSelector"),
                                         QStringLiteral("key:s"),

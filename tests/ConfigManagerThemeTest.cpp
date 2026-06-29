@@ -159,6 +159,41 @@ QJsonObject minimalV20ConfigWithDefaultAssignments()
     return config;
 }
 
+QJsonObject representativeV26Config()
+{
+    QJsonObject playback;
+    playback[QStringLiteral("completion_threshold")] = 90;
+    playback[QStringLiteral("startup_buffering_mode")] = QStringLiteral("normal");
+
+    QJsonObject screensaver;
+    screensaver[QStringLiteral("enabled")] = false;
+    screensaver[QStringLiteral("mode")] = QStringLiteral("libraryBackdrops");
+    screensaver[QStringLiteral("timeout_seconds")] = 300;
+
+    QJsonObject heroBanner;
+    heroBanner[QStringLiteral("episode_synopsis_enabled")] = false;
+
+    QJsonObject ui;
+    ui[QStringLiteral("theme")] = QStringLiteral("Jellyfin");
+    ui[QStringLiteral("theme_flavor")] = QString();
+    ui[QStringLiteral("theme_color_scheme")] = QStringLiteral("blue");
+    ui[QStringLiteral("screensaver")] = screensaver;
+    ui[QStringLiteral("hero_banner")] = heroBanner;
+
+    QJsonObject settings;
+    settings[QStringLiteral("playback")] = playback;
+    settings[QStringLiteral("ui")] = ui;
+    settings[QStringLiteral("mpv_profiles")] = ConfigManager::defaultMpvProfiles();
+    settings[QStringLiteral("default_profile")] = QStringLiteral("Medium Quality");
+    settings[QStringLiteral("library_profiles")] = QJsonObject();
+    settings[QStringLiteral("library_startup_buffering_modes")] = QJsonObject();
+
+    QJsonObject config;
+    config[QStringLiteral("version")] = 26;
+    config[QStringLiteral("settings")] = settings;
+    return config;
+}
+
 QJsonObject minimalV21ConfigWithAssignments()
 {
     QJsonObject config = minimalV20ConfigWithDefaultAssignments();
@@ -760,8 +795,7 @@ void ConfigManagerThemeTest::v26MigrationAddsInputBindings()
     ScopedConfigIsolation configIsolation(tempDir.path());
 
     QVERIFY(QDir().mkpath(ConfigManager::getConfigDir()));
-    QJsonObject configObject = minimalV19Config();
-    configObject[QStringLiteral("version")] = 26;
+    QJsonObject configObject = representativeV26Config();
 
     QFile configFile(ConfigManager::getConfigPath());
     QVERIFY(configFile.open(QIODevice::WriteOnly));
