@@ -19,6 +19,8 @@ QtObject {
     // The final hero list: array of raw Jellyfin item objects with an added
     // __heroReason string describing why the item is featured.
     property var heroModel: []
+    property var seriesOverviewCache: ({})
+    property var pendingSeriesOverviewIds: ({})
 
     // True while the Library source fetch is in flight.
     property bool loading: false
@@ -44,6 +46,7 @@ QtObject {
     function reset() {
         heroModel = []
         loading = false
+        pendingSeriesOverviewIds = ({})
     }
 
     function rebuild() {
@@ -75,7 +78,8 @@ QtObject {
                 pool = pool.concat(tagItems(displayedNextUpModel, "Up Next", maxItems - pool.length, hiddenTypes, pool))
             }
         }
-        heroModel = pool
+        heroModel = hydrateSeriesOverviews(pool)
+        requestMissingSeriesOverviews(heroModel)
     }
 
     function sampleRecentlyAdded(maxItems, hiddenTypes, existingPool) {
@@ -97,7 +101,7 @@ QtObject {
                     anyLeft = true
                     var item = perLib[l][idx]
                     if (isEligible(item, hiddenTypes) && !alreadySeen(item, seen)) {
-                        var copy = shallowClone(item)
+                        var copy = prepareHeroItem(item)
                         copy.__heroReason = "Recently Added"
                         result.push(copy)
                         markSeen(item, seen)
@@ -116,7 +120,7 @@ QtObject {
         for (var i = 0; i < model.length && result.length < maxItems; i++) {
             var item = model[i]
             if (!isEligible(item, hiddenTypes) || alreadySeen(item, seen)) continue
-            var copy = shallowClone(item)
+            var copy = prepareHeroItem(item)
             copy.__heroReason = reason
             result.push(copy)
             markSeen(item, seen)
@@ -142,11 +146,12 @@ QtObject {
         for (var i = 0; i < items.length && result.length < maxItems; i++) {
             var item = items[i]
             if (!isEligible(item, hiddenTypes)) continue
-            var copy = shallowClone(item)
+            var copy = prepareHeroItem(item)
             copy.__heroReason = "From Your Library"
             result.push(copy)
         }
-        heroModel = result
+        heroModel = hydrateSeriesOverviews(result)
+        requestMissingSeriesOverviews(heroModel)
     }
 
     function isEligible(item, hiddenTypes) {
@@ -174,6 +179,80 @@ QtObject {
             if (Object.prototype.hasOwnProperty.call(item, k)) copy[k] = item[k]
         }
         return copy
+    }
+
+    function prepareHeroItem(item) {
+        var copy = shallowClone(item)
+        if (copy.Type === "Episode") {
+            var seriesId = copy.SeriesId || ""
+            if (seriesId && seriesOverviewCache[seriesId] !== undefined) {
+                copy.__seriesOverview = seriesOverviewCache[seriesId] || ""
+            }
+        }
+        return copy
+    }
+
+    function hydrateSeriesOverviews(items) {
+        var result = []
+        for (var i = 0; i < items.length; i++) {
+            var copy = shallowClone(items[i])
+            if (copy.Type === "Episode") {
+                var seriesId = copy.SeriesId || ""
+                if (seriesId && seriesOverviewCache[seriesId] !== undefined) {
+                    copy.__seriesOverview = seriesOverviewCache[seriesId] || ""
+                }
+            }
+            result.push(copy)
+        }
+        return result
+    }
+
+    function requestMissingSeriesOverviews(items) {
+        var ids = []
+        var pending = {}
+        for (var k in pendingSeriesOverviewIds) {
+            if (Object.prototype.hasOwnProperty.call(pendingSeriesOverviewIds, k)) {
+                pending[k] = pendingSeriesOverviewIds[k]
+            }
+        }
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i]
+            if (!item || item.Type !== "Episode") continue
+            var seriesId = item.SeriesId || ""
+            if (!seriesId) continue
+            if (seriesOverviewCache[seriesId] !== undefined || pending[seriesId]) continue
+            pending[seriesId] = true
+            ids.push(seriesId)
+        }
+        if (ids.length <= 0) return
+        pendingSeriesOverviewIds = pending
+        LibraryService.getHeroSeriesOverviews(ids)
+    }
+
+    function handleHeroSeriesOverviewsLoaded(overviewsBySeriesId) {
+        var cache = {}
+        for (var existing in seriesOverviewCache) {
+            if (Object.prototype.hasOwnProperty.call(seriesOverviewCache, existing)) {
+                cache[existing] = seriesOverviewCache[existing]
+            }
+        }
+
+        var pending = {}
+        for (var p in pendingSeriesOverviewIds) {
+            if (Object.prototype.hasOwnProperty.call(pendingSeriesOverviewIds, p)) {
+                pending[p] = pendingSeriesOverviewIds[p]
+            }
+        }
+
+        for (var id in overviewsBySeriesId) {
+            if (!Object.prototype.hasOwnProperty.call(overviewsBySeriesId, id)) continue
+            cache[id] = overviewsBySeriesId[id] || ""
+            delete pending[id]
+        }
+
+        seriesOverviewCache = cache
+        pendingSeriesOverviewIds = pending
+        heroModel = hydrateSeriesOverviews(heroModel)
     }
 
     function buildSeenSet(existingPool) {

@@ -127,6 +127,7 @@ public:
     // all libraries are sampled. When unwatchedOnly is true, only unplayed items are
     // returned. Used by the Home screen "Library" hero source.
     Q_INVOKABLE virtual void getHeroLibraryItems(int limit, const QStringList &parentIds, bool unwatchedOnly);
+    Q_INVOKABLE virtual void getHeroSeriesOverviews(const QStringList &seriesIds);
     
     // URL helpers
     Q_INVOKABLE virtual QString getStreamUrl(const QString &itemId);
@@ -185,6 +186,7 @@ signals:
     void searchResultsLoaded(const QString &searchTerm, const QJsonArray &movies, const QJsonArray &series);
     void randomItemsLoaded(const QJsonArray &items);
     void heroLibraryItemsLoaded(const QJsonArray &items);
+    void heroSeriesOverviewsLoaded(const QJsonObject &overviewsBySeriesId);
     
     // Error signals
     void errorOccurred(const QString &endpoint, const QString &error);

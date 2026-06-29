@@ -156,6 +156,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(QStringList heroBannerLibraryIds READ getHeroBannerLibraryIds WRITE setHeroBannerLibraryIds NOTIFY heroBannerLibraryIdsChanged)
     Q_PROPERTY(QString heroBannerLogoPlacement READ getHeroBannerLogoPlacement WRITE setHeroBannerLogoPlacement NOTIFY heroBannerLogoPlacementChanged)
     Q_PROPERTY(QString heroBannerInfoPlacement READ getHeroBannerInfoPlacement WRITE setHeroBannerInfoPlacement NOTIFY heroBannerInfoPlacementChanged)
+    Q_PROPERTY(bool heroBannerEpisodeSynopsisEnabled READ getHeroBannerEpisodeSynopsisEnabled WRITE setHeroBannerEpisodeSynopsisEnabled NOTIFY heroBannerEpisodeSynopsisEnabledChanged)
     
     // UI Animations
     Q_PROPERTY(bool uiAnimationsEnabled READ getUiAnimationsEnabled WRITE setUiAnimationsEnabled NOTIFY uiAnimationsEnabledChanged)
@@ -499,6 +500,8 @@ public:
     QString getHeroBannerLogoPlacement() const;
     void setHeroBannerInfoPlacement(const QString &placement);
     QString getHeroBannerInfoPlacement() const;
+    void setHeroBannerEpisodeSynopsisEnabled(bool enabled);
+    bool getHeroBannerEpisodeSynopsisEnabled() const;
 
     // Updates
     void setUpdateChannel(const QString &channel);
@@ -581,6 +584,7 @@ signals:
     void heroBannerLibraryIdsChanged();
     void heroBannerLogoPlacementChanged();
     void heroBannerInfoPlacementChanged();
+    void heroBannerEpisodeSynopsisEnabledChanged();
     void screensaverEnabledChanged();
     void screensaverModeChanged();
     void screensaverTimeoutSecondsChanged();
@@ -604,6 +608,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 25;
+    static constexpr int kCurrentConfigVersion = 26;
     QJsonObject defaultConfig() const;
 };

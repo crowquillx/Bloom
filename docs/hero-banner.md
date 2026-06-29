@@ -26,6 +26,11 @@ The hero shows the item logo image when available. If no logo exists, a text tit
 logo slot (detail-view style). Episodes use the series name as the primary title and show the
 episode name in smaller secondary text beneath when it differs from the series title.
 
+Hero synopsis text is shown below the metadata chips. Movies and series use their own
+`Overview`. Episodes use the parent series overview by default. Settings > Home > Use episode
+synopses opts into episode-level `Overview` text when present; empty episode overviews still fall
+back to the series overview.
+
 ## Focus
 
 The hero card receives initial Home focus when enabled and populated. Focus is two-tier:

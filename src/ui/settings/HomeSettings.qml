@@ -107,7 +107,17 @@ FocusScope {
                 SettingsSpinBoxRow {
                     id: maxItemsRow; label: qsTr("Maximum hero items"); from: 1; to: 25; value: ConfigManager.heroBannerMaxItems
                     ensureVisible: root.ensure; onSpinBoxValueChanged: ConfigManager.heroBannerMaxItems = newValue
-                    KeyNavigation.up: sourceCombo; KeyNavigation.down: logoPlacementCombo
+                    KeyNavigation.up: sourceCombo; KeyNavigation.down: episodeSynopsisRow
+                }
+                SettingsToggleRow {
+                    id: episodeSynopsisRow
+                    label: qsTr("Use episode synopses")
+                    description: qsTr("Show episode descriptions in the hero banner when available; otherwise use the series description.")
+                    checked: ConfigManager.heroBannerEpisodeSynopsisEnabled
+                    ensureVisible: root.ensure
+                    onToggled: ConfigManager.heroBannerEpisodeSynopsisEnabled = value
+                    KeyNavigation.up: maxItemsRow
+                    KeyNavigation.down: logoPlacementCombo
                 }
 
                 Text {
@@ -167,7 +177,7 @@ FocusScope {
                     onSelectionAccepted: function(index) { applyPlacementAt(index) }
                     onActivated: function(index) { applyPlacementAt(index) }
                     onActiveFocusChanged: if (activeFocus) root.ensure(this)
-                    KeyNavigation.up: maxItemsRow
+                    KeyNavigation.up: episodeSynopsisRow
                     KeyNavigation.down: infoPlacementCombo
                 }
 

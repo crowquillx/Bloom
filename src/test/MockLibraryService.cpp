@@ -549,6 +549,22 @@ void MockLibraryService::getHeroLibraryItems(int limit, const QStringList &paren
     emit heroLibraryItemsLoaded(result);
 }
 
+void MockLibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
+{
+    QJsonObject result;
+    for (const QString &id : seriesIds) {
+        const QString trimmed = id.trimmed();
+        if (trimmed.isEmpty() || result.contains(trimmed)) {
+            continue;
+        }
+        const QJsonObject item = findItemById(trimmed);
+        result[trimmed] = item.value(QStringLiteral("Overview")).toString();
+    }
+
+    qCDebug(lcTest) << "MockLibraryService::getHeroSeriesOverviews(" << seriesIds.size() << ") ->" << result.size() << "items";
+    emit heroSeriesOverviewsLoaded(result);
+}
+
 QString MockLibraryService::getStreamUrl(const QString &itemId)
 {
     Q_UNUSED(itemId)

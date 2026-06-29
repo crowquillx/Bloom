@@ -1775,6 +1775,10 @@ FocusScope {
         function onHeroLibraryItemsLoaded(items) {
             heroProvider.handleHeroLibraryItemsLoaded(items)
         }
+
+        function onHeroSeriesOverviewsLoaded(overviewsBySeriesId) {
+            heroProvider.handleHeroSeriesOverviewsLoaded(overviewsBySeriesId)
+        }
         
         function onErrorOccurred(endpoint, error) {
             console.error("Error in " + endpoint + ": " + error)

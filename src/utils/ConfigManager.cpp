@@ -2371,6 +2371,22 @@ QString ConfigManager::getHeroBannerInfoPlacement() const
     return QStringLiteral("bottomLeft");
 }
 
+void ConfigManager::setHeroBannerEpisodeSynopsisEnabled(bool enabled)
+{
+    if (enabled == getHeroBannerEpisodeSynopsisEnabled()) return;
+    QJsonObject hb = readHeroBannerObject();
+    hb["episode_synopsis_enabled"] = enabled;
+    writeHeroBannerObject(hb);
+    emit heroBannerEpisodeSynopsisEnabledChanged();
+}
+
+bool ConfigManager::getHeroBannerEpisodeSynopsisEnabled() const
+{
+    QJsonObject hb = readHeroBannerObject();
+    if (hb.contains("episode_synopsis_enabled")) return hb["episode_synopsis_enabled"].toBool();
+    return false;
+}
+
 QString ConfigManager::normalizeScreensaverMode(const QString &raw) const
 {
     const QString normalized = raw.trimmed();
@@ -3661,6 +3677,23 @@ public:
         newConfig[QStringLiteral("settings")] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV25ToV26(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig[QStringLiteral("version")] = 26;
+
+        QJsonObject settings = newConfig[QStringLiteral("settings")].toObject();
+        QJsonObject ui = settings.value(QStringLiteral("ui")).toObject();
+        QJsonObject heroBanner = ui.value(QStringLiteral("hero_banner")).toObject();
+        if (!heroBanner.contains(QStringLiteral("episode_synopsis_enabled"))) {
+            heroBanner[QStringLiteral("episode_synopsis_enabled")] = false;
+        }
+        ui[QStringLiteral("hero_banner")] = heroBanner;
+        settings[QStringLiteral("ui")] = ui;
+        newConfig[QStringLiteral("settings")] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -3881,6 +3914,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 25) {
+            m_config = ConfigMigrator::migrateV25ToV26(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -3985,6 +4026,7 @@ QJsonObject ConfigManager::defaultConfig() const
     heroBanner["library_ids"] = QJsonArray();
     heroBanner["logo_placement"] = QStringLiteral("bottomLeft");
     heroBanner["info_placement"] = QStringLiteral("bottomLeft");
+    heroBanner["episode_synopsis_enabled"] = false;
     ui["hero_banner"] = heroBanner;
 
     QJsonObject screensaver;

@@ -172,7 +172,9 @@ Video settings
 
 Home hero settings are stored under `settings.ui.hero_banner`: `enabled`, `source`, `max_items`,
 `auto_cycle_enabled`, `auto_cycle_interval`, `backdrop_sync_enabled`, `hidden_item_types`,
-`library_unwatched_only`, `library_ids`, `logo_placement`, and `info_placement`. Item count is
-clamped to 1–25 and the interval to 3,000–120,000 milliseconds. An empty `library_ids` list means
-all libraries. Placement values are normalized camelCase strings (`bottomLeft`, `topRight`,
-`center`, `centerLarge` for logo only); unknown values fall back to `bottomLeft`.
+`library_unwatched_only`, `library_ids`, `logo_placement`, `info_placement`, and
+`episode_synopsis_enabled`. Item count is clamped to 1–25 and the interval to 3,000–120,000
+milliseconds. An empty `library_ids` list means all libraries. Placement values are normalized
+camelCase strings (`bottomLeft`, `topRight`, `center`, `centerLarge` for logo only); unknown values
+fall back to `bottomLeft`. `episode_synopsis_enabled` defaults to false, so episode hero items use
+series synopsis text unless episode synopsis display is explicitly enabled.

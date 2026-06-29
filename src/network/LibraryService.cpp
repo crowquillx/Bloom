@@ -1671,6 +1671,67 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
     }
 }
 
+void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
+{
+    QStringList ids;
+    for (const QString &id : seriesIds) {
+        const QString trimmed = id.trimmed();
+        if (!trimmed.isEmpty() && !ids.contains(trimmed)) {
+            ids.append(trimmed);
+        }
+    }
+
+    if (ids.isEmpty()) {
+        emit heroSeriesOverviewsLoaded(QJsonObject());
+        return;
+    }
+
+    if (!m_authService->isAuthenticated()) {
+        QJsonObject overviews;
+        for (const QString &id : ids) {
+            overviews.insert(id, QString());
+        }
+        emit heroSeriesOverviewsLoaded(overviews);
+
+        NetworkError error;
+        error.endpoint = "getHeroSeriesOverviews";
+        error.code = -1;
+        error.userMessage = tr("Not authenticated");
+        emitError(error);
+        return;
+    }
+
+    auto overviews = std::make_shared<QJsonObject>();
+    auto remaining = std::make_shared<int>(ids.size());
+    for (const QString &seriesId : ids) {
+        const QString endpoint = QStringLiteral("/Users/%1/Items/%2?Fields=Overview")
+                                     .arg(m_authService->getUserId(), seriesId);
+        sendRequestWithRetry(endpoint,
+            [this, endpoint]() {
+                QNetworkRequest request = m_authService->createRequest(endpoint);
+                return m_authService->networkManager()->get(request);
+            },
+            [this, overviews, remaining, seriesId](QNetworkReply *reply) {
+                const QByteArray data = reply->readAll();
+                const QJsonDocument doc = QJsonDocument::fromJson(data);
+                QString overview;
+                if (doc.isObject()) {
+                    overview = doc.object().value(QStringLiteral("Overview")).toString();
+                }
+                overviews->insert(seriesId, overview);
+                if (--(*remaining) <= 0) {
+                    emit heroSeriesOverviewsLoaded(*overviews);
+                }
+            },
+            [this, overviews, remaining, seriesId](const NetworkError &) {
+                overviews->insert(seriesId, QString());
+                if (--(*remaining) <= 0) {
+                    emit heroSeriesOverviewsLoaded(*overviews);
+                }
+            });
+    }
+}
+
 QString LibraryService::getStreamUrl(const QString &itemId)
 {
     return QString("%1/Videos/%2/stream?Container=mp4,mkv&Static=true&api_key=%3")

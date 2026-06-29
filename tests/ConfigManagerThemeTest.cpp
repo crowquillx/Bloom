@@ -18,6 +18,7 @@ private slots:
     void defaultsIncludeThemeVariants();
     void defaultsContainNewBuiltinMpvProfiles();
     void screensaverDefaultsAndSettersPersist();
+    void heroBannerEpisodeSynopsisDefaultsAndSettersPersist();
     void themeVariantSettersPersistAndEmit();
     void v19MigrationAddsThemeVariantSettings();
     void v20MigrationRenamesDefaultProfileAssignments();
@@ -30,6 +31,7 @@ private slots:
     void hdrMpvArgsUseProfileMetadataMode();
     void v23MigrationPreservesCustomizedBuiltInProfiles();
     void v24MigrationAddsScreensaverSettings();
+    void v25MigrationAddsHeroEpisodeSynopsisSetting();
     void startupBufferingModesDefaultNormalizeAndPersist();
     void bundledMpvShadersAreCopied();
     void bundledMpvFontsAreCopied();
@@ -295,6 +297,30 @@ void ConfigManagerThemeTest::screensaverDefaultsAndSettersPersist()
     QCOMPARE(reloaded.getScreensaverTimeoutSeconds(), 15);
 }
 
+void ConfigManagerThemeTest::heroBannerEpisodeSynopsisDefaultsAndSettersPersist()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getHeroBannerEpisodeSynopsisEnabled(), false);
+
+    QSignalSpy spy(&config, &ConfigManager::heroBannerEpisodeSynopsisEnabledChanged);
+    config.setHeroBannerEpisodeSynopsisEnabled(true);
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(config.getHeroBannerEpisodeSynopsisEnabled(), true);
+
+    config.setHeroBannerEpisodeSynopsisEnabled(true);
+    QCOMPARE(spy.count(), 1);
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getHeroBannerEpisodeSynopsisEnabled(), true);
+}
+
 void ConfigManagerThemeTest::themeVariantSettersPersistAndEmit()
 {
     QTemporaryDir tempDir;
@@ -354,7 +380,7 @@ void ConfigManagerThemeTest::v19MigrationAddsThemeVariantSettings()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 25);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 26);
     const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
     QVERIFY(ui.contains(QStringLiteral("theme_flavor")));
     QCOMPARE(ui.value(QStringLiteral("theme_color_scheme")).toString(), QStringLiteral("blue"));
@@ -679,12 +705,51 @@ void ConfigManagerThemeTest::v24MigrationAddsScreensaverSettings()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 25);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 26);
     const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
     const QJsonObject screensaver = ui.value(QStringLiteral("screensaver")).toObject();
     QCOMPARE(screensaver.value(QStringLiteral("enabled")).toBool(), false);
     QCOMPARE(screensaver.value(QStringLiteral("mode")).toString(), QStringLiteral("libraryBackdrops"));
     QCOMPARE(screensaver.value(QStringLiteral("timeout_seconds")).toInt(), 300);
+}
+
+void ConfigManagerThemeTest::v25MigrationAddsHeroEpisodeSynopsisSetting()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    QVERIFY(QDir().mkpath(ConfigManager::getConfigDir()));
+    QJsonObject configObject = minimalV22ConfigWithCustomizedAnimeProfile();
+    configObject[QStringLiteral("version")] = 25;
+    QJsonObject settings = configObject.value(QStringLiteral("settings")).toObject();
+    QJsonObject ui = settings.value(QStringLiteral("ui")).toObject();
+    ui[QStringLiteral("hero_banner")] = QJsonObject{
+        {QStringLiteral("enabled"), true},
+        {QStringLiteral("source"), QStringLiteral("recentlyAdded")}
+    };
+    settings[QStringLiteral("ui")] = ui;
+    configObject[QStringLiteral("settings")] = settings;
+
+    QFile configFile(ConfigManager::getConfigPath());
+    QVERIFY(configFile.open(QIODevice::WriteOnly));
+    configFile.write(QJsonDocument(configObject).toJson(QJsonDocument::Indented));
+    configFile.close();
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getHeroBannerEpisodeSynopsisEnabled(), false);
+    config.save();
+
+    QFile migratedFile(ConfigManager::getConfigPath());
+    QVERIFY(migratedFile.open(QIODevice::ReadOnly));
+    const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 26);
+    const QJsonObject heroBanner = migrated.value(QStringLiteral("settings")).toObject()
+                                       .value(QStringLiteral("ui")).toObject()
+                                       .value(QStringLiteral("hero_banner")).toObject();
+    QCOMPARE(heroBanner.value(QStringLiteral("episode_synopsis_enabled")).toBool(), false);
 }
 
 void ConfigManagerThemeTest::startupBufferingModesDefaultNormalizeAndPersist()

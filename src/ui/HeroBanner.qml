@@ -88,10 +88,20 @@ FocusScope {
     }
 
     function reasonText(item) {
-        return ""
+        return synopsisText(item)
     }
 
     function badgeText(item) { return item ? qsTr(item.__heroReason || "") : "" }
+    function synopsisText(item) {
+        if (!item) return ""
+        if (item.Type === "Episode") {
+            var episodeOverview = item.Overview || ""
+            if (ConfigManager.heroBannerEpisodeSynopsisEnabled && episodeOverview !== "")
+                return episodeOverview
+            return item.__seriesOverview || ""
+        }
+        return item.Overview || ""
+    }
     function formatRuntime(ticks) {
         if (!ticks) return ""
         var minutes = Math.round(ticks / 600000000)
@@ -275,6 +285,26 @@ FocusScope {
         MetadataChip { text: root.currentItem ? (root.currentItem.OfficialRating || "") : "" }
     }
 
+    component HeroSynopsisText: Text {
+        property int layoutBlockAlignment: Qt.AlignLeft
+        Layout.alignment: layoutBlockAlignment
+        Layout.fillWidth: layoutBlockAlignment === Qt.AlignLeft
+        Layout.preferredWidth: parent ? parent.width : implicitWidth
+        text: root.synopsisText(root.currentItem)
+        visible: text.length > 0
+        font.pixelSize: Theme.fontSizeBody
+        font.family: Theme.fontPrimary
+        color: Theme.textSecondary
+        style: Text.Outline
+        styleColor: "#000000"
+        wrapMode: Text.WordWrap
+        maximumLineCount: 3
+        elide: Text.ElideRight
+        lineHeight: 1.08
+        horizontalAlignment: layoutBlockAlignment === Qt.AlignRight ? Text.AlignRight
+                             : (layoutBlockAlignment === Qt.AlignHCenter ? Text.AlignHCenter : Text.AlignLeft)
+    }
+
     component HeroActionsRow: RowLayout {
         id: actionsRow
         property int layoutBlockAlignment: Qt.AlignLeft
@@ -338,6 +368,7 @@ FocusScope {
                 HeroBadge { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
                 HeroLogoSection { blockPlacement: root.logoPlacement }
                 HeroMetadataRow { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
+                HeroSynopsisText { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
                 HeroActionsRow {
                     id: heroActions
                     layoutBlockAlignment: combinedHost.contentLayoutAlignment
@@ -369,6 +400,7 @@ FocusScope {
                 extraBottomInset: root.carouselBottomInset
                 HeroBadge { layoutBlockAlignment: infoHost.contentLayoutAlignment }
                 HeroMetadataRow { layoutBlockAlignment: infoHost.contentLayoutAlignment }
+                HeroSynopsisText { layoutBlockAlignment: infoHost.contentLayoutAlignment }
                 HeroActionsRow {
                     id: heroActions
                     layoutBlockAlignment: infoHost.contentLayoutAlignment
