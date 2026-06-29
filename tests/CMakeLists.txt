@@ -161,6 +161,18 @@ target_link_libraries(InputBindingManagerTest
         Qt6::Test
 )
 
+if(SDL2_FOUND)
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(InputBindingManagerTest PRIVATE SDL2::SDL2)
+    elseif(TARGET SDL2::SDL2-static)
+        target_link_libraries(InputBindingManagerTest PRIVATE SDL2::SDL2-static)
+    else()
+        target_include_directories(InputBindingManagerTest PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(InputBindingManagerTest PRIVATE ${SDL2_LIBRARIES})
+    endif()
+    target_compile_definitions(InputBindingManagerTest PRIVATE BLOOM_HAS_SDL=1)
+endif()
+
 add_test(NAME InputBindingManagerTest COMMAND InputBindingManagerTest)
 
 # Player backend abstraction tests

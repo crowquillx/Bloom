@@ -288,13 +288,55 @@ if(WIN32)
     if(SDL2_FOUND)
         if(TARGET SDL2::SDL2)
             target_link_libraries(Bloom PRIVATE SDL2::SDL2)
+            get_target_property(BLOOM_SDL2_RUNTIME_DLL SDL2::SDL2 IMPORTED_LOCATION)
+            if(NOT BLOOM_SDL2_RUNTIME_DLL)
+                get_target_property(BLOOM_SDL2_RUNTIME_DLL SDL2::SDL2 IMPORTED_LOCATION_RELEASE)
+            endif()
+            get_target_property(_bloom_sdl2_import_lib SDL2::SDL2 IMPORTED_IMPLIB)
+            if(NOT _bloom_sdl2_import_lib)
+                get_target_property(_bloom_sdl2_import_lib SDL2::SDL2 IMPORTED_IMPLIB_RELEASE)
+            endif()
         elseif(TARGET SDL2::SDL2-static)
             target_link_libraries(Bloom PRIVATE SDL2::SDL2-static)
         else()
             target_include_directories(Bloom PRIVATE ${SDL2_INCLUDE_DIRS})
             target_link_libraries(Bloom PRIVATE ${SDL2_LIBRARIES})
         endif()
-        target_compile_definitions(Bloom PRIVATE BLOOM_HAS_SDL=1)
+            target_compile_definitions(Bloom PRIVATE BLOOM_HAS_SDL=1)
+
+        set(_bloom_sdl2_library_hint ${SDL2_LIBRARY})
+        if(NOT _bloom_sdl2_library_hint)
+            set(_bloom_sdl2_library_hint ${_bloom_sdl2_import_lib})
+        endif()
+
+        if(NOT BLOOM_SDL2_RUNTIME_DLL AND _bloom_sdl2_library_hint)
+            get_filename_component(_bloom_sdl2_lib_dir ${_bloom_sdl2_library_hint} DIRECTORY)
+            get_filename_component(_bloom_sdl2_root ${_bloom_sdl2_lib_dir} DIRECTORY)
+            find_file(BLOOM_SDL2_RUNTIME_DLL
+                NAMES SDL2.dll
+                HINTS
+                    ${_bloom_sdl2_root}
+                    $ENV{SDL2_ROOT}
+                    $ENV{SDL2_DIR}
+                PATH_SUFFIXES
+                    bin
+                    lib
+                    lib/x64
+                    lib/x86
+            )
+        endif()
+
+        if(BLOOM_SDL2_RUNTIME_DLL AND BLOOM_SDL2_RUNTIME_DLL MATCHES "\\.dll$")
+            add_custom_command(TARGET Bloom POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${BLOOM_SDL2_RUNTIME_DLL}
+                    $<TARGET_FILE_DIR:Bloom>
+                VERBATIM
+            )
+            install(FILES ${BLOOM_SDL2_RUNTIME_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR})
+        elseif(NOT TARGET SDL2::SDL2-static)
+            message(WARNING "SDL2 runtime DLL not found; gamepad input may fail at runtime.")
+        endif()
     else()
         message(STATUS "SDL2 development package not found; gamepad input backend disabled")
     endif()
