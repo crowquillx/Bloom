@@ -143,6 +143,26 @@ target_link_libraries(ConfigManagerThemeTest
 
 add_test(NAME ConfigManagerThemeTest COMMAND ConfigManagerThemeTest)
 
+add_executable(InputBindingManagerTest
+    InputBindingManagerTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/InputBindingManager.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(InputBindingManagerTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(InputBindingManagerTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Test
+)
+
+add_test(NAME InputBindingManagerTest COMMAND InputBindingManagerTest)
+
 # Player backend abstraction tests
 add_executable(PlayerBackendFactoryTest
     PlayerBackendFactoryTest.cpp

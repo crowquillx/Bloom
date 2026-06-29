@@ -11,6 +11,7 @@ FocusScope {
     property string selectedContext: "navigation"
     property string selectedDevice: "keyboard"
     property string capturingActionId: ""
+    property string capturingDevice: ""
     property string conflictMessage: ""
 
     readonly property var contexts: [
@@ -22,32 +23,6 @@ FocusScope {
     readonly property var devices: [
         { label: qsTr("Keyboard"), value: "keyboard" },
         { label: qsTr("Controller"), value: "gamepad" }
-    ]
-
-    readonly property var gamepadOptions: [
-        { label: qsTr("None"), value: "" },
-        { label: "A", value: "gamepad:a" },
-        { label: "B", value: "gamepad:b" },
-        { label: "X", value: "gamepad:x" },
-        { label: "Y", value: "gamepad:y" },
-        { label: qsTr("Start"), value: "gamepad:start" },
-        { label: qsTr("Back/View"), value: "gamepad:back" },
-        { label: qsTr("D-pad Up"), value: "gamepad:dpad_up" },
-        { label: qsTr("D-pad Down"), value: "gamepad:dpad_down" },
-        { label: qsTr("D-pad Left"), value: "gamepad:dpad_left" },
-        { label: qsTr("D-pad Right"), value: "gamepad:dpad_right" },
-        { label: qsTr("Left Stick Up"), value: "gamepad:left_stick_up" },
-        { label: qsTr("Left Stick Down"), value: "gamepad:left_stick_down" },
-        { label: qsTr("Left Stick Left"), value: "gamepad:left_stick_left" },
-        { label: qsTr("Left Stick Right"), value: "gamepad:left_stick_right" },
-        { label: qsTr("Right Stick Up"), value: "gamepad:right_stick_up" },
-        { label: qsTr("Right Stick Down"), value: "gamepad:right_stick_down" },
-        { label: qsTr("Left Bumper"), value: "gamepad:left_shoulder" },
-        { label: qsTr("Right Bumper"), value: "gamepad:right_shoulder" },
-        { label: qsTr("Left Trigger"), value: "gamepad:left_trigger" },
-        { label: qsTr("Right Trigger"), value: "gamepad:right_trigger" },
-        { label: qsTr("Left Stick Press"), value: "gamepad:left_stick_button" },
-        { label: qsTr("Right Stick Press"), value: "gamepad:right_stick_button" }
     ]
 
     function enterFromRail() {
@@ -94,9 +69,28 @@ FocusScope {
         }
         var conflicts = InputBindingManager.conflictsForBinding(selectedDevice, actionId, binding)
         if (conflicts && conflicts.length > 0) {
-            conflictMessage = qsTr("Also assigned to %1").arg(conflicts[0].label)
+            conflictMessage = qsTr("Reassigned from %1").arg(conflicts[0].label)
         }
-        InputBindingManager.setBindingsForAction(selectedDevice, actionId, [binding])
+        InputBindingManager.setBindingForAction(selectedDevice, actionId, binding, true)
+    }
+
+    function beginCapture(actionId) {
+        conflictMessage = ""
+        capturingActionId = actionId
+        capturingDevice = selectedDevice
+        if (selectedDevice === "gamepad") {
+            InputBindingManager.beginGamepadCapture(actionId)
+            captureTimeout.restart()
+        }
+    }
+
+    function cancelCapture() {
+        if (capturingDevice === "gamepad") {
+            InputBindingManager.cancelGamepadCapture()
+        }
+        capturingActionId = ""
+        capturingDevice = ""
+        captureTimeout.stop()
     }
 
     Keys.priority: Keys.AfterItem
@@ -108,11 +102,28 @@ FocusScope {
     }
     Keys.onEscapePressed: function(event) {
         if (capturingActionId.length > 0) {
-            capturingActionId = ""
+            cancelCapture()
         } else {
             root.requestReturnToRail()
         }
         event.accepted = true
+    }
+
+    Timer {
+        id: captureTimeout
+        interval: 8000
+        repeat: false
+        onTriggered: root.cancelCapture()
+    }
+
+    Connections {
+        target: InputBindingManager
+        function onGamepadBindingCaptured(actionId, binding) {
+            if (root.capturingActionId !== actionId || root.capturingDevice !== "gamepad") return
+            root.setSingleBinding(actionId, binding)
+            root.cancelCapture()
+            Qt.callLater(function() { bindingList.forceActiveFocus() })
+        }
     }
 
     ColumnLayout {
@@ -131,7 +142,11 @@ FocusScope {
                 Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
                 currentIndex: root.optionIndexForValue(root.contexts, root.selectedContext)
                 onCurrentIndexChanged: {
-                    if (currentIndex >= 0) root.selectedContext = root.contexts[currentIndex].value
+                    if (currentIndex >= 0) {
+                        root.cancelCapture()
+                        root.selectedContext = root.contexts[currentIndex].value
+                        Qt.callLater(function() { contextCombo.forceActiveFocus() })
+                    }
                 }
                 Keys.onReturnPressed: function(event) { popup.open(); event.accepted = true }
                 Keys.onEnterPressed: function(event) { popup.open(); event.accepted = true }
@@ -145,7 +160,11 @@ FocusScope {
                 Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
                 currentIndex: root.optionIndexForValue(root.devices, root.selectedDevice)
                 onCurrentIndexChanged: {
-                    if (currentIndex >= 0) root.selectedDevice = root.devices[currentIndex].value
+                    if (currentIndex >= 0) {
+                        root.cancelCapture()
+                        root.selectedDevice = root.devices[currentIndex].value
+                        Qt.callLater(function() { deviceCombo.forceActiveFocus() })
+                    }
                 }
                 Keys.onReturnPressed: function(event) { popup.open(); event.accepted = true }
                 Keys.onEnterPressed: function(event) { popup.open(); event.accepted = true }
@@ -187,8 +206,8 @@ FocusScope {
                 height: Math.round(86 * Theme.layoutScale)
                 radius: Theme.radiusMedium
                 color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.58)
-                border.color: captureButton.activeFocus || gamepadCombo.activeFocus ? Theme.focusBorder : Theme.cardBorder
-                border.width: captureButton.activeFocus || gamepadCombo.activeFocus ? 2 : 1
+                border.color: captureButton.activeFocus ? Theme.focusBorder : Theme.cardBorder
+                border.width: captureButton.activeFocus ? 2 : 1
 
                 RowLayout {
                     anchors.fill: parent
@@ -217,44 +236,40 @@ FocusScope {
 
                     Button {
                         id: captureButton
-                        visible: root.selectedDevice === "keyboard"
                         Layout.preferredWidth: Math.round(280 * Theme.layoutScale)
-                        text: root.capturingActionId === modelData.id ? qsTr("Press a key...") : root.bindingText(modelData.id)
+                        text: root.capturingActionId === modelData.id
+                              ? (root.selectedDevice === "keyboard" ? qsTr("Press a key...") : qsTr("Press controller input..."))
+                              : root.bindingText(modelData.id)
                         focusPolicy: Qt.StrongFocus
-                        onClicked: root.capturingActionId = modelData.id
+                        onClicked: root.beginCapture(modelData.id)
                         Keys.onPressed: function(event) {
+                            if (event.key === Qt.Key_Escape) {
+                                root.cancelCapture()
+                                event.accepted = true
+                                return
+                            }
                             if (root.capturingActionId !== modelData.id) return
+                            if (root.selectedDevice !== "keyboard") return
                             var binding = InputBindingManager.bindingForKeyboardEvent(event.key, event.modifiers)
                             root.setSingleBinding(modelData.id, binding)
-                            root.capturingActionId = ""
+                            root.cancelCapture()
                             event.accepted = true
                         }
                     }
 
-                    SettingsComboBox {
-                        id: gamepadCombo
-                        visible: root.selectedDevice === "gamepad"
-                        model: root.gamepadOptions
-                        textRole: "label"
-                        valueRole: "value"
-                        Layout.preferredWidth: Math.round(280 * Theme.layoutScale)
-                        currentIndex: {
-                            var bindings = InputBindingManager.bindingsForAction("gamepad", modelData.id)
-                            return root.optionIndexForValue(root.gamepadOptions, bindings && bindings.length > 0 ? bindings[0] : "")
-                        }
-                        onCurrentIndexChanged: {
-                            if (currentIndex >= 0 && visible) {
-                                root.setSingleBinding(modelData.id, root.gamepadOptions[currentIndex].value)
-                            }
-                        }
-                        Keys.onReturnPressed: function(event) { popup.open(); event.accepted = true }
-                        Keys.onEnterPressed: function(event) { popup.open(); event.accepted = true }
+                    Button {
+                        text: qsTr("Clear")
+                        focusPolicy: Qt.StrongFocus
+                        onClicked: root.setSingleBinding(modelData.id, "")
                     }
 
                     Button {
                         text: qsTr("Reset")
                         focusPolicy: Qt.StrongFocus
-                        onClicked: InputBindingManager.resetActionBindings(root.selectedDevice, modelData.id)
+                        onClicked: {
+                            InputBindingManager.resetActionBindings(root.selectedDevice, modelData.id)
+                            Qt.callLater(function() { captureButton.forceActiveFocus() })
+                        }
                     }
                 }
             }

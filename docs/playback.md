@@ -234,7 +234,8 @@ UI Components for Track Selection
   - Left group: audio/subtitle icon buttons (runtime track cycling via `PlayerController`).
   - Center group: skip back 10s, previous chapter, play/pause, next chapter, skip forward 10s.
   - Right group: volume icon button opens a native volume panel (slider + muted state) with left/right keyboard/gamepad adjustment and Enter/Space mute toggle.
-  - Direct playback shortcuts are resolved through `InputBindingManager` so keyboard and controller bindings are configurable in Settings > Input. Defaults include `+`/`=` or media volume-up for volume up, `-` or media volume-down for volume down, `V` for the volume panel, `A` for audio tracks, and `S`/`T`/`C` for subtitles.
+  - Direct playback shortcuts are resolved through `InputBindingManager` in the `playback` runtime context so keyboard and controller bindings are configurable in Settings > Input. Defaults include `+`/`=` or media volume-up for volume up, `-` or media volume-down for volume down, `V` for the volume panel, `A` for audio tracks, and `S`/`T`/`C` for subtitles.
+  - Default controller playback bindings use Start for play/pause, LB/RB for seek, LT/RT for chapters, Y/X for audio/subtitle selectors, Back/View for volume, right stick vertical for volume, L3 for ASS subtitle override, and R3 for deband.
   - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
   - Escape first dismisses visible playback chrome (full controls, seek preview, skip-intro popup, or open track/volume panels); a second Escape stops playback when the overlay is already hidden. The header back control exits playback immediately while controls are visible.
   - Trickplay preview bubble: renders processed Jellyfin trickplay thumbnails from `PlayerController` and is hidden entirely when trickplay images are unavailable.

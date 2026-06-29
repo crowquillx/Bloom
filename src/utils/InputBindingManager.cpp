@@ -9,6 +9,7 @@
 #include <QKeySequence>
 #include <QLoggingCategory>
 #include <QWindow>
+#include <algorithm>
 #include <utility>
 
 #ifdef BLOOM_HAS_SDL
@@ -20,6 +21,10 @@ Q_LOGGING_CATEGORY(lcInputBindings, "bloom.input.bindings")
 
 constexpr auto kDeviceKeyboard = "keyboard";
 constexpr auto kDeviceGamepad = "gamepad";
+constexpr auto kRuntimeNavigation = "navigation";
+constexpr auto kRuntimePlayback = "playback";
+constexpr int kGamepadRepeatInitialMs = 360;
+constexpr int kGamepadRepeatIntervalMs = 120;
 
 }
 
@@ -29,7 +34,10 @@ InputBindingManager::InputBindingManager(QGuiApplication *app, ConfigManager *co
     , m_config(config)
 {
     initializeActions();
-    connect(m_config, &ConfigManager::inputBindingsChanged, this, &InputBindingManager::bindingsChanged);
+    if (m_config) {
+        connect(m_config, &ConfigManager::inputBindingsChanged, this, &InputBindingManager::bindingsChanged);
+    }
+    m_gamepadRepeatClock.start();
 
 #ifdef BLOOM_HAS_SDL
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) == 0) {
@@ -58,7 +66,9 @@ void InputBindingManager::initializeActions()
 {
     const auto add = [this](QString id, QString context, QString label, QString description,
                             QStringList keyboard, QStringList gamepad) {
-        ActionDefinition action{std::move(id), std::move(context), std::move(label),
+        QString runtimeContext = context == QStringLiteral("navigation") ? QString::fromLatin1(kRuntimeNavigation)
+                                                                         : QString::fromLatin1(kRuntimePlayback);
+        ActionDefinition action{std::move(id), std::move(context), std::move(runtimeContext), std::move(label),
                                 std::move(description), std::move(keyboard), std::move(gamepad)};
         m_actionById.insert(action.id, action);
         m_actions.append(std::move(action));
@@ -87,6 +97,8 @@ void InputBindingManager::initializeActions()
     add("playback.deband", "advanced", tr("Deband"), tr("Toggle mpv debanding"), {keyBinding(Qt::Key_B)}, {"gamepad:right_stick_button"});
     add("playback.stats", "advanced", tr("Stats"), tr("Toggle mpv stats"), {keyBinding(Qt::Key_I)}, {});
     add("playback.statsOnce", "advanced", tr("Stats Once"), tr("Show mpv stats once"), {keyBinding(Qt::Key_I, Qt::ShiftModifier)}, {});
+    add("playback.audioCycle", "advanced", tr("Cycle Audio Track"), tr("Cycle to the next audio track"), {}, {});
+    add("playback.subtitleCycle", "advanced", tr("Cycle Subtitle Track"), tr("Cycle to the next subtitle track"), {}, {});
 }
 
 QVariantList InputBindingManager::actions() const
@@ -96,6 +108,7 @@ QVariantList InputBindingManager::actions() const
         QVariantMap value;
         value["id"] = action.id;
         value["context"] = action.context;
+        value["runtimeContext"] = action.runtimeContext;
         value["label"] = action.label;
         value["description"] = action.description;
         values.append(value);
@@ -126,15 +139,18 @@ QVariantMap InputBindingManager::mergedBindings() const
 
 QString InputBindingManager::actionForKeyboardEvent(int key, int modifiers) const
 {
+    return actionForKeyboardEvent(key, modifiers, QString());
+}
+
+QString InputBindingManager::actionForKeyboardEvent(int key, int modifiers, const QString &runtimeContext) const
+{
     const QString binding = keyBinding(key, modifiers);
     const QString fallbackBinding = keyBinding(key, 0);
-    for (const auto &action : m_actions) {
-        const QStringList actionBindings = effectiveBindings(kDeviceKeyboard, action.id);
-        if (actionBindings.contains(binding) || actionBindings.contains(fallbackBinding)) {
-            return action.id;
-        }
+    QString actionId = actionForBinding(kDeviceKeyboard, binding, runtimeContext);
+    if (actionId.isEmpty() && binding != fallbackBinding) {
+        actionId = actionForBinding(kDeviceKeyboard, fallbackBinding, runtimeContext);
     }
-    return {};
+    return actionId;
 }
 
 QString InputBindingManager::bindingForKeyboardEvent(int key, int modifiers) const
@@ -189,6 +205,44 @@ bool InputBindingManager::setBindingsForAction(const QString &device, const QStr
     return true;
 }
 
+bool InputBindingManager::setBindingForAction(const QString &device,
+                                              const QString &actionId,
+                                              const QString &binding,
+                                              bool clearConflicts)
+{
+    const QString normalizedDevice = normalizeDevice(device);
+    const QString normalized = normalizedBinding(binding);
+    if (!isKnownAction(actionId) || normalizedDevice.isEmpty()) {
+        return false;
+    }
+
+    QVariantMap saved = m_config ? m_config->getInputBindings() : QVariantMap();
+    QVariantMap deviceMap = saved.value(normalizedDevice).toMap();
+
+    if (clearConflicts && !normalized.isEmpty()) {
+        const QString runtimeContext = m_actionById.value(actionId).runtimeContext;
+        for (const auto &action : m_actions) {
+            if (action.id == actionId || !actionMatchesRuntimeContext(action, runtimeContext)) {
+                continue;
+            }
+            QStringList bindings = effectiveBindings(normalizedDevice, action.id);
+            if (!bindings.removeAll(normalized)) {
+                continue;
+            }
+            deviceMap[action.id] = bindings;
+        }
+    }
+
+    QVariantList values;
+    if (!normalized.isEmpty()) {
+        values.append(normalized);
+    }
+    deviceMap[actionId] = values;
+    saved[normalizedDevice] = deviceMap;
+    persistBindings(saved);
+    return true;
+}
+
 void InputBindingManager::resetActionBindings(const QString &device, const QString &actionId)
 {
     const QString normalizedDevice = normalizeDevice(device);
@@ -224,7 +278,8 @@ void InputBindingManager::resetAllBindings()
 
 QVariantList InputBindingManager::conflictsForBinding(const QString &device,
                                                       const QString &actionId,
-                                                      const QString &binding) const
+                                                      const QString &binding,
+                                                      const QString &runtimeContext) const
 {
     QVariantList conflicts;
     const QString normalizedDevice = normalizeDevice(device);
@@ -232,8 +287,15 @@ QVariantList InputBindingManager::conflictsForBinding(const QString &device,
     if (normalizedDevice.isEmpty() || normalized.isEmpty()) {
         return conflicts;
     }
+    QString normalizedRuntimeContext = normalizeRuntimeContext(runtimeContext);
+    if (normalizedRuntimeContext.isEmpty() && m_actionById.contains(actionId)) {
+        normalizedRuntimeContext = m_actionById.value(actionId).runtimeContext;
+    }
     for (const auto &action : m_actions) {
         if (action.id == actionId) {
+            continue;
+        }
+        if (!actionMatchesRuntimeContext(action, normalizedRuntimeContext)) {
             continue;
         }
         if (effectiveBindings(normalizedDevice, action.id).contains(normalized)) {
@@ -245,6 +307,38 @@ QVariantList InputBindingManager::conflictsForBinding(const QString &device,
         }
     }
     return conflicts;
+}
+
+void InputBindingManager::beginGamepadCapture(const QString &actionId)
+{
+    if (!isKnownAction(actionId)) {
+        return;
+    }
+    m_gamepadCaptureActionId = actionId;
+}
+
+void InputBindingManager::cancelGamepadCapture()
+{
+    m_gamepadCaptureActionId.clear();
+}
+
+QString InputBindingManager::actionForBinding(const QString &device, const QString &binding, const QString &runtimeContext) const
+{
+    const QString normalizedDevice = normalizeDevice(device);
+    const QString normalized = normalizedBinding(binding);
+    const QString normalizedRuntimeContext = normalizeRuntimeContext(runtimeContext);
+    if (normalizedDevice.isEmpty() || normalized.isEmpty()) {
+        return {};
+    }
+    for (const auto &action : m_actions) {
+        if (!actionMatchesRuntimeContext(action, normalizedRuntimeContext)) {
+            continue;
+        }
+        if (effectiveBindings(normalizedDevice, action.id).contains(normalized)) {
+            return action.id;
+        }
+    }
+    return {};
 }
 
 QStringList InputBindingManager::effectiveBindings(const QString &device, const QString &actionId) const
@@ -277,6 +371,12 @@ void InputBindingManager::persistBindings(const QVariantMap &bindings)
 
 void InputBindingManager::dispatchAction(const QString &actionId)
 {
+    const QString runtimeContext = m_actionById.contains(actionId) ? m_actionById.value(actionId).runtimeContext : QString();
+    dispatchAction(actionId, runtimeContext);
+}
+
+void InputBindingManager::dispatchAction(const QString &actionId, const QString &runtimeContext)
+{
     if (actionId == "nav.up") postKey(Qt::Key_Up);
     else if (actionId == "nav.down") postKey(Qt::Key_Down);
     else if (actionId == "nav.left") postKey(Qt::Key_Left);
@@ -284,6 +384,32 @@ void InputBindingManager::dispatchAction(const QString &actionId)
     else if (actionId == "nav.select") postKey(Qt::Key_Return);
     else if (actionId == "nav.back") postKey(Qt::Key_Escape);
     emit actionTriggered(actionId);
+    emit actionTriggeredWithContext(actionId, runtimeContext);
+}
+
+void InputBindingManager::dispatchGamepadBinding(const QString &binding, bool repeat)
+{
+    const QString actionId = actionForBinding(kDeviceGamepad, binding, QString());
+    if (actionId.isEmpty()) {
+        return;
+    }
+    const auto action = m_actionById.value(actionId);
+    if (!repeat || action.runtimeContext == QString::fromLatin1(kRuntimeNavigation)
+        || actionId == QStringLiteral("playback.seekBack")
+        || actionId == QStringLiteral("playback.seekForward")
+        || actionId == QStringLiteral("playback.volumeUp")
+        || actionId == QStringLiteral("playback.volumeDown")) {
+        dispatchAction(actionId, action.runtimeContext);
+    }
+}
+
+void InputBindingManager::setGamepadAvailable(bool available)
+{
+    if (m_gamepadAvailable == available) {
+        return;
+    }
+    m_gamepadAvailable = available;
+    emit gamepadAvailableChanged();
 }
 
 void InputBindingManager::postKey(int key)
@@ -304,11 +430,29 @@ bool InputBindingManager::isKnownAction(const QString &actionId) const
     return m_actionById.contains(actionId);
 }
 
+bool InputBindingManager::actionMatchesRuntimeContext(const ActionDefinition &action, const QString &runtimeContext) const
+{
+    const QString normalized = normalizeRuntimeContext(runtimeContext);
+    return normalized.isEmpty() || action.runtimeContext == normalized;
+}
+
 QString InputBindingManager::normalizeDevice(const QString &device)
 {
     const QString normalized = device.trimmed().toLower();
     if (normalized == kDeviceKeyboard || normalized == kDeviceGamepad) {
         return normalized;
+    }
+    return {};
+}
+
+QString InputBindingManager::normalizeRuntimeContext(const QString &runtimeContext)
+{
+    const QString normalized = runtimeContext.trimmed().toLower();
+    if (normalized == kRuntimeNavigation || normalized == QStringLiteral("nav")) {
+        return QString::fromLatin1(kRuntimeNavigation);
+    }
+    if (normalized == kRuntimePlayback || normalized == QStringLiteral("advanced")) {
+        return QString::fromLatin1(kRuntimePlayback);
     }
     return {};
 }
@@ -344,6 +488,21 @@ QStringList InputBindingManager::variantListToStringList(const QVariantList &val
 void InputBindingManager::pollGamepad()
 {
 #ifdef BLOOM_HAS_SDL
+    SDL_Event event;
+    bool controllerTopologyChanged = false;
+    while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_CONTROLLERDEVICEADDED || event.type == SDL_CONTROLLERDEVICEREMOVED) {
+            controllerTopologyChanged = true;
+        }
+    }
+    if (controllerTopologyChanged && m_sdlController) {
+        SDL_GameControllerClose(static_cast<SDL_GameController *>(m_sdlController));
+        m_sdlController = nullptr;
+        m_pressedGamepadBindings.clear();
+        m_lastRepeatedGamepadBindings.clear();
+        setGamepadAvailable(false);
+    }
+
     SDL_GameControllerUpdate();
     if (!m_sdlController) {
         const int joystickCount = SDL_NumJoysticks();
@@ -354,10 +513,7 @@ void InputBindingManager::pollGamepad()
             }
         }
         const bool available = m_sdlController != nullptr;
-        if (m_gamepadAvailable != available) {
-            m_gamepadAvailable = available;
-            emit gamepadAvailableChanged();
-        }
+        setGamepadAvailable(available);
         if (!m_sdlController) {
             return;
         }
@@ -401,14 +557,38 @@ void InputBindingManager::pollGamepad()
     if (triggerRight > axisThreshold) pressed.insert(QStringLiteral("gamepad:right_trigger"));
 
     const QSet<QString> newlyPressed = pressed - m_pressedGamepadBindings;
+    const qint64 now = m_gamepadRepeatClock.isValid() ? m_gamepadRepeatClock.elapsed() : 0;
+    QSet<QString> repeatPressed;
+    for (const QString &binding : pressed) {
+        if (newlyPressed.contains(binding)) {
+            m_lastRepeatedGamepadBindings[binding] = now + kGamepadRepeatInitialMs - kGamepadRepeatIntervalMs;
+            continue;
+        }
+        const qint64 lastRepeat = m_lastRepeatedGamepadBindings.value(binding, now);
+        if (now - lastRepeat >= kGamepadRepeatIntervalMs) {
+            repeatPressed.insert(binding);
+            m_lastRepeatedGamepadBindings[binding] = now;
+        }
+    }
+    for (auto it = m_lastRepeatedGamepadBindings.begin(); it != m_lastRepeatedGamepadBindings.end();) {
+        if (!pressed.contains(it.key())) {
+            it = m_lastRepeatedGamepadBindings.erase(it);
+        } else {
+            ++it;
+        }
+    }
     m_pressedGamepadBindings = pressed;
     for (const QString &binding : newlyPressed) {
-        for (const auto &action : m_actions) {
-            if (effectiveBindings(kDeviceGamepad, action.id).contains(binding)) {
-                dispatchAction(action.id);
-                break;
-            }
+        if (!m_gamepadCaptureActionId.isEmpty()) {
+            const QString actionId = m_gamepadCaptureActionId;
+            m_gamepadCaptureActionId.clear();
+            emit gamepadBindingCaptured(actionId, binding);
+            continue;
         }
+        dispatchGamepadBinding(binding, false);
+    }
+    for (const QString &binding : repeatPressed) {
+        dispatchGamepadBinding(binding, true);
     }
 #endif
 }

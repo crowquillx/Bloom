@@ -398,6 +398,16 @@ FocusScope {
             openSubtitleSelector()
             return true
         }
+        if (actionId === "playback.audioCycle") {
+            PlayerController.cycleAudioTrack()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.subtitleCycle") {
+            PlayerController.cycleSubtitleTrack()
+            showControls()
+            return true
+        }
         if (actionId === "playback.subtitleOverride") {
             PlayerController.toggleSubtitleAssOverride()
             return true
@@ -456,7 +466,7 @@ FocusScope {
             return false
         }
 
-        var actionId = InputBindingManager.actionForKeyboardEvent(event.key, event.modifiers)
+        var actionId = InputBindingManager.actionForKeyboardEvent(event.key, event.modifiers, "playback")
         if (actionId && actionId.length > 0) {
             if (event.isAutoRepeat) {
                 return true
@@ -772,8 +782,10 @@ FocusScope {
 
     Connections {
         target: InputBindingManager
-        function onActionTriggered(actionId) {
-            root.handlePlaybackAction(actionId)
+        function onActionTriggeredWithContext(actionId, runtimeContext) {
+            if (runtimeContext === "playback") {
+                root.handlePlaybackAction(actionId)
+            }
         }
     }
 

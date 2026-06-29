@@ -285,6 +285,20 @@ if(WIN32)
         player/backend/WindowsMpvBackend.cpp
     )
 
+    if(SDL2_FOUND)
+        if(TARGET SDL2::SDL2)
+            target_link_libraries(Bloom PRIVATE SDL2::SDL2)
+        elseif(TARGET SDL2::SDL2-static)
+            target_link_libraries(Bloom PRIVATE SDL2::SDL2-static)
+        else()
+            target_include_directories(Bloom PRIVATE ${SDL2_INCLUDE_DIRS})
+            target_link_libraries(Bloom PRIVATE ${SDL2_LIBRARIES})
+        endif()
+        target_compile_definitions(Bloom PRIVATE BLOOM_HAS_SDL=1)
+    else()
+        message(STATUS "SDL2 development package not found; gamepad input backend disabled")
+    endif()
+
     find_path(BLOOM_MPV_INCLUDE_DIR
         NAMES mpv/client.h
         HINTS
