@@ -16,7 +16,9 @@ class InputBindingManager : public QObject
     Q_OBJECT
     Q_PROPERTY(QVariantList actions READ actions CONSTANT)
     Q_PROPERTY(QVariantMap bindings READ bindings NOTIFY bindingsChanged)
+    Q_PROPERTY(int bindingsRevision READ bindingsRevision NOTIFY bindingsChanged)
     Q_PROPERTY(bool gamepadAvailable READ gamepadAvailable NOTIFY gamepadAvailableChanged)
+    Q_PROPERTY(QString currentRuntimeContext READ currentRuntimeContext WRITE setCurrentRuntimeContext NOTIFY currentRuntimeContextChanged)
 
 public:
     explicit InputBindingManager(QGuiApplication *app, ConfigManager *config, QObject *parent = nullptr);
@@ -24,7 +26,10 @@ public:
 
     QVariantList actions() const;
     QVariantMap bindings() const;
+    int bindingsRevision() const { return m_bindingsRevision; }
     bool gamepadAvailable() const { return m_gamepadAvailable; }
+    QString currentRuntimeContext() const { return m_currentRuntimeContext; }
+    void setCurrentRuntimeContext(const QString &runtimeContext);
 
     Q_INVOKABLE QString actionForKeyboardEvent(int key, int modifiers) const;
     Q_INVOKABLE QString actionForKeyboardEvent(int key, int modifiers, const QString &runtimeContext) const;
@@ -49,6 +54,7 @@ public:
 signals:
     void bindingsChanged();
     void gamepadAvailableChanged();
+    void currentRuntimeContextChanged();
     void actionTriggered(const QString &actionId);
     void actionTriggeredWithContext(const QString &actionId, const QString &runtimeContext);
     void gamepadBindingCaptured(const QString &actionId, const QString &binding);
@@ -92,9 +98,12 @@ private:
     QHash<QString, ActionDefinition> m_actionById;
     QTimer m_gamepadTimer;
     bool m_gamepadAvailable = false;
+    int m_bindingsRevision = 0;
+    QString m_currentRuntimeContext;
     QSet<QString> m_pressedGamepadBindings;
     QHash<QString, qint64> m_lastRepeatedGamepadBindings;
     QElapsedTimer m_gamepadRepeatClock;
     QString m_gamepadCaptureActionId;
     void *m_sdlController = nullptr;
+    bool m_sdlInitialized = false;
 };

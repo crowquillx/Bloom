@@ -35,12 +35,16 @@ InputBindingManager::InputBindingManager(QGuiApplication *app, ConfigManager *co
 {
     initializeActions();
     if (m_config) {
-        connect(m_config, &ConfigManager::inputBindingsChanged, this, &InputBindingManager::bindingsChanged);
+        connect(m_config, &ConfigManager::inputBindingsChanged, this, [this]() {
+            ++m_bindingsRevision;
+            emit bindingsChanged();
+        });
     }
     m_gamepadRepeatClock.start();
 
 #ifdef BLOOM_HAS_SDL
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) == 0) {
+        m_sdlInitialized = true;
         m_gamepadTimer.setInterval(16);
         connect(&m_gamepadTimer, &QTimer::timeout, this, &InputBindingManager::pollGamepad);
         m_gamepadTimer.start();
@@ -58,7 +62,9 @@ InputBindingManager::~InputBindingManager()
         SDL_GameControllerClose(static_cast<SDL_GameController *>(m_sdlController));
         m_sdlController = nullptr;
     }
-    SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_EVENTS);
+    if (m_sdlInitialized) {
+        SDL_QuitSubSystem(SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_EVENTS);
+    }
 #endif
 }
 
@@ -145,7 +151,7 @@ QString InputBindingManager::actionForKeyboardEvent(int key, int modifiers) cons
 QString InputBindingManager::actionForKeyboardEvent(int key, int modifiers, const QString &runtimeContext) const
 {
     const QString binding = keyBinding(key, modifiers);
-    const QString fallbackBinding = keyBinding(key, 0);
+    const QString fallbackBinding = (modifiers & ~(Qt::ShiftModifier)) ? binding : keyBinding(key, 0);
     QString actionId = actionForBinding(kDeviceKeyboard, binding, runtimeContext);
     if (actionId.isEmpty() && binding != fallbackBinding) {
         actionId = actionForBinding(kDeviceKeyboard, fallbackBinding, runtimeContext);
@@ -182,6 +188,16 @@ QVariantList InputBindingManager::bindingsForAction(const QString &device, const
         values.append(binding);
     }
     return values;
+}
+
+void InputBindingManager::setCurrentRuntimeContext(const QString &runtimeContext)
+{
+    const QString normalized = normalizeRuntimeContext(runtimeContext);
+    if (m_currentRuntimeContext == normalized) {
+        return;
+    }
+    m_currentRuntimeContext = normalized;
+    emit currentRuntimeContextChanged();
 }
 
 bool InputBindingManager::setBindingsForAction(const QString &device, const QString &actionId, const QVariantList &bindings)
@@ -246,6 +262,9 @@ bool InputBindingManager::setBindingForAction(const QString &device,
 void InputBindingManager::resetActionBindings(const QString &device, const QString &actionId)
 {
     const QString normalizedDevice = normalizeDevice(device);
+    if (!isKnownAction(actionId) || normalizedDevice.isEmpty()) {
+        return;
+    }
     QVariantMap saved = m_config ? m_config->getInputBindings() : QVariantMap();
     QVariantMap deviceMap = saved.value(normalizedDevice).toMap();
     deviceMap.remove(actionId);
@@ -256,6 +275,9 @@ void InputBindingManager::resetActionBindings(const QString &device, const QStri
 void InputBindingManager::resetContextBindings(const QString &device, const QString &context)
 {
     const QString normalizedDevice = normalizeDevice(device);
+    if (normalizedDevice.isEmpty()) {
+        return;
+    }
     QVariantMap saved = m_config ? m_config->getInputBindings() : QVariantMap();
     QVariantMap deviceMap = saved.value(normalizedDevice).toMap();
     for (const auto &action : m_actions) {
@@ -366,7 +388,6 @@ void InputBindingManager::persistBindings(const QVariantMap &bindings)
         return;
     }
     m_config->setInputBindings(bindings);
-    emit bindingsChanged();
 }
 
 void InputBindingManager::dispatchAction(const QString &actionId)
@@ -389,7 +410,7 @@ void InputBindingManager::dispatchAction(const QString &actionId, const QString 
 
 void InputBindingManager::dispatchGamepadBinding(const QString &binding, bool repeat)
 {
-    const QString actionId = actionForBinding(kDeviceGamepad, binding, QString());
+    const QString actionId = actionForBinding(kDeviceGamepad, binding, m_currentRuntimeContext);
     if (actionId.isEmpty()) {
         return;
     }
