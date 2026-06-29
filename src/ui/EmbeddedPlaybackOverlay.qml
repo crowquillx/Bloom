@@ -468,13 +468,21 @@ FocusScope {
 
         var actionId = InputBindingManager.actionForKeyboardEvent(event.key, event.modifiers, "playback")
         if (actionId && actionId.length > 0) {
-            if (event.isAutoRepeat) {
+            if (event.isAutoRepeat && !isRepeatablePlaybackAction(actionId)) {
                 return true
             }
             return handlePlaybackAction(actionId)
         }
 
         return false
+    }
+
+    function isRepeatablePlaybackAction(actionId) {
+        return actionId === "playback.volumeUp"
+                || actionId === "playback.volumeDown"
+                || actionId === "playback.seekBack"
+                || actionId === "playback.seekForward"
+                || actionId === "playback.playPause"
     }
 
     function handleDirectionalKey(direction) {
@@ -783,7 +791,7 @@ FocusScope {
     Connections {
         target: InputBindingManager
         function onActionTriggeredWithContext(actionId, runtimeContext) {
-            if (runtimeContext === "playback") {
+            if (runtimeContext === "playback" && root.visible) {
                 root.handlePlaybackAction(actionId)
             }
         }
@@ -808,16 +816,6 @@ FocusScope {
             event.accepted = root.handleDirectionalKey("up")
         } else if (event.key === Qt.Key_Down) {
             event.accepted = root.handleDirectionalKey("down")
-        } else if (event.key === Qt.Key_I) {
-            event.accepted = true
-            if (event.modifiers & Qt.ShiftModifier) {
-                PlayerController.showMpvStatsOnce()
-            } else {
-                PlayerController.toggleMpvStats()
-            }
-        } else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9) {
-            event.accepted = true
-            PlayerController.showMpvStatsPage(event.key - Qt.Key_0)
         } else if (event.key === Qt.Key_Shift
                    || event.key === Qt.Key_Control
                    || event.key === Qt.Key_Alt

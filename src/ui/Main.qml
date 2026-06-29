@@ -33,6 +33,12 @@ Window {
         property: "appWindowVisible"
         value: window.appWindowEligible
     }
+
+    Binding {
+        target: InputBindingManager
+        property: "currentRuntimeContext"
+        value: embeddedPlaybackActive ? "playback" : "navigation"
+    }
     
     // ========================================
     // Font Loader for Material Symbols

@@ -45,6 +45,7 @@ FocusScope {
     }
 
     function bindingText(actionId) {
+        var revision = InputBindingManager.bindingsRevision
         var bindings = InputBindingManager.bindingsForAction(selectedDevice, actionId)
         if (!bindings || bindings.length === 0) return qsTr("Unassigned")
         var labels = []
@@ -173,13 +174,19 @@ FocusScope {
             Button {
                 text: qsTr("Reset Section")
                 focusPolicy: Qt.StrongFocus
-                onClicked: InputBindingManager.resetContextBindings(root.selectedDevice, root.selectedContext)
+                onClicked: {
+                    root.cancelCapture()
+                    InputBindingManager.resetContextBindings(root.selectedDevice, root.selectedContext)
+                }
             }
 
             Button {
                 text: qsTr("Reset All")
                 focusPolicy: Qt.StrongFocus
-                onClicked: InputBindingManager.resetAllBindings()
+                onClicked: {
+                    root.cancelCapture()
+                    InputBindingManager.resetAllBindings()
+                }
             }
         }
 
@@ -260,13 +267,17 @@ FocusScope {
                     Button {
                         text: qsTr("Clear")
                         focusPolicy: Qt.StrongFocus
-                        onClicked: root.setSingleBinding(modelData.id, "")
+                        onClicked: {
+                            root.cancelCapture()
+                            root.setSingleBinding(modelData.id, "")
+                        }
                     }
 
                     Button {
                         text: qsTr("Reset")
                         focusPolicy: Qt.StrongFocus
                         onClicked: {
+                            root.cancelCapture()
                             InputBindingManager.resetActionBindings(root.selectedDevice, modelData.id)
                             Qt.callLater(function() { captureButton.forceActiveFocus() })
                         }
