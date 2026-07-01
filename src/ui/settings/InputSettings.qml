@@ -94,6 +94,20 @@ FocusScope {
         captureTimeout.stop()
     }
 
+    function focusFirstBinding() {
+        if (bindingList.count <= 0) {
+            return
+        }
+        bindingList.currentIndex = Math.max(0, bindingList.currentIndex)
+        bindingList.forceActiveFocus()
+        Qt.callLater(function() {
+            var item = bindingList.itemAtIndex(bindingList.currentIndex)
+            if (item && item.captureControl) {
+                item.captureControl.forceActiveFocus()
+            }
+        })
+    }
+
     Keys.priority: Keys.AfterItem
     Keys.onLeftPressed: function(event) {
         if (capturingActionId.length === 0) {
@@ -151,6 +165,13 @@ FocusScope {
                 }
                 Keys.onReturnPressed: function(event) { popup.open(); event.accepted = true }
                 Keys.onEnterPressed: function(event) { popup.open(); event.accepted = true }
+                Keys.onDownPressed: function(event) {
+                    deviceCombo.forceActiveFocus()
+                    event.accepted = true
+                }
+                KeyNavigation.tab: deviceCombo
+                KeyNavigation.down: deviceCombo
+                KeyNavigation.right: deviceCombo
             }
 
             SettingsComboBox {
@@ -169,24 +190,49 @@ FocusScope {
                 }
                 Keys.onReturnPressed: function(event) { popup.open(); event.accepted = true }
                 Keys.onEnterPressed: function(event) { popup.open(); event.accepted = true }
+                Keys.onDownPressed: function(event) {
+                    root.focusFirstBinding()
+                    event.accepted = true
+                }
+                KeyNavigation.tab: resetSectionButton
+                KeyNavigation.down: bindingList
+                KeyNavigation.left: contextCombo
+                KeyNavigation.right: resetSectionButton
             }
 
             Button {
+                id: resetSectionButton
                 text: qsTr("Reset Section")
                 focusPolicy: Qt.StrongFocus
                 onClicked: {
                     root.cancelCapture()
-                    InputBindingManager.resetContextBindings(root.selectedDevice, root.selectedContext)
+                    InputBindingManager.resetDeviceBindings(root.selectedDevice)
                 }
+                Keys.onDownPressed: function(event) {
+                    root.focusFirstBinding()
+                    event.accepted = true
+                }
+                KeyNavigation.tab: resetAllButton
+                KeyNavigation.down: bindingList
+                KeyNavigation.left: deviceCombo
+                KeyNavigation.right: resetAllButton
             }
 
             Button {
+                id: resetAllButton
                 text: qsTr("Reset All")
                 focusPolicy: Qt.StrongFocus
                 onClicked: {
                     root.cancelCapture()
                     InputBindingManager.resetAllBindings()
                 }
+                Keys.onDownPressed: function(event) {
+                    root.focusFirstBinding()
+                    event.accepted = true
+                }
+                KeyNavigation.tab: bindingList
+                KeyNavigation.down: bindingList
+                KeyNavigation.left: resetSectionButton
             }
         }
 
@@ -206,9 +252,14 @@ FocusScope {
             clip: true
             spacing: Theme.spacingSmall
             model: root.actionsForContext()
+            activeFocusOnTab: true
+            keyNavigationEnabled: true
+            KeyNavigation.tab: contextCombo
+            KeyNavigation.up: deviceCombo
 
             delegate: Rectangle {
                 id: row
+                property alias captureControl: captureButton
                 width: bindingList.width
                 height: Math.round(86 * Theme.layoutScale)
                 radius: Theme.radiusMedium
@@ -249,6 +300,9 @@ FocusScope {
                               : root.bindingText(modelData.id)
                         focusPolicy: Qt.StrongFocus
                         onClicked: root.beginCapture(modelData.id)
+                        KeyNavigation.tab: clearButton
+                        KeyNavigation.right: clearButton
+                        KeyNavigation.left: bindingList
                         Keys.onPressed: function(event) {
                             if (event.key === Qt.Key_Escape) {
                                 root.cancelCapture()
@@ -265,15 +319,20 @@ FocusScope {
                     }
 
                     Button {
+                        id: clearButton
                         text: qsTr("Clear")
                         focusPolicy: Qt.StrongFocus
                         onClicked: {
                             root.cancelCapture()
                             root.setSingleBinding(modelData.id, "")
                         }
+                        KeyNavigation.tab: resetButton
+                        KeyNavigation.left: captureButton
+                        KeyNavigation.right: resetButton
                     }
 
                     Button {
+                        id: resetButton
                         text: qsTr("Reset")
                         focusPolicy: Qt.StrongFocus
                         onClicked: {
@@ -281,6 +340,8 @@ FocusScope {
                             InputBindingManager.resetActionBindings(root.selectedDevice, modelData.id)
                             Qt.callLater(function() { captureButton.forceActiveFocus() })
                         }
+                        KeyNavigation.tab: bindingList
+                        KeyNavigation.left: clearButton
                     }
                 }
             }

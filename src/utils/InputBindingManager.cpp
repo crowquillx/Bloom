@@ -170,7 +170,29 @@ QString InputBindingManager::displayTextForBinding(const QString &binding) const
     value.remove(QStringLiteral("key:"));
     value.remove(QStringLiteral("gamepad:"));
     value.replace(QLatin1Char('_'), QLatin1Char(' '));
-    const QStringList parts = value.split(QLatin1Char('+'), Qt::SkipEmptyParts);
+    const QStringList modifierPrefixes = {
+        QStringLiteral("ctrl"),
+        QStringLiteral("alt"),
+        QStringLiteral("shift"),
+        QStringLiteral("meta"),
+    };
+    QStringList parts;
+    QString remaining = value;
+    while (true) {
+        const qsizetype separator = remaining.indexOf(QLatin1Char('+'));
+        if (separator <= 0) {
+            break;
+        }
+
+        const QString prefix = remaining.left(separator);
+        if (!modifierPrefixes.contains(prefix)) {
+            break;
+        }
+
+        parts.append(prefix);
+        remaining = remaining.mid(separator + 1);
+    }
+    parts.append(remaining.isEmpty() ? QStringLiteral("+") : remaining);
     QStringList titled;
     for (QString part : parts) {
         if (!part.isEmpty()) {
@@ -269,6 +291,17 @@ void InputBindingManager::resetActionBindings(const QString &device, const QStri
     QVariantMap deviceMap = saved.value(normalizedDevice).toMap();
     deviceMap.remove(actionId);
     saved[normalizedDevice] = deviceMap;
+    persistBindings(saved);
+}
+
+void InputBindingManager::resetDeviceBindings(const QString &device)
+{
+    const QString normalizedDevice = normalizeDevice(device);
+    if (normalizedDevice.isEmpty()) {
+        return;
+    }
+    QVariantMap saved = m_config ? m_config->getInputBindings() : QVariantMap();
+    saved[normalizedDevice] = QVariantMap();
     persistBindings(saved);
 }
 
@@ -604,9 +637,12 @@ void InputBindingManager::pollGamepad()
             const QString actionId = m_gamepadCaptureActionId;
             m_gamepadCaptureActionId.clear();
             emit gamepadBindingCaptured(actionId, binding);
-            continue;
+            return;
         }
         dispatchGamepadBinding(binding, false);
+    }
+    if (!m_gamepadCaptureActionId.isEmpty()) {
+        return;
     }
     for (const QString &binding : repeatPressed) {
         dispatchGamepadBinding(binding, true);

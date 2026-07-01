@@ -37,7 +37,12 @@ Window {
     Binding {
         target: InputBindingManager
         property: "currentRuntimeContext"
-        value: embeddedPlaybackActive ? "playback" : "navigation"
+        value: embeddedPlaybackActive
+               && !navigationModalActive
+               && (useDetachedPlaybackOverlayWindow
+                   ? embeddedOverlayWindow.active
+                   : window.active)
+               ? "playback" : "navigation"
     }
     
     // ========================================
@@ -80,6 +85,10 @@ Window {
                                                              || activeEmbeddedPlaybackOverlay.chapterMode)
     readonly property bool playbackSelectorOpen: embeddedPlaybackActive
                                               && activeEmbeddedPlaybackOverlay.selectorOpen
+    readonly property bool mediaSourceSelectionOpen: mediaSourceSelectionDialogLoader.item
+                                                     && mediaSourceSelectionDialogLoader.item.opened
+    readonly property bool navigationModalActive: ScreensaverController.active
+                                                  || mediaSourceSelectionOpen
     readonly property bool awaitingUpNextTransition: PlayerController.awaitingNextEpisodeResolution
                                                   && !PlayerController.isPlaybackActive
     property bool pendingStartupUpdatePopup: false
