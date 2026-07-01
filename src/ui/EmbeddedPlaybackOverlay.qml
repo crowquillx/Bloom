@@ -482,7 +482,6 @@ FocusScope {
                 || actionId === "playback.volumeDown"
                 || actionId === "playback.seekBack"
                 || actionId === "playback.seekForward"
-                || actionId === "playback.playPause"
     }
 
     function handleDirectionalKey(direction) {
