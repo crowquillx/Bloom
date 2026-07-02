@@ -337,6 +337,7 @@ if(WIN32)
             find_file(BLOOM_SDL2_RUNTIME_DLL
                 NAMES SDL2.dll
                 HINTS
+                    ${_bloom_sdl2_lib_dir}
                     ${_bloom_sdl2_root}
                     $ENV{SDL2_ROOT}
                     $ENV{SDL2_DIR}

@@ -237,6 +237,22 @@ bool InputBindingManager::setBindingsForAction(const QString &device, const QStr
             normalizedBindings.append(normalized);
         }
     }
+    if (!normalizedBindings.isEmpty()) {
+        const QString runtimeContext = m_actionById.value(actionId).runtimeContext;
+        for (const auto &action : m_actions) {
+            if (action.id == actionId || !actionMatchesRuntimeContext(action, runtimeContext)) {
+                continue;
+            }
+            QStringList actionBindings = effectiveBindings(normalizedDevice, action.id);
+            bool removedConflict = false;
+            for (const QString &normalized : normalizedBindings) {
+                removedConflict = actionBindings.removeAll(normalized) > 0 || removedConflict;
+            }
+            if (removedConflict) {
+                deviceMap[action.id] = actionBindings;
+            }
+        }
+    }
     deviceMap[actionId] = normalizedBindings;
     saved[normalizedDevice] = deviceMap;
     persistBindings(saved);

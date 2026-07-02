@@ -77,6 +77,7 @@ private slots:
     void defaultKeyboardResolutionIsContextAware();
     void crossContextBindingsDoNotConflict();
     void sameContextConflictCanBeReassigned();
+    void setBindingsForActionClearsSameContextConflicts();
     void emptyBindingsIntentionallyUnassignAction();
     void resetActionRestoresDefaultBinding();
     void rejectsInvalidDeviceAndAction();
@@ -128,6 +129,30 @@ void InputBindingManagerTest::sameContextConflictCanBeReassigned()
     QCOMPARE(manager.bindingsForAction(QStringLiteral("keyboard"),
                                        QStringLiteral("playback.audioSelector")).value(0).toString(),
              QStringLiteral("key:s"));
+}
+
+void InputBindingManagerTest::setBindingsForActionClearsSameContextConflicts()
+{
+    BindingFixture fixture;
+    InputBindingManager manager(nullptr, &fixture.config);
+
+    QVariantList replacementBindings;
+    replacementBindings.append(QStringLiteral("key:s"));
+    replacementBindings.append(QStringLiteral("key:space"));
+
+    QVERIFY(manager.setBindingsForAction(QStringLiteral("keyboard"),
+                                         QStringLiteral("playback.audioSelector"),
+                                         replacementBindings));
+
+    QCOMPARE(manager.actionForKeyboardEvent(Qt::Key_S, Qt::NoModifier, QStringLiteral("playback")),
+             QStringLiteral("playback.audioSelector"));
+    const QVariantList subtitleBindings = manager.bindingsForAction(QStringLiteral("keyboard"),
+                                                                    QStringLiteral("playback.subtitleSelector"));
+    for (const QVariant &binding : subtitleBindings) {
+        QVERIFY(binding.toString() != QStringLiteral("key:s"));
+    }
+    QCOMPARE(manager.actionForKeyboardEvent(Qt::Key_Space, Qt::NoModifier, QStringLiteral("navigation")),
+             QStringLiteral("nav.select"));
 }
 
 void InputBindingManagerTest::emptyBindingsIntentionallyUnassignAction()
