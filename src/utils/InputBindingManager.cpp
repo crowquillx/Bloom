@@ -87,6 +87,12 @@ void InputBindingManager::initializeActions()
     add("nav.select", "navigation", tr("Select"), tr("Activate focused item"), {keyBinding(Qt::Key_Return), keyBinding(Qt::Key_Enter), keyBinding(Qt::Key_Space)}, {"gamepad:a"});
     add("nav.back", "navigation", tr("Back"), tr("Dismiss or go back"), {keyBinding(Qt::Key_Escape)}, {"gamepad:b"});
 
+    add("playback.navigateUp", "playback", tr("Up"), tr("Move playback focus up"), {}, {"gamepad:dpad_up", "gamepad:left_stick_up"});
+    add("playback.navigateDown", "playback", tr("Down"), tr("Move playback focus down"), {}, {"gamepad:dpad_down", "gamepad:left_stick_down"});
+    add("playback.navigateLeft", "playback", tr("Left"), tr("Move playback focus left or seek backward"), {}, {"gamepad:dpad_left", "gamepad:left_stick_left"});
+    add("playback.navigateRight", "playback", tr("Right"), tr("Move playback focus right or seek forward"), {}, {"gamepad:dpad_right", "gamepad:left_stick_right"});
+    add("playback.select", "playback", tr("Select"), tr("Activate the focused playback control"), {}, {"gamepad:a"});
+    add("playback.back", "playback", tr("Back"), tr("Dismiss playback controls or stop playback"), {}, {"gamepad:b"});
     add("playback.playPause", "playback", tr("Play/Pause"), tr("Toggle playback pause"), {keyBinding(Qt::Key_Space)}, {"gamepad:start"});
     add("playback.seekBack", "playback", tr("Seek Back"), tr("Seek backward 10 seconds"), {}, {"gamepad:left_shoulder"});
     add("playback.seekForward", "playback", tr("Seek Forward"), tr("Seek forward 10 seconds"), {}, {"gamepad:right_shoulder"});
@@ -465,6 +471,10 @@ void InputBindingManager::dispatchGamepadBinding(const QString &binding, bool re
     }
     const auto action = m_actionById.value(actionId);
     if (!repeat || action.runtimeContext == QString::fromLatin1(kRuntimeNavigation)
+        || actionId == QStringLiteral("playback.navigateUp")
+        || actionId == QStringLiteral("playback.navigateDown")
+        || actionId == QStringLiteral("playback.navigateLeft")
+        || actionId == QStringLiteral("playback.navigateRight")
         || actionId == QStringLiteral("playback.seekBack")
         || actionId == QStringLiteral("playback.seekForward")
         || actionId == QStringLiteral("playback.volumeUp")

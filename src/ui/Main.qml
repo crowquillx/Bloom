@@ -39,9 +39,6 @@ Window {
         property: "currentRuntimeContext"
         value: embeddedPlaybackActive
                && !navigationModalActive
-               && (useDetachedPlaybackOverlayWindow
-                   ? embeddedOverlayWindow.active
-                   : window.active)
                ? "playback" : "navigation"
     }
     

@@ -75,6 +75,8 @@ class InputBindingManagerTest : public QObject
 
 private slots:
     void defaultKeyboardResolutionIsContextAware();
+    void defaultControllerPlaybackNavigationBindings();
+    void controllerNavigationAndPlaybackBindingsDoNotConflict();
     void crossContextBindingsDoNotConflict();
     void sameContextConflictCanBeReassigned();
     void setBindingsForActionClearsSameContextConflicts();
@@ -94,6 +96,44 @@ void InputBindingManagerTest::defaultKeyboardResolutionIsContextAware()
              QStringLiteral("playback.playPause"));
     QCOMPARE(manager.actionForKeyboardEvent(Qt::Key_I, Qt::ShiftModifier, QStringLiteral("playback")),
              QStringLiteral("playback.statsOnce"));
+}
+
+void InputBindingManagerTest::defaultControllerPlaybackNavigationBindings()
+{
+    BindingFixture fixture;
+    InputBindingManager manager(nullptr, &fixture.config);
+
+    const auto expectBinding = [&manager](const QString &actionId, const QString &binding) {
+        const QVariantList bindings = manager.bindingsForAction(QStringLiteral("gamepad"), actionId);
+        QVERIFY2(bindings.contains(binding), qPrintable(QStringLiteral("%1 missing %2").arg(actionId, binding)));
+    };
+
+    expectBinding(QStringLiteral("playback.navigateUp"), QStringLiteral("gamepad:dpad_up"));
+    expectBinding(QStringLiteral("playback.navigateUp"), QStringLiteral("gamepad:left_stick_up"));
+    expectBinding(QStringLiteral("playback.navigateDown"), QStringLiteral("gamepad:dpad_down"));
+    expectBinding(QStringLiteral("playback.navigateLeft"), QStringLiteral("gamepad:dpad_left"));
+    expectBinding(QStringLiteral("playback.navigateRight"), QStringLiteral("gamepad:dpad_right"));
+    expectBinding(QStringLiteral("playback.select"), QStringLiteral("gamepad:a"));
+    expectBinding(QStringLiteral("playback.back"), QStringLiteral("gamepad:b"));
+}
+
+void InputBindingManagerTest::controllerNavigationAndPlaybackBindingsDoNotConflict()
+{
+    BindingFixture fixture;
+    InputBindingManager manager(nullptr, &fixture.config);
+
+    QVERIFY(manager.conflictsForBinding(QStringLiteral("gamepad"),
+                                        QStringLiteral("playback.select"),
+                                        QStringLiteral("gamepad:a"),
+                                        QStringLiteral("playback")).isEmpty());
+    QVERIFY(manager.conflictsForBinding(QStringLiteral("gamepad"),
+                                        QStringLiteral("playback.back"),
+                                        QStringLiteral("gamepad:b"),
+                                        QStringLiteral("playback")).isEmpty());
+    QVERIFY(manager.conflictsForBinding(QStringLiteral("gamepad"),
+                                        QStringLiteral("playback.navigateLeft"),
+                                        QStringLiteral("gamepad:dpad_left"),
+                                        QStringLiteral("playback")).isEmpty());
 }
 
 void InputBindingManagerTest::crossContextBindingsDoNotConflict()

@@ -21,12 +21,13 @@ Runtime
 - SDL2 gamepad input is polled in C++ when SDL2 is available at build time. The backend handles hotplug and disconnect, reports `gamepadAvailable`, and repeats held navigation/seek/volume inputs while keeping toggles edge-triggered.
 - Controller navigation actions synthesize the same Qt key events already used by QML focus handlers.
 - Playback controller actions emit `InputBindingManager.actionTriggeredWithContext(actionId, "playback")` and are handled by `EmbeddedPlaybackOverlay.qml`.
-- Default controller playback bindings: Start play/pause, LB/RB seek, LT/RT chapters, Y audio selector, X subtitle selector, Back/View volume panel, right stick volume, L3 subtitle ASS override, R3 deband.
+- Default controller playback bindings: D-pad/left stick move or seek based on overlay state, A selects the focused playback control or active Skip Intro/Credits prompt, B mirrors Escape dismissal/stop behavior, Start play/pause, LB/RB seek, LT/RT chapters, Y audio selector, X subtitle selector, Back/View volume panel, right stick volume, L3 subtitle ASS override, R3 deband.
 
 Settings UI
 - Settings > Input edits bindings by context and device.
 - Keyboard rows capture the next key press.
 - Controller rows capture the next SDL game-controller input.
+- The page preserves keyboard/controller focus across context/device switches, capture completion/cancel, and reset operations.
 - Conflicts are checked within the same device and runtime context. Rebinding clears the conflicting binding from the other action; conflicts across navigation and playback are allowed.
 - Reset is available per action, per context, and globally.
 
