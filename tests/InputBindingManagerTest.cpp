@@ -134,6 +134,14 @@ void InputBindingManagerTest::controllerNavigationAndPlaybackBindingsDoNotConfli
                                         QStringLiteral("playback.navigateLeft"),
                                         QStringLiteral("gamepad:dpad_left"),
                                         QStringLiteral("playback")).isEmpty());
+    QVERIFY(manager.conflictsForBinding(QStringLiteral("gamepad"),
+                                        QStringLiteral("nav.select"),
+                                        QStringLiteral("gamepad:a"),
+                                        QStringLiteral("navigation")).isEmpty());
+    QVERIFY(manager.conflictsForBinding(QStringLiteral("gamepad"),
+                                        QStringLiteral("nav.back"),
+                                        QStringLiteral("gamepad:b"),
+                                        QStringLiteral("navigation")).isEmpty());
 }
 
 void InputBindingManagerTest::crossContextBindingsDoNotConflict()
