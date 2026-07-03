@@ -68,6 +68,33 @@ function Resolve-MpvRuntimeDll {
     return $null
 }
 
+function Resolve-SdlRuntimeDll {
+    $candidates = @()
+
+    foreach ($envVar in @("SDL2_ROOT", "SDL2_DIR")) {
+        $root = [Environment]::GetEnvironmentVariable($envVar)
+        if (-not [string]::IsNullOrWhiteSpace($root)) {
+            $candidates += (Join-Path $root "bin\SDL2.dll")
+            $candidates += (Join-Path $root "lib\x64\SDL2.dll")
+            $candidates += (Join-Path $root "lib\SDL2.dll")
+            $candidates += (Join-Path $root "SDL2.dll")
+        }
+    }
+
+    $fromPath = Get-Command SDL2.dll -ErrorAction SilentlyContinue
+    if ($fromPath) {
+        $candidates += $fromPath.Source
+    }
+
+    foreach ($candidate in $candidates | Select-Object -Unique) {
+        if (-not [string]::IsNullOrWhiteSpace($candidate) -and (Test-Path $candidate)) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
 $installBin = Join-Path $InstallDir "bin"
 $exePath = Join-Path $installBin "Bloom.exe"
 if (-not (Test-Path $exePath)) {
@@ -107,6 +134,16 @@ if (-not $existingMpvDll) {
         Write-Host "Staged libmpv runtime DLL from: $mpvRuntimeDll" -ForegroundColor Yellow
     } else {
         Write-Warning "No mpv runtime DLL found in install tree or known system paths."
+    }
+}
+
+# Stage SDL2 when the controller backend was built dynamically.
+$existingSdlDll = Get-ChildItem -Path $OutputDir -Filter "SDL2.dll" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $existingSdlDll) {
+    $sdlRuntimeDll = Resolve-SdlRuntimeDll
+    if ($sdlRuntimeDll) {
+        Copy-Item -Path $sdlRuntimeDll -Destination (Join-Path $OutputDir "SDL2.dll") -Force
+        Write-Host "Staged SDL2 runtime DLL from: $sdlRuntimeDll" -ForegroundColor Yellow
     }
 }
 

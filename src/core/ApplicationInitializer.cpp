@@ -16,6 +16,7 @@
 #include "network/MediaSegmentProviderService.h"
 #include "network/SeerrService.h"
 #include "utils/InputModeManager.h"
+#include "utils/InputBindingManager.h"
 #include "viewmodels/LibraryViewModel.h"
 #include "viewmodels/SeriesDetailsViewModel.h"
 #include "viewmodels/MovieDetailsViewModel.h"
@@ -253,6 +254,10 @@ void ApplicationInitializer::registerServices()
     // 5. InputModeManager - Depends on QGuiApplication
     m_inputModeManager = std::make_unique<InputModeManager>(m_app);
     ServiceLocator::registerService<InputModeManager>(m_inputModeManager.get());
+
+    // 5.1 InputBindingManager - Depends on QGuiApplication and ConfigManager
+    m_inputBindingManager = std::make_unique<InputBindingManager>(m_app, m_configManager.get());
+    ServiceLocator::registerService<InputBindingManager>(m_inputBindingManager.get());
 
     // 5.5 ScreensaverController - Depends on app input, config, playback, and auth
     if (isTestMode) {

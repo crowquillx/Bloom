@@ -76,6 +76,7 @@ FocusScope {
         function onUpdateChannelChanged() { root.scheduleSettingsSavedToast() }
         function onAutoUpdateCheckEnabledChanged() { root.scheduleSettingsSavedToast() }
         function onLogLevelChanged() { root.scheduleSettingsSavedToast() }
+        function onInputBindingsChanged() { root.scheduleSettingsSavedToast() }
         function onHeroBannerEnabledChanged() { root.scheduleSettingsSavedToast() }
         function onHeroBannerSourceChanged() { root.scheduleSettingsSavedToast() }
         function onHeroBannerMaxItemsChanged() { root.scheduleSettingsSavedToast() }
@@ -163,8 +164,9 @@ FocusScope {
         case 2: return displaySection
         case 3: return videoSection
         case 4: return mpvSection
-        case 5: return integrationsSection
-        case 6: return aboutAccountSection
+        case 5: return inputSection
+        case 6: return integrationsSection
+        case 7: return aboutAccountSection
         default: return null
         }
     }
@@ -446,6 +448,11 @@ FocusScope {
                 onOpenImportConfigDialog: function(returnTarget) { root.openImportConfigDialog(returnTarget) }
                 onOpenDeleteProfileDialog: function(name, returnTarget) { root.openDeleteProfileDialog(name, returnTarget) }
                 onOpenRenameProfileDialog: function(name, returnTarget) { root.openRenameProfileDialog(name, returnTarget) }
+            }
+
+            InputSettings {
+                id: inputSection
+                onRequestReturnToRail: root.returnToRail()
             }
 
             IntegrationsSettings {

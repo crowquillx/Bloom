@@ -38,6 +38,15 @@ $runtimeCandidates = @(
     $testsDir
 )
 
+foreach ($envVar in @("SDL2_ROOT", "SDL2_DIR")) {
+    $sdlRoot = [Environment]::GetEnvironmentVariable($envVar)
+    if (-not [string]::IsNullOrWhiteSpace($sdlRoot)) {
+        $runtimeCandidates += (Join-Path $sdlRoot "bin")
+        $runtimeCandidates += (Join-Path $sdlRoot "lib\x64")
+        $runtimeCandidates += (Join-Path $sdlRoot "lib")
+    }
+}
+
 $qtPrefix = ""
 $cachePath = Join-Path $buildRoot "CMakeCache.txt"
 if (Test-Path $cachePath) {

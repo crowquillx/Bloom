@@ -7,6 +7,7 @@ import BloomUI
 FocusScope {
     id: rootScope
     anchors.fill: parent
+    readonly property bool opened: dialog.visible
 
     function openForRequest(newRequestId, newDialogModel, newRestoreFocusTarget) {
         dialog.openForRequest(newRequestId, newDialogModel, newRestoreFocusTarget)

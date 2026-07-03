@@ -6,7 +6,7 @@ apt-get update
 apt-get install -y --no-install-recommends \
     build-essential ca-certificates cmake curl file fuse3 git libfuse2 \
     libdbus-1-3 libfontconfig1 libfreetype6 libgl1-mesa-dev libglib2.0-0t64 \
-    libgthread-2.0-0 libice6 libmpv-dev libsecret-1-dev libsm6 \
+    libgthread-2.0-0 libice6 libmpv-dev libsecret-1-dev libsdl2-dev libsm6 \
     libsqlite3-dev libwayland-client0 libwayland-cursor0 libwayland-dev \
     libwayland-egl1 libx11-6 libx11-xcb1 libxdamage1 libxext6 libxfixes3 \
     libxft2 libxi6 libxkbcommon-dev libxkbcommon-x11-0 libxrandr2 libxrender1 \

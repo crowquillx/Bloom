@@ -374,65 +374,254 @@ FocusScope {
         showControls()
     }
 
+    function stopPlaybackFromBackAction() {
+        if (tryDismissPlaybackOverlayBeforeStop()) {
+            return
+        }
+        PlayerController.stop()
+    }
+
+    function handleSelectorDirection(direction) {
+        if (audioSelectorOpen) {
+            if (direction === "up") {
+                audioList.currentIndex = Math.max(0, audioList.currentIndex - 1)
+                audioList.positionViewAtIndex(audioList.currentIndex, ListView.Contain)
+                return true
+            }
+            if (direction === "down") {
+                audioList.currentIndex = Math.min(audioList.count - 1, audioList.currentIndex + 1)
+                audioList.positionViewAtIndex(audioList.currentIndex, ListView.Contain)
+                return true
+            }
+            return true
+        }
+        if (subtitleSelectorOpen) {
+            if (direction === "up") {
+                subtitleList.currentIndex = Math.max(0, subtitleList.currentIndex - 1)
+                subtitleList.positionViewAtIndex(subtitleList.currentIndex, ListView.Contain)
+                return true
+            }
+            if (direction === "down") {
+                subtitleList.currentIndex = Math.min(subtitleList.count - 1, subtitleList.currentIndex + 1)
+                subtitleList.positionViewAtIndex(subtitleList.currentIndex, ListView.Contain)
+                return true
+            }
+            return true
+        }
+        if (volumeSelectorOpen) {
+            if (direction === "left") {
+                adjustVolumeBy(-5)
+                return true
+            }
+            if (direction === "right") {
+                adjustVolumeBy(5)
+                return true
+            }
+            return true
+        }
+        return false
+    }
+
+    function activateFocusedPlaybackControl() {
+        if (!overlayActive) {
+            return false
+        }
+        if (skipPopupVisible) {
+            triggerActiveSkip()
+            return true
+        }
+        if (audioSelectorOpen) {
+            if (audioList.currentIndex >= 0 && audioList.currentIndex < audioList.count) {
+                var audioTracks = PlayerController.availableAudioTracks
+                PlayerController.setSelectedAudioTrack(audioTracks[audioList.currentIndex].index)
+                audioSelectorOpen = false
+                Qt.callLater(function() { audioButton.forceActiveFocus() })
+            }
+            return true
+        }
+        if (subtitleSelectorOpen) {
+            if (subtitleList.currentIndex >= 0 && subtitleList.currentIndex < subtitleList.count) {
+                PlayerController.setSelectedSubtitleTrack(subtitleTrackOptions[subtitleList.currentIndex].index)
+                subtitleSelectorOpen = false
+                Qt.callLater(function() { subtitleButton.forceActiveFocus() })
+            }
+            return true
+        }
+        if (volumeSelectorOpen) {
+            volumeSelectorOpen = false
+            Qt.callLater(function() { volumeButton.forceActiveFocus() })
+            return true
+        }
+        if (chapterMode) {
+            if (focusedChapterIndex >= 0) {
+                PlayerController.seekToPlaybackChapter(focusedChapterIndex)
+                hideTimer.restart()
+            }
+            return true
+        }
+        if (!fullControlsVisible) {
+            showControls()
+            focusControl(playPauseButton)
+            return true
+        }
+
+        var active = root.Window.activeFocusItem
+        if (!active || !hasFocusedControl()) {
+            focusControl(playPauseButton)
+            return true
+        }
+        if (active === backButton) PlayerController.stop()
+        else if (active === progressFocus) return true
+        else if (active === audioButton) openAudioSelector()
+        else if (active === subtitleButton) openSubtitleSelector()
+        else if (active === skipBackButton) {
+            PlayerController.seekRelative(-10)
+            showSeekPreview(true)
+        } else if (active === previousChapterButton) PlayerController.previousChapter()
+        else if (active === playPauseButton) PlayerController.togglePause()
+        else if (active === nextChapterButton) PlayerController.nextChapter()
+        else if (active === skipForwardButton) {
+            PlayerController.seekRelative(10)
+            showSeekPreview(true)
+        } else if (active === persistentSkipButton && persistentSkipVisible) triggerActiveSkip()
+        else if (active === volumeButton) openVolumeSelector()
+        else {
+            focusControl(playPauseButton)
+        }
+        return true
+    }
+
+    function handlePlaybackAction(actionId) {
+        if (!overlayActive || !actionId || actionId.length === 0) {
+            return false
+        }
+        if (actionId === "playback.navigateUp") {
+            if (handleSelectorDirection("up")) return true
+            return handleDirectionalKey("up")
+        }
+        if (actionId === "playback.navigateDown") {
+            if (handleSelectorDirection("down")) return true
+            return handleDirectionalKey("down")
+        }
+        if (actionId === "playback.navigateLeft") {
+            if (handleSelectorDirection("left")) return true
+            return handleDirectionalKey("left")
+        }
+        if (actionId === "playback.navigateRight") {
+            if (handleSelectorDirection("right")) return true
+            return handleDirectionalKey("right")
+        }
+        if (actionId === "playback.select") {
+            return activateFocusedPlaybackControl()
+        }
+        if (actionId === "playback.back") {
+            stopPlaybackFromBackAction()
+            return true
+        }
+        if (actionId === "playback.volumeUp") {
+            adjustVolumeBy(5)
+            return true
+        }
+        if (actionId === "playback.volumeDown") {
+            adjustVolumeBy(-5)
+            return true
+        }
+        if (actionId === "playback.volumePanel") {
+            openVolumeSelector()
+            return true
+        }
+        if (actionId === "playback.audioSelector") {
+            openAudioSelector()
+            return true
+        }
+        if (actionId === "playback.subtitleSelector") {
+            openSubtitleSelector()
+            return true
+        }
+        if (actionId === "playback.audioCycle") {
+            PlayerController.cycleAudioTrack()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.subtitleCycle") {
+            PlayerController.cycleSubtitleTrack()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.subtitleOverride") {
+            PlayerController.toggleSubtitleAssOverride()
+            return true
+        }
+        if (actionId === "playback.deband") {
+            PlayerController.toggleDeband()
+            return true
+        }
+        if (actionId === "playback.playPause") {
+            PlayerController.togglePause()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.seekBack") {
+            PlayerController.seekRelative(-10)
+            showSeekPreview(true)
+            return true
+        }
+        if (actionId === "playback.seekForward") {
+            PlayerController.seekRelative(10)
+            showSeekPreview(true)
+            return true
+        }
+        if (actionId === "playback.previousChapter") {
+            PlayerController.previousChapter()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.nextChapter") {
+            PlayerController.nextChapter()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.skipSegment") {
+            triggerActiveSkip()
+            return true
+        }
+        if (actionId === "playback.mute") {
+            PlayerController.toggleMute()
+            showControls()
+            return true
+        }
+        if (actionId === "playback.stats") {
+            PlayerController.toggleMpvStats()
+            return true
+        }
+        if (actionId === "playback.statsOnce") {
+            PlayerController.showMpvStatsOnce()
+            return true
+        }
+        return false
+    }
+
     function handlePlaybackShortcut(event) {
         if (!overlayActive) {
             return false
         }
 
-        if (event.key === Qt.Key_Plus
-                || event.key === Qt.Key_Equal
-                || event.key === Qt.Key_VolumeUp) {
-            adjustVolumeBy(5)
-            return true
-        }
-
-        if (event.key === Qt.Key_Minus
-                || event.key === Qt.Key_VolumeDown) {
-            adjustVolumeBy(-5)
-            return true
-        }
-
-        if (event.key === Qt.Key_V) {
-            if (event.isAutoRepeat) {
+        var actionId = InputBindingManager.actionForKeyboardEvent(event.key, event.modifiers, "playback")
+        if (actionId && actionId.length > 0) {
+            if (event.isAutoRepeat && !isRepeatablePlaybackAction(actionId)) {
                 return true
             }
-            openVolumeSelector()
-            return true
-        }
-
-        if (event.key === Qt.Key_A) {
-            if (event.isAutoRepeat) {
-                return true
-            }
-            openAudioSelector()
-            return true
-        }
-
-        if (event.key === Qt.Key_K) {
-            if (event.isAutoRepeat) {
-                return true
-            }
-            PlayerController.toggleSubtitleAssOverride()
-            return true
-        }
-
-        if (event.key === Qt.Key_B) {
-            if (event.isAutoRepeat) {
-                return true
-            }
-            PlayerController.toggleDeband()
-            return true
-        }
-
-        if (event.key === Qt.Key_S || event.key === Qt.Key_T || event.key === Qt.Key_C) {
-            if (event.isAutoRepeat) {
-                return true
-            }
-            openSubtitleSelector()
-            return true
+            return handlePlaybackAction(actionId)
         }
 
         return false
+    }
+
+    function isRepeatablePlaybackAction(actionId) {
+        return actionId === "playback.volumeUp"
+                || actionId === "playback.volumeDown"
+                || actionId === "playback.seekBack"
+                || actionId === "playback.seekForward"
     }
 
     function handleDirectionalKey(direction) {
@@ -738,6 +927,15 @@ FocusScope {
         }
     }
 
+    Connections {
+        target: InputBindingManager
+        function onActionTriggeredWithContext(actionId, runtimeContext) {
+            if (runtimeContext === "playback" && root.visible) {
+                root.handlePlaybackAction(actionId)
+            }
+        }
+    }
+
     Keys.onPressed: function(event) {
         if (root.skipPopupVisible
                 && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space)) {
@@ -757,16 +955,6 @@ FocusScope {
             event.accepted = root.handleDirectionalKey("up")
         } else if (event.key === Qt.Key_Down) {
             event.accepted = root.handleDirectionalKey("down")
-        } else if (event.key === Qt.Key_I) {
-            event.accepted = true
-            if (event.modifiers & Qt.ShiftModifier) {
-                PlayerController.showMpvStatsOnce()
-            } else {
-                PlayerController.toggleMpvStats()
-            }
-        } else if (event.key >= Qt.Key_0 && event.key <= Qt.Key_9) {
-            event.accepted = true
-            PlayerController.showMpvStatsPage(event.key - Qt.Key_0)
         } else if (event.key === Qt.Key_Shift
                    || event.key === Qt.Key_Control
                    || event.key === Qt.Key_Alt

@@ -71,6 +71,8 @@ qt_add_executable(Bloom
     utils/LibraryCacheStore.h
     utils/InputModeManager.cpp
     utils/InputModeManager.h
+    utils/InputBindingManager.cpp
+    utils/InputBindingManager.h
     utils/DisplayManager.cpp
     utils/DisplayManager.h
     utils/SidebarSettings.h
@@ -194,6 +196,7 @@ qt_add_qml_module(Bloom
         ui/settings/VideoSettings.qml
         ui/settings/MpvSettings.qml
         ui/settings/IntegrationsSettings.qml
+        ui/settings/InputSettings.qml
         ui/settings/AboutAccountSettings.qml
         ui/settings/NewProfileDialog.qml
         ui/settings/DeleteProfileDialog.qml
@@ -266,6 +269,14 @@ if(UNIX AND NOT APPLE)
     else()
         message(STATUS "libmpv development package not found; Linux embedded backend remains scaffold-only")
     endif()
+
+    if(SDL2_FOUND)
+        target_include_directories(Bloom PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(Bloom PRIVATE ${SDL2_LIBRARIES})
+        target_compile_definitions(Bloom PRIVATE BLOOM_HAS_SDL=1)
+    else()
+        message(STATUS "SDL2 development package not found; gamepad input backend disabled")
+    endif()
 endif()
 
 if(WIN32)
@@ -273,6 +284,85 @@ if(WIN32)
         player/backend/WindowsMpvBackend.h
         player/backend/WindowsMpvBackend.cpp
     )
+
+    if(SDL2_FOUND)
+        if(TARGET SDL2::SDL2)
+            target_link_libraries(Bloom PRIVATE SDL2::SDL2)
+            set(_bloom_sdl2_imported_configs ${CMAKE_BUILD_TYPE})
+            get_target_property(_bloom_sdl2_target_imported_configs SDL2::SDL2 IMPORTED_CONFIGURATIONS)
+            if(_bloom_sdl2_target_imported_configs)
+                list(APPEND _bloom_sdl2_imported_configs ${_bloom_sdl2_target_imported_configs})
+            endif()
+            if(CMAKE_CONFIGURATION_TYPES)
+                list(APPEND _bloom_sdl2_imported_configs ${CMAKE_CONFIGURATION_TYPES})
+            endif()
+            list(APPEND _bloom_sdl2_imported_configs DEBUG RELEASE RELWITHDEBINFO MINSIZEREL)
+            list(REMOVE_DUPLICATES _bloom_sdl2_imported_configs)
+            get_target_property(BLOOM_SDL2_RUNTIME_DLL SDL2::SDL2 IMPORTED_LOCATION)
+            if(NOT BLOOM_SDL2_RUNTIME_DLL)
+                foreach(_bloom_sdl2_config IN LISTS _bloom_sdl2_imported_configs)
+                    if(BLOOM_SDL2_RUNTIME_DLL OR NOT _bloom_sdl2_config)
+                        continue()
+                    endif()
+                    string(TOUPPER "${_bloom_sdl2_config}" _bloom_sdl2_config_upper)
+                    get_target_property(BLOOM_SDL2_RUNTIME_DLL SDL2::SDL2 IMPORTED_LOCATION_${_bloom_sdl2_config_upper})
+                endforeach()
+            endif()
+            get_target_property(_bloom_sdl2_import_lib SDL2::SDL2 IMPORTED_IMPLIB)
+            if(NOT _bloom_sdl2_import_lib)
+                foreach(_bloom_sdl2_config IN LISTS _bloom_sdl2_imported_configs)
+                    if(_bloom_sdl2_import_lib OR NOT _bloom_sdl2_config)
+                        continue()
+                    endif()
+                    string(TOUPPER "${_bloom_sdl2_config}" _bloom_sdl2_config_upper)
+                    get_target_property(_bloom_sdl2_import_lib SDL2::SDL2 IMPORTED_IMPLIB_${_bloom_sdl2_config_upper})
+                endforeach()
+            endif()
+        elseif(TARGET SDL2::SDL2-static)
+            target_link_libraries(Bloom PRIVATE SDL2::SDL2-static)
+        else()
+            target_include_directories(Bloom PRIVATE ${SDL2_INCLUDE_DIRS})
+            target_link_libraries(Bloom PRIVATE ${SDL2_LIBRARIES})
+        endif()
+            target_compile_definitions(Bloom PRIVATE BLOOM_HAS_SDL=1)
+
+        set(_bloom_sdl2_library_hint ${SDL2_LIBRARY})
+        if(NOT _bloom_sdl2_library_hint)
+            set(_bloom_sdl2_library_hint ${_bloom_sdl2_import_lib})
+        endif()
+
+        if(NOT BLOOM_SDL2_RUNTIME_DLL AND _bloom_sdl2_library_hint)
+            get_filename_component(_bloom_sdl2_lib_dir ${_bloom_sdl2_library_hint} DIRECTORY)
+            get_filename_component(_bloom_sdl2_root ${_bloom_sdl2_lib_dir} DIRECTORY)
+            find_file(BLOOM_SDL2_RUNTIME_DLL
+                NAMES SDL2.dll
+                HINTS
+                    ${_bloom_sdl2_lib_dir}
+                    ${_bloom_sdl2_root}
+                    $ENV{SDL2_ROOT}
+                    $ENV{SDL2_DIR}
+                PATH_SUFFIXES
+                    bin
+                    lib
+                    lib/x64
+                    lib/x86
+            )
+        endif()
+
+        if(BLOOM_SDL2_RUNTIME_DLL AND BLOOM_SDL2_RUNTIME_DLL MATCHES "\\.dll$")
+            add_custom_command(TARGET Bloom POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${BLOOM_SDL2_RUNTIME_DLL}
+                    $<TARGET_FILE_DIR:Bloom>
+                VERBATIM
+            )
+            install(FILES ${BLOOM_SDL2_RUNTIME_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR})
+        elseif(NOT TARGET SDL2::SDL2-static)
+            message(WARNING "SDL2 runtime DLL not found; gamepad input may fail at runtime.")
+        endif()
+    else()
+        message(STATUS "SDL2 development package not found; gamepad input backend disabled")
+    endif()
 
     find_path(BLOOM_MPV_INCLUDE_DIR
         NAMES mpv/client.h

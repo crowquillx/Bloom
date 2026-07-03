@@ -7,6 +7,7 @@
   pkg-config,
   libsecret,
   mpv,
+  SDL2,
   sqlite,
   qt6,
 }:
@@ -29,6 +30,7 @@ stdenv.mkDerivation (finalAttrs: {
   buildInputs = [
     libsecret
     mpv
+    SDL2
     sqlite
     qt6.qt5compat
     qt6.qtbase

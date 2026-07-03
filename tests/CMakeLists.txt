@@ -143,6 +143,38 @@ target_link_libraries(ConfigManagerThemeTest
 
 add_test(NAME ConfigManagerThemeTest COMMAND ConfigManagerThemeTest)
 
+add_executable(InputBindingManagerTest
+    InputBindingManagerTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/InputBindingManager.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(InputBindingManagerTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(InputBindingManagerTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Test
+)
+
+if(SDL2_FOUND)
+    if(TARGET SDL2::SDL2)
+        target_link_libraries(InputBindingManagerTest PRIVATE SDL2::SDL2)
+    elseif(TARGET SDL2::SDL2-static)
+        target_link_libraries(InputBindingManagerTest PRIVATE SDL2::SDL2-static)
+    else()
+        target_include_directories(InputBindingManagerTest PRIVATE ${SDL2_INCLUDE_DIRS})
+        target_link_libraries(InputBindingManagerTest PRIVATE ${SDL2_LIBRARIES})
+    endif()
+    target_compile_definitions(InputBindingManagerTest PRIVATE BLOOM_HAS_SDL=1)
+endif()
+
+add_test(NAME InputBindingManagerTest COMMAND InputBindingManagerTest)
+
 # Player backend abstraction tests
 add_executable(PlayerBackendFactoryTest
     PlayerBackendFactoryTest.cpp

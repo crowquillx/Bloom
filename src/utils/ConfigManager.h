@@ -166,6 +166,7 @@ class ConfigManager : public QObject
     Q_PROPERTY(QString skippedUpdateVersion READ getSkippedUpdateVersion WRITE setSkippedUpdateVersion NOTIFY skippedUpdateVersionChanged)
     Q_PROPERTY(QString logLevel READ getLogLevel WRITE setLogLevel NOTIFY logLevelChanged)
     Q_PROPERTY(QVariantList supportedTrackLanguages READ getSupportedTrackLanguages CONSTANT)
+    Q_PROPERTY(QVariantMap inputBindings READ getInputBindings WRITE setInputBindings NOTIFY inputBindingsChanged)
     
 public:
     explicit ConfigManager(QObject *parent = nullptr);
@@ -256,6 +257,9 @@ public:
     void setDefaultSubtitleTrackSelection(const QString &selection);
     QString getDefaultSubtitleTrackSelection() const;
     QVariantList getSupportedTrackLanguages() const;
+
+    QVariantMap getInputBindings() const;
+    void setInputBindings(const QVariantMap &bindings);
 
     void setPlayerBackend(const QString &backendName);
     QString getPlayerBackend() const;
@@ -572,6 +576,7 @@ signals:
     void lastUpdateCheckAtChanged();
     void skippedUpdateVersionChanged();
     void logLevelChanged();
+    void inputBindingsChanged();
 
     void heroBannerEnabledChanged();
     void heroBannerSourceChanged();
@@ -608,6 +613,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 26;
+    static constexpr int kCurrentConfigVersion = 27;
     QJsonObject defaultConfig() const;
 };

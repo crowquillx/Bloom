@@ -33,6 +33,14 @@ Window {
         property: "appWindowVisible"
         value: window.appWindowEligible
     }
+
+    Binding {
+        target: InputBindingManager
+        property: "currentRuntimeContext"
+        value: embeddedPlaybackActive
+               && !navigationModalActive
+               ? "playback" : "navigation"
+    }
     
     // ========================================
     // Font Loader for Material Symbols
@@ -74,6 +82,13 @@ Window {
                                                              || activeEmbeddedPlaybackOverlay.chapterMode)
     readonly property bool playbackSelectorOpen: embeddedPlaybackActive
                                               && activeEmbeddedPlaybackOverlay.selectorOpen
+    readonly property bool mediaSourceSelectionOpen: mediaSourceSelectionDialogLoader.item
+                                                     && mediaSourceSelectionDialogLoader.item.opened
+    readonly property bool updateDialogOpen: updateDialogLoader.item
+                                             && updateDialogLoader.item.opened
+    readonly property bool navigationModalActive: ScreensaverController.active
+                                                  || mediaSourceSelectionOpen
+                                                  || updateDialogOpen
     readonly property bool awaitingUpNextTransition: PlayerController.awaitingNextEpisodeResolution
                                                   && !PlayerController.isPlaybackActive
     property bool pendingStartupUpdatePopup: false

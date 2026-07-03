@@ -9,6 +9,7 @@
 #include "ui/ScreensaverController.h"
 #include "utils/SystemPowerController.h"
 #include "utils/InputModeManager.h"
+#include "utils/InputBindingManager.h"
 #include "ui/UiSoundController.h"
 #include "player/PlayerController.h"
 #include "player/ThemeSongManager.h"
@@ -152,6 +153,7 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("UpNextRecommendationsViewModel", ServiceLocator::get<UpNextRecommendationsViewModel>());
     context->setContextProperty("ThemeSongManager", ServiceLocator::get<ThemeSongManager>());
     context->setContextProperty("InputModeManager", ServiceLocator::get<InputModeManager>());
+    context->setContextProperty("InputBindingManager", ServiceLocator::get<InputBindingManager>());
     context->setContextProperty("SidebarSettings", ServiceLocator::get<SidebarSettings>());
     context->setContextProperty("ConfigManager", ServiceLocator::get<ConfigManager>());
     context->setContextProperty("DisplayManager", ServiceLocator::get<DisplayManager>());

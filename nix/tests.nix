@@ -52,6 +52,7 @@ stdenv.mkDerivation {
       LibraryItemQueryTest \
       LoggingConfigTest \
       ConfigManagerThemeTest \
+      InputBindingManagerTest \
       PlayerBackendFactoryTest \
       PlayerControllerAutoplayContextTest \
       MediaSegmentProviderServiceTest \

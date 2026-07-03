@@ -54,6 +54,38 @@ if(UNIX AND NOT APPLE)
     # Linux: use pkg-config to find libsecret-1
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBSECRET REQUIRED libsecret-1)
+    pkg_check_modules(SDL2 QUIET sdl2)
+endif()
+
+if(WIN32)
+    find_package(SDL2 CONFIG QUIET)
+    if(NOT SDL2_FOUND)
+        find_path(SDL2_INCLUDE_DIR
+            NAMES SDL.h
+            HINTS
+                $ENV{SDL2_ROOT}
+                $ENV{SDL2_DIR}
+            PATH_SUFFIXES
+                include
+                include/SDL2
+        )
+        find_library(SDL2_LIBRARY
+            NAMES SDL2 SDL2-static
+            HINTS
+                $ENV{SDL2_ROOT}
+                $ENV{SDL2_DIR}
+            PATH_SUFFIXES
+                lib
+                lib/x64
+                lib/x86
+                lib/cmake/SDL2
+        )
+        if(SDL2_INCLUDE_DIR AND SDL2_LIBRARY)
+            set(SDL2_FOUND TRUE)
+            set(SDL2_INCLUDE_DIRS "${SDL2_INCLUDE_DIR}")
+            set(SDL2_LIBRARIES "${SDL2_LIBRARY}")
+        endif()
+    endif()
 endif()
 
 
