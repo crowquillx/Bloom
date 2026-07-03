@@ -151,7 +151,7 @@ QVariantMap InputBindingManager::mergedBindings() const
 
 QString InputBindingManager::actionForKeyboardEvent(int key, int modifiers) const
 {
-    return actionForKeyboardEvent(key, modifiers, QString());
+    return actionForKeyboardEvent(key, modifiers, m_currentRuntimeContext);
 }
 
 QString InputBindingManager::actionForKeyboardEvent(int key, int modifiers, const QString &runtimeContext) const
@@ -470,7 +470,11 @@ void InputBindingManager::dispatchGamepadBinding(const QString &binding, bool re
         return;
     }
     const auto action = m_actionById.value(actionId);
-    if (!repeat || action.runtimeContext == QString::fromLatin1(kRuntimeNavigation)
+    if (!repeat
+        || actionId == QStringLiteral("nav.up")
+        || actionId == QStringLiteral("nav.down")
+        || actionId == QStringLiteral("nav.left")
+        || actionId == QStringLiteral("nav.right")
         || actionId == QStringLiteral("playback.navigateUp")
         || actionId == QStringLiteral("playback.navigateDown")
         || actionId == QStringLiteral("playback.navigateLeft")
@@ -584,11 +588,13 @@ void InputBindingManager::pollGamepad()
     }
 
     SDL_GameControllerUpdate();
+    bool seededControllerState = false;
     if (!m_sdlController) {
         const int joystickCount = SDL_NumJoysticks();
         for (int i = 0; i < joystickCount; ++i) {
             if (SDL_IsGameController(i)) {
                 m_sdlController = SDL_GameControllerOpen(i);
+                seededControllerState = m_sdlController != nullptr;
                 break;
             }
         }
@@ -635,6 +641,12 @@ void InputBindingManager::pollGamepad()
     if (rightY > axisThreshold) pressed.insert(QStringLiteral("gamepad:right_stick_down"));
     if (triggerLeft > axisThreshold) pressed.insert(QStringLiteral("gamepad:left_trigger"));
     if (triggerRight > axisThreshold) pressed.insert(QStringLiteral("gamepad:right_trigger"));
+
+    if (seededControllerState) {
+        m_pressedGamepadBindings = pressed;
+        m_lastRepeatedGamepadBindings.clear();
+        return;
+    }
 
     const QSet<QString> newlyPressed = pressed - m_pressedGamepadBindings;
     const qint64 now = m_gamepadRepeatClock.isValid() ? m_gamepadRepeatClock.elapsed() : 0;
