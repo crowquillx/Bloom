@@ -19,6 +19,10 @@ FocusScope {
     property string conflictMessage: ""
     readonly property var currentActions: actionsForContext()
 
+    onVisibleChanged: {
+        if (!visible && capturingActionId !== "") cancelCapture()
+    }
+
     readonly property var contexts: [
         { label: qsTr("Navigation"), value: "navigation" },
         { label: qsTr("Playback"), value: "playback" },
@@ -256,6 +260,7 @@ FocusScope {
     }
 
     Connections {
+        enabled: root.visible
         target: InputBindingManager
         function onGamepadBindingCaptured(actionId, binding) {
             if (root.capturingActionId !== actionId || root.capturingDevice !== "gamepad") return
@@ -578,15 +583,17 @@ FocusScope {
                                 KeyNavigation.up: row.previousRow() ? row.previousRow().captureControl : deviceCombo
                                 KeyNavigation.down: row.nextRow() ? row.nextRow().captureControl : null
                                 Keys.onUpPressed: function(event) {
+                                    if (root.capturingActionId === row.actionId) return
                                     row.focusPreviousRowOrHeader()
                                     event.accepted = true
                                 }
                                 Keys.onDownPressed: function(event) {
+                                    if (root.capturingActionId === row.actionId) return
                                     row.focusNextRow()
                                     event.accepted = true
                                 }
                                 Keys.onPressed: function(event) {
-                                    if (event.key === Qt.Key_Escape) {
+                                    if (event.key === Qt.Key_Escape && root.capturingActionId === row.actionId) {
                                         root.cancelCapture()
                                         root.refocusAction(row.actionId, "capture")
                                         event.accepted = true
