@@ -1,22 +1,22 @@
 {
-  "build_id": "0.7.0",
+  "build_id": "0.7.1",
   "channel": "stable",
   "installer": {
-    "filename": "Bloom-Setup-0.7.0.exe",
-    "sha256": "1c6c767b75cc085ba2ee4389449294ff406c025b58fa1c1174c990004422b1bf",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.7.0/Bloom-Setup-0.7.0.exe"
+    "filename": "Bloom-Setup-0.7.1.exe",
+    "sha256": "0cf321245a6c9c0302b85861d72c90474a74737f5a9b1aef7373ef6ac33b83aa",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.7.1/Bloom-Setup-0.7.1.exe"
   },
-  "notes": "## What's Changed in v0.7.0\n\n### New Features\n\n- different cache modes for remote mounts\n- add HDR and Windows mpv profile controls\n- add Windows render API profiles\n- normalize mpv profile imports and support rename\n- import mpv config profiles\n- library filters\n- minor ui/ux upgrades\n- add new themes and expand themeing system (#62)\n\n### Bug Fixes\n\n- shader path\n- shader path\n- **playback**: preserve multiple mpv shaders\n- **player**: recover after premature mpv eof stop ordering\n- **player**: recover premature mpv stream EOF\n- **player**: add windows mpv termination diagnostics\n- **library**: stabilize filter sorting and focus\n- **player**: harden windows hdr playback startup\n- hide unreliable library filters\n- address library filter review feedback\n- sync library filter resets\n- race condition that caused the player to think it was still playing\n\n### Chores\n\n- **deps**: bump mpv\n\n### Other\n\n- feat(player):update hdr handling\n- (feat): ux overhaul (#61)\n- Reduce log spam with categorized logging and image filters (#60)\n\n**Full changelog:** [v0.6.6...v0.7.0](https://github.com/crowquillx/Bloom/compare/v0.6.6...v0.7.0)",
+  "notes": "## What's Changed in v0.7.1\n\n### New Features\n\n- add configurable gamepad/keyboard input bindings (#70)\n- hero synopsis\n- add screensaver (#69)\n- add hero banner\n- follow system audio output device and add output device selector (#64)\n\n### Bug Fixes\n\n- **ci**: retry nix builds on transient cache failures\n- **ci**: restore development release publishing\n- **ci**: harden Linux packaging pipeline\n- **ci**: validate Linux packaging environments\n- **ci**: repair Linux packaging jobs\n- remote mount buffering\n\n### Build\n\n- add incremental Nix development builds\n\n### Chores\n\n- **deps**: bump the github-actions group with 3 updates (#71)\n- **deps**: bump actions/github-script from 8.0.0 to 9.0.0 in the github-actions group (#68)\n- **deps**: bump the github-actions group with 6 updates (#67)\n\n### Other\n\n- ci:nixification (#66)\n\n**Full changelog:** [v0.7.0...v0.7.1](https://github.com/crowquillx/Bloom/compare/v0.7.0...v0.7.1)",
   "portable": {
     "filename": "Bloom-Windows.zip",
-    "sha256": "d65dd6fbfa32a7cc4f309d3c25082b10e6aba00f75a233c0cde0d5b81680fdcf",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.7.0/Bloom-Windows.zip"
+    "sha256": "52a0e65c753ea652be428dce2806aa962c214577c14d1af88b0c07e8e7220bd7",
+    "url": "https://github.com/crowquillx/Bloom/releases/download/v0.7.1/Bloom-Windows.zip"
   },
-  "published_at": "2026-06-13T23:30:21.8314324Z",
-  "release_tag": "v0.7.0",
+  "published_at": "2026-07-05T00:09:11Z",
+  "release_tag": "v0.7.1",
   "rollout": {
     "enabled": true,
-    "minimum_supported_version": "0.7.0"
+    "minimum_supported_version": "0.7.1"
   },
-  "version": "0.7.0"
+  "version": "0.7.1"
 }
