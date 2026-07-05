@@ -43,6 +43,8 @@ struct MediaStreamInfo
     Q_PROPERTY(QString codecId MEMBER codecId)
     Q_PROPERTY(int dolbyVisionProfile MEMBER dolbyVisionProfile)
     Q_PROPERTY(int dolbyVisionLevel MEMBER dolbyVisionLevel)
+    Q_PROPERTY(int dolbyVisionBlSignalCompatibilityId MEMBER dolbyVisionBlSignalCompatibilityId)
+    Q_PROPERTY(QString videoDoViTitle MEMBER videoDoViTitle)
 
 public:
     int index = -1;
@@ -70,6 +72,8 @@ public:
     QString codecId;
     int dolbyVisionProfile = 0;
     int dolbyVisionLevel = 0;
+    int dolbyVisionBlSignalCompatibilityId = 0;
+    QString videoDoViTitle;
 
     [[nodiscard]] static MediaStreamInfo fromJson(const QJsonObject &json);
     [[nodiscard]] QVariantMap toVariantMap() const;

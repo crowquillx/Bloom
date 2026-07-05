@@ -125,8 +125,12 @@ enum class HdrContentKind {
 QString normalizedMetadataText(const QVariantMap &stream)
 {
     return QStringList{
+        stream.value(QStringLiteral("codec")).toString(),
+        stream.value(QStringLiteral("title")).toString(),
+        stream.value(QStringLiteral("displayTitle")).toString(),
         stream.value(QStringLiteral("videoRange")).toString(),
         stream.value(QStringLiteral("videoRangeType")).toString(),
+        stream.value(QStringLiteral("videoDoViTitle")).toString(),
         stream.value(QStringLiteral("codecTag")).toString(),
         stream.value(QStringLiteral("codecTagString")).toString(),
         stream.value(QStringLiteral("codecId")).toString(),
@@ -134,10 +138,52 @@ QString normalizedMetadataText(const QVariantMap &stream)
     }.join(QLatin1Char(' ')).trimmed().toLower();
 }
 
-HdrContentKind classifyVideoStream(const QVariantMap &stream)
+QString normalizedMediaSourceMetadataText(const QVariantMap &mediaSource)
 {
-    const QString metadata = normalizedMetadataText(stream);
+    return QStringList{
+        mediaSource.value(QStringLiteral("name")).toString(),
+        mediaSource.value(QStringLiteral("path")).toString(),
+        mediaSource.value(QStringLiteral("container")).toString()
+    }.join(QLatin1Char(' ')).trimmed().toLower();
+}
+
+bool metadataContainsDolbyVisionProfile(const QString &metadata, int profile)
+{
+    const QString profileText = QString::number(profile);
+    return metadata.contains(QStringLiteral("dvhe.0") + profileText)
+        || metadata.contains(QStringLiteral("dvh1.0") + profileText)
+        || metadata.contains(QStringLiteral("profile ") + profileText)
+        || metadata.contains(QStringLiteral("profile-") + profileText)
+        || metadata.contains(QStringLiteral("profile.") + profileText)
+        || metadata.contains(QStringLiteral(" p") + profileText);
+}
+
+bool rangeTokenIndicatesHdr(const QString &token)
+{
+    const QString normalized = token.trimmed().toUpper();
+    return !normalized.isEmpty()
+        && normalized != QStringLiteral("UNKNOWN")
+        && normalized != QStringLiteral("SDR")
+        && normalized != QStringLiteral("0")
+        && normalized != QStringLiteral("1");
+}
+
+HdrContentKind classifyVideoStream(const QVariantMap &stream, const QString &mediaSourceMetadata = QString())
+{
+    const QString metadata = QStringList{normalizedMetadataText(stream), mediaSourceMetadata}
+        .join(QLatin1Char(' '))
+        .trimmed()
+        .toLower();
     const int dvProfile = stream.value(QStringLiteral("dolbyVisionProfile")).toInt();
+    const int dvBlSignalCompatibilityId =
+        stream.value(QStringLiteral("dolbyVisionBlSignalCompatibilityId")).toInt();
+    const QString range = stream.value(QStringLiteral("videoRange")).toString().trimmed().toUpper();
+    const QString rangeType = stream.value(QStringLiteral("videoRangeType")).toString().trimmed().toUpper();
+    const bool hasHdr10OrHlgBaseLayer = metadata.contains(QStringLiteral("hdr10"))
+        || metadata.contains(QStringLiteral("hlg"))
+        || dvBlSignalCompatibilityId == 1
+        || dvBlSignalCompatibilityId == 4
+        || dvBlSignalCompatibilityId == 6;
     const bool isDolbyVision = dvProfile > 0
         || metadata.contains(QStringLiteral("dovi"))
         || metadata.contains(QStringLiteral("dolby vision"))
@@ -146,20 +192,17 @@ HdrContentKind classifyVideoStream(const QVariantMap &stream)
 
     if (isDolbyVision) {
         if (dvProfile == 7 || dvProfile == 8
-            || metadata.contains(QStringLiteral("dvhe.07"))
-            || metadata.contains(QStringLiteral("dvhe.08"))
-            || metadata.contains(QStringLiteral("dvh1.08"))) {
+            || metadataContainsDolbyVisionProfile(metadata, 7)
+            || metadataContainsDolbyVisionProfile(metadata, 8)
+            || hasHdr10OrHlgBaseLayer) {
             return HdrContentKind::DolbyVisionCompatible;
         }
         return HdrContentKind::DolbyVisionUnsupported;
     }
 
-    const QString range = stream.value(QStringLiteral("videoRange")).toString().trimmed().toUpper();
-    const QString rangeType = stream.value(QStringLiteral("videoRangeType")).toString().trimmed().toUpper();
-    if ((!range.isEmpty() && range != QStringLiteral("SDR"))
-        || (!rangeType.isEmpty() && rangeType != QStringLiteral("SDR"))
-        || metadata.contains(QStringLiteral("hdr10"))
-        || metadata.contains(QStringLiteral("hlg"))) {
+    if (rangeTokenIndicatesHdr(range)
+        || rangeTokenIndicatesHdr(rangeType)
+        || hasHdr10OrHlgBaseLayer) {
         return HdrContentKind::Hdr;
     }
 
@@ -169,8 +212,9 @@ HdrContentKind classifyVideoStream(const QVariantMap &stream)
 HdrContentKind classifyMediaSourceHdr(const QVariantMap &mediaSource)
 {
     HdrContentKind result = HdrContentKind::Sdr;
+    const QString mediaSourceMetadata = normalizedMediaSourceMetadataText(mediaSource);
     for (const QVariant &streamVariant : mediaStreamsForType(mediaSource, QStringLiteral("Video"))) {
-        const HdrContentKind streamKind = classifyVideoStream(streamVariant.toMap());
+        const HdrContentKind streamKind = classifyVideoStream(streamVariant.toMap(), mediaSourceMetadata);
         if (streamKind == HdrContentKind::DolbyVisionUnsupported) {
             return streamKind;
         }

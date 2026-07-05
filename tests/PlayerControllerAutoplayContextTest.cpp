@@ -338,6 +338,15 @@ static MediaSourceInfo buildMediaSourceInfo(const QString &id,
         mediaStream.realFrameRate = stream.value(QStringLiteral("realFrameRate"), 0.0).toDouble();
         mediaStream.profile = stream.value(QStringLiteral("profile")).toString();
         mediaStream.videoRange = stream.value(QStringLiteral("videoRange")).toString();
+        mediaStream.videoRangeType = stream.value(QStringLiteral("videoRangeType")).toString();
+        mediaStream.codecTag = stream.value(QStringLiteral("codecTag")).toString();
+        mediaStream.codecTagString = stream.value(QStringLiteral("codecTagString")).toString();
+        mediaStream.codecId = stream.value(QStringLiteral("codecId")).toString();
+        mediaStream.dolbyVisionProfile = stream.value(QStringLiteral("dolbyVisionProfile"), 0).toInt();
+        mediaStream.dolbyVisionLevel = stream.value(QStringLiteral("dolbyVisionLevel"), 0).toInt();
+        mediaStream.dolbyVisionBlSignalCompatibilityId =
+            stream.value(QStringLiteral("dolbyVisionBlSignalCompatibilityId"), 0).toInt();
+        mediaStream.videoDoViTitle = stream.value(QStringLiteral("videoDoViTitle")).toString();
         info.mediaStreams.append(mediaStream);
     }
     return info;
@@ -392,6 +401,7 @@ private slots:
     void autoplayPlaybackInfoErrorFallsBackToBasicPlayback();
     void autoplayToneMapStateSurvivesPlaybackInfoFallback();
     void displayHdrPolicyDoesNotToggleWhenToneMappingToSdr();
+    void dolbyVisionWithHdr10BaseLayerDoesNotForceToneMap();
     void autoplayPlaybackInfoUsesStoredSubtitlePreferenceWhenOverrideUnset();
     void explicitSeasonPreferencesBeatGlobalTrackDefaults();
     void globalAudioLanguageSelectsMatchingStream();
@@ -1288,6 +1298,150 @@ void PlayerControllerAutoplayContextTest::displayHdrPolicyDoesNotToggleWhenToneM
     QVERIFY(policy.toneMapToSdr);
     QVERIFY(!policy.outputHdr);
     QVERIFY(!policy.shouldToggleDisplayHdr);
+}
+
+void PlayerControllerAutoplayContextTest::dolbyVisionWithHdr10BaseLayerDoesNotForceToneMap()
+{
+    ConfigManager config;
+    config.setEnableHDR(true);
+    config.setHDROutputMode(QStringLiteral("match-content"));
+    config.setDolbyVisionFallbackMode(QStringLiteral("prefer-compatible-hdr"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    const MediaSourceInfo mediaSource = buildMediaSourceInfo(
+        QStringLiteral("media-source-dv-hdr10"),
+        QStringLiteral("DV HDR10"),
+        QStringLiteral("/library/dv-hdr10.mkv"),
+        {
+            QVariantMap{
+                {QStringLiteral("index"), 0},
+                {QStringLiteral("type"), QStringLiteral("Video")},
+                {QStringLiteral("codec"), QStringLiteral("hevc")},
+                {QStringLiteral("codecTagString"), QStringLiteral("dovi")},
+                {QStringLiteral("videoRange"), QStringLiteral("HDR")},
+                {QStringLiteral("videoRangeType"), QStringLiteral("HDR10")},
+                {QStringLiteral("dolbyVisionProfile"), 5}
+            },
+            QVariantMap{
+                {QStringLiteral("index"), 1},
+                {QStringLiteral("type"), QStringLiteral("Audio")},
+                {QStringLiteral("codec"), QStringLiteral("aac")},
+                {QStringLiteral("isDefault"), true}
+            }
+        },
+        1);
+    const PlaybackInfoResponse playbackInfo = buildPlaybackInfo({mediaSource});
+    const QVariantList mediaSources = playbackInfo.getMediaSourcesVariant();
+
+    const QVariantMap context = controller.resolveSegmentPlaybackContext(QStringLiteral("item-dv-hdr10"),
+                                                                         true,
+                                                                         playbackInfo,
+                                                                         mediaSources,
+                                                                         mediaSources.first().toMap(),
+                                                                         -2,
+                                                                         -2,
+                                                                         false);
+
+    QVERIFY(!context.isEmpty());
+    QVERIFY(context.value(QStringLiteral("isHDR")).toBool());
+    QCOMPARE(context.value(QStringLiteral("hdrKind")).toString(), QStringLiteral("dolby-vision-compatible"));
+    QVERIFY(!context.value(QStringLiteral("toneMapToSdr")).toBool());
+
+    const MediaSourceInfo jellyfinNumericSource = MediaSourceInfo::fromJson(QJsonObject{
+        {QStringLiteral("Id"), QStringLiteral("media-source-dv-p7-json")},
+        {QStringLiteral("Name"), QStringLiteral("Obsession (2026) [DV HDR10]")},
+        {QStringLiteral("Path"), QStringLiteral("/library/Obsession (2026) [DV HDR10].mkv")},
+        {QStringLiteral("Container"), QStringLiteral("mkv")},
+        {QStringLiteral("DefaultAudioStreamIndex"), 1},
+        {QStringLiteral("MediaStreams"), QJsonArray{
+            QJsonObject{
+                {QStringLiteral("Index"), 0},
+                {QStringLiteral("Type"), 1},
+                {QStringLiteral("Codec"), QStringLiteral("hevc")},
+                {QStringLiteral("Profile"), QStringLiteral("Main 10")},
+                {QStringLiteral("DisplayTitle"), QStringLiteral("4K HEVC Dolby Vision Profile 7.6 (HDR10)")},
+                {QStringLiteral("VideoRange"), 2},
+                {QStringLiteral("VideoRangeType"), 7},
+                {QStringLiteral("DvProfile"), 7},
+                {QStringLiteral("DvLevel"), 6},
+                {QStringLiteral("DvBlSignalCompatibilityId"), 6},
+                {QStringLiteral("VideoDoViTitle"), QStringLiteral("Dolby Vision Profile 7.6 (HDR10)")}
+            },
+            QJsonObject{
+                {QStringLiteral("Index"), 1},
+                {QStringLiteral("Type"), 0},
+                {QStringLiteral("Codec"), QStringLiteral("truehd")},
+                {QStringLiteral("IsDefault"), true}
+            }
+        }}
+    });
+    const PlaybackInfoResponse jellyfinNumericPlaybackInfo = buildPlaybackInfo({jellyfinNumericSource});
+    const QVariantList jellyfinNumericMediaSources = jellyfinNumericPlaybackInfo.getMediaSourcesVariant();
+    const QVariantMap jellyfinNumericContext =
+        controller.resolveSegmentPlaybackContext(QStringLiteral("item-dv-p7-json"),
+                                                 true,
+                                                 jellyfinNumericPlaybackInfo,
+                                                 jellyfinNumericMediaSources,
+                                                 jellyfinNumericMediaSources.first().toMap(),
+                                                 -2,
+                                                 -2,
+                                                 false);
+
+    QVERIFY(!jellyfinNumericContext.isEmpty());
+    QVERIFY(jellyfinNumericContext.value(QStringLiteral("isHDR")).toBool());
+    QCOMPARE(jellyfinNumericContext.value(QStringLiteral("hdrKind")).toString(),
+             QStringLiteral("dolby-vision-compatible"));
+    QVERIFY(!jellyfinNumericContext.value(QStringLiteral("toneMapToSdr")).toBool());
+
+    const MediaSourceInfo filenameOnlySource = buildMediaSourceInfo(
+        QStringLiteral("media-source-dv-hdr10-name"),
+        QStringLiteral("Obsession (2026) [Remux-2160p][DV HDR10][HEVC]"),
+        QStringLiteral("/library/Obsession (2026) [Remux-2160p][DV HDR10][HEVC].mkv"),
+        {
+            QVariantMap{
+                {QStringLiteral("index"), 0},
+                {QStringLiteral("type"), QStringLiteral("Video")},
+                {QStringLiteral("codec"), QStringLiteral("hevc")},
+                {QStringLiteral("displayTitle"), QStringLiteral("4K HEVC Dolby Vision")},
+                {QStringLiteral("dolbyVisionProfile"), 5}
+            },
+            QVariantMap{
+                {QStringLiteral("index"), 1},
+                {QStringLiteral("type"), QStringLiteral("Audio")},
+                {QStringLiteral("codec"), QStringLiteral("aac")},
+                {QStringLiteral("isDefault"), true}
+            }
+        },
+        1);
+    const PlaybackInfoResponse filenameOnlyPlaybackInfo = buildPlaybackInfo({filenameOnlySource});
+    const QVariantList filenameOnlyMediaSources = filenameOnlyPlaybackInfo.getMediaSourcesVariant();
+    const QVariantMap filenameOnlyContext =
+        controller.resolveSegmentPlaybackContext(QStringLiteral("item-dv-hdr10-name"),
+                                                 true,
+                                                 filenameOnlyPlaybackInfo,
+                                                 filenameOnlyMediaSources,
+                                                 filenameOnlyMediaSources.first().toMap(),
+                                                 -2,
+                                                 -2,
+                                                 false);
+
+    QVERIFY(!filenameOnlyContext.isEmpty());
+    QVERIFY(filenameOnlyContext.value(QStringLiteral("isHDR")).toBool());
+    QCOMPARE(filenameOnlyContext.value(QStringLiteral("hdrKind")).toString(), QStringLiteral("dolby-vision-compatible"));
+    QVERIFY(!filenameOnlyContext.value(QStringLiteral("toneMapToSdr")).toBool());
 }
 
 void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoUsesStoredSubtitlePreferenceWhenOverrideUnset()

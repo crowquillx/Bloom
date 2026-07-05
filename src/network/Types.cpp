@@ -3,6 +3,7 @@
 #include <QJsonParseError>
 #include <QtMath>
 #include "../utils/BloomLogging.h"
+#include <cmath>
 
 /**
  * @brief Register Qt metatypes for network data structures
@@ -34,6 +35,59 @@ void registerNetworkMetaTypes()
 // MediaStreamInfo Implementation
 // ============================================================================
 
+namespace {
+
+QString jsonValueToString(const QJsonValue &value)
+{
+    if (value.isString()) {
+        return value.toString();
+    }
+    if (value.isDouble()) {
+        const double number = value.toDouble();
+        if (qFuzzyCompare(number, std::round(number))) {
+            return QString::number(static_cast<int>(number));
+        }
+        return QString::number(number);
+    }
+    return QString();
+}
+
+int jsonValueToInt(const QJsonValue &value, int defaultValue = 0)
+{
+    if (value.isDouble()) {
+        return value.toInt(defaultValue);
+    }
+    if (value.isString()) {
+        bool ok = false;
+        const int parsed = value.toString().toInt(&ok);
+        return ok ? parsed : defaultValue;
+    }
+    return defaultValue;
+}
+
+QString jsonValueToStreamType(const QJsonValue &value)
+{
+    if (value.isString()) {
+        return value.toString();
+    }
+    if (!value.isDouble()) {
+        return QString();
+    }
+
+    switch (value.toInt(-1)) {
+    case 0:
+        return QStringLiteral("Audio");
+    case 1:
+        return QStringLiteral("Video");
+    case 2:
+        return QStringLiteral("Subtitle");
+    default:
+        return QString();
+    }
+}
+
+} // namespace
+
 /**
  * @brief Parse MediaStreamInfo from Jellyfin API JSON response
  * 
@@ -58,7 +112,7 @@ MediaStreamInfo MediaStreamInfo::fromJson(const QJsonObject &json)
 {
     MediaStreamInfo info;
     info.index = json["Index"].toInt(-1);
-    info.type = json["Type"].toString();
+    info.type = jsonValueToStreamType(json["Type"]);
     info.codec = json["Codec"].toString();
     info.language = json["Language"].toString();
     info.title = json["Title"].toString();
@@ -75,13 +129,19 @@ MediaStreamInfo MediaStreamInfo::fromJson(const QJsonObject &json)
     info.averageFrameRate = json["AverageFrameRate"].toDouble();
     info.realFrameRate = json["RealFrameRate"].toDouble();
     info.profile = json["Profile"].toString();
-    info.videoRange = json["VideoRange"].toString();
-    info.videoRangeType = json["VideoRangeType"].toString();
-    info.codecTag = json["CodecTag"].toString();
-    info.codecTagString = json["CodecTagString"].toString();
-    info.codecId = json["CodecId"].toString();
-    info.dolbyVisionProfile = json["DolbyVisionProfile"].toInt();
-    info.dolbyVisionLevel = json["DolbyVisionLevel"].toInt();
+    info.videoRange = jsonValueToString(json["VideoRange"]);
+    info.videoRangeType = jsonValueToString(json["VideoRangeType"]);
+    info.codecTag = jsonValueToString(json["CodecTag"]);
+    info.codecTagString = jsonValueToString(json["CodecTagString"]);
+    info.codecId = jsonValueToString(json["CodecId"]);
+    info.dolbyVisionProfile = jsonValueToInt(json.contains(QStringLiteral("DvProfile"))
+                                                 ? json[QStringLiteral("DvProfile")]
+                                                 : json[QStringLiteral("DolbyVisionProfile")]);
+    info.dolbyVisionLevel = jsonValueToInt(json.contains(QStringLiteral("DvLevel"))
+                                               ? json[QStringLiteral("DvLevel")]
+                                               : json[QStringLiteral("DolbyVisionLevel")]);
+    info.dolbyVisionBlSignalCompatibilityId = jsonValueToInt(json[QStringLiteral("DvBlSignalCompatibilityId")]);
+    info.videoDoViTitle = json[QStringLiteral("VideoDoViTitle")].toString();
     return info;
 }
 
@@ -121,6 +181,8 @@ QVariantMap MediaStreamInfo::toVariantMap() const
     streamMap["codecId"] = codecId;
     streamMap["dolbyVisionProfile"] = dolbyVisionProfile;
     streamMap["dolbyVisionLevel"] = dolbyVisionLevel;
+    streamMap["dolbyVisionBlSignalCompatibilityId"] = dolbyVisionBlSignalCompatibilityId;
+    streamMap["videoDoViTitle"] = videoDoViTitle;
     return streamMap;
 }
 
