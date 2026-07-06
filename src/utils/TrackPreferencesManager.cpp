@@ -16,6 +16,7 @@ constexpr auto kEpisodesKey = "episodes";
 constexpr auto kMoviesKey = "movies";
 constexpr auto kAudioKey = "audio";
 constexpr auto kSubtitleKey = "subtitle";
+constexpr auto kSubtitleDelayMsKey = "subtitleDelayMs";
 constexpr auto kModeKey = "mode";
 constexpr auto kStreamIndexKey = "streamIndex";
 constexpr auto kPreferredLanguageKey = "preferredLanguage";
@@ -99,6 +100,9 @@ QJsonObject scopedPreferencesToJson(const ScopedTrackPreferences &preferences)
     QJsonObject json;
     json[kAudioKey] = preferenceToJson(preferences.audio);
     json[kSubtitleKey] = preferenceToJson(preferences.subtitle);
+    if (preferences.subtitleDelayMs != 0) {
+        json[kSubtitleDelayMsKey] = preferences.subtitleDelayMs;
+    }
     return json;
 }
 
@@ -112,6 +116,7 @@ ScopedTrackPreferences scopedPreferencesFromJson(const QJsonValue &value)
     const QJsonObject object = value.toObject();
     preferences.audio = preferenceFromJson(object.value(kAudioKey));
     preferences.subtitle = preferenceFromJson(object.value(kSubtitleKey));
+    preferences.subtitleDelayMs = object.value(kSubtitleDelayMsKey).toInt(0);
     return preferences;
 }
 
@@ -200,7 +205,7 @@ void TrackPreferencesManager::load()
 
     const QJsonObject root = document.object();
     const int version = root.value(kVersionKey).toInt(-1);
-    if (version != kCurrentSchemaVersion) {
+    if (version != 2 && version != kCurrentSchemaVersion) {
         qCWarning(lcConfig) << "TrackPreferencesManager: Resetting legacy track preferences schema version"
                    << version << "expected" << kCurrentSchemaVersion;
         discardPersistedPreferences();

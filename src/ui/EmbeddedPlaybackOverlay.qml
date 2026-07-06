@@ -374,6 +374,36 @@ FocusScope {
         showControls()
     }
 
+    function formatSubtitleDelay(ms) {
+        if (ms === 0) {
+            return qsTr("0 ms")
+        }
+        var sign = ms > 0 ? "+" : "-"
+        return qsTr("%1%2 ms").arg(sign).arg(Math.abs(ms))
+    }
+
+    function adjustSubtitleDelayBy(delta) {
+        PlayerController.adjustSubtitleDelayMs(delta)
+        showControls()
+    }
+
+    function activateSubtitleDelayControl(control) {
+        if (control === subtitleDelayDecreaseButton) {
+            adjustSubtitleDelayBy(-PlayerController.subtitleDelayStepMs)
+            return true
+        }
+        if (control === subtitleDelayIncreaseButton) {
+            adjustSubtitleDelayBy(PlayerController.subtitleDelayStepMs)
+            return true
+        }
+        if (control === subtitleDelayResetButton) {
+            PlayerController.resetSubtitleDelay()
+            showControls()
+            return true
+        }
+        return false
+    }
+
     function stopPlaybackFromBackAction() {
         if (tryDismissPlaybackOverlayBeforeStop()) {
             return
@@ -396,14 +426,48 @@ FocusScope {
             return true
         }
         if (subtitleSelectorOpen) {
+            var active = root.Window.activeFocusItem
+            if (active === subtitleDelayDecreaseButton
+                    || active === subtitleDelayIncreaseButton
+                    || active === subtitleDelayResetButton) {
+                if (direction === "left") {
+                    if (active === subtitleDelayDecreaseButton) {
+                        subtitleDelayResetButton.forceActiveFocus()
+                    } else if (active === subtitleDelayIncreaseButton) {
+                        subtitleDelayDecreaseButton.forceActiveFocus()
+                    } else {
+                        subtitleDelayIncreaseButton.forceActiveFocus()
+                    }
+                    return true
+                }
+                if (direction === "right") {
+                    if (active === subtitleDelayDecreaseButton) {
+                        subtitleDelayIncreaseButton.forceActiveFocus()
+                    } else if (active === subtitleDelayIncreaseButton) {
+                        subtitleDelayResetButton.forceActiveFocus()
+                    } else {
+                        subtitleDelayDecreaseButton.forceActiveFocus()
+                    }
+                    return true
+                }
+                if (direction === "up") {
+                    subtitleList.forceActiveFocus()
+                    return true
+                }
+                return true
+            }
             if (direction === "up") {
                 subtitleList.currentIndex = Math.max(0, subtitleList.currentIndex - 1)
                 subtitleList.positionViewAtIndex(subtitleList.currentIndex, ListView.Contain)
                 return true
             }
             if (direction === "down") {
-                subtitleList.currentIndex = Math.min(subtitleList.count - 1, subtitleList.currentIndex + 1)
-                subtitleList.positionViewAtIndex(subtitleList.currentIndex, ListView.Contain)
+                if (subtitleList.currentIndex >= subtitleList.count - 1) {
+                    subtitleDelayDecreaseButton.forceActiveFocus()
+                } else {
+                    subtitleList.currentIndex = Math.min(subtitleList.count - 1, subtitleList.currentIndex + 1)
+                    subtitleList.positionViewAtIndex(subtitleList.currentIndex, ListView.Contain)
+                }
                 return true
             }
             return true
@@ -440,6 +504,9 @@ FocusScope {
             return true
         }
         if (subtitleSelectorOpen) {
+            if (activateSubtitleDelayControl(root.Window.activeFocusItem)) {
+                return true
+            }
             if (subtitleList.currentIndex >= 0 && subtitleList.currentIndex < subtitleList.count) {
                 PlayerController.setSelectedSubtitleTrack(subtitleTrackOptions[subtitleList.currentIndex].index)
                 subtitleSelectorOpen = false
@@ -2297,7 +2364,7 @@ FocusScope {
         visible: root.subtitleSelectorOpen
         z: 1200
         width: Math.round(520 * Theme.layoutScale)
-        height: Math.min(Math.round(560 * Theme.layoutScale), Math.round(root.height * 0.72))
+        height: Math.min(Math.round(650 * Theme.layoutScale), Math.round(root.height * 0.78))
         x: root.buttonXInRoot(subtitleButton, width)
         y: root.buttonYInRoot(subtitleButton, height)
         radius: Theme.radiusXLarge
@@ -2379,8 +2446,12 @@ FocusScope {
                         positionViewAtIndex(currentIndex, ListView.Contain)
                     } else if (event.key === Qt.Key_Down) {
                         event.accepted = true
-                        currentIndex = Math.min(count - 1, currentIndex + 1)
-                        positionViewAtIndex(currentIndex, ListView.Contain)
+                        if (currentIndex >= count - 1) {
+                            subtitleDelayDecreaseButton.forceActiveFocus()
+                        } else {
+                            currentIndex = Math.min(count - 1, currentIndex + 1)
+                            positionViewAtIndex(currentIndex, ListView.Contain)
+                        }
                     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
                         event.accepted = true
                         if (currentIndex >= 0 && currentIndex < count) {
@@ -2397,6 +2468,90 @@ FocusScope {
                     }
                 }
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            }
+
+            Rectangle {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.round(90 * Theme.layoutScale)
+                radius: Theme.radiusMedium
+                color: Theme.hoverOverlay
+                border.width: 1
+                border.color: Theme.cardBorder
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.margins: Math.round(12 * Theme.layoutScale)
+                    spacing: Math.round(12 * Theme.layoutScale)
+
+                    Text {
+                        text: qsTr("Delay")
+                        color: Theme.textSecondary
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Math.round(22 * Theme.layoutScale)
+                        font.weight: Font.Medium
+                        Layout.fillWidth: true
+                        elide: Text.ElideRight
+                    }
+
+                    GlassCircleButton {
+                        id: subtitleDelayDecreaseButton
+                        diameter: Math.round(44 * Theme.layoutScale)
+                        iconSize: Math.round(24 * Theme.layoutScale)
+                        text: Icons.remove
+                        autoRepeat: true
+                        autoRepeatDelay: 260
+                        autoRepeatInterval: 35
+                        onClicked: root.adjustSubtitleDelayBy(-PlayerController.subtitleDelayStepMs)
+                        KeyNavigation.left: subtitleDelayResetButton
+                        KeyNavigation.right: subtitleDelayIncreaseButton
+                        KeyNavigation.up: subtitleList
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Earlier")
+                    }
+
+                    Text {
+                        text: root.formatSubtitleDelay(PlayerController.subtitleDelayMs)
+                        color: Theme.textPrimary
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Math.round(24 * Theme.layoutScale)
+                        font.weight: Font.DemiBold
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                        Layout.preferredWidth: Math.round(118 * Theme.layoutScale)
+                        elide: Text.ElideRight
+                    }
+
+                    GlassCircleButton {
+                        id: subtitleDelayIncreaseButton
+                        diameter: Math.round(44 * Theme.layoutScale)
+                        iconSize: Math.round(24 * Theme.layoutScale)
+                        text: Icons.add
+                        autoRepeat: true
+                        autoRepeatDelay: 260
+                        autoRepeatInterval: 35
+                        onClicked: root.adjustSubtitleDelayBy(PlayerController.subtitleDelayStepMs)
+                        KeyNavigation.left: subtitleDelayDecreaseButton
+                        KeyNavigation.right: subtitleDelayResetButton
+                        KeyNavigation.up: subtitleList
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Later")
+                    }
+
+                    GlassCircleButton {
+                        id: subtitleDelayResetButton
+                        diameter: Math.round(44 * Theme.layoutScale)
+                        iconSize: Math.round(22 * Theme.layoutScale)
+                        text: Icons.replay
+                        enabled: PlayerController.subtitleDelayMs !== 0
+                        opacity: enabled ? 1.0 : 0.45
+                        onClicked: PlayerController.resetSubtitleDelay()
+                        KeyNavigation.left: subtitleDelayIncreaseButton
+                        KeyNavigation.right: subtitleDelayDecreaseButton
+                        KeyNavigation.up: subtitleList
+                        ToolTip.visible: hovered
+                        ToolTip.text: qsTr("Reset")
+                    }
+                }
             }
         }
     }

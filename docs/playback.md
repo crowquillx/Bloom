@@ -123,6 +123,7 @@ Audio/Subtitle Track Selection
 - If PlaybackInfo provides `DirectStreamUrl` or `TranscodingUrl`, Bloom uses that Jellyfin-selected URL for playback and appends missing auth/media-source/track query parameters. The older constructed `/Videos/{itemId}/stream` URL remains the fallback when PlaybackInfo does not include a playback URL.
 - The server provides `defaultAudioStreamIndex` and `defaultSubtitleStreamIndex` which reflect the user's preferences set on the Jellyfin server.
 - Use `PlayerController::setSelectedAudioTrack(index)` and `setSelectedSubtitleTrack(index)` to change tracks during playback via mpv IPC (`aid`, `sid` properties).
+- Use `PlayerController::setSubtitleDelayMs(delayMs)`, `adjustSubtitleDelayMs(deltaMs)`, or `resetSubtitleDelay()` to retime primary subtitles during playback. Bloom stores delay in milliseconds, applies it to mpv's `sub-delay` property as fractional seconds, and accepts negative or positive offsets.
 - Initial selection resolution order:
   - request-time override from the playback request/autoplay context, if valid
   - explicit saved preference for the current season/movie scope, if still valid
@@ -142,21 +143,23 @@ Audio/Subtitle Track Selection
   - Subtitle `None` is Jellyfin `-1` and is applied as `sid=no`.
   - Startup applies resolved mapped selection deterministically; URL stream indices are treated as request hints/fallback.
 - Track selections are persisted per-season for TV shows and per-movie for films (see Track Preference Persistence below).
+- Subtitle delay is persisted in the same season/movie scope as subtitle selection.
 - All playback reporting methods include `mediaSourceId`, `audioStreamIndex`, `subtitleStreamIndex`, and `playSessionId` for proper server sync.
 
 Track Preference Persistence
 - Track preferences are stored separately from the main config in `~/.config/Bloom/track_preferences.json`.
 - The file stores only explicit user intent. Unset preferences fall back to Jellyfin/file defaults and are not written.
+- Subtitle delay is written as `subtitleDelayMs` only when non-zero.
 - Global app-level audio/subtitle fallback defaults are stored in the main config, not in `track_preferences.json`.
 - Preferences are loaded at startup and saved with a 1-second delay to batch multiple changes.
-- Schema is versioned. Legacy/unversioned files are intentionally discarded and replaced on the next save.
+- Schema is versioned. Version 2 preference files are read and upgraded on save; older legacy/unversioned files are intentionally discarded and replaced on the next save.
 
 ### TV Episodes (Per-Season)
 - Preferences are stored by season ID, not series ID, because:
   - Different seasons may have different audio tracks available (e.g., added dubs in later seasons)
   - Subtitle indexing can vary between seasons
 - When the user changes audio/subtitle track in `SeriesSeasonEpisodeView`, the preference is immediately saved.
-- When navigating to a new episode in the same season, explicit preferences are restored. If they are missing or invalid for the new source, Bloom falls back through the standard resolution order.
+- When navigating to a new episode in the same season, explicit preferences and subtitle delay are restored. If track preferences are missing or invalid for the new source, Bloom falls back through the standard resolution order.
 - Use `PlayerController.getLastAudioTrackForSeason(seasonId)` and `getLastSubtitleTrackForSeason(seasonId)` to retrieve.
 - Use `PlayerController.setExplicitSeasonAudioPreference(seasonId, index)` and `setExplicitSeasonSubtitlePreference(seasonId, index)` to save.
 - `SeriesSeasonEpisodeView` preloads Jellyfin chapter metadata for the highlighted episode and keeps a `Chapters` rail between `Episodes` and `Cast & Crew`; missing chapters resolve to a quiet reserved empty state.
@@ -167,18 +170,19 @@ Track Preference Persistence
 - When the user changes audio/subtitle track in `MovieDetailsView`, the preference is immediately saved.
 - `MovieDetailsView` exposes the same chapter-card playback rail above `Cast & Crew`; activating a chapter starts the movie at that chapter's start tick.
 - Detail-page primary `Play` / `Resume` controls remain pressable while playback info is preparing, show a spinner in place of the normal glyph, and preserve the existing "still preparing" toast on press.
-- When returning to the same movie, explicit preferences are restored instead of server defaults. If none were saved, Bloom uses Jellyfin/file defaults.
+- When returning to the same movie, explicit preferences and subtitle delay are restored instead of server defaults. If none were saved, Bloom uses Jellyfin/file defaults.
 - Use `PlayerController.getLastAudioTrackForMovie(movieId)` and `getLastSubtitleTrackForMovie(movieId)` to retrieve.
 - Use `PlayerController.setExplicitMovieAudioPreference(movieId, index)` and `setExplicitMovieSubtitlePreference(movieId, index)` to save.
 
 ### JSON Format
 ```json
 {
-  "version": 2,
+  "version": 3,
   "episodes": {
     "seasonId1": {
       "audio": { "mode": "explicit", "streamIndex": 1 },
-      "subtitle": { "mode": "explicit", "streamIndex": 2 }
+      "subtitle": { "mode": "explicit", "streamIndex": 2 },
+      "subtitleDelayMs": -125
     },
     "seasonId2": {
       "audio": { "mode": "unset" },
@@ -232,6 +236,7 @@ UI Components for Track Selection
 - `EmbeddedPlaybackOverlay.qml`: Native 10-foot playback overlay (top metadata bar + bottom transport row) rendered in the dedicated transparent overlay window for Windows embedded playback.
   - Active playback chrome uses theme-derived top and bottom regional shadows so metadata, transport controls, and chapter cards stay readable over video in both dark and light theme variants.
   - Left group: audio/subtitle icon buttons (runtime track cycling via `PlayerController`).
+  - The subtitle panel includes subtitle delay controls. Plus/minus adjust the saved delay by 1 ms and reset returns the current season/movie scope to zero delay.
   - Center group: skip back 10s, previous chapter, play/pause, next chapter, skip forward 10s.
   - Right group: volume icon button opens a native volume panel (slider + muted state) with left/right keyboard/gamepad adjustment and Enter/Space mute toggle.
   - Direct playback shortcuts are resolved through `InputBindingManager` in the `playback` runtime context so keyboard and controller bindings are configurable in Settings > Input. Defaults include `+`/`=` or media volume-up for volume up, `-` or media volume-down for volume down, `V` for the volume panel, `A` for audio tracks, and `S`/`T`/`C` for subtitles.

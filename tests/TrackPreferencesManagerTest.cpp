@@ -70,8 +70,9 @@ class TrackPreferencesManagerTest : public QObject
 private slots:
     void missingFileLoadsEmptyState();
     void legacySchemaIsDiscarded();
+    void v2SchemaLoadsWithoutSubtitleDelay();
     void invalidJsonIsDeleted();
-    void v2SchemaRoundTripsExplicitAndOffPreferences();
+    void v3SchemaRoundTripsExplicitOffAndDelayPreferences();
     void saveWritesVersionedPreferencesFile();
 };
 
@@ -110,6 +111,38 @@ void TrackPreferencesManagerTest::legacySchemaIsDiscarded()
     QVERIFY(!QFileInfo::exists(preferencesPath));
 }
 
+void TrackPreferencesManagerTest::v2SchemaLoadsWithoutSubtitleDelay()
+{
+    requireLinuxConfigIsolation();
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigHome configHome(tempDir.path());
+
+    const QString preferencesPath = TrackPreferencesManager::getPreferencesPath();
+    writeJsonFile(preferencesPath,
+                  QJsonObject{
+                      {QStringLiteral("version"), 2},
+                      {QStringLiteral("episodes"),
+                       QJsonObject{
+                           {QStringLiteral("season-1"),
+                            QJsonObject{
+                                {QStringLiteral("subtitle"),
+                                 QJsonObject{
+                                     {QStringLiteral("mode"), QStringLiteral("explicit")},
+                                     {QStringLiteral("streamIndex"), 6}
+                                 }}
+                            }}
+                       }},
+                      {QStringLiteral("movies"), QJsonObject{}}
+                  });
+
+    TrackPreferencesManager manager;
+    const ScopedTrackPreferences preferences = manager.getSeasonPreferences(QStringLiteral("season-1"));
+    QCOMPARE(preferences.subtitle.mode, TrackPreferenceMode::ExplicitStream);
+    QCOMPARE(preferences.subtitle.streamIndex, 6);
+    QCOMPARE(preferences.subtitleDelayMs, 0);
+}
+
 void TrackPreferencesManagerTest::invalidJsonIsDeleted()
 {
     requireLinuxConfigIsolation();
@@ -129,7 +162,7 @@ void TrackPreferencesManagerTest::invalidJsonIsDeleted()
     QVERIFY(!QFileInfo::exists(preferencesPath));
 }
 
-void TrackPreferencesManagerTest::v2SchemaRoundTripsExplicitAndOffPreferences()
+void TrackPreferencesManagerTest::v3SchemaRoundTripsExplicitOffAndDelayPreferences()
 {
     requireLinuxConfigIsolation();
     QTemporaryDir tempDir;
@@ -143,11 +176,13 @@ void TrackPreferencesManagerTest::v2SchemaRoundTripsExplicitAndOffPreferences()
         seasonPrefs.audio.mode = TrackPreferenceMode::ExplicitStream;
         seasonPrefs.audio.streamIndex = 4;
         seasonPrefs.subtitle.mode = TrackPreferenceMode::Off;
+        seasonPrefs.subtitleDelayMs = -125;
         manager.setSeasonPreferences(QStringLiteral("season-42"), seasonPrefs);
 
         ScopedTrackPreferences moviePrefs;
         moviePrefs.subtitle.mode = TrackPreferenceMode::ExplicitStream;
         moviePrefs.subtitle.streamIndex = 7;
+        moviePrefs.subtitleDelayMs = 250;
         manager.setMoviePreferences(QStringLiteral("movie-7"), moviePrefs);
 
         manager.save();
@@ -158,10 +193,12 @@ void TrackPreferencesManagerTest::v2SchemaRoundTripsExplicitAndOffPreferences()
     QCOMPARE(seasonPrefs.audio.mode, TrackPreferenceMode::ExplicitStream);
     QCOMPARE(seasonPrefs.audio.streamIndex, 4);
     QCOMPARE(seasonPrefs.subtitle.mode, TrackPreferenceMode::Off);
+    QCOMPARE(seasonPrefs.subtitleDelayMs, -125);
 
     const ScopedTrackPreferences moviePrefs = reloaded.getMoviePreferences(QStringLiteral("movie-7"));
     QCOMPARE(moviePrefs.subtitle.mode, TrackPreferenceMode::ExplicitStream);
     QCOMPARE(moviePrefs.subtitle.streamIndex, 7);
+    QCOMPARE(moviePrefs.subtitleDelayMs, 250);
 }
 
 void TrackPreferencesManagerTest::saveWritesVersionedPreferencesFile()
@@ -185,7 +222,7 @@ void TrackPreferencesManagerTest::saveWritesVersionedPreferencesFile()
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
     QVERIFY(document.isObject());
     const QJsonObject root = document.object();
-    QCOMPARE(root.value(QStringLiteral("version")).toInt(-1), 2);
+    QCOMPARE(root.value(QStringLiteral("version")).toInt(-1), 3);
     QVERIFY(root.value(QStringLiteral("episodes")).toObject().contains(QStringLiteral("season-9")));
 }
 

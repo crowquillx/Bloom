@@ -569,6 +569,11 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     }
 }
 
+int PlayerController::subtitleDelayStepMs() const
+{
+    return 1;
+}
+
 PlayerController::~PlayerController()
 {
     // Cleanup timers
@@ -892,6 +897,7 @@ void PlayerController::enterIdleStateImmediate()
     m_currentPosition = 0;
     m_duration = 0;
     m_cacheEndSeconds = 0;
+    m_subtitleDelayMs = 0;
     m_hasReportedStart = false;
     m_seekTargetWhileBuffering = -1;
     m_reportProgressOnNextPositionUpdate = false;
@@ -928,6 +934,7 @@ void PlayerController::enterIdleStateImmediate()
     clearPlaybackSegments();
     emit selectedAudioTrackChanged();
     emit selectedSubtitleTrackChanged();
+    emit subtitleDelayChanged();
     emit mediaSourceIdChanged();
     emit playSessionIdChanged();
     emit availableTracksChanged();
@@ -1052,6 +1059,8 @@ void PlayerController::onEnterBufferingState()
         qCDebug(lcPlayback) << "PlayerController: Applying audio delay:" << delaySeconds << "s";
         m_playerBackend->sendVariantCommand({"set_property", "audio-delay", delaySeconds});
     }
+
+    applySubtitleDelay();
 
     m_playerBackend->sendVariantCommand({"set_property", "volume", m_volume});
     m_playerBackend->sendVariantCommand({"set_property", "mute", m_muted});
@@ -3079,6 +3088,7 @@ void PlayerController::playTestVideo()
         m_currentSeasonId.clear();
         m_currentLibraryId.clear();
         m_contentFramerate = 0.0;
+        emit subtitleDelayStepChanged();
         m_contentIsHDR = false;
         m_contentShouldToneMapToSdr = false;
         m_currentPosition = 0.0;
@@ -3100,6 +3110,7 @@ void PlayerController::playTestVideo()
         clearOverlayMetadata();
         m_selectedAudioTrack = -1;
         m_selectedSubtitleTrack = -1;
+        m_subtitleDelayMs = 0;
         m_mpvAudioTrack = -1;
         m_mpvSubtitleTrack = -1;
         m_audioTrackMap.clear();
@@ -3115,6 +3126,7 @@ void PlayerController::playTestVideo()
         m_activeMediaSource.clear();
         emit selectedAudioTrackChanged();
         emit selectedSubtitleTrackChanged();
+        emit subtitleDelayChanged();
         emit mediaSourceIdChanged();
         emit playSessionIdChanged();
         emit availableTracksChanged();
@@ -3200,6 +3212,12 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_startPositionTicks = startPositionTicks;
         m_shouldAutoplay = false;
         m_contentFramerate = framerate;
+        emit subtitleDelayStepChanged();
+        const int scopedSubtitleDelayMs = subtitleDelayForScope(seasonId, itemId, seriesId.isEmpty());
+        if (m_subtitleDelayMs != scopedSubtitleDelayMs) {
+            m_subtitleDelayMs = scopedSubtitleDelayMs;
+            emit subtitleDelayChanged();
+        }
         m_mpvDisplayFpsOverride = 0.0;
         m_contentIsHDR = isHDR;
         m_contentShouldToneMapToSdr = toneMapToSdr;
@@ -3547,6 +3565,41 @@ void PlayerController::setSelectedAudioTrack(int index)
 void PlayerController::setAudioDelay(int ms)
 {
     m_config->setAudioDelay(ms);
+}
+
+void PlayerController::setSubtitleDelayMs(int delayMs)
+{
+    const int clamped = qBound(-kMaxSubtitleDelayMs, delayMs, kMaxSubtitleDelayMs);
+    if (m_subtitleDelayMs == clamped) {
+        if (m_playbackState == Loading || m_playbackState == Buffering
+            || m_playbackState == Playing || m_playbackState == Paused) {
+            applySubtitleDelay();
+        }
+        return;
+    }
+
+    m_subtitleDelayMs = clamped;
+    emit subtitleDelayChanged();
+
+    if (m_playbackState == Loading || m_playbackState == Buffering
+        || m_playbackState == Playing || m_playbackState == Paused) {
+        applySubtitleDelay();
+    }
+
+    persistSubtitleDelayForCurrentScope(m_subtitleDelayMs);
+}
+
+void PlayerController::adjustSubtitleDelayMs(int deltaMs)
+{
+    if (deltaMs == 0) {
+        return;
+    }
+    setSubtitleDelayMs(m_subtitleDelayMs + deltaMs);
+}
+
+void PlayerController::resetSubtitleDelay()
+{
+    setSubtitleDelayMs(0);
 }
 
 void PlayerController::setSelectedSubtitleTrack(int index)
@@ -4432,6 +4485,41 @@ void PlayerController::applyAudioOutputDevice()
     // system default; for an explicit device it (re)opens that endpoint.
     m_playerBackend->sendVariantCommand({"set_property", "audio-device", desired});
     m_playerBackend->sendVariantCommand({"ao-reload"});
+}
+
+void PlayerController::applySubtitleDelay()
+{
+    if (!m_playerBackend) {
+        return;
+    }
+
+    const double delaySeconds = static_cast<double>(m_subtitleDelayMs) / 1000.0;
+    qCDebug(lcPlayback) << "PlayerController: Applying subtitle delay:" << delaySeconds << "s";
+    m_playerBackend->sendVariantCommand({"set_property", "sub-delay", delaySeconds});
+}
+
+void PlayerController::persistSubtitleDelayForCurrentScope(int delayMs)
+{
+    if (!m_currentSeasonId.isEmpty()) {
+        updateSeasonPreference(m_currentSeasonId, [delayMs](ScopedTrackPreferences &preferences) {
+            preferences.subtitleDelayMs = delayMs;
+        });
+    } else if (m_currentSeriesId.isEmpty() && !m_currentItemId.isEmpty()) {
+        updateMoviePreference(m_currentItemId, [delayMs](ScopedTrackPreferences &preferences) {
+            preferences.subtitleDelayMs = delayMs;
+        });
+    }
+}
+
+int PlayerController::subtitleDelayForScope(const QString &seasonId, const QString &itemId, bool isMovie) const
+{
+    if (!seasonId.isEmpty()) {
+        return m_trackPrefs->getSeasonPreferences(seasonId).subtitleDelayMs;
+    }
+    if (isMovie && !itemId.isEmpty()) {
+        return m_trackPrefs->getMoviePreferences(itemId).subtitleDelayMs;
+    }
+    return 0;
 }
 
 void PlayerController::persistAudioPreferenceForCurrentScope(int index)

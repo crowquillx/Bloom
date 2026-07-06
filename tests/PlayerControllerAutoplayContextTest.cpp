@@ -441,6 +441,7 @@ private slots:
     void startupTrackSelectionUsesCanonicalMapWhenUrlNotPinned();
     void startupTrackSelectionRespectsPinnedUrlUnlessUserOverride();
     void runtimeTrackSelectionUsesCanonicalMapAndSubtitleNone();
+    void runtimeSubtitleDelayAppliesAndPersists();
     void backendTrackSyncUsesReverseMap();
 
 private:
@@ -3271,6 +3272,41 @@ void PlayerControllerAutoplayContextTest::runtimeTrackSelectionUsesCanonicalMapA
     QCOMPARE(preferences.audio.mode, TrackPreferenceMode::ExplicitStream);
     QCOMPARE(preferences.audio.streamIndex, 5);
     QCOMPARE(preferences.subtitle.mode, TrackPreferenceMode::Off);
+}
+
+void PlayerControllerAutoplayContextTest::runtimeSubtitleDelayAppliesAndPersists()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    backend.setRunning(true);
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_currentSeasonId = QStringLiteral("season-delay");
+
+    controller.setSubtitleDelayMs(-42);
+    QCOMPARE(controller.subtitleDelayMs(), -42);
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sub-delay", -0.042}));
+
+    const ScopedTrackPreferences preferences = trackPrefs.getSeasonPreferences(QStringLiteral("season-delay"));
+    QCOMPARE(preferences.subtitleDelayMs, -42);
+
+    controller.resetSubtitleDelay();
+    QCOMPARE(controller.subtitleDelayMs(), 0);
+    QVERIFY(backend.variantCommands.contains(QVariantList{"set_property", "sub-delay", 0.0}));
+    QVERIFY(trackPrefs.getSeasonPreferences(QStringLiteral("season-delay")).isEmpty());
 }
 
 void PlayerControllerAutoplayContextTest::backendTrackSyncUsesReverseMap()

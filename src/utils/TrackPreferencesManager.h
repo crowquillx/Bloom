@@ -44,16 +44,19 @@ struct ScopedTrackPreferences
 {
     TrackSelectionPreference audio;
     TrackSelectionPreference subtitle;
+    int subtitleDelayMs = 0;
 
     [[nodiscard]] bool isEmpty() const
     {
-        return !audio.isMeaningful() && !subtitle.isMeaningful();
+        return !audio.isMeaningful() && !subtitle.isMeaningful() && subtitleDelayMs == 0;
     }
 };
 
 inline bool operator==(const ScopedTrackPreferences &lhs, const ScopedTrackPreferences &rhs)
 {
-    return lhs.audio == rhs.audio && lhs.subtitle == rhs.subtitle;
+    return lhs.audio == rhs.audio
+        && lhs.subtitle == rhs.subtitle
+        && lhs.subtitleDelayMs == rhs.subtitleDelayMs;
 }
 
 /**
@@ -97,7 +100,7 @@ public:
     static QString getPreferencesPath();
 
 private:
-    static constexpr int kCurrentSchemaVersion = 2;
+    static constexpr int kCurrentSchemaVersion = 3;
     static constexpr int kInitialSaveDelayMs = 1000;
     static constexpr int kMaxSaveRetryAttempts = 3;
 

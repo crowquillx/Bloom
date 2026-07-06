@@ -97,6 +97,8 @@ class PlayerController : public QObject
     // Track selection properties
     Q_PROPERTY(int selectedAudioTrack READ selectedAudioTrack WRITE setSelectedAudioTrack NOTIFY selectedAudioTrackChanged)
     Q_PROPERTY(int selectedSubtitleTrack READ selectedSubtitleTrack WRITE setSelectedSubtitleTrack NOTIFY selectedSubtitleTrackChanged)
+    Q_PROPERTY(int subtitleDelayMs READ subtitleDelayMs WRITE setSubtitleDelayMs NOTIFY subtitleDelayChanged)
+    Q_PROPERTY(int subtitleDelayStepMs READ subtitleDelayStepMs NOTIFY subtitleDelayStepChanged)
     Q_PROPERTY(QString mediaSourceId READ mediaSourceId NOTIFY mediaSourceIdChanged)
     Q_PROPERTY(QString playSessionId READ playSessionId NOTIFY playSessionIdChanged)
     Q_PROPERTY(QVariantList availableAudioTracks READ availableAudioTracks NOTIFY availableTracksChanged)
@@ -182,6 +184,8 @@ public:
     // Track selection getters
     int selectedAudioTrack() const { return m_selectedAudioTrack; }
     int selectedSubtitleTrack() const { return m_selectedSubtitleTrack; }
+    int subtitleDelayMs() const { return m_subtitleDelayMs; }
+    int subtitleDelayStepMs() const;
     QString mediaSourceId() const { return m_mediaSourceId; }
     QString playSessionId() const { return m_playSessionId; }
     QVariantList availableAudioTracks() const { return m_availableAudioTracks; }
@@ -277,6 +281,9 @@ public:
     // Track selection methods - change tracks during playback via mpv
     Q_INVOKABLE void setSelectedAudioTrack(int index);
     Q_INVOKABLE void setSelectedSubtitleTrack(int index);
+    Q_INVOKABLE void setSubtitleDelayMs(int delayMs);
+    Q_INVOKABLE void adjustSubtitleDelayMs(int deltaMs);
+    Q_INVOKABLE void resetSubtitleDelay();
     Q_INVOKABLE void addExternalSubtitleTrack(const QString &subtitleUrl,
                                               const QString &displayTitle = QString(),
                                               const QString &language = QString(),
@@ -354,6 +361,8 @@ signals:
     // Track selection signals
     void selectedAudioTrackChanged();
     void selectedSubtitleTrackChanged();
+    void subtitleDelayChanged();
+    void subtitleDelayStepChanged();
     void mediaSourceIdChanged();
     void playSessionIdChanged();
     void availableTracksChanged();
@@ -647,6 +656,9 @@ private:
     void syncBackendSubtitleTrack(int mpvTrackId);
     void onAudioDeviceListChanged(const QVariantList &devices);
     void applyAudioOutputDevice();
+    void applySubtitleDelay();
+    void persistSubtitleDelayForCurrentScope(int delayMs);
+    int subtitleDelayForScope(const QString &seasonId, const QString &itemId, bool isMovie) const;
     void persistAudioPreferenceForCurrentScope(int index);
     void persistSubtitlePreferenceForCurrentScope(int index);
     void updateSeasonPreference(const QString &seasonId,
@@ -775,6 +787,7 @@ private:
     static constexpr int kVolumePersistDebounceMs = 250;
     static constexpr int kAutoplayPlaybackInfoTimeoutMs = 8000;
     static constexpr double kNextEpisodePrefetchTriggerPercent = 70.0;
+    static constexpr int kMaxSubtitleDelayMs = 600000;
 
     // Recovery from transient server loss
     struct RecoveryContext {
@@ -853,6 +866,7 @@ private:
     // Track selection state
     int m_selectedAudioTrack = -1;      // Jellyfin audio stream index (for API reporting)
     int m_selectedSubtitleTrack = -1;   // Jellyfin subtitle stream index (-1 = none)
+    int m_subtitleDelayMs = 0;          // mpv sub-delay in milliseconds, scoped like subtitle preferences
     int m_mpvAudioTrack = -1;           // mpv audio track number (1-based, -1 = auto)
     int m_mpvSubtitleTrack = -1;        // mpv subtitle track number (1-based, -1 = disabled)
     QHash<int, int> m_audioTrackMap;    // Jellyfin stream index -> mpv aid track ID (1-based)
