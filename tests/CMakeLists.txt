@@ -1,5 +1,12 @@
 enable_testing()
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(
+    NAME ProviderContractValidationTest
+    COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/contracts/provider_contracts_test.py
+)
+
 set(UPDATER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/updates/IUpdateProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/updates/IUpdateApplier.cpp

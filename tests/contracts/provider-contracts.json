@@ -1,0 +1,494 @@
+{
+  "schemaVersion": 1,
+  "snapshot": {
+    "bloomRevision": "571218325258fae98e5606f4b84cf92ff0c5b1e6",
+    "jellyfinVersion": "10.11.10",
+    "jellyfinImage": "docker.io/jellyfin/jellyfin@sha256:f66273e014b307e4ac46778845ebc1e9ee24b2e57c1fc17d5ec5ac3015649bfa",
+    "siloRevision": "8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6",
+    "siloImage": "ghcr.io/silo-server/silo-server@sha256:944ee9821de1d6a61876c9b7b06daa358118163d1e5f9b3aa9f5437856fd06e9",
+    "siloImageTag": "8044eb8"
+  },
+  "outcomes": {
+    "supported": "Bloom-required behavior and payload semantics are present.",
+    "partial": "The core path is usable, but some requested behavior or data is ignored or absent.",
+    "stubbed": "The route returns a success-shaped placeholder without the required behavior.",
+    "missing": "The route is absent or cannot provide fields Bloom requires.",
+    "not-applicable": "The deployment does not expose this protocol surface."
+  },
+  "surfaces": [
+    {
+      "id": "mediabrowser-v1",
+      "description": "The Jellyfin/Emby-shaped wire contract currently consumed by Bloom.",
+      "timeUnit": "ticks-100ns",
+      "authorizationProfile": "MediaBrowser Client=Bloom, Device=Desktop, DeviceId, Version, Token"
+    },
+    {
+      "id": "silo-native-v1",
+      "description": "Silo's native /api/v1 surface; documented for later adapters and not consumed in this issue.",
+      "timeUnit": "milliseconds",
+      "authorizationProfile": "Bearer access token plus profile and device headers"
+    }
+  ],
+  "deployments": [
+    {
+      "id": "jellyfin-supported",
+      "product": "Jellyfin",
+      "protocolMode": "native",
+      "surface": "mediabrowser-v1",
+      "supportLabel": "existing-jellyfin-support"
+    },
+    {
+      "id": "silo-8044eb8-compat",
+      "product": "Silo Server",
+      "protocolMode": "compatibility",
+      "surface": "mediabrowser-v1",
+      "supportLabel": "silo-compatibility-support"
+    },
+    {
+      "id": "silo-8044eb8-native",
+      "product": "Silo Server",
+      "protocolMode": "native",
+      "surface": "silo-native-v1",
+      "supportLabel": "research-only"
+    }
+  ],
+  "coverageRequirements": [
+    "auth.login",
+    "auth.validate",
+    "auth.invalid",
+    "catalog.views",
+    "catalog.items",
+    "catalog.details",
+    "catalog.latest",
+    "catalog.next-up",
+    "catalog.search",
+    "catalog.filters",
+    "artwork.standard",
+    "artwork.chapter",
+    "playback.info",
+    "playback.range-stream",
+    "playback.additional-parts",
+    "playback.trickplay",
+    "playback.report",
+    "state.played",
+    "state.favorite",
+    "hierarchy.ancestors",
+    "segments.plugin-intro-skipper",
+    "segments.standard",
+    "sessions.list",
+    "sessions.revoke",
+    "metadata.provider-ids",
+    "metadata.theme-songs",
+    "subtitles.delivery-url",
+    "cache.conditional-refresh",
+    "errors.expired-session"
+  ],
+  "contracts": [
+    {
+      "id": "auth.login",
+      "journey": "authentication",
+      "bloomCaller": "AuthenticationService::authenticate",
+      "method": "POST",
+      "path": "/Users/AuthenticateByName",
+      "requestSemantics": ["JSON body contains Username and Pw", "MediaBrowser client identity is sent before a token exists"],
+      "requiredSemantics": ["Response has a non-empty AccessToken", "Response User has non-empty Id and Name"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard Jellyfin password login contract."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Works for a single matching profile; multi-profile/PIN login requires username#profile and password#pin."}
+      }
+    },
+    {
+      "id": "auth.validate",
+      "journey": "authentication",
+      "bloomCaller": "AuthenticationService::validateAccessToken",
+      "method": "GET",
+      "path": "/Users/{userId}",
+      "requestSemantics": ["MediaBrowser token is present"],
+      "requiredSemantics": ["Valid token returns HTTP 200", "Returned user identity matches the authenticated profile"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Used for restart/session restoration."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat pseudo-user identity is stable for the account/profile pair."}
+      }
+    },
+    {
+      "id": "auth.invalid",
+      "journey": "authentication",
+      "bloomCaller": "AuthenticationService::onAuthenticateFinished",
+      "method": "POST",
+      "path": "/Users/AuthenticateByName",
+      "requestSemantics": ["Invalid Pw is submitted"],
+      "requiredSemantics": ["Invalid credentials return HTTP 401 rather than a success-shaped error"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Bloom maps 401 to invalid credentials."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat maps failed account/profile/PIN resolution to 401."}
+      }
+    },
+    {
+      "id": "catalog.views",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getViews",
+      "method": "GET",
+      "path": "/Users/{userId}/Views",
+      "requestSemantics": ["Authenticated profile userId is part of the route"],
+      "requiredSemantics": ["Response Items contains stable library Id and Name values"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard user views contract."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Profile-visible libraries are mapped to Jellyfin view DTOs."}
+      }
+    },
+    {
+      "id": "catalog.items",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getItems",
+      "method": "GET",
+      "path": "/Users/{userId}/Items",
+      "requestSemantics": ["Bloom sends paging, sort, item type, recursive, field, image and optional filter parameters"],
+      "requiredSemantics": ["Response has Items and TotalRecordCount", "StartIndex and Limit produce stable non-overlapping pages", "Requested sort order is honored"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Control deployment for the current query contract."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Core paging/search/type/sort are implemented; several advanced parameters are ignored."}
+      }
+    },
+    {
+      "id": "catalog.details",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getItem/getSeriesDetails",
+      "method": "GET",
+      "path": "/Users/{userId}/Items/{itemId}",
+      "requestSemantics": ["Bloom requests rich PascalCase fields including UserData, ProviderIds, People and MediaSources"],
+      "requiredSemantics": ["Id, Type and Name are non-empty", "UserData carries played/favorite/resume state when available"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard item detail contract."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Core movie/series/season/episode details work; some optional fields are empty."}
+      }
+    },
+    {
+      "id": "catalog.latest",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getLatestMedia",
+      "method": "GET",
+      "path": "/Users/{userId}/Items/Latest",
+      "requestSemantics": ["ParentId and rich Fields are requested"],
+      "requiredSemantics": ["Returned items belong to the requested visible library", "Items are ordered as latest media"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard latest-items contract."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Latest handler is backed by catalog data."}
+      }
+    },
+    {
+      "id": "catalog.next-up",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getNextUp",
+      "method": "GET",
+      "path": "/Shows/NextUp",
+      "requestSemantics": ["UserId, Limit and rich episode Fields are requested"],
+      "requiredSemantics": ["Items are playable episodes", "UserData.PlaybackPositionTicks distinguishes Bloom's continue-watching rail"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard Next Up contract."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Next Up repository and profile watch state are wired."}
+      }
+    },
+    {
+      "id": "catalog.search",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::search",
+      "method": "GET",
+      "path": "/Users/{userId}/Items",
+      "requestSemantics": ["SearchTerm is percent-encoded and item types are Movie,Series"],
+      "requiredSemantics": ["Matches correspond to the search term", "Limit is honored"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard item search."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Catalog search provider backs the compat item query."}
+      }
+    },
+    {
+      "id": "catalog.filters",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getFilterOptions",
+      "method": "GET",
+      "path": "/Items/Filters + /Genres + /Studios",
+      "requestSemantics": ["UserId, ParentId, IncludeItemTypes and Recursive are sent"],
+      "requiredSemantics": ["Genres, tags and studios reflect the selected library", "Values can be passed back to the item query using the same identity semantics"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Control for filter facet names and item query semantics."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Genres are backed, Items/Filters and Studios are empty stubs; Silo expects genre IDs while Bloom sends names."}
+      }
+    },
+    {
+      "id": "artwork.standard",
+      "journey": "artwork",
+      "bloomCaller": "LibraryService::getImageUrl/getCachedImageUrl",
+      "method": "GET",
+      "path": "/Items/{itemId}/Images/{imageType}",
+      "requestSemantics": ["Bloom may send fillWidth, quality, tag and api_key in the URL"],
+      "requiredSemantics": ["Response is image data for Primary, Backdrop, Thumb or Logo", "Opaque image variants remain fetchable"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard item image routes."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat image routes proxy/cache catalog artwork."}
+      }
+    },
+    {
+      "id": "artwork.chapter",
+      "journey": "artwork",
+      "bloomCaller": "LibraryService::getCachedChapterThumbnailUrl",
+      "method": "GET",
+      "path": "/Items/{itemId}/Images/Chapter/{index}",
+      "requestSemantics": ["Bloom sends maxWidth, api_key and an image tag"],
+      "requiredSemantics": ["Response is the requested chapter thumbnail rather than generic artwork"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Chapter image type is part of Jellyfin's image contract."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Chapter is not a supported compat image type at the pinned revision."}
+      }
+    },
+    {
+      "id": "playback.info",
+      "journey": "playback",
+      "bloomCaller": "PlaybackService::getPlaybackInfo",
+      "method": "POST",
+      "path": "/Items/{itemId}/PlaybackInfo",
+      "requestSemantics": ["UserId is a query parameter and Bloom currently sends an empty JSON object"],
+      "requiredSemantics": ["PlaySessionId is non-empty", "At least one MediaSource has a stable Id and usable direct or transcode URL", "Audio/subtitle stream indices and defaults are preserved"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard PlaybackInfo negotiation."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Permissive fallback profile provides direct/HLS playback, but negotiation is not Bloom-specific and HLS is the only compat transcode delivery."}
+      }
+    },
+    {
+      "id": "playback.range-stream",
+      "journey": "playback",
+      "bloomCaller": "mpv via LibraryService/PlaybackInfo URL",
+      "method": "GET",
+      "path": "/Videos/{itemId}/stream",
+      "requestSemantics": ["mpv issues byte-range requests against a static/direct URL", "api_key or playback-session fallback authorizes the request"],
+      "requiredSemantics": ["Range request returns HTTP 206", "Content-Range matches the requested bytes", "Seeking does not require a Jellyfin-specific player"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Control for mpv direct playback and seeking."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Static stream uses range-capable file serving and playback-session auth fallback."}
+      }
+    },
+    {
+      "id": "playback.additional-parts",
+      "journey": "playback",
+      "bloomCaller": "PlaybackService::getAdditionalParts",
+      "method": "GET",
+      "path": "/Videos/{itemId}/AdditionalParts",
+      "requestSemantics": ["UserId is sent"],
+      "requiredSemantics": ["Items lists every ordered multipart item with a non-empty Id"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Used to build Bloom multipart playlists."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "No route is registered; Bloom treats the 404 as nonfatal but multipart playback is unavailable."}
+      }
+    },
+    {
+      "id": "playback.trickplay",
+      "journey": "playback",
+      "bloomCaller": "PlaybackService::getTrickplayInfo/TrickplayProcessor",
+      "method": "GET",
+      "path": "/Items/{itemId}?Fields=Trickplay and /Videos/{itemId}/Trickplay/{width}/{index}.jpg",
+      "requestSemantics": ["Bloom reads nested Trickplay metadata, then downloads indexed tiles"],
+      "requiredSemantics": ["Metadata describes dimensions, tile grid, thumbnail count and interval", "Every referenced tile route returns the matching image"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Current Jellyfin trickplay metadata/tile contract."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Trickplay metadata is an empty map and tile routes are not registered."}
+      }
+    },
+    {
+      "id": "playback.report",
+      "journey": "playback",
+      "bloomCaller": "PlaybackService::reportPlaybackStarted/Progress/Paused/Resumed/Stopped",
+      "method": "POST",
+      "path": "/Sessions/Playing*",
+      "requestSemantics": ["Bloom sends ticks, play session/source IDs, selected stream indices and state/event names"],
+      "requiredSemantics": ["Progress is observable on a subsequent item read", "Pause/resume do not complete playback", "Stopped tears down the playback session"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard Jellyfin session reporting lifecycle."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Resume/progress and teardown work, but only part of Bloom's payload is consumed and an early start can precede upstream session creation."}
+      }
+    },
+    {
+      "id": "state.played",
+      "journey": "user-state",
+      "bloomCaller": "LibraryService/PlaybackService mark played methods",
+      "method": "POST/DELETE",
+      "path": "/Users/{userId}/PlayedItems/{itemId}",
+      "requestSemantics": ["Mutation uses an empty body"],
+      "requiredSemantics": ["Subsequent item UserData.Played reflects the mutation"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard played-state mutation."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Legacy played routes update profile watch state."}
+      }
+    },
+    {
+      "id": "state.favorite",
+      "journey": "user-state",
+      "bloomCaller": "LibraryService favorite methods",
+      "method": "POST/DELETE",
+      "path": "/Users/{userId}/FavoriteItems/{itemId}",
+      "requestSemantics": ["Mutation uses an empty body"],
+      "requiredSemantics": ["Subsequent item UserData.IsFavorite reflects the mutation"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard favorite mutation."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Legacy favorite routes update profile state."}
+      }
+    },
+    {
+      "id": "hierarchy.ancestors",
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::resolveLibraryForItem",
+      "method": "GET",
+      "path": "/Items/{itemId}/Ancestors",
+      "requestSemantics": ["UserId is sent"],
+      "requiredSemantics": ["Array contains a CollectionFolder ancestor with stable Id/CollectionType for episodic items"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Used to resolve library-scoped playback preferences."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "No compat ancestor route is registered."}
+      }
+    },
+    {
+      "id": "segments.plugin-intro-skipper",
+      "journey": "segments",
+      "bloomCaller": "PlaybackService::getMediaSegments",
+      "method": "GET",
+      "path": "/Episode/{itemId}/IntroSkipperSegments",
+      "requestSemantics": ["Bloom currently probes the Jellyfin Intro Skipper plugin route"],
+      "requiredSemantics": ["Valid Introduction/Credits/Recap/Preview entries contain numeric Start and End seconds", "A missing optional plugin degrades quietly"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "partial", "evidence": "Available only when the optional Intro Skipper plugin is installed."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Only Timestamps/IntroTimestamps stubs and the standard MediaSegments route are registered."}
+      }
+    },
+    {
+      "id": "segments.standard",
+      "journey": "segments",
+      "bloomCaller": "Not currently called; target for canonical adapter work",
+      "method": "GET",
+      "path": "/MediaSegments/{itemId}",
+      "requestSemantics": ["Authenticated item marker lookup"],
+      "requiredSemantics": ["Items carry Type plus StartTicks/EndTicks with ordered non-negative ranges", "Intro, Outro, Recap and Preview map without plugin-specific fields"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard Jellyfin media-segments endpoint on supported releases."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat maps native file markers to a Jellyfin MediaSegments envelope; Bloom does not yet consume it."}
+      }
+    },
+    {
+      "id": "sessions.list",
+      "journey": "sessions",
+      "bloomCaller": "SessionService::refreshSessions",
+      "method": "GET",
+      "path": "/Sessions",
+      "requestSemantics": ["Authenticated request expects a JSON array"],
+      "requiredSemantics": ["Active sessions include stable Id and device/client identity", "Current session can be identified by DeviceId"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Populates Bloom's Active Sessions screen."},
+        "silo-8044eb8-compat": {"outcome": "stubbed", "evidence": "Handler intentionally returns an empty array and ignores active playback/session state."}
+      }
+    },
+    {
+      "id": "sessions.revoke",
+      "journey": "sessions",
+      "bloomCaller": "SessionService::terminateSession",
+      "method": "POST",
+      "path": "/Sessions/{sessionId}/Logout",
+      "requestSemantics": ["Target session Id is part of the route"],
+      "requiredSemantics": ["The named remote session is revoked while the caller remains authenticated"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard remote session revocation."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Only POST /Sessions/Logout for the caller's compat token exists."}
+      }
+    },
+    {
+      "id": "metadata.provider-ids",
+      "journey": "metadata",
+      "bloomCaller": "PlaybackService context, Seerr and external segment providers",
+      "method": "GET",
+      "path": "/Users/{userId}/Items/{itemId}?Fields=ProviderIds",
+      "requestSemantics": ["ProviderIds is explicitly requested"],
+      "requiredSemantics": ["Known external IDs are emitted using Jellyfin keys such as Imdb, Tmdb and Tvdb"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "External integrations depend on these IDs."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Mapping initializes ProviderIds empty and omits the field from the serialized detail response at the pinned revision."}
+      }
+    },
+    {
+      "id": "metadata.theme-songs",
+      "journey": "metadata",
+      "bloomCaller": "LibraryService::getThemeSongs",
+      "method": "GET",
+      "path": "/Items/{seriesId}/ThemeSongs",
+      "requestSemantics": ["UserId is sent"],
+      "requiredSemantics": ["Items contains playable theme media IDs that can be resolved to stream URLs"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Optional series ambience feature used by Bloom."},
+        "silo-8044eb8-compat": {"outcome": "stubbed", "evidence": "Dedicated handler returns an empty ThemeMediaResult."}
+      }
+    },
+    {
+      "id": "subtitles.delivery-url",
+      "journey": "playback",
+      "bloomCaller": "PlaybackInfo parsing and PlayerController track selection",
+      "method": "GET",
+      "path": "PlaybackInfo MediaStreams[].DeliveryUrl",
+      "requestSemantics": ["External subtitle tracks may advertise a provider URL"],
+      "requiredSemantics": ["DeliveryUrl is preserved and resolved without changing opaque query parameters", "Selected external subtitle is supplied to mpv"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "partial", "evidence": "Server advertises delivery URLs, but Bloom's current model does not preserve the field."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Compat advertises and serves downloaded subtitles; Bloom currently drops DeliveryUrl."}
+      }
+    },
+    {
+      "id": "cache.conditional-refresh",
+      "journey": "cache",
+      "bloomCaller": "LibraryService item/list/detail cache validation",
+      "method": "GET",
+      "path": "/Users/{userId}/Items*",
+      "requestSemantics": ["Bloom replays ETag/Last-Modified as If-None-Match/If-Modified-Since"],
+      "requiredSemantics": ["Unchanged representation returns HTTP 304", "Changed representation returns HTTP 200 with a new validator"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Control for Bloom's not-modified cache signals."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Compat item/catalog refresh does not meaningfully implement conditional JSON revalidation."}
+      }
+    },
+    {
+      "id": "errors.expired-session",
+      "journey": "authentication",
+      "bloomCaller": "AuthenticationService and service-specific 401 handling",
+      "method": "GET/POST",
+      "path": "authenticated catalog and playback routes",
+      "requestSemantics": ["Expired or revoked token is sent"],
+      "requiredSemantics": ["Server consistently returns HTTP 401", "Playback may defer client logout until teardown", "No protected payload is returned"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Control for current Jellyfin session expiry behavior."},
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat token authentication rejects missing/expired/revoked sessions with 401."}
+      }
+    }
+  ],
+  "nativeSiloContract": {
+    "detection": {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "requiredFields": ["status", "server_id"],
+      "notes": ["server_id identifies one installation reached through multiple URLs", "Do not infer Silo from compatibility /System/Info"]
+    },
+    "authenticationRoutes": ["GET /api/v1/auth/providers", "POST /api/v1/auth/login", "POST /api/v1/auth/refresh", "GET /api/v1/auth/me", "POST /api/v1/auth/logout", "GET /api/v1/auth/sessions", "DELETE /api/v1/auth/sessions/{id}"],
+    "profileRoutes": ["GET /api/v1/profiles", "POST /api/v1/profiles/{id}/verify-pin"],
+    "catalogRoutes": ["GET /api/v1/user/libraries", "GET /api/v1/catalog", "POST /api/v1/catalog/query", "GET /api/v1/catalog/items/{id}", "GET /api/v1/catalog/items/{id}/versions", "GET /api/v1/catalog/series/{id}/seasons", "GET /api/v1/catalog/series/{id}/seasons/{number}/episodes"],
+    "playbackRoutes": ["GET /api/v1/playback/capability", "POST /api/v1/playback/start", "POST /api/v1/playback/{session_id}/progress", "DELETE /api/v1/playback/{session_id}"],
+    "requiredHeaders": ["Authorization: Bearer <access token>", "X-Profile-Id after profile selection", "X-Profile-Token after successful PIN verification", "X-Silo-Client", "X-Silo-Client-Version", "X-Silo-Device-Id", "X-Silo-Device-Name", "X-Silo-Device-Platform"],
+    "identityRules": ["Use content_id for catalog and user-state identity", "Use file_id for playback", "Use milliseconds inside Bloom", "Treat native artwork URLs as expiring fetch locations, not cache identities"],
+    "playbackDecision": "Use the legacy native playback envelope until Silo documents an mpv-compatible protocol-v3 contract; v3 currently advertises media3_only."
+  },
+  "upstreamIssues": [
+    "https://github.com/Silo-Server/silo-server/issues/431",
+    "https://github.com/Silo-Server/silo-server/issues/432"
+  ],
+  "openUpstreamQuestions": [
+    "Is /api/v1 additive-only policy a public client guarantee, and how are deprecations announced?",
+    "Can health or a public server-info response expose product, build revision and native API revision without authentication?",
+    "Which capability endpoints form the supported discovery contract for third-party native clients?",
+    "What is the guaranteed lifetime of the legacy native playback envelope?",
+    "Will protocol v3 define an mpv-capable engine contract rather than media3_only semantics?",
+    "Which client/device headers are required versus advisory for third-party clients?",
+    "Is username#profile/password#pin the long-term compatibility-profile UX?",
+    "May Bloom use the Silo name referentially without bundling logo artwork?"
+  ]
+}

@@ -64,6 +64,7 @@ If unsure whether a change requires `AGENTS.md` or `docs/` updates, open an issu
 See also:
 - docs/build.md     — Nix build, packaging, CI, and Windows instructions
 - docs/playback.md  — mpv and playback/reporting integration
+- docs/provider-compatibility.md — provider-neutral server contract matrix, reproducible Jellyfin/Silo pins, and native API assumptions
 - docs/media-segments.md — External intro/recap/credits provider integration and precedence
 - docs/hero-banner.md — Home hero sources, settings, focus behavior, and backdrop synchronization
 - docs/theme.md     — Theme.qml tokens and design system
