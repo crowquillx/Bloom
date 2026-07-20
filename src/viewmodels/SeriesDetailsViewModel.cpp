@@ -25,8 +25,32 @@ constexpr qint64 kSimilarMemoryTtlMs = 5 * 60 * 1000;
 constexpr qint64 kSimilarDiskTtlMs   = 60 * 60 * 1000;
 
 static QHash<QString, DetailViewCache::ObjectCacheEntry> s_seriesCache;
-static QHash<QString, DetailViewCache::ArrayCacheEntry> s_itemsCache;  // keyed by parentId (series -> seasons, season -> episodes)
-static QHash<QString, DetailViewCache::ArrayCacheEntry> s_similarItemsCache;  // keyed by seriesId
+static QHash<QString, DetailViewCache::ArrayCacheEntry> s_itemsCache;  // keyed by connection + parentId
+static QHash<QString, DetailViewCache::ArrayCacheEntry> s_similarItemsCache;  // keyed by connection + seriesId
+static QString s_memoryCacheScope;
+
+QString activeCacheScope()
+{
+    if (auto *config = ServiceLocator::tryGet<ConfigManager>()) {
+        const auto connection = config->getActiveConnection();
+        if (connection.has_value() && !connection->connectionId.isEmpty()) {
+            return connection->connectionId;
+        }
+    }
+    return QStringLiteral("_local");
+}
+
+QString scopedCacheKey(const QString &remoteId)
+{
+    const QString scope = activeCacheScope();
+    if (s_memoryCacheScope != scope) {
+        s_seriesCache.clear();
+        s_itemsCache.clear();
+        s_similarItemsCache.clear();
+        s_memoryCacheScope = scope;
+    }
+    return scope + QLatin1Char('\n') + remoteId;
+}
 }
 
 static bool hasSpecialPlacementFields(const QJsonArray &items)
@@ -55,7 +79,8 @@ QString SeriesDetailsViewModel::cacheDir() const
     } else {
         baseDir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + "/Bloom";
     }
-    return baseDir + "/cache/series";
+    const QString scope = DetailViewCache::connectionScopeCacheKey(activeCacheScope());
+    return baseDir + QStringLiteral("/cache/connections/") + scope + QStringLiteral("/series");
 }
 
 QString SeriesDetailsViewModel::seriesCachePath(const QString &seriesId) const
@@ -85,7 +110,7 @@ QString SeriesDetailsViewModel::similarItemsCachePath(const QString &seriesId) c
 bool SeriesDetailsViewModel::loadSeriesFromCache(const QString &seriesId, QJsonObject &seriesData, bool requireFresh) const
 {
     return DetailViewCache::loadObjectCache(s_seriesCache,
-                                            seriesId,
+                                            scopedCacheKey(seriesId),
                                             seriesCachePath(seriesId),
                                             kSeriesMemoryTtlMs,
                                             kSeriesDiskTtlMs,
@@ -96,7 +121,7 @@ bool SeriesDetailsViewModel::loadSeriesFromCache(const QString &seriesId, QJsonO
 void SeriesDetailsViewModel::storeSeriesCache(const QString &seriesId, const QJsonObject &seriesData) const
 {
     DetailViewCache::storeObjectCache(s_seriesCache,
-                                      seriesId,
+                                      scopedCacheKey(seriesId),
                                       seriesCachePath(seriesId),
                                       seriesData);
 }
@@ -104,7 +129,7 @@ void SeriesDetailsViewModel::storeSeriesCache(const QString &seriesId, const QJs
 bool SeriesDetailsViewModel::loadItemsFromCache(const QString &parentId, QJsonArray &items, bool requireFresh) const
 {
     return DetailViewCache::loadArrayCache(s_itemsCache,
-                                           parentId,
+                                           scopedCacheKey(parentId),
                                            itemsCachePath(parentId),
                                            kItemsMemoryTtlMs,
                                            kItemsDiskTtlMs,
@@ -116,7 +141,7 @@ bool SeriesDetailsViewModel::loadItemsFromCache(const QString &parentId, QJsonAr
 void SeriesDetailsViewModel::storeItemsCache(const QString &parentId, const QJsonArray &items) const
 {
     DetailViewCache::storeArrayCache(s_itemsCache,
-                                     parentId,
+                                     scopedCacheKey(parentId),
                                      itemsCachePath(parentId),
                                      items);
 }
@@ -127,7 +152,7 @@ void SeriesDetailsViewModel::clearItemsCache(const QString &parentId) const
         return;
     }
 
-    s_itemsCache.remove(parentId);
+    s_itemsCache.remove(scopedCacheKey(parentId));
 
     const QString path = itemsCachePath(parentId);
     if (!path.isEmpty() && QFile::exists(path)) {
@@ -138,7 +163,7 @@ void SeriesDetailsViewModel::clearItemsCache(const QString &parentId) const
 bool SeriesDetailsViewModel::loadSimilarItemsFromCache(const QString &seriesId, QJsonArray &items, bool requireFresh) const
 {
     return DetailViewCache::loadArrayCache(s_similarItemsCache,
-                                           seriesId,
+                                           scopedCacheKey(seriesId),
                                            similarItemsCachePath(seriesId),
                                            kSimilarMemoryTtlMs,
                                            kSimilarDiskTtlMs,
@@ -150,16 +175,17 @@ bool SeriesDetailsViewModel::loadSimilarItemsFromCache(const QString &seriesId, 
 void SeriesDetailsViewModel::storeSimilarItemsCache(const QString &seriesId, const QJsonArray &items) const
 {
     DetailViewCache::storeArrayCache(s_similarItemsCache,
-                                     seriesId,
+                                     scopedCacheKey(seriesId),
                                      similarItemsCachePath(seriesId),
                                      items);
 }
 
 void SeriesDetailsViewModel::clearCacheForTest(const QString &id)
 {
-    s_seriesCache.remove(id);
-    s_itemsCache.remove(id);
-    s_similarItemsCache.remove(id);
+    const QString cacheKey = scopedCacheKey(id);
+    s_seriesCache.remove(cacheKey);
+    s_itemsCache.remove(cacheKey);
+    s_similarItemsCache.remove(cacheKey);
 
     QString seriesPath = seriesCachePath(id);
     if (!seriesPath.isEmpty() && QFile::exists(seriesPath)) {

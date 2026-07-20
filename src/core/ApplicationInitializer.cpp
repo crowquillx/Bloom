@@ -149,8 +149,8 @@ void ApplicationInitializer::registerServices()
     m_responsiveLayoutManager = std::make_unique<ResponsiveLayoutManager>();
     ServiceLocator::registerService<ResponsiveLayoutManager>(m_responsiveLayoutManager.get());
     
-    // 1.7 TrackPreferencesManager - No dependencies
-    m_trackPreferencesManager = std::make_unique<TrackPreferencesManager>();
+    // 1.7 TrackPreferencesManager - connection-scoped through ConfigManager
+    m_trackPreferencesManager = std::make_unique<TrackPreferencesManager>(m_configManager.get());
     ServiceLocator::registerService<TrackPreferencesManager>(m_trackPreferencesManager.get());
     
     // 2. Player backend - No dependencies
@@ -351,7 +351,15 @@ void ApplicationInitializer::initializeServices()
         [config]() {
             config->clearJellyfinSession();
     });
-    
+    connect(auth, &AuthenticationService::loggedOut, this, [this]() {
+        if (m_seriesDetailsViewModel) {
+            m_seriesDetailsViewModel->clear();
+        }
+        if (m_movieDetailsViewModel) {
+            m_movieDetailsViewModel->clear();
+        }
+    });
+
     connect(auth, &AuthenticationService::sessionExpired,
         [auth]() {
             qWarning() << "Session expired, triggering logout";

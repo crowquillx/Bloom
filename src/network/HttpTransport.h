@@ -8,6 +8,8 @@
 
 class HttpRequestHandle final : public QObject
 {
+    Q_OBJECT
+
 public:
     explicit HttpRequestHandle(QObject *parent = nullptr);
 
@@ -54,6 +56,7 @@ public:
 
     QNetworkAccessManager *networkManager() const { return m_networkManager; }
     void setUrlRedactor(UrlRedactor redactor);
+    void cancelAll();
 
     HttpRequestHandle *sendWithRetry(QObject *context,
                                      const QString &endpoint,

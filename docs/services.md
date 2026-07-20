@@ -7,7 +7,7 @@ Overview
 Key services
 - `ConfigManager` — Configuration, QML bindings, and provider-neutral connection metadata persistence.
 - `CredentialStore` — Provider-neutral platform-keychain names, access/refresh/profile token storage, and verified legacy Jellyfin credential migration.
-- `TrackPreferencesManager` — Versioned persistence for explicit season/movie audio and subtitle preferences.
+- `TrackPreferencesManager` — Versioned, connection-scoped persistence for explicit season/movie audio and subtitle preferences.
 - `IPlayerBackend` — Playback backend abstraction registered in `ServiceLocator`.
 - `ExternalMpvBackend` — External mpv process/IPC backend adapter (primary rollback path on Linux/non-Windows).
 - `PlayerProcessManager` — Manages external mpv process & IPC (used by `ExternalMpvBackend`).
@@ -38,7 +38,7 @@ Initialization order (recommended)
 6. MediaSegmentProviderService — depends on AuthenticationService + ConfigManager.
 7. PlaybackService — depends on AuthenticationService + ConfigManager + MediaSegmentProviderService.
 8. SeerrService — depends on AuthenticationService + ConfigManager.
-9. TrackPreferencesManager — no service dependencies; loads versioned track preference state.
+9. TrackPreferencesManager — depends on ConfigManager for the active connection scope and loads versioned track preference state.
 10. PlayerController — depends on IPlayerBackend, ConfigManager, TrackPreferencesManager, DisplayManager, PlaybackService, LibraryService, AuthenticationService.
 11. TrickplayProcessor — created by PlayerController; uses AuthenticationService + PlaybackService.
 12. ThemeSongManager — depends on LibraryService, ConfigManager, PlayerController.

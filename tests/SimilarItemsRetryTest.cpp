@@ -6,6 +6,7 @@
 #include "../src/core/ServiceLocator.h"
 #include "../src/network/LibraryService.h"
 #include "../src/test/MockLibraryService.h"
+#include "../src/utils/DetailViewCache.h"
 
 class CountingLibraryService : public LibraryService
 {
@@ -123,6 +124,7 @@ private slots:
     void movieChaptersLoadNormalizeCacheAndIgnoreStale();
     void movieChaptersFailureClearsVisibleState();
     void mockLibraryServiceTracksItemCacheInvalidation();
+    void connectionScopeCacheKeysAreCollisionResistant();
 
 private:
     CountingLibraryService *m_libraryService = nullptr;
@@ -369,6 +371,19 @@ void SimilarItemsRetryTest::mockLibraryServiceTracksItemCacheInvalidation()
 
     QCOMPARE(service.clearItemCacheValidationCallCount(), 1);
     QVERIFY(service.wasItemCacheValidationCleared(QStringLiteral("ep-9")));
+}
+
+void SimilarItemsRetryTest::connectionScopeCacheKeysAreCollisionResistant()
+{
+    const QString slashScope = DetailViewCache::connectionScopeCacheKey(
+        QStringLiteral("a/b"));
+    const QString underscoreScope = DetailViewCache::connectionScopeCacheKey(
+        QStringLiteral("a_b"));
+
+    QVERIFY(!slashScope.isEmpty());
+    QVERIFY(slashScope != underscoreScope);
+    QCOMPARE(slashScope, DetailViewCache::connectionScopeCacheKey(QStringLiteral("a/b")));
+    QVERIFY(!slashScope.contains(QLatin1Char('/')));
 }
 
 QTEST_MAIN(SimilarItemsRetryTest)

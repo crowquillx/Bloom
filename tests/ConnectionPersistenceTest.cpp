@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -185,6 +186,10 @@ private slots:
     void loggingOutMatchingAccountClearsPendingLegacyMigration();
     void jellyfinFacadeDoesNotOverwriteAnotherServerOrAccount();
     void connectionPersistenceSupportsMultipleServers();
+    void connectionScopedSettingsPreventRemoteIdCollisions();
+    void preActivationConnectionStateIsAdopted();
+    void reservedConnectionScopeIdsAreRejected();
+    void inactiveSoleConnectionReceivesV28StateMigration();
     void credentialStoreMigratesLegacyEntryAfterVerifiedCopy();
     void credentialStoreFindsLegacyEntryWithOriginalTrailingSlashUrl();
     void credentialStoreRetainsLegacyEntryWhenCopyFails();
@@ -210,6 +215,14 @@ void ConnectionPersistenceTest::defaultConfigHasEmptyConnectionSchema()
 
     QVERIFY(config.getConnections().isEmpty());
     QVERIFY(!config.getActiveConnection().has_value());
+
+    QFile file(ConfigManager::getConfigPath());
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonObject settings = QJsonDocument::fromJson(file.readAll()).object()
+                                     .value(QStringLiteral("settings")).toObject();
+    const QJsonObject state = settings.value(QStringLiteral("connection_state")).toObject();
+    QCOMPARE(state.value(QStringLiteral("version")).toInt(), 1);
+    QVERIFY(state.value(QStringLiteral("scopes")).toObject().isEmpty());
 }
 
 void ConnectionPersistenceTest::v27MigrationCreatesActiveJellyfinConnectionAndRetainsRollbackMetadata()
@@ -309,7 +322,7 @@ void ConnectionPersistenceTest::finalizeMigrationRemovesLegacyMetadataAndConfigT
     const QByteArray persisted = file.readAll();
     QVERIFY(!persisted.contains("legacy-config-token"));
     const QJsonObject root = QJsonDocument::fromJson(persisted).object();
-    QCOMPARE(root.value(QStringLiteral("version")).toInt(), 28);
+    QCOMPARE(root.value(QStringLiteral("version")).toInt(), 29);
     QVERIFY(!root.value(QStringLiteral("settings")).toObject().contains(QStringLiteral("jellyfin")));
 }
 
@@ -466,6 +479,128 @@ void ConnectionPersistenceTest::connectionPersistenceSupportsMultipleServers()
     config.clearActiveConnection();
     QVERIFY(!config.getActiveConnection().has_value());
     QCOMPARE(config.getConnections().size(), 2);
+}
+
+void ConnectionPersistenceTest::connectionScopedSettingsPreventRemoteIdCollisions()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation isolation(tempDir.path());
+
+    QJsonObject legacy = legacyV27Config(QString());
+    QJsonObject settings = legacy.value(QStringLiteral("settings")).toObject();
+    settings[QStringLiteral("library_profiles")] = QJsonObject{
+        {QStringLiteral("shared-library"), QStringLiteral("High Quality")}
+    };
+    settings[QStringLiteral("series_profiles")] = QJsonObject{
+        {QStringLiteral("shared-series"), QStringLiteral("Low Quality")}
+    };
+    settings[QStringLiteral("library_startup_buffering_modes")] = QJsonObject{
+        {QStringLiteral("shared-library"), QStringLiteral("remote-mount")}
+    };
+    legacy[QStringLiteral("settings")] = settings;
+    writeConfig(legacy);
+
+    ConfigManager config;
+    config.load();
+    const ServerConnection first = *config.getActiveConnection();
+    QCOMPARE(config.getLibraryProfile(QStringLiteral("shared-library")),
+             QStringLiteral("High Quality"));
+    QCOMPARE(config.getSeriesProfile(QStringLiteral("shared-series")),
+             QStringLiteral("Low Quality"));
+    QCOMPARE(config.getLibraryStartupBufferingMode(QStringLiteral("shared-library")),
+             QStringLiteral("remote-mount"));
+
+    ServerConnection second = first;
+    second.connectionId = QStringLiteral("connection-2");
+    second.baseUrl = QStringLiteral("https://other.example.test");
+    second.credentialReference = ServerConnection::createCredentialReference(second.connectionId);
+    config.upsertConnection(second);
+
+    QVERIFY(config.getLibraryProfile(QStringLiteral("shared-library")).isEmpty());
+    QVERIFY(config.getSeriesProfile(QStringLiteral("shared-series")).isEmpty());
+    QVERIFY(config.getLibraryStartupBufferingMode(QStringLiteral("shared-library")).isEmpty());
+    config.setLibraryProfile(QStringLiteral("shared-library"), QStringLiteral("Medium Quality"));
+
+    QVERIFY(config.setActiveConnection(first.connectionId));
+    QCOMPARE(config.getLibraryProfile(QStringLiteral("shared-library")),
+             QStringLiteral("High Quality"));
+    QVERIFY(config.setActiveConnection(second.connectionId));
+    QCOMPARE(config.getLibraryProfile(QStringLiteral("shared-library")),
+             QStringLiteral("Medium Quality"));
+}
+
+void ConnectionPersistenceTest::preActivationConnectionStateIsAdopted()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation isolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    config.setLibraryProfile(QStringLiteral("library-1"), QStringLiteral("High Quality"));
+    config.setLibraryStartupBufferingMode(QStringLiteral("library-1"),
+                                          QStringLiteral("remote-mount"));
+
+    ServerConnection connection = jellyfinConnection();
+    config.upsertConnection(connection);
+
+    QCOMPARE(config.getLibraryProfile(QStringLiteral("library-1")),
+             QStringLiteral("High Quality"));
+    QCOMPARE(config.getLibraryStartupBufferingMode(QStringLiteral("library-1")),
+             QStringLiteral("remote-mount"));
+}
+
+void ConnectionPersistenceTest::reservedConnectionScopeIdsAreRejected()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation isolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    ServerConnection connection = jellyfinConnection();
+    connection.connectionId = QStringLiteral(" _pending ");
+    connection.credentialReference = ServerConnection::createCredentialReference(
+        connection.connectionId);
+    config.upsertConnection(connection);
+
+    QVERIFY(config.getConnections().isEmpty());
+    QVERIFY(!config.getActiveConnection().has_value());
+}
+
+void ConnectionPersistenceTest::inactiveSoleConnectionReceivesV28StateMigration()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation isolation(tempDir.path());
+
+    const ServerConnection connection = jellyfinConnection();
+    QJsonObject settings;
+    settings[QStringLiteral("playback")] = QJsonObject{
+        {QStringLiteral("completion_threshold"), 90}
+    };
+    settings[QStringLiteral("connections")] = QJsonObject{
+        {QStringLiteral("version"), 1},
+        {QStringLiteral("active"), QString()},
+        {QStringLiteral("items"), QJsonArray{connection.toJson()}}
+    };
+    settings[QStringLiteral("library_profiles")] = QJsonObject{
+        {QStringLiteral("library-1"), QStringLiteral("High Quality")}
+    };
+    settings[QStringLiteral("series_profiles")] = QJsonObject{};
+    settings[QStringLiteral("library_startup_buffering_modes")] = QJsonObject{};
+    writeConfig(QJsonObject{
+        {QStringLiteral("version"), 28},
+        {QStringLiteral("settings"), settings}
+    });
+
+    ConfigManager config;
+    config.load();
+    QVERIFY(!config.getActiveConnection().has_value());
+    QVERIFY(config.setActiveConnection(connection.connectionId));
+    QCOMPARE(config.getLibraryProfile(QStringLiteral("library-1")),
+             QStringLiteral("High Quality"));
 }
 
 void ConnectionPersistenceTest::credentialStoreMigratesLegacyEntryAfterVerifiedCopy()

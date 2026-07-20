@@ -42,6 +42,14 @@ void HttpTransport::setUrlRedactor(UrlRedactor redactor)
     m_urlRedactor = std::move(redactor);
 }
 
+void HttpTransport::cancelAll()
+{
+    const auto handles = findChildren<HttpRequestHandle *>(QString(), Qt::FindDirectChildrenOnly);
+    for (HttpRequestHandle *handle : handles) {
+        handle->cancel();
+    }
+}
+
 HttpRequestHandle *HttpTransport::sendWithRetry(QObject *context,
                                                 const QString &endpoint,
                                                 RequestFactory requestFactory,

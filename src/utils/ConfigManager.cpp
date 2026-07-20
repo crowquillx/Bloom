@@ -258,6 +258,102 @@ QString uniqueProfileBackupName(const QJsonObject &profiles, const QString &base
     return QStringLiteral("%1 %2").arg(first).arg(suffix);
 }
 
+constexpr auto kConnectionStateKey = "connection_state";
+constexpr auto kConnectionStateScopesKey = "scopes";
+constexpr auto kLocalConnectionScope = "_local";
+constexpr auto kPendingConnectionScope = "_pending";
+
+bool isReservedConnectionScopeId(const QString &connectionId)
+{
+    const QString normalized = connectionId.trimmed();
+    return normalized == QString::fromLatin1(kLocalConnectionScope)
+        || normalized == QString::fromLatin1(kPendingConnectionScope);
+}
+
+QString effectiveConnectionScopeId(const QJsonObject &settings)
+{
+    const QString active = settings.value(QStringLiteral("connections")).toObject()
+                               .value(QStringLiteral("active")).toString().trimmed();
+    return active.isEmpty() ? QString::fromLatin1(kPendingConnectionScope) : active;
+}
+
+QString migrationConnectionScopeId(const QJsonObject &settings)
+{
+    const QJsonObject connections = settings.value(QStringLiteral("connections")).toObject();
+    const QString active = connections.value(QStringLiteral("active")).toString().trimmed();
+    if (!active.isEmpty()) {
+        return active;
+    }
+
+    const QJsonArray items = connections.value(QStringLiteral("items")).toArray();
+    if (items.size() == 1) {
+        const QString soleConnectionId = items.first().toObject()
+                                             .value(QStringLiteral("id")).toString().trimmed();
+        if (!soleConnectionId.isEmpty()) {
+            return soleConnectionId;
+        }
+    }
+    return QString::fromLatin1(kPendingConnectionScope);
+}
+
+QJsonObject connectionScope(const QJsonObject &settings, const QString &scopeId = QString())
+{
+    const QString effectiveScope = scopeId.isEmpty() ? effectiveConnectionScopeId(settings) : scopeId;
+    return settings.value(QString::fromLatin1(kConnectionStateKey)).toObject()
+        .value(QString::fromLatin1(kConnectionStateScopesKey)).toObject()
+        .value(effectiveScope).toObject();
+}
+
+QJsonObject scopedAssignments(const QJsonObject &settings, const QString &key)
+{
+    return connectionScope(settings).value(key).toObject();
+}
+
+void setScopedAssignments(QJsonObject &settings, const QString &key, const QJsonObject &assignments)
+{
+    QJsonObject state = settings.value(QString::fromLatin1(kConnectionStateKey)).toObject();
+    state[QStringLiteral("version")] = 1;
+    QJsonObject scopes = state.value(QString::fromLatin1(kConnectionStateScopesKey)).toObject();
+    const QString scopeId = effectiveConnectionScopeId(settings);
+    QJsonObject scope = scopes.value(scopeId).toObject();
+    scope[key] = assignments;
+    scopes[scopeId] = scope;
+    state[QString::fromLatin1(kConnectionStateScopesKey)] = scopes;
+    settings[QString::fromLatin1(kConnectionStateKey)] = state;
+}
+
+void adoptPendingConnectionState(QJsonObject &settings, const QString &connectionId)
+{
+    if (connectionId.isEmpty() || isReservedConnectionScopeId(connectionId)) {
+        return;
+    }
+
+    QJsonObject state = settings.value(QString::fromLatin1(kConnectionStateKey)).toObject();
+    QJsonObject scopes = state.value(QString::fromLatin1(kConnectionStateScopesKey)).toObject();
+    const QString pendingId = QString::fromLatin1(kPendingConnectionScope);
+    if (!scopes.contains(pendingId)) {
+        return;
+    }
+
+    QJsonObject target = scopes.value(connectionId).toObject();
+    const QJsonObject pending = scopes.value(pendingId).toObject();
+    for (const QString &key : {
+             QStringLiteral("library_profiles"),
+             QStringLiteral("series_profiles"),
+             QStringLiteral("library_startup_buffering_modes")}) {
+        QJsonObject merged = pending.value(key).toObject();
+        const QJsonObject existing = target.value(key).toObject();
+        for (auto it = existing.begin(); it != existing.end(); ++it) {
+            merged[it.key()] = it.value();
+        }
+        target[key] = merged;
+    }
+    scopes[connectionId] = target;
+    scopes.remove(pendingId);
+    state[QString::fromLatin1(kConnectionStateScopesKey)] = scopes;
+    settings[QString::fromLatin1(kConnectionStateKey)] = state;
+}
+
 void rewriteProfileAssignments(QJsonObject &settings, const QString &from, const QString &to)
 {
     if (settings.value(QStringLiteral("default_profile")).toString() == from) {
@@ -843,11 +939,13 @@ void ConfigManager::upsertConnection(const ServerConnection &connection, bool ma
     normalized.baseUrl = ServerConnection::normalizeBaseUrl(normalized.baseUrl);
     if (normalized.connectionId.trimmed().isEmpty()) {
         normalized.connectionId = ServerConnection::createConnectionId();
+    } else {
+        normalized.connectionId = normalized.connectionId.trimmed();
     }
     if (normalized.credentialReference.trimmed().isEmpty()) {
         normalized.credentialReference = ServerConnection::createCredentialReference(normalized.connectionId);
     }
-    if (!normalized.isValid()) {
+    if (!normalized.isValid() || isReservedConnectionScopeId(normalized.connectionId)) {
         qCWarning(lcConfig) << "ConfigManager: Refusing to persist invalid server connection";
         return;
     }
@@ -874,6 +972,9 @@ void ConfigManager::upsertConnection(const ServerConnection &connection, bool ma
         connections[QStringLiteral("active")] = normalized.connectionId;
     }
     settings[QStringLiteral("connections")] = connections;
+    if (makeActive) {
+        adoptPendingConnectionState(settings, normalized.connectionId);
+    }
     m_config[QStringLiteral("settings")] = settings;
     save();
     emit connectionsChanged();
@@ -883,7 +984,8 @@ void ConfigManager::upsertConnection(const ServerConnection &connection, bool ma
 bool ConfigManager::setActiveConnection(const QString &connectionId)
 {
     const QString normalizedId = connectionId.trimmed();
-    if (!getConnection(normalizedId).has_value()) {
+    if (isReservedConnectionScopeId(normalizedId)
+        || !getConnection(normalizedId).has_value()) {
         return false;
     }
 
@@ -894,6 +996,7 @@ bool ConfigManager::setActiveConnection(const QString &connectionId)
     }
     connections[QStringLiteral("active")] = normalizedId;
     settings[QStringLiteral("connections")] = connections;
+    adoptPendingConnectionState(settings, normalizedId);
     m_config[QStringLiteral("settings")] = settings;
     save();
     emit connectionsChanged();
@@ -1220,7 +1323,8 @@ QString ConfigManager::getLibraryStartupBufferingMode(const QString &libraryId) 
     }
 
     const QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
-    const QJsonObject modes = settings.value(QStringLiteral("library_startup_buffering_modes")).toObject();
+    const QJsonObject modes = scopedAssignments(
+        settings, QStringLiteral("library_startup_buffering_modes"));
     return normalizeStartupBufferingMode(modes.value(libraryId).toString(), true);
 }
 
@@ -1236,13 +1340,14 @@ void ConfigManager::setLibraryStartupBufferingMode(const QString &libraryId, con
     }
 
     QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
-    QJsonObject modes = settings.value(QStringLiteral("library_startup_buffering_modes")).toObject();
+    QJsonObject modes = scopedAssignments(
+        settings, QStringLiteral("library_startup_buffering_modes"));
     if (normalized.isEmpty()) {
         modes.remove(libraryId);
     } else {
         modes[libraryId] = normalized;
     }
-    settings[QStringLiteral("library_startup_buffering_modes")] = modes;
+    setScopedAssignments(settings, QStringLiteral("library_startup_buffering_modes"), modes);
     m_config[QStringLiteral("settings")] = settings;
     save();
     emit libraryStartupBufferingModesChanged();
@@ -3933,6 +4038,31 @@ public:
         newConfig[QStringLiteral("settings")] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV28ToV29(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig[QStringLiteral("version")] = 29;
+
+        QJsonObject settings = newConfig.value(QStringLiteral("settings")).toObject();
+        QJsonObject state;
+        state[QStringLiteral("version")] = 1;
+        QJsonObject scopes;
+        QJsonObject scope;
+        for (const QString &key : {
+                 QStringLiteral("library_profiles"),
+                 QStringLiteral("series_profiles"),
+                 QStringLiteral("library_startup_buffering_modes")}) {
+            scope[key] = settings.value(key).toObject();
+            settings.remove(key);
+        }
+        scopes[migrationConnectionScopeId(settings)] = scope;
+        state[QString::fromLatin1(kConnectionStateScopesKey)] = scopes;
+        settings[QString::fromLatin1(kConnectionStateKey)] = state;
+
+        newConfig[QStringLiteral("settings")] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -4177,6 +4307,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 28) {
+            m_config = ConfigMigrator::migrateV28ToV29(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -4212,13 +4350,21 @@ bool ConfigManager::validateConfig(const QJsonObject &cfg)
                 return false;
             }
             const ServerConnection connection = ServerConnection::fromJson(value.toObject());
-            if (!connection.isValid() || connectionIds.contains(connection.connectionId)) {
+            if (!connection.isValid() || isReservedConnectionScopeId(connection.connectionId)
+                || connectionIds.contains(connection.connectionId)) {
                 return false;
             }
             connectionIds.insert(connection.connectionId);
         }
         const QString activeId = connections.value(QStringLiteral("active")).toString();
         if (!activeId.isEmpty() && !connectionIds.contains(activeId)) {
+            return false;
+        }
+    }
+    if (version >= 29) {
+        const QJsonObject state = settings.value(QString::fromLatin1(kConnectionStateKey)).toObject();
+        if (state.value(QStringLiteral("version")).toInt() != 1
+            || !state.value(QString::fromLatin1(kConnectionStateScopesKey)).isObject()) {
             return false;
         }
     }
@@ -4233,8 +4379,8 @@ bool ConfigManager::validateConfig(const QJsonObject &cfg)
  * manual DPI override, and MPV profile management. Notable defaults include a playback
  * completion threshold of 90, autoplay countdown of 10 seconds, image cache size of 500 MB,
  * and `manualDpiScaleOverride` set to 1.0. MPV profiles are initialized via `defaultMpvProfiles()`
- * with `"Medium Quality"` selected as the default profile; `library_profiles` and
- * `series_profiles` are initialized empty.
+ * with `"Medium Quality"` selected as the default profile; connection-scoped
+ * library/series assignments and buffering overrides are initialized empty.
  *
  * @return QJsonObject The complete default configuration object ready to be persisted or used
  *                     as a fallback when no valid config is available.
@@ -4329,9 +4475,10 @@ QJsonObject ConfigManager::defaultConfig() const
     // MPV Profiles
     settings["mpv_profiles"] = defaultMpvProfiles();
     settings["default_profile"] = QStringLiteral("Medium Quality");
-    settings["library_profiles"] = QJsonObject();
-    settings["series_profiles"] = QJsonObject();
-    settings["library_startup_buffering_modes"] = QJsonObject();
+    QJsonObject connectionState;
+    connectionState[QStringLiteral("version")] = 1;
+    connectionState[QString::fromLatin1(kConnectionStateScopesKey)] = QJsonObject();
+    settings[QString::fromLatin1(kConnectionStateKey)] = connectionState;
     
     // Third-party integrations
     QJsonObject seerr;
@@ -4886,23 +5033,26 @@ bool ConfigManager::renameMpvProfile(const QString &oldName, const QString &newN
         defaultChanged = true;
     }
 
-    QJsonObject libraryProfiles = settings.value("library_profiles").toObject();
-    for (const QString &key : libraryProfiles.keys()) {
-        if (libraryProfiles.value(key).toString() == trimmedOldName) {
-            libraryProfiles[key] = trimmedNewName;
-            libraryChanged = true;
+    QJsonObject state = settings.value(QString::fromLatin1(kConnectionStateKey)).toObject();
+    QJsonObject scopes = state.value(QString::fromLatin1(kConnectionStateScopesKey)).toObject();
+    for (const QString &scopeId : scopes.keys()) {
+        QJsonObject scope = scopes.value(scopeId).toObject();
+        for (const auto &[assignmentKey, changed] : {
+                 std::pair{QStringLiteral("library_profiles"), &libraryChanged},
+                 std::pair{QStringLiteral("series_profiles"), &seriesChanged}}) {
+            QJsonObject assignments = scope.value(assignmentKey).toObject();
+            for (const QString &key : assignments.keys()) {
+                if (assignments.value(key).toString() == trimmedOldName) {
+                    assignments[key] = trimmedNewName;
+                    *changed = true;
+                }
+            }
+            scope[assignmentKey] = assignments;
         }
+        scopes[scopeId] = scope;
     }
-    settings["library_profiles"] = libraryProfiles;
-
-    QJsonObject seriesProfiles = settings.value("series_profiles").toObject();
-    for (const QString &key : seriesProfiles.keys()) {
-        if (seriesProfiles.value(key).toString() == trimmedOldName) {
-            seriesProfiles[key] = trimmedNewName;
-            seriesChanged = true;
-        }
-    }
-    settings["series_profiles"] = seriesProfiles;
+    state[QString::fromLatin1(kConnectionStateScopesKey)] = scopes;
+    settings[QString::fromLatin1(kConnectionStateKey)] = state;
 
     m_config["settings"] = settings;
     save();
@@ -4950,24 +5100,26 @@ bool ConfigManager::deleteMpvProfile(const QString &name)
         emit defaultProfileNameChanged();
     }
     
-    // Remove from any library/series assignments
-    QJsonObject libraryProfiles = settings["library_profiles"].toObject();
-    QStringList libraryKeys = libraryProfiles.keys();
-    for (const QString &key : libraryKeys) {
-        if (libraryProfiles[key].toString() == name) {
-            libraryProfiles.remove(key);
+    // Remove from every connection-scoped library/series assignment.
+    QJsonObject state = settings.value(QString::fromLatin1(kConnectionStateKey)).toObject();
+    QJsonObject scopes = state.value(QString::fromLatin1(kConnectionStateScopesKey)).toObject();
+    for (const QString &scopeId : scopes.keys()) {
+        QJsonObject scope = scopes.value(scopeId).toObject();
+        for (const QString &assignmentKey : {
+                 QStringLiteral("library_profiles"),
+                 QStringLiteral("series_profiles")}) {
+            QJsonObject assignments = scope.value(assignmentKey).toObject();
+            for (const QString &key : assignments.keys()) {
+                if (assignments.value(key).toString() == name) {
+                    assignments.remove(key);
+                }
+            }
+            scope[assignmentKey] = assignments;
         }
+        scopes[scopeId] = scope;
     }
-    settings["library_profiles"] = libraryProfiles;
-    
-    QJsonObject seriesProfiles = settings["series_profiles"].toObject();
-    QStringList seriesKeys = seriesProfiles.keys();
-    for (const QString &key : seriesKeys) {
-        if (seriesProfiles[key].toString() == name) {
-            seriesProfiles.remove(key);
-        }
-    }
-    settings["series_profiles"] = seriesProfiles;
+    state[QString::fromLatin1(kConnectionStateScopesKey)] = scopes;
+    settings[QString::fromLatin1(kConnectionStateKey)] = state;
     
     m_config["settings"] = settings;
     save();
@@ -5019,76 +5171,48 @@ void ConfigManager::setDefaultProfileName(const QString &name)
 
 QString ConfigManager::getLibraryProfile(const QString &libraryId) const
 {
-    if (m_config.contains("settings") && m_config["settings"].isObject()) {
-        QJsonObject settings = m_config["settings"].toObject();
-        if (settings.contains("library_profiles") && settings["library_profiles"].isObject()) {
-            QJsonObject libraryProfiles = settings["library_profiles"].toObject();
-            if (libraryProfiles.contains(libraryId)) {
-                return libraryProfiles[libraryId].toString();
-            }
-        }
-    }
-    return QString();
+    const QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    return scopedAssignments(settings, QStringLiteral("library_profiles"))
+        .value(libraryId).toString();
 }
 
 void ConfigManager::setLibraryProfile(const QString &libraryId, const QString &profileName)
 {
-    QJsonObject settings;
-    if (m_config.contains("settings") && m_config["settings"].isObject()) {
-        settings = m_config["settings"].toObject();
-    }
-    
-    QJsonObject libraryProfiles;
-    if (settings.contains("library_profiles") && settings["library_profiles"].isObject()) {
-        libraryProfiles = settings["library_profiles"].toObject();
-    }
-    
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject libraryProfiles = scopedAssignments(
+        settings, QStringLiteral("library_profiles"));
     if (profileName.isEmpty()) {
         libraryProfiles.remove(libraryId);
     } else {
         libraryProfiles[libraryId] = profileName;
     }
-    
-    settings["library_profiles"] = libraryProfiles;
-    m_config["settings"] = settings;
+
+    setScopedAssignments(settings, QStringLiteral("library_profiles"), libraryProfiles);
+    m_config[QStringLiteral("settings")] = settings;
     save();
     emit libraryProfilesChanged();
 }
 
 QString ConfigManager::getSeriesProfile(const QString &seriesId) const
 {
-    if (m_config.contains("settings") && m_config["settings"].isObject()) {
-        QJsonObject settings = m_config["settings"].toObject();
-        if (settings.contains("series_profiles") && settings["series_profiles"].isObject()) {
-            QJsonObject seriesProfiles = settings["series_profiles"].toObject();
-            if (seriesProfiles.contains(seriesId)) {
-                return seriesProfiles[seriesId].toString();
-            }
-        }
-    }
-    return QString();
+    const QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    return scopedAssignments(settings, QStringLiteral("series_profiles"))
+        .value(seriesId).toString();
 }
 
 void ConfigManager::setSeriesProfile(const QString &seriesId, const QString &profileName)
 {
-    QJsonObject settings;
-    if (m_config.contains("settings") && m_config["settings"].isObject()) {
-        settings = m_config["settings"].toObject();
-    }
-    
-    QJsonObject seriesProfiles;
-    if (settings.contains("series_profiles") && settings["series_profiles"].isObject()) {
-        seriesProfiles = settings["series_profiles"].toObject();
-    }
-    
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject seriesProfiles = scopedAssignments(
+        settings, QStringLiteral("series_profiles"));
     if (profileName.isEmpty()) {
         seriesProfiles.remove(seriesId);
     } else {
         seriesProfiles[seriesId] = profileName;
     }
-    
-    settings["series_profiles"] = seriesProfiles;
-    m_config["settings"] = settings;
+
+    setScopedAssignments(settings, QStringLiteral("series_profiles"), seriesProfiles);
+    m_config[QStringLiteral("settings")] = settings;
     save();
     emit seriesProfilesChanged();
 }

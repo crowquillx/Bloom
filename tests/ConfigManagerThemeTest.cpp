@@ -416,7 +416,7 @@ void ConfigManagerThemeTest::v19MigrationAddsThemeVariantSettings()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 28);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 29);
     const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
     QVERIFY(ui.contains(QStringLiteral("theme_flavor")));
     QCOMPARE(ui.value(QStringLiteral("theme_color_scheme")).toString(), QStringLiteral("blue"));
@@ -741,7 +741,7 @@ void ConfigManagerThemeTest::v24MigrationAddsScreensaverSettings()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 28);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 29);
     const QJsonObject ui = migrated.value(QStringLiteral("settings")).toObject().value(QStringLiteral("ui")).toObject();
     const QJsonObject screensaver = ui.value(QStringLiteral("screensaver")).toObject();
     QCOMPARE(screensaver.value(QStringLiteral("enabled")).toBool(), false);
@@ -781,7 +781,7 @@ void ConfigManagerThemeTest::v25MigrationAddsHeroEpisodeSynopsisSetting()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 28);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 29);
     const QJsonObject heroBanner = migrated.value(QStringLiteral("settings")).toObject()
                                        .value(QStringLiteral("ui")).toObject()
                                        .value(QStringLiteral("hero_banner")).toObject();
@@ -814,7 +814,7 @@ void ConfigManagerThemeTest::v26MigrationAddsInputBindings()
     QFile migratedFile(ConfigManager::getConfigPath());
     QVERIFY(migratedFile.open(QIODevice::ReadOnly));
     const QJsonObject migrated = QJsonDocument::fromJson(migratedFile.readAll()).object();
-    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 28);
+    QCOMPARE(migrated.value(QStringLiteral("version")).toInt(), 29);
     const QJsonObject settings = migrated.value(QStringLiteral("settings")).toObject();
     const QJsonObject storedBindings = settings.value(QStringLiteral("input_bindings")).toObject();
     QCOMPARE(storedBindings.value(QStringLiteral("schema")).toInt(), 1);

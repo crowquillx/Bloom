@@ -36,6 +36,16 @@ SessionService::SessionService(AuthenticationService *authService, QObject *pare
 {
     if (authService) {
         m_deviceId = getDeviceId();
+        connect(authService, &AuthenticationService::loggedOut, this, [this]() {
+            m_sessions.clear();
+            m_currentSessionId.clear();
+            m_errorString.clear();
+            m_isLoading = false;
+            emit sessionsChanged();
+            emit currentSessionIdChanged();
+            emit errorStringChanged();
+            emit isLoadingChanged();
+        });
     }
 }
 

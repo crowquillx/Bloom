@@ -71,6 +71,12 @@ If a write, verification, or deletion fails, the old config/keychain entry remai
 
 Provider-neutral credential keys do not include the rotating device ID. Device rotation first resolves any pending legacy entry and aborts if the credential cannot be preserved.
 
+## Connection-scoped state
+
+Config v29 stores server-owned preferences under `settings.connection_state.scopes.<connectionId>`. MPV library/series assignments and per-library startup-buffering overrides migrate from their former global maps into the active connection scope, or the sole saved connection when signed out. Ambiguous legacy state and new settings written before first activation are retained under `_pending` and adopted by the next activated connection; test-only values use `_local` only when no `ConfigManager` participates.
+
+`track_preferences.json` schema v4 groups season/movie preferences by connection scope and applies the same pending-activation rule. Library SQLite caches and series/movie detail caches use SHA-256 connection-scope directory keys, while static in-memory cache keys include the connection ID and are cleared when the active scope changes. `LibraryViewModel` reopens its cache and clears displayed account state when the active connection changes. Logout cancels transport operations and clears library validation, remote-session, and detail-view state without deleting another connection's persisted preferences.
+
 ## Request, authentication, and transport boundaries
 
 `IProviderRequestFactory` owns provider-specific URL and authorization-header construction. `JellyfinRequestFactory` is the only production source of the `MediaBrowser` header and also redacts token-bearing query parameters before URLs reach logs.
@@ -79,7 +85,7 @@ Provider-neutral credential keys do not include the rotating device ID. Device r
 
 `HttpTransport` owns the shared `QNetworkAccessManager` and centralizes retry/backoff, cancellation, error mapping, redacted request logging, and unauthorized policy. Catalog and remote-session `401` responses expire immediately; playback reads can defer expiry until playback stops. Canceled work is never retried. `SessionService` uses the shared transport instead of a private network manager.
 
-The remaining issue #75 work is connection-scoping persisted preferences/caches and extracting provider route/JSON behavior behind catalog/playback/session adapter interfaces. QML must not select protocol routes, construct provider headers, or read credentials. Native Silo authentication remains deferred until its adapter can own access, refresh, and profile-token behavior.
+The remaining issue #75 work is extracting provider route/JSON behavior behind catalog/playback/session adapter interfaces. QML must not select protocol routes, construct provider headers, or read credentials. Native Silo authentication remains deferred until its adapter can own access, refresh, and profile-token behavior.
 
 ## Verification
 
@@ -93,6 +99,7 @@ Connection, credential, request-factory, and transport tests cover:
 - multiple persisted connections and active selection
 - Jellyfin header/authentication wire ownership and URL redaction
 - transient retry, non-retryable cancellation/client failures, and unauthorized policy
+- connection isolation for MPV assignments, buffering overrides, track preferences, and caches
 
 Use the blessed project checks:
 
