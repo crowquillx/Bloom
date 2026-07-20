@@ -23,8 +23,7 @@ class LibraryViewModel;
 class SeriesDetailsViewModel;
 class MovieDetailsViewModel;
 class UpNextRecommendationsViewModel;
-class IProviderAuthenticator;
-class IProviderRequestFactory;
+class IProviderAdapter;
 class ISecretStore;
 class HttpTransport;
 class SidebarSettings;
@@ -107,8 +106,7 @@ private:
     // ISecretStore — owned here, raw pointer passed to AuthenticationService
     std::unique_ptr<ISecretStore> m_secretStore;
     std::unique_ptr<HttpTransport> m_httpTransport;
-    std::unique_ptr<IProviderRequestFactory> m_providerRequestFactory;
-    std::unique_ptr<IProviderAuthenticator> m_providerAuthenticator;
+    std::unique_ptr<IProviderAdapter> m_providerAdapter;
 
     std::unique_ptr<AuthenticationService> m_authService;
     std::unique_ptr<LibraryService> m_libraryService;

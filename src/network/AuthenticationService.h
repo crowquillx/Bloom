@@ -12,6 +12,7 @@
 #include "providers/ServerConnection.h"
 #include "security/CredentialStore.h"
 
+class IProviderAdapter;
 class IProviderAuthenticator;
 class IProviderRequestFactory;
 class ISecretStore;
@@ -41,8 +42,7 @@ public:
     explicit AuthenticationService(ISecretStore *secretStore = nullptr, QObject *parent = nullptr);
     AuthenticationService(ISecretStore *secretStore,
                           HttpTransport *transport,
-                          IProviderRequestFactory *requestFactory,
-                          IProviderAuthenticator *providerAuthenticator,
+                          IProviderAdapter *providerAdapter,
                           QObject *parent = nullptr);
     virtual ~AuthenticationService();
     
@@ -141,11 +141,11 @@ private slots:
 
 private:
     std::unique_ptr<HttpTransport> m_ownedTransport;
-    std::unique_ptr<IProviderRequestFactory> m_ownedRequestFactory;
-    std::unique_ptr<IProviderAuthenticator> m_ownedProviderAuthenticator;
+    std::unique_ptr<IProviderAdapter> m_ownedProviderAdapter;
     HttpTransport *m_transport = nullptr;
-    IProviderRequestFactory *m_requestFactory = nullptr;
-    IProviderAuthenticator *m_providerAuthenticator = nullptr;
+    IProviderAdapter *m_providerAdapter = nullptr;
+    const IProviderRequestFactory *m_requestFactory = nullptr;
+    const IProviderAuthenticator *m_providerAuthenticator = nullptr;
     QString m_serverUrl;
     QString m_accessToken;
     QString m_userId;

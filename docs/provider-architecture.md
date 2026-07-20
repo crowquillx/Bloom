@@ -79,13 +79,15 @@ Config v29 stores server-owned preferences under `settings.connection_state.scop
 
 ## Request, authentication, and transport boundaries
 
+`IProviderAdapter` bundles the provider implementation consumed by stable application façades. `JellyfinProviderAdapter` exposes the Jellyfin authenticator and request factory while identifying its provider/protocol mode; login, restore, browse, playback, and remote-session traffic therefore share one selected provider boundary without changing QML APIs.
+
 `IProviderRequestFactory` owns provider-specific URL and authorization-header construction. `JellyfinRequestFactory` is the only production source of the `MediaBrowser` header and also redacts token-bearing query parameters before URLs reach logs.
 
 `IProviderAuthenticator` owns provider login payloads, response parsing, and validation routes. `JellyfinAuthenticator` implements the existing AuthenticateByName flow while `AuthenticationService` remains the stable QML-facing session façade.
 
 `HttpTransport` owns the shared `QNetworkAccessManager` and centralizes retry/backoff, cancellation, error mapping, redacted request logging, and unauthorized policy. Catalog and remote-session `401` responses expire immediately; playback reads can defer expiry until playback stops. Canceled work is never retried. `SessionService` uses the shared transport instead of a private network manager.
 
-The remaining issue #75 work is extracting provider route/JSON behavior behind catalog/playback/session adapter interfaces. QML must not select protocol routes, construct provider headers, or read credentials. Native Silo authentication remains deferred until its adapter can own access, refresh, and profile-token behavior.
+`LibraryService`, `PlaybackService`, and `SessionService` remain the stable Jellyfin catalog/playback/remote-session adapters for their existing QML signals while all of their HTTP requests flow through the selected provider request factory and transport. Canonical JSON/model conversion continues with the provider model work without changing those façade contracts. QML must not select protocol routes, construct provider headers, or read credentials. Native Silo authentication remains deferred until its adapter can own access, refresh, and profile-token behavior.
 
 ## Verification
 
