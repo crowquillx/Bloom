@@ -11,7 +11,10 @@ Key services
 - `IPlayerBackend` — Playback backend abstraction registered in `ServiceLocator`.
 - `ExternalMpvBackend` — External mpv process/IPC backend adapter (primary rollback path on Linux/non-Windows).
 - `PlayerProcessManager` — Manages external mpv process & IPC (used by `ExternalMpvBackend`).
-- `AuthenticationService` — Login, logout, session persistence, token validation; owns shared `QNetworkAccessManager`.
+- `HttpTransport` — Owns the shared `QNetworkAccessManager` and central retry, cancellation, error, redaction, and unauthorized-response policy.
+- `IProviderRequestFactory` / `JellyfinRequestFactory` — Provider-owned URL and authorization-header construction.
+- `IProviderAuthenticator` / `JellyfinAuthenticator` — Provider-owned login payload, response parsing, and validation routes.
+- `AuthenticationService` — Stable QML façade for login, logout, session persistence, and token validation; delegates provider wire details and HTTP execution.
 - `LibraryService` — Library views/items, series details, search, reusable chapter metadata, image/theme-song URLs.
 - `PlaybackService` — Playback reporting, stream info, media segments, trickplay URLs and info.
 - `MediaSegmentProviderService` — Fetches and normalizes external intro/recap/credits/preview markers from configured providers; used by `PlaybackService` after server segment lookup.
@@ -27,8 +30,9 @@ Key services
 Initialization order (recommended)
 1. ConfigManager — loads configs, path info, and active `ServerConnection` metadata.
 2. IPlayerBackend — created by `PlayerBackendFactory` (`win-libmpv` on Windows; platform-selected backend elsewhere).
-3. AuthenticationService — handles the current Jellyfin session façade, uses `CredentialStore`, and provides the shared `QNetworkAccessManager` until transport extraction is complete.
-4. LibraryService — depends on AuthenticationService.
+3. HttpTransport and provider request/authentication implementations — own shared HTTP execution and Jellyfin wire construction.
+4. AuthenticationService — stable session façade; depends on `CredentialStore`, `HttpTransport`, `IProviderRequestFactory`, and `IProviderAuthenticator`.
+4.1. LibraryService — depends on AuthenticationService and uses its shared transport.
 5. InputModeManager — depends on QGuiApplication.
 5.1. InputBindingManager — depends on QGuiApplication + ConfigManager.
 6. MediaSegmentProviderService — depends on AuthenticationService + ConfigManager.

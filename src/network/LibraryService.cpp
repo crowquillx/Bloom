@@ -1,5 +1,6 @@
 #include "LibraryService.h"
 #include "AuthenticationService.h"
+#include "HttpTransport.h"
 #include "NextEpisodeResolver.h"
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -230,6 +231,7 @@ QString LibraryItemQuery::cacheKey() const
 LibraryService::LibraryService(AuthenticationService *authService, QObject *parent)
     : QObject(parent)
     , m_authService(authService)
+    , m_transport(authService ? authService->transport() : nullptr)
     , m_retryPolicy{3, 1000, true}
 {
 }
@@ -244,73 +246,36 @@ void LibraryService::sendRequestWithRetry(const QString &endpoint,
                                            FailureHandler failureHandler,
                                            int attemptNumber)
 {
-    qCDebug(lcLibrary) << "Sending request to:" << endpoint 
-                            << "attempt:" << (attemptNumber + 1) << "/" << m_retryPolicy.maxRetries;
-    
-    QNetworkReply *reply = requestFactory();
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
-        handleReplyWithRetry(reply, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber);
-    });
-}
-
-void LibraryService::handleReplyWithRetry(QNetworkReply *reply,
-                                           const QString &endpoint,
-                                           RequestFactory requestFactory,
-                                           ResponseHandler responseHandler,
-                                           FailureHandler failureHandler,
-                                           int attemptNumber)
-{
-    reply->deleteLater();
-    
-    if (reply->error() == QNetworkReply::NoError) {
-        qCDebug(lcLibrary) << "Request succeeded:" << endpoint;
-        responseHandler(reply);
-        return;
-    }
-    
-    // Get HTTP status code
-    int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    
-    NetworkError netError = ErrorHandler::createError(reply, endpoint);
-
-    // Check for 401 Unauthorized - session expired
-    if (httpStatus == 401) {
-        qCWarning(lcLibrary) << "Session expired (401) for endpoint:" << endpoint
-                                  << "userMessage:" << netError.userMessage;
+    Q_UNUSED(attemptNumber)
+    if (!m_transport) {
+        NetworkError error;
+        error.code = -1;
+        error.endpoint = endpoint;
+        error.userMessage = tr("Network transport is unavailable.");
         if (failureHandler) {
-            failureHandler(netError);
+            failureHandler(error);
         } else {
-            emitError(netError);
+            emitError(error);
         }
         return;
     }
-    
-    qCWarning(lcLibrary) << "Request failed:" << endpoint
-                              << "Error:" << reply->error()
-                              << "HTTP Status:" << httpStatus
-                              << "Attempt:" << (attemptNumber + 1);
-    
-    // Check if we should retry
-    bool shouldRetry = m_retryPolicy.retryOnTransient 
-                       && ErrorHandler::isTransientError(reply->error())
-                       && !ErrorHandler::isClientError(httpStatus)
-                       && attemptNumber < m_retryPolicy.maxRetries - 1;
-    
-    if (shouldRetry) {
-        int delayMs = ErrorHandler::calculateBackoffDelay(attemptNumber, m_retryPolicy);
-        qCInfo(lcLibrary) << "Retrying request to:" << endpoint << "in" << delayMs << "ms";
-        
-        QTimer::singleShot(delayMs, this, [this, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
-            sendRequestWithRetry(endpoint, requestFactory, responseHandler, failureHandler, attemptNumber + 1);
-        });
-    } else {
-        if (failureHandler) {
-            failureHandler(netError);
-        } else {
-            emitError(netError);
-        }
-    }
+
+    HttpRequestOptions options;
+    options.retryPolicy = m_retryPolicy;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    m_transport->sendWithRetry(
+        this,
+        endpoint,
+        std::move(requestFactory),
+        std::move(responseHandler),
+        [this, failureHandler = std::move(failureHandler)](const NetworkError &error) {
+            if (failureHandler) {
+                failureHandler(error);
+            } else {
+                emitError(error);
+            }
+        },
+        options);
 }
 
 void LibraryService::emitError(const NetworkError &error)
@@ -1312,6 +1277,7 @@ void LibraryService::markSeriesWatched(const QString &seriesId)
     QNetworkReply *reply = m_authService->networkManager()->post(request, QByteArray());
     connect(reply, &QNetworkReply::finished, this, [this, reply, seriesId]() {
         reply->deleteLater();
+        if (m_authService->checkForSessionExpiry(reply)) return;
         if (reply->error() == QNetworkReply::NoError) {
             emit seriesWatchedStatusChanged(seriesId);
         }
@@ -1328,6 +1294,7 @@ void LibraryService::markSeriesUnwatched(const QString &seriesId)
     QNetworkReply *reply = m_authService->networkManager()->deleteResource(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, seriesId]() {
         reply->deleteLater();
+        if (m_authService->checkForSessionExpiry(reply)) return;
         if (reply->error() == QNetworkReply::NoError) {
             emit seriesWatchedStatusChanged(seriesId);
         }
@@ -1345,6 +1312,7 @@ void LibraryService::markItemPlayed(const QString &itemId)
     QNetworkReply *reply = m_authService->networkManager()->post(request, QByteArray());
     connect(reply, &QNetworkReply::finished, this, [this, reply, itemId]() {
         reply->deleteLater();
+        if (m_authService->checkForSessionExpiry(reply)) return;
         if (reply->error() == QNetworkReply::NoError) {
             emit itemPlayedStatusChanged(itemId, true);
         }
@@ -1361,6 +1329,7 @@ void LibraryService::markItemUnplayed(const QString &itemId)
     QNetworkReply *reply = m_authService->networkManager()->deleteResource(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, itemId]() {
         reply->deleteLater();
+        if (m_authService->checkForSessionExpiry(reply)) return;
         if (reply->error() == QNetworkReply::NoError) {
             emit itemPlayedStatusChanged(itemId, false);
         }
@@ -1378,6 +1347,7 @@ void LibraryService::markItemFavorite(const QString &itemId)
     QNetworkReply *reply = m_authService->networkManager()->post(request, QByteArray());
     connect(reply, &QNetworkReply::finished, this, [this, reply, itemId]() {
         reply->deleteLater();
+        if (m_authService->checkForSessionExpiry(reply)) return;
         if (reply->error() == QNetworkReply::NoError) {
             emit favoriteStatusChanged(itemId, true);
         }
@@ -1394,6 +1364,7 @@ void LibraryService::markItemUnfavorite(const QString &itemId)
     QNetworkReply *reply = m_authService->networkManager()->deleteResource(request);
     connect(reply, &QNetworkReply::finished, this, [this, reply, itemId]() {
         reply->deleteLater();
+        if (m_authService->checkForSessionExpiry(reply)) return;
         if (reply->error() == QNetworkReply::NoError) {
             emit favoriteStatusChanged(itemId, false);
         }

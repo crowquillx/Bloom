@@ -8,6 +8,7 @@
 
 class AuthenticationService;
 class ConfigManager;
+class HttpTransport;
 class MediaSegmentProviderService;
 
 /**
@@ -119,6 +120,7 @@ signals:
 
 private:
     AuthenticationService *m_authService;
+    HttpTransport *m_transport = nullptr;
     ConfigManager *m_configManager = nullptr;
     MediaSegmentProviderService *m_mediaSegmentProviderService = nullptr;
     RetryPolicy m_retryPolicy;
@@ -133,13 +135,6 @@ private:
                                ResponseHandler responseHandler,
                                FailureHandler failureHandler = FailureHandler(),
                                int attemptNumber = 0);
-    
-    void handleReplyWithRetry(QNetworkReply *reply,
-                               const QString &endpoint,
-                               RequestFactory requestFactory,
-                               ResponseHandler responseHandler,
-                               FailureHandler failureHandler,
-                               int attemptNumber);
     
     void emitError(const NetworkError &error);
     QList<MediaSegmentInfo> parseIntroSkipperSegments(const QString &itemId, const QJsonObject &obj) const;

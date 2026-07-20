@@ -13,6 +13,12 @@ qt_add_executable(Bloom
     core/ServiceLocator.cpp
     providers/ServerConnection.h
     providers/ServerConnection.cpp
+    providers/IProviderAuthenticator.h
+    providers/IProviderRequestFactory.h
+    providers/jellyfin/JellyfinAuthenticator.h
+    providers/jellyfin/JellyfinAuthenticator.cpp
+    providers/jellyfin/JellyfinRequestFactory.h
+    providers/jellyfin/JellyfinRequestFactory.cpp
     resources/fonts.qrc
     resources/sounds.qrc
     resources/images.qrc
@@ -33,6 +39,8 @@ qt_add_executable(Bloom
     player/backend/MpvEmbeddedShaderUtils.cpp
     network/AuthenticationService.h
     network/AuthenticationService.cpp
+    network/HttpTransport.h
+    network/HttpTransport.cpp
     network/LibraryService.h
     network/LibraryService.cpp
     network/NextEpisodeResolver.h

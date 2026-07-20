@@ -71,21 +71,19 @@ If a write, verification, or deletion fails, the old config/keychain entry remai
 
 Provider-neutral credential keys do not include the rotating device ID. Device rotation first resolves any pending legacy entry and aborts if the credential cannot be preserved.
 
-## Incremental boundaries
+## Request, authentication, and transport boundaries
 
-The remaining issue #75 work should preserve these directions:
+`IProviderRequestFactory` owns provider-specific URL and authorization-header construction. `JellyfinRequestFactory` is the only production source of the `MediaBrowser` header and also redacts token-bearing query parameters before URLs reach logs.
 
-1. Extract provider request factories so MediaBrowser and Silo headers are created only inside their adapters.
-2. Introduce a shared HTTP transport for execution, cancellation, redaction, retry policy, error mapping, and provider-directed `401` recovery.
-3. Place Jellyfin authentication behind `IProviderAuthenticator` while retaining the current QML-facing façade.
-4. Namespace persisted preferences and caches by `connectionId` before enabling multiple live providers.
-5. Add Silo authentication only after the native adapter can own access/refresh/profile token behavior.
+`IProviderAuthenticator` owns provider login payloads, response parsing, and validation routes. `JellyfinAuthenticator` implements the existing AuthenticateByName flow while `AuthenticationService` remains the stable QML-facing session façade.
 
-QML must not select protocol routes, construct provider headers, or read credentials.
+`HttpTransport` owns the shared `QNetworkAccessManager` and centralizes retry/backoff, cancellation, error mapping, redacted request logging, and unauthorized policy. Catalog and remote-session `401` responses expire immediately; playback reads can defer expiry until playback stops. Canceled work is never retried. `SessionService` uses the shared transport instead of a private network manager.
+
+The remaining issue #75 work is connection-scoping persisted preferences/caches and extracting provider route/JSON behavior behind catalog/playback/session adapter interfaces. QML must not select protocol routes, construct provider headers, or read credentials. Native Silo authentication remains deferred until its adapter can own access, refresh, and profile-token behavior.
 
 ## Verification
 
-Connection and credential migration tests cover:
+Connection, credential, request-factory, and transport tests cover:
 
 - v27 Jellyfin metadata migration
 - token exclusion from `app.json`
@@ -93,6 +91,8 @@ Connection and credential migration tests cover:
 - verified legacy keychain copy and cleanup
 - failed-copy recovery
 - multiple persisted connections and active selection
+- Jellyfin header/authentication wire ownership and URL redaction
+- transient retry, non-retryable cancellation/client failures, and unauthorized policy
 
 Use the blessed project checks:
 

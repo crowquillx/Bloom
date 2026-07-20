@@ -23,7 +23,10 @@ class LibraryViewModel;
 class SeriesDetailsViewModel;
 class MovieDetailsViewModel;
 class UpNextRecommendationsViewModel;
+class IProviderAuthenticator;
+class IProviderRequestFactory;
 class ISecretStore;
+class HttpTransport;
 class SidebarSettings;
 class UiSoundController;
 class SystemPowerController;
@@ -103,7 +106,10 @@ private:
     std::unique_ptr<IPlayerBackend> m_playerBackend;
     // ISecretStore — owned here, raw pointer passed to AuthenticationService
     std::unique_ptr<ISecretStore> m_secretStore;
-    
+    std::unique_ptr<HttpTransport> m_httpTransport;
+    std::unique_ptr<IProviderRequestFactory> m_providerRequestFactory;
+    std::unique_ptr<IProviderAuthenticator> m_providerAuthenticator;
+
     std::unique_ptr<AuthenticationService> m_authService;
     std::unique_ptr<LibraryService> m_libraryService;
     std::unique_ptr<PlaybackService> m_playbackService;

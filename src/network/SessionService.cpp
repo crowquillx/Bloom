@@ -1,5 +1,6 @@
 #include "SessionService.h"
 #include "AuthenticationService.h"
+#include "HttpTransport.h"
 #include "../utils/ConfigManager.h"
 #include <QNetworkRequest>
 #include <QUrl>
@@ -31,7 +32,7 @@ QVariantMap SessionInfo::toVariantMap() const
 SessionService::SessionService(AuthenticationService *authService, QObject *parent)
     : QObject(parent)
     , m_authService(authService)
-    , m_nam(new QNetworkAccessManager(this))
+    , m_transport(authService ? authService->transport() : nullptr)
 {
     if (authService) {
         m_deviceId = getDeviceId();
@@ -45,16 +46,31 @@ void SessionService::fetchActiveSessions()
         emit operationFailed(m_errorString);
         return;
     }
+    if (!m_transport) {
+        setErrorString("Network transport unavailable");
+        emit operationFailed(m_errorString);
+        return;
+    }
 
     setIsLoading(true);
     setErrorString(QString());
 
-    QNetworkRequest request = createAuthenticatedRequest("/Sessions");
-    QNetworkReply *reply = m_nam->get(request);
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onFetchSessionsFinished(reply);
-    });
+    const QString endpoint = QStringLiteral("/Sessions");
+    HttpRequestOptions options;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    m_transport->sendWithRetry(
+        this,
+        endpoint,
+        [this, endpoint]() {
+            return m_authService->networkManager()->get(createAuthenticatedRequest(endpoint));
+        },
+        [this](QNetworkReply *reply) { onFetchSessionsFinished(reply); },
+        [this](const NetworkError &error) {
+            setIsLoading(false);
+            setErrorString(error.userMessage);
+            emit operationFailed(error.userMessage);
+        },
+        options);
 }
 
 void SessionService::revokeSession(const QString &sessionId)
@@ -70,18 +86,36 @@ void SessionService::revokeSession(const QString &sessionId)
         emit operationFailed(m_errorString);
         return;
     }
+    if (!m_transport) {
+        setErrorString("Network transport unavailable");
+        emit operationFailed(m_errorString);
+        return;
+    }
 
     setIsLoading(true);
     setErrorString(QString());
 
     // Jellyfin uses POST /Sessions/{id}/Logout to revoke a session
     QString endpoint = QString("/Sessions/%1/Logout").arg(sessionId);
-    QNetworkRequest request = createAuthenticatedRequest(endpoint);
-    QNetworkReply *reply = m_nam->post(request, QByteArray());
-
-    connect(reply, &QNetworkReply::finished, this, [this, reply, sessionId]() {
-        onRevokeSessionFinished(reply, sessionId);
-    });
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    m_transport->sendWithRetry(
+        this,
+        endpoint,
+        [this, endpoint]() {
+            return m_authService->networkManager()->post(
+                createAuthenticatedRequest(endpoint), QByteArray());
+        },
+        [this, sessionId](QNetworkReply *reply) {
+            onRevokeSessionFinished(reply, sessionId);
+        },
+        [this](const NetworkError &error) {
+            setIsLoading(false);
+            setErrorString(error.userMessage);
+            emit operationFailed(error.userMessage);
+        },
+        options);
 }
 
 void SessionService::revokeAllOtherSessions()
@@ -159,18 +193,7 @@ bool SessionService::isCurrentSession(const QString &sessionId) const
 
 void SessionService::onFetchSessionsFinished(QNetworkReply *reply)
 {
-    reply->deleteLater();
     setIsLoading(false);
-
-    if (reply->error() != QNetworkReply::NoError) {
-        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        QString error = QString("Failed to fetch sessions: %1 (HTTP %2)")
-                            .arg(reply->errorString())
-                            .arg(statusCode);
-        setErrorString(error);
-        emit operationFailed(error);
-        return;
-    }
 
     QByteArray data = reply->readAll();
     QJsonDocument doc = QJsonDocument::fromJson(data);
@@ -231,21 +254,9 @@ void SessionService::onFetchSessionsFinished(QNetworkReply *reply)
     qCDebug(lcAuth) << "SessionService: Loaded" << m_sessions.size() << "sessions, current:" << m_currentSessionId;
 }
 
-void SessionService::onRevokeSessionFinished(QNetworkReply *reply, QString sessionId)
+void SessionService::onRevokeSessionFinished(QNetworkReply *, QString sessionId)
 {
-    reply->deleteLater();
     setIsLoading(false);
-
-    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-
-    if (reply->error() != QNetworkReply::NoError && statusCode != 204) {
-        QString error = QString("Failed to revoke session: %1 (HTTP %2)")
-                            .arg(reply->errorString())
-                            .arg(statusCode);
-        setErrorString(error);
-        emit operationFailed(error);
-        return;
-    }
 
     // Check if we revoked our own session
     if (sessionId == m_currentSessionId) {

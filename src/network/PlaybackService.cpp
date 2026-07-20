@@ -1,5 +1,6 @@
 #include "PlaybackService.h"
 #include "AuthenticationService.h"
+#include "HttpTransport.h"
 #include "MediaSegmentProviderService.h"
 #include "../utils/ConfigManager.h"
 #include <QJsonDocument>
@@ -50,6 +51,7 @@ PlaybackService::PlaybackService(AuthenticationService *authService,
                                  QObject *parent)
     : QObject(parent)
     , m_authService(authService)
+    , m_transport(authService ? authService->transport() : nullptr)
     , m_configManager(configManager)
     , m_mediaSegmentProviderService(mediaSegmentProviderService)
     , m_retryPolicy{3, 1000, true}
@@ -66,67 +68,38 @@ void PlaybackService::sendRequestWithRetry(const QString &endpoint,
                                             FailureHandler failureHandler,
                                             int attemptNumber)
 {
-    qCDebug(lcPlayback) << "Sending request to:" << endpoint 
-                             << "attempt:" << (attemptNumber + 1) << "/" << m_retryPolicy.maxRetries;
-    
-    QNetworkReply *reply = requestFactory();
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
-        handleReplyWithRetry(reply, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber);
-    });
-}
-
-void PlaybackService::handleReplyWithRetry(QNetworkReply *reply,
-                                            const QString &endpoint,
-                                            RequestFactory requestFactory,
-                                            ResponseHandler responseHandler,
-                                            FailureHandler failureHandler,
-                                            int attemptNumber)
-{
-    reply->deleteLater();
-    
-    if (reply->error() == QNetworkReply::NoError) {
-        qCDebug(lcPlayback) << "Request succeeded:" << endpoint;
-        responseHandler(reply);
-        return;
-    }
-    
-    int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-
-    if (httpStatus == 401) {
-        qCWarning(lcPlayback) << "Session expired (401) for endpoint:" << endpoint;
-        m_authService->checkForSessionExpiry(reply, true);
+    Q_UNUSED(attemptNumber)
+    if (!m_transport) {
         NetworkError error;
+        error.code = -1;
         error.endpoint = endpoint;
-        error.code = httpStatus;
-        error.userMessage = tr("Session expired. Please log in again.");
-        if (failureHandler) failureHandler(error);
+        error.userMessage = tr("Network transport is unavailable.");
+        emitError(error);
+        if (failureHandler) {
+            failureHandler(error);
+        }
         return;
     }
-    
-    NetworkError netError = ErrorHandler::createError(reply, endpoint);
-    
-    qCWarning(lcPlayback) << "Request failed:" << endpoint
-                               << "Error:" << reply->error()
-                               << "HTTP Status:" << httpStatus
-                               << "Attempt:" << (attemptNumber + 1);
-    
-    bool shouldRetry = m_retryPolicy.retryOnTransient 
-                       && ErrorHandler::isTransientError(reply->error())
-                       && !ErrorHandler::isClientError(httpStatus)
-                       && attemptNumber < m_retryPolicy.maxRetries - 1;
-    
-    if (shouldRetry) {
-        int delayMs = ErrorHandler::calculateBackoffDelay(attemptNumber, m_retryPolicy);
-        qCInfo(lcPlayback) << "Retrying request to:" << endpoint << "in" << delayMs << "ms";
-        
-        QTimer::singleShot(delayMs, this, [this, endpoint, requestFactory, responseHandler, failureHandler, attemptNumber]() {
-            sendRequestWithRetry(endpoint, requestFactory, responseHandler, failureHandler, attemptNumber + 1);
-        });
-    } else {
-        emitError(netError);
-        if (failureHandler) failureHandler(netError);
-    }
+
+    HttpRequestOptions options;
+    options.retryPolicy = m_retryPolicy;
+    options.unauthorizedPolicy = UnauthorizedPolicy::DeferSessionExpiry;
+    m_transport->sendWithRetry(
+        this,
+        endpoint,
+        std::move(requestFactory),
+        std::move(responseHandler),
+        [this, failureHandler = std::move(failureHandler)](const NetworkError &error) {
+            if (error.code == 401 && failureHandler) {
+                failureHandler(error);
+                return;
+            }
+            emitError(error);
+            if (failureHandler) {
+                failureHandler(error);
+            }
+        },
+        options);
 }
 
 void PlaybackService::emitError(const NetworkError &error)

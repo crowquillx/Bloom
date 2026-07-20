@@ -41,7 +41,8 @@ Coding style
 
 Useful utilities
 - `PlayerProcessManager` for mpv lifecycle.
-- `JellyfinClient` for network operations and request retriers.
+- `HttpTransport` for shared HTTP execution/retry/cancellation policy.
+- `IProviderRequestFactory` implementations for provider URL/header construction.
 - `ConfigManager` for settings and QML exposures.
 
 Logging
