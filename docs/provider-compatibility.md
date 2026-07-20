@@ -2,7 +2,7 @@
 
 This page defines the server contract baseline for [issue #74](https://github.com/crowquillx/Bloom/issues/74), the first increment of the Silo support epic. It records Bloom's current MediaBrowser/Jellyfin wire assumptions, the Silo compatibility result, and the native Silo assumptions needed by later provider adapters.
 
-The machine-readable source is [`tests/contracts/provider-contracts.json`](../tests/contracts/provider-contracts.json). Its validator requires semantic evidence for every result; an HTTP `200` alone never means a feature is supported.
+The machine-readable source is [`tests/contracts/provider-contracts.json`](../tests/contracts/provider-contracts.json). Its validator requires semantic evidence for every result; an HTTP `200` alone never means a feature is supported. The implementation boundaries and connection/credential migration are documented in [provider architecture](provider-architecture.md).
 
 ## Support terminology
 

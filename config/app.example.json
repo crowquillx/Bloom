@@ -1,5 +1,5 @@
 {
-    "version": 25,
+    "version": 28,
     "settings": {
         "mpv": {
             "path": "mpv",
@@ -9,11 +9,15 @@
             ],
             "test_video_url": "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
         },
-        "jellyfin": {
-            "server_url": "",
-            "user_id": "",
-            "access_token": "",
-            "username": ""
+        "connections": {
+            "version": 1,
+            "active": "",
+            "items": []
+        },
+        "input_bindings": {
+            "schema": 1,
+            "keyboard": {},
+            "gamepad": {}
         },
         "playback": {
             "completion_threshold": 90,

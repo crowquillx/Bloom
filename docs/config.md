@@ -8,7 +8,7 @@ Overview
 - On Windows, Bloom automatically migrates legacy nested config folders (for example `%APPDATA%/Bloom/Bloom`) into `%APPDATA%/Bloom` when needed.
 
 Responsibilities
-- Persist session information: server URL, access tokens (obfuscated or protected as feasible).
+- Persist provider-neutral connection metadata. Access, refresh, and profile tokens remain exclusively in the platform secret store.
 - Persist app-specific settings: `playbackCompletionThreshold`, `autoplayNextEpisode`, `backdropRotationInterval`, `screensaver*`, mpv extra flags.
 - Emit change signals to allow QML to react to setting updates.
 
@@ -22,8 +22,9 @@ mpv config directory
 - Pass `--config-dir` and any extra mpv flags through `PlayerProcessManager` which `ConfigManager` can configure at runtime.
 
 Session management
-- `setJellyfinSession()` to persist credentials; `clearJellyfinSession()` to clear them.
-- `getJellyfinSession()` is used at app startup to attempt session restoration.
+- Config v28 stores versioned provider-neutral records under `settings.connections`; see [provider architecture](provider-architecture.md).
+- `setJellyfinSession()`, `getJellyfinSession()`, and `clearJellyfinSession()` are temporary compatibility façades over the active connection.
+- Credentials are stored by `CredentialStore`, never in a connection or new `app.json` writes. Legacy `settings.jellyfin` metadata remains only until its secure-store migration is verified.
 - Handle 401 errors by emitting `sessionExpired()` and invoking logout/clear sessions.
 
 Config API sample (high level)
@@ -53,6 +54,7 @@ MPV profile management
 - Config v24 adds startup buffering mode settings. `settings.playback.startup_buffering_mode` defaults to `normal`; `settings.library_startup_buffering_modes` stores optional per-library overrides keyed by Jellyfin library ID. Valid values are `normal` and `remote-mount`; missing library entries use the global value.
 - Config v25 adds OLED-safe screensaver settings under `settings.ui.screensaver`: `enabled` (default false), `mode` (default `libraryBackdrops`), and `timeout_seconds` (default 300).
 - Config v27 adds `settings.input_bindings` with schema `1`, empty keyboard overrides, and empty gamepad overrides.
+- Config v28 adds `settings.connections` schema `1`, migrates valid Jellyfin session metadata to a stable connection ID, and retains the legacy record only until credential migration succeeds.
 - Built-in profile behavior: `Low Quality` uses mpv `--profile=fast`; `Medium Quality` uses `--profile=high-quality`; `High Quality` uses `--profile=high-quality` plus bundled FSRCNNX, KrigBilateral, and SSimDownscaler GLSL shaders loaded from `~~/shaders/...`. The ArtCNN/nnedi3 profiles use `--profile=high-quality`, `--hwdec=no`, a single selected bundled shader, Gandhi Sans Bold subtitle styling from `~~/fonts`, and optional mpv deband tuning for the `-Deband` variants.
 - Settings > MPV > Edit Profiles > Import Config creates a new profile from an existing `mpv.conf`. v1 imports only global top-level options before the first `[profile]` section and stores them as normalized `extra_args` entries (`--option=value` or `--option`) in `settings.mpv_profiles`; it never overwrites an existing profile.
 - MPV profile import/save/load normalizes one surrounding quote pair from `--option=value` and stores common shader aliases (`--glsl-shader`, `--glsl-shader-append`, `--glsl-shaders`, `--glsl-shaders-append`) as ordered `--glsl-shaders-append=...` entries. On playback, Bloom emits a single `--glsl-shaders-clr` before the profile shader appends so multiple shaders load in profile order while replacing any inherited shader list.

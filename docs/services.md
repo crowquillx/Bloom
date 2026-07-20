@@ -5,7 +5,8 @@ Overview
 - Thread-safety: ServiceLocator accessors are protected with a mutex.
 
 Key services
-- `ConfigManager` — Configuration, QML bindings, session persistence.
+- `ConfigManager` — Configuration, QML bindings, and provider-neutral connection metadata persistence.
+- `CredentialStore` — Provider-neutral platform-keychain names, access/refresh/profile token storage, and verified legacy Jellyfin credential migration.
 - `TrackPreferencesManager` — Versioned persistence for explicit season/movie audio and subtitle preferences.
 - `IPlayerBackend` — Playback backend abstraction registered in `ServiceLocator`.
 - `ExternalMpvBackend` — External mpv process/IPC backend adapter (primary rollback path on Linux/non-Windows).
@@ -24,9 +25,9 @@ Key services
 - `UpdateService` — Fetches per-channel update manifests, determines whether an update is available, gates the startup-only popup, and exposes update actions/state to QML.
 
 Initialization order (recommended)
-1. ConfigManager — loads configs and path info.
+1. ConfigManager — loads configs, path info, and active `ServerConnection` metadata.
 2. IPlayerBackend — created by `PlayerBackendFactory` (`win-libmpv` on Windows; platform-selected backend elsewhere).
-3. AuthenticationService — handles session management; provides shared `QNetworkAccessManager`.
+3. AuthenticationService — handles the current Jellyfin session façade, uses `CredentialStore`, and provides the shared `QNetworkAccessManager` until transport extraction is complete.
 4. LibraryService — depends on AuthenticationService.
 5. InputModeManager — depends on QGuiApplication.
 5.1. InputBindingManager — depends on QGuiApplication + ConfigManager.

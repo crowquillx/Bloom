@@ -54,6 +54,7 @@ stdenv.mkDerivation {
       LibraryItemQueryTest \
       LoggingConfigTest \
       ConfigManagerThemeTest \
+      ConnectionPersistenceTest \
       InputBindingManagerTest \
       PlayerBackendFactoryTest \
       PlayerControllerAutoplayContextTest \

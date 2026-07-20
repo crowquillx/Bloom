@@ -8,6 +8,9 @@
 #include <QFutureWatcher>
 #include <QtConcurrent>
 
+#include "providers/ServerConnection.h"
+#include "security/CredentialStore.h"
+
 class ISecretStore;
 class ConfigManager;
 
@@ -60,7 +63,10 @@ public:
      * @param userId User ID from previous session
      * @param accessToken Access token from previous session
      */
-    virtual void restoreSession(const QString &serverUrl, const QString &userId, const QString &accessToken);
+    virtual void restoreSession(const QString &serverUrl,
+                                const QString &userId,
+                                const QString &accessToken,
+                                const QString &username = QString());
     
     /**
      * @brief Log out and clear session data
@@ -132,18 +138,21 @@ private:
     bool m_sessionExpiredPending = false;  // Set when 401 occurs during playback
     bool m_sessionExpiredEmitted = false;  // Guard against duplicate emissions
     ISecretStore *m_secretStore;  // Not owned (provided by main)
+    ServerConnection m_activeConnection;
     bool m_isRestoringSession = false;
     ConfigManager* m_configManager = nullptr;
     
     // Helper struct for async session restoration results
     struct RestorationResult {
-        bool success;
-        bool migrated;
+        bool success = false;
         QString serverUrl;
         QString userId;
         QString accessToken;
         QString username;
         QString error;
+        QString cleanupError;
+        ServerConnection connection;
+        bool legacyMigrationComplete = false;
     };
     
     QFutureWatcher<RestorationResult> m_restorationWatcher;

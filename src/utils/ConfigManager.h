@@ -8,6 +8,10 @@
 #include <QVariantList>
 #include <QVariantMap>
 
+#include <optional>
+
+#include "providers/ServerConnection.h"
+
 /**
  * @brief MPV Profile data structure
  * 
@@ -185,7 +189,17 @@ public:
     // Application exit - saves config and quits
     Q_INVOKABLE void exitApplication();
     
-    // Session Management
+    // Provider-neutral connection management
+    QList<ServerConnection> getConnections() const;
+    std::optional<ServerConnection> getConnection(const QString &connectionId) const;
+    std::optional<ServerConnection> getActiveConnection() const;
+    void upsertConnection(const ServerConnection &connection, bool makeActive = true);
+    bool setActiveConnection(const QString &connectionId);
+    void clearActiveConnection();
+    bool hasPendingLegacyJellyfinMigration() const;
+    void finalizeLegacyJellyfinMigration();
+
+    // Temporary Jellyfin-compatible session façade
     /**
      * @brief Persists a Jellyfin session after a successful login.
      *
@@ -216,6 +230,7 @@ public:
     };
 
     SessionData getJellyfinSession() const;
+    SessionData getPendingLegacyJellyfinSession() const;
 
     // Playback Settings
     void setPlaybackCompletionThreshold(int percent);
@@ -552,6 +567,7 @@ signals:
     void uiSoundsEnabledChanged();
     void uiSoundsVolumeChanged();
     void sessionChanged();
+    void connectionsChanged();
     void mpvProfilesChanged();
     void defaultProfileNameChanged();
     void libraryProfilesChanged();
@@ -613,6 +629,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 27;
+    static constexpr int kCurrentConfigVersion = 28;
     QJsonObject defaultConfig() const;
 };
