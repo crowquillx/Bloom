@@ -12,6 +12,7 @@
 #include "providers/IProviderAuthenticator.h"
 #include "providers/IProviderRequestFactory.h"
 #include "providers/jellyfin/JellyfinAuthenticator.h"
+#include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include "providers/jellyfin/JellyfinRequestFactory.h"
 
 namespace {
@@ -92,6 +93,7 @@ class ProviderTransportTest : public QObject
     Q_OBJECT
 
 private slots:
+    void jellyfinAdapterExposesProviderBoundaries();
     void jellyfinRequestFactoryBuildsHeaderWithAndWithoutToken();
     void jellyfinRequestFactoryNormalizesUrlAndRedactsSecrets();
     void jellyfinAuthenticatorOwnsLoginAndValidationWireContract();
@@ -101,6 +103,15 @@ private slots:
     void transportEmitsUnauthorizedPolicy();
     void cancellationIsNotClassifiedAsTransient();
 };
+
+void ProviderTransportTest::jellyfinAdapterExposesProviderBoundaries()
+{
+    JellyfinProviderAdapter adapter;
+    QCOMPARE(adapter.providerKind(), ProviderKind::Jellyfin);
+    QCOMPARE(adapter.protocolMode(), ProtocolMode::Native);
+    QVERIFY(adapter.authenticator());
+    QVERIFY(adapter.requestFactory());
+}
 
 void ProviderTransportTest::jellyfinRequestFactoryBuildsHeaderWithAndWithoutToken()
 {

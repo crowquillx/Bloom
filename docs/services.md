@@ -12,6 +12,7 @@ Key services
 - `ExternalMpvBackend` — External mpv process/IPC backend adapter (primary rollback path on Linux/non-Windows).
 - `PlayerProcessManager` — Manages external mpv process & IPC (used by `ExternalMpvBackend`).
 - `HttpTransport` — Owns the shared `QNetworkAccessManager` and central retry, cancellation, error, redaction, and unauthorized-response policy.
+- `IProviderAdapter` / `JellyfinProviderAdapter` — Selected provider implementation bundle consumed by stable application façades.
 - `IProviderRequestFactory` / `JellyfinRequestFactory` — Provider-owned URL and authorization-header construction.
 - `IProviderAuthenticator` / `JellyfinAuthenticator` — Provider-owned login payload, response parsing, and validation routes.
 - `AuthenticationService` — Stable QML façade for login, logout, session persistence, and token validation; delegates provider wire details and HTTP execution.
@@ -30,8 +31,8 @@ Key services
 Initialization order (recommended)
 1. ConfigManager — loads configs, path info, and active `ServerConnection` metadata.
 2. IPlayerBackend — created by `PlayerBackendFactory` (`win-libmpv` on Windows; platform-selected backend elsewhere).
-3. HttpTransport and provider request/authentication implementations — own shared HTTP execution and Jellyfin wire construction.
-4. AuthenticationService — stable session façade; depends on `CredentialStore`, `HttpTransport`, `IProviderRequestFactory`, and `IProviderAuthenticator`.
+3. HttpTransport and `JellyfinProviderAdapter` — own shared HTTP execution and the selected provider wire implementation.
+4. AuthenticationService — stable session façade; depends on `CredentialStore`, `HttpTransport`, and `IProviderAdapter`.
 4.1. LibraryService — depends on AuthenticationService and uses its shared transport.
 5. InputModeManager — depends on QGuiApplication.
 5.1. InputBindingManager — depends on QGuiApplication + ConfigManager.

@@ -2,10 +2,10 @@
 #include "HttpTransport.h"
 #include "../security/ISecretStore.h"
 #include "../utils/ConfigManager.h"
+#include "providers/IProviderAdapter.h"
 #include "providers/IProviderAuthenticator.h"
 #include "providers/IProviderRequestFactory.h"
-#include "providers/jellyfin/JellyfinAuthenticator.h"
-#include "providers/jellyfin/JellyfinRequestFactory.h"
+#include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include <QNetworkRequest>
 #include <QUrl>
 #include <QJsonDocument>
@@ -18,11 +18,11 @@
 AuthenticationService::AuthenticationService(ISecretStore *secretStore, QObject *parent)
     : QObject(parent)
     , m_ownedTransport(std::make_unique<HttpTransport>())
-    , m_ownedRequestFactory(std::make_unique<JellyfinRequestFactory>())
-    , m_ownedProviderAuthenticator(std::make_unique<JellyfinAuthenticator>())
+    , m_ownedProviderAdapter(std::make_unique<JellyfinProviderAdapter>())
     , m_transport(m_ownedTransport.get())
-    , m_requestFactory(m_ownedRequestFactory.get())
-    , m_providerAuthenticator(m_ownedProviderAuthenticator.get())
+    , m_providerAdapter(m_ownedProviderAdapter.get())
+    , m_requestFactory(m_providerAdapter->requestFactory())
+    , m_providerAuthenticator(m_providerAdapter->authenticator())
     , m_secretStore(secretStore)
 {
     m_transport->setUrlRedactor([this](const QUrl &url) {
@@ -34,16 +34,17 @@ AuthenticationService::AuthenticationService(ISecretStore *secretStore, QObject 
 
 AuthenticationService::AuthenticationService(ISecretStore *secretStore,
                                                HttpTransport *transport,
-                                               IProviderRequestFactory *requestFactory,
-                                               IProviderAuthenticator *providerAuthenticator,
+                                               IProviderAdapter *providerAdapter,
                                                QObject *parent)
     : QObject(parent)
     , m_transport(transport)
-    , m_requestFactory(requestFactory)
-    , m_providerAuthenticator(providerAuthenticator)
+    , m_providerAdapter(providerAdapter)
+    , m_requestFactory(providerAdapter ? providerAdapter->requestFactory() : nullptr)
+    , m_providerAuthenticator(providerAdapter ? providerAdapter->authenticator() : nullptr)
     , m_secretStore(secretStore)
 {
     Q_ASSERT(m_transport);
+    Q_ASSERT(m_providerAdapter);
     Q_ASSERT(m_requestFactory);
     Q_ASSERT(m_providerAuthenticator);
     m_transport->setUrlRedactor([this](const QUrl &url) {

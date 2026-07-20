@@ -32,10 +32,8 @@
 #include "utils/BloomLogging.h"
 #include "network/SessionManager.h"
 #include "network/SessionService.h"
-#include "providers/IProviderAuthenticator.h"
-#include "providers/IProviderRequestFactory.h"
-#include "providers/jellyfin/JellyfinAuthenticator.h"
-#include "providers/jellyfin/JellyfinRequestFactory.h"
+#include "providers/IProviderAdapter.h"
+#include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include "updates/UpdateService.h"
 #include "test/TestModeController.h"
 #include "test/MockAuthenticationService.h"
@@ -217,15 +215,13 @@ void ApplicationInitializer::registerServices()
         
         // 3. Provider-neutral transport and Jellyfin wire adapters
         m_httpTransport = std::make_unique<HttpTransport>();
-        m_providerRequestFactory = std::make_unique<JellyfinRequestFactory>();
-        m_providerAuthenticator = std::make_unique<JellyfinAuthenticator>();
+        m_providerAdapter = std::make_unique<JellyfinProviderAdapter>();
 
         // 3.1 AuthenticationService - stable façade over provider boundaries
         m_authService = std::make_unique<AuthenticationService>(
             m_secretStore.get(),
             m_httpTransport.get(),
-            m_providerRequestFactory.get(),
-            m_providerAuthenticator.get());
+            m_providerAdapter.get());
         ServiceLocator::registerService<AuthenticationService>(m_authService.get());
         
         // 3.2 LibraryService - Depends on AuthenticationService

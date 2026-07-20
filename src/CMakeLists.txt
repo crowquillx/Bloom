@@ -13,12 +13,14 @@ qt_add_executable(Bloom
     core/ServiceLocator.cpp
     providers/ServerConnection.h
     providers/ServerConnection.cpp
+    providers/IProviderAdapter.h
     providers/IProviderAuthenticator.h
     providers/IProviderRequestFactory.h
     providers/jellyfin/JellyfinAuthenticator.h
     providers/jellyfin/JellyfinAuthenticator.cpp
     providers/jellyfin/JellyfinRequestFactory.h
     providers/jellyfin/JellyfinRequestFactory.cpp
+    providers/jellyfin/JellyfinProviderAdapter.h
     resources/fonts.qrc
     resources/sounds.qrc
     resources/images.qrc
