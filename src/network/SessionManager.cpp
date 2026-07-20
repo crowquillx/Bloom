@@ -1,5 +1,6 @@
 #include "SessionManager.h"
 #include "../utils/ConfigManager.h"
+#include "../security/CredentialStore.h"
 #include "../security/ISecretStore.h"
 #include <QUuid>
 #include <QSysInfo>
@@ -128,9 +129,13 @@ bool SessionManager::rotateDeviceId()
 
     qCInfo(lcAuth) << "SessionManager: Rotating device ID" << oldDeviceId << "->" << newDeviceId;
 
-    // Attempt to migrate token if we have credentials
+    // Provider-neutral credentials do not include the device ID. Any pending
+    // legacy Jellyfin entry must be copied before changing the persisted ID.
     if (!migrateToken(oldDeviceId, newDeviceId)) {
-        qCWarning(lcAuth) << "SessionManager: Token migration may have failed, continuing with rotation";
+        const QString error = tr("Could not preserve credentials while rotating the device ID");
+        qCWarning(lcAuth) << "SessionManager:" << error;
+        emit rotationFailed(error);
+        return false;
     }
 
     m_deviceId = newDeviceId;
@@ -150,20 +155,6 @@ QString SessionManager::getDeviceIdForUser(const QString &userId) const
         return m_deviceId;
     }
     return m_deviceId + "-" + userId;
-}
-
-QString SessionManager::accountKey(const QString &serverUrl, const QString &username, const QString &deviceId)
-{
-    return QString("%1|%2|%3").arg(serverUrl, username, deviceId);
-}
-
-std::tuple<QString, QString, QString> SessionManager::parseAccountKey(const QString &accountKey)
-{
-    QStringList parts = accountKey.split('|');
-    if (parts.size() >= 3) {
-        return std::make_tuple(parts[0], parts[1], parts[2]);
-    }
-    return std::make_tuple(QString(), QString(), QString());
 }
 
 void SessionManager::updateLastActivity()
@@ -255,42 +246,43 @@ void SessionManager::checkAndRotateIfNeeded()
 
 bool SessionManager::migrateToken(const QString &oldDeviceId, const QString &newDeviceId)
 {
-    if (!m_secretStore || !m_configManager) {
+    Q_UNUSED(newDeviceId)
+
+    if (!m_configManager) {
         return false;
     }
 
-    // Get current session info
-    auto session = m_configManager->getJellyfinSession();
-    if (!session.isValid()) {
-        // No active session to migrate
+    const auto connection = m_configManager->getActiveConnection();
+    if (!connection.has_value()) {
         return true;
     }
-
-    QString serverUrl = session.serverUrl;
-    QString username = session.username;
-
-    // Build old and new account keys
-    QString oldAccount = accountKey(serverUrl, username, oldDeviceId);
-    QString newAccount = accountKey(serverUrl, username, newDeviceId);
-
-    // Get token from SecretStore using old device ID account key
-    // Note: Token is stored in SecretStore, not ConfigManager (accessToken is always empty)
-    QString token = m_secretStore->getSecret("Bloom/Jellyfin", oldAccount);
-    if (token.isEmpty()) {
-        // No token in SecretStore for old device ID - nothing to migrate
-        qCDebug(lcAuth) << "SessionManager: No token found for old device ID, nothing to migrate";
-        return true;
-    }
-
-    // Store token under new account
-    if (!m_secretStore->setSecret("Bloom/Jellyfin", newAccount, token)) {
-        qCWarning(lcAuth) << "SessionManager: Failed to store token for new device ID:" << m_secretStore->lastError();
+    if (!m_secretStore) {
         return false;
     }
 
-    // Delete old token
-    m_secretStore->deleteSecret("Bloom/Jellyfin", oldAccount);
+    CredentialStore credentials(m_secretStore);
+    const ConfigManager::SessionData legacySession =
+        m_configManager->getPendingLegacyJellyfinSession();
+    const bool legacyMatchesConnection =
+        ServerConnection::normalizeBaseUrl(legacySession.serverUrl) == connection->baseUrl
+        && legacySession.userId == connection->accountId;
+    const CredentialReadResult result = credentials.readAccessToken(
+        *connection,
+        oldDeviceId,
+        legacyMatchesConnection ? legacySession.serverUrl : QString(),
+        legacyMatchesConnection ? legacySession.username : QString(),
+        legacyMatchesConnection ? legacySession.accessToken : QString());
+    if (!result.error.isEmpty() || !result.cleanupError.isEmpty()
+        || result.secret.isEmpty()) {
+        qCWarning(lcAuth) << "SessionManager: Credential migration failed:"
+                          << (!result.error.isEmpty()
+                                  ? result.error
+                                  : !result.cleanupError.isEmpty()
+                                      ? result.cleanupError
+                                      : QStringLiteral("active connection has no access token"));
+        return false;
+    }
 
-    qCInfo(lcAuth) << "SessionManager: Token migrated successfully";
+    qCDebug(lcAuth) << "SessionManager: Credentials are independent of the rotated device ID";
     return true;
 }

@@ -20,6 +20,8 @@ set(TEST_LOGGING_SOURCES
 )
 
 set(TEST_CONFIG_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/providers/ServerConnection.cpp
+    ${CMAKE_SOURCE_DIR}/src/security/CredentialStore.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/MpvArgFilter.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/LoggingConfig.cpp
@@ -149,6 +151,26 @@ target_link_libraries(ConfigManagerThemeTest
 )
 
 add_test(NAME ConfigManagerThemeTest COMMAND ConfigManagerThemeTest)
+
+add_executable(ConnectionPersistenceTest
+    ConnectionPersistenceTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
+    ${TEST_CONFIG_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
+)
+
+target_include_directories(ConnectionPersistenceTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(ConnectionPersistenceTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Test
+)
+
+add_test(NAME ConnectionPersistenceTest COMMAND ConnectionPersistenceTest)
 
 add_executable(InputBindingManagerTest
     InputBindingManagerTest.cpp

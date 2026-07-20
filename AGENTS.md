@@ -12,7 +12,7 @@ QML & Focus
 Stack: C++23 (Qt 6/QML) • CMake • mpv (external JSON IPC)
 Keep as much logic as possible in C++ (network, data models, services); QML for UI, animations, and theming.
 
-Key files: `src/core/ServiceLocator.h`, `utils/ConfigManager.*`, `network/JellyfinClient.*`, `player/*`, `ui/Theme.qml`, `ui/ResponsiveLayoutManager.*`, `src/ui/ScreensaverController.*`, `src/ui/ScreensaverOverlay.qml`.
+Key files: `src/core/ServiceLocator.h`, `utils/ConfigManager.*`, `src/providers/ServerConnection.*`, `src/security/CredentialStore.*`, `src/network/AuthenticationService.*`, `player/*`, `ui/Theme.qml`, `ui/ResponsiveLayoutManager.*`, `src/ui/ScreensaverController.*`, `src/ui/ScreensaverOverlay.qml`.
 
 Conventions: C++ PascalCase classes, camelCase methods, `m_` prefix; QML PascalCase components, camelCase props; use `FocusScope` for navigable views; keep `Theme.qml` as the single source for tokens.
 
@@ -65,6 +65,7 @@ See also:
 - docs/build.md     — Nix build, packaging, CI, and Windows instructions
 - docs/playback.md  — mpv and playback/reporting integration
 - docs/provider-compatibility.md — provider-neutral server contract matrix, reproducible Jellyfin/Silo pins, and native API assumptions
+- docs/provider-architecture.md — connection identity, credential migration, and incremental provider adapter boundaries
 - docs/media-segments.md — External intro/recap/credits provider integration and precedence
 - docs/hero-banner.md — Home hero sources, settings, focus behavior, and backdrop synchronization
 - docs/theme.md     — Theme.qml tokens and design system

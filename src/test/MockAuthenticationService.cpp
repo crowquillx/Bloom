@@ -32,12 +32,15 @@ void MockAuthenticationService::authenticate(const QString &serverUrl, const QSt
     emit loginSuccess(QStringLiteral("test-user-001"), QStringLiteral("test-access-token-001"), username);
 }
 
-void MockAuthenticationService::restoreSession(const QString &serverUrl, const QString &userId, const QString &accessToken)
+void MockAuthenticationService::restoreSession(const QString &serverUrl,
+                                               const QString &userId,
+                                               const QString &accessToken,
+                                               const QString &username)
 {
     qCDebug(lcTest) << "MockAuthenticationService::restoreSession(" << serverUrl << "," << userId << ")";
-    
-    seedSession(serverUrl, userId, accessToken);
-    emit loginSuccess(userId, accessToken, QString());
+
+    seedSession(serverUrl, userId, accessToken, username);
+    emit loginSuccess(userId, accessToken, username);
 }
 
 void MockAuthenticationService::logout()

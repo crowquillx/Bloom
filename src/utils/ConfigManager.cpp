@@ -1,4 +1,5 @@
 #include "ConfigManager.h"
+#include "BloomLogging.h"
 #include "LoggingConfig.h"
 #include "MpvArgFilter.h"
 #include <QFile>
@@ -798,38 +799,205 @@ void ConfigManager::exitApplication()
     QCoreApplication::quit();
 }
 
-void ConfigManager::setJellyfinSession(const QString &serverUrl, const QString &userId, const QString &accessToken, const QString &username)
+QList<ServerConnection> ConfigManager::getConnections() const
 {
-    QJsonObject jellyfin;
-    jellyfin["server_url"] = serverUrl;
-    jellyfin["user_id"] = userId;
-    jellyfin["access_token"] = accessToken;
-    jellyfin["username"] = username;
+    QList<ServerConnection> result;
+    const QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    const QJsonObject connections = settings.value(QStringLiteral("connections")).toObject();
+    const QJsonArray items = connections.value(QStringLiteral("items")).toArray();
 
-    QJsonObject settings;
-    if (m_config.contains("settings") && m_config["settings"].isObject()) {
-        settings = m_config["settings"].toObject();
+    for (const QJsonValue &value : items) {
+        if (!value.isObject()) {
+            continue;
+        }
+        const ServerConnection connection = ServerConnection::fromJson(value.toObject());
+        if (connection.isValid()) {
+            result.append(connection);
+        }
     }
-    settings["jellyfin"] = jellyfin;
-    m_config["settings"] = settings;
+    return result;
+}
+
+std::optional<ServerConnection> ConfigManager::getConnection(const QString &connectionId) const
+{
+    const QString normalizedId = connectionId.trimmed();
+    for (const ServerConnection &connection : getConnections()) {
+        if (connection.connectionId == normalizedId) {
+            return connection;
+        }
+    }
+    return std::nullopt;
+}
+
+std::optional<ServerConnection> ConfigManager::getActiveConnection() const
+{
+    const QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    const QString activeId = settings.value(QStringLiteral("connections")).toObject()
+                                 .value(QStringLiteral("active")).toString().trimmed();
+    return getConnection(activeId);
+}
+
+void ConfigManager::upsertConnection(const ServerConnection &connection, bool makeActive)
+{
+    ServerConnection normalized = connection;
+    normalized.baseUrl = ServerConnection::normalizeBaseUrl(normalized.baseUrl);
+    if (normalized.connectionId.trimmed().isEmpty()) {
+        normalized.connectionId = ServerConnection::createConnectionId();
+    }
+    if (normalized.credentialReference.trimmed().isEmpty()) {
+        normalized.credentialReference = ServerConnection::createCredentialReference(normalized.connectionId);
+    }
+    if (!normalized.isValid()) {
+        qCWarning(lcConfig) << "ConfigManager: Refusing to persist invalid server connection";
+        return;
+    }
+
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject connections = settings.value(QStringLiteral("connections")).toObject();
+    QJsonArray items = connections.value(QStringLiteral("items")).toArray();
+    bool replaced = false;
+    for (qsizetype index = 0; index < items.size(); ++index) {
+        const QJsonObject stored = items.at(index).toObject();
+        if (stored.value(QStringLiteral("id")).toString() == normalized.connectionId) {
+            items.replace(index, normalized.toJson());
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced) {
+        items.append(normalized.toJson());
+    }
+
+    connections[QStringLiteral("version")] = 1;
+    connections[QStringLiteral("items")] = items;
+    if (makeActive) {
+        connections[QStringLiteral("active")] = normalized.connectionId;
+    }
+    settings[QStringLiteral("connections")] = connections;
+    m_config[QStringLiteral("settings")] = settings;
     save();
+    emit connectionsChanged();
     emit sessionChanged();
+}
+
+bool ConfigManager::setActiveConnection(const QString &connectionId)
+{
+    const QString normalizedId = connectionId.trimmed();
+    if (!getConnection(normalizedId).has_value()) {
+        return false;
+    }
+
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject connections = settings.value(QStringLiteral("connections")).toObject();
+    if (connections.value(QStringLiteral("active")).toString() == normalizedId) {
+        return true;
+    }
+    connections[QStringLiteral("active")] = normalizedId;
+    settings[QStringLiteral("connections")] = connections;
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+    emit connectionsChanged();
+    emit sessionChanged();
+    return true;
+}
+
+void ConfigManager::clearActiveConnection()
+{
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject connections = settings.value(QStringLiteral("connections")).toObject();
+    if (connections.value(QStringLiteral("active")).toString().isEmpty()) {
+        return;
+    }
+    connections[QStringLiteral("active")] = QString();
+    settings[QStringLiteral("connections")] = connections;
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+    emit connectionsChanged();
+    emit sessionChanged();
+}
+
+bool ConfigManager::hasPendingLegacyJellyfinMigration() const
+{
+    return m_config.value(QStringLiteral("settings")).toObject()
+        .value(QStringLiteral("jellyfin")).isObject();
+}
+
+void ConfigManager::finalizeLegacyJellyfinMigration()
+{
+    if (!hasPendingLegacyJellyfinMigration()) {
+        return;
+    }
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    settings.remove(QStringLiteral("jellyfin"));
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+    emit connectionsChanged();
+}
+
+void ConfigManager::setJellyfinSession(const QString &serverUrl,
+                                       const QString &userId,
+                                       const QString &accessToken,
+                                       const QString &username)
+{
+    Q_UNUSED(accessToken)
+
+    const QString normalizedUrl = ServerConnection::normalizeBaseUrl(serverUrl);
+    ServerConnection connection;
+    if (const auto active = getActiveConnection();
+        active.has_value()
+        && active->providerKind == ProviderKind::Jellyfin
+        && active->baseUrl == normalizedUrl
+        && active->accountId == userId) {
+        connection = *active;
+    } else {
+        for (const ServerConnection &candidate : getConnections()) {
+            if (candidate.providerKind == ProviderKind::Jellyfin
+                && candidate.baseUrl == normalizedUrl
+                && candidate.accountId == userId) {
+                connection = candidate;
+                break;
+            }
+        }
+    }
+
+    connection.providerKind = ProviderKind::Jellyfin;
+    connection.protocolMode = ProtocolMode::Native;
+    connection.baseUrl = normalizedUrl;
+    connection.accountId = userId;
+    connection.profileId = userId;
+    connection.username = username;
+    connection.displayName = username;
+    upsertConnection(connection, true);
 }
 
 ConfigManager::SessionData ConfigManager::getJellyfinSession() const
 {
+    const SessionData legacy = getPendingLegacyJellyfinSession();
     SessionData data;
-    if (m_config.contains("settings") && m_config["settings"].isObject()) {
-        QJsonObject settings = m_config["settings"].toObject();
-        if (settings.contains("jellyfin")) {
-            QJsonObject jellyfin = settings["jellyfin"].toObject();
-            data.serverUrl = jellyfin["server_url"].toString();
-            data.userId = jellyfin["user_id"].toString();
-            data.accessToken = jellyfin["access_token"].toString();
-            data.username = jellyfin["username"].toString();
+    if (const auto active = getActiveConnection();
+        active.has_value() && active->providerKind == ProviderKind::Jellyfin) {
+        data.serverUrl = active->baseUrl;
+        data.userId = active->accountId;
+        data.username = active->username;
+        const bool legacyMatchesActive =
+            ServerConnection::normalizeBaseUrl(legacy.serverUrl) == active->baseUrl
+            && legacy.userId == active->accountId;
+        if (legacyMatchesActive) {
+            data.accessToken = legacy.accessToken;
         }
     }
-    
+    return data;
+}
+
+ConfigManager::SessionData ConfigManager::getPendingLegacyJellyfinSession() const
+{
+    SessionData data;
+    const QJsonObject legacy = m_config.value(QStringLiteral("settings")).toObject()
+                                   .value(QStringLiteral("jellyfin")).toObject();
+    data.serverUrl = legacy.value(QStringLiteral("server_url")).toString();
+    data.userId = legacy.value(QStringLiteral("user_id")).toString();
+    data.accessToken = legacy.value(QStringLiteral("access_token")).toString();
+    data.username = legacy.value(QStringLiteral("username")).toString();
     return data;
 }
 
@@ -1282,14 +1450,30 @@ QString ConfigManager::getUserDeviceId(const QString &userId) const
 
 void ConfigManager::clearJellyfinSession()
 {
-    if (m_config.contains("settings") && m_config["settings"].isObject()) {
-        QJsonObject settings = m_config["settings"].toObject();
-        settings.remove("jellyfin");
-        m_config["settings"] = settings;
-        save();
-        emit sessionChanged();
-        qDebug() << "ConfigManager: Cleared Jellyfin session data";
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject connections = settings.value(QStringLiteral("connections")).toObject();
+    const std::optional<ServerConnection> active = getActiveConnection();
+    const bool hadActiveConnection = active.has_value();
+    const SessionData legacy = getPendingLegacyJellyfinSession();
+    const bool hadLegacySession = settings.contains(QStringLiteral("jellyfin"));
+    if (!hadActiveConnection && !hadLegacySession) {
+        return;
     }
+
+    const bool legacyMatchesActive = active.has_value()
+        && active->providerKind == ProviderKind::Jellyfin
+        && ServerConnection::normalizeBaseUrl(legacy.serverUrl) == active->baseUrl
+        && legacy.userId == active->accountId;
+    connections[QStringLiteral("active")] = QString();
+    settings[QStringLiteral("connections")] = connections;
+    if (!hadActiveConnection || legacyMatchesActive) {
+        settings.remove(QStringLiteral("jellyfin"));
+    }
+    m_config[QStringLiteral("settings")] = settings;
+    save();
+    emit connectionsChanged();
+    emit sessionChanged();
+    qCDebug(lcConfig) << "ConfigManager: Cleared active server session";
 }
 
 void ConfigManager::setPlaybackCompletionThreshold(int percent)
@@ -3711,6 +3895,44 @@ public:
         newConfig[QStringLiteral("settings")] = settings;
         return newConfig;
     }
+
+    static QJsonObject migrateV27ToV28(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig[QStringLiteral("version")] = 28;
+
+        QJsonObject settings = newConfig.value(QStringLiteral("settings")).toObject();
+        QJsonObject connections;
+        connections[QStringLiteral("version")] = 1;
+        connections[QStringLiteral("active")] = QString();
+        connections[QStringLiteral("items")] = QJsonArray();
+
+        const QJsonObject legacy = settings.value(QStringLiteral("jellyfin")).toObject();
+        const QString serverUrl = ServerConnection::normalizeBaseUrl(
+            legacy.value(QStringLiteral("server_url")).toString());
+        const QString userId = legacy.value(QStringLiteral("user_id")).toString().trimmed();
+        const QString username = legacy.value(QStringLiteral("username")).toString().trimmed();
+        if (!serverUrl.isEmpty() && !userId.isEmpty() && !username.isEmpty()) {
+            ServerConnection connection;
+            connection.connectionId = ServerConnection::createDeterministicConnectionId(
+                ProviderKind::Jellyfin, serverUrl, userId);
+            connection.providerKind = ProviderKind::Jellyfin;
+            connection.protocolMode = ProtocolMode::Native;
+            connection.baseUrl = serverUrl;
+            connection.accountId = userId;
+            connection.profileId = userId;
+            connection.username = username;
+            connection.displayName = username;
+            connection.credentialReference =
+                ServerConnection::createCredentialReference(connection.connectionId);
+            connections[QStringLiteral("active")] = connection.connectionId;
+            connections[QStringLiteral("items")] = QJsonArray{connection.toJson()};
+        }
+        settings[QStringLiteral("connections")] = connections;
+
+        newConfig[QStringLiteral("settings")] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -3947,6 +4169,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 27) {
+            m_config = ConfigMigrator::migrateV27ToV28(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -3968,6 +4198,30 @@ bool ConfigManager::validateConfig(const QJsonObject &cfg)
     QJsonObject playback = settings["playback"].toObject();
     if (!playback.contains("completion_threshold")) return false;
     if (playback.contains("player_backend") && !playback["player_backend"].isString()) return false;
+    if (version >= 28) {
+        const QJsonObject connections = settings.value(QStringLiteral("connections")).toObject();
+        if (connections.value(QStringLiteral("version")).toInt() != 1
+            || !connections.value(QStringLiteral("items")).isArray()
+            || !connections.value(QStringLiteral("active")).isString()) {
+            return false;
+        }
+
+        QSet<QString> connectionIds;
+        for (const QJsonValue &value : connections.value(QStringLiteral("items")).toArray()) {
+            if (!value.isObject()) {
+                return false;
+            }
+            const ServerConnection connection = ServerConnection::fromJson(value.toObject());
+            if (!connection.isValid() || connectionIds.contains(connection.connectionId)) {
+                return false;
+            }
+            connectionIds.insert(connection.connectionId);
+        }
+        const QString activeId = connections.value(QStringLiteral("active")).toString();
+        if (!activeId.isEmpty() && !connectionIds.contains(activeId)) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -3991,6 +4245,13 @@ QJsonObject ConfigManager::defaultConfig() const
     cfg["version"] = kCurrentConfigVersion;
 
     QJsonObject settings;
+
+    QJsonObject connections;
+    connections[QStringLiteral("version")] = 1;
+    connections[QStringLiteral("active")] = QString();
+    connections[QStringLiteral("items")] = QJsonArray();
+    settings[QStringLiteral("connections")] = connections;
+
     QJsonObject playback;
     playback["completion_threshold"] = 90;
     playback["autoplay_next_episode"] = true;

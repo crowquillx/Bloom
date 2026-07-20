@@ -331,22 +331,8 @@ void ApplicationInitializer::initializeServices()
         : m_authService.get();
     auto* config = m_configManager.get();
     
-    // Connect authentication signals to persist/clear session
-    connect(auth, &AuthenticationService::loginSuccess,
-        [config, auth](const QString &userId, const QString &accessToken, const QString &username) {
-            // Only update config on fresh login (username present)
-            // During session restoration, username is empty and we don't want to overwrite config
-            if (!username.isEmpty()) {
-                // Store session without token (token is in SecretStore)
-                config->setJellyfinSession(
-                    auth->getServerUrl(),
-                    userId,
-                    "",  // Token now stored in SecretStore
-                    username
-                );
-            }
-    });
-
+    // AuthenticationService persists successful production logins. Keep session
+    // clearing centralized here so real and mock services share logout behavior.
     connect(auth, &AuthenticationService::loggedOut,
         [config]() {
             config->clearJellyfinSession();
@@ -374,14 +360,22 @@ void ApplicationInitializer::initializeServices()
     // GpuMemoryTrimmer is created and wired by WindowManager::setup(), which runs
     // after service registration and owns the ImageCacheProvider dependency.
     
-    // Session Restoration & Migration (skip in test mode - already authenticated)
+    // Session restoration and legacy credential migration must finish before
+    // SessionManager can rotate the device ID or touch the same secret store.
     if (isTestMode) {
-        // Initialize mock auth service with pre-authenticated state
         m_mockAuthService->initialize(m_configManager.get());
+        m_sessionManager->initialize();
     } else {
         m_authService->initialize(m_configManager.get());
+        if (m_authService->isRestoringSession()) {
+            connect(m_authService.get(), &AuthenticationService::isRestoringSessionChanged,
+                    this, [this]() {
+                if (!m_authService->isRestoringSession()) {
+                    m_sessionManager->initialize();
+                }
+            });
+        } else {
+            m_sessionManager->initialize();
+        }
     }
-
-    // Initialize SessionManager for device ID rotation checks
-    m_sessionManager->initialize();
 }

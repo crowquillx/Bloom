@@ -11,6 +11,8 @@ qt_add_executable(Bloom
     main.cpp
     core/ServiceLocator.h
     core/ServiceLocator.cpp
+    providers/ServerConnection.h
+    providers/ServerConnection.cpp
     resources/fonts.qrc
     resources/sounds.qrc
     resources/images.qrc
@@ -106,6 +108,8 @@ qt_add_executable(Bloom
     ui/ResponsiveLayoutManager.h
     ui/ResponsiveLayoutManager.cpp
     security/ISecretStore.h
+    security/CredentialStore.h
+    security/CredentialStore.cpp
     security/SecretStoreFactory.h
     security/SecretStoreFactory.cpp
     security/SecretStoreLinux.h

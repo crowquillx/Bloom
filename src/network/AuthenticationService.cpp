@@ -7,6 +7,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDebug>
+#include <QPointer>
+#include <QThreadPool>
 #include "../utils/BloomLogging.h"
 
 AuthenticationService::AuthenticationService(ISecretStore *secretStore, QObject *parent)
@@ -27,91 +29,81 @@ void AuthenticationService::initialize(ConfigManager *configManager)
     m_isRestoringSession = true;
     emit isRestoringSessionChanged();
 
-    // Prepare data for the background thread
-    // ConfigManager is not thread-safe, so we read the values properties here on the main thread
-    auto session = configManager->getJellyfinSession();
-    bool hasSecretStore = (m_secretStore != nullptr);
-    ISecretStore* store = m_secretStore;
-    QString deviceId = configManager->getDeviceId();
+    const ConfigManager::SessionData session = configManager->getJellyfinSession();
+    const ConfigManager::SessionData legacySession =
+        configManager->getPendingLegacyJellyfinSession();
+    const std::optional<ServerConnection> connection = configManager->getActiveConnection();
+    const bool pendingLegacyMigration = configManager->hasPendingLegacyJellyfinMigration();
+    const bool legacyMatchesConnection = connection.has_value()
+        && ServerConnection::normalizeBaseUrl(legacySession.serverUrl) == connection->baseUrl
+        && legacySession.userId == connection->accountId;
+    ISecretStore *store = m_secretStore;
+    const QString deviceId = configManager->getDeviceId();
 
-    // Use a lambda for the background task
-    QFuture<RestorationResult> future = QtConcurrent::run([session, hasSecretStore, store, deviceId]() -> RestorationResult {
-        RestorationResult result;
-        result.success = false;
-        result.migrated = false;
-        result.serverUrl = session.serverUrl;
-        result.userId = session.userId;
-        result.username = session.username;
+    QFuture<RestorationResult> future = QtConcurrent::run(
+        [session, legacySession, connection, pendingLegacyMigration,
+         legacyMatchesConnection, store, deviceId]() {
+            RestorationResult result{};
+            result.serverUrl = session.serverUrl;
+            result.userId = session.userId;
+            result.username = session.username;
+            result.connection = connection.value_or(ServerConnection{});
 
-        if (!session.accessToken.isEmpty()) {
-            // Legacy token found in config -> migrate to SecretStore
-            qCInfo(lcAuth) << "Migrating legacy token to secure storage...";
-            
-            if (hasSecretStore && !session.username.isEmpty()) {
-                // Use device-specific account key: serverUrl|username|deviceId
-                QString account = QString("%1|%2|%3").arg(session.serverUrl, session.username, deviceId);
-                qCDebug(lcAuth) << "Migrating token with account key:" << account;
-                // Synchronous call on background thread
-                if (store->setSecret("Bloom/Jellyfin", account, session.accessToken)) {
-                    qCInfo(lcAuth) << "Token migrated successfully";
-                    result.migrated = true;
-                    result.accessToken = session.accessToken;
-                    result.success = true;
-                } else {
-                    result.error = store->lastError();
-                    qCWarning(lcAuth) << "Failed to migrate token:" << result.error;
-                }
-            } else {
-                qCWarning(lcAuth) << "Cannot migrate token: missing username or SecretStore unavailable";
+            if (!store || !connection.has_value() || !connection->isValid()
+                || connection->providerKind != ProviderKind::Jellyfin || !session.isValid()) {
+                return result;
             }
-        } else if (session.isValid()) {
-            // No token in config, but we have userId/serverUrl/username -> try SecretStore
-            if (hasSecretStore && !session.username.isEmpty()) {
-                // Use device-specific account key: serverUrl|username|deviceId
-                QString account = QString("%1|%2|%3").arg(session.serverUrl, session.username, deviceId);
-                qCDebug(lcAuth) << "Attempting to restore session with account key:" << account;
-                // Synchronous call on background thread
-                QString token = store->getSecret("Bloom/Jellyfin", account);
-                if (!token.isEmpty()) {
-                    qCInfo(lcAuth) << "Restored session from secure storage";
-                    result.accessToken = token;
-                    result.success = true;
-                } else {
-                    qCDebug(lcAuth) << "No token found in secure storage for account:" << account;
-                }
-            }
-        }
-        
-        return result;
-    });
 
-    // Use a lambda connected to the watcher to handle completion with specific context
-    // We disconnect previous connections to start fresh (in case initialize is called multiple times? Should be once.)
-    m_restorationWatcher.disconnect(this); // specific slots
-    
-    // Re-connect the "isRestoringSession = false" logic
-    connect(&m_restorationWatcher, &QFutureWatcher<RestorationResult>::finished, this, [this]() {
-         m_isRestoringSession = false;
-         emit isRestoringSessionChanged();
-    });
+            CredentialStore credentials(store);
+            const CredentialReadResult credentialResult = credentials.readAccessToken(
+                *connection,
+                deviceId,
+                legacyMatchesConnection ? legacySession.serverUrl : QString(),
+                legacyMatchesConnection ? legacySession.username : QString(),
+                session.accessToken);
+            result.accessToken = credentialResult.secret;
+            result.success = !result.accessToken.isEmpty();
+            result.error = credentialResult.error;
+            result.cleanupError = credentialResult.cleanupError;
+            result.legacyMigrationComplete = pendingLegacyMigration
+                && legacyMatchesConnection && result.success && result.error.isEmpty()
+                && result.cleanupError.isEmpty();
+            return result;
+        });
 
-    // Connect the completion handler
-    connect(&m_restorationWatcher, &QFutureWatcher<RestorationResult>::finished, this, [this, configManager]() {
-        RestorationResult result = m_restorationWatcher.result();
-        
-        if (result.migrated) {
-            // Clear token from config (write happens on main thread, safe)
-            configManager->setJellyfinSession(result.serverUrl, result.userId, "", result.username);
-        }
-        
-        if (result.success) {
-            restoreSession(result.serverUrl, result.userId, result.accessToken);
+    m_restorationWatcher.disconnect(this);
+    connect(&m_restorationWatcher, &QFutureWatcher<RestorationResult>::finished,
+            this, [this, configManager]() {
+        const RestorationResult result = m_restorationWatcher.result();
+        const auto currentConnection = configManager->getActiveConnection();
+        const bool connectionChanged = result.connection.isValid()
+            && (!currentConnection.has_value()
+                || currentConnection->connectionId != result.connection.connectionId);
+
+        if (connectionChanged) {
+            qCInfo(lcAuth) << "Ignoring stale session restoration result after connection switch";
         } else {
-             if (!result.error.isEmpty()) {
-                 qCWarning(lcAuth) << "Session restoration failed:" << result.error;
-             }
-             // If failed, we remain logged out (default state)
+            if (result.legacyMigrationComplete) {
+                configManager->finalizeLegacyJellyfinMigration();
+            }
+
+            if (result.success) {
+                m_activeConnection = result.connection;
+                restoreSession(result.serverUrl,
+                               result.userId,
+                               result.accessToken,
+                               result.username);
+            } else if (!result.error.isEmpty()) {
+                qCWarning(lcAuth) << "Session restoration failed:" << result.error;
+            }
         }
+        if (!result.cleanupError.isEmpty()) {
+            qCWarning(lcAuth) << "Legacy credential cleanup failed:"
+                              << result.cleanupError;
+        }
+
+        m_isRestoringSession = false;
+        emit isRestoringSessionChanged();
     });
 
     m_restorationWatcher.setFuture(future);
@@ -188,21 +180,64 @@ void AuthenticationService::onAuthenticateFinished(QNetworkReply *reply)
     m_username = obj["User"].toObject()["Name"].toString();
     
     qCDebug(lcAuth) << "Authentication successful. User ID:" << m_userId << "Username:" << m_username;
-    
-    // Store token in SecretStore asynchronously
-    if (m_secretStore && m_configManager) {
-        QString deviceId = m_configManager->getDeviceId();
-        QString account = QString("%1|%2|%3").arg(m_serverUrl, m_username, deviceId);
-        QString token = m_accessToken;
-        ISecretStore* store = m_secretStore;
-        
-        QtConcurrent::run([store, account, token]() {
-            if (!store->setSecret("Bloom/Jellyfin", account, token)) {
-                qCWarning(lcAuth) << "Failed to store token in keychain:" << store->lastError();
-            } else {
-                qCDebug(lcAuth) << "Token stored in keychain (async)";
-            }
-        });
+
+    if (m_configManager) {
+        m_configManager->setJellyfinSession(m_serverUrl, m_userId, QString(), m_username);
+        m_activeConnection = m_configManager->getActiveConnection().value_or(ServerConnection{});
+    }
+
+    if (m_secretStore && m_activeConnection.isValid()) {
+        const QString token = m_accessToken;
+        const ServerConnection connection = m_activeConnection;
+        const QString deviceId = m_configManager ? m_configManager->getDeviceId() : QString();
+        const ConfigManager::SessionData legacySession = m_configManager
+            ? m_configManager->getPendingLegacyJellyfinSession()
+            : ConfigManager::SessionData{};
+        const bool legacyMatchesConnection =
+            ServerConnection::normalizeBaseUrl(legacySession.serverUrl) == connection.baseUrl
+            && legacySession.userId == connection.accountId;
+        ISecretStore *store = m_secretStore;
+        QPointer<ConfigManager> configManager = m_configManager;
+
+        QThreadPool::globalInstance()->start(
+            [store, connection, token, deviceId, legacySession,
+             legacyMatchesConnection, configManager]() {
+                CredentialStore credentials(store);
+                if (!credentials.write(connection, CredentialKind::AccessToken, token)) {
+                    qCWarning(lcAuth) << "Failed to store token in keychain:" << store->lastError();
+                    return;
+                }
+                if (credentials.read(connection, CredentialKind::AccessToken) != token) {
+                    credentials.remove(connection, CredentialKind::AccessToken);
+                    qCWarning(lcAuth) << "Stored token failed keychain verification";
+                    return;
+                }
+
+                if (legacyMatchesConnection) {
+                    const CredentialReadResult cleanup = credentials.readAccessToken(
+                        connection,
+                        deviceId,
+                        legacySession.serverUrl,
+                        legacySession.username);
+                    if (!cleanup.error.isEmpty() || !cleanup.cleanupError.isEmpty()
+                        || cleanup.secret != token) {
+                        qCWarning(lcAuth) << "Legacy credential cleanup failed:"
+                                          << (cleanup.error.isEmpty()
+                                                  ? cleanup.cleanupError
+                                                  : cleanup.error);
+                        return;
+                    }
+                }
+
+                qCDebug(lcAuth) << "Token stored in provider-neutral keychain entry";
+                if (legacyMatchesConnection && configManager) {
+                    QMetaObject::invokeMethod(configManager, [configManager]() {
+                        if (configManager) {
+                            configManager->finalizeLegacyJellyfinMigration();
+                        }
+                    }, Qt::QueuedConnection);
+                }
+            });
     }
     
     emit serverUrlChanged();
@@ -212,12 +247,15 @@ void AuthenticationService::onAuthenticateFinished(QNetworkReply *reply)
     emit loginSuccess(m_userId, m_accessToken, m_username);
 }
 
-void AuthenticationService::restoreSession(const QString &serverUrl, const QString &userId, const QString &accessToken)
+void AuthenticationService::restoreSession(const QString &serverUrl,
+                                           const QString &userId,
+                                           const QString &accessToken,
+                                           const QString &username)
 {
     m_serverUrl = normalizeUrl(serverUrl);
     m_userId = userId;
     m_accessToken = accessToken;
-    m_username = "";  // Will be fetched if needed
+    m_username = username;
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
     
@@ -260,18 +298,37 @@ void AuthenticationService::logout()
 {
     qCDebug(lcAuth) << "Logging out user:" << m_userId;
     
-    // Delete token from SecretStore asynchronously BEFORE clearing member vars (so we have username/url)
-    if (m_secretStore && !m_username.isEmpty() && m_configManager) {
-        QString deviceId = m_configManager->getDeviceId();
-        QString account = QString("%1|%2|%3").arg(m_serverUrl, m_username, deviceId);
-        ISecretStore* store = m_secretStore;
-        
-        QtConcurrent::run([store, account]() {
-            store->deleteSecret("Bloom/Jellyfin", account);
-            qCDebug(lcAuth) << "Token deleted from keychain (async)";
-        });
+    ServerConnection connection = m_activeConnection;
+    if (!connection.isValid() && m_configManager) {
+        connection = m_configManager->getActiveConnection().value_or(ServerConnection{});
+    }
+    if (m_secretStore && connection.isValid() && m_configManager) {
+        const QString deviceId = m_configManager->getDeviceId();
+        ConfigManager::SessionData legacySession =
+            m_configManager->getPendingLegacyJellyfinSession();
+        const bool legacyMatchesConnection =
+            ServerConnection::normalizeBaseUrl(legacySession.serverUrl) == connection.baseUrl
+            && legacySession.userId == connection.accountId;
+        if (!legacyMatchesConnection) {
+            legacySession = {};
+        }
+        ISecretStore *store = m_secretStore;
+        QThreadPool::globalInstance()->start(
+            [store, connection, deviceId, legacySession]() {
+                CredentialStore credentials(store);
+                if (!credentials.removeAll(connection,
+                                           deviceId,
+                                           legacySession.serverUrl,
+                                           legacySession.username)) {
+                    qCWarning(lcAuth) << "Failed to remove one or more session credentials:"
+                                      << store->lastError();
+                } else {
+                    qCDebug(lcAuth) << "Session credentials deleted from keychain";
+                }
+            });
     }
 
+    m_activeConnection = {};
     m_accessToken.clear();
     m_userId.clear();
     m_username.clear();

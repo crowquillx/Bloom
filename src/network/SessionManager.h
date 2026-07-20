@@ -15,10 +15,10 @@ class ISecretStore;
  * - Generate and persist device IDs with hostname
  * - Track session metadata (device name, type, last active)
  * - Handle device ID rotation with configurable intervals
- * - Coordinate with SecretStore for token migration during rotation
+ * - Resolve any legacy device-scoped credential before rotation
  *
- * @note Device IDs are rotated periodically for security. During rotation,
- *       the current access token is migrated to the new device ID.
+ * @note Provider-neutral credentials are device-ID independent. Rotation is
+ *       aborted when an active legacy credential cannot be preserved first.
  */
 class SessionManager : public QObject
 {
@@ -62,7 +62,7 @@ public:
 
     /**
      * @brief Force immediate device ID rotation
-     * Migrates existing token to new device ID.
+     * Preserves any pending legacy credential before changing the ID.
      * @return true if rotation succeeded
      */
     Q_INVOKABLE bool rotateDeviceId();
@@ -74,22 +74,6 @@ public:
      * @return Device-specific identifier
      */
     QString getDeviceIdForUser(const QString &userId) const;
-
-    /**
-     * @brief Get the SecretStore account key for a session
-     * @param serverUrl Jellyfin server URL
-     * @param username Username
-     * @param deviceId Device ID
-     * @return Account key in format serverUrl|username|deviceId
-     */
-    static QString accountKey(const QString &serverUrl, const QString &username, const QString &deviceId);
-
-    /**
-     * @brief Parse an account key into components
-     * @param accountKey The account key
-     * @return Tuple of serverUrl, username, deviceId
-     */
-    static std::tuple<QString, QString, QString> parseAccountKey(const QString &accountKey);
 
     /**
      * @brief Update last activity timestamp for the current session

@@ -32,7 +32,10 @@ public:
     /**
      * @brief Simulate session restoration (immediately succeeds).
      */
-    void restoreSession(const QString &serverUrl, const QString &userId, const QString &accessToken) override;
+    void restoreSession(const QString &serverUrl,
+                        const QString &userId,
+                        const QString &accessToken,
+                        const QString &username = QString()) override;
     
     /**
      * @brief Simulate logout (clears authentication state).
