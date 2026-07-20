@@ -147,12 +147,12 @@ Audio/Subtitle Track Selection
 - All playback reporting methods include `mediaSourceId`, `audioStreamIndex`, `subtitleStreamIndex`, and `playSessionId` for proper server sync.
 
 Track Preference Persistence
-- Track preferences are stored separately from the main config in `~/.config/Bloom/track_preferences.json`.
+- Track preferences are stored separately from the main config in `~/.config/Bloom/track_preferences.json` and grouped by `connectionId` so identical season/movie IDs on different servers cannot collide.
 - The file stores only explicit user intent. Unset preferences fall back to Jellyfin/file defaults and are not written.
 - Subtitle delay is written as `subtitleDelayMs` only when non-zero.
 - Global app-level audio/subtitle fallback defaults are stored in the main config, not in `track_preferences.json`.
 - Preferences are loaded at startup and saved with a 1-second delay to batch multiple changes.
-- Schema is versioned. Version 2 preference files are read and upgraded on save; older legacy/unversioned files are intentionally discarded and replaced on the next save.
+- Schema is versioned. Version 4 stores `scopes.<connectionId>.episodes` and `.movies`; version 2/3 files migrate into the active connection (or `_local` when signed out). Older unversioned files are intentionally discarded.
 
 ### TV Episodes (Per-Season)
 - Preferences are stored by season ID, not series ID, because:
@@ -301,7 +301,7 @@ Playback caching and network resilience
   - `--stream-lavf-o=reconnect=1,reconnect_streamed=1,reconnect_delay_max=30`
 - `playbackCacheSizeMB` is exposed in Settings -> Playback as "Playback Cache Size" (range 50–2048 MB, default 500 MB).
 - This allows mpv to buffer aggressively in RAM so brief server outages do not stall playback.
-- Startup buffering mode can be set globally (`settings.playback.startup_buffering_mode`) and overridden per library (`settings.library_startup_buffering_modes`). `normal` keeps existing startup behavior. `remote-mount` starts mpv paused and appends startup-prebuffer args after profile args (`cache-pause-initial`, `cache-pause-wait=60`, `demuxer-readahead-secs=60`, `cache-secs=120`, and larger demuxer/cache buffers). Bloom keeps the full-screen startup buffering UI visible and unpauses only after `demuxer-cache-time` reaches the initial cache target or the extended startup timeout is reached.
+- Startup buffering mode can be set globally (`settings.playback.startup_buffering_mode`) and overridden per library under the active `settings.connection_state` scope. `normal` keeps existing startup behavior. `remote-mount` starts mpv paused and appends startup-prebuffer args after profile args (`cache-pause-initial`, `cache-pause-wait=60`, `demuxer-readahead-secs=60`, `cache-secs=120`, and larger demuxer/cache buffers). Bloom keeps the full-screen startup buffering UI visible and unpauses only after `demuxer-cache-time` reaches the initial cache target or the extended startup timeout is reached.
 - Runtime rebuffering uses the compact native playback spinner over the video instead of the full-screen startup card. This keeps the current frame visible while `paused-for-cache` or recovery is active.
 - For longer server outages, `PlayerController` supports automatic recovery:
   - When playback hits `Error` because of a network/timeout failure, the controller stashes a `RecoveryContext` with the current item, stream URL, track selections, and last known position.
@@ -343,4 +343,4 @@ Troubleshooting
   - MPV stats hotkeys (`I`, `Shift+I`, `0-9`) are disabled by default on embedded Linux; set `BLOOM_LINUX_LIBMPV_ENABLE_STATS_HOTKEYS=1` to opt in.
 - Test playback flows with typical server and client device combinations to ensure direct play vs transcode logic works.
 - If track selection doesn't sync, verify that `playSessionId` is being passed correctly in all reporting calls.
-- If track preferences aren't being restored, check that `track_preferences.json` is schema version 2 and that the relevant `episodes` or `movies` scope contains an explicit preference entry. Unset scopes intentionally fall back to Jellyfin/file defaults and do not get written.
+- If track preferences aren't being restored, check that `track_preferences.json` is schema version 4 and that the active connection under `scopes` contains the relevant `episodes` or `movies` entry. Unset preferences intentionally fall back to provider/file defaults and are not written.

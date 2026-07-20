@@ -234,6 +234,19 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
     , m_transport(authService ? authService->transport() : nullptr)
     , m_retryPolicy{3, 1000, true}
 {
+    if (m_authService) {
+        const auto clearAccountState = [this]() {
+            m_etags.clear();
+            m_lastModified.clear();
+            m_inFlightChapterRequests.clear();
+        };
+        connect(m_authService, &AuthenticationService::loggedOut,
+                this, clearAccountState);
+        connect(m_authService, &AuthenticationService::loginSuccess,
+                this, [clearAccountState](const QString &, const QString &, const QString &) {
+            clearAccountState();
+        });
+    }
 }
 
 // ============================================================================

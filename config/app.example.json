@@ -1,5 +1,5 @@
 {
-    "version": 28,
+    "version": 29,
     "settings": {
         "mpv": {
             "path": "mpv",
@@ -13,6 +13,10 @@
             "version": 1,
             "active": "",
             "items": []
+        },
+        "connection_state": {
+            "version": 1,
+            "scopes": {}
         },
         "input_bindings": {
             "schema": 1,
@@ -247,8 +251,6 @@
             }
         },
         "default_profile": "Medium Quality",
-        "library_profiles": {},
-        "series_profiles": {},
         "seerr": {
             "base_url": "",
             "api_key": ""

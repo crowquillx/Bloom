@@ -340,7 +340,8 @@ void AuthenticationService::seedSession(const QString &serverUrl,
 void AuthenticationService::logout()
 {
     qCDebug(lcAuth) << "Logging out user:" << m_userId;
-    
+    m_transport->cancelAll();
+
     ServerConnection connection = m_activeConnection;
     if (!connection.isValid() && m_configManager) {
         connection = m_configManager->getActiveConnection().value_or(ServerConnection{});

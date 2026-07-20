@@ -7,6 +7,8 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 
+#include "providers/ServerConnection.h"
+#include "utils/ConfigManager.h"
 #include "utils/TrackPreferencesManager.h"
 
 namespace {
@@ -74,6 +76,9 @@ private slots:
     void invalidJsonIsDeleted();
     void v3SchemaRoundTripsExplicitOffAndDelayPreferences();
     void saveWritesVersionedPreferencesFile();
+    void identicalRemoteIdsAreIsolatedByConnection();
+    void preActivationPreferencesAreAdopted();
+    void legacyPreferencesFollowSoleInactiveConnection();
 };
 
 void TrackPreferencesManagerTest::missingFileLoadsEmptyState()
@@ -222,8 +227,116 @@ void TrackPreferencesManagerTest::saveWritesVersionedPreferencesFile()
     const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
     QVERIFY(document.isObject());
     const QJsonObject root = document.object();
-    QCOMPARE(root.value(QStringLiteral("version")).toInt(-1), 3);
-    QVERIFY(root.value(QStringLiteral("episodes")).toObject().contains(QStringLiteral("season-9")));
+    QCOMPARE(root.value(QStringLiteral("version")).toInt(-1), 4);
+    const QJsonObject localScope = root.value(QStringLiteral("scopes")).toObject()
+                                       .value(QStringLiteral("_local")).toObject();
+    QVERIFY(localScope.value(QStringLiteral("episodes")).toObject()
+                .contains(QStringLiteral("season-9")));
+}
+
+void TrackPreferencesManagerTest::identicalRemoteIdsAreIsolatedByConnection()
+{
+    requireLinuxConfigIsolation();
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigHome configHome(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    ServerConnection first;
+    first.connectionId = QStringLiteral("connection-1");
+    first.baseUrl = QStringLiteral("https://one.example.test");
+    first.accountId = QStringLiteral("user-1");
+    first.credentialReference = ServerConnection::createCredentialReference(first.connectionId);
+    config.upsertConnection(first);
+
+    ServerConnection second = first;
+    second.connectionId = QStringLiteral("connection-2");
+    second.baseUrl = QStringLiteral("https://two.example.test");
+    second.credentialReference = ServerConnection::createCredentialReference(second.connectionId);
+    config.upsertConnection(second, false);
+    QVERIFY(config.setActiveConnection(first.connectionId));
+
+    TrackPreferencesManager manager(&config);
+    ScopedTrackPreferences firstPreference;
+    firstPreference.audio.mode = TrackPreferenceMode::ExplicitStream;
+    firstPreference.audio.streamIndex = 2;
+    manager.setMoviePreferences(QStringLiteral("shared-item"), firstPreference);
+
+    QVERIFY(config.setActiveConnection(second.connectionId));
+    QVERIFY(manager.getMoviePreferences(QStringLiteral("shared-item")).isEmpty());
+    ScopedTrackPreferences secondPreference;
+    secondPreference.audio.mode = TrackPreferenceMode::ExplicitStream;
+    secondPreference.audio.streamIndex = 7;
+    manager.setMoviePreferences(QStringLiteral("shared-item"), secondPreference);
+
+    QVERIFY(config.setActiveConnection(first.connectionId));
+    QCOMPARE(manager.getMoviePreferences(QStringLiteral("shared-item")).audio.streamIndex, 2);
+    QVERIFY(config.setActiveConnection(second.connectionId));
+    QCOMPARE(manager.getMoviePreferences(QStringLiteral("shared-item")).audio.streamIndex, 7);
+}
+
+void TrackPreferencesManagerTest::preActivationPreferencesAreAdopted()
+{
+    requireLinuxConfigIsolation();
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigHome configHome(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    TrackPreferencesManager manager(&config);
+    ScopedTrackPreferences preference;
+    preference.audio.mode = TrackPreferenceMode::ExplicitStream;
+    preference.audio.streamIndex = 4;
+    manager.setMoviePreferences(QStringLiteral("movie-1"), preference);
+
+    ServerConnection connection;
+    connection.connectionId = QStringLiteral("connection-1");
+    connection.baseUrl = QStringLiteral("https://one.example.test");
+    connection.credentialReference = ServerConnection::createCredentialReference(
+        connection.connectionId);
+    config.upsertConnection(connection);
+
+    QCOMPARE(manager.getMoviePreferences(QStringLiteral("movie-1")).audio.streamIndex, 4);
+}
+
+void TrackPreferencesManagerTest::legacyPreferencesFollowSoleInactiveConnection()
+{
+    requireLinuxConfigIsolation();
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigHome configHome(tempDir.path());
+
+    writeJsonFile(TrackPreferencesManager::getPreferencesPath(),
+                  QJsonObject{
+                      {QStringLiteral("version"), 3},
+                      {QStringLiteral("episodes"), QJsonObject{}},
+                      {QStringLiteral("movies"),
+                       QJsonObject{
+                           {QStringLiteral("shared-item"),
+                            QJsonObject{
+                                {QStringLiteral("audio"),
+                                 QJsonObject{
+                                     {QStringLiteral("mode"), QStringLiteral("explicit")},
+                                     {QStringLiteral("streamIndex"), 5}
+                                 }}
+                            }}
+                       }}
+                  });
+
+    ConfigManager config;
+    config.load();
+    ServerConnection connection;
+    connection.connectionId = QStringLiteral("connection-1");
+    connection.baseUrl = QStringLiteral("https://one.example.test");
+    connection.credentialReference = ServerConnection::createCredentialReference(connection.connectionId);
+    config.upsertConnection(connection, false);
+
+    TrackPreferencesManager manager(&config);
+    QVERIFY(manager.getMoviePreferences(QStringLiteral("shared-item")).isEmpty());
+    QVERIFY(config.setActiveConnection(connection.connectionId));
+    QCOMPARE(manager.getMoviePreferences(QStringLiteral("shared-item")).audio.streamIndex, 5);
 }
 
 QTEST_MAIN(TrackPreferencesManagerTest)

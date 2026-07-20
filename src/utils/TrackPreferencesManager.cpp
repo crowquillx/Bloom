@@ -7,11 +7,15 @@
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QSaveFile>
+#include <QSet>
 #include <QTimer>
 #include "BloomLogging.h"
 
 namespace {
 constexpr auto kVersionKey = "version";
+constexpr auto kScopesKey = "scopes";
+constexpr auto kLocalScope = "_local";
+constexpr auto kPendingScope = "_pending";
 constexpr auto kEpisodesKey = "episodes";
 constexpr auto kMoviesKey = "movies";
 constexpr auto kAudioKey = "audio";
@@ -146,9 +150,20 @@ QJsonObject savePreferenceSection(const MapType &source)
 }
 
 TrackPreferencesManager::TrackPreferencesManager(QObject *parent)
+    : TrackPreferencesManager(nullptr, parent)
+{
+}
+
+TrackPreferencesManager::TrackPreferencesManager(ConfigManager *configManager, QObject *parent)
     : QObject(parent)
+    , m_configManager(configManager)
 {
     load();
+    if (m_configManager) {
+        connect(m_configManager, &ConfigManager::connectionsChanged,
+                this, &TrackPreferencesManager::adoptPendingScope);
+        adoptPendingScope();
+    }
 }
 
 TrackPreferencesManager::~TrackPreferencesManager()
@@ -205,19 +220,37 @@ void TrackPreferencesManager::load()
 
     const QJsonObject root = document.object();
     const int version = root.value(kVersionKey).toInt(-1);
-    if (version != 2 && version != kCurrentSchemaVersion) {
+    if (version != 2 && version != 3 && version != kCurrentSchemaVersion) {
         qCWarning(lcConfig) << "TrackPreferencesManager: Resetting legacy track preferences schema version"
                    << version << "expected" << kCurrentSchemaVersion;
         discardPersistedPreferences();
         return;
     }
 
-    loadPreferenceSection(root.value(kEpisodesKey).toObject(), m_episodePreferences);
-    loadPreferenceSection(root.value(kMoviesKey).toObject(), m_moviePreferences);
+    if (version == kCurrentSchemaVersion) {
+        const QJsonObject scopes = root.value(kScopesKey).toObject();
+        for (const QString &scopeId : scopes.keys()) {
+            const QJsonObject scope = scopes.value(scopeId).toObject();
+            loadPreferenceSection(scope.value(kEpisodesKey).toObject(),
+                                  m_episodePreferences[scopeId]);
+            loadPreferenceSection(scope.value(kMoviesKey).toObject(),
+                                  m_moviePreferences[scopeId]);
+        }
+    } else {
+        const QString scopeId = migrationScopeId();
+        loadPreferenceSection(root.value(kEpisodesKey).toObject(),
+                              m_episodePreferences[scopeId]);
+        loadPreferenceSection(root.value(kMoviesKey).toObject(),
+                              m_moviePreferences[scopeId]);
+        m_dirty = true;
+        save();
+    }
 
-    qCDebug(lcConfig) << "TrackPreferencesManager: Loaded preferences for"
-             << m_episodePreferences.size() << "episode scopes and"
-             << m_moviePreferences.size() << "movie scopes";
+    const QString scopeId = activeScopeId();
+    qCDebug(lcConfig) << "TrackPreferencesManager: Loaded preferences for connection scope"
+             << scopeId << "with" << m_episodePreferences.value(scopeId).size()
+             << "episode scopes and" << m_moviePreferences.value(scopeId).size()
+             << "movie scopes";
 }
 
 void TrackPreferencesManager::save()
@@ -230,8 +263,26 @@ void TrackPreferencesManager::save()
 
     QJsonObject root;
     root[kVersionKey] = kCurrentSchemaVersion;
-    root[kEpisodesKey] = savePreferenceSection(m_episodePreferences);
-    root[kMoviesKey] = savePreferenceSection(m_moviePreferences);
+    QJsonObject scopes;
+    QSet<QString> scopeIds;
+    for (auto it = m_episodePreferences.cbegin(); it != m_episodePreferences.cend(); ++it) {
+        scopeIds.insert(it.key());
+    }
+    for (auto it = m_moviePreferences.cbegin(); it != m_moviePreferences.cend(); ++it) {
+        scopeIds.insert(it.key());
+    }
+    for (const QString &scopeId : scopeIds) {
+        const QJsonObject episodes = savePreferenceSection(m_episodePreferences.value(scopeId));
+        const QJsonObject movies = savePreferenceSection(m_moviePreferences.value(scopeId));
+        if (episodes.isEmpty() && movies.isEmpty()) {
+            continue;
+        }
+        QJsonObject scope;
+        scope[kEpisodesKey] = episodes;
+        scope[kMoviesKey] = movies;
+        scopes[scopeId] = scope;
+    }
+    root[kScopesKey] = scopes;
 
     QSaveFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
@@ -250,8 +301,73 @@ void TrackPreferencesManager::save()
     m_dirty = false;
     m_saveRetryAttempts = 0;
     qCDebug(lcConfig) << "TrackPreferencesManager: Saved preferences for"
-             << m_episodePreferences.size() << "episode scopes and"
-             << m_moviePreferences.size() << "movie scopes";
+             << scopes.size() << "connection scopes";
+}
+
+QString TrackPreferencesManager::activeScopeId() const
+{
+    if (m_configManager) {
+        const auto connection = m_configManager->getActiveConnection();
+        if (connection.has_value() && !connection->connectionId.isEmpty()) {
+            return connection->connectionId;
+        }
+        return QString::fromLatin1(kPendingScope);
+    }
+    return QString::fromLatin1(kLocalScope);
+}
+
+QString TrackPreferencesManager::migrationScopeId() const
+{
+    if (!m_configManager) {
+        return QString::fromLatin1(kLocalScope);
+    }
+    const auto active = m_configManager->getActiveConnection();
+    if (active.has_value() && !active->connectionId.isEmpty()) {
+        return active->connectionId;
+    }
+    const QList<ServerConnection> connections = m_configManager->getConnections();
+    if (connections.size() == 1 && !connections.first().connectionId.isEmpty()) {
+        return connections.first().connectionId;
+    }
+    return QString::fromLatin1(kPendingScope);
+}
+
+void TrackPreferencesManager::adoptPendingScope()
+{
+    if (!m_configManager) {
+        return;
+    }
+    const auto active = m_configManager->getActiveConnection();
+    if (!active.has_value() || active->connectionId.isEmpty()) {
+        return;
+    }
+
+    const QString pendingId = QString::fromLatin1(kPendingScope);
+    const QString targetId = active->connectionId;
+    if (targetId == pendingId || targetId == QString::fromLatin1(kLocalScope)) {
+        return;
+    }
+    bool changed = false;
+    const auto adopt = [&changed, &pendingId, &targetId](auto &scopes) {
+        auto pendingIt = scopes.find(pendingId);
+        if (pendingIt == scopes.end()) {
+            return;
+        }
+        const auto pending = pendingIt.value();
+        scopes.erase(pendingIt);
+        auto &target = scopes[targetId];
+        for (auto it = pending.cbegin(); it != pending.cend(); ++it) {
+            if (!target.contains(it.key())) {
+                target.insert(it.key(), it.value());
+            }
+        }
+        changed = true;
+    };
+    adopt(m_episodePreferences);
+    adopt(m_moviePreferences);
+    if (changed) {
+        scheduleSave();
+    }
 }
 
 void TrackPreferencesManager::scheduleSave()
@@ -294,7 +410,7 @@ void TrackPreferencesManager::scheduleSaveAfter(int delayMs)
 
 ScopedTrackPreferences TrackPreferencesManager::getSeasonPreferences(const QString &seasonId) const
 {
-    return m_episodePreferences.value(seasonId);
+    return m_episodePreferences.value(activeScopeId()).value(seasonId);
 }
 
 void TrackPreferencesManager::setSeasonPreferences(const QString &seasonId, const ScopedTrackPreferences &preferences)
@@ -308,24 +424,30 @@ void TrackPreferencesManager::setSeasonPreferences(const QString &seasonId, cons
         return;
     }
 
-    if (m_episodePreferences.value(seasonId) == preferences) {
+    auto &scope = m_episodePreferences[activeScopeId()];
+    if (scope.value(seasonId) == preferences) {
         return;
     }
 
-    m_episodePreferences.insert(seasonId, preferences);
+    scope.insert(seasonId, preferences);
     scheduleSave();
 }
 
 void TrackPreferencesManager::clearSeasonPreferences(const QString &seasonId)
 {
-    if (m_episodePreferences.remove(seasonId) > 0) {
+    const QString scopeId = activeScopeId();
+    auto scopeIt = m_episodePreferences.find(scopeId);
+    if (scopeIt != m_episodePreferences.end() && scopeIt->remove(seasonId) > 0) {
+        if (scopeIt->isEmpty()) {
+            m_episodePreferences.erase(scopeIt);
+        }
         scheduleSave();
     }
 }
 
 ScopedTrackPreferences TrackPreferencesManager::getMoviePreferences(const QString &movieId) const
 {
-    return m_moviePreferences.value(movieId);
+    return m_moviePreferences.value(activeScopeId()).value(movieId);
 }
 
 void TrackPreferencesManager::setMoviePreferences(const QString &movieId, const ScopedTrackPreferences &preferences)
@@ -339,26 +461,33 @@ void TrackPreferencesManager::setMoviePreferences(const QString &movieId, const 
         return;
     }
 
-    if (m_moviePreferences.value(movieId) == preferences) {
+    auto &scope = m_moviePreferences[activeScopeId()];
+    if (scope.value(movieId) == preferences) {
         return;
     }
 
-    m_moviePreferences.insert(movieId, preferences);
+    scope.insert(movieId, preferences);
     scheduleSave();
 }
 
 void TrackPreferencesManager::clearMoviePreferences(const QString &movieId)
 {
-    if (m_moviePreferences.remove(movieId) > 0) {
+    const QString scopeId = activeScopeId();
+    auto scopeIt = m_moviePreferences.find(scopeId);
+    if (scopeIt != m_moviePreferences.end() && scopeIt->remove(movieId) > 0) {
+        if (scopeIt->isEmpty()) {
+            m_moviePreferences.erase(scopeIt);
+        }
         scheduleSave();
     }
 }
 
 void TrackPreferencesManager::clearAllPreferences()
 {
-    const bool hadData = !m_episodePreferences.isEmpty() || !m_moviePreferences.isEmpty();
-    m_episodePreferences.clear();
-    m_moviePreferences.clear();
+    const QString scopeId = activeScopeId();
+    const bool hadEpisodes = m_episodePreferences.remove(scopeId) > 0;
+    const bool hadMovies = m_moviePreferences.remove(scopeId) > 0;
+    const bool hadData = hadEpisodes || hadMovies;
     if (hadData) {
         scheduleSave();
     }

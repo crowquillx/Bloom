@@ -2,6 +2,7 @@
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
 #include "../utils/ConfigManager.h"
+#include "../utils/DetailViewCache.h"
 #include "../utils/LibraryCacheStore.h"
 #include <QDebug>
 #include <QDateTime>
@@ -18,11 +19,10 @@ LibraryViewModel::LibraryViewModel(QObject *parent)
 {
     m_libraryService = ServiceLocator::tryGet<LibraryService>();
     m_configManager = ServiceLocator::tryGet<ConfigManager>();
-    
-    QString dbPath = cacheDbPath();
-    m_cacheStore = std::make_unique<LibraryCacheStore>(dbPath, kDiskCacheTtlMs);
-    if (!m_cacheStore->open()) {
-        qCWarning(lcViewModels) << "LibraryViewModel: failed to open library cache store at" << dbPath;
+    reopenCacheStore();
+    if (m_configManager) {
+        connect(m_configManager, &ConfigManager::connectionsChanged,
+                this, &LibraryViewModel::reopenCacheStore);
     }
 
     if (m_libraryService) {
@@ -353,7 +353,7 @@ void LibraryViewModel::onItemsLoadedWithTotalForQuery(const QString &parentId, c
         }
         entry.totalRecordCount = totalRecordCount;
         entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-        s_libraryCache[cacheKey] = entry;
+        s_libraryCache[scopedCacheKey(cacheKey)] = entry;
 
         if (m_cacheStore && m_cacheStore->isOpen()) {
             if (!m_cacheStore->upsertItems(cacheKey, filteredItems, totalRecordCount, false, m_lastStartIndex)) {
@@ -875,11 +875,11 @@ QString LibraryViewModel::getImageUrl(const QJsonObject &item) const
 
 bool LibraryViewModel::hasCachedData(const QString &parentId) const
 {
-    if (s_libraryCache.contains(parentId) && s_libraryCache[parentId].isValid(kCacheTtlMs)) {
+    const QString memoryKey = scopedCacheKey(parentId);
+    if (s_libraryCache.contains(memoryKey) && s_libraryCache[memoryKey].isValid(kCacheTtlMs)) {
         return true;
     }
-    
-    // Try SQLite cache if memory cache is missing or stale
+
     if (m_cacheStore && m_cacheStore->isOpen()) {
         auto slice = m_cacheStore->read(parentId);
         if (slice.hasData() && slice.isFresh(kDiskCacheTtlMs)) {
@@ -887,7 +887,7 @@ bool LibraryViewModel::hasCachedData(const QString &parentId) const
             entry.items = slice.items;
             entry.totalRecordCount = slice.totalCount;
             entry.timestamp = slice.updatedAtMs;
-            s_libraryCache[parentId] = entry;
+            s_libraryCache[memoryKey] = entry;
             return true;
         }
     }
@@ -897,11 +897,11 @@ bool LibraryViewModel::hasCachedData(const QString &parentId) const
 
 bool LibraryViewModel::hasAnyCachedData(const QString &parentId) const
 {
-    if (s_libraryCache.contains(parentId) && s_libraryCache[parentId].hasData()) {
+    const QString memoryKey = scopedCacheKey(parentId);
+    if (s_libraryCache.contains(memoryKey) && s_libraryCache[memoryKey].hasData()) {
         return true;
     }
-    
-    // Allow stale disk cache for SWR (serves instantly, revalidates in background)
+
     if (m_cacheStore && m_cacheStore->isOpen()) {
         auto slice = m_cacheStore->read(parentId);
         if (slice.hasData()) {
@@ -909,7 +909,7 @@ bool LibraryViewModel::hasAnyCachedData(const QString &parentId) const
             entry.items = slice.items;
             entry.totalRecordCount = slice.totalCount;
             entry.timestamp = slice.updatedAtMs;
-            s_libraryCache[parentId] = entry;
+            s_libraryCache[memoryKey] = entry;
             return true;
         }
     }
@@ -919,10 +919,7 @@ bool LibraryViewModel::hasAnyCachedData(const QString &parentId) const
 
 LibraryCacheEntry LibraryViewModel::getCachedData(const QString &parentId) const
 {
-    if (!s_libraryCache.contains(parentId))
-        return LibraryCacheEntry();
-
-    return s_libraryCache[parentId];
+    return s_libraryCache.value(scopedCacheKey(parentId));
 }
 
 void LibraryViewModel::updateCache(const QString &parentId, const QJsonArray &items, int totalRecordCount)
@@ -931,9 +928,9 @@ void LibraryViewModel::updateCache(const QString &parentId, const QJsonArray &it
     entry.items = items;
     entry.totalRecordCount = totalRecordCount;
     entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-    
-    s_libraryCache[parentId] = entry;
-    
+
+    s_libraryCache[scopedCacheKey(parentId)] = entry;
+
     if (m_cacheStore && m_cacheStore->isOpen()) {
         if (!m_cacheStore->replaceAll(parentId, items, totalRecordCount)) {
             qCWarning(lcViewModels) << "LibraryViewModel: failed to persist library cache for" << parentId;
@@ -943,7 +940,7 @@ void LibraryViewModel::updateCache(const QString &parentId, const QJsonArray &it
 
 void LibraryViewModel::clearCacheEntry(const QString &parentId)
 {
-    s_libraryCache.remove(parentId);
+    s_libraryCache.remove(scopedCacheKey(parentId));
     if (m_cacheStore && m_cacheStore->isOpen()) {
         m_cacheStore->clearParent(parentId);
     }
@@ -962,12 +959,55 @@ void LibraryViewModel::clearAllCache()
 
 void LibraryViewModel::invalidateCache(const QString &parentId)
 {
-    if (s_libraryCache.contains(parentId)) {
-        s_libraryCache.remove(parentId);
+    const QString memoryKey = scopedCacheKey(parentId);
+    if (s_libraryCache.remove(memoryKey) > 0) {
         qCDebug(lcViewModels) << "LibraryViewModel: Invalidated cache for" << parentId;
     }
     if (m_cacheStore && m_cacheStore->isOpen()) {
         m_cacheStore->clearParent(parentId);
+    }
+}
+
+QString LibraryViewModel::connectionScopeId() const
+{
+    if (m_configManager) {
+        const auto connection = m_configManager->getActiveConnection();
+        if (connection.has_value() && !connection->connectionId.isEmpty()) {
+            return connection->connectionId;
+        }
+    }
+    return QStringLiteral("_local");
+}
+
+QString LibraryViewModel::scopedCacheKey(const QString &remoteKey) const
+{
+    return connectionScopeId() + QLatin1Char('\n') + remoteKey;
+}
+
+void LibraryViewModel::reopenCacheStore()
+{
+    const QString scopeId = connectionScopeId();
+    if (m_cacheStore && m_cacheScopeId == scopeId) {
+        return;
+    }
+
+    if (!m_cacheScopeId.isEmpty() && m_cacheScopeId != scopeId) {
+        s_libraryCache.clear();
+    }
+    m_cacheScopeId = scopeId;
+    const QString dbPath = cacheDbPath();
+    m_cacheStore = std::make_unique<LibraryCacheStore>(dbPath, kDiskCacheTtlMs);
+    if (!m_cacheStore->open()) {
+        qCWarning(lcViewModels) << "LibraryViewModel: failed to open library cache store at" << dbPath;
+    }
+
+    setItems(QJsonArray());
+    setTotalRecordCount(0);
+    m_views.clear();
+    emit viewsChanged();
+    if (!m_currentParentId.isEmpty()) {
+        m_currentParentId.clear();
+        emit currentParentIdChanged();
     }
 }
 
@@ -977,10 +1017,10 @@ QString LibraryViewModel::cacheDir() const
     if (m_configManager) {
         baseDir = m_configManager->getConfigDir();
     } else {
-        // Fallback to GenericCacheLocation
         baseDir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + "/Bloom";
     }
-    return baseDir + "/cache/library";
+    const QString scope = DetailViewCache::connectionScopeCacheKey(connectionScopeId());
+    return baseDir + QStringLiteral("/cache/connections/") + scope + QStringLiteral("/library");
 }
 
 QString LibraryViewModel::cacheDbPath() const

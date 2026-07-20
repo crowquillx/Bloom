@@ -33,6 +33,7 @@ struct ArrayCacheEntry {
 };
 
 QString sanitizeCacheKey(QString key);
+QString connectionScopeCacheKey(const QString &scopeId);
 
 bool loadObjectCache(QHash<QString, ObjectCacheEntry> &memoryCache,
                      const QString &cacheKey,

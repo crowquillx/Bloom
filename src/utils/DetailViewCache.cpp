@@ -1,5 +1,6 @@
 #include "DetailViewCache.h"
 
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QSaveFile>
 #include "BloomLogging.h"
@@ -19,6 +20,12 @@ QString sanitizeCacheKey(QString key)
     }
 
     return key.isEmpty() ? QStringLiteral("item") : key;
+}
+
+QString connectionScopeCacheKey(const QString &scopeId)
+{
+    return QString::fromLatin1(QCryptographicHash::hash(
+        scopeId.toUtf8(), QCryptographicHash::Sha256).toHex());
 }
 
 bool loadObjectCache(QHash<QString, ObjectCacheEntry> &memoryCache,

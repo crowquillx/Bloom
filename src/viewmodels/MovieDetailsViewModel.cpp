@@ -27,6 +27,29 @@ constexpr qint64 kSimilarDiskTtlMs   = 60 * 60 * 1000;
 
 static QHash<QString, DetailViewCache::ObjectCacheEntry> s_movieCache;
 static QHash<QString, DetailViewCache::ArrayCacheEntry> s_similarItemsCache;
+static QString s_memoryCacheScope;
+
+QString activeCacheScope()
+{
+    if (auto *config = ServiceLocator::tryGet<ConfigManager>()) {
+        const auto connection = config->getActiveConnection();
+        if (connection.has_value() && !connection->connectionId.isEmpty()) {
+            return connection->connectionId;
+        }
+    }
+    return QStringLiteral("_local");
+}
+
+QString scopedCacheKey(const QString &remoteId)
+{
+    const QString scope = activeCacheScope();
+    if (s_memoryCacheScope != scope) {
+        s_movieCache.clear();
+        s_similarItemsCache.clear();
+        s_memoryCacheScope = scope;
+    }
+    return scope + QLatin1Char('\n') + remoteId;
+}
 }
 
 MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
@@ -83,7 +106,8 @@ QString MovieDetailsViewModel::cacheDir() const
     } else {
         baseDir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + "/Bloom";
     }
-    return baseDir + "/cache/movies";
+    const QString scope = DetailViewCache::connectionScopeCacheKey(activeCacheScope());
+    return baseDir + QStringLiteral("/cache/connections/") + scope + QStringLiteral("/movies");
 }
 
 QString MovieDetailsViewModel::movieCachePath(const QString &movieId) const
@@ -105,7 +129,7 @@ QString MovieDetailsViewModel::similarItemsCachePath(const QString &movieId) con
 bool MovieDetailsViewModel::loadMovieFromCache(const QString &movieId, QJsonObject &movieData, bool requireFresh) const
 {
     return DetailViewCache::loadObjectCache(s_movieCache,
-                                            movieId,
+                                            scopedCacheKey(movieId),
                                             movieCachePath(movieId),
                                             kMovieMemoryTtlMs,
                                             kMovieDiskTtlMs,
@@ -116,7 +140,7 @@ bool MovieDetailsViewModel::loadMovieFromCache(const QString &movieId, QJsonObje
 bool MovieDetailsViewModel::loadSimilarItemsFromCache(const QString &movieId, QJsonArray &items, bool requireFresh) const
 {
     return DetailViewCache::loadArrayCache(s_similarItemsCache,
-                                           movieId,
+                                           scopedCacheKey(movieId),
                                            similarItemsCachePath(movieId),
                                            kSimilarMemoryTtlMs,
                                            kSimilarDiskTtlMs,
@@ -128,7 +152,7 @@ bool MovieDetailsViewModel::loadSimilarItemsFromCache(const QString &movieId, QJ
 void MovieDetailsViewModel::storeMovieCache(const QString &movieId, const QJsonObject &movieData) const
 {
     DetailViewCache::storeObjectCache(s_movieCache,
-                                      movieId,
+                                      scopedCacheKey(movieId),
                                       movieCachePath(movieId),
                                       movieData);
 }
@@ -136,7 +160,7 @@ void MovieDetailsViewModel::storeMovieCache(const QString &movieId, const QJsonO
 void MovieDetailsViewModel::storeSimilarItemsCache(const QString &movieId, const QJsonArray &items) const
 {
     DetailViewCache::storeArrayCache(s_similarItemsCache,
-                                     movieId,
+                                     scopedCacheKey(movieId),
                                      similarItemsCachePath(movieId),
                                      items);
 }

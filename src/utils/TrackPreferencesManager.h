@@ -5,6 +5,8 @@
 #include <QString>
 #include <QHash>
 
+class ConfigManager;
+
 enum class TrackPreferenceMode {
     Unset,
     Off,
@@ -78,6 +80,7 @@ class TrackPreferencesManager : public QObject
 
 public:
     explicit TrackPreferencesManager(QObject *parent = nullptr);
+    TrackPreferencesManager(ConfigManager *configManager, QObject *parent = nullptr);
     ~TrackPreferencesManager();
 
     /// Load preferences from disk
@@ -100,12 +103,13 @@ public:
     static QString getPreferencesPath();
 
 private:
-    static constexpr int kCurrentSchemaVersion = 3;
+    static constexpr int kCurrentSchemaVersion = 4;
     static constexpr int kInitialSaveDelayMs = 1000;
     static constexpr int kMaxSaveRetryAttempts = 3;
 
-    QHash<QString, ScopedTrackPreferences> m_episodePreferences;
-    QHash<QString, ScopedTrackPreferences> m_moviePreferences;
+    ConfigManager *m_configManager = nullptr;
+    QHash<QString, QHash<QString, ScopedTrackPreferences>> m_episodePreferences;
+    QHash<QString, QHash<QString, ScopedTrackPreferences>> m_moviePreferences;
     
     // Track if we have unsaved changes
     bool m_dirty = false;
@@ -113,6 +117,9 @@ private:
     int m_saveRetryAttempts = 0;
     
     // Delayed save timer to batch multiple changes
+    QString activeScopeId() const;
+    QString migrationScopeId() const;
+    void adoptPendingScope();
     void scheduleSave();
     void scheduleRetrySave();
     void scheduleSaveAfter(int delayMs);

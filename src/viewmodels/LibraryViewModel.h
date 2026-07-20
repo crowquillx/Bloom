@@ -268,6 +268,7 @@ private:
     bool m_loadingViews = false;
     QVariantList m_views;  // Stores user's library views for Settings access
     std::unique_ptr<class LibraryCacheStore> m_cacheStore;
+    QString m_cacheScopeId;
     QString m_searchTerm;
     QString m_sortBy;
     QString m_sortOrder;
@@ -302,6 +303,9 @@ private:
     // Clear specific cache entry
     void clearCacheEntry(const QString &parentId);
     // Cache helpers
+    QString connectionScopeId() const;
+    QString scopedCacheKey(const QString &remoteKey) const;
+    void reopenCacheStore();
     QString cacheDir() const;
     QString cacheDbPath() const;
     // SWR: Check if fresh data differs from cached data
