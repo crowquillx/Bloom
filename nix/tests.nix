@@ -4,6 +4,7 @@
   cmake,
   ninja,
   pkg-config,
+  python3,
   gtest,
   libsecret,
   mpv,
@@ -20,6 +21,7 @@ stdenv.mkDerivation {
     cmake
     ninja
     pkg-config
+    python3
     qt6.wrapQtAppsHook
   ];
 
