@@ -7,6 +7,7 @@
 #include <QDateTime>
 
 class AuthenticationService;
+class HttpTransport;
 
 /**
  * @brief Session information structure
@@ -104,7 +105,7 @@ private slots:
 
 private:
     AuthenticationService *m_authService;
-    QNetworkAccessManager *m_nam;
+    HttpTransport *m_transport = nullptr;
     QVariantList m_sessions;
     bool m_isLoading = false;
     QString m_errorString;

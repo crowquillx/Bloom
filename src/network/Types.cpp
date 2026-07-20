@@ -509,7 +509,6 @@ bool ErrorHandler::isTransientError(QNetworkReply::NetworkError error)
         case QNetworkReply::RemoteHostClosedError:
         case QNetworkReply::HostNotFoundError:
         case QNetworkReply::TimeoutError:
-        case QNetworkReply::OperationCanceledError:
         case QNetworkReply::TemporaryNetworkFailureError:
         case QNetworkReply::NetworkSessionFailedError:
         case QNetworkReply::ProxyConnectionClosedError:

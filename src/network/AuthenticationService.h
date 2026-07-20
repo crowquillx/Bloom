@@ -5,14 +5,18 @@
 #include <QNetworkReply>
 #include <QString>
 #include <functional>
+#include <memory>
 #include <QFutureWatcher>
 #include <QtConcurrent>
 
 #include "providers/ServerConnection.h"
 #include "security/CredentialStore.h"
 
+class IProviderAuthenticator;
+class IProviderRequestFactory;
 class ISecretStore;
 class ConfigManager;
+class HttpTransport;
 
 /**
  * @brief Handles user authentication, session management, and token validation.
@@ -35,7 +39,12 @@ class AuthenticationService : public QObject
 
 public:
     explicit AuthenticationService(ISecretStore *secretStore = nullptr, QObject *parent = nullptr);
-    virtual ~AuthenticationService() = default;
+    AuthenticationService(ISecretStore *secretStore,
+                          HttpTransport *transport,
+                          IProviderRequestFactory *requestFactory,
+                          IProviderAuthenticator *providerAuthenticator,
+                          QObject *parent = nullptr);
+    virtual ~AuthenticationService();
     
     /**
      * @brief Initialize service and attempt to restore session asynchronously
@@ -90,7 +99,8 @@ public:
      * @brief Get the shared network access manager
      * @return Pointer to QNetworkAccessManager (owned by this service)
      */
-    QNetworkAccessManager* networkManager() const { return m_nam; }
+    QNetworkAccessManager* networkManager() const;
+    HttpTransport* transport() const { return m_transport; }
     
     /**
      * @brief Create a network request with authentication headers
@@ -130,7 +140,12 @@ private slots:
     void onAuthenticateFinished(QNetworkReply *reply);
 
 private:
-    QNetworkAccessManager *m_nam;
+    std::unique_ptr<HttpTransport> m_ownedTransport;
+    std::unique_ptr<IProviderRequestFactory> m_ownedRequestFactory;
+    std::unique_ptr<IProviderAuthenticator> m_ownedProviderAuthenticator;
+    HttpTransport *m_transport = nullptr;
+    IProviderRequestFactory *m_requestFactory = nullptr;
+    IProviderAuthenticator *m_providerAuthenticator = nullptr;
     QString m_serverUrl;
     QString m_accessToken;
     QString m_userId;
@@ -158,6 +173,7 @@ private:
     QFutureWatcher<RestorationResult> m_restorationWatcher;
     
     QString normalizeUrl(const QString &url);
+    void handleUnauthorized(bool deferLogout);
     
     /**
      * @brief Validate the current access token by making a test API call

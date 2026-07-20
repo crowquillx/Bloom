@@ -114,13 +114,13 @@ The live driver is selected by protocol surface (`mediabrowser-v1` today), while
 
 ## Bloom's current MediaBrowser contract
 
-`AuthenticationService`, `LibraryService`, `PlaybackService`, and `SessionService` currently own the wire contract. Provider-specific JSON is still visible above those services; issues #75 and #76 will move it behind adapters and canonical models.
+`JellyfinRequestFactory` owns MediaBrowser URL/header construction and `JellyfinAuthenticator` owns the login/validation wire contract. `HttpTransport` owns shared execution policy. `LibraryService`, `PlaybackService`, and `SessionService` still own provider routes and response JSON; the remaining #75/#76 adapter work moves those details behind catalog, playback, and remote-session boundaries.
 
 Shared assumptions:
 
 - Base URLs have trailing slashes removed before endpoint concatenation.
-- Requests send `Content-Type: application/json` and a `MediaBrowser` authorization header with Bloom client, desktop device, stable device ID, version, and optional token.
-- Authentication expects `AccessToken`, `User.Id`, and `User.Name`.
+- `JellyfinRequestFactory` sends `Content-Type: application/json` and a `MediaBrowser` authorization header with Bloom client, desktop device, stable device ID, version, and optional token.
+- `JellyfinAuthenticator` expects `AccessToken`, `User.Id`, and `User.Name`.
 - Lists generally use `{ "Items": [...], "TotalRecordCount": n }`.
 - Jellyfin time is in 100-nanosecond ticks. Ticks must not escape the future Jellyfin adapter.
 - Current image, stream, subtitle, and trickplay URLs may contain `api_key`; later artwork/playback boundaries must replace persistent token-bearing URLs.
@@ -155,7 +155,7 @@ This is the human-readable summary. Exact call sites, required semantics, and ev
 | Theme songs | Supported | Stubbed | Series theme songs are unavailable. |
 | External subtitle `DeliveryUrl` | Partial in Bloom | Partial in Bloom | Servers can advertise it; Bloom currently drops the URL before playback. |
 | Conditional JSON `ETag`/`304` | Supported | Missing | Functional refresh, but no efficient not-modified path. |
-| Expired/revoked token returns `401` | Supported | Supported | Authentication failure is detectable; Bloom's service handling is not yet centralized. |
+| Expired/revoked token returns `401` | Supported | Supported | Bloom centralizes catalog, playback, and remote-session expiry policy through the shared transport/session façade. |
 
 ### Meaningful assertions for live runs
 

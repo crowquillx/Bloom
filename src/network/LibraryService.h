@@ -15,6 +15,7 @@
 #include "Types.h"  // Shared data structs and error helpers
 
 class AuthenticationService;
+class HttpTransport;
 
 struct LibraryItemQuery {
     QString parentId;
@@ -199,6 +200,7 @@ signals:
 
 private:
     AuthenticationService *m_authService;
+    HttpTransport *m_transport = nullptr;
     RetryPolicy m_retryPolicy;
     
     // Retry mechanism types
@@ -211,13 +213,6 @@ private:
                                ResponseHandler responseHandler,
                                FailureHandler failureHandler = FailureHandler(),
                                int attemptNumber = 0);
-    
-    void handleReplyWithRetry(QNetworkReply *reply,
-                               const QString &endpoint,
-                               RequestFactory requestFactory,
-                               ResponseHandler responseHandler,
-                               FailureHandler failureHandler,
-                               int attemptNumber);
     
     void emitError(const NetworkError &error);
 

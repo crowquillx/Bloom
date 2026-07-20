@@ -1,7 +1,11 @@
 #include "AuthenticationService.h"
+#include "HttpTransport.h"
 #include "../security/ISecretStore.h"
 #include "../utils/ConfigManager.h"
-#include "config/version.h"
+#include "providers/IProviderAuthenticator.h"
+#include "providers/IProviderRequestFactory.h"
+#include "providers/jellyfin/JellyfinAuthenticator.h"
+#include "providers/jellyfin/JellyfinRequestFactory.h"
 #include <QNetworkRequest>
 #include <QUrl>
 #include <QJsonDocument>
@@ -13,9 +17,52 @@
 
 AuthenticationService::AuthenticationService(ISecretStore *secretStore, QObject *parent)
     : QObject(parent)
-    , m_nam(new QNetworkAccessManager(this))
+    , m_ownedTransport(std::make_unique<HttpTransport>())
+    , m_ownedRequestFactory(std::make_unique<JellyfinRequestFactory>())
+    , m_ownedProviderAuthenticator(std::make_unique<JellyfinAuthenticator>())
+    , m_transport(m_ownedTransport.get())
+    , m_requestFactory(m_ownedRequestFactory.get())
+    , m_providerAuthenticator(m_ownedProviderAuthenticator.get())
     , m_secretStore(secretStore)
 {
+    m_transport->setUrlRedactor([this](const QUrl &url) {
+        return m_requestFactory->redactedUrl(url);
+    });
+    connect(m_transport, &HttpTransport::unauthorized,
+            this, &AuthenticationService::handleUnauthorized);
+}
+
+AuthenticationService::AuthenticationService(ISecretStore *secretStore,
+                                               HttpTransport *transport,
+                                               IProviderRequestFactory *requestFactory,
+                                               IProviderAuthenticator *providerAuthenticator,
+                                               QObject *parent)
+    : QObject(parent)
+    , m_transport(transport)
+    , m_requestFactory(requestFactory)
+    , m_providerAuthenticator(providerAuthenticator)
+    , m_secretStore(secretStore)
+{
+    Q_ASSERT(m_transport);
+    Q_ASSERT(m_requestFactory);
+    Q_ASSERT(m_providerAuthenticator);
+    m_transport->setUrlRedactor([this](const QUrl &url) {
+        return m_requestFactory->redactedUrl(url);
+    });
+    connect(m_transport, &HttpTransport::unauthorized,
+            this, &AuthenticationService::handleUnauthorized);
+}
+
+AuthenticationService::~AuthenticationService()
+{
+    if (m_transport) {
+        m_transport->setUrlRedactor({});
+    }
+}
+
+QNetworkAccessManager *AuthenticationService::networkManager() const
+{
+    return m_transport->networkManager();
 }
 
 void AuthenticationService::initialize(ConfigManager *configManager)
@@ -120,64 +167,60 @@ QString AuthenticationService::normalizeUrl(const QString &url)
 
 QNetworkRequest AuthenticationService::createRequest(const QString &endpoint) const
 {
-    QUrl url(m_serverUrl + endpoint);
-    QNetworkRequest request(url);
-    
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    
-    // Build authorization header with unique device ID
-    QString deviceId = m_configManager ? m_configManager->getDeviceId() : "bloom-desktop-fallback";
-    QString authHeader = QString("MediaBrowser Client=\"Bloom\", Device=\"Desktop\", DeviceId=\"%1\", Version=\"%2\"").arg(deviceId, QString::fromUtf8(BLOOM_VERSION));
-    if (!m_accessToken.isEmpty()) {
-        authHeader += QString(", Token=\"%1\"").arg(m_accessToken);
-    }
-    request.setRawHeader("Authorization", authHeader.toUtf8());
-    
-    return request;
+    ProviderRequestContext context;
+    context.baseUrl = m_serverUrl;
+    context.accessToken = m_accessToken;
+    context.deviceId = m_configManager
+        ? m_configManager->getDeviceId()
+        : QStringLiteral("bloom-desktop-fallback");
+    return m_requestFactory->createRequest(context, endpoint);
 }
 
 void AuthenticationService::authenticate(const QString &serverUrl, const QString &username, const QString &password)
 {
     m_serverUrl = normalizeUrl(serverUrl);
-    
-    QJsonObject body;
-    body["Username"] = username;
-    body["Pw"] = password;
-    
-    QNetworkRequest request = createRequest("/Users/AuthenticateByName");
-    
-    QNetworkReply *reply = m_nam->post(request, QJsonDocument(body).toJson());
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
-        onAuthenticateFinished(reply);
-    });
+
+    const ProviderAuthenticationRequest authenticationRequest =
+        m_providerAuthenticator->createLoginRequest(username, password);
+    const QNetworkRequest request = createRequest(authenticationRequest.endpoint);
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
+
+    m_transport->sendWithRetry(
+        this,
+        authenticationRequest.endpoint,
+        [this, request, body = authenticationRequest.body]() {
+            return networkManager()->post(request, body);
+        },
+        [this](QNetworkReply *reply) {
+            onAuthenticateFinished(reply);
+        },
+        [this](const NetworkError &error) {
+            if (error.code == 401) {
+                emit loginError(tr("Invalid username or password"));
+                return;
+            }
+            const QString detail = error.userMessage.isEmpty()
+                ? tr("Could not connect to server. Please check the URL and your network connection.")
+                : error.userMessage;
+            emit loginError(tr("Authentication failed: %1").arg(detail));
+        },
+        options);
 }
 
 void AuthenticationService::onAuthenticateFinished(QNetworkReply *reply)
 {
-    reply->deleteLater();
-    
-    if (reply->error() != QNetworkReply::NoError) {
-        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        QString errorMessage;
-        
-        if (statusCode == 401) {
-            errorMessage = tr("Invalid username or password");
-        } else if (statusCode == 0) {
-            errorMessage = tr("Could not connect to server. Please check the URL and your network connection.");
-        } else {
-            errorMessage = tr("Authentication failed: %1").arg(reply->errorString());
-        }
-        
-        emit loginError(errorMessage);
+    const ProviderAuthenticationResult authentication =
+        m_providerAuthenticator->parseLoginResponse(reply->readAll());
+    if (!authentication.isValid()) {
+        emit loginError(tr("Authentication response was incomplete."));
         return;
     }
-    
-    QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-    QJsonObject obj = doc.object();
-    
-    m_accessToken = obj["AccessToken"].toString();
-    m_userId = obj["User"].toObject()["Id"].toString();
-    m_username = obj["User"].toObject()["Name"].toString();
+
+    m_accessToken = authentication.accessToken;
+    m_userId = authentication.accountId;
+    m_username = authentication.username;
     
     qCDebug(lcAuth) << "Authentication successful. User ID:" << m_userId << "Username:" << m_username;
 
@@ -352,21 +395,24 @@ void AuthenticationService::checkPendingSessionExpiry()
 
 bool AuthenticationService::checkForSessionExpiry(QNetworkReply *reply, bool deferLogout)
 {
-    int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-    
-    if (statusCode == 401) {
-        qCWarning(lcAuth) << "Received 401 Unauthorized - session expired";
-        
-        if (deferLogout) {
-            // During playback, defer the logout until playback ends
-            m_sessionExpiredPending = true;
-        } else if (!m_sessionExpiredEmitted) {
-            m_sessionExpiredEmitted = true;
-            emit sessionExpired();
-        }
-        return true;
+    const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    if (statusCode != 401) {
+        return false;
     }
-    return false;
+
+    handleUnauthorized(deferLogout);
+    return true;
+}
+
+void AuthenticationService::handleUnauthorized(bool deferLogout)
+{
+    qCWarning(lcAuth) << "Received 401 Unauthorized - session expired";
+    if (deferLogout) {
+        m_sessionExpiredPending = true;
+    } else if (!m_sessionExpiredEmitted) {
+        m_sessionExpiredEmitted = true;
+        emit sessionExpired();
+    }
 }
 
 void AuthenticationService::validateAccessToken(std::function<void(bool)> callback)
@@ -376,21 +422,27 @@ void AuthenticationService::validateAccessToken(std::function<void(bool)> callba
         return;
     }
     
-    // Make a lightweight API call to validate the token
-    QNetworkRequest request = createRequest(QString("/Users/%1").arg(m_userId));
-    QNetworkReply *reply = m_nam->get(request);
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply, callback]() {
-        reply->deleteLater();
-        
-        int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        bool valid = (reply->error() == QNetworkReply::NoError && statusCode == 200);
-        
-        if (!valid) {
-            qCDebug(lcAuth) << "Token validation failed. Status:" << statusCode 
-                     << "Error:" << reply->errorString();
-        }
-        
-        callback(valid);
-    });
+    const QString endpoint = m_providerAuthenticator->sessionValidationEndpoint(m_userId);
+    const QNetworkRequest request = createRequest(endpoint);
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
+
+    m_transport->sendWithRetry(
+        this,
+        endpoint,
+        [this, request]() {
+            return networkManager()->get(request);
+        },
+        [callback](QNetworkReply *reply) {
+            const int statusCode = reply->attribute(
+                QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            callback(statusCode == 200);
+        },
+        [callback](const NetworkError &error) {
+            qCDebug(lcAuth) << "Token validation failed. Status/error:" << error.code
+                            << error.userMessage;
+            callback(false);
+        },
+        options);
 }

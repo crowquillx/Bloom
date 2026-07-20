@@ -11,6 +11,7 @@
 #include "security/SecretStoreFactory.h"
 #include "security/ISecretStore.h"
 #include "network/AuthenticationService.h"
+#include "network/HttpTransport.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
 #include "network/MediaSegmentProviderService.h"
@@ -31,6 +32,10 @@
 #include "utils/BloomLogging.h"
 #include "network/SessionManager.h"
 #include "network/SessionService.h"
+#include "providers/IProviderAuthenticator.h"
+#include "providers/IProviderRequestFactory.h"
+#include "providers/jellyfin/JellyfinAuthenticator.h"
+#include "providers/jellyfin/JellyfinRequestFactory.h"
 #include "updates/UpdateService.h"
 #include "test/TestModeController.h"
 #include "test/MockAuthenticationService.h"
@@ -210,15 +215,24 @@ void ApplicationInitializer::registerServices()
         // 2.5 SecretStore - Create platform-specific secure storage
         m_secretStore = SecretStoreFactory::create();
         
-        // 3. AuthenticationService - Depends on SecretStore
-        m_authService = std::make_unique<AuthenticationService>(m_secretStore.get());
+        // 3. Provider-neutral transport and Jellyfin wire adapters
+        m_httpTransport = std::make_unique<HttpTransport>();
+        m_providerRequestFactory = std::make_unique<JellyfinRequestFactory>();
+        m_providerAuthenticator = std::make_unique<JellyfinAuthenticator>();
+
+        // 3.1 AuthenticationService - stable façade over provider boundaries
+        m_authService = std::make_unique<AuthenticationService>(
+            m_secretStore.get(),
+            m_httpTransport.get(),
+            m_providerRequestFactory.get(),
+            m_providerAuthenticator.get());
         ServiceLocator::registerService<AuthenticationService>(m_authService.get());
         
-        // 3.1 LibraryService - Depends on AuthenticationService
+        // 3.2 LibraryService - Depends on AuthenticationService
         m_libraryService = std::make_unique<LibraryService>(m_authService.get());
         ServiceLocator::registerService<LibraryService>(m_libraryService.get());
         
-        // 3.2 PlaybackService - Depends on AuthenticationService
+        // 3.3 PlaybackService - Depends on AuthenticationService
         m_mediaSegmentProviderService = std::make_unique<MediaSegmentProviderService>(m_authService.get(), m_configManager.get());
         ServiceLocator::registerService<MediaSegmentProviderService>(m_mediaSegmentProviderService.get());
         m_playbackService = std::make_unique<PlaybackService>(m_authService.get(),
@@ -226,7 +240,7 @@ void ApplicationInitializer::registerServices()
                                                               m_mediaSegmentProviderService.get());
         ServiceLocator::registerService<PlaybackService>(m_playbackService.get());
         
-        // 3.3 SeerrService - Depends on AuthenticationService + ConfigManager
+        // 3.4 SeerrService - Depends on AuthenticationService + ConfigManager
         m_seerrService = std::make_unique<SeerrService>(m_authService.get(), m_configManager.get());
         ServiceLocator::registerService<SeerrService>(m_seerrService.get());
         

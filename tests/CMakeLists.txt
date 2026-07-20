@@ -19,6 +19,12 @@ set(TEST_LOGGING_SOURCES
     ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
 )
 
+set(TEST_PROVIDER_BOUNDARY_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/network/HttpTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinAuthenticator.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinRequestFactory.cpp
+)
+
 set(TEST_CONFIG_SOURCES
     ${CMAKE_SOURCE_DIR}/src/providers/ServerConnection.cpp
     ${CMAKE_SOURCE_DIR}/src/security/CredentialStore.cpp
@@ -53,6 +59,7 @@ add_executable(SeriesDetailsCacheTest
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
     ${TEST_CONFIG_SOURCES}
@@ -95,6 +102,7 @@ add_executable(LibraryItemQueryTest
     LibraryItemQueryTest.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${TEST_CONFIG_SOURCES}
@@ -171,6 +179,29 @@ target_link_libraries(ConnectionPersistenceTest
 )
 
 add_test(NAME ConnectionPersistenceTest COMMAND ConnectionPersistenceTest)
+
+add_executable(ProviderTransportTest
+    ProviderTransportTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/HttpTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinAuthenticator.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinRequestFactory.cpp
+    ${TEST_LOGGING_SOURCES}
+)
+
+target_include_directories(ProviderTransportTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(ProviderTransportTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME ProviderTransportTest COMMAND ProviderTransportTest)
 
 add_executable(InputBindingManagerTest
     InputBindingManagerTest.cpp
@@ -255,6 +286,7 @@ add_executable(PlayerControllerAutoplayContextTest
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
@@ -283,6 +315,7 @@ add_executable(MediaSegmentProviderServiceTest
     MediaSegmentProviderServiceTest.cpp
     ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${TEST_CONFIG_SOURCES}
 )
@@ -369,6 +402,7 @@ add_executable(SimilarItemsRetryTest
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
     ${CMAKE_SOURCE_DIR}/src/test/MockLibraryService.cpp
@@ -399,6 +433,7 @@ add_executable(UpNextRecommendationsViewModelTest
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${TEST_CONFIG_SOURCES}
 )
@@ -502,6 +537,7 @@ qt_add_executable(VisualRegressionTest
     ${TEST_CONFIG_SOURCES}
     # Network sources
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
