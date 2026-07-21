@@ -17,6 +17,7 @@ private slots:
     void jellyfinTimeConversionUsesMilliseconds();
     void jellyfinItemMapsToCanonicalCamelCase();
     void jellyfinParentBackdropUsesImageItemId();
+    void jellyfinSeriesFieldsAndChaptersMapCanonically();
     void artworkCacheKeyIsTokenFreeAndRoundTrips();
     void jellyfinArtworkEndpointContainsNoCredential();
     void playbackDescriptorExposesProviderNeutralShape();
@@ -179,6 +180,56 @@ void CanonicalModelsTest::jellyfinParentBackdropUsesImageItemId()
              QStringLiteral("series-1"));
     QCOMPARE(artwork.value(QStringLiteral("tag")).toString(),
              QStringLiteral("series-backdrop-tag"));
+}
+
+void CanonicalModelsTest::jellyfinSeriesFieldsAndChaptersMapCanonically()
+{
+    const QVariantMap episode = JellyfinModelMapper::mediaItem(
+        QJsonObject{
+            {QStringLiteral("Id"), QStringLiteral("episode-1")},
+            {QStringLiteral("Type"), QStringLiteral("Episode")},
+            {QStringLiteral("RecursiveItemCount"), 48},
+            {QStringLiteral("Status"), QStringLiteral("Continuing")},
+            {QStringLiteral("AirsBeforeSeasonNumber"), 2},
+            {QStringLiteral("AirsAfterSeasonNumber"), 1},
+            {QStringLiteral("AirsBeforeEpisodeNumber"), 4}
+        },
+        QStringLiteral("connection-1"));
+
+    QCOMPARE(episode.value(QStringLiteral("recursiveItemCount")).toInt(), 48);
+    QCOMPARE(episode.value(QStringLiteral("status")).toString(), QStringLiteral("Continuing"));
+    QCOMPARE(episode.value(QStringLiteral("airsBeforeSeasonNumber")).toInt(), 2);
+    QCOMPARE(episode.value(QStringLiteral("airsAfterSeasonNumber")).toInt(), 1);
+    QCOMPARE(episode.value(QStringLiteral("airsBeforeEpisodeNumber")).toInt(), 4);
+
+    const QVariantList chapters = JellyfinModelMapper::chapters(
+        QJsonArray{
+            QJsonObject{
+                {QStringLiteral("Name"), QStringLiteral("Cold Open")},
+                {QStringLiteral("StartPositionTicks"), 125'000'000},
+                {QStringLiteral("ImagePath"), QStringLiteral("/Items/episode-1/Images/Chapter/0")}
+            }
+        },
+        QStringLiteral("connection-1"),
+        QStringLiteral("episode-1"));
+
+    QCOMPARE(chapters.size(), 1);
+    const QVariantMap chapter = chapters.first().toMap();
+    QCOMPARE(chapter.value(QStringLiteral("name")).toString(), QStringLiteral("Cold Open"));
+    QCOMPARE(chapter.value(QStringLiteral("startMs")).toLongLong(), 12'500);
+    const QVariantMap artwork = chapter.value(QStringLiteral("artwork")).toMap();
+    QCOMPARE(artwork.value(QStringLiteral("connectionId")).toString(),
+             QStringLiteral("connection-1"));
+    QCOMPARE(artwork.value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("episode-1"));
+    QCOMPARE(artwork.value(QStringLiteral("kind")).toString(), QStringLiteral("chapter"));
+    QCOMPARE(artwork.value(QStringLiteral("index")).toInt(), 0);
+    QVERIFY(!chapter.contains(QStringLiteral("StartPositionTicks")));
+    QVERIFY(!chapter.contains(QStringLiteral("ImagePath")));
+
+    const Bloom::Chapter unnamed = JellyfinModelMapper::chapter(
+        QJsonObject{}, QStringLiteral("connection-1"), QStringLiteral("episode-1"), 2);
+    QCOMPARE(unnamed.name, QStringLiteral("Chapter 3"));
 }
 
 void CanonicalModelsTest::artworkCacheKeyIsTokenFreeAndRoundTrips()

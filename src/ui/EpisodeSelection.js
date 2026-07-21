@@ -1,33 +1,25 @@
 .pragma library
 
+// This helper consumes only Bloom canonical episode maps from EpisodesModel.
 function episodeSeasonId(episode) {
     if (!episode) {
         return ""
     }
-    return episode.SeasonId || episode.ParentId || ""
+    return episode.seasonId || episode.parentId || ""
 }
 
 function episodeIsPlayed(episode) {
     if (!episode) {
         return false
     }
-    if (episode.isPlayed !== undefined) {
-        return episode.isPlayed
-    }
-    return !!(episode.UserData && episode.UserData.Played)
+    return !!episode.watched
 }
 
-function episodePlaybackPositionTicks(episode) {
+function episodePositionMs(episode) {
     if (!episode) {
         return 0
     }
-    if (episode.playbackPositionTicks !== undefined) {
-        return episode.playbackPositionTicks || 0
-    }
-    if (episode.UserData && episode.UserData.PlaybackPositionTicks !== undefined) {
-        return episode.UserData.PlaybackPositionTicks || 0
-    }
-    return 0
+    return episode.positionMs || 0
 }
 
 function firstValidEpisodeIndex(episodes) {
@@ -66,7 +58,7 @@ function resolveInitialEpisodeSelection(episodes, initialEpisodeId, targetSeason
     if (initialEpisodeId) {
         for (var i = 0; i < episodes.length; i++) {
             var episode = episodes[i]
-            if (episode && (episode.itemId === initialEpisodeId || episode.Id === initialEpisodeId)) {
+            if (episode && episode.itemId === initialEpisodeId) {
                 result.shouldApply = true
                 result.targetIndex = i
                 result.foundInitialEpisode = true
@@ -86,7 +78,7 @@ function resolveInitialEpisodeSelection(episodes, initialEpisodeId, targetSeason
             targetIndex = j
             break
         }
-        if (episodePlaybackPositionTicks(fallbackEpisode) > 0) {
+        if (episodePositionMs(fallbackEpisode) > 0) {
             targetIndex = j
         }
     }

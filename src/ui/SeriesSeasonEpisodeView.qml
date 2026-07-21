@@ -58,13 +58,13 @@ FocusScope {
     readonly property var focusedEpisodeChapters: SeriesDetailsViewModel.focusedEpisodeChapters || []
     readonly property bool focusedEpisodeChaptersLoading: SeriesDetailsViewModel.focusedEpisodeChaptersLoading
     readonly property string selectedEpisodeImageUrl: selectedEpisodeData
-                                                     ? (selectedEpisodeData.imageUrl || selectedEpisodeData.ImageUrl || "")
+                                                     ? (selectedEpisodeData.imageUrl || "")
                                                      : ""
     readonly property string selectedSeasonImageUrl: {
         if (SeriesDetailsViewModel.selectedSeasonIndex >= 0) {
             var season = SeriesDetailsViewModel.seasonsModel.getItem(SeriesDetailsViewModel.selectedSeasonIndex)
             if (season) {
-                return season.imageUrl || season.ImageUrl || ""
+                return season.imageUrl || ""
             }
         }
         return SeriesDetailsViewModel.posterUrl || ""
@@ -130,16 +130,16 @@ FocusScope {
     
     // Currently selected episode (from ListView currentIndex)
     property var selectedEpisodeData: null
-    property string selectedEpisodeId: selectedEpisodeData ? (selectedEpisodeData.itemId || selectedEpisodeData.Id || "") : ""
-    property string selectedEpisodeName: selectedEpisodeData ? (selectedEpisodeData.name || selectedEpisodeData.Name || "") : ""
-    property int selectedEpisodeNumber: selectedEpisodeData ? (selectedEpisodeData.indexNumber || selectedEpisodeData.IndexNumber || 0) : 0
-    property int selectedSeasonNumber: selectedEpisodeData ? (selectedEpisodeData.parentIndexNumber || selectedEpisodeData.ParentIndexNumber || 0) : 0
-    property string selectedEpisodeOverview: selectedEpisodeData ? (selectedEpisodeData.overview || selectedEpisodeData.Overview || "") : ""
-    property var selectedEpisodeRuntimeTicks: selectedEpisodeData ? (selectedEpisodeData.runtimeTicks || selectedEpisodeData.RunTimeTicks || 0) : 0
-    property var selectedEpisodeCommunityRating: selectedEpisodeData ? (selectedEpisodeData.communityRating || selectedEpisodeData.CommunityRating || 0) : 0
-    property string selectedEpisodePremiereDate: selectedEpisodeData ? (selectedEpisodeData.premiereDate || selectedEpisodeData.PremiereDate || "") : ""
+    property string selectedEpisodeId: selectedEpisodeData ? (selectedEpisodeData.itemId || "") : ""
+    property string selectedEpisodeName: selectedEpisodeData ? (selectedEpisodeData.name || "") : ""
+    property int selectedEpisodeNumber: selectedEpisodeData ? (selectedEpisodeData.indexNumber || 0) : 0
+    property int selectedSeasonNumber: selectedEpisodeData ? (selectedEpisodeData.parentIndexNumber || 0) : 0
+    property string selectedEpisodeOverview: selectedEpisodeData ? (selectedEpisodeData.overview || "") : ""
+    property real selectedEpisodeDurationMs: selectedEpisodeData ? (selectedEpisodeData.durationMs || 0) : 0
+    property real selectedEpisodeCommunityRating: selectedEpisodeData ? (selectedEpisodeData.communityRating || 0) : 0
+    property string selectedEpisodePremiereDate: selectedEpisodeData ? (selectedEpisodeData.premiereDate || "") : ""
     property bool selectedEpisodeIsPlayed: episodesList.currentItem ? episodesList.currentItem.isPlayed : false
-    property var selectedEpisodePlaybackPosition: episodesList.currentItem ? episodesList.currentItem.playbackPosition : 0
+    property real selectedEpisodePlaybackPosition: episodesList.currentItem ? episodesList.currentItem.playbackPosition : 0
     property bool selectedEpisodeIsFavorite: episodesList.currentItem ? episodesList.currentItem.isFavorite : false
     
     property bool overviewExpanded: false
@@ -255,8 +255,15 @@ FocusScope {
         // Try season-specific logo
         if (SeriesDetailsViewModel.selectedSeasonIndex >= 0) {
             var season = SeriesDetailsViewModel.seasonsModel.getItem(SeriesDetailsViewModel.selectedSeasonIndex)
-            if (season && season.ImageTags && season.ImageTags.Logo) {
-                return LibraryService.getCachedImageUrlWithWidth(season.Id, "Logo", 600)
+            const artwork = season ? season.logoArtwork : null
+            if (artwork && artwork.itemId) {
+                return LibraryService.getCachedArtworkUrlForConnection(
+                            artwork.connectionId || "",
+                            artwork.itemId,
+                            artwork.kind || "logo",
+                            artwork.index || 0,
+                            artwork.tag || "",
+                            600)
             }
         }
         // Fallback to series logo
@@ -275,7 +282,7 @@ FocusScope {
 
         for (var i = 0; i < SeriesDetailsViewModel.seasonsModel.rowCount(); ++i) {
             var season = SeriesDetailsViewModel.seasonsModel.getItem(i)
-            if (season && (season.itemId === seasonId || season.Id === seasonId)) {
+            if (season && season.itemId === seasonId) {
                 return i
             }
         }
@@ -291,7 +298,7 @@ FocusScope {
         var targetIndex = initialSeasonIndex
         if (targetIndex >= 0 && targetIndex < SeriesDetailsViewModel.seasonsModel.rowCount()) {
             var targetSeason = SeriesDetailsViewModel.seasonsModel.getItem(targetIndex)
-            var targetSeasonId = targetSeason ? (targetSeason.itemId || targetSeason.Id || "") : ""
+            var targetSeasonId = targetSeason ? (targetSeason.itemId || "") : ""
             if (targetSeasonId !== initialSeasonId) {
                 targetIndex = -1
             }
@@ -479,7 +486,7 @@ FocusScope {
 
         for (var i = 0; i < SeriesDetailsViewModel.episodesModel.rowCount(); ++i) {
             var episode = SeriesDetailsViewModel.episodesModel.getItem(i)
-            if (episode && (episode.itemId === episodeId || episode.Id === episodeId)) {
+            if (episode && episode.itemId === episodeId) {
                 return i
             }
         }
@@ -547,7 +554,7 @@ FocusScope {
     function updateSelectedEpisode(index) {
         if (index >= 0 && index < SeriesDetailsViewModel.episodesModel.rowCount()) {
             selectedEpisodeData = SeriesDetailsViewModel.episodesModel.getItem(index)
-            SeriesDetailsViewModel.loadFocusedEpisodeDetails(selectedEpisodeData.Id || selectedEpisodeData.itemId || "")
+            SeriesDetailsViewModel.loadFocusedEpisodeDetails(selectedEpisodeData.itemId || "")
             console.log("[SeriesSeasonEpisodeView] Selected episode:", selectedEpisodeName, "ID:", selectedEpisodeId,
                         "Played:", selectedEpisodeIsPlayed)
         } else {
@@ -623,11 +630,11 @@ FocusScope {
     }
     
     // Helper functions for episode info display
-    function formatRuntime(ticks) {
-        if (!ticks || ticks === 0) return ""
-        var totalMinutes = Math.round(ticks / 600000000)
-        var hours = Math.floor(totalMinutes / 60)
-        var minutes = totalMinutes % 60
+    function formatRuntime(durationMs) {
+        if (!durationMs || durationMs === 0) return ""
+        const totalMinutes = Math.round(durationMs / 60000)
+        const hours = Math.floor(totalMinutes / 60)
+        const minutes = totalMinutes % 60
         if (hours > 0) {
             return hours + "h " + minutes + "m"
         }
@@ -645,11 +652,10 @@ FocusScope {
         return date.toLocaleDateString(Qt.locale(), "MMMM d, yyyy")
     }
     
-    function calculateEndTime(runtimeTicks) {
-        if (!runtimeTicks || runtimeTicks === 0) return ""
-        var now = new Date()
-        var runtimeMs = runtimeTicks / 10000
-        var endTime = new Date(now.getTime() + runtimeMs)
+    function calculateEndTime(durationMs) {
+        if (!durationMs || durationMs === 0) return ""
+        const now = new Date()
+        const endTime = new Date(now.getTime() + durationMs)
         return "Ends at " + endTime.toLocaleTimeString(Qt.locale(), "h:mm AP")
     }
 
@@ -947,7 +953,7 @@ FocusScope {
     }
     
     // Playback actions
-    function startPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks) {
+    function startPlayback(fromBeginning, restoreFocusTarget, chapterStartMs) {
         if (!selectedEpisodeId || PlayerController.awaitingNextEpisodeResolution) {
             return
         }
@@ -969,10 +975,10 @@ FocusScope {
             schedulePlaybackInfoPreload()
         }
 
-        performPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks)
+        performPlayback(fromBeginning, restoreFocusTarget, chapterStartMs)
     }
     
-    function performPlayback(fromBeginning, restoreFocusTarget, chapterStartTicks) {
+    function performPlayback(fromBeginning, restoreFocusTarget, chapterStartMs) {
         if (!selectedEpisodeId || PlayerController.awaitingNextEpisodeResolution) {
             return
         }
@@ -980,8 +986,8 @@ FocusScope {
             return
         }
         
-        var hasChapterStart = chapterStartTicks !== undefined && chapterStartTicks !== null
-        var startPos = hasChapterStart ? chapterStartTicks : (fromBeginning ? 0 : selectedEpisodePlaybackPosition)
+        var hasChapterStart = chapterStartMs !== undefined && chapterStartMs !== null
+        var startPositionMs = hasChapterStart ? chapterStartMs : (fromBeginning ? 0 : selectedEpisodePlaybackPosition)
         var framerate = getVideoFramerate()
         var isHDR = isVideoHDR()
         
@@ -995,7 +1001,7 @@ FocusScope {
         console.log("[SeriesSeasonEpisodeView] performPlayback - Episode:", selectedEpisodeName,
                     "ID:", selectedEpisodeId,
                     "fromBeginning:", fromBeginning,
-                    "startPos:", startPos,
+                    "startPositionMs:", startPositionMs,
                     "playbackInfo:", playbackInfo !== null,
                     "pendingPlaybackInfo:", pendingPlaybackInfo !== null,
                     "currentMediaSource:", currentMediaSource !== null,
@@ -1010,7 +1016,8 @@ FocusScope {
         playbackReturnFocusActivated = false
         root.playRequested({
             itemId: selectedEpisodeId,
-            startPositionTicks: startPos,
+            // PlayerController's compatibility entry point still accepts provider ticks.
+            startPositionTicks: startPositionMs * 10000,
             seriesId: seriesId,
             seasonId: SeriesDetailsViewModel.selectedSeasonId,
             overlayTitle: overlayTitle,
@@ -1381,8 +1388,8 @@ FocusScope {
                             spacing: Theme.spacingSmall
 
                             MetadataChip { text: selectedEpisodeLabel }
-                            MetadataChip { text: selectedEpisodeRuntimeTicks > 0 ? formatRuntime(selectedEpisodeRuntimeTicks) : "" }
-                            MetadataChip { text: selectedEpisodeRuntimeTicks > 0 ? calculateEndTime(selectedEpisodeRuntimeTicks) : "" }
+                            MetadataChip { text: selectedEpisodeDurationMs > 0 ? formatRuntime(selectedEpisodeDurationMs) : "" }
+                            MetadataChip { text: selectedEpisodeDurationMs > 0 ? calculateEndTime(selectedEpisodeDurationMs) : "" }
                             MetadataChip { text: selectedEpisodeCommunityRating > 0 ? formatRating(selectedEpisodeCommunityRating) : "" }
                             MetadataChip { text: selectedEpisodePremiereDate !== "" ? formatPremiereDate(selectedEpisodePremiereDate) : "" }
                             MetadataChip {
@@ -1909,7 +1916,7 @@ FocusScope {
                         readonly property bool isPlayed: model.isPlayed || false
                         readonly property bool isFavorite: model.isFavorite || false
                         readonly property string itemId: model.itemId || ""
-                        readonly property var playbackPosition: model.playbackPositionTicks || 0
+                        readonly property var playbackPosition: model.positionMs || 0
 
                         width: Math.round(availableThumbHeight * 16 / 9)
                         height: availableThumbHeight
@@ -1967,8 +1974,8 @@ FocusScope {
                                 anchors.leftMargin: Math.round(2 * Theme.layoutScale)
                                 anchors.rightMargin: Math.round(2 * Theme.layoutScale)
                                 anchors.bottomMargin: Math.round(2 * Theme.layoutScale)
-                                positionTicks: model.playbackPositionTicks || 0
-                                runtimeTicks: model.runtimeTicks || 0
+                                positionMs: model.positionMs || 0
+                                durationMs: model.durationMs || 0
                             }
 
                             Text {
@@ -2019,8 +2026,8 @@ FocusScope {
                             }
 
                             Text {
-                                visible: model.runtimeTicks > 0
-                                text: formatRuntime(model.runtimeTicks)
+                                visible: model.durationMs > 0
+                                text: formatRuntime(model.durationMs)
                                 font.pixelSize: Theme.fontSizeCaption
                                 font.family: Theme.fontPrimary
                                 color: Theme.textSecondary
@@ -2214,13 +2221,13 @@ FocusScope {
 
                             Keys.onReturnPressed: (event) => {
                                 if (!event.isAutoRepeat) {
-                                    startPlayback(false, chapterDelegate, modelData.startPositionTicks || 0)
+                                    startPlayback(false, chapterDelegate, modelData.startMs || 0)
                                 }
                                 event.accepted = true
                             }
                             Keys.onEnterPressed: (event) => {
                                 if (!event.isAutoRepeat) {
-                                    startPlayback(false, chapterDelegate, modelData.startPositionTicks || 0)
+                                    startPlayback(false, chapterDelegate, modelData.startMs || 0)
                                 }
                                 event.accepted = true
                             }
@@ -2265,7 +2272,7 @@ FocusScope {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: modelData.title || qsTr("Chapter")
+                                        text: modelData.name || qsTr("Chapter")
                                         font.pixelSize: Theme.fontSizeBody
                                         font.family: Theme.fontPrimary
                                         font.bold: true
@@ -2275,7 +2282,7 @@ FocusScope {
 
                                     Text {
                                         Layout.fillWidth: true
-                                        text: formatChapterTime(modelData.startSeconds || 0)
+                                        text: formatChapterTime((modelData.startMs || 0) / 1000)
                                         font.pixelSize: Theme.fontSizeCaption
                                         font.family: Theme.fontPrimary
                                         color: Theme.textSecondary

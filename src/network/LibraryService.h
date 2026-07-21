@@ -165,8 +165,16 @@ signals:
                                                const QString &queryKey,
                                                const QVariantList &items,
                                                int totalRecordCount);
+    void canonicalItemsLoadedForConnection(const QString &connectionId,
+                                           const QString &parentId,
+                                           const QString &queryKey,
+                                           const QVariantList &items,
+                                           int totalRecordCount);
     void itemsNotModified(const QString &parentId);
     void itemsNotModifiedForQuery(const QString &parentId, const QString &queryKey);
+    void canonicalItemsNotModifiedForConnection(const QString &connectionId,
+                                                const QString &parentId,
+                                                const QString &queryKey);
     void filterOptionsLoaded(const QString &parentId,
                              const QStringList &genres,
                              const QStringList &tags,
@@ -186,6 +194,9 @@ signals:
     void itemFailed(const QString &itemId, const QString &error, const QString &requestContext);
     void itemUserDataChanged(const QString &itemId, const QJsonObject &userData);
     void chaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
+    void canonicalChaptersLoaded(const QString &connectionId,
+                                 const QString &itemId,
+                                 const QVariantList &chapters);
     void chaptersFailed(const QString &itemId, const QString &error);
 
     void nextUpLoaded(const QJsonArray &items);
@@ -193,13 +204,28 @@ signals:
     void homeBackdropItemsLoaded(const QJsonArray &items);
     void screensaverItemsLoaded(const QJsonArray &items);
     void seriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
+    void canonicalSeriesDetailsLoaded(const QString &connectionId,
+                                      const QString &seriesId,
+                                      const QVariantMap &seriesData);
     void seriesDetailsNotModified(const QString &seriesId);
+    void canonicalSeriesDetailsNotModified(const QString &connectionId,
+                                           const QString &seriesId);
     void similarItemsLoaded(const QString &itemId, const QJsonArray &items);
     void canonicalSimilarItemsLoaded(const QString &itemId, const QVariantList &items);
+    void canonicalSimilarItemsLoadedForConnection(const QString &connectionId,
+                                                  const QString &itemId,
+                                                  const QVariantList &items);
     void similarItemsFailed(const QString &itemId, const QString &error);
+    void canonicalSimilarItemsFailedForConnection(const QString &connectionId,
+                                                  const QString &itemId,
+                                                  const QString &error);
     void nextUnplayedEpisodeLoaded(const QString &seriesId,
                                    const QJsonObject &episodeData,
                                    const QString &requestContext);
+    void canonicalNextUnplayedEpisodeLoaded(const QString &connectionId,
+                                            const QString &seriesId,
+                                            const QVariantMap &episodeData,
+                                            const QString &requestContext);
     void nextUnplayedEpisodeFailed(const QString &seriesId,
                                    const QString &error,
                                    const QString &requestContext);

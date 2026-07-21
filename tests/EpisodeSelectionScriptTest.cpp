@@ -46,14 +46,14 @@ void EpisodeSelectionScriptTest::explicitSelectionMustExist()
 
     QVariantList episodes;
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-1")},
-        {QStringLiteral("isPlayed"), false},
-        {QStringLiteral("playbackPositionTicks"), 0}
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("watched"), false},
+        {QStringLiteral("positionMs"), 0}
     });
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-2")},
-        {QStringLiteral("isPlayed"), false},
-        {QStringLiteral("playbackPositionTicks"), 0}
+        {QStringLiteral("itemId"), QStringLiteral("episode-2")},
+        {QStringLiteral("watched"), false},
+        {QStringLiteral("positionMs"), 0}
     });
 
     const QJSValueList args{
@@ -72,15 +72,15 @@ void EpisodeSelectionScriptTest::explicitSelectionMatchesLowercaseItemId()
     QVariantList episodes;
     episodes.append(QVariantMap{
         {QStringLiteral("itemId"), QStringLiteral("episode-1")},
-        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
-        {QStringLiteral("isPlayed"), true},
-        {QStringLiteral("playbackPositionTicks"), 0}
+        {QStringLiteral("parentId"), QStringLiteral("season-a")},
+        {QStringLiteral("watched"), true},
+        {QStringLiteral("positionMs"), 0}
     });
     episodes.append(QVariantMap{
         {QStringLiteral("itemId"), QStringLiteral("episode-2")},
-        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
-        {QStringLiteral("isPlayed"), false},
-        {QStringLiteral("playbackPositionTicks"), 0}
+        {QStringLiteral("parentId"), QStringLiteral("season-a")},
+        {QStringLiteral("watched"), false},
+        {QStringLiteral("positionMs"), 0}
     });
 
     const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
@@ -100,10 +100,10 @@ void EpisodeSelectionScriptTest::explicitSelectionWaitsForTargetSeason()
     QVariantList episodes;
     episodes.append(QVariant());
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-1")},
-        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
-        {QStringLiteral("isPlayed"), false},
-        {QStringLiteral("playbackPositionTicks"), 0}
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("parentId"), QStringLiteral("season-a")},
+        {QStringLiteral("watched"), false},
+        {QStringLiteral("positionMs"), 0}
     });
 
     const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
@@ -122,16 +122,16 @@ void EpisodeSelectionScriptTest::explicitSelectionUsesTargetSeasonEpisode()
 {
     QVariantList episodes;
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-1")},
-        {QStringLiteral("ParentId"), QStringLiteral("season-b")},
-        {QStringLiteral("isPlayed"), false},
-        {QStringLiteral("playbackPositionTicks"), 0}
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("parentId"), QStringLiteral("season-b")},
+        {QStringLiteral("watched"), false},
+        {QStringLiteral("positionMs"), 0}
     });
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-2")},
-        {QStringLiteral("ParentId"), QStringLiteral("season-b")},
-        {QStringLiteral("isPlayed"), false},
-        {QStringLiteral("playbackPositionTicks"), 0}
+        {QStringLiteral("itemId"), QStringLiteral("episode-2")},
+        {QStringLiteral("parentId"), QStringLiteral("season-b")},
+        {QStringLiteral("watched"), false},
+        {QStringLiteral("positionMs"), 0}
     });
 
     const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
@@ -151,20 +151,16 @@ void EpisodeSelectionScriptTest::explicitSelectionDoesNotFallbackWithinTargetSea
 {
     QVariantList episodes;
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-1")},
-        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
-        {QStringLiteral("UserData"), QVariantMap{
-            {QStringLiteral("Played"), true},
-            {QStringLiteral("PlaybackPositionTicks"), 0}
-        }}
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("parentId"), QStringLiteral("season-a")},
+        {QStringLiteral("watched"), true},
+        {QStringLiteral("positionMs"), 0}
     });
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-2")},
-        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
-        {QStringLiteral("UserData"), QVariantMap{
-            {QStringLiteral("Played"), false},
-            {QStringLiteral("PlaybackPositionTicks"), 0}
-        }}
+        {QStringLiteral("itemId"), QStringLiteral("episode-2")},
+        {QStringLiteral("parentId"), QStringLiteral("season-a")},
+        {QStringLiteral("watched"), false},
+        {QStringLiteral("positionMs"), 0}
     });
 
     const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
@@ -183,18 +179,14 @@ void EpisodeSelectionScriptTest::fallbackSelectionChoosesFirstUnplayed()
 {
     QVariantList episodes;
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-1")},
-        {QStringLiteral("UserData"), QVariantMap{
-            {QStringLiteral("Played"), true},
-            {QStringLiteral("PlaybackPositionTicks"), 0}
-        }}
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("watched"), true},
+        {QStringLiteral("positionMs"), 0}
     });
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-2")},
-        {QStringLiteral("UserData"), QVariantMap{
-            {QStringLiteral("Played"), false},
-            {QStringLiteral("PlaybackPositionTicks"), 0}
-        }}
+        {QStringLiteral("itemId"), QStringLiteral("episode-2")},
+        {QStringLiteral("watched"), false},
+        {QStringLiteral("positionMs"), 0}
     });
 
     const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{
@@ -214,20 +206,16 @@ void EpisodeSelectionScriptTest::fallbackSelectionSkipsLeadingNullEntries()
     QVariantList episodes;
     episodes.append(QVariant());
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-1")},
-        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
-        {QStringLiteral("UserData"), QVariantMap{
-            {QStringLiteral("Played"), true},
-            {QStringLiteral("PlaybackPositionTicks"), 0}
-        }}
+        {QStringLiteral("itemId"), QStringLiteral("episode-1")},
+        {QStringLiteral("parentId"), QStringLiteral("season-a")},
+        {QStringLiteral("watched"), true},
+        {QStringLiteral("positionMs"), 0}
     });
     episodes.append(QVariantMap{
-        {QStringLiteral("Id"), QStringLiteral("episode-2")},
-        {QStringLiteral("ParentId"), QStringLiteral("season-a")},
-        {QStringLiteral("UserData"), QVariantMap{
-            {QStringLiteral("Played"), false},
-            {QStringLiteral("PlaybackPositionTicks"), 0}
-        }}
+        {QStringLiteral("itemId"), QStringLiteral("episode-2")},
+        {QStringLiteral("parentId"), QStringLiteral("season-a")},
+        {QStringLiteral("watched"), false},
+        {QStringLiteral("positionMs"), 0}
     });
 
     const QJSValue result = m_resolveInitialEpisodeSelection.call(QJSValueList{

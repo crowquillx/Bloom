@@ -40,6 +40,20 @@ public:
         return QStringLiteral("artwork://%1/%2/%3").arg(itemId, imageType).arg(width);
     }
 
+    QString getCachedArtworkUrlForConnection(const QString &connectionId,
+                                             const QString &itemId,
+                                             const QString &imageType,
+                                             int imageIndex,
+                                             const QString &imageTag,
+                                             int width) override
+    {
+        Q_UNUSED(imageIndex)
+        Q_UNUSED(imageTag)
+        return QStringLiteral("artwork://%1/%2/%3/%4")
+            .arg(connectionId, itemId, imageType)
+            .arg(width);
+    }
+
     QStringList requestedIds;
 };
 
@@ -72,10 +86,10 @@ public:
         clearItemCacheValidationCalls.append(itemId);
     }
 
-    void emitLoadedAt(int index, const QJsonObject &payload)
+    void emitLoadedAt(int index, const QVariantMap &payload)
     {
         const auto &request = requests.at(index);
-        emit itemLoaded(request.itemId, payload, request.requestContext);
+        emit canonicalItemLoaded(request.itemId, payload, request.requestContext);
     }
 
     void emitFailedAt(int index, const QString &error)
@@ -104,15 +118,17 @@ public:
         requests.append(itemId);
     }
 
-    QString getCachedChapterThumbnailUrl(const QString &itemId,
-                                         int chapterIndex,
-                                         const QString &imageTag,
-                                         const QString &imagePath,
-                                         int width) override
+    QString getCachedArtworkUrlForConnection(const QString &connectionId,
+                                             const QString &itemId,
+                                             const QString &imageType,
+                                             int imageIndex,
+                                             const QString &imageTag,
+                                             int width) override
     {
+        Q_UNUSED(connectionId)
+        Q_UNUSED(imageType)
         Q_UNUSED(imageTag)
-        Q_UNUSED(imagePath)
-        return QStringLiteral("chapter://%1/%2/%3").arg(itemId).arg(chapterIndex).arg(width);
+        return QStringLiteral("chapter://%1/%2/%3").arg(itemId).arg(imageIndex).arg(width);
     }
 
     QStringList requests;
@@ -128,6 +144,7 @@ private slots:
     void movieSimilarItemsFailureAllowsRetry();
     void movieCanonicalSimilarItemsReplaceWireShape();
     void seriesSimilarItemsFailureAllowsRetry();
+    void seriesCanonicalModelsPreserveSourceTimingAndSpecialOrder();
     void seriesEpisodeDetailsFailureIsTargeted();
     void seriesEpisodeDetailsNotModifiedRetriesOnce();
     void seriesEpisodeDetailsIgnoreForeignTokens();
@@ -216,17 +233,146 @@ void SimilarItemsRetryTest::seriesSimilarItemsFailureAllowsRetry()
 {
     SeriesDetailsViewModel vm;
     vm.m_seriesId = QStringLiteral("series-1");
+    vm.m_connectionId = QStringLiteral("connection-1");
     vm.m_similarItemsAttempted = true;
     vm.m_similarItemsLoading = true;
 
-    vm.onSimilarItemsFailed(QStringLiteral("series-1"), QStringLiteral("network"));
+    vm.onSimilarItemsFailed(QStringLiteral("old-connection"),
+                            QStringLiteral("series-1"),
+                            QStringLiteral("stale network"));
+    QCOMPARE(vm.m_similarItemsAttempted, true);
+    QCOMPARE(vm.m_similarItemsLoading, true);
+
+    vm.onSimilarItemsFailed(QStringLiteral("connection-1"),
+                            QStringLiteral("series-1"),
+                            QStringLiteral("network"));
 
     QCOMPARE(vm.m_similarItemsAttempted, false);
     QCOMPARE(vm.m_similarItemsLoading, false);
 
-    vm.onSeriesDetailsLoaded(QStringLiteral("series-1"), QJsonObject{{"Id", "series-1"}, {"UserData", QJsonObject{}}});
+    QSignalSpy seriesDataSpy(&vm, &SeriesDetailsViewModel::seriesDataChanged);
+    vm.onSeriesDetailsLoaded(
+        QStringLiteral("connection-1"),
+        QStringLiteral("series-1"),
+        QVariantMap{{QStringLiteral("connectionId"), QStringLiteral("connection-1")},
+                    {QStringLiteral("itemId"), QStringLiteral("series-1")},
+                    {QStringLiteral("name"), QStringLiteral("Series")},
+                    {QStringLiteral("userState"), QVariantMap{}}});
+    QCOMPARE(seriesDataSpy.count(), 1);
     QCOMPARE(m_libraryService->requestedIds.size(), 1);
     QCOMPARE(m_libraryService->requestedIds.first(), QStringLiteral("series-1"));
+}
+
+void SimilarItemsRetryTest::seriesCanonicalModelsPreserveSourceTimingAndSpecialOrder()
+{
+    SeriesDetailsViewModel vm;
+    vm.m_connectionId = QStringLiteral("connection-b");
+    vm.m_seriesId = QStringLiteral("series-1");
+    vm.m_selectedSeasonIndex = 0; // Prevent auto-selection from issuing a network request.
+
+    QVariantList people;
+    people.append(QVariantMap{{QStringLiteral("name"), QString()}});
+    for (int index = 0; index < 20; ++index) {
+        people.append(QVariantMap{{QStringLiteral("name"), QStringLiteral("Person %1").arg(index)},
+                                  {QStringLiteral("kind"), QStringLiteral("Actor")}});
+    }
+    vm.onSeriesDetailsLoaded(
+        QStringLiteral("connection-b"), QStringLiteral("series-1"),
+        QVariantMap{{QStringLiteral("connectionId"), QStringLiteral("connection-b")},
+                    {QStringLiteral("itemId"), QStringLiteral("series-1")},
+                    {QStringLiteral("name"), QStringLiteral("Series")},
+                    {QStringLiteral("people"), people}});
+    QCOMPARE(vm.people().size(), 18);
+    for (const QVariant &person : vm.people()) {
+        QVERIFY(!person.toMap().value(QStringLiteral("name")).toString().isEmpty());
+    }
+
+    vm.m_loadingSeasons = true;
+    const QVariantMap season{
+        {QStringLiteral("connectionId"), QStringLiteral("connection-b")},
+        {QStringLiteral("itemId"), QStringLiteral("season-1")},
+        {QStringLiteral("name"), QStringLiteral("Season 1")},
+        {QStringLiteral("mediaType"), QStringLiteral("Season")},
+        {QStringLiteral("indexNumber"), 1},
+        {QStringLiteral("childCount"), 3},
+        {QStringLiteral("watched"), false},
+        {QStringLiteral("unplayedItemCount"), 3},
+        {QStringLiteral("primaryArtwork"), QVariantMap{
+             {QStringLiteral("connectionId"), QStringLiteral("connection-b")},
+             {QStringLiteral("itemId"), QStringLiteral("season-1")},
+             {QStringLiteral("kind"), QStringLiteral("primary")},
+             {QStringLiteral("index"), 0},
+             {QStringLiteral("tag"), QStringLiteral("season-tag")}
+         }}
+    };
+
+    vm.onItemsLoaded(QStringLiteral("connection-a"), QStringLiteral("series-1"),
+                     QStringLiteral("query-a"), QVariantList{season}, 1);
+    QCOMPARE(vm.seasonsModel()->rowCount(), 0);
+
+    vm.onItemsLoaded(QStringLiteral("connection-b"), QStringLiteral("series-1"),
+                     QStringLiteral("query-b"), QVariantList{season}, 1);
+    QCOMPARE(vm.seasonsModel()->rowCount(), 1);
+    const QVariantMap storedSeason = vm.seasonsModel()->getItem(0);
+    QCOMPARE(storedSeason.value(QStringLiteral("itemId")).toString(), QStringLiteral("season-1"));
+    QCOMPARE(storedSeason.value(QStringLiteral("imageUrl")).toString(),
+             QStringLiteral("artwork://connection-b/season-1/primary/400"));
+    QVERIFY(!storedSeason.contains(QStringLiteral("Id")));
+
+    vm.m_selectedSeasonId = QStringLiteral("season-1");
+    vm.m_loadingEpisodes = true;
+    const auto episode = [](const QString &id, int number) {
+        return QVariantMap{
+            {QStringLiteral("connectionId"), QStringLiteral("connection-b")},
+            {QStringLiteral("itemId"), id},
+            {QStringLiteral("name"), id},
+            {QStringLiteral("mediaType"), QStringLiteral("Episode")},
+            {QStringLiteral("indexNumber"), number},
+            {QStringLiteral("parentIndexNumber"), 1},
+            {QStringLiteral("locationType"), QStringLiteral("FileSystem")},
+            {QStringLiteral("durationMs"), 1'800'000},
+            {QStringLiteral("positionMs"), 120'000},
+            {QStringLiteral("watched"), false},
+            {QStringLiteral("favorite"), false},
+            {QStringLiteral("airsBeforeSeasonNumber"), -1},
+            {QStringLiteral("airsAfterSeasonNumber"), -1},
+            {QStringLiteral("airsBeforeEpisodeNumber"), -1}
+        };
+    };
+    QVariantMap special = episode(QStringLiteral("special"), 1);
+    special.insert(QStringLiteral("parentIndexNumber"), 0);
+    special.insert(QStringLiteral("airsBeforeSeasonNumber"), 1);
+    special.insert(QStringLiteral("airsBeforeEpisodeNumber"), 2);
+
+    vm.onEpisodesLoaded(QStringLiteral("season-1"),
+                        QVariantList{episode(QStringLiteral("episode-2"), 2),
+                                     special,
+                                     episode(QStringLiteral("episode-1"), 1)});
+    QCOMPARE(vm.episodesModel()->rowCount(), 3);
+    QCOMPARE(vm.episodesModel()->getItem(0).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("episode-1"));
+    QCOMPARE(vm.episodesModel()->getItem(1).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("special"));
+    QCOMPARE(vm.episodesModel()->getItem(2).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("episode-2"));
+    QCOMPARE(vm.episodesModel()->data(vm.episodesModel()->index(0), EpisodesModel::DurationMsRole).toLongLong(),
+             1'800'000);
+    QCOMPARE(vm.episodesModel()->data(vm.episodesModel()->index(0), EpisodesModel::PositionMsRole).toLongLong(),
+             120'000);
+
+    QVariantMap nextEpisode = episode(QStringLiteral("episode-2"), 2);
+    nextEpisode.insert(QStringLiteral("thumbArtwork"), QVariantMap{
+        {QStringLiteral("connectionId"), QStringLiteral("connection-b")},
+        {QStringLiteral("itemId"), QStringLiteral("episode-2")},
+        {QStringLiteral("kind"), QStringLiteral("thumb")},
+        {QStringLiteral("index"), 0},
+        {QStringLiteral("tag"), QStringLiteral("thumb-tag")}
+    });
+    vm.onNextEpisodeLoaded(QStringLiteral("connection-b"), QStringLiteral("series-1"),
+                           nextEpisode, QString());
+    QCOMPARE(vm.nextEpisodePositionMs(), 120'000);
+    QCOMPARE(vm.nextEpisodeImageUrl(),
+             QStringLiteral("artwork://connection-b/episode-2/thumb/400"));
 }
 
 void SimilarItemsRetryTest::movieChaptersLoadNormalizeCacheAndIgnoreStale()
@@ -348,9 +494,13 @@ void SimilarItemsRetryTest::seriesEpisodeDetailsIgnoreForeignTokens()
 
     QCOMPARE(service->requests.size(), 2);
 
-    service->emitLoadedAt(0, QJsonObject{{"Id", "shared-episode"}, {"Name", "First"}}); 
+    service->emitLoadedAt(0, QVariantMap{
+        {QStringLiteral("connectionId"), QString()},
+        {QStringLiteral("itemId"), QStringLiteral("shared-episode")},
+        {QStringLiteral("name"), QStringLiteral("First")}
+    });
 
-    QCOMPARE(firstVm.focusedEpisodeDetails().value(QStringLiteral("Name")).toString(), QStringLiteral("First"));
+    QCOMPARE(firstVm.focusedEpisodeDetails().value(QStringLiteral("name")).toString(), QStringLiteral("First"));
     QVERIFY(firstVm.m_pendingEpisodeDetailIds.isEmpty());
     QVERIFY(secondVm.focusedEpisodeDetails().isEmpty());
     QVERIFY(secondVm.focusedEpisodeDetailsLoading());
@@ -371,32 +521,44 @@ void SimilarItemsRetryTest::seriesEpisodeChaptersLoadNormalizeCacheAndIgnoreStal
     vm.loadFocusedEpisodeChapters(QStringLiteral("ep-2"));
     QCOMPARE(service->requests, QStringList({QStringLiteral("ep-1"), QStringLiteral("ep-2")}));
 
-    ChapterInfo first;
-    first.index = 0;
-    first.title = QStringLiteral("Cold Open");
-    first.startPositionTicks = 1234;
-    first.imageTag = QStringLiteral("tag");
-    emit service->chaptersLoaded(QStringLiteral("ep-1"), QList<ChapterInfo>{first});
+    const QVariantMap first{
+        {QStringLiteral("name"), QStringLiteral("Cold Open")},
+        {QStringLiteral("startMs"), 0},
+        {QStringLiteral("artwork"), QVariantMap{
+             {QStringLiteral("connectionId"), QString()},
+             {QStringLiteral("itemId"), QStringLiteral("ep-1")},
+             {QStringLiteral("kind"), QStringLiteral("chapter")},
+             {QStringLiteral("index"), 0},
+             {QStringLiteral("tag"), QStringLiteral("tag")}
+         }}
+    };
+    emit service->canonicalChaptersLoaded(QString(), QStringLiteral("ep-1"), QVariantList{first});
     QVERIFY(vm.focusedEpisodeChapters().isEmpty());
 
-    ChapterInfo second;
-    second.index = 1;
-    second.title = QStringLiteral("Act One");
-    second.startPositionTicks = 9876;
-    second.imagePath = QStringLiteral("/Images/Chapter/1");
-    emit service->chaptersLoaded(QStringLiteral("ep-2"), QList<ChapterInfo>{second});
+    const QVariantMap second{
+        {QStringLiteral("name"), QStringLiteral("Act One")},
+        {QStringLiteral("startMs"), 9876},
+        {QStringLiteral("artwork"), QVariantMap{
+             {QStringLiteral("connectionId"), QString()},
+             {QStringLiteral("itemId"), QStringLiteral("ep-2")},
+             {QStringLiteral("kind"), QStringLiteral("chapter")},
+             {QStringLiteral("index"), 1},
+             {QStringLiteral("tag"), QString()}
+         }}
+    };
+    emit service->canonicalChaptersLoaded(QString(), QStringLiteral("ep-2"), QVariantList{second});
 
     QCOMPARE(vm.focusedEpisodeChapters().size(), 1);
     const QVariantMap chapter = vm.focusedEpisodeChapters().first().toMap();
-    QCOMPARE(chapter.value(QStringLiteral("title")).toString(), QStringLiteral("Act One"));
-    QCOMPARE(chapter.value(QStringLiteral("startPositionTicks")).toLongLong(), 9876LL);
+    QCOMPARE(chapter.value(QStringLiteral("name")).toString(), QStringLiteral("Act One"));
+    QCOMPARE(chapter.value(QStringLiteral("startMs")).toLongLong(), 9876LL);
     QCOMPARE(chapter.value(QStringLiteral("thumbnailUrl")).toString(),
              QStringLiteral("chapter://ep-2/1/480"));
     QVERIFY(!vm.focusedEpisodeChaptersLoading());
 
     vm.loadFocusedEpisodeChapters(QStringLiteral("ep-1"));
     QCOMPARE(service->requests.size(), 2);
-    QCOMPARE(vm.focusedEpisodeChapters().first().toMap().value(QStringLiteral("title")).toString(),
+    QCOMPARE(vm.focusedEpisodeChapters().first().toMap().value(QStringLiteral("name")).toString(),
              QStringLiteral("Cold Open"));
 }
 

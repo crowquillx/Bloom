@@ -31,4 +31,7 @@ public:
                                      const QString &connectionId) const = 0;
     virtual QVariantList mapMediaItems(const QJsonArray &wireItems,
                                        const QString &connectionId) const = 0;
+    virtual QVariantList mapChapters(const QJsonArray &wireChapters,
+                                     const QString &connectionId,
+                                     const QString &itemId) const = 0;
 };

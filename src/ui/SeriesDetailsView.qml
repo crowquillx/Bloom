@@ -72,18 +72,27 @@ FocusScope {
             if (isSeerr) {
                 return itemData.imageUrl || ""
             }
-            if (itemData.Id) {
-                return LibraryService.getCachedImageUrlWithWidth(itemData.Id, "Primary", 420)
+            const artwork = itemData.primaryArtwork
+            if (artwork && artwork.itemId) {
+                return LibraryService.getCachedArtworkUrlForConnection(
+                            artwork.connectionId || "",
+                            artwork.itemId,
+                            artwork.kind || "primary",
+                            artwork.index || 0,
+                            artwork.tag || "",
+                            420)
             }
             return ""
         }
-        readonly property string title: itemData.Name || ""
+        readonly property string title: isSeerr ? (itemData.Name || "") : (itemData.name || "")
         readonly property string subtitle: {
-            if (itemData.ProductionYear) {
-                return String(itemData.ProductionYear)
+            const productionYear = isSeerr ? itemData.ProductionYear : itemData.productionYear
+            const premiereDate = isSeerr ? itemData.PremiereDate : itemData.premiereDate
+            if (productionYear) {
+                return String(productionYear)
             }
-            if (itemData.PremiereDate) {
-                const date = new Date(itemData.PremiereDate)
+            if (premiereDate) {
+                const date = new Date(premiereDate)
                 if (!isNaN(date.getTime())) {
                     return String(date.getFullYear())
                 }
@@ -154,7 +163,7 @@ FocusScope {
                         anchors.centerIn: parent
                         text: recommendationCard.isSeerr
                               ? (recommendationCard.itemData.SeerrMediaType === "tv" ? Icons.tvShows : Icons.movie)
-                              : (recommendationCard.itemData.Type === "Series" ? Icons.tvShows : Icons.movie)
+                              : (recommendationCard.itemData.mediaType === "Series" ? Icons.tvShows : Icons.movie)
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(56 * Theme.layoutScale)
                         color: Theme.textSecondary
@@ -323,9 +332,9 @@ FocusScope {
         const names = []
         for (let i = 0; i < people.length; ++i) {
             const person = people[i]
-            const type = String(person.Type || "").toLowerCase()
+            const type = String(person.kind || "").toLowerCase()
             if (type === "director" || type === "writer" || type === "producer" || type === "creator") {
-                names.push(person.Name)
+                names.push(person.name)
             }
             if (names.length === 3) {
                 break
@@ -1071,7 +1080,7 @@ FocusScope {
                                 onClicked: {
                                     if (hasNextEpisode) {
                                         root.playNextEpisode(SeriesDetailsViewModel.nextEpisodeId,
-                                                             SeriesDetailsViewModel.nextEpisodePlaybackPositionTicks)
+                                                             SeriesDetailsViewModel.nextEpisodePositionMs * 10000)
                                         return
                                     }
 
@@ -1079,7 +1088,7 @@ FocusScope {
                                     const count = SeriesDetailsViewModel.seasonsModel.rowCount()
                                     for (let i = 0; i < count; ++i) {
                                         const season = SeriesDetailsViewModel.seasonsModel.getItem(i)
-                                        if (season && (season.IndexNumber >= 1 || season.indexNumber >= 1)) {
+                                        if (season && season.indexNumber >= 1) {
                                             firstRealSeasonIndex = i
                                             break
                                         }
