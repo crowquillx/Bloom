@@ -6,6 +6,7 @@ Overview
 
 Key services
 - `ConfigManager` — Configuration, QML bindings, and provider-neutral connection metadata persistence.
+- `BloomProfileRepository` — Bloom workspace profiles/memberships and request-context generation; depends on ConfigManager raw `settings.bloom_profiles` accessors. See [profiles](profiles.md).
 - `CredentialStore` — Provider-neutral platform-keychain names, access/refresh/profile token storage, and verified legacy Jellyfin credential migration.
 - `TrackPreferencesManager` — Versioned, connection-scoped persistence for explicit season/movie audio and subtitle preferences.
 - `IPlayerBackend` — Playback backend abstraction registered in `ServiceLocator`.
@@ -31,6 +32,7 @@ Key services
 
 Initialization order (recommended)
 1. ConfigManager — loads configs, path info, and active `ServerConnection` metadata.
+1.1. BloomProfileRepository — loads/repairs `settings.bloom_profiles` after ConfigManager.
 2. IPlayerBackend — created by `PlayerBackendFactory` (`win-libmpv` on Windows; platform-selected backend elsewhere).
 3. HttpTransport and `JellyfinProviderAdapter` — own shared HTTP execution and the selected provider wire implementation.
 4. AuthenticationService — stable session façade; depends on `CredentialStore`, `HttpTransport`, and `IProviderAdapter`.

@@ -66,6 +66,7 @@ See also:
 - docs/playback.md  — mpv and playback/reporting integration
 - docs/provider-compatibility.md — provider-neutral server contract matrix, reproducible Jellyfin/Silo pins, and native API assumptions
 - docs/provider-architecture.md — connection identity, credential migration, and incremental provider adapter boundaries
+- docs/profiles.md — Bloom profiles (workspace memberships distinct from provider profiles)
 - docs/canonical-models.md — Bloom-owned media, artwork, and playback model contracts
 - docs/media-segments.md — External intro/recap/credits provider integration and precedence
 - docs/hero-banner.md — Home hero sources, settings, focus behavior, and backdrop synchronization

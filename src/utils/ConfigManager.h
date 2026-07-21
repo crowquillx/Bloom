@@ -199,6 +199,11 @@ public:
     bool hasPendingLegacyJellyfinMigration() const;
     void finalizeLegacyJellyfinMigration();
 
+    // Raw Bloom profile store (settings.bloom_profiles). Validation/CRUD owned by
+    // BloomProfileRepository — these accessors only read/write the JSON block.
+    QJsonObject getBloomProfilesConfig() const;
+    void setBloomProfilesConfig(const QJsonObject &config);
+
     // Temporary Jellyfin-compatible session façade
     /**
      * @brief Persists a Jellyfin session after a successful login.
@@ -629,6 +634,6 @@ private:
 
     QJsonObject m_config;
 
-    static constexpr int kCurrentConfigVersion = 29;
+    static constexpr int kCurrentConfigVersion = 30;
     QJsonObject defaultConfig() const;
 };

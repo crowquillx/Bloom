@@ -1,6 +1,7 @@
 #include "ApplicationInitializer.h"
 #include "ServiceLocator.h"
 #include "utils/ConfigManager.h"
+#include "profiles/BloomProfileRepository.h"
 #include "utils/DisplayManager.h"
 #include "ui/ResponsiveLayoutManager.h"
 #include "utils/TrackPreferencesManager.h"
@@ -129,6 +130,10 @@ void ApplicationInitializer::registerServices()
 
     // Load configuration early so logging and downstream services can read settings
     m_configManager->load();
+
+    // 1.1 BloomProfileRepository - Depends on ConfigManager (loads after config)
+    m_bloomProfileRepository = std::make_unique<BloomProfileRepository>(m_configManager.get());
+    ServiceLocator::registerService<BloomProfileRepository>(m_bloomProfileRepository.get());
 
     LoggingConfig::apply(
         LoggingConfig::levelFromString(m_configManager->getLogLevel()),

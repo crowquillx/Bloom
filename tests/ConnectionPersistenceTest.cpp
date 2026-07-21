@@ -322,7 +322,7 @@ void ConnectionPersistenceTest::finalizeMigrationRemovesLegacyMetadataAndConfigT
     const QByteArray persisted = file.readAll();
     QVERIFY(!persisted.contains("legacy-config-token"));
     const QJsonObject root = QJsonDocument::fromJson(persisted).object();
-    QCOMPARE(root.value(QStringLiteral("version")).toInt(), 29);
+    QCOMPARE(root.value(QStringLiteral("version")).toInt(), 30);
     QVERIFY(!root.value(QStringLiteral("settings")).toObject().contains(QStringLiteral("jellyfin")));
 }
 

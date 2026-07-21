@@ -8,6 +8,7 @@ Bloom-owned canonical models separate UI/player code from provider wire formats.
 - Durations, positions, chapter starts, and media segments use milliseconds.
 - Provider time conversion occurs only in the provider adapter.
 - `MediaRef` combines `connectionId` and `itemId`; a remote item ID is never globally unique by itself.
+- Bloom profile `memberId` is request/source context only and must not be added to `MediaRef`, artwork cache keys, or library disk caches. See [profiles](profiles.md).
 - `ArtworkRef` is token-free and identifies artwork by connection, item, kind, index, tag, and requested width.
 - Artwork fetch URLs, headers, and expiring provider representations are transport details and must not become cache identities.
 - `PlaybackDescriptor` owns the finalized stream request, normalized tracks, session identity, canonical timing, chapters, and reporting capabilities consumed by the player.
