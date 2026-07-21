@@ -172,7 +172,11 @@ QVariantMap StreamRequest::toVariantMap() const
     return {
         {QStringLiteral("url"), url},
         {QStringLiteral("headers"), headers},
-        {QStringLiteral("method"), playbackMethodName(method)}
+        {QStringLiteral("method"), playbackMethodName(method)},
+        {QStringLiteral("pinsAudioTrack"), pinsAudioTrack},
+        {QStringLiteral("pinsSubtitleTrack"), pinsSubtitleTrack},
+        {QStringLiteral("pinnedAudioTrackId"), pinnedAudioTrackId},
+        {QStringLiteral("pinnedSubtitleTrackId"), pinnedSubtitleTrackId}
     };
 }
 

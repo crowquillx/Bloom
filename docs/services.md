@@ -15,6 +15,7 @@ Key services
 - `IProviderAdapter` / `JellyfinProviderAdapter` — Selected provider implementation bundle consumed by stable application façades.
 - `IProviderRequestFactory` / `JellyfinRequestFactory` — Provider-owned URL and authorization-header construction.
 - `IProviderAuthenticator` / `JellyfinAuthenticator` — Provider-owned login payload, response parsing, and validation routes.
+- `IPlaybackProvider` / `JellyfinPlaybackProvider` — Provider-owned finalization of canonical playback descriptors and authenticated stream requests.
 - `AuthenticationService` — Stable QML façade for login, logout, session persistence, and token validation; delegates provider wire details and HTTP execution.
 - `LibraryService` — Library views/items, series details, search, reusable chapter metadata, image/theme-song URLs.
 - `PlaybackService` — Playback reporting, stream info, media segments, trickplay URLs and info.

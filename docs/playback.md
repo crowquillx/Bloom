@@ -102,8 +102,9 @@ Key components
 - LinuxMpvBackend now includes basic `mpv_handle` lifecycle, property/event observation, and a Qt Quick `beforeRendering`-driven `mpv_render_context` render path (Linux runtime validation still pending).
 - MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
 - PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
-- PlayerController: state machine that handles play/pause/resume, listens for backend updates, manages track selection, and reports playback state to the Jellyfin server.
-- JellyfinClient: handles API communication for reporting playback events, track selections, and sessions.
+- PlayerController: provider-neutral state machine that handles play/pause/resume, listens for backend updates, manages track selection, and sends canonical playback state through `PlaybackService`.
+- `IPlaybackProvider` / `JellyfinPlaybackProvider`: finalize provider PlaybackInfo into Bloom `PlaybackDescriptor` values, including the authenticated stream request, canonical timing/tracks, playback method, and session identity.
+- PlaybackService: stable application façade for playback preparation and provider-specific reporting transport.
 - TrackPreferencesManager: persists explicit audio/subtitle user choices to a separate JSON file using a versioned schema.
 
 HDR and Dolby Vision policy
@@ -120,7 +121,7 @@ HDR and Dolby Vision policy
 Audio/Subtitle Track Selection
 - Call `JellyfinClient::getPlaybackInfo(itemId)` to fetch `PlaybackInfoResponse` containing `MediaSources` with all available streams.
 - Each `MediaSourceInfo` contains `mediaStreams` array with `MediaStreamInfo` objects describing video, audio, and subtitle tracks.
-- If PlaybackInfo provides `DirectStreamUrl` or `TranscodingUrl`, Bloom uses that Jellyfin-selected URL for playback and appends missing auth/media-source/track query parameters. The older constructed `/Videos/{itemId}/stream` URL remains the fallback when PlaybackInfo does not include a playback URL.
+- If PlaybackInfo provides `DirectStreamUrl` or `TranscodingUrl`, `JellyfinPlaybackProvider` finalizes that provider-selected URL and appends missing auth/media-source/track query parameters. The provider's constructed `/Videos/{itemId}/stream` endpoint remains its fallback when PlaybackInfo does not include a playback URL. `PlayerController` never constructs or parses these provider endpoints.
 - The server provides `defaultAudioStreamIndex` and `defaultSubtitleStreamIndex` which reflect the user's preferences set on the Jellyfin server.
 - Use `PlayerController::setSelectedAudioTrack(index)` and `setSelectedSubtitleTrack(index)` to change tracks during playback via mpv IPC (`aid`, `sid` properties).
 - Use `PlayerController::setSubtitleDelayMs(delayMs)`, `adjustSubtitleDelayMs(deltaMs)`, or `resetSubtitleDelay()` to retime primary subtitles during playback. Bloom stores delay in milliseconds, applies it to mpv's `sub-delay` property as fractional seconds, and accepts negative or positive offsets.

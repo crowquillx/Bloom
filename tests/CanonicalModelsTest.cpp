@@ -2,9 +2,11 @@
 
 #include "models/MediaModels.h"
 #include "providers/jellyfin/JellyfinModelMapper.h"
+#include "providers/jellyfin/JellyfinPlaybackProvider.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QUrlQuery>
 #include <limits>
 
 class CanonicalModelsTest : public QObject
@@ -18,6 +20,7 @@ private slots:
     void artworkCacheKeyIsTokenFreeAndRoundTrips();
     void jellyfinArtworkEndpointContainsNoCredential();
     void playbackDescriptorExposesProviderNeutralShape();
+    void jellyfinPlaybackProviderFinalizesStreamAtBoundary();
 };
 
 void CanonicalModelsTest::jellyfinTimeConversionUsesMilliseconds()
@@ -138,6 +141,73 @@ void CanonicalModelsTest::jellyfinArtworkEndpointContainsNoCredential()
     QVERIFY(endpoint.contains(QStringLiteral("tag=chapter-tag")));
     QVERIFY(!endpoint.contains(QStringLiteral("api_key"), Qt::CaseInsensitive));
     QVERIFY(!endpoint.contains(QStringLiteral("token"), Qt::CaseInsensitive));
+}
+
+void CanonicalModelsTest::jellyfinPlaybackProviderFinalizesStreamAtBoundary()
+{
+    const PlaybackProviderContext context{
+        QUrl(QStringLiteral("https://media.example.test/base/")),
+        QStringLiteral("secret-token")
+    };
+    const Bloom::MediaRef media{
+        QStringLiteral("connection-1"),
+        QStringLiteral("movie-1")
+    };
+    const QVariantMap source{
+        {QStringLiteral("id"), QStringLiteral("source-1")},
+        {QStringLiteral("directStreamUrl"), QStringLiteral("/Videos/movie-1/stream")},
+        {QStringLiteral("runTimeTicks"), 20'000'000},
+        {QStringLiteral("mediaStreams"), QVariantList{
+             QVariantMap{
+                 {QStringLiteral("type"), QStringLiteral("Audio")},
+                 {QStringLiteral("index"), 2},
+                 {QStringLiteral("language"), QStringLiteral("eng")}
+             },
+             QVariantMap{
+                 {QStringLiteral("type"), QStringLiteral("Subtitle")},
+                 {QStringLiteral("index"), 4},
+                 {QStringLiteral("isExternal"), true}
+             }
+         }}
+    };
+
+    const JellyfinPlaybackProvider provider;
+    const Bloom::PlaybackDescriptor descriptor = provider.createDescriptor(
+        context, media, source, 2, 4, 500, QStringLiteral("session-1"));
+
+    QVERIFY(descriptor.isValid());
+    QCOMPARE(descriptor.durationMs, 2000);
+    QCOMPARE(descriptor.startPositionMs, 500);
+    QCOMPARE(descriptor.playbackSessionId, QStringLiteral("session-1"));
+    QCOMPARE(descriptor.audioTracks.size(), 1);
+    QCOMPARE(descriptor.subtitleTracks.size(), 1);
+    QCOMPARE(descriptor.stream.method, Bloom::PlaybackMethod::DirectStream);
+    QVERIFY(descriptor.stream.pinsAudioTrack);
+    QVERIFY(descriptor.stream.pinsSubtitleTrack);
+    QCOMPARE(descriptor.stream.pinnedAudioTrackId, QStringLiteral("2"));
+    QCOMPARE(descriptor.stream.pinnedSubtitleTrackId, QStringLiteral("4"));
+
+    const QUrlQuery query(descriptor.stream.url);
+    QCOMPARE(descriptor.stream.url.host(), QStringLiteral("media.example.test"));
+    QCOMPARE(descriptor.stream.url.path(), QStringLiteral("/base/Videos/movie-1/stream"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("api_key")), QStringLiteral("secret-token"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("MediaSourceId")), QStringLiteral("source-1"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("AudioStreamIndex")), QStringLiteral("2"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("SubtitleStreamIndex")), QStringLiteral("4"));
+
+    QVariantMap fallbackSource = source;
+    fallbackSource.remove(QStringLiteral("directStreamUrl"));
+    const Bloom::PlaybackDescriptor fallback = provider.createDescriptor(
+        context, media, fallbackSource, -1, -1, 0);
+    QCOMPARE(fallback.stream.method, Bloom::PlaybackMethod::DirectPlay);
+    QCOMPARE(fallback.stream.url.path(), QStringLiteral("/base/Videos/movie-1/stream"));
+
+    QVariantMap prefixedSource = source;
+    prefixedSource[QStringLiteral("directStreamUrl")] =
+        QStringLiteral("/base/Videos/movie-1/stream");
+    const Bloom::PlaybackDescriptor prefixed = provider.createDescriptor(
+        context, media, prefixedSource, -1, -1, 0);
+    QCOMPARE(prefixed.stream.url.path(), QStringLiteral("/base/Videos/movie-1/stream"));
 }
 
 void CanonicalModelsTest::playbackDescriptorExposesProviderNeutralShape()

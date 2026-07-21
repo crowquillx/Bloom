@@ -2,6 +2,7 @@
 #include "AuthenticationService.h"
 #include "HttpTransport.h"
 #include "MediaSegmentProviderService.h"
+#include "providers/IPlaybackProvider.h"
 #include "../utils/ConfigManager.h"
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -12,9 +13,22 @@
 #include <QUrlQuery>
 #include <QLoggingCategory>
 #include <cmath>
+#include <optional>
 #include "../utils/BloomLogging.h"
 
 namespace {
+QString jellyfinPlayMethod(const QString &method)
+{
+    const QString normalized = method.trimmed().toLower();
+    if (normalized == QStringLiteral("transcode")) {
+        return QStringLiteral("Transcode");
+    }
+    if (normalized == QStringLiteral("directstream")) {
+        return QStringLiteral("DirectStream");
+    }
+    return QStringLiteral("DirectPlay");
+}
+
 QJsonObject buildPlaybackPayload(const QString &itemId, qint64 positionTicks,
                                  const QString &mediaSourceId,
                                  int audioStreamIndex, int subtitleStreamIndex,
@@ -32,7 +46,7 @@ QJsonObject buildPlaybackPayload(const QString &itemId, qint64 positionTicks,
     json["CanSeek"] = canSeek;
     json["IsPaused"] = isPaused;
     json["IsMuted"] = isMuted;
-    json["PlayMethod"] = playMethod.isEmpty() ? QStringLiteral("DirectPlay") : playMethod;
+    json["PlayMethod"] = jellyfinPlayMethod(playMethod);
     json["RepeatMode"] = repeatMode.isEmpty() ? QStringLiteral("RepeatNone") : repeatMode;
     json["PlaybackOrder"] = playbackOrder.isEmpty() ? QStringLiteral("Default") : playbackOrder;
 
@@ -54,8 +68,59 @@ PlaybackService::PlaybackService(AuthenticationService *authService,
     , m_transport(authService ? authService->transport() : nullptr)
     , m_configManager(configManager)
     , m_mediaSegmentProviderService(mediaSegmentProviderService)
+    , m_provider(authService ? authService->playbackProvider() : nullptr)
     , m_retryPolicy{3, 1000, true}
 {
+}
+
+PlaybackService::~PlaybackService() = default;
+
+Bloom::PlaybackDescriptor PlaybackService::createPlaybackDescriptor(
+    const QString &itemId,
+    const QVariantMap &providerSource,
+    int selectedAudioTrack,
+    int selectedSubtitleTrack,
+    qint64 startPositionMs,
+    const QString &playbackSessionId)
+{
+    if (!m_authService || !m_provider) {
+        NetworkError error;
+        error.code = -1;
+        error.endpoint = QStringLiteral("createPlaybackDescriptor");
+        error.userMessage = tr("Playback provider is unavailable.");
+        emitError(error);
+        return {};
+    }
+
+    Bloom::MediaRef media;
+    media.itemId = itemId;
+    ConfigManager *config = m_configManager
+        ? m_configManager
+        : (m_authService ? m_authService->configManager() : nullptr);
+    const auto connection = config ? config->getActiveConnection() : std::nullopt;
+    if (connection.has_value()) {
+        media.connectionId = connection->connectionId;
+    }
+    const PlaybackProviderContext context{
+        QUrl(m_authService->getServerUrl()),
+        m_authService->getAccessToken()
+    };
+    const Bloom::PlaybackDescriptor descriptor = m_provider->createDescriptor(
+        context,
+        media,
+        providerSource,
+        selectedAudioTrack,
+        selectedSubtitleTrack,
+        startPositionMs,
+        playbackSessionId);
+    if (!descriptor.isValid()) {
+        NetworkError error;
+        error.code = -2;
+        error.endpoint = QStringLiteral("createPlaybackDescriptor");
+        error.userMessage = tr("The playback provider returned an invalid stream request.");
+        emitError(error);
+    }
+    return descriptor;
 }
 
 // ============================================================================
