@@ -114,6 +114,7 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("connectionId"), connectionId},
         {QStringLiteral("itemId"), itemId},
         {QStringLiteral("name"), wireItem.value(QStringLiteral("Name")).toString()},
+        {QStringLiteral("sortName"), wireItem.value(QStringLiteral("SortName")).toString()},
         {QStringLiteral("mediaType"), wireItem.value(QStringLiteral("Type")).toString()},
         {QStringLiteral("collectionType"), wireItem.value(QStringLiteral("CollectionType")).toString()},
         {QStringLiteral("parentId"), wireItem.value(QStringLiteral("ParentId")).toString()},
@@ -130,7 +131,6 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("communityRating"), wireItem.value(QStringLiteral("CommunityRating")).toDouble()},
         {QStringLiteral("durationMs"), ticksToMilliseconds(
              wireItem.value(QStringLiteral("RunTimeTicks")).toVariant().toLongLong())},
-        {QStringLiteral("childCount"), wireItem.value(QStringLiteral("ChildCount")).toInt()},
         {QStringLiteral("status"), wireItem.value(QStringLiteral("Status")).toString()},
         {QStringLiteral("locationType"), wireItem.value(QStringLiteral("LocationType")).toString()},
         {QStringLiteral("path"), wireItem.value(QStringLiteral("Path")).toString()},
@@ -146,6 +146,11 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("people"), people(wireItem.value(QStringLiteral("People")).toArray(), connectionId)}
     };
 
+    if (wireItem.contains(QStringLiteral("ChildCount"))) {
+        item[QStringLiteral("childCount")] =
+            wireItem.value(QStringLiteral("ChildCount")).toInt();
+    }
+
     QVariantList artwork;
     const QJsonObject imageTags = wireItem.value(QStringLiteral("ImageTags")).toObject();
     appendArtwork(artwork, item, QStringLiteral("primaryArtwork"), connectionId, itemId,
@@ -157,6 +162,18 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
     appendArtwork(artwork, item, QStringLiteral("logoArtwork"), connectionId, itemId,
                   Bloom::ArtworkKind::Logo,
                   imageTags.value(QStringLiteral("Logo")).toString());
+    QString parentPrimaryItemId =
+        wireItem.value(QStringLiteral("ParentPrimaryImageItemId")).toString();
+    if (parentPrimaryItemId.isEmpty()) {
+        parentPrimaryItemId = wireItem.value(QStringLiteral("ParentId")).toString();
+    }
+    appendArtwork(artwork, item, QStringLiteral("parentPrimaryArtwork"), connectionId,
+                  parentPrimaryItemId, Bloom::ArtworkKind::Primary,
+                  wireItem.value(QStringLiteral("ParentPrimaryImageTag")).toString());
+    appendArtwork(artwork, item, QStringLiteral("seriesPrimaryArtwork"), connectionId,
+                  wireItem.value(QStringLiteral("SeriesId")).toString(),
+                  Bloom::ArtworkKind::Primary,
+                  wireItem.value(QStringLiteral("SeriesPrimaryImageTag")).toString());
 
     const QJsonArray backdropTags = wireItem.value(QStringLiteral("BackdropImageTags")).toArray();
     for (qsizetype index = 0; index < backdropTags.size(); ++index) {

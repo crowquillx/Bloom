@@ -333,6 +333,7 @@ void LibraryService::getViews()
         return;
     }
     
+    const QString connectionId = activeConnectionId(m_authService);
     QString endpoint = QString("/Users/%1/Views").arg(m_authService->getUserId());
     
     sendRequestWithRetry(endpoint,
@@ -340,14 +341,15 @@ void LibraryService::getViews()
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this](QNetworkReply *reply) {
+        [this, connectionId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             
             if (JsonParser::shouldParseAsync(data)) {
                 emit parsingStarted("views");
                 
                 auto *watcher = new QFutureWatcher<ParsedItemsResult>(this);
-                connect(watcher, &QFutureWatcher<ParsedItemsResult>::finished, this, [this, watcher]() {
+                connect(watcher, &QFutureWatcher<ParsedItemsResult>::finished, this,
+                        [this, watcher, connectionId]() {
                     ParsedItemsResult result = watcher->result();
                     watcher->deleteLater();
                     
@@ -355,6 +357,8 @@ void LibraryService::getViews()
                     
                     if (result.success) {
                         emit viewsLoaded(result.items);
+                        emit canonicalViewsLoaded(
+                            m_authService->mapMediaItems(result.items, connectionId));
                     } else {
                         NetworkError error;
                         error.endpoint = "getViews";
@@ -381,6 +385,7 @@ void LibraryService::getViews()
                 QJsonObject obj = doc.object();
                 QJsonArray items = obj["Items"].toArray();
                 emit viewsLoaded(items);
+                emit canonicalViewsLoaded(m_authService->mapMediaItems(items, connectionId));
             }
         });
 }
@@ -420,6 +425,7 @@ void LibraryService::getItems(const LibraryItemQuery &query)
 
     const QString parentId = query.parentId;
     const QString queryKey = query.requestKey.isEmpty() ? query.cacheKey() : query.requestKey;
+    const QString connectionId = activeConnectionId(m_authService);
     const QString endpoint = buildItemsEndpoint(m_authService->getUserId(), query);
     
     sendRequestWithRetry(endpoint,
@@ -435,7 +441,7 @@ void LibraryService::getItems(const LibraryItemQuery &query)
             }
             return m_authService->networkManager()->get(request);
         },
-        [this, parentId, endpoint, query, queryKey](QNetworkReply *reply) {
+        [this, parentId, endpoint, query, queryKey, connectionId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (httpStatus == 304 && query.useCacheValidation) {
@@ -459,7 +465,8 @@ void LibraryService::getItems(const LibraryItemQuery &query)
                 emit parsingStarted("library");
                 
                 auto *watcher = new QFutureWatcher<ParsedItemsResult>(this);
-                connect(watcher, &QFutureWatcher<ParsedItemsResult>::finished, this, [this, watcher]() {
+                connect(watcher, &QFutureWatcher<ParsedItemsResult>::finished, this,
+                        [this, watcher, connectionId]() {
                     ParsedItemsResult result = watcher->result();
                     watcher->deleteLater();
                     emit parsingFinished("library");
@@ -468,6 +475,11 @@ void LibraryService::getItems(const LibraryItemQuery &query)
                         emit itemsLoaded(result.parentId, result.items);
                         emit itemsLoadedWithTotal(result.parentId, result.items, result.totalRecordCount);
                         emit itemsLoadedWithTotalForQuery(result.parentId, result.queryKey, result.items, result.totalRecordCount);
+                        emit canonicalItemsLoadedWithTotalForQuery(
+                            result.parentId,
+                            result.queryKey,
+                            m_authService->mapMediaItems(result.items, connectionId),
+                            result.totalRecordCount);
                     } else {
                         NetworkError error;
                         error.endpoint = "getItems";
@@ -499,6 +511,11 @@ void LibraryService::getItems(const LibraryItemQuery &query)
                 emit itemsLoaded(parentId, items);
                 emit itemsLoadedWithTotal(parentId, items, totalRecordCount);
                 emit itemsLoadedWithTotalForQuery(parentId, queryKey, items, totalRecordCount);
+                emit canonicalItemsLoadedWithTotalForQuery(
+                    parentId,
+                    queryKey,
+                    m_authService->mapMediaItems(items, connectionId),
+                    totalRecordCount);
             }
         });
 }
@@ -1802,8 +1819,23 @@ QString LibraryService::getCachedArtworkUrl(const QString &itemId,
                                             const QString &imageTag,
                                             int width)
 {
+    return getCachedArtworkUrlForConnection(activeConnectionId(m_authService),
+                                              itemId,
+                                              imageType,
+                                              imageIndex,
+                                              imageTag,
+                                              width);
+}
+
+QString LibraryService::getCachedArtworkUrlForConnection(const QString &connectionId,
+                                                          const QString &itemId,
+                                                          const QString &imageType,
+                                                          int imageIndex,
+                                                          const QString &imageTag,
+                                                          int width)
+{
     Bloom::ArtworkRef artwork;
-    artwork.connectionId = activeConnectionId(m_authService);
+    artwork.connectionId = connectionId.trimmed();
     artwork.itemId = itemId;
     artwork.kind = Bloom::artworkKindFromName(imageType);
     artwork.index = qMax(0, imageIndex);

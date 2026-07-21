@@ -52,6 +52,7 @@ stdenv.mkDerivation {
       BaseViewModelTest \
       LibraryCacheStoreTest \
       LibraryItemQueryTest \
+      LibraryViewModelCanonicalTest \
       LoggingConfigTest \
       ConfigManagerThemeTest \
       ConnectionPersistenceTest \

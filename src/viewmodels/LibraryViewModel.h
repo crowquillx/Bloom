@@ -41,7 +41,7 @@ struct LibraryCacheEntry {
  * @brief ViewModel for library item display in LibraryScreen.
  *
  * This class provides a QAbstractListModel interface for efficient list rendering
- * of Jellyfin library items. It handles data fetching via LibraryService and
+ * of provider-neutral canonical media items. It handles data fetching via LibraryService and
  * exposes loading/error states to QML.
  *
  * ## Usage in QML
@@ -60,7 +60,7 @@ struct LibraryCacheEntry {
  * ## Custom Roles
  * - NameRole: Display name of the item
  * - ImageUrlRole: URL for the item's primary image
- * - IdRole: Jellyfin item ID
+ * - IdRole: Provider item ID
  * - TypeRole: Item type (Series, Movie, Episode, Season, etc.)
  * - ModelDataRole: Full JSON object for advanced usage
  */
@@ -139,7 +139,7 @@ public:
 
     /**
      * @brief Load items for a specific parent folder.
-     * @param parentId The Jellyfin parent ID (library, series, season, etc.)
+     * @param parentId The provider parent ID (library, series, season, etc.)
      * @param startIndex Starting index for pagination (default 0)
      * @param limit Maximum items to fetch (default 0 = no limit)
      */
@@ -228,10 +228,11 @@ signals:
     void activeFilterCountChanged();
 
 private slots:
-    void onViewsLoaded(const QJsonArray &views);
-    void onItemsLoaded(const QString &parentId, const QJsonArray &items);
-    void onItemsLoadedWithTotal(const QString &parentId, const QJsonArray &items, int totalRecordCount);
-    void onItemsLoadedWithTotalForQuery(const QString &parentId, const QString &queryKey, const QJsonArray &items, int totalRecordCount);
+    void onViewsLoaded(const QVariantList &views);
+    void onItemsLoadedWithTotalForQuery(const QString &parentId,
+                                        const QString &queryKey,
+                                        const QVariantList &items,
+                                        int totalRecordCount);
     void onFilterOptionsLoaded(const QString &parentId,
                                const QStringList &genres,
                                const QStringList &tags,
@@ -310,6 +311,7 @@ private:
     QString cacheDbPath() const;
     // SWR: Check if fresh data differs from cached data
     bool hasDataChanged(const QJsonArray &newItems, int newTotal, const LibraryCacheEntry &cached) const;
+    bool isCanonicalCachePayload(const QJsonArray &items) const;
     // SWR: Update model with new items, using efficient diff when possible
     void updateItemsFromBackground(const QJsonArray &items);
 

@@ -87,6 +87,12 @@ public:
                                              int imageIndex,
                                              const QString &imageTag,
                                              int width) override;
+    Q_INVOKABLE QString getCachedArtworkUrlForConnection(const QString &connectionId,
+                                                          const QString &itemId,
+                                                          const QString &imageType,
+                                                          int imageIndex,
+                                                          const QString &imageTag,
+                                                          int width) override;
 
 private:
     QJsonObject m_fixture;

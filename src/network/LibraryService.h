@@ -145,15 +145,26 @@ public:
                                                      int imageIndex,
                                                      const QString &imageTag,
                                                      int width);
+    Q_INVOKABLE virtual QString getCachedArtworkUrlForConnection(const QString &connectionId,
+                                                                  const QString &itemId,
+                                                                  const QString &imageType,
+                                                                  int imageIndex,
+                                                                  const QString &imageTag,
+                                                                  int width);
     Q_INVOKABLE virtual QString getCachedChapterThumbnailUrl(const QString &itemId, int chapterIndex, const QString &imageTag, const QString &imagePath = QString(), int width = 480);
 
     QNetworkReply* pingServer();
 
 signals:
     void viewsLoaded(const QJsonArray &views);
+    void canonicalViewsLoaded(const QVariantList &views);
     void itemsLoaded(const QString &parentId, const QJsonArray &items);
     void itemsLoadedWithTotal(const QString &parentId, const QJsonArray &items, int totalRecordCount);
     void itemsLoadedWithTotalForQuery(const QString &parentId, const QString &queryKey, const QJsonArray &items, int totalRecordCount);
+    void canonicalItemsLoadedWithTotalForQuery(const QString &parentId,
+                                               const QString &queryKey,
+                                               const QVariantList &items,
+                                               int totalRecordCount);
     void itemsNotModified(const QString &parentId);
     void itemsNotModifiedForQuery(const QString &parentId, const QString &queryKey);
     void filterOptionsLoaded(const QString &parentId,

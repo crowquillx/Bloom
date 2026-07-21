@@ -918,8 +918,8 @@ FocusScope {
                         required property var modelData
                         required property int index
 
-                        property string name: modelData.Name || ""
-                        property string itemId: modelData.Id || ""
+                        property string name: modelData.name || ""
+                        property string itemId: modelData.itemId || ""
                         property alias profileCombo: libraryProfileCombo
                         property var profileOptions: {
                             var names = root.profileNames || []

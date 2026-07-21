@@ -1687,6 +1687,7 @@ FocusScope {
                     
                     // Access the full item data from the model
                     required property var modelData
+                    required property string imageUrl
                     required property int index
                     
                     // Poster dimensions — fill nearly the full cell with minimal spacing
@@ -1706,23 +1707,7 @@ FocusScope {
                     }
                     
                     function getImageSource() {
-                        // 1. Try Thumb (Episodes)
-                        if (delegateItem.modelData.Type === "Episode" && delegateItem.modelData.ImageTags && delegateItem.modelData.ImageTags.Thumb) {
-                            return LibraryService.getCachedImageUrlWithWidth(delegateItem.modelData.Id, "Thumb", 640)
-                        }
-                        // 2. Try Primary (Episodes/Seasons/Series)
-                        if (delegateItem.modelData.ImageTags && delegateItem.modelData.ImageTags.Primary) {
-                            return LibraryService.getCachedImageUrlWithWidth(delegateItem.modelData.Id, "Primary", 640)
-                        }
-                        // 3. Fallback to Parent Primary (e.g. Season poster for Episode)
-                        if (delegateItem.modelData.ParentPrimaryImageTag) {
-                            return LibraryService.getCachedImageUrlWithWidth(delegateItem.modelData.ParentId, "Primary", 640)
-                        }
-                        // 4. Fallback to Series Primary (e.g. Series poster for Season/Episode)
-                        if (delegateItem.modelData.SeriesPrimaryImageTag) {
-                            return LibraryService.getCachedImageUrlWithWidth(delegateItem.modelData.SeriesId, "Primary", 640)
-                        }
-                        return ""
+                        return delegateItem.imageUrl || ""
                     }
 
                     function getRoundedImageSource() {
@@ -1781,17 +1766,7 @@ FocusScope {
                                 source: delegateItem.getImageSource()
                                 onStatusChanged: {
                                     if (status === Image.Error) {
-                                        var fallbackSource = delegateItem.getImageSource();
-                                        if (fallbackSource) {
-                                            source = fallbackSource;
-                                        } else if (delegateItem.modelData && delegateItem.modelData.Id) {
-                                            source = LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Primary") ||
-                                                     LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Thumb") ||
-                                                     LibraryService.getCachedImageUrl(delegateItem.modelData.Id, "Backdrop") ||
-                                                     "";
-                                        } else {
-                                            source = "";
-                                        }
+                                        source = ""
                                     }
                                 }
 
@@ -1840,11 +1815,11 @@ FocusScope {
                                 anchors.top: parent.top
                                 anchors.right: parent.right
                                 parentWidth: parent.width
-                                count: (delegateItem.modelData.Type === "Series" && delegateItem.modelData.UserData)
-                                       ? (delegateItem.modelData.UserData.UnplayedItemCount || 0) : 0
-                                isFullyWatched: (delegateItem.modelData.Type === "Series" && delegateItem.modelData.UserData)
-                                                ? (delegateItem.modelData.UserData.Played || false) : false
-                                visible: delegateItem.modelData.Type === "Series"
+                                count: delegateItem.modelData.mediaType === "Series"
+                                       ? (delegateItem.modelData.unplayedItemCount || 0) : 0
+                                isFullyWatched: delegateItem.modelData.mediaType === "Series"
+                                                && (delegateItem.modelData.watched || false)
+                                visible: delegateItem.modelData.mediaType === "Series"
                             }
 
                             // Watched checkmark (for Movies only)
@@ -1853,11 +1828,9 @@ FocusScope {
                                 anchors.right: parent.right
                                 parentWidth: parent.width
                                 count: 0
-                                isFullyWatched: (delegateItem.modelData.UserData)
-                                                ? (delegateItem.modelData.UserData.Played || false) : false
-                                visible: delegateItem.modelData.Type === "Movie" &&
-                                         delegateItem.modelData.UserData &&
-                                         delegateItem.modelData.UserData.Played
+                                isFullyWatched: delegateItem.modelData.watched || false
+                                visible: delegateItem.modelData.mediaType === "Movie"
+                                         && (delegateItem.modelData.watched || false)
                             }
                         }
 
@@ -1885,10 +1858,10 @@ FocusScope {
                             anchors.horizontalCenter: parent.horizontalCenter
                             horizontalAlignment: Text.AlignHCenter
                             text: {
-                                var start = delegateItem.modelData.ProductionYear || extractYear(delegateItem.modelData.PremiereDate)
+                                var start = delegateItem.modelData.productionYear || extractYear(delegateItem.modelData.premiereDate)
                                 if (!start) return ""
-                                if (delegateItem.modelData.Type === "Series" && delegateItem.modelData.EndDate) {
-                                    var end = extractYear(delegateItem.modelData.EndDate)
+                                if (delegateItem.modelData.mediaType === "Series" && delegateItem.modelData.endDate) {
+                                    var end = extractYear(delegateItem.modelData.endDate)
                                     if (end && end !== start) {
                                         return start + " - " + end
                                     }
@@ -2000,8 +1973,8 @@ FocusScope {
     }
 
     function handleSelection(item) {
-        const mediaType = item ? (item.Type || item.mediaType || "") : ""
-        const remoteId = item ? (item.Id || item.itemId || "") : ""
+        const mediaType = item ? (item.mediaType || item.Type || "") : ""
+        const remoteId = item ? (item.itemId || item.Id || "") : ""
         console.log("[Library] handleSelection",
                     "itemType:", mediaType,
                     "itemId:", remoteId,
@@ -2045,7 +2018,7 @@ FocusScope {
             // updateBackdropForItem(item) refreshes or restores the series backdrop after navigation changes.
             updateBackdropForItem(item)
             
-        } else if (item.Type === "Season") {
+        } else if (mediaType === "Season") {
             // Show season view with episodes list
             var previousContext = {
                 parentId: currentParentId,
@@ -2076,13 +2049,24 @@ FocusScope {
             currentSeriesId = seriesId
             
             // Set season properties
-            currentSeasonId = item.Id
-            currentSeasonName = item.Name || ("Season " + (item.IndexNumber || 0))
-            currentSeasonNumber = item.IndexNumber || 0
-            
-            // Get season poster URL
-            if (item.ImageTags && item.ImageTags.Primary) {
-                currentSeasonPosterUrl = LibraryService.getCachedImageUrlWithWidth(item.Id, "Primary", 400)
+            currentSeasonId = remoteId
+            const canonicalSeasonNumber = item.indexNumber !== undefined && item.indexNumber >= 0
+                    ? item.indexNumber : undefined
+            currentSeasonNumber = canonicalSeasonNumber !== undefined
+                    ? canonicalSeasonNumber : (item.IndexNumber || 0)
+            currentSeasonName = item.name || item.Name || ("Season " + currentSeasonNumber)
+
+            // Series details remains on the compatibility payload in this slice.
+            if (item.primaryArtwork && item.primaryArtwork.itemId) {
+                currentSeasonPosterUrl = LibraryService.getCachedArtworkUrlForConnection(
+                            item.primaryArtwork.connectionId || "",
+                            item.primaryArtwork.itemId,
+                            item.primaryArtwork.kind || "primary",
+                            item.primaryArtwork.index || 0,
+                            item.primaryArtwork.tag || "",
+                            400)
+            } else if (item.ImageTags && item.ImageTags.Primary) {
+                currentSeasonPosterUrl = LibraryService.getCachedImageUrlWithWidth(remoteId, "Primary", 400)
             } else {
                 currentSeasonPosterUrl = ""
             }
@@ -2093,7 +2077,7 @@ FocusScope {
             // Update backdrop for the season
             updateBackdropForItem(item)
             
-        } else if (item.Type === "CollectionFolder" || item.Type === "UserView") {
+        } else if (mediaType === "CollectionFolder" || mediaType === "UserView") {
             // Capture current grid position for restoration
             var gridRef = contentLoader.item ? contentLoader.item.grid : null
             var previousContext = {
@@ -2117,9 +2101,9 @@ FocusScope {
                         JSON.stringify(previousContext),
                         "stackSize:", navigationStack.length)
             if (currentParentId === "") {
-                currentLibraryId = item.Id || ""
-                currentLibraryName = item.Name || ""
-                currentLibraryType = item.CollectionType || ""
+                currentLibraryId = remoteId
+                currentLibraryName = item.name || item.Name || ""
+                currentLibraryType = item.collectionType || item.CollectionType || ""
                 librarySearchText = ""
                 resetQueryToolbarVisibility()
                 LibraryViewModel.clearQuery()
@@ -2131,7 +2115,7 @@ FocusScope {
                 LibraryViewModel.loadFilterOptions(currentLibraryId, currentLibraryType)
             }
             currentSeriesId = ""
-            currentParentId = item.Id
+            currentParentId = remoteId
             showSeriesDetails = false
             showSeasonView = false
         } else if (mediaType === "Movie") {
@@ -2599,7 +2583,8 @@ FocusScope {
         // 1. Item's own backdrops
         if (item.backdropArtwork && item.backdropArtwork.itemId) {
             const backdropArt = item.backdropArtwork
-            const canonicalBackdrop = LibraryService.getCachedArtworkUrl(
+            const canonicalBackdrop = LibraryService.getCachedArtworkUrlForConnection(
+                        backdropArt.connectionId || "",
                         backdropArt.itemId,
                         backdropArt.kind || "backdrop",
                         backdropArt.index || 0,
@@ -2637,7 +2622,8 @@ FocusScope {
         // 4. Canonical primary artwork fallback for migrated recommendation payloads
         if (candidates.length === 0 && item.primaryArtwork && item.primaryArtwork.itemId) {
             const primaryArt = item.primaryArtwork
-            const primaryUrl = LibraryService.getCachedArtworkUrl(
+            const primaryUrl = LibraryService.getCachedArtworkUrlForConnection(
+                        primaryArt.connectionId || "",
                         primaryArt.itemId,
                         primaryArt.kind || "primary",
                         primaryArt.index || 0,
@@ -2660,10 +2646,10 @@ FocusScope {
     function resolveSeriesId(item) {
         if (!item)
             return ""
-        if (item.SeriesId)
-            return item.SeriesId
-        if (item.ParentId)
-            return item.ParentId
+        if (item.seriesId || item.SeriesId)
+            return item.seriesId || item.SeriesId
+        if (item.parentId || item.ParentId)
+            return item.parentId || item.ParentId
         return currentSeriesId || ""
     }
 
@@ -2961,21 +2947,32 @@ FocusScope {
     function formatTitle(item) {
         if (!item)
             return ""
-        if (item.Type === "Episode" && item.IndexNumber !== undefined)
-            return item.IndexNumber + ". " + item.Name
-        return item.Name || ""
+        const mediaType = item.mediaType || item.Type || ""
+        const canonicalIndex = item.indexNumber !== undefined && item.indexNumber >= 0
+                ? item.indexNumber : undefined
+        const indexNumber = canonicalIndex !== undefined ? canonicalIndex : item.IndexNumber
+        const name = item.name || item.Name || ""
+        if (mediaType === "Episode" && indexNumber !== undefined)
+            return indexNumber + ". " + name
+        return name
     }
 
     function formatMetaLine(item) {
         if (!item)
             return ""
+        const mediaType = item.mediaType || item.Type || ""
+        const childCount = item.childCount || item.ChildCount || 0
+        const durationMs = item.durationMs || 0
         var parts = []
-        var year = item.ProductionYear || extractYear(item.PremiereDate)
+        var year = item.productionYear || item.ProductionYear
+                || extractYear(item.premiereDate || item.PremiereDate)
         if (year)
             parts.push(year)
-        if (item.Type === "Series" && item.ChildCount)
-            parts.push(item.ChildCount + " items")
-        if (item.Type === "Movie" && item.RunTimeTicks)
+        if (mediaType === "Series" && childCount)
+            parts.push(childCount + " items")
+        if (mediaType === "Movie" && durationMs)
+            parts.push(Math.round(durationMs / 60000) + " min")
+        else if (mediaType === "Movie" && item.RunTimeTicks)
             parts.push(Math.round(item.RunTimeTicks / 600000000) + " min")
         return parts.join(" • ")
     }
@@ -2983,7 +2980,7 @@ FocusScope {
     function formatTypeChip(item) {
         if (!item)
             return ""
-        switch (item.Type) {
+        switch (item.mediaType || item.Type || "") {
         case "Series": return "Series"
         case "Season": return "Season"
         case "Movie": return "Movie"
@@ -2997,12 +2994,18 @@ FocusScope {
     function formatCountBadge(item) {
         if (!item)
             return ""
-        if (item.Type === "Series" && item.ChildCount)
-            return item.ChildCount.toString()
-        if (item.Type === "Season" && item.IndexNumber !== undefined)
-            return "S" + item.IndexNumber
-        if (item.Type === "Movie" && item.ProductionYear)
-            return item.ProductionYear.toString()
+        const mediaType = item.mediaType || item.Type || ""
+        const childCount = item.childCount || item.ChildCount || 0
+        const canonicalIndex = item.indexNumber !== undefined && item.indexNumber >= 0
+                ? item.indexNumber : undefined
+        const indexNumber = canonicalIndex !== undefined ? canonicalIndex : item.IndexNumber
+        const productionYear = item.productionYear || item.ProductionYear || 0
+        if (mediaType === "Series" && childCount)
+            return childCount.toString()
+        if (mediaType === "Season" && indexNumber !== undefined)
+            return "S" + indexNumber
+        if (mediaType === "Movie" && productionYear)
+            return productionYear.toString()
         return ""
     }
 
@@ -3031,7 +3034,7 @@ FocusScope {
     function getSortLetter(item) {
         if (!item)
             return "#"
-        var base = (item.SortName || item.Name || "").trim()
+        var base = (item.sortName || item.SortName || item.name || item.Name || "").trim()
         if (!base.length)
             return "#"
         var ch = base.charAt(0).toUpperCase()

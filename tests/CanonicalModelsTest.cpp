@@ -38,7 +38,13 @@ void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()
     const QJsonObject wire{
         {QStringLiteral("Id"), QStringLiteral("movie-1")},
         {QStringLiteral("Name"), QStringLiteral("Example")},
+        {QStringLiteral("SortName"), QStringLiteral("Example, The")},
         {QStringLiteral("Type"), QStringLiteral("Movie")},
+        {QStringLiteral("ParentId"), QStringLiteral("parent-1")},
+        {QStringLiteral("ParentPrimaryImageItemId"), QStringLiteral("parent-image-owner")},
+        {QStringLiteral("SeriesId"), QStringLiteral("series-1")},
+        {QStringLiteral("ParentPrimaryImageTag"), QStringLiteral("parent-primary-tag")},
+        {QStringLiteral("SeriesPrimaryImageTag"), QStringLiteral("series-primary-tag")},
         {QStringLiteral("Overview"), QStringLiteral("A sample overview")},
         {QStringLiteral("ProductionYear"), 2024},
         {QStringLiteral("PremiereDate"), QStringLiteral("2024-01-15T00:00:00.000Z")},
@@ -78,6 +84,7 @@ void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()
              QStringLiteral("connection-1"));
     QCOMPARE(item.value(QStringLiteral("itemId")).toString(), QStringLiteral("movie-1"));
     QCOMPARE(item.value(QStringLiteral("name")).toString(), QStringLiteral("Example"));
+    QCOMPARE(item.value(QStringLiteral("sortName")).toString(), QStringLiteral("Example, The"));
     QCOMPARE(item.value(QStringLiteral("mediaType")).toString(), QStringLiteral("Movie"));
     QCOMPARE(item.value(QStringLiteral("overview")).toString(), QStringLiteral("A sample overview"));
     QCOMPARE(item.value(QStringLiteral("productionYear")).toInt(), 2024);
@@ -112,6 +119,30 @@ void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()
     QCOMPARE(primary.value(QStringLiteral("tag")).toString(), QStringLiteral("primary-tag"));
     QCOMPARE(item.value(QStringLiteral("logoArtwork")).toMap()
                  .value(QStringLiteral("tag")).toString(), QStringLiteral("logo-tag"));
+    const QVariantMap parentPrimary =
+        item.value(QStringLiteral("parentPrimaryArtwork")).toMap();
+    QCOMPARE(parentPrimary.value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("parent-image-owner"));
+    QCOMPARE(parentPrimary.value(QStringLiteral("tag")).toString(),
+             QStringLiteral("parent-primary-tag"));
+    const QVariantMap seriesPrimary =
+        item.value(QStringLiteral("seriesPrimaryArtwork")).toMap();
+    QCOMPARE(seriesPrimary.value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("series-1"));
+    QCOMPARE(seriesPrimary.value(QStringLiteral("tag")).toString(),
+             QStringLiteral("series-primary-tag"));
+    const QVariantMap fallbackParentPrimary = JellyfinModelMapper::mediaItem(
+        QJsonObject{
+            {QStringLiteral("Id"), QStringLiteral("episode-2")},
+            {QStringLiteral("ParentId"), QStringLiteral("season-2")},
+            {QStringLiteral("ParentPrimaryImageTag"), QStringLiteral("fallback-tag")}
+        },
+        QStringLiteral("connection-1"))
+        .value(QStringLiteral("parentPrimaryArtwork")).toMap();
+    QCOMPARE(fallbackParentPrimary.value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("season-2"));
+    QCOMPARE(fallbackParentPrimary.value(QStringLiteral("tag")).toString(),
+             QStringLiteral("fallback-tag"));
     QCOMPARE(item.value(QStringLiteral("backdropArtwork")).toMap()
                  .value(QStringLiteral("tag")).toString(), QStringLiteral("backdrop-tag"));
 

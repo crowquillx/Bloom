@@ -26,13 +26,9 @@ LibraryViewModel::LibraryViewModel(QObject *parent)
     }
 
     if (m_libraryService) {
-        connect(m_libraryService, &LibraryService::viewsLoaded,
+        connect(m_libraryService, &LibraryService::canonicalViewsLoaded,
                 this, &LibraryViewModel::onViewsLoaded);
-        connect(m_libraryService, &LibraryService::itemsLoaded,
-                this, &LibraryViewModel::onItemsLoaded);
-        connect(m_libraryService, &LibraryService::itemsLoadedWithTotal,
-                this, &LibraryViewModel::onItemsLoadedWithTotal);
-        connect(m_libraryService, &LibraryService::itemsLoadedWithTotalForQuery,
+        connect(m_libraryService, &LibraryService::canonicalItemsLoadedWithTotalForQuery,
                 this, &LibraryViewModel::onItemsLoadedWithTotalForQuery);
         connect(m_libraryService, &LibraryService::filterOptionsLoaded,
                 this, &LibraryViewModel::onFilterOptionsLoaded);
@@ -59,23 +55,23 @@ QVariant LibraryViewModel::data(const QModelIndex &index, int role) const
 
     switch (role) {
     case NameRole:
-        return item.value("Name").toString();
+        return item.value(QStringLiteral("name")).toString();
     case ImageUrlRole:
         return getImageUrl(item);
     case IdRole:
-        return item.value("Id").toString();
+        return item.value(QStringLiteral("itemId")).toString();
     case TypeRole:
-        return item.value("Type").toString();
+        return item.value(QStringLiteral("mediaType")).toString();
     case ModelDataRole:
         return item.toVariantMap();
     case ProductionYearRole:
-        return item.value("ProductionYear").toInt();
+        return item.value(QStringLiteral("productionYear")).toInt();
     case IndexNumberRole:
-        return item.value("IndexNumber").toInt();
+        return item.value(QStringLiteral("indexNumber")).toInt();
     case ParentIndexNumberRole:
-        return item.value("ParentIndexNumber").toInt();
+        return item.value(QStringLiteral("parentIndexNumber")).toInt();
     case OverviewRole:
-        return item.value("Overview").toString();
+        return item.value(QStringLiteral("overview")).toString();
     default:
         return QVariant();
     }
@@ -266,57 +262,42 @@ QString LibraryViewModel::buildImageUrl(const QVariantMap &item) const
     return getImageUrl(QJsonObject::fromVariantMap(item));
 }
 
-void LibraryViewModel::onViewsLoaded(const QJsonArray &views)
+void LibraryViewModel::onViewsLoaded(const QVariantList &views)
 {
-    qCDebug(lcViewModels) << "LibraryViewModel::onViewsLoaded" << views.size() << "items, loadingViews:" << m_loadingViews;
-    
-    // Always store views for Settings access (library profile assignments)
-    // even if we didn't initiate the request (HomeScreen might have)
-    // Filter out "Collections" (boxsets) since they just link to items from other libraries
+    qCDebug(lcViewModels) << "LibraryViewModel::onViewsLoaded" << views.size()
+                          << "items, loadingViews:" << m_loadingViews;
+
     QVariantList viewsList;
-    for (const auto &view : views) {
-        QJsonObject viewObj = view.toObject();
-        QString collectionType = viewObj["CollectionType"].toString();
-        // Skip "boxsets" (Collections library) - items use their home library's profile
-        if (collectionType == "boxsets") {
+    for (const QVariant &view : views) {
+        const QVariantMap viewMap = view.toMap();
+        if (viewMap.value(QStringLiteral("collectionType")).toString() == QStringLiteral("boxsets")) {
             qCDebug(lcViewModels) << "LibraryViewModel: Filtering out Collections library from views";
             continue;
         }
-        viewsList.append(viewObj.toVariantMap());
+        viewsList.append(viewMap);
     }
     if (m_views != viewsList) {
         m_views = viewsList;
         emit viewsChanged();
     }
-    
-    // Only update the list model if we were the ones loading views
+
+    // Only update the list model if we were the ones loading views.
     if (!m_loadingViews)
         return;
 
     setLoading(false);
-    setTotalRecordCount(views.size());
-    setItems(views);
-    
+    setTotalRecordCount(viewsList.size());
+    setItems(QJsonArray::fromVariantList(viewsList));
+
     emit loadComplete();
 }
 
-void LibraryViewModel::onItemsLoaded(const QString &parentId, const QJsonArray &items)
+void LibraryViewModel::onItemsLoadedWithTotalForQuery(const QString &parentId,
+                                                       const QString &queryKey,
+                                                       const QVariantList &canonicalItems,
+                                                       int totalRecordCount)
 {
-    // This signal is emitted alongside itemsLoadedWithTotal for backward compatibility.
-    // We handle everything in onItemsLoadedWithTotal to avoid double-processing.
-    Q_UNUSED(parentId)
-    Q_UNUSED(items)
-}
-
-void LibraryViewModel::onItemsLoadedWithTotal(const QString &parentId, const QJsonArray &items, int totalRecordCount)
-{
-    if (!m_activeQueryKey.isEmpty())
-        return;
-    onItemsLoadedWithTotalForQuery(parentId, QString(), items, totalRecordCount);
-}
-
-void LibraryViewModel::onItemsLoadedWithTotalForQuery(const QString &parentId, const QString &queryKey, const QJsonArray &items, int totalRecordCount)
-{
+    const QJsonArray items = QJsonArray::fromVariantList(canonicalItems);
     if (parentId != m_currentParentId)
         return;
     if (!queryKey.isEmpty() && queryKey != m_activeQueryKey) {
@@ -760,7 +741,7 @@ void LibraryViewModel::setTotalRecordCount(int count)
 
 bool LibraryViewModel::isEmptyFolder(const QJsonObject &item) const
 {
-    const QString type = item.value("Type").toString();
+    const QString type = item.value(QStringLiteral("mediaType")).toString();
     
     // Types that are containers and should be filtered if empty
     static const QStringList containerTypes = {
@@ -776,10 +757,11 @@ bool LibraryViewModel::isEmptyFolder(const QJsonObject &item) const
     
     if (containerTypes.contains(type)) {
         // Check if ChildCount exists and is 0
-        if (item.contains("ChildCount")) {
-            int childCount = item.value("ChildCount").toInt();
+        if (item.contains(QStringLiteral("childCount"))) {
+            int childCount = item.value(QStringLiteral("childCount")).toInt();
             if (childCount == 0) {
-                qCDebug(lcViewModels) << "Filtering out empty" << type << ":" << item.value("Name").toString();
+                qCDebug(lcViewModels) << "Filtering out empty" << type << ":"
+                                      << item.value(QStringLiteral("name")).toString();
                 return true;
             }
         }
@@ -836,33 +818,30 @@ QString LibraryViewModel::getImageUrl(const QJsonObject &item) const
     if (!m_libraryService)
         return QString();
 
-    const QString id = item.value("Id").toString();
-    const QString type = item.value("Type").toString();
-    const QJsonObject imageTags = item.value("ImageTags").toObject();
+    const QString type = item.value(QStringLiteral("mediaType")).toString();
+    const QStringList candidates = type == QStringLiteral("Episode")
+        ? QStringList{QStringLiteral("thumbArtwork"),
+                      QStringLiteral("primaryArtwork"),
+                      QStringLiteral("parentPrimaryArtwork"),
+                      QStringLiteral("seriesPrimaryArtwork")}
+        : QStringList{QStringLiteral("primaryArtwork"),
+                      QStringLiteral("parentPrimaryArtwork"),
+                      QStringLiteral("seriesPrimaryArtwork")};
 
-    // 1. Try Thumb (Episodes)
-    if (type == "Episode" && imageTags.contains("Thumb")) {
-        return m_libraryService->getCachedImageUrlWithWidth(id, "Thumb", 640);
-    }
-
-    // 2. Try Primary (Episodes/Seasons/Series)
-    if (imageTags.contains("Primary")) {
-        return m_libraryService->getCachedImageUrlWithWidth(id, "Primary", 640);
-    }
-
-    // 3. Fallback to Parent Primary (e.g. Season poster for Episode)
-    if (item.contains("ParentPrimaryImageTag")) {
-        const QString parentId = item.value("ParentId").toString();
-        if (!parentId.isEmpty()) {
-            return m_libraryService->getCachedImageUrlWithWidth(parentId, "Primary", 640);
-        }
-    }
-
-    // 4. Fallback to Series Primary (e.g. Series poster for Season/Episode)
-    if (item.contains("SeriesPrimaryImageTag")) {
-        const QString seriesId = item.value("SeriesId").toString();
-        if (!seriesId.isEmpty()) {
-            return m_libraryService->getCachedImageUrlWithWidth(seriesId, "Primary", 640);
+    for (const QString &key : candidates) {
+        const QJsonObject artwork = item.value(key).toObject();
+        const QString connectionId = artwork.value(QStringLiteral("connectionId")).toString();
+        const QString itemId = artwork.value(QStringLiteral("itemId")).toString();
+        const QString kind = artwork.value(QStringLiteral("kind")).toString();
+        const QString tag = artwork.value(QStringLiteral("tag")).toString();
+        if (!connectionId.isEmpty() && !itemId.isEmpty() && !kind.isEmpty() && !tag.isEmpty()) {
+            return m_libraryService->getCachedArtworkUrlForConnection(
+                connectionId,
+                itemId,
+                kind,
+                artwork.value(QStringLiteral("index")).toInt(),
+                tag,
+                640);
         }
     }
 
@@ -876,13 +855,20 @@ QString LibraryViewModel::getImageUrl(const QJsonObject &item) const
 bool LibraryViewModel::hasCachedData(const QString &parentId) const
 {
     const QString memoryKey = scopedCacheKey(parentId);
-    if (s_libraryCache.contains(memoryKey) && s_libraryCache[memoryKey].isValid(kCacheTtlMs)) {
-        return true;
+    if (s_libraryCache.contains(memoryKey)) {
+        const LibraryCacheEntry entry = s_libraryCache.value(memoryKey);
+        if (!isCanonicalCachePayload(entry.items)) {
+            s_libraryCache.remove(memoryKey);
+        } else if (entry.isValid(kCacheTtlMs)) {
+            return true;
+        }
     }
 
     if (m_cacheStore && m_cacheStore->isOpen()) {
         auto slice = m_cacheStore->read(parentId);
-        if (slice.hasData() && slice.isFresh(kDiskCacheTtlMs)) {
+        if (slice.hasData() && !isCanonicalCachePayload(slice.items)) {
+            m_cacheStore->clearParent(parentId);
+        } else if (slice.hasData() && slice.isFresh(kDiskCacheTtlMs)) {
             LibraryCacheEntry entry;
             entry.items = slice.items;
             entry.totalRecordCount = slice.totalCount;
@@ -898,13 +884,20 @@ bool LibraryViewModel::hasCachedData(const QString &parentId) const
 bool LibraryViewModel::hasAnyCachedData(const QString &parentId) const
 {
     const QString memoryKey = scopedCacheKey(parentId);
-    if (s_libraryCache.contains(memoryKey) && s_libraryCache[memoryKey].hasData()) {
-        return true;
+    if (s_libraryCache.contains(memoryKey)) {
+        const LibraryCacheEntry entry = s_libraryCache.value(memoryKey);
+        if (!isCanonicalCachePayload(entry.items)) {
+            s_libraryCache.remove(memoryKey);
+        } else if (entry.hasData()) {
+            return true;
+        }
     }
 
     if (m_cacheStore && m_cacheStore->isOpen()) {
         auto slice = m_cacheStore->read(parentId);
-        if (slice.hasData()) {
+        if (slice.hasData() && !isCanonicalCachePayload(slice.items)) {
+            m_cacheStore->clearParent(parentId);
+        } else if (slice.hasData()) {
             LibraryCacheEntry entry;
             entry.items = slice.items;
             entry.totalRecordCount = slice.totalCount;
@@ -924,6 +917,12 @@ LibraryCacheEntry LibraryViewModel::getCachedData(const QString &parentId) const
 
 void LibraryViewModel::updateCache(const QString &parentId, const QJsonArray &items, int totalRecordCount)
 {
+    if (!items.isEmpty() && !isCanonicalCachePayload(items)) {
+        qCWarning(lcViewModels) << "LibraryViewModel: refusing to cache non-canonical items for"
+                                << parentId;
+        return;
+    }
+
     LibraryCacheEntry entry;
     entry.items = items;
     entry.totalRecordCount = totalRecordCount;
@@ -1048,8 +1047,8 @@ bool LibraryViewModel::hasDataChanged(const QJsonArray &newItems, int newTotal, 
     
     // Compare item IDs to detect changes (additions, removals, reorders)
     for (int i = 0; i < newItems.size(); ++i) {
-        QString newId = newItems[i].toObject().value("Id").toString();
-        QString cachedId = cached.items[i].toObject().value("Id").toString();
+        QString newId = newItems[i].toObject().value(QStringLiteral("itemId")).toString();
+        QString cachedId = cached.items[i].toObject().value(QStringLiteral("itemId")).toString();
         if (newId != cachedId) {
             qCDebug(lcViewModels) << "LibraryViewModel: SWR item ID mismatch at" << i << ":" << cachedId << "->" << newId;
             return true;
@@ -1057,6 +1056,20 @@ bool LibraryViewModel::hasDataChanged(const QJsonArray &newItems, int newTotal, 
     }
     
     return false;
+}
+
+bool LibraryViewModel::isCanonicalCachePayload(const QJsonArray &items) const
+{
+    for (const QJsonValue &value : items) {
+        if (!value.isObject())
+            return false;
+        const QJsonObject item = value.toObject();
+        if (item.value(QStringLiteral("itemId")).toString().isEmpty()
+            || item.contains(QStringLiteral("Id"))) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void LibraryViewModel::updateItemsFromBackground(const QJsonArray &items)

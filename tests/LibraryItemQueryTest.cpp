@@ -1,4 +1,5 @@
 #include <QtTest/QtTest>
+#include "../src/models/MediaModels.h"
 #include "../src/network/LibraryService.h"
 
 class LibraryItemQueryTest : public QObject
@@ -8,6 +9,7 @@ class LibraryItemQueryTest : public QObject
 private slots:
     void cacheKeySeparatesSearchFilterAndSort();
     void cacheKeySeparatesPaginationAndHeavyFields();
+    void artworkSourcePreservesConnectionIdentity();
 };
 
 void LibraryItemQueryTest::cacheKeySeparatesSearchFilterAndSort()
@@ -56,6 +58,28 @@ void LibraryItemQueryTest::cacheKeySeparatesPaginationAndHeavyFields()
     QVERIFY(firstPage.cacheKey() != unpaged.cacheKey());
     QVERIFY(firstPage.cacheKey() != differentLimit.cacheKey());
     QVERIFY(firstPage.cacheKey() != lightFields.cacheKey());
+}
+
+void LibraryItemQueryTest::artworkSourcePreservesConnectionIdentity()
+{
+    LibraryService service(nullptr);
+    const QString source = service.getCachedArtworkUrlForConnection(
+        QStringLiteral("connection-2"),
+        QStringLiteral("movie-1"),
+        QStringLiteral("primary"),
+        0,
+        QStringLiteral("tag-1"),
+        640);
+    QVERIFY(source.startsWith(QStringLiteral("image://cached/")));
+
+    const QString encodedKey = source.sliced(QStringLiteral("image://cached/").size());
+    const QByteArray cacheKey = QByteArray::fromPercentEncoding(encodedKey.toUtf8());
+    const Bloom::ArtworkRef artwork =
+        Bloom::ArtworkRef::fromCacheKey(QString::fromUtf8(cacheKey));
+    QVERIFY(artwork.isValid());
+    QCOMPARE(artwork.connectionId, QStringLiteral("connection-2"));
+    QCOMPARE(artwork.itemId, QStringLiteral("movie-1"));
+    QCOMPARE(artwork.requestedWidth, 640);
 }
 
 QTEST_MAIN(LibraryItemQueryTest)
