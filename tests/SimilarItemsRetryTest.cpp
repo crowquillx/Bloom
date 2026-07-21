@@ -153,6 +153,7 @@ private slots:
     void movieChaptersLoadNormalizeCacheAndIgnoreStale();
     void movieChaptersFailureClearsVisibleState();
     void mockLibraryServiceTracksItemCacheInvalidation();
+    void mockHomeSignalsHaveCanonicalParity();
     void connectionScopeCacheKeysAreCollisionResistant();
 
 private:
@@ -584,6 +585,29 @@ void SimilarItemsRetryTest::mockLibraryServiceTracksItemCacheInvalidation()
 
     QCOMPARE(service.clearItemCacheValidationCallCount(), 1);
     QVERIFY(service.wasItemCacheValidationCleared(QStringLiteral("ep-9")));
+}
+
+void SimilarItemsRetryTest::mockHomeSignalsHaveCanonicalParity()
+{
+    MockLibraryService service;
+    QSignalSpy nextUpSpy(&service, &LibraryService::canonicalNextUpLoaded);
+    QSignalSpy latestSpy(&service, &LibraryService::canonicalLatestMediaLoaded);
+    QSignalSpy backdropSpy(&service, &LibraryService::canonicalHomeBackdropItemsLoaded);
+    QSignalSpy heroSpy(&service, &LibraryService::canonicalHeroLibraryItemsLoaded);
+    QSignalSpy overviewSpy(&service, &LibraryService::canonicalHeroSeriesOverviewsLoaded);
+
+    QCOMPARE(service.getActiveConnectionId(), QStringLiteral("mock-connection"));
+    service.getNextUp();
+    service.getLatestMedia(QStringLiteral("library-1"));
+    service.getHomeBackdropItems(80);
+    service.getHeroLibraryItems(10, {}, false);
+    service.getHeroSeriesOverviews({});
+
+    QCOMPARE(nextUpSpy.count(), 1);
+    QCOMPARE(latestSpy.count(), 1);
+    QCOMPARE(backdropSpy.count(), 1);
+    QCOMPARE(heroSpy.count(), 1);
+    QCOMPARE(overviewSpy.count(), 1);
 }
 
 void SimilarItemsRetryTest::connectionScopeCacheKeysAreCollisionResistant()

@@ -183,6 +183,18 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
                   wireItem.value(QStringLiteral("SeriesId")).toString(),
                   Bloom::ArtworkKind::Primary,
                   wireItem.value(QStringLiteral("SeriesPrimaryImageTag")).toString());
+    appendArtwork(artwork, item, QStringLiteral("seriesThumbArtwork"), connectionId,
+                  wireItem.value(QStringLiteral("SeriesId")).toString(),
+                  Bloom::ArtworkKind::Thumb,
+                  wireItem.value(QStringLiteral("SeriesThumbImageTag")).toString());
+    QString parentThumbItemId =
+        wireItem.value(QStringLiteral("ParentThumbItemId")).toString();
+    if (parentThumbItemId.isEmpty()) {
+        parentThumbItemId = wireItem.value(QStringLiteral("ParentId")).toString();
+    }
+    appendArtwork(artwork, item, QStringLiteral("parentThumbArtwork"), connectionId,
+                  parentThumbItemId, Bloom::ArtworkKind::Thumb,
+                  wireItem.value(QStringLiteral("ParentThumbImageTag")).toString());
 
     const QJsonArray backdropTags = wireItem.value(QStringLiteral("BackdropImageTags")).toArray();
     for (qsizetype index = 0; index < backdropTags.size(); ++index) {

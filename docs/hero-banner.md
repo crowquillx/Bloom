@@ -6,8 +6,15 @@ already-loaded Recently Added, Continue Watching, and Up Next models. Only the L
 performs an additional request through `LibraryService::getHeroLibraryItems()`.
 
 Sources are Recently Added, Continue Watching, Up Next, Library, and Mixed. The provider removes
-duplicates, applies hidden media-type filters, and caps output at 25 items. Empty sources hide the
-banner without changing the existing Home rows.
+duplicates by canonical `{connectionId, itemId}` identity, applies hidden media-type filters, and
+caps output at 25 items. Empty sources hide the banner without changing the existing Home rows.
+
+All Home-owned hero inputs are canonical media maps. `LibraryService` emits connection-aware
+canonical results using the `connectionId` captured when each request starts, and the hero resolves
+images only from connection-scoped `ArtworkRef` values. The raw Jellyfin compatibility signals stay
+available for unmigrated consumers but are not used by Home or the hero. Hero runtime and resume
+values use milliseconds; Home performs the temporary millisecond-to-tick conversion only when it
+calls the existing player request API.
 
 ## Layout
 
@@ -26,10 +33,11 @@ The hero shows the item logo image when available. If no logo exists, a text tit
 logo slot (detail-view style). Episodes use the series name as the primary title and show the
 episode name in smaller secondary text beneath when it differs from the series title.
 
-Hero synopsis text is shown below the metadata chips. Movies and series use their own
-`Overview`. Episodes use the parent series overview by default. Settings > Home > Use episode
-synopses opts into episode-level `Overview` text when present; empty episode overviews still fall
-back to the series overview.
+Hero synopsis text is shown below the metadata chips. Movies and series use their canonical
+`overview`. Episodes use the parent series overview by default. Settings > Home > Use episode
+synopses opts into episode-level `overview` text when present; empty episode overviews still fall
+back to the series overview. Series-overview responses are keyed by connection and series identity
+before being attached to episode hero items.
 
 ## Focus
 

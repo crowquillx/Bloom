@@ -41,7 +41,7 @@ FocusScope {
     }
 
     // Rotating backdrop properties
-    property var backdropCandidates: []  // Array of {itemId, backdropTag} objects
+    property var backdropCandidates: []  // Array of canonical backdrop ArtworkRef maps
     property string currentBackdropUrl: ""
     property var backdropShuffleOrder: []
     property int backdropShuffleCursor: 0
@@ -84,23 +84,33 @@ FocusScope {
         console.log("HomeScreen: Refreshing dynamic content")
         LibraryService.getNextUp()
         for (var i = 0; i < librariesModel.length; i++) {
-            LibraryService.getLatestMedia(librariesModel[i].Id)
+            LibraryService.getLatestMedia(librariesModel[i].itemId)
         }
     }
 
+    function artworkUrlFromRef(artwork, width) {
+        if (!artwork || !artwork.itemId)
+            return ""
+        return LibraryService.getCachedArtworkUrlForConnection(
+                    artwork.connectionId || "",
+                    artwork.itemId,
+                    artwork.kind || "primary",
+                    artwork.index || 0,
+                    artwork.tag || "",
+                    width || 0)
+    }
+
+    function acceptsConnectionResponse(connectionId) {
+        const activeConnectionId = LibraryService.getActiveConnectionId()
+        return activeConnectionId !== "" && connectionId === activeConnectionId
+    }
+
     function hydrateBackdropFallbackFromSections() {
-        for (var i = 0; i < continueWatchingModel.length; i++) {
-            addBackdropCandidate(continueWatchingModel[i])
-        }
-        for (var j = 0; j < displayedNextUpModel.length; j++) {
-            addBackdropCandidate(displayedNextUpModel[j])
-        }
+        var fallbackItems = continueWatchingModel.concat(displayedNextUpModel)
         for (var key in recentlyAddedMap) {
-            var items = recentlyAddedMap[key] || []
-            for (var k = 0; k < items.length; k++) {
-                addBackdropCandidate(items[k])
-            }
+            fallbackItems = fallbackItems.concat(recentlyAddedMap[key] || [])
         }
+        addBackdropCandidates(fallbackItems)
         if (backdropCandidates.length > 0) {
             invalidateBackdropShuffle()
             selectRandomBackdrop()
@@ -149,7 +159,7 @@ FocusScope {
         var byId = {}
         var ordered = []
         for (var i = 0; i < views.length; i++) {
-            byId[views[i].Id] = views[i]
+            byId[views[i].itemId] = views[i]
         }
 
         for (var j = 0; j < order.length; j++) {
@@ -207,7 +217,7 @@ FocusScope {
         var nextItems = []
         for (var i = 0; i < nextUpModel.length; i++) {
             var episode = nextUpModel[i]
-            var pos = episode && episode.UserData ? (episode.UserData.PlaybackPositionTicks || 0) : 0
+            var pos = episode ? (episode.positionMs || 0) : 0
             if (pos > 0) inProgress.push(episode)
             else nextItems.push(episode)
         }
@@ -417,46 +427,52 @@ FocusScope {
         onTriggered: selectRandomBackdrop()
     }
     
-    // Function to collect backdrop from an item
-    function addBackdropCandidate(item) {
-        var itemId = item.Id
-        var backdropTag = null
-        var backdropItemId = itemId
-        
-        // Check for direct backdrop
-        if (item.BackdropImageTags && item.BackdropImageTags.length > 0) {
-            backdropTag = item.BackdropImageTags[0]
-        } else if (item.ImageTags && item.ImageTags.Backdrop) {
-            // Some Jellyfin item queries expose backdrop as ImageTags.Backdrop.
-            backdropTag = item.ImageTags.Backdrop
+    function backdropCandidateKey(candidate) {
+        return (candidate.connectionId || "") + "\n"
+                + (candidate.itemId || "") + "\n"
+                + (candidate.index || 0) + "\n"
+                + (candidate.tag || "")
+    }
+
+    // Collect canonical backdrop refs in one model update to avoid repeated array copies.
+    function addBackdropCandidates(items) {
+        if (!items || items.length === 0)
+            return
+
+        const candidates = backdropCandidates.slice()
+        const seen = ({})
+        for (let i = 0; i < candidates.length; i++) {
+            seen[backdropCandidateKey(candidates[i])] = true
         }
-        // Check for parent backdrop (for episodes/seasons)
-        else if (item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0) {
-            backdropTag = item.ParentBackdropImageTags[0]
-            backdropItemId = item.ParentBackdropItemId || item.SeriesId || itemId
+
+        const wasEmpty = candidates.length === 0
+        for (let j = 0; j < items.length; j++) {
+            const item = items[j]
+            const art = item ? item.backdropArtwork : null
+            if (!art || !art.itemId)
+                continue
+
+            const candidate = {
+                connectionId: art.connectionId || item.connectionId || "",
+                itemId: art.itemId,
+                kind: art.kind || "backdrop",
+                index: art.index || 0,
+                tag: art.tag || ""
+            }
+            const key = backdropCandidateKey(candidate)
+            if (!seen[key]) {
+                seen[key] = true
+                candidates.push(candidate)
+            }
         }
-        
-        if (backdropTag && backdropItemId) {
-            // Check if we already have this backdrop
-            for (var i = 0; i < backdropCandidates.length; i++) {
-                if (backdropCandidates[i].itemId === backdropItemId) {
-                    return  // Already have it
-                }
-            }
-            
-            var newCandidates = backdropCandidates.slice()
-            newCandidates.push({
-                itemId: backdropItemId,
-                backdropTag: backdropTag
-            })
-            backdropCandidates = newCandidates
-            invalidateBackdropShuffle()
-            
-            // If this is the first backdrop, show it immediately unless we are still
-            // populating the global pool (avoid deterministic "first item" startup).
-            if (backdropCandidates.length === 1 && !loadingGlobalBackdropPool) {
-                selectRandomBackdrop()
-            }
+
+        if (candidates.length === backdropCandidates.length)
+            return
+        backdropCandidates = candidates
+        invalidateBackdropShuffle()
+
+        if (wasEmpty && !loadingGlobalBackdropPool) {
+            selectRandomBackdrop()
         }
     }
     
@@ -475,12 +491,14 @@ FocusScope {
         backdropShuffleCursor++
         var candidate = backdropCandidates[candidateIndex]
         
-        // Construct backdrop URL
-        var url = LibraryService.getCachedArtworkUrl(candidate.itemId,
-                                                     "Backdrop",
-                                                     0,
-                                                     candidate.backdropTag || "",
-                                                     1920)
+        // Construct backdrop URL from canonical ArtworkRef fields
+        var url = LibraryService.getCachedArtworkUrlForConnection(
+                    candidate.connectionId || "",
+                    candidate.itemId,
+                    candidate.kind || "backdrop",
+                    candidate.index || 0,
+                    candidate.tag || "",
+                    1920)
         
         currentBackdropUrl = url
     }
@@ -704,7 +722,7 @@ FocusScope {
                             Image {
                                 id: myMediaImageSource
                                 anchors.fill: parent
-                                source: LibraryService.getCachedImageUrlWithWidth(modelData.Id, "Primary", homeCardImageRequestWidth)
+                                source: root.artworkUrlFromRef(modelData.primaryArtwork, homeCardImageRequestWidth)
                                 fillMode: Image.PreserveAspectCrop
                                 asynchronous: true
                                 cache: true
@@ -788,8 +806,8 @@ FocusScope {
                         }
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: modelData.Name
-                        Accessible.description: "Browse " + modelData.Name + " library"
+                        Accessible.name: modelData.name
+                        Accessible.description: "Browse " + modelData.name + " library"
                     }
                     
                     Keys.onReturnPressed: {
@@ -959,17 +977,21 @@ FocusScope {
                                     
                                 Image {
                                     id: nextUpImage
-                                    property string seriesThumbUrl: (modelData.SeriesId && (modelData.SeriesThumbImageTag || modelData.ParentThumbImageTag)) ? LibraryService.getCachedImageUrlWithWidth(modelData.SeriesId, "Thumb", homeCardImageRequestWidth) : ""
-                                    property string parentThumbUrl: (modelData.ParentId && modelData.ParentThumbImageTag) ? LibraryService.getCachedImageUrlWithWidth(modelData.ParentId, "Thumb", homeCardImageRequestWidth) : ""
-                                    property string episodeThumbUrl: (modelData.ImageTags && modelData.ImageTags.Thumb) ? LibraryService.getCachedImageUrlWithWidth(modelData.Id, "Thumb", homeCardImageRequestWidth) : ""
-                                    property string episodePrimaryUrl: LibraryService.getCachedImageUrlWithWidth(modelData.Id, "Primary", homeCardImageRequestWidth)
-                                    anchors.fill: parent
-                                    source: {
-                                        if (seriesThumbUrl && seriesThumbUrl !== "") return seriesThumbUrl
-                                        if (parentThumbUrl && parentThumbUrl !== "") return parentThumbUrl
-                                        if (episodeThumbUrl && episodeThumbUrl !== "") return episodeThumbUrl
-                                        return episodePrimaryUrl
+                                    property string seriesThumbUrl: root.artworkUrlFromRef(modelData.seriesThumbArtwork, homeCardImageRequestWidth)
+                                    property string parentThumbUrl: root.artworkUrlFromRef(modelData.parentThumbArtwork, homeCardImageRequestWidth)
+                                    property string episodeThumbUrl: root.artworkUrlFromRef(modelData.thumbArtwork, homeCardImageRequestWidth)
+                                    property string episodePrimaryUrl: root.artworkUrlFromRef(modelData.primaryArtwork, homeCardImageRequestWidth)
+                                    property var artworkCandidates: {
+                                        const candidates = [seriesThumbUrl, parentThumbUrl,
+                                                            episodeThumbUrl, episodePrimaryUrl]
+                                        return candidates.filter(function(url) { return !!url })
                                     }
+                                    property int artworkCandidateIndex: 0
+                                    anchors.fill: parent
+                                    source: artworkCandidates.length > 0
+                                            ? artworkCandidates[Math.min(artworkCandidateIndex,
+                                                                         artworkCandidates.length - 1)]
+                                            : ""
                                     fillMode: Image.PreserveAspectCrop
                                     asynchronous: true
                                     cache: true
@@ -981,17 +1003,11 @@ FocusScope {
                                         maskSource: nextUpMask
                                     }
 
+                                    onArtworkCandidatesChanged: artworkCandidateIndex = 0
                                     onStatusChanged: {
-                                        if (status === Image.Error) {
-                                            if (source === seriesThumbUrl && parentThumbUrl && parentThumbUrl !== "") {
-                                                source = parentThumbUrl
-                                                return
-                                            }
-                                            if ((source === seriesThumbUrl || source === parentThumbUrl) && episodeThumbUrl && episodeThumbUrl !== "") {
-                                                source = episodeThumbUrl
-                                                return
-                                            }
-                                            if (source !== episodePrimaryUrl) source = episodePrimaryUrl
+                                        if (status === Image.Error
+                                                && artworkCandidateIndex + 1 < artworkCandidates.length) {
+                                            artworkCandidateIndex++
                                         }
                                     }
                                 }
@@ -1035,8 +1051,8 @@ FocusScope {
                                     anchors.left: parent.left
                                     anchors.right: parent.right
                                     anchors.bottom: parent.bottom
-                                    positionTicks: modelData.UserData ? modelData.UserData.PlaybackPositionTicks : 0
-                                    runtimeTicks: modelData.RunTimeTicks || 0
+                                    positionMs: modelData.positionMs || 0
+                                    durationMs: modelData.durationMs || 0
                                 }
 
                                 Text {
@@ -1056,7 +1072,7 @@ FocusScope {
                                 Text {
                                     width: parent.width
                                     horizontalAlignment: Text.AlignHCenter
-                                    text: modelData.SeriesName || modelData.Name || ""
+                                    text: modelData.seriesName || modelData.name || ""
                                     font.pixelSize: Theme.fontSizeMedium
                                     font.family: Theme.fontPrimary
                                     font.bold: true
@@ -1072,11 +1088,11 @@ FocusScope {
                                     horizontalAlignment: Text.AlignHCenter
                                     text: {
                                         var txt = ""
-                                        if (modelData.ParentIndexNumber !== undefined && modelData.IndexNumber !== undefined) {
-                                            txt = "S" + modelData.ParentIndexNumber + ":E" + modelData.IndexNumber
-                                            if (modelData.Name) txt += " - " + modelData.Name
-                                        } else if (modelData.Name && modelData.SeriesName) {
-                                            txt = modelData.Name
+                                        if (modelData.parentIndexNumber >= 0 && modelData.indexNumber >= 0) {
+                                            txt = "S" + modelData.parentIndexNumber + ":E" + modelData.indexNumber
+                                            if (modelData.name) txt += " - " + modelData.name
+                                        } else if (modelData.name && modelData.seriesName) {
+                                            txt = modelData.name
                                         }
                                         return txt
                                     }
@@ -1103,8 +1119,8 @@ FocusScope {
                         }
 
                         Accessible.role: Accessible.Button
-                        Accessible.name: (modelData.SeriesName ? modelData.SeriesName + ", " : "") + (modelData.Name || "")
-                        Accessible.description: "Continue watching " + (modelData.SeriesName || modelData.Name || "")
+                        Accessible.name: (modelData.seriesName ? modelData.seriesName + ", " : "") + (modelData.name || "")
+                        Accessible.description: "Continue watching " + (modelData.seriesName || modelData.name || "")
                     }
                     
                     Keys.onReturnPressed: {
@@ -1146,13 +1162,13 @@ FocusScope {
                         Layout.fillWidth: true
                         spacing: Theme.spacingMedium
                         
-                        property var items: recentlyAddedMap[modelData.Id] || []
-                        property string libraryId: modelData.Id
+                        property var items: recentlyAddedMap[modelData.itemId] || []
+                        property string libraryId: modelData.itemId
                         property var recentlyAddedListRef: recentlyAddedList
                         visible: items.length > 0
                         
                         Text {
-                            text: "Recently Added - " + modelData.Name
+                            text: "Recently Added - " + modelData.name
                             font.pixelSize: Theme.fontSizeHeader
                             font.family: Theme.fontPrimary
                             font.bold: true
@@ -1245,12 +1261,21 @@ FocusScope {
                                             asynchronous: true
                                             cache: true
                                             visible: true
-                                            source: {
-                                                if (modelData.Type === "Episode" && modelData.SeriesId) {
-                                                    return LibraryService.getCachedImageUrlWithWidth(modelData.SeriesId, "Primary", 640)
-                                                }
-                                                return LibraryService.getCachedImageUrlWithWidth(modelData.Id, "Primary", 640)
+                                            property string seriesPrimaryUrl:
+                                                modelData.mediaType === "Episode"
+                                                ? root.artworkUrlFromRef(modelData.seriesPrimaryArtwork, 640)
+                                                : ""
+                                            property string itemPrimaryUrl:
+                                                root.artworkUrlFromRef(modelData.primaryArtwork, 640)
+                                            property var artworkCandidates: {
+                                                const candidates = [seriesPrimaryUrl, itemPrimaryUrl]
+                                                return candidates.filter(function(url) { return !!url })
                                             }
+                                            property int artworkCandidateIndex: 0
+                                            source: artworkCandidates.length > 0
+                                                    ? artworkCandidates[Math.min(artworkCandidateIndex,
+                                                                                 artworkCandidates.length - 1)]
+                                                    : ""
 
                                             layer.enabled: true
                                             layer.effect: MultiEffect {
@@ -1258,9 +1283,11 @@ FocusScope {
                                                 maskSource: recentMask
                                             }
 
+                                            onArtworkCandidatesChanged: artworkCandidateIndex = 0
                                             onStatusChanged: {
-                                                if (status === Image.Error && modelData.Type === "Episode") {
-                                                    source = LibraryService.getCachedImageUrl(modelData.Id, "Primary")
+                                                if (status === Image.Error
+                                                        && artworkCandidateIndex + 1 < artworkCandidates.length) {
+                                                    artworkCandidateIndex++
                                                 }
                                             }
                                         }
@@ -1301,11 +1328,11 @@ FocusScope {
                                             anchors.top: parent.top
                                             anchors.right: parent.right
                                             parentWidth: parent.width
-                                            count: (modelData.Type === "Series" && modelData.UserData) 
-                                                   ? (modelData.UserData.UnplayedItemCount || 0) : 0
-                                            isFullyWatched: (modelData.Type === "Series" && modelData.UserData) 
-                                                            ? (modelData.UserData.Played || false) : false
-                                            visible: modelData.Type === "Series"
+                                            count: (modelData.mediaType === "Series")
+                                                   ? (modelData.unplayedItemCount || 0) : 0
+                                            isFullyWatched: (modelData.mediaType === "Series")
+                                                            ? (modelData.watched || false) : false
+                                            visible: modelData.mediaType === "Series"
                                         }
 
                                         // Watched checkmark (for Movies only)
@@ -1314,11 +1341,9 @@ FocusScope {
                                             anchors.right: parent.right
                                             parentWidth: parent.width
                                             count: 0
-                                            isFullyWatched: (modelData.UserData) 
-                                                            ? (modelData.UserData.Played || false) : false
-                                            visible: modelData.Type === "Movie" && 
-                                                     modelData.UserData && 
-                                                     modelData.UserData.Played
+                                            isFullyWatched: modelData.watched || false
+                                            visible: modelData.mediaType === "Movie" &&
+                                                     modelData.watched
                                         }
                                     }
 
@@ -1328,15 +1353,15 @@ FocusScope {
                                         spacing: Theme.spacingSmall / 4
 
                                         // Title (bold, white with black outline)
-                                        // For episodes: SeriesName, For series/movies: Name
+                                        // For episodes: seriesName, For series/movies: name
                                         Text {
                                             width: parent.width
                                             horizontalAlignment: Text.AlignHCenter
                                             text: {
-                                                if (modelData.Type === "Episode") {
-                                                    return modelData.SeriesName || modelData.Name || ""
+                                                if (modelData.mediaType === "Episode") {
+                                                    return modelData.seriesName || modelData.name || ""
                                                 }
-                                                return modelData.Name || ""
+                                                return modelData.name || ""
                                             }
                                             font.pixelSize: Theme.fontSizeSmall
                                             font.family: Theme.fontPrimary
@@ -1353,29 +1378,29 @@ FocusScope {
                                             width: parent.width
                                             horizontalAlignment: Text.AlignHCenter
                                             text: {
-                                                if (modelData.Type === "Episode") {
+                                                if (modelData.mediaType === "Episode") {
                                                     var txt = ""
-                                                    if (modelData.ParentIndexNumber !== undefined && modelData.IndexNumber !== undefined) {
-                                                        txt = "S" + modelData.ParentIndexNumber + ":E" + modelData.IndexNumber
-                                                        if (modelData.Name) txt += " - " + modelData.Name
-                                                    } else if (modelData.Name) {
-                                                        txt = modelData.Name
+                                                    if (modelData.parentIndexNumber >= 0 && modelData.indexNumber >= 0) {
+                                                        txt = "S" + modelData.parentIndexNumber + ":E" + modelData.indexNumber
+                                                        if (modelData.name) txt += " - " + modelData.name
+                                                    } else if (modelData.name) {
+                                                        txt = modelData.name
                                                     }
                                                     return txt
-                                                } else if (modelData.Type === "Series") {
-                                                    var startYear = modelData.ProductionYear || extractYear(modelData.PremiereDate)
+                                                } else if (modelData.mediaType === "Series") {
+                                                    var startYear = modelData.productionYear || extractYear(modelData.premiereDate)
                                                     if (!startYear) return ""
-                                                    if (modelData.Status === "Continuing" || !modelData.EndDate) {
+                                                    if (modelData.status === "Continuing" || !modelData.endDate) {
                                                         return startYear + " - Present"
                                                     } else {
-                                                        var endYear = extractYear(modelData.EndDate)
+                                                        var endYear = extractYear(modelData.endDate)
                                                         if (endYear && endYear !== startYear) {
                                                             return startYear + " - " + endYear
                                                         }
                                                         return startYear.toString()
                                                     }
-                                                } else if (modelData.Type === "Movie") {
-                                                    var year = modelData.ProductionYear || extractYear(modelData.PremiereDate)
+                                                } else if (modelData.mediaType === "Movie") {
+                                                    var year = modelData.productionYear || extractYear(modelData.premiereDate)
                                                     return year ? year.toString() : ""
                                                 }
                                                 return ""
@@ -1403,8 +1428,8 @@ FocusScope {
                                 }
 
                                 Accessible.role: Accessible.Button
-                                Accessible.name: modelData.Name
-                                Accessible.description: "Details for " + modelData.Name
+                                Accessible.name: modelData.name
+                                Accessible.description: "Details for " + modelData.name
                             }
 
                             Keys.onReturnPressed: {
@@ -1512,11 +1537,11 @@ FocusScope {
     }
 
     function handleLibrarySelection(library) {
-        console.log("Selected library: " + library.Name)
+        console.log("Selected library: " + library.name)
         // Save focus state before navigating
         saveFocusState()
         // Emit signal to navigate to library screen
-        navigateToLibrary(library.Id, library.Name)
+        navigateToLibrary(library.itemId, library.name)
     }
     
     function handleNextUpSelection(item) {
@@ -1525,13 +1550,13 @@ FocusScope {
             return
         }
 
-        console.log("[Home] Next Up selected: " + item.Name + " - navigating to episode details")
+        console.log("[Home] Next Up selected: " + item.name + " - navigating to episode details")
         
         // Save focus state before navigating
         saveFocusState()
         
         // Navigate to episode details view instead of playing directly
-        var seriesId = item.SeriesId || ""
+        var seriesId = item.seriesId || ""
         
         // Find the library for this series (needed for navigation context)
         // For Next Up items, we may not have the library ID directly, so we use an empty string
@@ -1545,33 +1570,47 @@ FocusScope {
     function handleHeroSelection(item) {
         if (!item) return
         saveFocusState()
-        if (item.Type === "Movie") navigateToMovie(item, item.ParentId || "", "")
-        else if (item.Type === "Series") navigateToSeries(item.Id, item.ParentId || "", "")
-        else if (item.Type === "Episode") navigateToEpisode(item, item.SeriesId || "", item.ParentId || "", "")
+        const mediaType = item.mediaType || ""
+        const itemId = item.itemId || ""
+        const parentId = item.parentId || ""
+        const seriesId = item.seriesId || ""
+        if (mediaType === "Movie") navigateToMovie(item, parentId, "")
+        else if (mediaType === "Series") navigateToSeries(itemId, parentId, "")
+        else if (mediaType === "Episode") navigateToEpisode(item, seriesId, parentId, "")
     }
 
     function playHeroItem(item) {
-        if (!item || item.Type === "Series") return
-        var startTicks = item.UserData ? (item.UserData.PlaybackPositionTicks || 0) : 0
+        if (!item) return
+        const mediaType = item.mediaType || ""
+        if (mediaType === "Series") return
+        const itemId = item.itemId || ""
+        const seriesId = item.seriesId || ""
+        const seasonId = item.parentId || ""
+        // Playback stack still expects ticks; convert ms only at this boundary.
+        const startTicks = Math.round((item.positionMs || 0) * 10000)
+        var overlayLogoUrl = root.artworkUrlFromRef(item.logoArtwork, 600)
+        if (!overlayLogoUrl && seriesId) {
+            overlayLogoUrl = LibraryService.getCachedArtworkUrlForConnection(
+                        item.connectionId || "", seriesId, "logo", 0, "", 600)
+        }
         PlayerController.requestPlayback({
-            itemId: item.Id,
+            itemId: itemId,
             startPositionTicks: startTicks,
-            seriesId: item.SeriesId || "",
-            seasonId: item.ParentId || "",
-            overlayTitle: item.SeriesName || item.Name || qsTr("Now Playing"),
-            overlaySubtitle: item.Type === "Episode" ? (item.Name || "") : "",
+            seriesId: seriesId,
+            seasonId: seasonId,
+            overlayTitle: item.seriesName || item.name || qsTr("Now Playing"),
+            overlaySubtitle: mediaType === "Episode" ? (item.name || "") : "",
             overlayBackdropUrl: heroBanner.currentBackdropUrl,
-            overlayLogoUrl: item.ImageTags && item.ImageTags.Logo
-                            ? LibraryService.getCachedImageUrlWithWidth(item.Id, "Logo", 600) : "",
+            overlayLogoUrl: overlayLogoUrl,
             preferredAudioIndex: -2,
             preferredSubtitleIndex: -2,
-            isMovie: item.Type === "Movie",
+            isMovie: mediaType === "Movie",
             allowVersionPrompt: true
         })
     }
     
     function handleRecentlyAddedSelection(item, libraryId) {
-        console.log("[Home] Selected Recently Added:", item.Name, "Type:", item.Type, "Library:", libraryId)
+        console.log("[Home] Selected Recently Added:", item.name, "Type:", item.mediaType, "Library:", libraryId)
         
         // Save focus state before navigating
         saveFocusState()
@@ -1579,25 +1618,25 @@ FocusScope {
         // Find the library name for this item
         var libraryName = ""
         for (var i = 0; i < librariesModel.length; i++) {
-            if (librariesModel[i].Id === libraryId) {
-                libraryName = librariesModel[i].Name
+            if (librariesModel[i].itemId === libraryId) {
+                libraryName = librariesModel[i].name
                 break
             }
         }
         
-        if (item.Type === "Movie") {
+        if (item.mediaType === "Movie") {
             // Navigate to movie details view
             console.log("[Home] Navigating to movie details")
             navigateToMovie(item, libraryId, libraryName)
-        } else if (item.Type === "Episode") {
+        } else if (item.mediaType === "Episode") {
             // For episodes, check if there are other episodes from the same series in recently added
-            var seriesId = item.SeriesId || ""
+            var seriesId = item.seriesId || ""
             var items = recentlyAddedMap[libraryId] || []
             
             // Find all episodes from the same series in this recently added list
             var relatedEpisodes = []
             for (var j = 0; j < items.length; j++) {
-                if (items[j].Type === "Episode" && items[j].SeriesId === seriesId) {
+                if (items[j].mediaType === "Episode" && items[j].seriesId === seriesId) {
                     relatedEpisodes.push(items[j])
                 }
             }
@@ -1612,8 +1651,9 @@ FocusScope {
                 // Multiple episodes - check if they're from the same season or different seasons
                 var seasons = {}
                 for (var k = 0; k < relatedEpisodes.length; k++) {
-                    var seasonNumber = relatedEpisodes[k].ParentIndexNumber || 0
-                    var parentId = relatedEpisodes[k].ParentId || ""
+                    var seasonNumber = relatedEpisodes[k].parentIndexNumber >= 0
+                                       ? relatedEpisodes[k].parentIndexNumber : 0
+                    var parentId = relatedEpisodes[k].parentId || ""
                     if (!seasons[seasonNumber]) {
                         seasons[seasonNumber] = {
                             seasonNumber: seasonNumber,
@@ -1638,17 +1678,17 @@ FocusScope {
                     navigateToSeries(seriesId, libraryId, libraryName)
                 }
             }
-        } else if (item.Type === "Series") {
+        } else if (item.mediaType === "Series") {
             // Navigate to series details
             console.log("[Home] Navigating to series details")
-            navigateToSeries(item.Id, libraryId, libraryName)
-        } else if (item.Type === "Season") {
+            navigateToSeries(item.itemId, libraryId, libraryName)
+        } else if (item.mediaType === "Season") {
             // Navigate to season view
-            var seasonSeriesId = item.SeriesId || item.ParentId || ""
+            var seasonSeriesId = item.seriesId || item.parentId || ""
             console.log("[Home] Navigating to season view")
-            navigateToSeason(item.Id, item.IndexNumber || 0, seasonSeriesId, libraryId, libraryName)
+            navigateToSeason(item.itemId, item.indexNumber >= 0 ? item.indexNumber : 0, seasonSeriesId, libraryId, libraryName)
         } else {
-            console.log("[Home] Unknown item type:", item.Type)
+            console.log("[Home] Unknown item type:", item.mediaType)
         }
     }
 
@@ -1665,7 +1705,8 @@ FocusScope {
     Connections {
         target: LibraryService
         
-        function onViewsLoaded(views) {
+        function onCanonicalViewsLoadedForConnection(connectionId, views) {
+            if (!root.acceptsConnectionResponse(connectionId)) return
             var orderedViews = orderLibraries(views)
             librariesModel = orderedViews
             heroProvider.rebuild()
@@ -1696,7 +1737,7 @@ FocusScope {
             
             // Fetch recently added for each library
             for (var i = 0; i < orderedViews.length; i++) {
-                LibraryService.getLatestMedia(orderedViews[i].Id)
+                LibraryService.getLatestMedia(orderedViews[i].itemId)
             }
 
             // Fetch a larger random pool from all available media for backdrop rotation.
@@ -1713,15 +1754,14 @@ FocusScope {
             fullBackdropIndexTimer.restart()
         }
         
-        function onNextUpLoaded(items) {
+        function onCanonicalNextUpLoaded(connectionId, items) {
+            if (!root.acceptsConnectionResponse(connectionId)) return
             nextUpModel = items
             updateDisplayedNextUpModel()
             
             // Use section fallback only if global pool is unavailable.
             if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
-                for (var i = 0; i < items.length; i++) {
-                    root.addBackdropCandidate(items[i])
-                }
+                root.addBackdropCandidates(items)
             }
             
             // Restore focus if we had focus in Next Up section AND we're still the active screen
@@ -1732,7 +1772,8 @@ FocusScope {
             })
         }
         
-        function onLatestMediaLoaded(parentId, items) {
+        function onCanonicalLatestMediaLoaded(connectionId, parentId, items) {
+            if (!root.acceptsConnectionResponse(connectionId)) return
             // Update map safely to trigger bindings without destroying delegates
             var newMap = {}
             for (var key in recentlyAddedMap) {
@@ -1740,13 +1781,13 @@ FocusScope {
             }
             newMap[parentId] = items
             recentlyAddedMap = newMap
-            heroProvider.rebuild()
+            if (ConfigManager.heroBannerSource !== "library") {
+                heroProvider.rebuild()
+            }
             
             // Use section fallback only if global pool is unavailable.
             if (useSectionBackdropFallback && !globalBackdropPoolLoaded) {
-                for (var i = 0; i < items.length; i++) {
-                    root.addBackdropCandidate(items[i])
-                }
+                root.addBackdropCandidates(items)
             }
             
             // Note: We removed the aggressive recentlyAddedRepeater.model = null reset
@@ -1754,14 +1795,13 @@ FocusScope {
             // for the inner ListViews to update their 'items' binding.
         }
 
-        function onHomeBackdropItemsLoaded(items) {
+        function onCanonicalHomeBackdropItemsLoaded(connectionId, items) {
+            if (!root.acceptsConnectionResponse(connectionId)) return
             globalBackdropPoolLoaded = true
             loadingGlobalBackdropPool = false
             globalBackdropTimeout.stop()
             console.log("[HomeBackdrop] global items received:", items ? items.length : 0)
-            for (var i = 0; i < items.length; i++) {
-                root.addBackdropCandidate(items[i])
-            }
+            root.addBackdropCandidates(items)
             console.log("[HomeBackdrop] candidates built:", backdropCandidates.length)
             if (backdropCandidates.length === 0)
                 return
@@ -1773,21 +1813,34 @@ FocusScope {
             }
         }
 
-        function onHeroLibraryItemsLoaded(items) {
+        function onCanonicalHeroLibraryItemsLoaded(connectionId, items) {
+            if (!root.acceptsConnectionResponse(connectionId)) return
             heroProvider.handleHeroLibraryItemsLoaded(items)
         }
 
-        function onHeroSeriesOverviewsLoaded(overviewsBySeriesId) {
-            heroProvider.handleHeroSeriesOverviewsLoaded(overviewsBySeriesId)
+        function onCanonicalHeroLibraryItemsFailed(connectionId, error) {
+            if (!root.acceptsConnectionResponse(connectionId)) return
+            console.error("Error in getHeroLibraryItems: " + error)
+            heroProvider.handleHeroLibraryItemsFailed()
         }
-        
-        function onErrorOccurred(endpoint, error) {
-            console.error("Error in " + endpoint + ": " + error)
-            if (endpoint === "getHomeBackdropItems") {
-                loadingGlobalBackdropPool = false
+
+        function onCanonicalHeroSeriesOverviewsLoaded(connectionId, overviewsBySeriesId) {
+            if (!root.acceptsConnectionResponse(connectionId)) return
+            heroProvider.handleHeroSeriesOverviewsLoaded(connectionId, overviewsBySeriesId)
+        }
+
+        function onCanonicalHomeBackdropItemsFailed(connectionId, error) {
+            if (!root.acceptsConnectionResponse(connectionId)) return
+            console.error("Error in getHomeBackdropItems: " + error)
+            loadingGlobalBackdropPool = false
+            if (!globalBackdropPoolLoaded) {
                 useSectionBackdropFallback = true
                 root.hydrateBackdropFallbackFromSections()
             }
+        }
+
+        function onErrorOccurred(endpoint, error) {
+            console.error("Error in " + endpoint + ": " + error)
         }
     }
 

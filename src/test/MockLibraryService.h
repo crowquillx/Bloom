@@ -75,6 +75,7 @@ public:
     Q_INVOKABLE void getHeroSeriesOverviews(const QStringList &seriesIds) override;
     
     // URL helpers - returns placeholder URLs for test images
+    Q_INVOKABLE QString getActiveConnectionId() const override;
     Q_INVOKABLE QString getStreamUrl(const QString &itemId) override;
     Q_INVOKABLE QString getStreamUrlWithTracks(const QString &itemId, const QString &mediaSourceId = QString(),
                                                 int audioStreamIndex = -1, int subtitleStreamIndex = -1) override;

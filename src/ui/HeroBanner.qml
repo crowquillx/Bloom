@@ -48,41 +48,61 @@ FocusScope {
     }
     Accessible.description: reasonText(currentItem)
 
-    function imageUrl(item, type, width) {
-        if (!item) return ""
-        var id = item.Id
-        if (type === "Backdrop" && item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0
-                && !(item.BackdropImageTags && item.BackdropImageTags.length > 0)) {
-            id = item.ParentBackdropItemId || item.SeriesId || id
-        }
-        return id ? LibraryService.getCachedImageUrlWithWidth(id, type, width) : ""
+    function artworkUrlFromRef(artwork, width) {
+        if (!artwork || !artwork.itemId)
+            return ""
+        return LibraryService.getCachedArtworkUrlForConnection(
+                    artwork.connectionId || "",
+                    artwork.itemId,
+                    artwork.kind || "primary",
+                    artwork.index || 0,
+                    artwork.tag || "",
+                    width || 0)
     }
 
-    function logoItemId(item) {
+    function imageUrl(item, type, width) {
         if (!item) return ""
-        if (item.Type === "Episode" && item.SeriesId)
-            return item.SeriesId
-        return item.Id || ""
+        if (type === "Backdrop")
+            return artworkUrlFromRef(item.backdropArtwork, width)
+        if (type === "Logo")
+            return logoImageUrl(item, width)
+        if (type === "Primary")
+            return artworkUrlFromRef(item.primaryArtwork, width)
+        if (type === "Thumb")
+            return artworkUrlFromRef(item.thumbArtwork, width)
+        return ""
     }
 
     function logoImageUrl(item, width) {
-        var id = logoItemId(item)
-        if (!id) return ""
-        return LibraryService.getCachedImageUrlWithWidth(id, "Logo", width || 600)
+        if (!item) return ""
+        if (item.logoArtwork && item.logoArtwork.itemId)
+            return artworkUrlFromRef(item.logoArtwork, width || 600)
+        // Episodes historically resolved Logo via the parent series id; keep that when the
+        // episode itself has no logo ArtworkRef (series logo is not mapped on episodes).
+        if (item.mediaType === "Episode" && item.seriesId) {
+            return LibraryService.getCachedArtworkUrlForConnection(
+                        item.connectionId || "",
+                        item.seriesId,
+                        "logo",
+                        0,
+                        "",
+                        width || 600)
+        }
+        return ""
     }
 
     function primaryTitle(item) {
         if (!item) return ""
-        if (item.Type === "Episode")
-            return item.SeriesName || item.Name || ""
-        return item.Name || item.SeriesName || ""
+        if (item.mediaType === "Episode")
+            return item.seriesName || item.name || ""
+        return item.name || item.seriesName || ""
     }
 
     function episodeSubtitle(item) {
-        if (!item || item.Type !== "Episode") return ""
-        var episodeName = item.Name || ""
+        if (!item || item.mediaType !== "Episode") return ""
+        var episodeName = item.name || ""
         if (!episodeName) return ""
-        var seriesName = item.SeriesName || ""
+        var seriesName = item.seriesName || ""
         if (episodeName === seriesName) return ""
         return episodeName
     }
@@ -94,23 +114,25 @@ FocusScope {
     function badgeText(item) { return item ? qsTr(item.__heroReason || "") : "" }
     function synopsisText(item) {
         if (!item) return ""
-        if (item.Type === "Episode") {
-            var episodeOverview = item.Overview || ""
+        if (item.mediaType === "Episode") {
+            var episodeOverview = item.overview || ""
             if (ConfigManager.heroBannerEpisodeSynopsisEnabled && episodeOverview !== "")
                 return episodeOverview
             return item.__seriesOverview || ""
         }
-        return item.Overview || ""
+        return item.overview || ""
     }
-    function formatRuntime(ticks) {
-        if (!ticks) return ""
-        var minutes = Math.round(ticks / 600000000)
+    function formatRuntime(durationMs) {
+        if (!durationMs) return ""
+        var minutes = Math.round(durationMs / 60000)
         return minutes >= 60 ? Math.floor(minutes / 60) + "h " + (minutes % 60) + "m" : minutes + "m"
     }
     function episodeText(item) {
-        if (!item || item.Type !== "Episode") return ""
-        return "S" + String(item.ParentIndexNumber || 0).padStart(2, "0")
-             + "E" + String(item.IndexNumber || 0).padStart(2, "0")
+        if (!item || item.mediaType !== "Episode") return ""
+        var season = (item.parentIndexNumber >= 0) ? item.parentIndexNumber : 0
+        var episode = (item.indexNumber >= 0) ? item.indexNumber : 0
+        return "S" + String(season).padStart(2, "0")
+             + "E" + String(episode).padStart(2, "0")
     }
     function transitionToIndex(newIndex, direction) {
         if (heroTransition.running) {
@@ -279,10 +301,10 @@ FocusScope {
         Layout.alignment: layoutBlockAlignment
         Layout.fillWidth: layoutBlockAlignment === Qt.AlignLeft
         spacing: Theme.spacingSmall
-        MetadataChip { text: root.currentItem ? String(root.currentItem.ProductionYear || "") : "" }
+        MetadataChip { text: root.currentItem ? String(root.currentItem.productionYear || "") : "" }
         MetadataChip { text: root.episodeText(root.currentItem) }
-        MetadataChip { text: root.currentItem ? root.formatRuntime(root.currentItem.RunTimeTicks) : "" }
-        MetadataChip { text: root.currentItem ? (root.currentItem.OfficialRating || "") : "" }
+        MetadataChip { text: root.currentItem ? root.formatRuntime(root.currentItem.durationMs) : "" }
+        MetadataChip { text: root.currentItem ? (root.currentItem.officialRating || "") : "" }
     }
 
     component HeroSynopsisText: Text {
@@ -316,7 +338,7 @@ FocusScope {
 
         SecondaryActionButton {
             id: playBtn
-            visible: root.currentItem && root.currentItem.Type !== "Series"
+            visible: root.currentItem && root.currentItem.mediaType !== "Series"
             focusPolicy: root.actionsFocused ? Qt.StrongFocus : Qt.NoFocus
             text: root.currentItem && root.currentItem.__heroReason === "Continue Watching" ? qsTr("Resume") : qsTr("Play")
             iconGlyph: Icons.playArrow

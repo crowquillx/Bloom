@@ -16,7 +16,7 @@ QtObject {
     property var continueWatchingModel: []
     property var displayedNextUpModel: []
 
-    // The final hero list: array of raw Jellyfin item objects with an added
+    // The final hero list: array of canonical media maps with an added
     // __heroReason string describing why the item is featured.
     property var heroModel: []
     property var seriesOverviewCache: ({})
@@ -61,6 +61,8 @@ QtObject {
             return
         }
 
+        // Reject a late Library-source response after the configured source changes.
+        loading = false
         var pool = []
         if (source === "recentlyAdded") {
             pool = sampleRecentlyAdded(maxItems, hiddenTypes)
@@ -89,7 +91,7 @@ QtObject {
         var libs = librariesModel
         var perLib = []
         for (var i = 0; i < libs.length; i++) {
-            var items = recentlyAddedMap[libs[i].Id] || []
+            var items = recentlyAddedMap[libs[i].itemId] || []
             perLib.push(items)
         }
         var idx = 0
@@ -137,8 +139,17 @@ QtObject {
         LibraryService.getHeroLibraryItems(requestLimit, libraryIds, unwatchedOnly)
     }
 
+    function onHeroLibraryItemsFailed() {
+        if (ConfigManager.heroBannerSource === "library") {
+            loading = false
+        }
+    }
+
     function onHeroLibraryItemsLoaded(items) {
-        if (!loading) return // stale response
+        if (!loading || ConfigManager.heroBannerSource !== "library") {
+            loading = false
+            return
+        }
         loading = false
         var maxItems = ConfigManager.heroBannerMaxItems
         var hiddenTypes = ConfigManager.heroBannerHiddenItemTypes || []
@@ -155,21 +166,29 @@ QtObject {
     }
 
     function isEligible(item, hiddenTypes) {
-        if (!item || !item.Id) return false
-        var type = item.Type || ""
+        if (!item || !item.itemId) return false
+        var type = item.mediaType || ""
         for (var i = 0; i < hiddenTypes.length; i++) {
             if (type === hiddenTypes[i]) return false
         }
-        // Must have at least one usable image (backdrop, primary, or parent backdrop).
+        // Must have at least one usable image (backdrop, primary, logo, or parent/series art).
         if (!hasAnyImage(item)) return false
         return true
     }
 
+    function hasArtworkRef(artwork) {
+        return !!(artwork && artwork.itemId)
+    }
+
     function hasAnyImage(item) {
-        if (item.BackdropImageTags && item.BackdropImageTags.length > 0) return true
-        if (item.ImageTags && (item.ImageTags.Backdrop || item.ImageTags.Primary || item.ImageTags.Logo)) return true
-        if (item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0) return true
-        if (item.SeriesThumbImageTag || item.ParentThumbImageTag) return true
+        if (hasArtworkRef(item.backdropArtwork)) return true
+        if (hasArtworkRef(item.primaryArtwork)) return true
+        if (hasArtworkRef(item.logoArtwork)) return true
+        if (hasArtworkRef(item.thumbArtwork)) return true
+        if (hasArtworkRef(item.parentPrimaryArtwork)) return true
+        if (hasArtworkRef(item.seriesPrimaryArtwork)) return true
+        if (hasArtworkRef(item.seriesThumbArtwork)) return true
+        if (hasArtworkRef(item.parentThumbArtwork)) return true
         return false
     }
 
@@ -181,12 +200,17 @@ QtObject {
         return copy
     }
 
+    function seriesKey(connectionId, seriesId) {
+        return (connectionId || "") + "\n" + (seriesId || "")
+    }
+
     function prepareHeroItem(item) {
         var copy = shallowClone(item)
-        if (copy.Type === "Episode") {
-            var seriesId = copy.SeriesId || ""
-            if (seriesId && seriesOverviewCache[seriesId] !== undefined) {
-                copy.__seriesOverview = seriesOverviewCache[seriesId] || ""
+        if (copy.mediaType === "Episode") {
+            var seriesId = copy.seriesId || ""
+            var key = seriesKey(copy.connectionId, seriesId)
+            if (seriesId && seriesOverviewCache[key] !== undefined) {
+                copy.__seriesOverview = seriesOverviewCache[key] || ""
             }
         }
         return copy
@@ -196,10 +220,11 @@ QtObject {
         var result = []
         for (var i = 0; i < items.length; i++) {
             var copy = shallowClone(items[i])
-            if (copy.Type === "Episode") {
-                var seriesId = copy.SeriesId || ""
-                if (seriesId && seriesOverviewCache[seriesId] !== undefined) {
-                    copy.__seriesOverview = seriesOverviewCache[seriesId] || ""
+            if (copy.mediaType === "Episode") {
+                var seriesId = copy.seriesId || ""
+                var key = seriesKey(copy.connectionId, seriesId)
+                if (seriesId && seriesOverviewCache[key] !== undefined) {
+                    copy.__seriesOverview = seriesOverviewCache[key] || ""
                 }
             }
             result.push(copy)
@@ -217,11 +242,12 @@ QtObject {
         }
         for (var i = 0; i < items.length; i++) {
             var item = items[i]
-            if (!item || item.Type !== "Episode") continue
-            var seriesId = item.SeriesId || ""
+            if (!item || item.mediaType !== "Episode") continue
+            var seriesId = item.seriesId || ""
             if (!seriesId) continue
-            if (seriesOverviewCache[seriesId] !== undefined || pending[seriesId]) continue
-            pending[seriesId] = true
+            var key = seriesKey(item.connectionId, seriesId)
+            if (seriesOverviewCache[key] !== undefined || pending[key]) continue
+            pending[key] = true
             ids.push(seriesId)
         }
         if (ids.length <= 0) return
@@ -229,7 +255,7 @@ QtObject {
         LibraryService.getHeroSeriesOverviews(ids)
     }
 
-    function handleHeroSeriesOverviewsLoaded(overviewsBySeriesId) {
+    function handleHeroSeriesOverviewsLoaded(connectionId, overviewsBySeriesId) {
         var cache = {}
         for (var existing in seriesOverviewCache) {
             if (Object.prototype.hasOwnProperty.call(seriesOverviewCache, existing)) {
@@ -246,8 +272,9 @@ QtObject {
 
         for (var id in overviewsBySeriesId) {
             if (!Object.prototype.hasOwnProperty.call(overviewsBySeriesId, id)) continue
-            cache[id] = overviewsBySeriesId[id] || ""
-            delete pending[id]
+            var key = seriesKey(connectionId, id)
+            cache[key] = overviewsBySeriesId[id] || ""
+            delete pending[key]
         }
 
         seriesOverviewCache = cache
@@ -255,27 +282,36 @@ QtObject {
         heroModel = hydrateSeriesOverviews(heroModel)
     }
 
+    function mediaKey(item) {
+        if (!item) return ""
+        return (item.connectionId || "") + "\n" + (item.itemId || "")
+    }
+
     function buildSeenSet(existingPool) {
         var seen = {}
         if (existingPool) {
             for (var i = 0; i < existingPool.length; i++) {
-                seen[existingPool[i].Id] = true
+                seen[mediaKey(existingPool[i])] = true
             }
         }
         return seen
     }
 
     function alreadySeen(item, seen) {
-        return !!seen[item.Id]
+        return !!seen[mediaKey(item)]
     }
 
     function markSeen(item, seen) {
-        seen[item.Id] = true
+        seen[mediaKey(item)] = true
     }
 
     // External trigger: HomeScreen calls this when the Library source fetch
-    // completes via the LibraryService.heroLibraryItemsLoaded signal.
+    // completes via the LibraryService.canonicalHeroLibraryItemsLoaded signal.
     function handleHeroLibraryItemsLoaded(items) {
         onHeroLibraryItemsLoaded(items)
+    }
+
+    function handleHeroLibraryItemsFailed() {
+        onHeroLibraryItemsFailed()
     }
 }

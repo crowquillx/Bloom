@@ -46,6 +46,9 @@ void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()
         {QStringLiteral("SeriesId"), QStringLiteral("series-1")},
         {QStringLiteral("ParentPrimaryImageTag"), QStringLiteral("parent-primary-tag")},
         {QStringLiteral("SeriesPrimaryImageTag"), QStringLiteral("series-primary-tag")},
+        {QStringLiteral("SeriesThumbImageTag"), QStringLiteral("series-thumb-tag")},
+        {QStringLiteral("ParentThumbItemId"), QStringLiteral("parent-thumb-owner")},
+        {QStringLiteral("ParentThumbImageTag"), QStringLiteral("parent-thumb-tag")},
         {QStringLiteral("Overview"), QStringLiteral("A sample overview")},
         {QStringLiteral("ProductionYear"), 2024},
         {QStringLiteral("PremiereDate"), QStringLiteral("2024-01-15T00:00:00.000Z")},
@@ -132,6 +135,34 @@ void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()
              QStringLiteral("series-1"));
     QCOMPARE(seriesPrimary.value(QStringLiteral("tag")).toString(),
              QStringLiteral("series-primary-tag"));
+    const QVariantMap seriesThumb =
+        item.value(QStringLiteral("seriesThumbArtwork")).toMap();
+    QCOMPARE(seriesThumb.value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("series-1"));
+    QCOMPARE(seriesThumb.value(QStringLiteral("kind")).toString(),
+             QStringLiteral("thumb"));
+    QCOMPARE(seriesThumb.value(QStringLiteral("tag")).toString(),
+             QStringLiteral("series-thumb-tag"));
+    const QVariantMap parentThumb =
+        item.value(QStringLiteral("parentThumbArtwork")).toMap();
+    QCOMPARE(parentThumb.value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("parent-thumb-owner"));
+    QCOMPARE(parentThumb.value(QStringLiteral("kind")).toString(),
+             QStringLiteral("thumb"));
+    QCOMPARE(parentThumb.value(QStringLiteral("tag")).toString(),
+             QStringLiteral("parent-thumb-tag"));
+    const QVariantMap fallbackParentThumb = JellyfinModelMapper::mediaItem(
+        QJsonObject{
+            {QStringLiteral("Id"), QStringLiteral("episode-thumb-fallback")},
+            {QStringLiteral("ParentId"), QStringLiteral("season-thumb-owner")},
+            {QStringLiteral("ParentThumbImageTag"), QStringLiteral("fallback-thumb-tag")}
+        },
+        QStringLiteral("connection-1"))
+        .value(QStringLiteral("parentThumbArtwork")).toMap();
+    QCOMPARE(fallbackParentThumb.value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("season-thumb-owner"));
+    QCOMPARE(fallbackParentThumb.value(QStringLiteral("tag")).toString(),
+             QStringLiteral("fallback-thumb-tag"));
     const QVariantMap fallbackParentPrimary = JellyfinModelMapper::mediaItem(
         QJsonObject{
             {QStringLiteral("Id"), QStringLiteral("episode-2")},
