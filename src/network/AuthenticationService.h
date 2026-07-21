@@ -102,6 +102,9 @@ public:
                              const QString &connectionId) const;
     QVariantList mapMediaItems(const QJsonArray &wireItems,
                                const QString &connectionId) const;
+    QVariantList mapChapters(const QJsonArray &wireChapters,
+                             const QString &connectionId,
+                             const QString &itemId) const;
     bool isAuthenticated() const { return !m_accessToken.isEmpty() && !m_userId.isEmpty(); }
     bool isRestoringSession() const { return m_isRestoringSession; }
     

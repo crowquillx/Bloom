@@ -82,6 +82,15 @@ QVariantList AuthenticationService::mapMediaItems(const QJsonArray &wireItems,
         : QVariantList{};
 }
 
+QVariantList AuthenticationService::mapChapters(const QJsonArray &wireChapters,
+                                                 const QString &connectionId,
+                                                 const QString &itemId) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapChapters(wireChapters, connectionId, itemId)
+        : QVariantList{};
+}
+
 QNetworkAccessManager *AuthenticationService::networkManager() const
 {
     return m_transport->networkManager();

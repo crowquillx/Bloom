@@ -12,14 +12,18 @@ import BloomUI
  *       anchors.left: parent.left
  *       anchors.right: parent.right
  *       anchors.bottom: parent.bottom
- *       positionTicks: modelData.UserData ? modelData.UserData.PlaybackPositionTicks : 0
- *       runtimeTicks: modelData.RunTimeTicks || 0
+ *       positionMs: modelData.positionMs || 0
+ *       durationMs: modelData.durationMs || 0
  *   }
  */
 Item {
     id: root
     
-    // Progress data (in Jellyfin ticks - 10,000,000 ticks = 1 second)
+    // Canonical progress data in milliseconds.
+    property real positionMs: 0
+    property real durationMs: 0
+
+    // Transitional aliases for unmigrated callers. New code must use milliseconds.
     property var positionTicks: 0
     property var runtimeTicks: 0
     
@@ -32,10 +36,13 @@ Item {
     
     // Computed progress (0.0 to 1.0)
     readonly property real progress: {
-        if (!runtimeTicks || runtimeTicks <= 0 || !positionTicks || positionTicks <= 0) {
+        const usesMilliseconds = positionMs > 0 || durationMs > 0
+        const position = usesMilliseconds ? positionMs : positionTicks
+        const duration = usesMilliseconds ? durationMs : runtimeTicks
+        if (!duration || duration <= 0 || !position || position <= 0) {
             return 0
         }
-        return Math.min(1.0, positionTicks / runtimeTicks)
+        return Math.min(1.0, position / duration)
     }
     
     // Only visible when there's actual progress

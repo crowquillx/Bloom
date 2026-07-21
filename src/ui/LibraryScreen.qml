@@ -674,7 +674,7 @@ FocusScope {
                     // Store the season index for navigation context
                     root._lastSelectedSeasonIndex = seasonIndex
                     var season = SeriesDetailsViewModel.seasonsModel.getItem(seasonIndex)
-                    if (season && season.Id) {
+                    if (season && season.itemId) {
                         handleSelection(season)
                     }
                 }
@@ -685,17 +685,29 @@ FocusScope {
                 if (SeriesDetailsViewModel.seriesId === root.currentSeriesId
                         && SeriesDetailsViewModel.logoUrl !== "") {
                     overlayLogoUrl = SeriesDetailsViewModel.logoUrl
-                } else if (root.currentSeriesId && root.currentSeriesData && root.currentSeriesData.ImageTags
+                } else if (root.currentSeriesData && root.currentSeriesData.logoArtwork) {
+                    const artwork = root.currentSeriesData.logoArtwork
+                    overlayLogoUrl = LibraryService.getCachedArtworkUrlForConnection(
+                                artwork.connectionId || "",
+                                artwork.itemId || "",
+                                artwork.kind || "logo",
+                                artwork.index || 0,
+                                artwork.tag || "",
+                                600)
+                } else if (root.currentSeriesId && root.currentSeriesData
+                           && root.currentSeriesData.ImageTags
                            && root.currentSeriesData.ImageTags.Logo) {
-                    overlayLogoUrl = LibraryService.getCachedImageUrlWithWidth(root.currentSeriesId, "Logo", 600)
+                    // Home remains on its raw compatibility payload until its own migration.
+                    overlayLogoUrl = LibraryService.getCachedImageUrlWithWidth(
+                                root.currentSeriesId, "Logo", 600)
                 }
                 root.requestPlaybackWithResolvedLibrary({
                     itemId: episodeId,
                     startPositionTicks: startPositionTicks || 0,
                     seriesId: root.currentSeriesId,
                     seasonId: "",
-                    overlayTitle: root.currentSeriesData && root.currentSeriesData.Name
-                                  ? root.currentSeriesData.Name
+                    overlayTitle: root.currentSeriesData
+                                  ? (root.currentSeriesData.name || root.currentSeriesData.Name || qsTr("Now Playing"))
                                   : qsTr("Now Playing"),
                     overlaySubtitle: qsTr("Episode"),
                     overlayBackdropUrl: root.currentBackdropUrl,
@@ -730,7 +742,8 @@ FocusScope {
         
         SeriesSeasonEpisodeView {
             seriesId: root.currentSeriesId
-            seriesName: root.currentSeriesData ? root.currentSeriesData.Name : ""
+            seriesName: root.currentSeriesData
+                        ? (root.currentSeriesData.name || root.currentSeriesData.Name || "") : ""
             initialSeasonId: root.currentSeasonId
             initialSeasonIndex: root._lastSelectedSeasonIndex
             initialEpisodeId: root.initialEpisodeId
@@ -2045,31 +2058,16 @@ FocusScope {
                         "stackSize:", navigationStack.length)
             
             // Keep series context
-            var seriesId = resolveSeriesId(item)
+            const seriesId = resolveSeriesId(item)
             currentSeriesId = seriesId
             
             // Set season properties
             currentSeasonId = remoteId
-            const canonicalSeasonNumber = item.indexNumber !== undefined && item.indexNumber >= 0
-                    ? item.indexNumber : undefined
-            currentSeasonNumber = canonicalSeasonNumber !== undefined
-                    ? canonicalSeasonNumber : (item.IndexNumber || 0)
-            currentSeasonName = item.name || item.Name || ("Season " + currentSeasonNumber)
+            currentSeasonNumber = item.indexNumber !== undefined && item.indexNumber >= 0
+                    ? item.indexNumber : 0
+            currentSeasonName = item.name || ("Season " + currentSeasonNumber)
 
-            // Series details remains on the compatibility payload in this slice.
-            if (item.primaryArtwork && item.primaryArtwork.itemId) {
-                currentSeasonPosterUrl = LibraryService.getCachedArtworkUrlForConnection(
-                            item.primaryArtwork.connectionId || "",
-                            item.primaryArtwork.itemId,
-                            item.primaryArtwork.kind || "primary",
-                            item.primaryArtwork.index || 0,
-                            item.primaryArtwork.tag || "",
-                            400)
-            } else if (item.ImageTags && item.ImageTags.Primary) {
-                currentSeasonPosterUrl = LibraryService.getCachedImageUrlWithWidth(remoteId, "Primary", 400)
-            } else {
-                currentSeasonPosterUrl = ""
-            }
+            currentSeasonPosterUrl = item.imageUrl || ""
             
             showSeriesDetails = false
             showSeasonView = true
@@ -2376,13 +2374,14 @@ FocusScope {
     function showEpisodeDetails(episodeData, forcePushContext) {
         // Show episode using the SeriesSeasonEpisodeView to allow full season/episode navigation
         // Capture episode index for restoration when coming back to season view
-        var shouldPushContext = forcePushContext === true
+        const shouldPushContext = forcePushContext === true
                                 || !isInitialDirectNavigationEntry()
+        const targetEpisodeId = episodeData ? (episodeData.itemId || episodeData.Id || "") : ""
         var episodeIndex = -1
         if (SeriesDetailsViewModel.episodesModel) {
-            for (var i = 0; i < SeriesDetailsViewModel.episodesModel.rowCount(); i++) {
-                var ep = SeriesDetailsViewModel.episodesModel.getItem(i)
-                if (ep && ep.Id === episodeData.Id) {
+            for (let i = 0; i < SeriesDetailsViewModel.episodesModel.rowCount(); i++) {
+                const ep = SeriesDetailsViewModel.episodesModel.getItem(i)
+                if (ep && ep.itemId === targetEpisodeId) {
                     episodeIndex = i
                     break
                 }
@@ -2421,7 +2420,8 @@ FocusScope {
 
         // Extract seasonId from episode data so the view initializes with the correct season.
         if (episodeData) {
-            var extractedSeasonId = episodeData.SeasonId || episodeData.ParentId || ""
+            const extractedSeasonId = episodeData.seasonId || episodeData.parentId
+                    || episodeData.SeasonId || episodeData.ParentId || ""
             if (extractedSeasonId && currentSeasonId !== extractedSeasonId) {
                 console.log("[Library] Using seasonId from episode data:", extractedSeasonId)
                 currentSeasonId = extractedSeasonId
@@ -2455,9 +2455,9 @@ FocusScope {
         var episodeIndex = -1
         var lookupEpisodeId = episodeId || initialEpisodeId
         if (SeriesDetailsViewModel.episodesModel && lookupEpisodeId !== "") {
-            for (var i = 0; i < SeriesDetailsViewModel.episodesModel.rowCount(); i++) {
-                var ep = SeriesDetailsViewModel.episodesModel.getItem(i)
-                if (ep && (ep.Id === lookupEpisodeId || ep.itemId === lookupEpisodeId)) {
+            for (let i = 0; i < SeriesDetailsViewModel.episodesModel.rowCount(); i++) {
+                const ep = SeriesDetailsViewModel.episodesModel.getItem(i)
+                if (ep && ep.itemId === lookupEpisodeId) {
                     episodeIndex = i
                     break
                 }
@@ -2793,41 +2793,43 @@ FocusScope {
     }
 
     Connections {
-        target: LibraryService
-        // Series details are loaded via LibraryService
-        function onSeriesDetailsLoaded(seriesId, seriesData) {
-            if (seriesId === currentSeriesId) {
-                currentSeriesData = seriesData
-                console.log("[Library] Series details loaded:", seriesData.Name)
+        target: SeriesDetailsViewModel
 
-                // If we came from direct navigation (Home screen), update backdrop now
-                // that we have the series data
-                if (directNavigationMode && showSeriesDetails) {
-                    updateBackdropForItem(seriesData)
-                    console.log("[Library] Direct navigation - updated backdrop from series data")
-                }
+        function onSeriesDataChanged() {
+            const responseSeriesId = SeriesDetailsViewModel.seriesId
+            if (responseSeriesId !== "" && responseSeriesId !== currentSeriesId) {
+                return
+            }
+            currentSeriesData = SeriesDetailsViewModel.getSeriesData()
+            if (responseSeriesId === "") {
+                return
+            }
+            console.log("[Library] Series details loaded:", currentSeriesData.name)
+            if (directNavigationMode && showSeriesDetails) {
+                updateBackdropForItem(currentSeriesData)
+                console.log("[Library] Direct navigation - updated backdrop from series data")
             }
         }
-        function onNextUnplayedEpisodeLoaded(seriesId, episodeData) {
-            if (seriesId === currentSeriesId) {
-                currentNextEpisode = episodeData
-                console.log("[Library] Next unplayed episode loaded:", episodeData.Name || "None")
+
+        function onNextEpisodeChanged() {
+            const responseSeriesId = SeriesDetailsViewModel.seriesId
+            if (responseSeriesId !== "" && responseSeriesId !== currentSeriesId) {
+                return
             }
+            currentNextEpisode = SeriesDetailsViewModel.getNextEpisodeData()
+            console.log("[Library] Next unplayed episode loaded:", currentNextEpisode.name || "None")
         }
-        function onSeriesWatchedStatusChanged(seriesId) {
-            if (seriesId === currentSeriesId) {
-                console.log("[Library] Series watched status changed, reloading details")
-                // Reload series details to get updated UserData
-                LibraryService.getSeriesDetails(seriesId)
+
+        function onSeasonsLoaded() {
+            if (SeriesDetailsViewModel.seriesId !== currentSeriesId) {
+                return
             }
-        }
-        // For series details view, we still need to handle seasons loading via itemsLoaded
-        function onItemsLoaded(parentId, items) {
-            if (showSeriesDetails && parentId === currentSeriesId) {
-                currentSeriesSeasons = items
+            const seasons = []
+            for (let index = 0; index < SeriesDetailsViewModel.seasonsModel.rowCount(); ++index) {
+                seasons.push(SeriesDetailsViewModel.seasonsModel.getItem(index))
             }
+            currentSeriesSeasons = seasons
         }
-        
     }
 
     // Connection to SeriesDetailsViewModel for direct navigation backdrop updates
@@ -2972,8 +2974,6 @@ FocusScope {
             parts.push(childCount + " items")
         if (mediaType === "Movie" && durationMs)
             parts.push(Math.round(durationMs / 60000) + " min")
-        else if (mediaType === "Movie" && item.RunTimeTicks)
-            parts.push(Math.round(item.RunTimeTicks / 600000000) + " min")
         return parts.join(" • ")
     }
 

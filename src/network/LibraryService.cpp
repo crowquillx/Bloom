@@ -97,13 +97,16 @@ void addFields(QUrlQuery &urlQuery, bool includeHeavyFields)
         "ParentBackdropImageItemId",
         "ParentBackdropItemId",
         "ParentPrimaryImageTag",
+        "ParentPrimaryImageItemId",
         "SeriesPrimaryImageTag",
         "ProductionYear",
         "PremiereDate",
         "DateCreated",
         "ChildCount",
         "ParentId",
+        "SeasonId",
         "SeriesId",
+        "SeriesName",
         "UserData",
         "RunTimeTicks",
         "Overview",
@@ -123,7 +126,7 @@ void addFields(QUrlQuery &urlQuery, bool includeHeavyFields)
     }
 
     urlQuery.addQueryItem("Fields", fields.join(","));
-    urlQuery.addQueryItem("EnableImageTypes", "Primary,Backdrop,Thumb");
+    urlQuery.addQueryItem("EnableImageTypes", "Primary,Backdrop,Thumb,Logo");
 }
 
 QString buildItemsEndpoint(const QString &userId, const LibraryItemQuery &query)
@@ -447,6 +450,7 @@ void LibraryService::getItems(const LibraryItemQuery &query)
             if (httpStatus == 304 && query.useCacheValidation) {
                 emit itemsNotModified(parentId);
                 emit itemsNotModifiedForQuery(parentId, queryKey);
+                emit canonicalItemsNotModifiedForConnection(connectionId, parentId, queryKey);
                 return;
             }
 
@@ -475,10 +479,18 @@ void LibraryService::getItems(const LibraryItemQuery &query)
                         emit itemsLoaded(result.parentId, result.items);
                         emit itemsLoadedWithTotal(result.parentId, result.items, result.totalRecordCount);
                         emit itemsLoadedWithTotalForQuery(result.parentId, result.queryKey, result.items, result.totalRecordCount);
+                        const QVariantList canonicalItems =
+                            m_authService->mapMediaItems(result.items, connectionId);
                         emit canonicalItemsLoadedWithTotalForQuery(
                             result.parentId,
                             result.queryKey,
-                            m_authService->mapMediaItems(result.items, connectionId),
+                            canonicalItems,
+                            result.totalRecordCount);
+                        emit canonicalItemsLoadedForConnection(
+                            connectionId,
+                            result.parentId,
+                            result.queryKey,
+                            canonicalItems,
                             result.totalRecordCount);
                     } else {
                         NetworkError error;
@@ -511,10 +523,18 @@ void LibraryService::getItems(const LibraryItemQuery &query)
                 emit itemsLoaded(parentId, items);
                 emit itemsLoadedWithTotal(parentId, items, totalRecordCount);
                 emit itemsLoadedWithTotalForQuery(parentId, queryKey, items, totalRecordCount);
+                const QVariantList canonicalItems =
+                    m_authService->mapMediaItems(items, connectionId);
                 emit canonicalItemsLoadedWithTotalForQuery(
                     parentId,
                     queryKey,
-                    m_authService->mapMediaItems(items, connectionId),
+                    canonicalItems,
+                    totalRecordCount);
+                emit canonicalItemsLoadedForConnection(
+                    connectionId,
+                    parentId,
+                    queryKey,
+                    canonicalItems,
                     totalRecordCount);
             }
         });
@@ -1000,11 +1020,13 @@ void LibraryService::getChapters(const QString &itemId)
         return;
     }
 
-    if (m_inFlightChapterRequests.contains(itemId)) {
+    const QString connectionId = activeConnectionId(m_authService);
+    const QString requestKey = connectionId + QLatin1Char('\n') + itemId;
+    if (m_inFlightChapterRequests.contains(requestKey)) {
         qCDebug(lcLibrary) << "LibraryService: Skipping duplicate chapter request for item" << itemId;
         return;
     }
-    m_inFlightChapterRequests.insert(itemId);
+    m_inFlightChapterRequests.insert(requestKey);
 
     const QString endpoint = buildChaptersEndpoint(m_authService->getUserId(), itemId);
     sendRequestWithRetry(endpoint,
@@ -1012,8 +1034,8 @@ void LibraryService::getChapters(const QString &itemId)
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, itemId](QNetworkReply *reply) {
-            m_inFlightChapterRequests.remove(itemId);
+        [this, itemId, connectionId, requestKey](QNetworkReply *reply) {
+            m_inFlightChapterRequests.remove(requestKey);
             const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             if (!doc.isObject()) {
                 qCWarning(lcLibrary) << "LibraryService: Invalid chapter response for item" << itemId;
@@ -1045,9 +1067,13 @@ void LibraryService::getChapters(const QString &itemId)
                 chapters.append(chapter);
             }
             emit chaptersLoaded(itemId, chapters);
+            emit canonicalChaptersLoaded(
+                connectionId,
+                itemId,
+                m_authService->mapChapters(array, connectionId, itemId));
         },
-        [this, itemId](const NetworkError &error) {
-            m_inFlightChapterRequests.remove(itemId);
+        [this, itemId, requestKey](const NetworkError &error) {
+            m_inFlightChapterRequests.remove(requestKey);
             emit chaptersFailed(itemId, error.userMessage);
         });
 }
@@ -1131,9 +1157,11 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
     const QStringList fields = {
         "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
         "Genres", "Studios", "People", "ChildCount", "ParentId", "UserData",
-        "ProductionYear", "PremiereDate", "EndDate", "ProviderIds"
+        "ProductionYear", "PremiereDate", "EndDate", "ProviderIds",
+        "RecursiveItemCount", "Status"
     };
     
+    const QString connectionId = activeConnectionId(m_authService);
     QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
         .arg(m_authService->getUserId(), seriesId, fields.join(","));
     
@@ -1148,11 +1176,12 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
             }
             return m_authService->networkManager()->get(request);
         },
-        [this, seriesId, endpoint](QNetworkReply *reply) {
+        [this, seriesId, endpoint, connectionId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (httpStatus == 304) {
                 emit seriesDetailsNotModified(seriesId);
+                emit canonicalSeriesDetailsNotModified(connectionId, seriesId);
                 return;
             }
 
@@ -1174,23 +1203,33 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
                 emitError(error);
                 return;
             }
-            emit seriesDetailsLoaded(seriesId, doc.object());
+            const QJsonObject wireSeries = doc.object();
+            emit seriesDetailsLoaded(seriesId, wireSeries);
+            emit canonicalSeriesDetailsLoaded(
+                connectionId,
+                seriesId,
+                m_authService->mapMediaItem(wireSeries, connectionId));
         });
 }
 
 void LibraryService::getSimilarItems(const QString &itemId, int limit)
 {
+    const QString connectionId = activeConnectionId(m_authService);
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getSimilarItems";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
         emit similarItemsFailed(itemId, error.userMessage);
+        emit canonicalSimilarItemsFailedForConnection(
+            connectionId, itemId, error.userMessage);
         return;
     }
 
     if (itemId.isEmpty()) {
-        emit similarItemsFailed(itemId, tr("Item ID is empty"));
+        const QString error = tr("Item ID is empty");
+        emit similarItemsFailed(itemId, error);
+        emit canonicalSimilarItemsFailedForConnection(connectionId, itemId, error);
         return;
     }
 
@@ -1205,7 +1244,6 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
         "ChildCount"
     };
 
-    const QString connectionId = activeConnectionId(m_authService);
     QString endpoint = QString("/Items/%1/Similar?UserId=%2&Limit=%3&Fields=%4&EnableImageTypes=Primary")
                            .arg(itemId, m_authService->getUserId())
                            .arg(qMax(1, limit))
@@ -1224,6 +1262,8 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
                 error.code = -2;
                 error.userMessage = tr("Invalid similar items response");
                 emit similarItemsFailed(itemId, error.userMessage);
+                emit canonicalSimilarItemsFailedForConnection(
+                    connectionId, itemId, error.userMessage);
                 return;
             }
 
@@ -1234,6 +1274,8 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
                 error.code = -2;
                 error.userMessage = tr("Invalid similar items response");
                 emit similarItemsFailed(itemId, error.userMessage);
+                emit canonicalSimilarItemsFailedForConnection(
+                    connectionId, itemId, error.userMessage);
                 return;
             }
 
@@ -1243,9 +1285,12 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
                 : QVariantList{};
             emit similarItemsLoaded(itemId, wireItems);
             emit canonicalSimilarItemsLoaded(itemId, canonicalItems);
+            emit canonicalSimilarItemsLoadedForConnection(connectionId, itemId, canonicalItems);
         },
-        [this, itemId](const NetworkError &error) {
+        [this, itemId, connectionId](const NetworkError &error) {
             emit similarItemsFailed(itemId, error.userMessage);
+            emit canonicalSimilarItemsFailedForConnection(
+                connectionId, itemId, error.userMessage);
         });
 }
 
@@ -1293,6 +1338,7 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId,
         QStringLiteral("AirsAfterSeasonNumber"),
         QStringLiteral("AirsBeforeEpisodeNumber")
     };
+    const QString connectionId = activeConnectionId(m_authService);
     QString endpoint = QString("/Users/%1/Items?ParentId=%2&Recursive=true&IncludeItemTypes=Episode&Fields=%3&SortBy=ParentIndexNumber,IndexNumber,SortName&EnableImageTypes=Primary,Thumb")
         .arg(m_authService->getUserId(), seriesId, fields.join(','));
     
@@ -1301,7 +1347,7 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId,
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, seriesId, excludeItemId, requestContext](QNetworkReply *reply) {
+        [this, seriesId, excludeItemId, requestContext, connectionId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
@@ -1325,6 +1371,13 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId,
             const QJsonObject selectedEpisode =
                 NextEpisodeResolver::resolveBestNextEpisode(items, excludeItemId);
             emit nextUnplayedEpisodeLoaded(seriesId, selectedEpisode, requestContext);
+            emit canonicalNextUnplayedEpisodeLoaded(
+                connectionId,
+                seriesId,
+                selectedEpisode.isEmpty()
+                    ? QVariantMap{}
+                    : m_authService->mapMediaItem(selectedEpisode, connectionId),
+                requestContext);
         },
         [this, seriesId, requestContext](const NetworkError &error) {
             emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);

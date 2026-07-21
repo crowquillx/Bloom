@@ -34,12 +34,9 @@ The types expose temporary `QVariantMap` projections so existing QML-facing faç
 
 `JellyfinModelMapper` converts Jellyfin item, user-state, person, artwork, chapter, and tick fields into Bloom canonical values. Jellyfin ticks are converted to milliseconds there and must not be introduced into new model or QML APIs.
 
-`LibraryService` asks the selected `IProviderAdapter` to map item and similar-item wire DTOs exactly once (scoped with `activeConnectionId()`), then emits:
+`LibraryService` asks the selected `IProviderAdapter` to map item, item-list, similar-item, series, next-episode, and chapter wire DTOs exactly once. Connection-aware canonical signals carry the `connectionId` captured when the request starts, so asynchronous mapping and consumers never substitute a later active connection.
 
-- raw compatibility signals (`itemLoaded`, `similarItemsLoaded`) for unmigrated flows
-- parallel canonical signals (`canonicalItemLoaded`, `canonicalSimilarItemsLoaded`) for migrated consumers
-
-Raw signals are transitional and remain until Home, Series, and remaining detail flows finish migrating. New code must connect to the canonical signals and must not fall back to PascalCase wire keys.
+Raw compatibility signals remain for unmigrated flows. Migrated consumers connect only to the parallel `canonical*` signals and must not fall back to PascalCase wire keys.
 
 Existing list/detail/player flows are migrated in reviewable slices. During migration, compatibility façades may retain old methods, but canonical consumers must not fall back to PascalCase wire keys.
 
@@ -47,6 +44,7 @@ Existing list/detail/player flows are migrated in reviewable slices. During migr
 
 - **Movie Details**: `MovieDetailsViewModel` and `MovieDetailsView.qml` consume only canonical item/similar-item payloads. Cached movie and similar JSON is canonical (`*_details_canonical.json` / `*_similar_items_canonical.json`); wire-shaped disk caches are rejected. Artwork resolves through `ArtworkRef` maps and `LibraryService::getCachedArtworkUrl`. Display timing uses `durationMs` / `positionMs`. Playback request payloads still convert resume position to ticks at the QML→player compatibility boundary until the playback request contract is migrated.
 - **Root libraries**: `LibraryService` emits canonical views and query-correlated canonical item lists alongside the raw compatibility signals. `LibraryViewModel`, the root `LibraryScreen` grid, `Sidebar`, and per-library settings rows consume camelCase media projections only. Library disk caches reject provider wire-shaped rows, SWR comparisons use canonical `itemId`, and poster fallbacks resolve `ArtworkRef` maps. Query construction keeps provider sort/include tokens at the service boundary.
+- **Series Details and seasons**: `SeriesDetailsViewModel`, `SeriesDetailsView.qml`, and `SeriesSeasonEpisodeView.qml` consume canonical series, season, episode, next-episode, similar-item, focused-episode, and chapter projections. Season/episode roles expose `durationMs` / `positionMs`; specials retain provider placement semantics through canonical `airsBefore*` / `airsAfter*` fields. Series, season, episode, and recommendation caches use `*_canonical.json` names and reject wire-shaped payloads. Artwork always resolves from connection-scoped `ArtworkRef` maps. Playback requests convert milliseconds to ticks only at the existing QML→player compatibility edge.
 
 ## Artwork identity
 
@@ -61,9 +59,10 @@ A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `St
 `CanonicalModelsTest` covers:
 
 - Jellyfin tick/millisecond conversion
-- PascalCase Jellyfin item mapping to canonical camelCase values used by Movie Details and root libraries (identity, sort/display values, timing, ratings, genres, people, provider IDs, and item/parent/series artwork refs)
+- PascalCase Jellyfin item mapping to canonical camelCase values used by Movie Details, Series Details, seasons/episodes, and root libraries (identity, sort/display values, timing, ratings, genres, people, provider IDs, special placement, and item/parent/series artwork refs)
+- canonical chapter mapping with millisecond starts and token-free chapter artwork references
 - token-free, round-trippable artwork cache keys
 - provider-neutral playback descriptor projections
 - Jellyfin stream finalization, canonical timing/tracks, and current credential injection at the playback-provider boundary
 
-`SimilarItemsRetryTest` also asserts Movie Details similar-item shelves keep the canonical `itemId` / `primaryArtwork` shape and ignore wire-only entries. `LibraryViewModelCanonicalTest` covers canonical root-library roles, empty-container filtering, wire-cache rejection, and SWR identity/order checks.
+`SimilarItemsRetryTest` asserts Movie and Series detail shelves keep canonical request ownership and item/chapter shapes. `SeriesDetailsCacheTest` covers canonical series/list cache persistence, freshness, and wire-cache rejection. `EpisodeSelectionScriptTest` exercises canonical episode identity, season ownership, watched state, and millisecond resume selection. `LibraryViewModelCanonicalTest` covers canonical root-library roles, empty-container filtering, wire-cache rejection, and SWR identity/order checks.

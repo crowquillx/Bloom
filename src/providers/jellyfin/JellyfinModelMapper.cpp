@@ -132,6 +132,7 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("durationMs"), ticksToMilliseconds(
              wireItem.value(QStringLiteral("RunTimeTicks")).toVariant().toLongLong())},
         {QStringLiteral("status"), wireItem.value(QStringLiteral("Status")).toString()},
+        {QStringLiteral("recursiveItemCount"), wireItem.value(QStringLiteral("RecursiveItemCount")).toInt()},
         {QStringLiteral("locationType"), wireItem.value(QStringLiteral("LocationType")).toString()},
         {QStringLiteral("path"), wireItem.value(QStringLiteral("Path")).toString()},
         {QStringLiteral("genres"), stringList(wireItem.value(QStringLiteral("Genres")).toArray())},
@@ -149,6 +150,14 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
     if (wireItem.contains(QStringLiteral("ChildCount"))) {
         item[QStringLiteral("childCount")] =
             wireItem.value(QStringLiteral("ChildCount")).toInt();
+    }
+    if (wireItem.value(QStringLiteral("Type")).toString() == QStringLiteral("Episode")) {
+        item[QStringLiteral("airsBeforeSeasonNumber")] =
+            wireItem.value(QStringLiteral("AirsBeforeSeasonNumber")).toInt(-1);
+        item[QStringLiteral("airsAfterSeasonNumber")] =
+            wireItem.value(QStringLiteral("AirsAfterSeasonNumber")).toInt(-1);
+        item[QStringLiteral("airsBeforeEpisodeNumber")] =
+            wireItem.value(QStringLiteral("AirsBeforeEpisodeNumber")).toInt(-1);
     }
 
     QVariantList artwork;
@@ -226,11 +235,15 @@ Bloom::Chapter JellyfinModelMapper::chapter(const QJsonObject &wireChapter,
                                             int chapterIndex)
 {
     Bloom::Chapter chapter;
-    chapter.name = wireChapter.value(QStringLiteral("Name")).toString();
+    chapter.name = wireChapter.value(QStringLiteral("Name")).toString().trimmed();
+    if (chapter.name.isEmpty()) {
+        chapter.name = QStringLiteral("Chapter %1").arg(chapterIndex + 1);
+    }
     chapter.startMs = ticksToMilliseconds(
         wireChapter.value(QStringLiteral("StartPositionTicks")).toVariant().toLongLong());
     const QString imageTag = wireChapter.value(QStringLiteral("ImageTag")).toString();
-    if (!imageTag.isEmpty()) {
+    const QString imagePath = wireChapter.value(QStringLiteral("ImagePath")).toString();
+    if (!imageTag.isEmpty() || !imagePath.isEmpty()) {
         chapter.artwork.connectionId = connectionId;
         chapter.artwork.itemId = itemId;
         chapter.artwork.kind = Bloom::ArtworkKind::Chapter;
@@ -238,6 +251,22 @@ Bloom::Chapter JellyfinModelMapper::chapter(const QJsonObject &wireChapter,
         chapter.artwork.tag = imageTag;
     }
     return chapter;
+}
+
+QVariantList JellyfinModelMapper::chapters(const QJsonArray &wireChapters,
+                                           const QString &connectionId,
+                                           const QString &itemId)
+{
+    QVariantList result;
+    result.reserve(wireChapters.size());
+    for (qsizetype index = 0; index < wireChapters.size(); ++index) {
+        const QJsonValue value = wireChapters.at(index);
+        if (value.isObject()) {
+            result.append(chapter(value.toObject(), connectionId, itemId,
+                                  static_cast<int>(index)).toVariantMap());
+        }
+    }
+    return result;
 }
 
 QString JellyfinModelMapper::artworkEndpoint(const Bloom::ArtworkRef &artwork)

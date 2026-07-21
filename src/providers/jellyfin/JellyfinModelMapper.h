@@ -21,5 +21,8 @@ public:
                                   const QString &connectionId,
                                   const QString &itemId,
                                   int chapterIndex);
+    static QVariantList chapters(const QJsonArray &wireChapters,
+                                 const QString &connectionId,
+                                 const QString &itemId);
     static QString artworkEndpoint(const Bloom::ArtworkRef &artwork);
 };

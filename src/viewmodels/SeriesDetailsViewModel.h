@@ -44,7 +44,7 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    void setSeasons(const QJsonArray &seasons);
+    void setSeasons(const QVariantList &seasons);
     void setLibraryService(LibraryService *libraryService) { m_libraryService = libraryService; }
     void clear();
 
@@ -52,10 +52,10 @@ public:
 
 private:
     friend class SeriesDetailsCacheTest;
-    QString getImageUrl(const QJsonObject &item) const;
+    QString getImageUrl(const QVariantMap &item) const;
 
     LibraryService *m_libraryService = nullptr;
-    QVector<QJsonObject> m_items;
+    QVector<QVariantMap> m_items;
 };
 
 
@@ -77,9 +77,9 @@ public:
         IndexNumberRole,
         ParentIndexNumberRole,
         OverviewRole,
-        RuntimeTicksRole,
+        DurationMsRole,
         IsPlayedRole,
-        PlaybackPositionTicksRole,
+        PositionMsRole,
         CommunityRatingRole,
         PremiereDateRole,
         IsFavoriteRole,
@@ -98,17 +98,17 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    void setEpisodes(const QJsonArray &episodes);
+    void setEpisodes(const QVariantList &episodes);
     void setLibraryService(LibraryService *libraryService) { m_libraryService = libraryService; }
     void clear();
 
     Q_INVOKABLE QVariantMap getItem(int index) const;
 
 private:
-    QString getImageUrl(const QJsonObject &item) const;
+    QString getImageUrl(const QVariantMap &item) const;
 
     LibraryService *m_libraryService = nullptr;
-    QVector<QJsonObject> m_items;
+    QVector<QVariantMap> m_items;
 };
 
 
@@ -173,7 +173,7 @@ class SeriesDetailsViewModel : public BaseViewModel
     Q_PROPERTY(int nextSeasonNumber READ nextSeasonNumber NOTIFY nextEpisodeChanged)
     Q_PROPERTY(QString nextEpisodeImageUrl READ nextEpisodeImageUrl NOTIFY nextEpisodeChanged)
     Q_PROPERTY(bool hasNextEpisode READ hasNextEpisode NOTIFY nextEpisodeChanged)
-    Q_PROPERTY(qint64 nextEpisodePlaybackPositionTicks READ nextEpisodePlaybackPositionTicks NOTIFY nextEpisodeChanged)
+    Q_PROPERTY(qint64 nextEpisodePositionMs READ nextEpisodePositionMs NOTIFY nextEpisodeChanged)
 
     // Focused episode details (for episode-centric season view hero/cast updates)
     Q_PROPERTY(QVariantMap focusedEpisodeDetails READ focusedEpisodeDetails NOTIFY focusedEpisodeDetailsChanged)
@@ -228,8 +228,8 @@ public:
     int nextSeasonNumber() const { return m_nextSeasonNumber; }
     QString nextEpisodeImageUrl() const { return m_nextEpisodeImageUrl; }
     bool hasNextEpisode() const { return !m_nextEpisodeId.isEmpty(); }
-    qint64 nextEpisodePlaybackPositionTicks() const;
-    QVariantMap focusedEpisodeDetails() const { return m_focusedEpisodeDetails.toVariantMap(); }
+    qint64 nextEpisodePositionMs() const;
+    QVariantMap focusedEpisodeDetails() const { return m_focusedEpisodeDetails; }
     QVariantList focusedEpisodePeople() const { return m_focusedEpisodePeople; }
     QString focusedEpisodeDetailId() const { return m_focusedEpisodeDetailId; }
     bool focusedEpisodeDetailsLoading() const { return m_focusedEpisodeDetailsLoading; }
@@ -327,6 +327,7 @@ public:
     QString itemsCachePath(const QString &parentId) const;
     QString similarItemsCachePath(const QString &seriesId) const;
     void clearCacheForTest(const QString &id);
+    void clearMemoryCacheForTest(const QString &id);
     
     // MDBList
     void fetchMdbListRatings(const QString &imdbId, const QString &tmdbId, const QString &type = "show");
@@ -339,6 +340,7 @@ public:
 signals:
     // Series metadata signals
     void seriesIdChanged();
+    void seriesDataChanged();
     void titleChanged();
     void overviewChanged();
     void logoUrlChanged();
@@ -378,33 +380,49 @@ signals:
     void loadError(const QString &error);
 
 private slots:
-    void onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
-    void onSeriesDetailsNotModified(const QString &seriesId);
-    void onSeasonsLoaded(const QString &parentId, const QJsonArray &items);
-    void onEpisodesLoaded(const QString &parentId, const QJsonArray &items);
-    void onItemsNotModified(const QString &parentId);
-    void onNextEpisodeLoaded(const QString &seriesId,
-                             const QJsonObject &episodeData,
+    void onSeriesDetailsLoaded(const QString &connectionId,
+                               const QString &seriesId,
+                               const QVariantMap &seriesData);
+    void onSeriesDetailsNotModified(const QString &connectionId, const QString &seriesId);
+    void onItemsLoaded(const QString &connectionId,
+                       const QString &parentId,
+                       const QString &queryKey,
+                       const QVariantList &items,
+                       int totalRecordCount);
+    void onSeasonsLoaded(const QString &parentId, const QVariantList &items);
+    void onEpisodesLoaded(const QString &parentId, const QVariantList &items);
+    void onItemsNotModified(const QString &connectionId,
+                            const QString &parentId,
+                            const QString &queryKey);
+    void onNextEpisodeLoaded(const QString &connectionId,
+                             const QString &seriesId,
+                             const QVariantMap &episodeData,
                              const QString &requestContext);
     void onNextEpisodeFailed(const QString &seriesId,
                              const QString &error,
                              const QString &requestContext);
     void onSeriesWatchedStatusChanged(const QString &seriesId);
     void onFavoriteStatusChanged(const QString &itemId, bool isFavorite);
-    void onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items);
-    void onSimilarItemsFailed(const QString &itemId, const QString &error);
+    void onSimilarItemsLoaded(const QString &connectionId,
+                              const QString &itemId,
+                              const QVariantList &items);
+    void onSimilarItemsFailed(const QString &connectionId,
+                              const QString &itemId,
+                              const QString &error);
     void onErrorOccurred(const QString &endpoint, const QString &error);
-    void onEpisodeDetailsLoaded(const QString &itemId, const QJsonObject &data, const QString &requestContext);
+    void onEpisodeDetailsLoaded(const QString &itemId, const QVariantMap &data, const QString &requestContext);
     void onEpisodeDetailsNotModified(const QString &itemId, const QString &requestContext);
     void onEpisodeDetailsFailed(const QString &itemId, const QString &error, const QString &requestContext);
-    void onFocusedEpisodeChaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
+    void onFocusedEpisodeChaptersLoaded(const QString &connectionId,
+                                        const QString &itemId,
+                                        const QVariantList &chapters);
     void onFocusedEpisodeChaptersFailed(const QString &itemId, const QString &error);
 
 private:
-    void updateSeriesMetadata(const QJsonObject &data);
-    void updateNextEpisode(const QJsonObject &episodeData);
-    QString buildImageUrl(const QString &itemId, const QString &imageType, int width = 400) const;
-    void applyFocusedEpisodeDetails(const QString &episodeId, const QJsonObject &data);
+    void updateSeriesMetadata(const QVariantMap &data);
+    void updateNextEpisode(const QVariantMap &episodeData);
+    QString buildArtworkUrl(const QVariantMap &artwork, int width) const;
+    void applyFocusedEpisodeDetails(const QString &episodeId, const QVariantMap &data);
     QString startEpisodeDetailsRequest(const QString &episodeId);
     bool matchesEpisodeDetailsRequest(const QString &itemId, const QString &requestContext) const;
     void finishEpisodeDetailsRequest(const QString &itemId);
@@ -440,6 +458,7 @@ private:
     QString m_status;
     QDateTime m_endDate;
     QJsonObject m_seriesData;
+    QString m_connectionId;
     
     // MDBList
     QVariantMap m_mdbListRatings;
@@ -457,15 +476,15 @@ private:
     int m_nextEpisodeNumber = 0;
     int m_nextSeasonNumber = 0;
     QString m_nextEpisodeImageUrl;
-    QJsonObject m_nextEpisodeData;
+    QVariantMap m_nextEpisodeData;
     QString m_focusedEpisodeDetailId;
-    QJsonObject m_focusedEpisodeDetails;
+    QVariantMap m_focusedEpisodeDetails;
     QVariantList m_focusedEpisodePeople;
     bool m_focusedEpisodeDetailsLoading = false;
     QString m_focusedEpisodeChapterId;
     QVariantList m_focusedEpisodeChapters;
     bool m_focusedEpisodeChaptersLoading = false;
-    QHash<QString, QJsonObject> m_episodeDetailsCache;
+    QHash<QString, QVariantMap> m_episodeDetailsCache;
     QSet<QString> m_pendingEpisodeDetailIds;
     QHash<QString, QString> m_episodeDetailRequestTokens;
     QSet<QString> m_episodeDetailRetried;
@@ -486,7 +505,7 @@ private:
     int m_selectedSeasonIndex = -1;
     QString m_selectedSeasonId;
     QString m_selectedSeasonName;
-    QVector<QJsonObject> m_seasons;
+    QVector<QVariantMap> m_seasons;
 
     // Prefetch tracking
     QSet<QString> m_prefetchSeasonIds;

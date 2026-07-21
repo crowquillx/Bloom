@@ -24,6 +24,12 @@ public:
     {
         return JellyfinModelMapper::mediaItems(wireItems, connectionId);
     }
+    QVariantList mapChapters(const QJsonArray &wireChapters,
+                             const QString &connectionId,
+                             const QString &itemId) const override
+    {
+        return JellyfinModelMapper::chapters(wireChapters, connectionId, itemId);
+    }
 
 private:
     JellyfinAuthenticator m_authenticator;
