@@ -77,6 +77,12 @@ Config v29 stores server-owned preferences under `settings.connection_state.scop
 
 `track_preferences.json` schema v4 groups season/movie preferences by connection scope and applies the same pending-activation rule. Library SQLite caches and series/movie detail caches use SHA-256 connection-scope directory keys, while static in-memory cache keys include the connection ID and are cleared when the active scope changes. `LibraryViewModel` reopens its cache and clears displayed account state when the active connection changes. Logout cancels transport operations and clears library validation, remote-session, and detail-view state without deleting another connection's persisted preferences.
 
+## Canonical model boundary
+
+Bloom-owned media contracts live in `src/models/MediaModels.*` and are documented in [`canonical-models.md`](canonical-models.md). `MediaRef` always combines connection and remote item identity; canonical times use milliseconds; `ArtworkRef` cache identities contain no credentials; and `PlaybackDescriptor` carries a finalized provider-neutral stream request. Temporary `QVariantMap` projections use Bloom-defined camelCase fields.
+
+Provider conversion belongs inside provider adapters. `JellyfinModelMapper` is the initial Jellyfin DTO boundary and owns tick-to-millisecond conversion for mapped items and chapters. Existing catalog, artwork, and player consumers migrate to these contracts in focused slices while stable QML-facing façade names remain available.
+
 ## Request, authentication, and transport boundaries
 
 `IProviderAdapter` bundles the provider implementation consumed by stable application façades. `JellyfinProviderAdapter` exposes the Jellyfin authenticator and request factory while identifying its provider/protocol mode; login, restore, browse, playback, and remote-session traffic therefore share one selected provider boundary without changing QML APIs.
