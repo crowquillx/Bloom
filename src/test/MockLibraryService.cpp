@@ -313,8 +313,11 @@ void MockLibraryService::getScreensaverItems(int limit)
             continue;
         }
         item.insert(QStringLiteral("BackdropUrl"),
-                    getCachedImageUrlWithWidth(itemId, QStringLiteral("Backdrop"), 1920)
-                        + QStringLiteral("?tag=") + tag);
+                    getCachedArtworkUrl(itemId,
+                                        QStringLiteral("Backdrop"),
+                                        0,
+                                        tag,
+                                        1920));
         if (item.value("ImageTags").toObject().contains(QStringLiteral("Logo"))) {
             item.insert(QStringLiteral("LogoUrl"),
                         getCachedImageUrlWithWidth(item.value("Id").toString(),
@@ -607,6 +610,17 @@ QString MockLibraryService::getCachedImageUrl(const QString &itemId, const QStri
 
 QString MockLibraryService::getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width)
 {
+    return getImageUrlWithWidth(itemId, imageType, width);
+}
+
+QString MockLibraryService::getCachedArtworkUrl(const QString &itemId,
+                                                const QString &imageType,
+                                                int imageIndex,
+                                                const QString &imageTag,
+                                                int width)
+{
+    Q_UNUSED(imageIndex)
+    Q_UNUSED(imageTag)
     return getImageUrlWithWidth(itemId, imageType, width);
 }
 

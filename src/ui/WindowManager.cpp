@@ -18,6 +18,8 @@
 #include "viewmodels/MovieDetailsViewModel.h"
 #include "viewmodels/UpNextRecommendationsViewModel.h"
 #include "network/AuthenticationService.h"
+#include "providers/IArtworkProvider.h"
+#include "providers/jellyfin/JellyfinArtworkProvider.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
 #include "network/SeerrService.h"
@@ -65,7 +67,10 @@ WindowManager::~WindowManager()
 void WindowManager::setup(ConfigManager* configManager)
 {
     // ImageCacheProvider
-    m_imageCacheProvider = new ImageCacheProvider(configManager->getImageCacheSizeMB());
+    m_artworkProvider = std::make_unique<JellyfinArtworkProvider>(
+        ServiceLocator::get<AuthenticationService>());
+    m_imageCacheProvider = new ImageCacheProvider(configManager->getImageCacheSizeMB(),
+                                                   m_artworkProvider.get());
     const QString roundedMode = configManager->getRoundedImageMode();
     const bool roundedPreprocessEnabled = configManager->getRoundedImagePreprocessEnabled()
         && roundedMode != "shader";

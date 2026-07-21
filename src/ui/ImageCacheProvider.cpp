@@ -1,4 +1,5 @@
 #include "ImageCacheProvider.h"
+#include "providers/IArtworkProvider.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
@@ -17,17 +18,22 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QImageWriter>
+#include <utility>
 #include "../utils/BloomLogging.h"
 
 // ============================================================================
 // CachedImageResponse Implementation
 // ============================================================================
 
-CachedImageResponse::CachedImageResponse(const QString &url, const QSize &requestedSize,
-                             ImageCacheProvider *provider)
+CachedImageResponse::CachedImageResponse(
+    const QString &url,
+    const QSize &requestedSize,
+    ImageCacheProvider *provider,
+    std::optional<QNetworkRequest> resolvedRequest)
     : m_url(url)
     , m_requestedSize(requestedSize)
     , m_provider(provider)
+    , m_resolvedRequest(std::move(resolvedRequest))
 {
     setAutoDelete(false);
 }
@@ -106,7 +112,8 @@ void CachedImageResponse::loadFromCache()
         QImage image = reader.read();
         
         if (!image.isNull()) {
-            qCDebug(lcImageCache) << "Cache hit:" << m_url;
+            qCDebug(lcImageCache) << "Cache hit:"
+                                  << m_provider->safeCacheLabel(m_url);
             
             // Update access time in database
             m_provider->touchCacheEntry(m_url);
@@ -135,7 +142,8 @@ void CachedImageResponse::loadFromCache()
     }
     
     // Not in cache, fetch from network
-    qCDebug(lcImageCache) << "Cache miss, fetching:" << m_url;
+    qCDebug(lcImageCache) << "Cache miss, fetching:"
+                          << m_provider->safeCacheLabel(m_url);
     fetchFromNetwork();
 }
 
@@ -147,13 +155,12 @@ void CachedImageResponse::fetchFromNetwork()
         return;
     }
     
-    QUrl url(m_url);
-    if (!url.isValid()) {
-        finishWithError("Invalid URL: " + m_url);
+    if (!m_resolvedRequest.has_value()) {
+        finishWithError("Unable to resolve image request");
         return;
     }
-    
-    QNetworkRequest request(url);
+
+    QNetworkRequest request = *m_resolvedRequest;
     request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, 
                         QNetworkRequest::PreferNetwork);
     request.setHeader(QNetworkRequest::UserAgentHeader, "Bloom/1.0");
@@ -257,7 +264,8 @@ void CachedImageResponse::finishWithImage(const QImage &image)
 void CachedImageResponse::finishWithError(const QString &error)
 {
     m_errorString = error;
-    qCWarning(lcImageCache) << "Image load failed:" << m_url << "-" << error;
+    qCWarning(lcImageCache) << "Image load failed:"
+                            << m_provider->safeCacheLabel(m_url) << "-" << error;
     emit finished();
 }
 
@@ -265,9 +273,11 @@ void CachedImageResponse::finishWithError(const QString &error)
 // ImageCacheProvider Implementation
 // ============================================================================
 
-ImageCacheProvider::ImageCacheProvider(qint64 maxCacheSizeMB)
+ImageCacheProvider::ImageCacheProvider(qint64 maxCacheSizeMB,
+                                       IArtworkProvider *artworkProvider)
     : QQuickAsyncImageProvider()
     , m_maxCacheSize(maxCacheSizeMB * 1024 * 1024)  // Convert MB to bytes
+    , m_artworkProvider(artworkProvider)
     , m_memoryCache(50 * 1024 * 1024)  // 50MB memory cache
 {
     // Set up cache directory
@@ -352,7 +362,28 @@ void ImageCacheProvider::initDatabase()
     
     // Create index for LRU queries
     query.exec("CREATE INDEX IF NOT EXISTS idx_last_accessed ON cache_entries(last_accessed)");
-    
+
+    query.exec(QStringLiteral("PRAGMA user_version"));
+    const int schemaVersion = query.next() ? query.value(0).toInt() : 0;
+    query.finish();
+    if (schemaVersion < 2) {
+        QSqlQuery oldEntries(m_db);
+        oldEntries.exec(QStringLiteral("SELECT filename FROM cache_entries"));
+        QStringList oldFiles;
+        while (oldEntries.next()) {
+            oldFiles.append(m_cacheDir + QLatin1Char('/') + oldEntries.value(0).toString());
+        }
+        oldEntries.finish();
+        QSqlQuery reset(m_db);
+        reset.exec(QStringLiteral("DELETE FROM cache_entries"));
+        reset.exec(QStringLiteral("VACUUM"));
+        reset.exec(QStringLiteral("PRAGMA user_version = 2"));
+        for (const QString &file : oldFiles) {
+            QFile::remove(file);
+        }
+        qCInfo(lcImageCache) << "Cleared legacy URL-keyed image cache entries";
+    }
+
     // Calculate current cache size
     query.exec("SELECT COALESCE(SUM(size), 0) FROM cache_entries");
     if (query.next()) {
@@ -373,12 +404,15 @@ QQuickImageResponse *ImageCacheProvider::requestImageResponse(const QString &id,
     
     if (url.isEmpty()) {
         qCWarning(lcImageCache) << "Empty image URL requested";
-        auto *response = new CachedImageResponse("", requestedSize, this);
+        auto *response = new CachedImageResponse("", requestedSize, this, std::nullopt);
         response->finishWithError("Empty URL");
         return response;
     }
     
-    auto *response = new CachedImageResponse(url, requestedSize, this);
+    auto *response = new CachedImageResponse(url,
+                                             requestedSize,
+                                             this,
+                                             resolveRequest(url));
     m_threadPool.start(response);
     return response;
 }
@@ -393,7 +427,10 @@ void ImageCacheProvider::prefetch(const QStringList &urls)
         }
         
         // Create a prefetch response (no size requirement)
-        auto *response = new CachedImageResponse(url, QSize(), this);
+        auto *response = new CachedImageResponse(url,
+                                                 QSize(),
+                                                 this,
+                                                 resolveRequest(url));
         QObject::connect(response, &QQuickImageResponse::finished, 
                          response, &QObject::deleteLater);
         m_threadPool.start(response);
@@ -494,7 +531,8 @@ QString ImageCacheProvider::saveDataForKey(const QString &urlKey, const QByteArr
         m_currentCacheSize += data.size();
     }
     
-    qCDebug(lcImageCache) << "Cached:" << urlKey << "size:" << data.size();
+    qCDebug(lcImageCache) << "Cached:" << safeCacheLabel(urlKey)
+                          << "size:" << data.size();
     
     // Check if eviction is needed
     evictIfNeeded();
@@ -599,6 +637,41 @@ QString ImageCacheProvider::hashUrl(const QString &url) const
     QByteArray hash = QCryptographicHash::hash(url.toUtf8(), 
                                                 QCryptographicHash::Sha256);
     return hash.toHex().left(32);  // Use first 32 chars of SHA256
+}
+
+QString ImageCacheProvider::safeCacheLabel(const QString &cacheKey) const
+{
+    return QStringLiteral("cache:%1").arg(hashUrl(cacheKey));
+}
+
+std::optional<QNetworkRequest> ImageCacheProvider::resolveRequest(const QString &cacheKey) const
+{
+    if (QThread::currentThread() != thread()) {
+        std::optional<QNetworkRequest> resolved;
+        QMetaObject::invokeMethod(const_cast<ImageCacheProvider *>(this),
+                                  [this, &resolved, cacheKey]() {
+                                      resolved = resolveRequest(cacheKey);
+                                  },
+                                  Qt::BlockingQueuedConnection);
+        return resolved;
+    }
+
+    if (cacheKey.startsWith(QStringLiteral("artwork:"))) {
+        if (!m_artworkProvider) {
+            return std::nullopt;
+        }
+        const Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromCacheKey(cacheKey);
+        if (!artwork.isValid()) {
+            return std::nullopt;
+        }
+        return m_artworkProvider->resolveArtwork(artwork);
+    }
+
+    const QUrl url(cacheKey);
+    if (!url.isValid() || url.isEmpty()) {
+        return std::nullopt;
+    }
+    return QNetworkRequest(url);
 }
 
 QString ImageCacheProvider::roundedKey(const QString &url, int radiusPx, const QSize &targetSize) const

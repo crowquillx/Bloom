@@ -82,6 +82,11 @@ public:
     Q_INVOKABLE QString getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width) override;
     Q_INVOKABLE QString getCachedImageUrl(const QString &itemId, const QString &imageType) override;
     Q_INVOKABLE QString getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width) override;
+    Q_INVOKABLE QString getCachedArtworkUrl(const QString &itemId,
+                                             const QString &imageType,
+                                             int imageIndex,
+                                             const QString &imageTag,
+                                             int width) override;
 
 private:
     QJsonObject m_fixture;

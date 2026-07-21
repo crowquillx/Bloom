@@ -2567,11 +2567,19 @@ FocusScope {
         function appendUrl(id, type, width, tag) {
             if (!id || !type)
                 return
-            var url = LibraryService.getCachedImageUrlWithWidth(id, type, width || 1920)
-            if (tag && tag.length > 0) {
-                url += (url.indexOf("?") >= 0 ? "&" : "?") + "tag=" + tag
+            let kind = type
+            let index = 0
+            const separator = type.indexOf("/")
+            if (separator >= 0) {
+                kind = type.substring(0, separator)
+                index = Number(type.substring(separator + 1)) || 0
             }
-            if (candidates.indexOf(url) === -1) {
+            const url = LibraryService.getCachedArtworkUrl(id,
+                                                          kind,
+                                                          index,
+                                                          tag || "",
+                                                          width || 1920)
+            if (url && candidates.indexOf(url) === -1) {
                 candidates.push(url)
             }
         }

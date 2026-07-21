@@ -8,10 +8,12 @@ Hybrid mode prefers cached pre-rounded PNGs, falls back to the shader path, and 
 - Env overrides: `BLOOM_ROUNDED_IMAGE_MODE`, `BLOOM_ROUNDED_PREPROCESS` / `BLOOM_ROUNDED_IMAGE_PREPROCESS` (`0/1` or `true/false`).
 
 ## Pre-rounded path (ImageCacheProvider)
-- Rounded variants are stored beside originals in the image cache, keyed by URL + radius + size.
+- Provider artwork is identified by a token-free `ArtworkRef` cache key (`connectionId`, item, kind/index/tag, and requested width). Authenticated URLs and headers are resolved only on a cache miss and are never persisted or logged.
+- Rounded variants are stored beside originals and keyed by the `ArtworkRef` identity + radius + size.
 - Generation triggers after cache hits/misses when preprocessing is enabled; emits `roundedImageReady(url, fileUrl)` once written.
 - Defaults: radius `Theme.imageRadius`, size `640x960` (poster). Callers may pass custom radius/size to `requestRoundedImage(url, radius, w, h)`.
-- Invalidation: radius/size are part of the cache key; `ConfigManager.clearCache()` removes originals and rounded variants together.
+- Invalidation: artwork tag, radius, and size are part of the cache key; `ConfigManager.clearCache()` removes originals and rounded variants together.
+- Migration: image-cache schema v2 clears legacy URL-keyed rows and vacuums SQLite so query credentials from older releases do not remain in cache metadata.
 
 ## Shader fallback
 - GLSL source: `src/resources/shaders/rounded_image.frag`; compiled via `qt6_add_shaders` to `qrc:/shaders/rounded_image.frag.qsb`.

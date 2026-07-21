@@ -6,6 +6,7 @@
 #include <QThreadPool>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QMutex>
 #include <QSqlDatabase>
 #include <QCache>
@@ -16,7 +17,9 @@
 #include <QList>
 #include <QHash>
 #include <QPair>
+#include <optional>
 
+class IArtworkProvider;
 class ImageCacheProvider;
 
 /**
@@ -30,8 +33,10 @@ class CachedImageResponse : public QQuickImageResponse, public QRunnable
     Q_OBJECT
     
 public:
-    CachedImageResponse(const QString &url, const QSize &requestedSize,
-                  ImageCacheProvider *provider);
+    CachedImageResponse(const QString &url,
+                        const QSize &requestedSize,
+                        ImageCacheProvider *provider,
+                        std::optional<QNetworkRequest> resolvedRequest);
     ~CachedImageResponse() override;
     
     QQuickTextureFactory *textureFactory() const override;
@@ -64,6 +69,7 @@ private:
     QString m_errorString;
     bool m_cancelled = false;
     QNetworkReply *m_reply = nullptr;
+    std::optional<QNetworkRequest> m_resolvedRequest;
     QMutex m_mutex;
 };
 
@@ -94,7 +100,8 @@ public:
      * @brief Construct image cache provider
      * @param maxCacheSizeMB Maximum disk cache size in megabytes (default 500MB)
      */
-    explicit ImageCacheProvider(qint64 maxCacheSizeMB = 500);
+    explicit ImageCacheProvider(qint64 maxCacheSizeMB = 500,
+                                IArtworkProvider *artworkProvider = nullptr);
     ~ImageCacheProvider() override;
     
     QQuickImageResponse *requestImageResponse(const QString &id, 
@@ -209,6 +216,8 @@ private:
      * @brief Generate cache file name from URL
      */
     QString hashUrl(const QString &url) const;
+    QString safeCacheLabel(const QString &cacheKey) const;
+    std::optional<QNetworkRequest> resolveRequest(const QString &cacheKey) const;
     
     /**
      * @brief Construct a stable key for a rounded variant.
@@ -249,6 +258,7 @@ private:
     int m_defaultRoundedRadius = 16;
     QSize m_defaultRoundedSize = QSize(640, 960);
     bool m_enableRoundedPreprocess = true;
+    IArtworkProvider *m_artworkProvider = nullptr;
     
     // SQLite database for cache metadata
     QSqlDatabase m_db;

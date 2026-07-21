@@ -138,6 +138,11 @@ public:
     Q_INVOKABLE virtual QString getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
     Q_INVOKABLE virtual QString getCachedImageUrl(const QString &itemId, const QString &imageType);
     Q_INVOKABLE virtual QString getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width);
+    Q_INVOKABLE virtual QString getCachedArtworkUrl(const QString &itemId,
+                                                     const QString &imageType,
+                                                     int imageIndex,
+                                                     const QString &imageTag,
+                                                     int width);
     Q_INVOKABLE virtual QString getCachedChapterThumbnailUrl(const QString &itemId, int chapterIndex, const QString &imageTag, const QString &imagePath = QString(), int width = 480);
 
     QNetworkReply* pingServer();

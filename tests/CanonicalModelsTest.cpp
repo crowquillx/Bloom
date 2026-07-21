@@ -16,6 +16,7 @@ private slots:
     void jellyfinItemMapsToCanonicalCamelCase();
     void jellyfinParentBackdropUsesImageItemId();
     void artworkCacheKeyIsTokenFreeAndRoundTrips();
+    void jellyfinArtworkEndpointContainsNoCredential();
     void playbackDescriptorExposesProviderNeutralShape();
 };
 
@@ -119,6 +120,24 @@ void CanonicalModelsTest::artworkCacheKeyIsTokenFreeAndRoundTrips()
     QCOMPARE(decoded.index, ref.index);
     QCOMPARE(decoded.tag, ref.tag);
     QCOMPARE(decoded.requestedWidth, ref.requestedWidth);
+}
+
+void CanonicalModelsTest::jellyfinArtworkEndpointContainsNoCredential()
+{
+    Bloom::ArtworkRef artwork;
+    artwork.connectionId = QStringLiteral("connection-1");
+    artwork.itemId = QStringLiteral("episode-1");
+    artwork.kind = Bloom::ArtworkKind::Chapter;
+    artwork.index = 3;
+    artwork.tag = QStringLiteral("chapter-tag");
+    artwork.requestedWidth = 480;
+
+    const QString endpoint = JellyfinModelMapper::artworkEndpoint(artwork);
+    QVERIFY(endpoint.startsWith(QStringLiteral("/Items/episode-1/Images/Chapter/3?")));
+    QVERIFY(endpoint.contains(QStringLiteral("maxWidth=480")));
+    QVERIFY(endpoint.contains(QStringLiteral("tag=chapter-tag")));
+    QVERIFY(!endpoint.contains(QStringLiteral("api_key"), Qt::CaseInsensitive));
+    QVERIFY(!endpoint.contains(QStringLiteral("token"), Qt::CaseInsensitive));
 }
 
 void CanonicalModelsTest::playbackDescriptorExposesProviderNeutralShape()

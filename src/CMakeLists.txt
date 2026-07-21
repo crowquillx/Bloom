@@ -14,10 +14,13 @@ qt_add_executable(Bloom
     providers/ServerConnection.h
     providers/ServerConnection.cpp
     providers/IProviderAdapter.h
+    providers/IArtworkProvider.h
     providers/IProviderAuthenticator.h
     providers/IProviderRequestFactory.h
     providers/jellyfin/JellyfinAuthenticator.h
     providers/jellyfin/JellyfinAuthenticator.cpp
+    providers/jellyfin/JellyfinArtworkProvider.h
+    providers/jellyfin/JellyfinArtworkProvider.cpp
     providers/jellyfin/JellyfinRequestFactory.h
     providers/jellyfin/JellyfinRequestFactory.cpp
     providers/jellyfin/JellyfinModelMapper.h

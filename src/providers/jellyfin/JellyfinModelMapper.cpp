@@ -2,6 +2,7 @@
 
 #include <QDateTime>
 #include <QJsonValue>
+#include <QUrlQuery>
 #include <limits>
 
 namespace {
@@ -220,4 +221,61 @@ Bloom::Chapter JellyfinModelMapper::chapter(const QJsonObject &wireChapter,
         chapter.artwork.tag = imageTag;
     }
     return chapter;
+}
+
+QString JellyfinModelMapper::artworkEndpoint(const Bloom::ArtworkRef &artwork)
+{
+    if (!artwork.isValid()) {
+        return {};
+    }
+
+    QString imageType;
+    switch (artwork.kind) {
+    case Bloom::ArtworkKind::Primary:
+    case Bloom::ArtworkKind::Person:
+        imageType = QStringLiteral("Primary");
+        break;
+    case Bloom::ArtworkKind::Thumb:
+        imageType = QStringLiteral("Thumb");
+        break;
+    case Bloom::ArtworkKind::Backdrop:
+        imageType = QStringLiteral("Backdrop");
+        break;
+    case Bloom::ArtworkKind::Logo:
+        imageType = QStringLiteral("Logo");
+        break;
+    case Bloom::ArtworkKind::Chapter:
+        imageType = QStringLiteral("Chapter");
+        break;
+    case Bloom::ArtworkKind::Unknown:
+        return {};
+    }
+
+    QString endpoint;
+    if (artwork.kind == Bloom::ArtworkKind::Chapter) {
+        endpoint = QStringLiteral("/Items/%1/Images/Chapter/%2")
+                       .arg(artwork.itemId, QString::number(artwork.index));
+    } else if (artwork.kind == Bloom::ArtworkKind::Backdrop && artwork.index > 0) {
+        endpoint = QStringLiteral("/Items/%1/Images/%2/%3")
+                       .arg(artwork.itemId, imageType, QString::number(artwork.index));
+    } else {
+        endpoint = QStringLiteral("/Items/%1/Images/%2")
+                       .arg(artwork.itemId, imageType);
+    }
+
+    QUrlQuery query;
+    if (artwork.requestedWidth > 0) {
+        query.addQueryItem(artwork.kind == Bloom::ArtworkKind::Chapter
+                               ? QStringLiteral("maxWidth")
+                               : QStringLiteral("fillWidth"),
+                           QString::number(artwork.requestedWidth));
+    }
+    query.addQueryItem(QStringLiteral("quality"), QStringLiteral("95"));
+    if (!artwork.tag.isEmpty()) {
+        query.addQueryItem(QStringLiteral("tag"), artwork.tag);
+    }
+    if (!query.isEmpty()) {
+        endpoint += QLatin1Char('?') + query.toString(QUrl::FullyEncoded);
+    }
+    return endpoint;
 }

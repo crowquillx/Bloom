@@ -236,8 +236,11 @@ FocusScope {
         if (backdropCandidates.length === 0) { currentBackdropUrl = ""; return }
         var randomIndex = Math.floor(Math.random() * backdropCandidates.length)
         var candidate = backdropCandidates[randomIndex]
-        var url = LibraryService.getCachedImageUrlWithWidth(candidate.itemId, "Backdrop", 1920)
-        if (url && candidate.backdropTag) url += "?tag=" + candidate.backdropTag
+        var url = LibraryService.getCachedArtworkUrl(candidate.itemId,
+                                                     "Backdrop",
+                                                     0,
+                                                     candidate.backdropTag || "",
+                                                     1920)
         currentBackdropUrl = url
     }
 
