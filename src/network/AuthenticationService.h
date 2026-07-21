@@ -12,6 +12,7 @@
 #include "providers/ServerConnection.h"
 #include "security/CredentialStore.h"
 
+class IPlaybackProvider;
 class IProviderAdapter;
 class IProviderAuthenticator;
 class IProviderRequestFactory;
@@ -92,6 +93,7 @@ public:
     QString getUserId() const { return m_userId; }
     QString getAccessToken() const { return m_accessToken; }
     QString getUsername() const { return m_username; }
+    const IPlaybackProvider *playbackProvider() const;
     bool isAuthenticated() const { return !m_accessToken.isEmpty() && !m_userId.isEmpty(); }
     bool isRestoringSession() const { return m_isRestoringSession; }
     

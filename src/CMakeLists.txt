@@ -25,6 +25,9 @@ qt_add_executable(Bloom
     providers/jellyfin/JellyfinRequestFactory.cpp
     providers/jellyfin/JellyfinModelMapper.h
     providers/jellyfin/JellyfinModelMapper.cpp
+    providers/IPlaybackProvider.h
+    providers/jellyfin/JellyfinPlaybackProvider.h
+    providers/jellyfin/JellyfinPlaybackProvider.cpp
     providers/jellyfin/JellyfinProviderAdapter.h
     resources/fonts.qrc
     resources/sounds.qrc

@@ -12,6 +12,7 @@
 #include "network/AuthenticationService.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
+#include "providers/jellyfin/JellyfinPlaybackProvider.h"
 #include "utils/ConfigManager.h"
 #include "utils/DisplayManager.h"
 #include "utils/TrackPreferencesManager.h"
@@ -230,7 +231,49 @@ public:
 
     explicit FakePlaybackService(AuthenticationService *authService, QObject *parent = nullptr)
         : PlaybackService(authService, nullptr, nullptr, parent)
+        , m_authService(authService)
     {
+    }
+
+    Bloom::PlaybackDescriptor createPlaybackDescriptor(
+        const QString &itemId,
+        const QVariantMap &providerSource,
+        int selectedAudioTrack,
+        int selectedSubtitleTrack,
+        qint64 startPositionMs,
+        const QString &playbackSessionId) override
+    {
+        if (!providerSource.value(QStringLiteral("directStreamUrl")).toString().isEmpty()
+            || !providerSource.value(QStringLiteral("transcodingUrl")).toString().isEmpty()) {
+            JellyfinPlaybackProvider provider;
+            const PlaybackProviderContext context{
+                QUrl(m_authService ? m_authService->getServerUrl() : QString()),
+                m_authService ? m_authService->getAccessToken() : QString()
+            };
+            return provider.createDescriptor(
+                context,
+                Bloom::MediaRef{QStringLiteral("test-connection"), itemId},
+                providerSource,
+                selectedAudioTrack,
+                selectedSubtitleTrack,
+                startPositionMs,
+                playbackSessionId);
+        }
+
+        requestedDescriptorItemIds.append(itemId);
+        requestedDescriptorMediaSourceIds.append(
+            providerSource.value(QStringLiteral("id")).toString());
+        requestedDescriptorAudioIndexes.append(selectedAudioTrack);
+        requestedDescriptorSubtitleIndexes.append(selectedSubtitleTrack);
+
+        Bloom::PlaybackDescriptor descriptor;
+        descriptor.media = {QStringLiteral("test-connection"), itemId};
+        descriptor.mediaVersionId = providerSource.value(QStringLiteral("id")).toString();
+        descriptor.playbackSessionId = playbackSessionId;
+        descriptor.startPositionMs = startPositionMs;
+        descriptor.stream.url = QUrl(QStringLiteral("https://example.invalid/") + itemId);
+        descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
+        return descriptor;
     }
 
     void getPlaybackInfo(const QString &itemId) override
@@ -295,6 +338,13 @@ public:
     QStringList requestedPlaybackInfoContexts;
     QStringList requestedAdditionalPartsItemIds;
     QStringList requestedAdditionalPartsContexts;
+    mutable QStringList requestedDescriptorItemIds;
+    mutable QStringList requestedDescriptorMediaSourceIds;
+    mutable QList<int> requestedDescriptorAudioIndexes;
+    mutable QList<int> requestedDescriptorSubtitleIndexes;
+
+private:
+    AuthenticationService *m_authService = nullptr;
 };
 
 static MediaSourceInfo buildMediaSourceInfo(const QString &id,
@@ -384,10 +434,12 @@ class PlayerControllerAutoplayContextTest : public QObject
 private slots:
     void initTestCase();
     void cleanupTestCase();
+    void playbackServiceReportsMissingProvider();
     void thresholdMetRequestsNextEpisodeDirectly();
     void userStopPastThresholdRequestsNextEpisode();
     void userStopBelowThresholdWaitsForBackendExit();
     void replacementPlaybackWaitsForQueuedTerminalFinalization();
+    void replacementPlaybackRetainsFinalizedStreamMetadata();
     void explicitStopReportsFinalProgressAndStoppedOnce();
     void explicitPausedStopReportsPausedState();
     void explicitMultipartStopReportsActiveSegmentContext();
@@ -500,6 +552,20 @@ void PlayerControllerAutoplayContextTest::cleanupTestCase()
     }
 #endif
     QStandardPaths::setTestModeEnabled(false);
+}
+
+void PlayerControllerAutoplayContextTest::playbackServiceReportsMissingProvider()
+{
+    PlaybackService playbackService(nullptr);
+    QSignalSpy errorSpy(&playbackService, &PlaybackService::errorOccurred);
+
+    const Bloom::PlaybackDescriptor descriptor = playbackService.createPlaybackDescriptor(
+        QStringLiteral("item-1"), QVariantMap{}, -1, -1);
+
+    QVERIFY(!descriptor.isValid());
+    QCOMPARE(errorSpy.count(), 1);
+    QCOMPARE(errorSpy.first().at(0).toString(), QStringLiteral("createPlaybackDescriptor"));
+    QVERIFY(!errorSpy.first().at(1).toString().isEmpty());
 }
 
 void PlayerControllerAutoplayContextTest::thresholdMetRequestsNextEpisodeDirectly()
@@ -679,6 +745,56 @@ void PlayerControllerAutoplayContextTest::replacementPlaybackWaitsForQueuedTermi
     QCOMPARE(controller.currentItemId(), QStringLiteral("item-2"));
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/item-2"));
     QVERIFY(!controller.m_terminalTransitionActive);
+}
+
+void PlayerControllerAutoplayContextTest::replacementPlaybackRetainsFinalizedStreamMetadata()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    backend.emitStopStateChangeSynchronously = false;
+    backend.setRunning(true);
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    controller.m_currentItemId = QStringLiteral("item-1");
+    controller.m_playbackState = PlayerController::Playing;
+    controller.stop();
+
+    controller.m_nextPlaybackMethod = QStringLiteral("directStream");
+    controller.m_nextStreamPinsAudioTrack = true;
+    controller.m_nextPinnedAudioTrack = 4;
+    controller.playUrlWithTracks(QStringLiteral("https://example.invalid/item-2"),
+                                 QStringLiteral("item-2"),
+                                 0,
+                                 QString(),
+                                 QString(),
+                                 QString(),
+                                 QStringLiteral("source-2"),
+                                 QStringLiteral("session-2"),
+                                 QVariantMap{},
+                                 4,
+                                 -1);
+
+    QVERIFY(controller.m_playbackSegments.isEmpty());
+
+    backend.emitRunningState(false);
+    QCoreApplication::processEvents();
+
+    QCOMPARE(controller.m_playbackSegments.size(), 1);
+    QCOMPARE(controller.m_playMethod, QStringLiteral("directStream"));
+    QVERIFY(controller.m_streamPinsAudioTrack);
+    QCOMPARE(controller.m_pinnedAudioTrack, 4);
+    QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/item-2"));
 }
 
 void PlayerControllerAutoplayContextTest::explicitStopReportsFinalProgressAndStoppedOnce()
@@ -2592,7 +2708,7 @@ void PlayerControllerAutoplayContextTest::explicitPlaybackIgnoresUnscopedStalePl
     emit playbackService.playbackInfoLoaded(QStringLiteral("episode-1"), buildPlaybackInfo({staleSource}));
     emit playbackService.additionalPartsLoaded(QStringLiteral("episode-1"), QJsonArray{});
     QVERIFY(backend.lastStartUrl.isEmpty());
-    QVERIFY(libraryService.requestedStreamMediaSourceIds.isEmpty());
+    QVERIFY(playbackService.requestedDescriptorMediaSourceIds.isEmpty());
 
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({freshSource}),
@@ -2600,7 +2716,8 @@ void PlayerControllerAutoplayContextTest::explicitPlaybackIgnoresUnscopedStalePl
     emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
 
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
-    QCOMPARE(libraryService.requestedStreamMediaSourceIds, QStringList{QStringLiteral("fresh-source")});
+    QCOMPARE(playbackService.requestedDescriptorMediaSourceIds,
+             QStringList{QStringLiteral("fresh-source")});
 }
 
 void PlayerControllerAutoplayContextTest::explicitPlaybackIgnoresCanceledRequestScopedPlaybackInfo()
@@ -2652,7 +2769,8 @@ void PlayerControllerAutoplayContextTest::explicitPlaybackIgnoresCanceledRequest
                                                       newRequestId);
     emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, newRequestId);
 
-    QCOMPARE(libraryService.requestedStreamMediaSourceIds, QStringList{QStringLiteral("fresh-source")});
+    QCOMPARE(playbackService.requestedDescriptorMediaSourceIds,
+             QStringList{QStringLiteral("fresh-source")});
 }
 
 void PlayerControllerAutoplayContextTest::primaryPlaybackInfoFailureDoesNotUseBasicStreamFallback()
@@ -2727,7 +2845,8 @@ void PlayerControllerAutoplayContextTest::additionalPartsFailureStillStartsPrima
                                                          requestId);
 
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
-    QCOMPARE(libraryService.requestedStreamMediaSourceIds, QStringList{QStringLiteral("primary-source")});
+    QCOMPARE(playbackService.requestedDescriptorMediaSourceIds,
+             QStringList{QStringLiteral("primary-source")});
     QVERIFY(backend.appendedUrls.isEmpty());
 }
 
@@ -2771,7 +2890,8 @@ void PlayerControllerAutoplayContextTest::additionalPartPlaybackInfoFailureSkips
                                                       requestId);
 
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
-    QCOMPARE(libraryService.requestedStreamMediaSourceIds, QStringList{QStringLiteral("primary-source")});
+    QCOMPARE(playbackService.requestedDescriptorMediaSourceIds,
+             QStringList{QStringLiteral("primary-source")});
     QVERIFY(backend.appendedUrls.isEmpty());
 }
 
@@ -2820,7 +2940,8 @@ void PlayerControllerAutoplayContextTest::retryRefreshesPlaybackInfoBeforeRestar
     emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
 
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
-    QCOMPARE(libraryService.requestedStreamMediaSourceIds, QStringList{QStringLiteral("fresh-source")});
+    QCOMPARE(playbackService.requestedDescriptorMediaSourceIds,
+             QStringList{QStringLiteral("fresh-source")});
     QCOMPARE(controller.m_startPositionTicks, 1200000000LL);
 }
 
@@ -3207,7 +3328,11 @@ void PlayerControllerAutoplayContextTest::startupTrackSelectionRespectsPinnedUrl
                                 &libraryService,
                                 &authService);
 
-    controller.m_pendingUrl = QStringLiteral("https://example.invalid/stream?AudioStreamIndex=4&SubtitleStreamIndex=8");
+    controller.m_pendingUrl = QStringLiteral("https://example.invalid/stream");
+    controller.m_streamPinsAudioTrack = true;
+    controller.m_streamPinsSubtitleTrack = true;
+    controller.m_pinnedAudioTrack = 4;
+    controller.m_pinnedSubtitleTrack = 8;
     controller.m_selectedAudioTrack = 4;
     controller.m_selectedSubtitleTrack = 8;
     controller.updateTrackMappings(buildMediaSource({

@@ -287,7 +287,7 @@ public:
     Q_INVOKABLE void addExternalSubtitleTrack(const QString &subtitleUrl,
                                               const QString &displayTitle = QString(),
                                               const QString &language = QString(),
-                                              int jellyfinStreamIndexHint = -1);
+                                              int sourceStreamIndexHint = -1);
     Q_INVOKABLE void cycleAudioTrack();
     Q_INVOKABLE void cycleSubtitleTrack();
     Q_INVOKABLE void previousChapter();
@@ -636,18 +636,18 @@ private:
     void updateTrackMappings(const QVariantMap &mediaSource);
     /**
      * Map a Jellyfin audio stream index to the corresponding mpv audio track number.
-     * @param jellyfinStreamIndex Jellyfin audio stream index.
+     * @param sourceStreamIndex Jellyfin audio stream index.
      * @returns 1-based mpv audio track number, or -1 when auto/none is intended.
      */
-    int mpvAudioTrackForJellyfinIndex(int jellyfinStreamIndex) const;
-    int jellyfinAudioTrackForMpvTrack(int mpvTrackId) const;
+    int mpvAudioTrackForSourceIndex(int sourceStreamIndex) const;
+    int sourceAudioTrackForMpvTrack(int mpvTrackId) const;
     /**
      * Map a Jellyfin subtitle stream index to the corresponding mpv subtitle track number.
-     * @param jellyfinStreamIndex Jellyfin subtitle stream index.
+     * @param sourceStreamIndex Jellyfin subtitle stream index.
      * @returns 1-based mpv subtitle track number, or -1 when subtitles are disabled.
      */
-    int mpvSubtitleTrackForJellyfinIndex(int jellyfinStreamIndex) const;
-    int jellyfinSubtitleTrackForMpvTrack(int mpvTrackId) const;
+    int mpvSubtitleTrackForSourceIndex(int sourceStreamIndex) const;
+    int sourceSubtitleTrackForMpvTrack(int mpvTrackId) const;
     ResolvedTrackSelection resolveTrackSelection(const QVariantMap &mediaSource,
                                                  const ScopedTrackPreferences &preferences,
                                                  int preferredAudioIndex = -2,
@@ -680,12 +680,7 @@ private:
      * @returns A QString representation of `event`.
      */
     static QString eventToString(Event event);
-    static QString inferPlayMethod(const QString &url);
     [[nodiscard]] bool isRecoverableBackendPlaybackError(const QString &error) const;
-    [[nodiscard]] QString streamUrlForMediaSource(const QString &itemId,
-                                                  const QVariantMap &mediaSource,
-                                                  int audioStreamIndex,
-                                                  int subtitleStreamIndex) const;
     void fallbackToPendingAutoplayPlayback();
     [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex() const;
     void stopAutoplayPlaybackInfoWait();
@@ -707,7 +702,7 @@ private:
                                               bool useAffinityFallback) const;
     QVariantList buildMultipartSegments(const QVariantMap &request,
                                         const QVariantMap &primarySource,
-                                        const PlaybackInfoResponse &primaryPlaybackInfo) const;
+                                        const PlaybackInfoResponse &primaryPlaybackInfo);
     QVariantMap activePlaybackSegment() const;
     QString activePlaybackSegmentItemId() const;
     void applyPlaybackSegment(int index, bool reportSegmentStart);
@@ -889,6 +884,8 @@ private:
     QHash<QString, QString> m_seriesLibraryIdCache;
     QSet<QString> m_seriesLibraryResolutionInFlight;
     QList<QVariantMap> m_playbackSegments;
+    QVariantList m_nextPlaybackSegments;
+    QStringList m_nextPlaylistAppendUrls;
     int m_activePlaybackSegmentIndex = -1;
     qint64 m_activePlaybackSegmentOffsetTicks = 0;
     double m_segmentRelativePosition = 0.0;
@@ -934,7 +931,16 @@ private:
     bool m_embeddedVideoShrinkEnabled = false;
     int m_volume = 100;
     bool m_muted = false;
-    QString m_playMethod = QStringLiteral("DirectPlay");
+    QString m_playMethod = QStringLiteral("directPlay");
+    QString m_nextPlaybackMethod;
+    bool m_streamPinsAudioTrack = false;
+    bool m_streamPinsSubtitleTrack = false;
+    bool m_nextStreamPinsAudioTrack = false;
+    bool m_nextStreamPinsSubtitleTrack = false;
+    int m_pinnedAudioTrack = -1;
+    int m_pinnedSubtitleTrack = -1;
+    int m_nextPinnedAudioTrack = -1;
+    int m_nextPinnedSubtitleTrack = -1;
     bool m_attemptedLinuxEmbeddedFallback = false;
     QString m_overlayTitle;
     QString m_overlaySubtitle;

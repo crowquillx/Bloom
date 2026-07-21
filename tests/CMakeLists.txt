@@ -23,6 +23,9 @@ set(TEST_PROVIDER_BOUNDARY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
     ${CMAKE_SOURCE_DIR}/src/network/HttpTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinAuthenticator.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinArtworkProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinPlaybackProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinRequestFactory.cpp
 )
 
@@ -208,6 +211,7 @@ add_executable(CanonicalModelsTest
     CanonicalModelsTest.cpp
     ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinPlaybackProvider.cpp
 )
 
 target_include_directories(CanonicalModelsTest PRIVATE

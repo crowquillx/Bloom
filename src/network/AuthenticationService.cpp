@@ -61,6 +61,11 @@ AuthenticationService::~AuthenticationService()
     }
 }
 
+const IPlaybackProvider *AuthenticationService::playbackProvider() const
+{
+    return m_providerAdapter ? m_providerAdapter->playbackProvider() : nullptr;
+}
+
 QNetworkAccessManager *AuthenticationService::networkManager() const
 {
     return m_transport->networkManager();

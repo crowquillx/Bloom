@@ -85,7 +85,7 @@ Provider conversion belongs inside provider adapters. `JellyfinModelMapper` is t
 
 ## Request, authentication, and transport boundaries
 
-`IProviderAdapter` bundles the provider implementation consumed by stable application façades. `JellyfinProviderAdapter` exposes the Jellyfin authenticator and request factory while identifying its provider/protocol mode; login, restore, browse, playback, and remote-session traffic therefore share one selected provider boundary without changing QML APIs.
+`IProviderAdapter` bundles the provider implementation consumed by stable application façades. `JellyfinProviderAdapter` exposes the Jellyfin authenticator, request factory, and playback provider while identifying its provider/protocol mode; login, restore, browse, playback, and remote-session traffic therefore share one selected provider boundary without changing QML APIs.
 
 `IProviderRequestFactory` owns provider-specific URL and authorization-header construction. `JellyfinRequestFactory` is the only production source of the `MediaBrowser` header and also redacts token-bearing query parameters before URLs reach logs.
 

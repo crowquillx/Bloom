@@ -41,7 +41,7 @@ Existing list/detail/player flows are migrated in reviewable slices. During migr
 
 ## Playback boundary
 
-A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `StreamRequest`. `PlayerController` may map canonical tracks to mpv runtime track IDs, but provider endpoints, query authentication, provider time units, and reporting DTOs belong outside the controller.
+A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `StreamRequest`. `PlaybackService` obtains the selected adapter's `IPlaybackProvider`; `JellyfinPlaybackProvider` resolves relative PlaybackInfo URLs, adds current request authentication and track hints, converts timing, and identifies the canonical playback method. `PlayerController` consumes only the finalized descriptor and may map canonical tracks to mpv runtime track IDs. Provider endpoints, query authentication, provider time units, and reporting DTOs stay outside the controller.
 
 ## Tests
 
@@ -51,3 +51,4 @@ A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `St
 - PascalCase Jellyfin item mapping to canonical camelCase values
 - token-free, round-trippable artwork cache keys
 - provider-neutral playback descriptor projections
+- Jellyfin stream finalization, canonical timing/tracks, and current credential injection at the playback-provider boundary

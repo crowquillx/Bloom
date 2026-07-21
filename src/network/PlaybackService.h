@@ -4,7 +4,8 @@
 #include <QObject>
 #include <QNetworkReply>
 #include <functional>
-#include "Types.h"  // For data structs (PlaybackInfoResponse, MediaSegmentInfo, TrickplayTileInfo, etc.)
+#include "Types.h"
+#include "models/MediaModels.h"  // For data structs (PlaybackInfoResponse, MediaSegmentInfo, TrickplayTileInfo, etc.)
 
 class AuthenticationService;
 class ConfigManager;
@@ -32,6 +33,15 @@ public:
                              ConfigManager *configManager = nullptr,
                              MediaSegmentProviderService *mediaSegmentProviderService = nullptr,
                              QObject *parent = nullptr);
+    ~PlaybackService() override;
+
+    virtual Bloom::PlaybackDescriptor createPlaybackDescriptor(
+        const QString &itemId,
+        const QVariantMap &providerSource,
+        int selectedAudioTrack,
+        int selectedSubtitleTrack,
+        qint64 startPositionMs = 0,
+        const QString &playbackSessionId = QString());
     
     // Playback Info - Get media streams and track information
     Q_INVOKABLE virtual void getPlaybackInfo(const QString &itemId);
@@ -123,6 +133,7 @@ private:
     HttpTransport *m_transport = nullptr;
     ConfigManager *m_configManager = nullptr;
     MediaSegmentProviderService *m_mediaSegmentProviderService = nullptr;
+    const class IPlaybackProvider *m_provider = nullptr;
     RetryPolicy m_retryPolicy;
     
     // Retry mechanism types  

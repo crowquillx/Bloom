@@ -2,6 +2,7 @@
 
 #include "providers/ServerConnection.h"
 
+class IPlaybackProvider;
 class IProviderAuthenticator;
 class IProviderRequestFactory;
 
@@ -20,4 +21,5 @@ public:
     virtual ProtocolMode protocolMode() const = 0;
     virtual const IProviderAuthenticator *authenticator() const = 0;
     virtual const IProviderRequestFactory *requestFactory() const = 0;
+    virtual const IPlaybackProvider *playbackProvider() const = 0;
 };

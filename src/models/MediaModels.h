@@ -88,6 +88,10 @@ struct StreamRequest {
     QUrl url;
     QVariantMap headers;
     PlaybackMethod method = PlaybackMethod::Unknown;
+    bool pinsAudioTrack = false;
+    bool pinsSubtitleTrack = false;
+    QString pinnedAudioTrackId;
+    QString pinnedSubtitleTrackId;
 
     bool isValid() const;
     QVariantMap toVariantMap() const;
