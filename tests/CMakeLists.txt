@@ -127,6 +127,37 @@ target_link_libraries(LibraryItemQueryTest
 
 add_test(NAME LibraryItemQueryTest COMMAND LibraryItemQueryTest)
 
+add_executable(LibraryViewModelCanonicalTest
+    LibraryViewModelCanonicalTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/ServiceLocator.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/LibraryViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/LibraryCacheStore.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(LibraryViewModelCanonicalTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(LibraryViewModelCanonicalTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Concurrent
+        Qt6::Sql
+        Qt6::Test
+)
+
+add_test(NAME LibraryViewModelCanonicalTest COMMAND LibraryViewModelCanonicalTest)
+
 add_executable(LoggingConfigTest
     LoggingConfigTest.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/LoggingConfig.cpp

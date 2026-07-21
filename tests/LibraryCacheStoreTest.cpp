@@ -11,6 +11,7 @@ class LibraryCacheStoreTest : public QObject
 
 private slots:
     void replaceAllAndRead();
+    void canonicalRowsPersistAndUpsert();
     void upsertWithOffsets();
     void upsertWithPrune();
     void freshnessDetection();
@@ -42,6 +43,33 @@ void LibraryCacheStoreTest::replaceAllAndRead()
     QCOMPARE(slice.totalCount, 1);
     QVERIFY(slice.isFresh(600000));
     QCOMPARE(slice.items.first().toObject().value("Id").toString(), QStringLiteral("one"));
+}
+
+void LibraryCacheStoreTest::canonicalRowsPersistAndUpsert()
+{
+    QTemporaryDir dir;
+    LibraryCacheStore store(tempDbPath(dir), 600000);
+    QVERIFY(store.open());
+
+    const QJsonArray initial{
+        QJsonObject{{QStringLiteral("itemId"), QStringLiteral("one")},
+                    {QStringLiteral("name"), QStringLiteral("One")}}
+    };
+    QVERIFY(store.replaceAll(QStringLiteral("parent"), initial, 1));
+
+    const QJsonArray next{
+        QJsonObject{{QStringLiteral("itemId"), QStringLiteral("two")},
+                    {QStringLiteral("name"), QStringLiteral("Two")}}
+    };
+    QVERIFY(store.upsertItems(QStringLiteral("parent"), next, 2, false, 1));
+
+    const auto slice = store.read(QStringLiteral("parent"));
+    QCOMPARE(slice.items.size(), 2);
+    QCOMPARE(slice.items.at(0).toObject().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("one"));
+    QCOMPARE(slice.items.at(1).toObject().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("two"));
+    QCOMPARE(slice.totalCount, 2);
 }
 
 void LibraryCacheStoreTest::upsertWithOffsets()

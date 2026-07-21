@@ -35,6 +35,8 @@ void MockLibraryService::getViews()
     QJsonArray views = m_libraries["Items"].toArray();
     qCDebug(lcTest) << "MockLibraryService::getViews() ->" << views.size() << "views";
     emit viewsLoaded(views);
+    emit canonicalViewsLoaded(
+        JellyfinModelMapper::mediaItems(views, QStringLiteral("mock-connection")));
 }
 
 void MockLibraryService::getItems(const QString &parentId, int startIndex, int limit, 
@@ -195,6 +197,11 @@ void MockLibraryService::getItems(const LibraryItemQuery &query)
     qCDebug(lcTest) << "MockLibraryService::getItems(" << query.parentId << ") ->" << paged.size() << "items";
     emit itemsLoadedWithTotal(query.parentId, paged, totalCount);
     emit itemsLoadedWithTotalForQuery(query.parentId, queryKey, paged, totalCount);
+    emit canonicalItemsLoadedWithTotalForQuery(
+        query.parentId,
+        queryKey,
+        JellyfinModelMapper::mediaItems(paged, QStringLiteral("mock-connection")),
+        totalCount);
 }
 
 void MockLibraryService::getFilterOptions(const QString &parentId,
@@ -627,6 +634,17 @@ QString MockLibraryService::getCachedArtworkUrl(const QString &itemId,
     Q_UNUSED(imageIndex)
     Q_UNUSED(imageTag)
     return getImageUrlWithWidth(itemId, imageType, width);
+}
+
+QString MockLibraryService::getCachedArtworkUrlForConnection(const QString &connectionId,
+                                                             const QString &itemId,
+                                                             const QString &imageType,
+                                                             int imageIndex,
+                                                             const QString &imageTag,
+                                                             int width)
+{
+    Q_UNUSED(connectionId)
+    return getCachedArtworkUrl(itemId, imageType, imageIndex, imageTag, width);
 }
 
 QJsonObject MockLibraryService::findItemById(const QString &itemId) const

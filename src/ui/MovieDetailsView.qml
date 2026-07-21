@@ -68,7 +68,8 @@ FocusScope {
         if (!artwork || !artwork.itemId) {
             return ""
         }
-        return LibraryService.getCachedArtworkUrl(
+        return LibraryService.getCachedArtworkUrlForConnection(
+                    artwork.connectionId || "",
                     artwork.itemId,
                     artwork.kind || "primary",
                     artwork.index || 0,

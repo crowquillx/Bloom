@@ -38,13 +38,14 @@ The types expose temporary `QVariantMap` projections so existing QML-facing faç
 - raw compatibility signals (`itemLoaded`, `similarItemsLoaded`) for unmigrated flows
 - parallel canonical signals (`canonicalItemLoaded`, `canonicalSimilarItemsLoaded`) for migrated consumers
 
-Raw signals are transitional and remain until Home, Library, Series, and remaining detail flows finish migrating. New code must connect to the canonical signals and must not fall back to PascalCase wire keys.
+Raw signals are transitional and remain until Home, Series, and remaining detail flows finish migrating. New code must connect to the canonical signals and must not fall back to PascalCase wire keys.
 
 Existing list/detail/player flows are migrated in reviewable slices. During migration, compatibility façades may retain old methods, but canonical consumers must not fall back to PascalCase wire keys.
 
 ## Migrated surfaces
 
 - **Movie Details**: `MovieDetailsViewModel` and `MovieDetailsView.qml` consume only canonical item/similar-item payloads. Cached movie and similar JSON is canonical (`*_details_canonical.json` / `*_similar_items_canonical.json`); wire-shaped disk caches are rejected. Artwork resolves through `ArtworkRef` maps and `LibraryService::getCachedArtworkUrl`. Display timing uses `durationMs` / `positionMs`. Playback request payloads still convert resume position to ticks at the QML→player compatibility boundary until the playback request contract is migrated.
+- **Root libraries**: `LibraryService` emits canonical views and query-correlated canonical item lists alongside the raw compatibility signals. `LibraryViewModel`, the root `LibraryScreen` grid, `Sidebar`, and per-library settings rows consume camelCase media projections only. Library disk caches reject provider wire-shaped rows, SWR comparisons use canonical `itemId`, and poster fallbacks resolve `ArtworkRef` maps. Query construction keeps provider sort/include tokens at the service boundary.
 
 ## Artwork identity
 
@@ -59,9 +60,9 @@ A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `St
 `CanonicalModelsTest` covers:
 
 - Jellyfin tick/millisecond conversion
-- PascalCase Jellyfin item mapping to canonical camelCase values used by Movie Details (identity, timing, ratings, genres, people, provider IDs, artwork refs)
+- PascalCase Jellyfin item mapping to canonical camelCase values used by Movie Details and root libraries (identity, sort/display values, timing, ratings, genres, people, provider IDs, and item/parent/series artwork refs)
 - token-free, round-trippable artwork cache keys
 - provider-neutral playback descriptor projections
 - Jellyfin stream finalization, canonical timing/tracks, and current credential injection at the playback-provider boundary
 
-`SimilarItemsRetryTest` also asserts Movie Details similar-item shelves keep the canonical `itemId` / `primaryArtwork` shape and ignore wire-only entries.
+`SimilarItemsRetryTest` also asserts Movie Details similar-item shelves keep the canonical `itemId` / `primaryArtwork` shape and ignore wire-only entries. `LibraryViewModelCanonicalTest` covers canonical root-library roles, empty-container filtering, wire-cache rejection, and SWR identity/order checks.

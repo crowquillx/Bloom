@@ -1570,8 +1570,8 @@ FocusScope {
                         required property var modelData
                         required property int index
 
-                        property string libraryName: modelData.Name || ""
-                        property string libraryId: modelData.Id || ""
+                        property string libraryName: modelData.name || ""
+                        property string libraryId: modelData.itemId || ""
 
                         label: libraryName
                         description: qsTr("Startup buffering for this library")

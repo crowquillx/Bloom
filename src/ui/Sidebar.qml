@@ -45,7 +45,7 @@ Item {
         var byId = {}
         var ordered = []
         for (var i = 0; i < views.length; i++) {
-            byId[views[i].Id] = views[i]
+            byId[views[i].itemId] = views[i]
         }
 
         // Add libraries in saved order first
@@ -64,7 +64,7 @@ Item {
         }
 
         // Persist if the effective order differs (adds new libraries)
-        var newOrderIds = ordered.map(function (v) { return v.Id })
+        var newOrderIds = ordered.map(function (v) { return v.itemId })
         if (order.length !== newOrderIds.length || JSON.stringify(order) !== JSON.stringify(newOrderIds)) {
             SidebarSettings.libraryOrder = newOrderIds
         }
@@ -250,7 +250,7 @@ Item {
         libraryItems = reordered
         orderedLibraryItems = reordered
         reorderingIndex = toIndex
-        SidebarSettings.libraryOrder = reordered.map(function (v) { return v.Id })
+        SidebarSettings.libraryOrder = reordered.map(function (v) { return v.itemId })
         libraryListView.currentIndex = toIndex
         Qt.callLater(function() {
             if (libraryListView.currentItem) {
@@ -691,15 +691,15 @@ Item {
                     required property var modelData
                     required property int index
 
-                    property bool isActive: root.currentNavigation === ("library:" + (modelData.Id || ""))
+                    property bool isActive: root.currentNavigation === ("library:" + (modelData.itemId || ""))
                     property bool isFocused: activeFocus
                     property bool isReordering: root.reorderModeActive && root.reorderingIndex === index
                     Keys.priority: Keys.BeforeItem
 
                     function activateLibrary() {
-                        root.currentNavigation = "library:" + (modelData.Id || "")
-                        root.currentLibraryId = modelData.Id || ""
-                        root.libraryRequested(modelData.Id || "", modelData.Name || "")
+                        root.currentNavigation = "library:" + (modelData.itemId || "")
+                        root.currentLibraryId = modelData.itemId || ""
+                        root.libraryRequested(modelData.itemId || "", modelData.name || "")
                         if (root.overlayMode) {
                             root.close()
                         }
@@ -833,7 +833,7 @@ Item {
                                 Text {
                                     anchors.centerIn: parent
                                     text: {
-                                        var collectionType = (libraryDelegateScope.modelData.CollectionType || "").toLowerCase()
+                                        var collectionType = (libraryDelegateScope.modelData.collectionType || "").toLowerCase()
                                         if (collectionType === "tvshows") return Icons.tvShows
                                         if (collectionType === "movies") return Icons.movie
                                         if (collectionType === "music") return Icons.music
@@ -848,7 +848,7 @@ Item {
                             }
 
                             Text {
-                                text: libraryDelegateScope.modelData.Name
+                                text: libraryDelegateScope.modelData.name
                                 font.pixelSize: Theme.fontSizeBody
                                 font.family: Theme.fontPrimary
                                 font.weight: libraryDelegateScope.isActive ? Font.DemiBold : Font.Normal
@@ -874,7 +874,7 @@ Item {
                         }
 
                         ToolTip.visible: !expanded && hovered
-                        ToolTip.text: libraryDelegateScope.modelData.Name
+                        ToolTip.text: libraryDelegateScope.modelData.name
                         ToolTip.delay: 500
 
                         onClicked: {
@@ -886,8 +886,8 @@ Item {
                         }
 
                         Accessible.role: Accessible.MenuItem
-                        Accessible.name: libraryDelegateScope.modelData.Name
-                        Accessible.description: "Open library " + libraryDelegateScope.modelData.Name
+                        Accessible.name: libraryDelegateScope.modelData.name
+                        Accessible.description: "Open library " + libraryDelegateScope.modelData.name
                     }
                 }
             }

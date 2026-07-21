@@ -555,11 +555,12 @@ QString MovieDetailsViewModel::cachedArtworkUrl(const QVariantMap &artwork, int 
         return {};
     }
     const Bloom::ArtworkRef ref = Bloom::ArtworkRef::fromVariantMap(artwork);
-    if (ref.itemId.isEmpty() || ref.kind == Bloom::ArtworkKind::Unknown) {
+    if (!ref.isValid()) {
         return {};
     }
-    return m_libraryService->getCachedArtworkUrl(ref.itemId,
-                                                  Bloom::artworkKindName(ref.kind),
+    return m_libraryService->getCachedArtworkUrlForConnection(ref.connectionId,
+                                                               ref.itemId,
+                                                               Bloom::artworkKindName(ref.kind),
                                                   ref.index,
                                                   ref.tag,
                                                   width);

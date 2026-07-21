@@ -205,7 +205,9 @@ bool LibraryCacheStore::replaceAll(const QString &parentId, const QJsonArray &it
     int pos = 0;
     for (const auto &val : items) {
         const QJsonObject obj = val.toObject();
-        const QString itemId = obj.value("Id").toString();
+        const QString itemId = obj.value(QStringLiteral("itemId")).toString().isEmpty()
+            ? obj.value(QStringLiteral("Id")).toString()
+            : obj.value(QStringLiteral("itemId")).toString();
         if (itemId.isEmpty()) {
             continue;
         }
@@ -266,7 +268,9 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
     incomingIds.reserve(items.size());
     for (const auto &val : items) {
         const QJsonObject obj = val.toObject();
-        const QString itemId = obj.value("Id").toString();
+        const QString itemId = obj.value(QStringLiteral("itemId")).toString().isEmpty()
+            ? obj.value(QStringLiteral("Id")).toString()
+            : obj.value(QStringLiteral("itemId")).toString();
         if (itemId.isEmpty()) {
             continue;
         }
