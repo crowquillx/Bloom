@@ -694,7 +694,7 @@ void LibraryService::getLatestMedia(const QString &parentId)
     }
     
     const QString connectionId = activeConnectionId(m_authService);
-    QString endpoint = QString("/Users/%1/Items/Latest?ParentId=%2&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,ProductionYear,Status,EndDate,ParentIndexNumber,IndexNumber,UserData,RunTimeTicks&EnableImageTypes=Primary,Backdrop,Thumb,Logo")
+    QString endpoint = QString("/Users/%1/Items/Latest?ParentId=%2&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,SeriesThumbImageTag,ParentThumbItemId,ParentThumbImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,ProductionYear,Status,EndDate,ParentIndexNumber,IndexNumber,UserData,RunTimeTicks&EnableImageTypes=Primary,Backdrop,Thumb,Logo")
         .arg(m_authService->getUserId(), parentId);
     
     sendRequestWithRetry(endpoint,
