@@ -904,6 +904,7 @@ void LibraryService::getItem(const QString &itemId, const QString &requestContex
         return;
     }
 
+    const QString connectionId = activeConnectionId(m_authService);
     const QString endpoint = buildItemEndpoint(m_authService->getUserId(), itemId);
     
     sendRequestWithRetry(endpoint,
@@ -917,7 +918,7 @@ void LibraryService::getItem(const QString &itemId, const QString &requestContex
             }
             return m_authService->networkManager()->get(request);
         },
-        [this, itemId, endpoint, requestContext](QNetworkReply *reply) {
+        [this, itemId, endpoint, requestContext, connectionId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (httpStatus == 304) {
@@ -945,8 +946,14 @@ void LibraryService::getItem(const QString &itemId, const QString &requestContex
                 emitError(error);
                 return;
             }
-            emit itemLoaded(itemId, doc.object(), requestContext);
-            emit itemLoaded(itemId, doc.object());
+            const QJsonObject wireItem = doc.object();
+            const QVariantMap canonicalItem = m_authService
+                ? m_authService->mapMediaItem(wireItem, connectionId)
+                : QVariantMap{};
+            emit itemLoaded(itemId, wireItem, requestContext);
+            emit itemLoaded(itemId, wireItem);
+            emit canonicalItemLoaded(itemId, canonicalItem, requestContext);
+            emit canonicalItemLoaded(itemId, canonicalItem);
         },
         [this, itemId, requestContext](const NetworkError &error) {
             emit itemFailed(itemId, error.userMessage, requestContext);
@@ -1181,6 +1188,7 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
         "ChildCount"
     };
 
+    const QString connectionId = activeConnectionId(m_authService);
     QString endpoint = QString("/Items/%1/Similar?UserId=%2&Limit=%3&Fields=%4&EnableImageTypes=Primary")
                            .arg(itemId, m_authService->getUserId())
                            .arg(qMax(1, limit))
@@ -1191,7 +1199,7 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, itemId](QNetworkReply *reply) {
+        [this, itemId, connectionId](QNetworkReply *reply) {
             const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             if (!doc.isObject()) {
                 NetworkError error;
@@ -1212,7 +1220,12 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
                 return;
             }
 
-            emit similarItemsLoaded(itemId, root.value("Items").toArray());
+            const QJsonArray wireItems = root.value("Items").toArray();
+            const QVariantList canonicalItems = m_authService
+                ? m_authService->mapMediaItems(wireItems, connectionId)
+                : QVariantList{};
+            emit similarItemsLoaded(itemId, wireItems);
+            emit canonicalSimilarItemsLoaded(itemId, canonicalItems);
         },
         [this, itemId](const NetworkError &error) {
             emit similarItemsFailed(itemId, error.userMessage);

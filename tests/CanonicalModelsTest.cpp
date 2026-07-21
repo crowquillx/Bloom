@@ -39,13 +39,31 @@ void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()
         {QStringLiteral("Id"), QStringLiteral("movie-1")},
         {QStringLiteral("Name"), QStringLiteral("Example")},
         {QStringLiteral("Type"), QStringLiteral("Movie")},
+        {QStringLiteral("Overview"), QStringLiteral("A sample overview")},
+        {QStringLiteral("ProductionYear"), 2024},
+        {QStringLiteral("PremiereDate"), QStringLiteral("2024-01-15T00:00:00.000Z")},
+        {QStringLiteral("OfficialRating"), QStringLiteral("PG-13")},
+        {QStringLiteral("CommunityRating"), 8.5},
         {QStringLiteral("RunTimeTicks"), 72'000'000'000.0},
+        {QStringLiteral("Genres"), QJsonArray{QStringLiteral("Action"), QStringLiteral("Sci-Fi")}},
         {QStringLiteral("ImageTags"), QJsonObject{
              {QStringLiteral("Primary"), QStringLiteral("primary-tag")},
              {QStringLiteral("Logo"), QStringLiteral("logo-tag")}
          }},
         {QStringLiteral("BackdropImageTags"), QJsonArray{QStringLiteral("backdrop-tag")}},
-        {QStringLiteral("ProviderIds"), QJsonObject{{QStringLiteral("Tmdb"), QStringLiteral("42")}}},
+        {QStringLiteral("ProviderIds"), QJsonObject{
+             {QStringLiteral("Imdb"), QStringLiteral("tt123")},
+             {QStringLiteral("Tmdb"), QStringLiteral("42")}
+         }},
+        {QStringLiteral("People"), QJsonArray{
+             QJsonObject{
+                 {QStringLiteral("Id"), QStringLiteral("person-1")},
+                 {QStringLiteral("Name"), QStringLiteral("Ada")},
+                 {QStringLiteral("Role"), QStringLiteral("Director")},
+                 {QStringLiteral("Type"), QStringLiteral("Director")},
+                 {QStringLiteral("PrimaryImageTag"), QStringLiteral("person-tag")}
+             }
+         }},
         {QStringLiteral("UserData"), QJsonObject{
              {QStringLiteral("Played"), true},
              {QStringLiteral("IsFavorite"), true},
@@ -61,10 +79,21 @@ void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()
     QCOMPARE(item.value(QStringLiteral("itemId")).toString(), QStringLiteral("movie-1"));
     QCOMPARE(item.value(QStringLiteral("name")).toString(), QStringLiteral("Example"));
     QCOMPARE(item.value(QStringLiteral("mediaType")).toString(), QStringLiteral("Movie"));
+    QCOMPARE(item.value(QStringLiteral("overview")).toString(), QStringLiteral("A sample overview"));
+    QCOMPARE(item.value(QStringLiteral("productionYear")).toInt(), 2024);
+    QCOMPARE(item.value(QStringLiteral("premiereDate")).toString(),
+             QStringLiteral("2024-01-15T00:00:00.000Z"));
+    QCOMPARE(item.value(QStringLiteral("officialRating")).toString(), QStringLiteral("PG-13"));
+    QCOMPARE(item.value(QStringLiteral("communityRating")).toDouble(), 8.5);
     QCOMPARE(item.value(QStringLiteral("durationMs")).toLongLong(), 7'200'000);
     QCOMPARE(item.value(QStringLiteral("positionMs")).toLongLong(), 1500);
     QVERIFY(item.value(QStringLiteral("watched")).toBool());
     QVERIFY(item.value(QStringLiteral("favorite")).toBool());
+    QCOMPARE(item.value(QStringLiteral("genres")).toList().size(), 2);
+    QCOMPARE(item.value(QStringLiteral("genres")).toList().at(0).toString(),
+             QStringLiteral("Action"));
+    QCOMPARE(item.value(QStringLiteral("providerIds")).toMap()
+                 .value(QStringLiteral("Imdb")).toString(), QStringLiteral("tt123"));
     QCOMPARE(item.value(QStringLiteral("providerIds")).toMap()
                  .value(QStringLiteral("Tmdb")).toString(), QStringLiteral("42"));
 
@@ -73,13 +102,33 @@ void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()
              QStringLiteral("RunTimeTicks"),
              QStringLiteral("ImageTags"),
              QStringLiteral("BackdropImageTags"),
-             QStringLiteral("UserData")}) {
+             QStringLiteral("UserData"),
+             QStringLiteral("ProviderIds")}) {
         QVERIFY2(!item.contains(wireKey), qPrintable(wireKey));
     }
 
     const QVariantMap primary = item.value(QStringLiteral("primaryArtwork")).toMap();
     QCOMPARE(primary.value(QStringLiteral("kind")).toString(), QStringLiteral("primary"));
     QCOMPARE(primary.value(QStringLiteral("tag")).toString(), QStringLiteral("primary-tag"));
+    QCOMPARE(item.value(QStringLiteral("logoArtwork")).toMap()
+                 .value(QStringLiteral("tag")).toString(), QStringLiteral("logo-tag"));
+    QCOMPARE(item.value(QStringLiteral("backdropArtwork")).toMap()
+                 .value(QStringLiteral("tag")).toString(), QStringLiteral("backdrop-tag"));
+
+    const QVariantList people = item.value(QStringLiteral("people")).toList();
+    QCOMPARE(people.size(), 1);
+    const QVariantMap person = people.first().toMap();
+    QCOMPARE(person.value(QStringLiteral("name")).toString(), QStringLiteral("Ada"));
+    QCOMPARE(person.value(QStringLiteral("role")).toString(), QStringLiteral("Director"));
+    QCOMPARE(person.value(QStringLiteral("personId")).toString(), QStringLiteral("person-1"));
+    QCOMPARE(person.value(QStringLiteral("artwork")).toMap()
+                 .value(QStringLiteral("kind")).toString(), QStringLiteral("person"));
+
+    const QVariantList similar = JellyfinModelMapper::mediaItems(
+        QJsonArray{wire}, QStringLiteral("connection-1"));
+    QCOMPARE(similar.size(), 1);
+    QCOMPARE(similar.first().toMap().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("movie-1"));
 }
 
 void CanonicalModelsTest::jellyfinParentBackdropUsesImageItemId()

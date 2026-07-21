@@ -1,6 +1,7 @@
 #include "MockLibraryService.h"
 #include "TestModeController.h"
 #include "../network/NextEpisodeResolver.h"
+#include "providers/jellyfin/JellyfinModelMapper.h"
 #include <QUrl>
 #include <QDebug>
 #include <algorithm>
@@ -341,8 +342,12 @@ void MockLibraryService::getItem(const QString &itemId, const QString &requestCo
     QJsonObject item = findItemById(itemId);
     if (!item.isEmpty()) {
         qCDebug(lcTest) << "MockLibraryService::getItem(" << itemId << ") -> found";
+        const QVariantMap canonicalItem = JellyfinModelMapper::mediaItem(
+            item, QStringLiteral("mock-connection"));
         emit itemLoaded(itemId, item, requestContext);
         emit itemLoaded(itemId, item);
+        emit canonicalItemLoaded(itemId, canonicalItem, requestContext);
+        emit canonicalItemLoaded(itemId, canonicalItem);
     } else {
         qCWarning(lcTest) << "MockLibraryService::getItem(" << itemId << ") -> not found";
         emit itemFailed(itemId, "Item not found: " + itemId, requestContext);

@@ -66,6 +66,22 @@ const IPlaybackProvider *AuthenticationService::playbackProvider() const
     return m_providerAdapter ? m_providerAdapter->playbackProvider() : nullptr;
 }
 
+QVariantMap AuthenticationService::mapMediaItem(const QJsonObject &wireItem,
+                                                 const QString &connectionId) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapMediaItem(wireItem, connectionId)
+        : QVariantMap{};
+}
+
+QVariantList AuthenticationService::mapMediaItems(const QJsonArray &wireItems,
+                                                   const QString &connectionId) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapMediaItems(wireItems, connectionId)
+        : QVariantList{};
+}
+
 QNetworkAccessManager *AuthenticationService::networkManager() const
 {
     return m_transport->networkManager();

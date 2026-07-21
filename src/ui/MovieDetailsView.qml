@@ -19,12 +19,12 @@ FocusScope {
 
     readonly property string movieName: MovieDetailsViewModel.title
     readonly property string movieOverview: MovieDetailsViewModel.overview
-    readonly property var runtimeTicks: MovieDetailsViewModel.runtimeTicks
+    readonly property double durationMs: MovieDetailsViewModel.durationMs
     readonly property var communityRating: MovieDetailsViewModel.communityRating
     readonly property string premiereDate: MovieDetailsViewModel.premiereDate
     readonly property int productionYear: MovieDetailsViewModel.productionYear
     readonly property bool isPlayed: MovieDetailsViewModel.isWatched
-    readonly property var playbackPositionTicks: MovieDetailsViewModel.playbackPositionTicks
+    readonly property double positionMs: MovieDetailsViewModel.positionMs
     readonly property string officialRating: MovieDetailsViewModel.officialRating
     readonly property var genres: MovieDetailsViewModel.genres
     readonly property var castAndCrew: MovieDetailsViewModel.people || []
@@ -64,22 +64,32 @@ FocusScope {
     signal backRequested()
     signal returnStateConsumed()
 
+    function artworkUrlFromRef(artwork, width) {
+        if (!artwork || !artwork.itemId) {
+            return ""
+        }
+        return LibraryService.getCachedArtworkUrl(
+                    artwork.itemId,
+                    artwork.kind || "primary",
+                    artwork.index || 0,
+                    artwork.tag || "",
+                    width || 420)
+    }
+
     component RecommendationPosterCard: Item {
         id: recommendationCard
 
         required property var itemData
         property bool isFocused: false
         property bool isHovered: InputModeManager.pointerActive && recommendationMouseArea.containsMouse
-        readonly property string posterSource: itemData.Id
-                                              ? LibraryService.getCachedImageUrlWithWidth(itemData.Id, "Primary", 420)
-                                              : ""
-        readonly property string title: itemData.Name || ""
+        readonly property string posterSource: root.artworkUrlFromRef(itemData.primaryArtwork, 420)
+        readonly property string title: itemData.name || ""
         readonly property string subtitle: {
-            if (itemData.ProductionYear) {
-                return String(itemData.ProductionYear)
+            if (itemData.productionYear) {
+                return String(itemData.productionYear)
             }
-            if (itemData.PremiereDate) {
-                const date = new Date(itemData.PremiereDate)
+            if (itemData.premiereDate) {
+                const date = new Date(itemData.premiereDate)
                 if (!isNaN(date.getTime())) {
                     return String(date.getFullYear())
                 }
@@ -148,7 +158,7 @@ FocusScope {
 
                     Text {
                         anchors.centerIn: parent
-                        text: recommendationCard.itemData.Type === "Series" ? Icons.tvShows : Icons.movie
+                        text: recommendationCard.itemData.mediaType === "Series" ? Icons.tvShows : Icons.movie
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(56 * Theme.layoutScale)
                         color: Theme.textSecondary
@@ -378,9 +388,10 @@ FocusScope {
 
         return {
             itemId: movieId,
+            // Playback stack still expects ticks; convert from canonical milliseconds at the boundary.
             startPositionTicks: startPositionOverride !== undefined && startPositionOverride !== null
                                 ? startPositionOverride
-                                : (playbackPositionTicks || 0),
+                                : Math.round((positionMs || 0) * 10000),
             seriesId: "",
             seasonId: "",
             overlayTitle: movieName || qsTr("Now Playing"),
@@ -419,9 +430,9 @@ FocusScope {
         root.playRequested(buildPlaybackRequest(startPositionTicks, lastPlaybackRestoreFocusTarget))
     }
 
-    function formatRuntime(ticks) {
-        if (!ticks || ticks === 0) return ""
-        var totalMinutes = Math.round(ticks / 600000000)
+    function formatRuntime(ms) {
+        if (!ms || ms === 0) return ""
+        var totalMinutes = Math.round(ms / 60000)
         var hours = Math.floor(totalMinutes / 60)
         var minutes = totalMinutes % 60
         if (hours > 0) {
@@ -440,11 +451,10 @@ FocusScope {
                          : minutes + ":" + pad(remainder)
     }
 
-    function calculateEndTime(ticks) {
-        if (!ticks || ticks === 0) return ""
+    function calculateEndTime(ms) {
+        if (!ms || ms === 0) return ""
         var now = new Date()
-        var runtimeMs = ticks / 10000
-        var endTime = new Date(now.getTime() + runtimeMs)
+        var endTime = new Date(now.getTime() + ms)
         return qsTr("Ends %1").arg(endTime.toLocaleTimeString(Qt.locale(), "h:mm AP"))
     }
 
@@ -454,11 +464,11 @@ FocusScope {
     }
 
     function watchedMinutes() {
-        return Math.round((playbackPositionTicks || 0) / 600000000)
+        return Math.round((positionMs || 0) / 60000)
     }
 
     function totalMinutes() {
-        return Math.round((runtimeTicks || 0) / 600000000)
+        return Math.round((durationMs || 0) / 60000)
     }
 
     function remainingMinutes() {
@@ -1053,8 +1063,8 @@ FocusScope {
 
                             MetadataChip { text: productionYear > 0 ? String(productionYear) : "" }
                             MetadataChip { text: officialRating }
-                            MetadataChip { text: formatRuntime(runtimeTicks) }
-                            MetadataChip { text: calculateEndTime(runtimeTicks) }
+                            MetadataChip { text: formatRuntime(durationMs) }
+                            MetadataChip { text: calculateEndTime(durationMs) }
                             MetadataChip { text: formatCommunityRating() }
 
                             Repeater {
@@ -1187,7 +1197,7 @@ FocusScope {
 
                             Button {
                                 id: playButton
-                                text: playbackPositionTicks > 0 ? qsTr("Resume") : qsTr("Play")
+                                text: positionMs > 0 ? qsTr("Resume") : qsTr("Play")
                                 enabled: movieId !== ""
                                 Layout.preferredHeight: Theme.buttonHeightLarge
                                 Layout.preferredWidth: Theme.buttonHeightLarge
@@ -1352,7 +1362,7 @@ FocusScope {
                         }
 
                         ColumnLayout {
-                            visible: playbackPositionTicks > 0 && !isPlayed
+                            visible: positionMs > 0 && !isPlayed
                             Layout.fillWidth: true
                             spacing: Math.round(4 * Theme.layoutScale)
 
@@ -1386,7 +1396,7 @@ FocusScope {
                                     anchors.left: parent.left
                                     anchors.top: parent.top
                                     anchors.bottom: parent.bottom
-                                    width: runtimeTicks > 0 ? parent.width * Math.min(1, playbackPositionTicks / runtimeTicks) : 0
+                                    width: durationMs > 0 ? parent.width * Math.min(1, positionMs / durationMs) : 0
                                     radius: 3
                                     color: Theme.accentPrimary
                                 }

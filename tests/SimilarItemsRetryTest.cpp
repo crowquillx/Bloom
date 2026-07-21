@@ -29,6 +29,17 @@ public:
         return QString("image://%1/%2/%3").arg(itemId, imageType).arg(width);
     }
 
+    QString getCachedArtworkUrl(const QString &itemId,
+                                const QString &imageType,
+                                int imageIndex,
+                                const QString &imageTag,
+                                int width) override
+    {
+        Q_UNUSED(imageIndex)
+        Q_UNUSED(imageTag)
+        return QStringLiteral("artwork://%1/%2/%3").arg(itemId, imageType).arg(width);
+    }
+
     QStringList requestedIds;
 };
 
@@ -115,6 +126,7 @@ private slots:
     void init();
     void cleanup();
     void movieSimilarItemsFailureAllowsRetry();
+    void movieCanonicalSimilarItemsReplaceWireShape();
     void seriesSimilarItemsFailureAllowsRetry();
     void seriesEpisodeDetailsFailureIsTargeted();
     void seriesEpisodeDetailsNotModifiedRetriesOnce();
@@ -159,6 +171,45 @@ void SimilarItemsRetryTest::movieSimilarItemsFailureAllowsRetry()
     vm.onMovieDetailsNotModified(QStringLiteral("movie-1"));
     QCOMPARE(m_libraryService->requestedIds.size(), 1);
     QCOMPARE(m_libraryService->requestedIds.first(), QStringLiteral("movie-1"));
+}
+
+void SimilarItemsRetryTest::movieCanonicalSimilarItemsReplaceWireShape()
+{
+    MovieDetailsViewModel vm;
+    vm.m_movieId = QStringLiteral("movie-1");
+    vm.m_similarItemsLoading = true;
+
+    const QVariantList canonicalItems{
+        QVariantMap{
+            {QStringLiteral("itemId"), QStringLiteral("movie-2")},
+            {QStringLiteral("name"), QStringLiteral("Similar")},
+            {QStringLiteral("mediaType"), QStringLiteral("Movie")},
+            {QStringLiteral("productionYear"), 2023},
+            {QStringLiteral("primaryArtwork"), QVariantMap{
+                 {QStringLiteral("connectionId"), QStringLiteral("connection-1")},
+                 {QStringLiteral("itemId"), QStringLiteral("movie-2")},
+                 {QStringLiteral("kind"), QStringLiteral("primary")},
+                 {QStringLiteral("index"), 0},
+                 {QStringLiteral("tag"), QStringLiteral("poster-tag")},
+                 {QStringLiteral("requestedWidth"), 0}
+             }}
+        },
+        QVariantMap{
+            {QStringLiteral("Id"), QStringLiteral("legacy-wire")},
+            {QStringLiteral("Name"), QStringLiteral("Should Be Ignored")}
+        }
+    };
+
+    vm.onSimilarItemsLoaded(QStringLiteral("movie-1"), canonicalItems);
+
+    QCOMPARE(vm.similarItems().size(), 1);
+    const QVariantMap item = vm.similarItems().first().toMap();
+    QCOMPARE(item.value(QStringLiteral("itemId")).toString(), QStringLiteral("movie-2"));
+    QCOMPARE(item.value(QStringLiteral("name")).toString(), QStringLiteral("Similar"));
+    QVERIFY(item.contains(QStringLiteral("primaryArtwork")));
+    QVERIFY(!item.contains(QStringLiteral("Id")));
+    QCOMPARE(vm.similarItemsLoading(), false);
+    QCOMPARE(vm.m_similarItemsAttempted, true);
 }
 
 void SimilarItemsRetryTest::seriesSimilarItemsFailureAllowsRetry()
