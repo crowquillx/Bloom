@@ -132,7 +132,8 @@ public:
     Q_INVOKABLE virtual void getHeroLibraryItems(int limit, const QStringList &parentIds, bool unwatchedOnly);
     Q_INVOKABLE virtual void getHeroSeriesOverviews(const QStringList &seriesIds);
     
-    // URL helpers
+    // URL helpers and request ownership
+    Q_INVOKABLE virtual QString getActiveConnectionId() const;
     Q_INVOKABLE virtual QString getStreamUrl(const QString &itemId);
     Q_INVOKABLE virtual QString getStreamUrlWithTracks(const QString &itemId, const QString &mediaSourceId = QString(),
                                                 int audioStreamIndex = -1, int subtitleStreamIndex = -1);
@@ -158,6 +159,8 @@ public:
 signals:
     void viewsLoaded(const QJsonArray &views);
     void canonicalViewsLoaded(const QVariantList &views);
+    void canonicalViewsLoadedForConnection(const QString &connectionId,
+                                           const QVariantList &views);
     void itemsLoaded(const QString &parentId, const QJsonArray &items);
     void itemsLoadedWithTotal(const QString &parentId, const QJsonArray &items, int totalRecordCount);
     void itemsLoadedWithTotalForQuery(const QString &parentId, const QString &queryKey, const QJsonArray &items, int totalRecordCount);
@@ -200,8 +203,16 @@ signals:
     void chaptersFailed(const QString &itemId, const QString &error);
 
     void nextUpLoaded(const QJsonArray &items);
+    void canonicalNextUpLoaded(const QString &connectionId, const QVariantList &items);
     void latestMediaLoaded(const QString &parentId, const QJsonArray &items);
+    void canonicalLatestMediaLoaded(const QString &connectionId,
+                                    const QString &parentId,
+                                    const QVariantList &items);
     void homeBackdropItemsLoaded(const QJsonArray &items);
+    void canonicalHomeBackdropItemsLoaded(const QString &connectionId,
+                                          const QVariantList &items);
+    void canonicalHomeBackdropItemsFailed(const QString &connectionId,
+                                          const QString &error);
     void screensaverItemsLoaded(const QJsonArray &items);
     void seriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void canonicalSeriesDetailsLoaded(const QString &connectionId,
@@ -236,7 +247,13 @@ signals:
     void searchResultsLoaded(const QString &searchTerm, const QJsonArray &movies, const QJsonArray &series);
     void randomItemsLoaded(const QJsonArray &items);
     void heroLibraryItemsLoaded(const QJsonArray &items);
+    void canonicalHeroLibraryItemsLoaded(const QString &connectionId,
+                                         const QVariantList &items);
+    void canonicalHeroLibraryItemsFailed(const QString &connectionId,
+                                         const QString &error);
     void heroSeriesOverviewsLoaded(const QJsonObject &overviewsBySeriesId);
+    void canonicalHeroSeriesOverviewsLoaded(const QString &connectionId,
+                                            const QVariantMap &overviewsBySeriesId);
     
     // Error signals
     void errorOccurred(const QString &endpoint, const QString &error);
@@ -265,8 +282,9 @@ private:
     
     void emitError(const NetworkError &error);
 
-    // In-flight deduplication for chapter requests
+    // In-flight request ownership
     QSet<QString> m_inFlightChapterRequests;
+    quint64 m_heroLibraryRequestGeneration = 0;
 
     // Cache validation state (per endpoint/parent)
     QHash<QString, QString> m_etags;

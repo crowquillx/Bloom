@@ -261,6 +261,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
             m_etags.clear();
             m_lastModified.clear();
             m_inFlightChapterRequests.clear();
+            ++m_heroLibraryRequestGeneration;
         };
         connect(m_authService, &AuthenticationService::loggedOut,
                 this, clearAccountState);
@@ -360,8 +361,10 @@ void LibraryService::getViews()
                     
                     if (result.success) {
                         emit viewsLoaded(result.items);
-                        emit canonicalViewsLoaded(
-                            m_authService->mapMediaItems(result.items, connectionId));
+                        const QVariantList canonicalItems =
+                            m_authService->mapMediaItems(result.items, connectionId);
+                        emit canonicalViewsLoaded(canonicalItems);
+                        emit canonicalViewsLoadedForConnection(connectionId, canonicalItems);
                     } else {
                         NetworkError error;
                         error.endpoint = "getViews";
@@ -388,7 +391,10 @@ void LibraryService::getViews()
                 QJsonObject obj = doc.object();
                 QJsonArray items = obj["Items"].toArray();
                 emit viewsLoaded(items);
-                emit canonicalViewsLoaded(m_authService->mapMediaItems(items, connectionId));
+                const QVariantList canonicalItems =
+                    m_authService->mapMediaItems(items, connectionId);
+                emit canonicalViewsLoaded(canonicalItems);
+                emit canonicalViewsLoadedForConnection(connectionId, canonicalItems);
             }
         });
 }
@@ -648,7 +654,8 @@ void LibraryService::getNextUp()
         return;
     }
     
-    QString endpoint = QString("/Shows/NextUp?UserId=%1&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,SeriesThumbImageTag,ParentThumbImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,UserData,RunTimeTicks&EnableImageTypes=Primary,Thumb,Backdrop,Logo")
+    const QString connectionId = activeConnectionId(m_authService);
+    QString endpoint = QString("/Shows/NextUp?UserId=%1&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,SeriesThumbImageTag,ParentThumbItemId,ParentThumbImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,UserData,RunTimeTicks&EnableImageTypes=Primary,Thumb,Backdrop,Logo")
         .arg(m_authService->getUserId());
     
     sendRequestWithRetry(endpoint,
@@ -656,7 +663,7 @@ void LibraryService::getNextUp()
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this](QNetworkReply *reply) {
+        [this, connectionId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isObject()) {
@@ -670,6 +677,8 @@ void LibraryService::getNextUp()
             QJsonObject obj = doc.object();
             QJsonArray items = obj["Items"].toArray();
             emit nextUpLoaded(items);
+            emit canonicalNextUpLoaded(
+                connectionId, m_authService->mapMediaItems(items, connectionId));
         });
 }
 
@@ -684,7 +693,8 @@ void LibraryService::getLatestMedia(const QString &parentId)
         return;
     }
     
-    QString endpoint = QString("/Users/%1/Items/Latest?ParentId=%2&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,ProductionYear,Status,EndDate,ParentIndexNumber,IndexNumber,UserData&EnableImageTypes=Primary,Backdrop,Thumb,Logo")
+    const QString connectionId = activeConnectionId(m_authService);
+    QString endpoint = QString("/Users/%1/Items/Latest?ParentId=%2&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,ProductionYear,Status,EndDate,ParentIndexNumber,IndexNumber,UserData,RunTimeTicks&EnableImageTypes=Primary,Backdrop,Thumb,Logo")
         .arg(m_authService->getUserId(), parentId);
     
     sendRequestWithRetry(endpoint,
@@ -692,7 +702,7 @@ void LibraryService::getLatestMedia(const QString &parentId)
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, parentId](QNetworkReply *reply) {
+        [this, parentId, connectionId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             QJsonDocument doc = QJsonDocument::fromJson(data);
             if (!doc.isArray()) {
@@ -705,16 +715,20 @@ void LibraryService::getLatestMedia(const QString &parentId)
             }
             QJsonArray items = doc.array();
             emit latestMediaLoaded(parentId, items);
+            emit canonicalLatestMediaLoaded(
+                connectionId, parentId, m_authService->mapMediaItems(items, connectionId));
         });
 }
 
 void LibraryService::getHomeBackdropItems(int limit)
 {
+    const QString connectionId = activeConnectionId(m_authService);
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getHomeBackdropItems";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
+        emit canonicalHomeBackdropItemsFailed(connectionId, error.userMessage);
         emitError(error);
         return;
     }
@@ -741,7 +755,7 @@ void LibraryService::getHomeBackdropItems(int limit)
                 QNetworkRequest request = m_authService->createRequest(endpoint);
                 return m_authService->networkManager()->get(request);
             },
-            [this, requestedLimit](QNetworkReply *reply) {
+            [this, requestedLimit, connectionId](QNetworkReply *reply) {
                 QByteArray data = reply->readAll();
                 QJsonDocument doc = QJsonDocument::fromJson(data);
                 if (!doc.isObject()) {
@@ -749,6 +763,7 @@ void LibraryService::getHomeBackdropItems(int limit)
                     error.endpoint = "getHomeBackdropItems";
                     error.code = -2;
                     error.userMessage = tr("Invalid home backdrop response");
+                    emit canonicalHomeBackdropItemsFailed(connectionId, error.userMessage);
                     emitError(error);
                     return;
                 }
@@ -756,6 +771,12 @@ void LibraryService::getHomeBackdropItems(int limit)
                 qCDebug(lcLibrary) << "getHomeBackdropItems starter sample size:" << items.size()
                                         << "requestedLimit:" << requestedLimit;
                 emit homeBackdropItemsLoaded(items);
+                emit canonicalHomeBackdropItemsLoaded(
+                    connectionId, m_authService->mapMediaItems(items, connectionId));
+            },
+            [this, connectionId](const NetworkError &error) {
+                emit canonicalHomeBackdropItemsFailed(connectionId, error.userMessage);
+                emitError(error);
             });
         return;
     }
@@ -765,7 +786,10 @@ void LibraryService::getHomeBackdropItems(int limit)
 
     auto aggregate = std::make_shared<QJsonArray>();
     auto fetchPage = std::make_shared<std::function<void(int)>>();
-    *fetchPage = [this, fields, pageSize, requestedLimit, aggregate, fetchPage](int startIndex) {
+    *fetchPage = [this, fields, pageSize, requestedLimit, aggregate, fetchPage, connectionId](int startIndex) {
+        if (activeConnectionId(m_authService) != connectionId) {
+            return;
+        }
         QString endpoint = QString("/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series,Season,Episode&SortBy=SortName&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableTotalRecordCount=false&StartIndex=%3&Limit=%4")
                                .arg(m_authService->getUserId())
                                .arg(fields.join(","))
@@ -777,7 +801,7 @@ void LibraryService::getHomeBackdropItems(int limit)
                 QNetworkRequest request = m_authService->createRequest(endpoint);
                 return m_authService->networkManager()->get(request);
             },
-            [this, startIndex, pageSize, requestedLimit, aggregate, fetchPage](QNetworkReply *reply) {
+            [this, startIndex, pageSize, requestedLimit, aggregate, fetchPage, connectionId](QNetworkReply *reply) {
                 QByteArray data = reply->readAll();
                 QJsonDocument doc = QJsonDocument::fromJson(data);
                 if (!doc.isObject()) {
@@ -785,6 +809,7 @@ void LibraryService::getHomeBackdropItems(int limit)
                     error.endpoint = "getHomeBackdropItems";
                     error.code = -2;
                     error.userMessage = tr("Invalid home backdrop response");
+                    emit canonicalHomeBackdropItemsFailed(connectionId, error.userMessage);
                     emitError(error);
                     return;
                 }
@@ -798,6 +823,8 @@ void LibraryService::getHomeBackdropItems(int limit)
                 // Emit progressively so Home can render backdrops immediately.
                 if (!pageItems.isEmpty()) {
                     emit homeBackdropItemsLoaded(pageItems);
+                    emit canonicalHomeBackdropItemsLoaded(
+                        connectionId, m_authService->mapMediaItems(pageItems, connectionId));
                 }
 
                 for (const QJsonValue &value : pageItems) {
@@ -817,6 +844,10 @@ void LibraryService::getHomeBackdropItems(int limit)
                 QTimer::singleShot(pageDelayMs, this, [fetchPage, nextStart]() {
                     (*fetchPage)(nextStart);
                 });
+            },
+            [this, connectionId](const NetworkError &error) {
+                emit canonicalHomeBackdropItemsFailed(connectionId, error.userMessage);
+                emitError(error);
             });
     };
 
@@ -1635,15 +1666,18 @@ void LibraryService::getRandomItems(int limit)
 
 void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds, bool unwatchedOnly)
 {
+    const QString connectionId = activeConnectionId(m_authService);
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getHeroLibraryItems";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
+        emit canonicalHeroLibraryItemsFailed(connectionId, error.userMessage);
         emitError(error);
         return;
     }
 
+    const quint64 requestGeneration = ++m_heroLibraryRequestGeneration;
     const int clampedLimit = qBound(1, limit, 25);
     const QStringList fields = {
         "Overview", "SeriesName", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
@@ -1682,7 +1716,10 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
                 QNetworkRequest request = m_authService->createRequest(endpoint);
                 return m_authService->networkManager()->get(request);
             },
-            [this](QNetworkReply *reply) {
+            [this, connectionId, requestGeneration](QNetworkReply *reply) {
+                if (requestGeneration != m_heroLibraryRequestGeneration) {
+                    return;
+                }
                 QByteArray data = reply->readAll();
                 QJsonDocument doc = QJsonDocument::fromJson(data);
                 if (!doc.isObject()) {
@@ -1690,10 +1727,21 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
                     error.endpoint = "getHeroLibraryItems";
                     error.code = -2;
                     error.userMessage = tr("Invalid hero library items response");
+                    emit canonicalHeroLibraryItemsFailed(connectionId, error.userMessage);
                     emitError(error);
                     return;
                 }
-                emit heroLibraryItemsLoaded(doc.object()["Items"].toArray());
+                const QJsonArray items = doc.object()["Items"].toArray();
+                emit heroLibraryItemsLoaded(items);
+                emit canonicalHeroLibraryItemsLoaded(
+                    connectionId, m_authService->mapMediaItems(items, connectionId));
+            },
+            [this, connectionId, requestGeneration](const NetworkError &error) {
+                if (requestGeneration != m_heroLibraryRequestGeneration) {
+                    return;
+                }
+                emit canonicalHeroLibraryItemsFailed(connectionId, error.userMessage);
+                emitError(error);
             });
         return;
     }
@@ -1706,7 +1754,10 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
                 QNetworkRequest request = m_authService->createRequest(endpoint);
                 return m_authService->networkManager()->get(request);
             },
-            [this](QNetworkReply *reply) {
+            [this, connectionId, requestGeneration](QNetworkReply *reply) {
+                if (requestGeneration != m_heroLibraryRequestGeneration) {
+                    return;
+                }
                 QByteArray data = reply->readAll();
                 QJsonDocument doc = QJsonDocument::fromJson(data);
                 if (!doc.isObject()) {
@@ -1714,10 +1765,21 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
                     error.endpoint = "getHeroLibraryItems";
                     error.code = -2;
                     error.userMessage = tr("Invalid hero library items response");
+                    emit canonicalHeroLibraryItemsFailed(connectionId, error.userMessage);
                     emitError(error);
                     return;
                 }
-                emit heroLibraryItemsLoaded(doc.object()["Items"].toArray());
+                const QJsonArray items = doc.object()["Items"].toArray();
+                emit heroLibraryItemsLoaded(items);
+                emit canonicalHeroLibraryItemsLoaded(
+                    connectionId, m_authService->mapMediaItems(items, connectionId));
+            },
+            [this, connectionId, requestGeneration](const NetworkError &error) {
+                if (requestGeneration != m_heroLibraryRequestGeneration) {
+                    return;
+                }
+                emit canonicalHeroLibraryItemsFailed(connectionId, error.userMessage);
+                emitError(error);
             });
         return;
     }
@@ -1734,7 +1796,10 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
                 QNetworkRequest request = m_authService->createRequest(endpoint);
                 return m_authService->networkManager()->get(request);
             },
-            [this, aggregate, remaining, clampedLimit](QNetworkReply *reply) {
+            [this, aggregate, remaining, clampedLimit, connectionId, requestGeneration](QNetworkReply *reply) {
+                if (requestGeneration != m_heroLibraryRequestGeneration) {
+                    return;
+                }
                 QByteArray data = reply->readAll();
                 QJsonDocument doc = QJsonDocument::fromJson(data);
                 if (doc.isObject()) {
@@ -1750,11 +1815,23 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
                     const int total = qMin(aggregate->size(), clampedLimit);
                     for (int i = 0; i < total; ++i) trimmed.append(aggregate->at(i));
                     emit heroLibraryItemsLoaded(trimmed);
+                    emit canonicalHeroLibraryItemsLoaded(
+                        connectionId, m_authService->mapMediaItems(trimmed, connectionId));
                 }
             },
-            [this, remaining](const NetworkError &) {
+            [this, aggregate, remaining, clampedLimit, connectionId, requestGeneration](const NetworkError &) {
+                if (requestGeneration != m_heroLibraryRequestGeneration) {
+                    return;
+                }
                 if (--(*remaining) <= 0) {
-                    emit heroLibraryItemsLoaded(QJsonArray());
+                    QJsonArray trimmed;
+                    const int total = qMin(aggregate->size(), clampedLimit);
+                    for (int i = 0; i < total; ++i) {
+                        trimmed.append(aggregate->at(i));
+                    }
+                    emit heroLibraryItemsLoaded(trimmed);
+                    emit canonicalHeroLibraryItemsLoaded(
+                        connectionId, m_authService->mapMediaItems(trimmed, connectionId));
                 }
             });
     }
@@ -1762,6 +1839,7 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
 
 void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
 {
+    const QString connectionId = activeConnectionId(m_authService);
     QStringList ids;
     for (const QString &id : seriesIds) {
         const QString trimmed = id.trimmed();
@@ -1772,6 +1850,7 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
 
     if (ids.isEmpty()) {
         emit heroSeriesOverviewsLoaded(QJsonObject());
+        emit canonicalHeroSeriesOverviewsLoaded(connectionId, QVariantMap());
         return;
     }
 
@@ -1781,6 +1860,7 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
             overviews.insert(id, QString());
         }
         emit heroSeriesOverviewsLoaded(overviews);
+        emit canonicalHeroSeriesOverviewsLoaded(connectionId, overviews.toVariantMap());
 
         NetworkError error;
         error.endpoint = "getHeroSeriesOverviews";
@@ -1800,7 +1880,7 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
                 QNetworkRequest request = m_authService->createRequest(endpoint);
                 return m_authService->networkManager()->get(request);
             },
-            [this, overviews, remaining, seriesId](QNetworkReply *reply) {
+            [this, overviews, remaining, seriesId, connectionId](QNetworkReply *reply) {
                 const QByteArray data = reply->readAll();
                 const QJsonDocument doc = QJsonDocument::fromJson(data);
                 QString overview;
@@ -1810,15 +1890,24 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
                 overviews->insert(seriesId, overview);
                 if (--(*remaining) <= 0) {
                     emit heroSeriesOverviewsLoaded(*overviews);
+                    emit canonicalHeroSeriesOverviewsLoaded(connectionId,
+                                                            overviews->toVariantMap());
                 }
             },
-            [this, overviews, remaining, seriesId](const NetworkError &) {
+            [this, overviews, remaining, seriesId, connectionId](const NetworkError &) {
                 overviews->insert(seriesId, QString());
                 if (--(*remaining) <= 0) {
                     emit heroSeriesOverviewsLoaded(*overviews);
+                    emit canonicalHeroSeriesOverviewsLoaded(connectionId,
+                                                            overviews->toVariantMap());
                 }
             });
     }
+}
+
+QString LibraryService::getActiveConnectionId() const
+{
+    return activeConnectionId(m_authService);
 }
 
 QString LibraryService::getStreamUrl(const QString &itemId)

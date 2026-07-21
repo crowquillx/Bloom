@@ -35,8 +35,10 @@ void MockLibraryService::getViews()
     QJsonArray views = m_libraries["Items"].toArray();
     qCDebug(lcTest) << "MockLibraryService::getViews() ->" << views.size() << "views";
     emit viewsLoaded(views);
-    emit canonicalViewsLoaded(
-        JellyfinModelMapper::mediaItems(views, QStringLiteral("mock-connection")));
+    const QVariantList canonicalViews =
+        JellyfinModelMapper::mediaItems(views, QStringLiteral("mock-connection"));
+    emit canonicalViewsLoaded(canonicalViews);
+    emit canonicalViewsLoadedForConnection(QStringLiteral("mock-connection"), canonicalViews);
 }
 
 void MockLibraryService::getItems(const QString &parentId, int startIndex, int limit, 
@@ -253,6 +255,9 @@ void MockLibraryService::getNextUp()
     QJsonArray items = m_nextUp["Items"].toArray();
     qCDebug(lcTest) << "MockLibraryService::getNextUp() ->" << items.size() << "items";
     emit nextUpLoaded(items);
+    emit canonicalNextUpLoaded(
+        QStringLiteral("mock-connection"),
+        JellyfinModelMapper::mediaItems(items, QStringLiteral("mock-connection")));
 }
 
 void MockLibraryService::getLatestMedia(const QString &parentId)
@@ -260,6 +265,9 @@ void MockLibraryService::getLatestMedia(const QString &parentId)
     QJsonArray items = m_latestItems["Items"].toArray();
     qCDebug(lcTest) << "MockLibraryService::getLatestMedia(" << parentId << ") ->" << items.size() << "items";
     emit latestMediaLoaded(parentId, items);
+    emit canonicalLatestMediaLoaded(
+        QStringLiteral("mock-connection"), parentId,
+        JellyfinModelMapper::mediaItems(items, QStringLiteral("mock-connection")));
 }
 
 void MockLibraryService::getHomeBackdropItems(int limit)
@@ -287,6 +295,9 @@ void MockLibraryService::getHomeBackdropItems(int limit)
 
     qCDebug(lcTest) << "MockLibraryService::getHomeBackdropItems(" << limit << ") ->" << result.size() << "items";
     emit homeBackdropItemsLoaded(result);
+    emit canonicalHomeBackdropItemsLoaded(
+        QStringLiteral("mock-connection"),
+        JellyfinModelMapper::mediaItems(result, QStringLiteral("mock-connection")));
 }
 
 void MockLibraryService::getScreensaverItems(int limit)
@@ -562,6 +573,9 @@ void MockLibraryService::getHeroLibraryItems(int limit, const QStringList &paren
 
     qCDebug(lcTest) << "MockLibraryService::getHeroLibraryItems(" << limit << "," << ids.size() << "," << unwatchedOnly << ") ->" << result.size() << "items";
     emit heroLibraryItemsLoaded(result);
+    emit canonicalHeroLibraryItemsLoaded(
+        QStringLiteral("mock-connection"),
+        JellyfinModelMapper::mediaItems(result, QStringLiteral("mock-connection")));
 }
 
 void MockLibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
@@ -578,6 +592,13 @@ void MockLibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
 
     qCDebug(lcTest) << "MockLibraryService::getHeroSeriesOverviews(" << seriesIds.size() << ") ->" << result.size() << "items";
     emit heroSeriesOverviewsLoaded(result);
+    emit canonicalHeroSeriesOverviewsLoaded(
+        QStringLiteral("mock-connection"), result.toVariantMap());
+}
+
+QString MockLibraryService::getActiveConnectionId() const
+{
+    return QStringLiteral("mock-connection");
 }
 
 QString MockLibraryService::getStreamUrl(const QString &itemId)
