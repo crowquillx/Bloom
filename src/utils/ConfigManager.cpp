@@ -2,6 +2,7 @@
 #include "BloomLogging.h"
 #include "LoggingConfig.h"
 #include "MpvArgFilter.h"
+#include "profiles/BloomProfile.h"
 #include <QFile>
 #include <QJsonDocument>
 #include <QStandardPaths>
@@ -828,6 +829,7 @@ void ConfigManager::load()
     }
 
     m_config = doc.object();
+    const QJsonObject loadedConfig = m_config;
 
     // Run migrations, ensure config is at the current version
     if (!migrateConfig()) {
@@ -850,6 +852,9 @@ void ConfigManager::load()
         return;
     }
 
+    if (m_config != loadedConfig) {
+        save();
+    }
     qDebug() << "Loaded config from" << path;
 }
 
@@ -1035,6 +1040,31 @@ void ConfigManager::finalizeLegacyJellyfinMigration()
     m_config[QStringLiteral("settings")] = settings;
     save();
     emit connectionsChanged();
+}
+
+QJsonObject ConfigManager::getBloomProfilesConfig() const
+{
+    return m_config.value(QStringLiteral("settings")).toObject()
+        .value(QStringLiteral("bloom_profiles")).toObject();
+}
+
+void ConfigManager::setBloomProfilesConfig(const QJsonObject &config)
+{
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject normalized = config;
+    if (normalized.value(QStringLiteral("version")).toInt() != 1) {
+        normalized[QStringLiteral("version")] = 1;
+    }
+    if (!normalized.contains(QStringLiteral("active_profile_id"))
+        || !normalized.value(QStringLiteral("active_profile_id")).isString()) {
+        normalized[QStringLiteral("active_profile_id")] = QString();
+    }
+    if (!normalized.value(QStringLiteral("items")).isArray()) {
+        normalized[QStringLiteral("items")] = QJsonArray();
+    }
+    settings[QStringLiteral("bloom_profiles")] = normalized;
+    m_config[QStringLiteral("settings")] = settings;
+    save();
 }
 
 void ConfigManager::setJellyfinSession(const QString &serverUrl,
@@ -4063,6 +4093,71 @@ public:
         newConfig[QStringLiteral("settings")] = settings;
         return newConfig;
     }
+
+    static QJsonObject emptyBloomProfilesBlock()
+    {
+        QJsonObject bloomProfiles;
+        bloomProfiles[QStringLiteral("version")] = 1;
+        bloomProfiles[QStringLiteral("active_profile_id")] = QString();
+        bloomProfiles[QStringLiteral("items")] = QJsonArray();
+        return bloomProfiles;
+    }
+
+    static QJsonObject migrateV29ToV30(const QJsonObject &oldConfig)
+    {
+        QJsonObject newConfig = oldConfig;
+        newConfig[QStringLiteral("version")] = 30;
+
+        QJsonObject settings = newConfig.value(QStringLiteral("settings")).toObject();
+        const QJsonObject connections = settings.value(QStringLiteral("connections")).toObject();
+        const QJsonArray connectionItems = connections.value(QStringLiteral("items")).toArray();
+        const QString activeConnectionId =
+            connections.value(QStringLiteral("active")).toString().trimmed();
+
+        QString seedConnectionId;
+        QSet<QString> knownIds;
+        for (const QJsonValue &value : connectionItems) {
+            const QString id = value.toObject().value(QStringLiteral("id")).toString().trimmed();
+            if (!id.isEmpty()) {
+                knownIds.insert(id);
+            }
+        }
+        if (!activeConnectionId.isEmpty() && knownIds.contains(activeConnectionId)) {
+            seedConnectionId = activeConnectionId;
+        } else if (knownIds.size() == 1) {
+            seedConnectionId = *knownIds.constBegin();
+        }
+
+        QJsonObject bloomProfiles = emptyBloomProfilesBlock();
+        if (!seedConnectionId.isEmpty()) {
+            const QString profileId = BloomProfile::createDeterministicProfileId(seedConnectionId);
+            const QString memberId = BloomProfile::createDeterministicMemberId(profileId,
+                                                                                 seedConnectionId);
+            const QString now = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+
+            QJsonObject member;
+            member[QStringLiteral("member_id")] = memberId;
+            member[QStringLiteral("connection_id")] = seedConnectionId;
+            member[QStringLiteral("enabled")] = true;
+            member[QStringLiteral("priority")] = 0;
+
+            QJsonObject profile;
+            profile[QStringLiteral("id")] = profileId;
+            profile[QStringLiteral("name")] = QStringLiteral("Default");
+            profile[QStringLiteral("mode")] = QStringLiteral("single");
+            profile[QStringLiteral("members")] = QJsonArray{member};
+            profile[QStringLiteral("default_member_id")] = memberId;
+            profile[QStringLiteral("created_at")] = now;
+            profile[QStringLiteral("updated_at")] = now;
+
+            bloomProfiles[QStringLiteral("active_profile_id")] = profileId;
+            bloomProfiles[QStringLiteral("items")] = QJsonArray{profile};
+        }
+        settings[QStringLiteral("bloom_profiles")] = bloomProfiles;
+
+        newConfig[QStringLiteral("settings")] = settings;
+        return newConfig;
+    }
 };
 }
 
@@ -4315,6 +4410,14 @@ bool ConfigManager::migrateConfig()
                 qWarning() << "Migration produced invalid config (no version)";
                 return false;
             }
+        } else if (version == 29) {
+            m_config = ConfigMigrator::migrateV29ToV30(m_config);
+            if (m_config.contains("version") && m_config["version"].isDouble()) {
+                version = m_config["version"].toInt();
+            } else {
+                qWarning() << "Migration produced invalid config (no version)";
+                return false;
+            }
         } else {
             qWarning() << "Unknown config version during migration:" << version;
             return false;
@@ -4368,6 +4471,14 @@ bool ConfigManager::validateConfig(const QJsonObject &cfg)
             return false;
         }
     }
+    if (version >= 30) {
+        const QJsonObject bloomProfiles = settings.value(QStringLiteral("bloom_profiles")).toObject();
+        if (bloomProfiles.value(QStringLiteral("version")).toInt() != 1
+            || !bloomProfiles.value(QStringLiteral("items")).isArray()
+            || !bloomProfiles.value(QStringLiteral("active_profile_id")).isString()) {
+            return false;
+        }
+    }
     return true;
 }
 
@@ -4397,6 +4508,12 @@ QJsonObject ConfigManager::defaultConfig() const
     connections[QStringLiteral("active")] = QString();
     connections[QStringLiteral("items")] = QJsonArray();
     settings[QStringLiteral("connections")] = connections;
+
+    QJsonObject bloomProfiles;
+    bloomProfiles[QStringLiteral("version")] = 1;
+    bloomProfiles[QStringLiteral("active_profile_id")] = QString();
+    bloomProfiles[QStringLiteral("items")] = QJsonArray();
+    settings[QStringLiteral("bloom_profiles")] = bloomProfiles;
 
     QJsonObject playback;
     playback["completion_threshold"] = 90;

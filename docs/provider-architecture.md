@@ -51,6 +51,10 @@ Config schema version 28 stores connections under `settings.connections`:
 
 `ConfigManager` provides connection persistence and active-connection access. Connection removal is intentionally deferred until an account-session service can delete credentials before dropping metadata. Its Jellyfin session methods remain temporary compatibility façades while existing callers move to provider-neutral services.
 
+## Bloom profiles
+
+Bloom profiles (`src/profiles/*`, documented in [`profiles.md`](profiles.md)) are Bloom-owned workspaces, not provider household profiles. A membership references a `connectionId` only. The same physical server may appear multiple times via distinct connections (different accounts/users); memberships are never keyed by `serverId` or `baseUrl`. Within one Bloom profile, at most one membership per `connectionId` so `MediaRef{connectionId,itemId}` remains unambiguous. Membership identity lives in request/source context (`BloomProfileRequestContext`), not in `MediaRef` or caches. Config v30 persists `settings.bloom_profiles`; migration seeds one default `single` profile from the active (or sole) connection without changing `settings.connections.active`.
+
 ## Credential storage and migration
 
 `CredentialStore` (`src/security/CredentialStore.*`) centralizes credential key generation over the platform `ISecretStore` implementation.

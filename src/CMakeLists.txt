@@ -13,6 +13,10 @@ qt_add_executable(Bloom
     core/ServiceLocator.cpp
     providers/ServerConnection.h
     providers/ServerConnection.cpp
+    profiles/BloomProfile.h
+    profiles/BloomProfile.cpp
+    profiles/BloomProfileRepository.h
+    profiles/BloomProfileRepository.cpp
     providers/IProviderAdapter.h
     providers/IArtworkProvider.h
     providers/IProviderAuthenticator.h

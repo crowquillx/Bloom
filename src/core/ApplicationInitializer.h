@@ -5,6 +5,7 @@
 
 class QGuiApplication;
 class ConfigManager;
+class BloomProfileRepository;
 class DisplayManager;
 class ResponsiveLayoutManager;
 class TrackPreferencesManager;
@@ -100,6 +101,7 @@ private:
     
     // Service ownership
     std::unique_ptr<ConfigManager> m_configManager;
+    std::unique_ptr<BloomProfileRepository> m_bloomProfileRepository;
     std::unique_ptr<DisplayManager> m_displayManager;
     std::unique_ptr<TrackPreferencesManager> m_trackPreferencesManager;
     std::unique_ptr<IPlayerBackend> m_playerBackend;

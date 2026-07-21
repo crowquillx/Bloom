@@ -56,6 +56,7 @@ stdenv.mkDerivation {
       LoggingConfigTest \
       ConfigManagerThemeTest \
       ConnectionPersistenceTest \
+      BloomProfileRepositoryTest \
       ProviderTransportTest \
       CanonicalModelsTest \
       InputBindingManagerTest \

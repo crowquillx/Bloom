@@ -31,6 +31,7 @@ set(TEST_PROVIDER_BOUNDARY_SOURCES
 
 set(TEST_CONFIG_SOURCES
     ${CMAKE_SOURCE_DIR}/src/providers/ServerConnection.cpp
+    ${CMAKE_SOURCE_DIR}/src/profiles/BloomProfile.cpp
     ${CMAKE_SOURCE_DIR}/src/security/CredentialStore.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/MpvArgFilter.cpp
@@ -214,6 +215,26 @@ target_link_libraries(ConnectionPersistenceTest
 )
 
 add_test(NAME ConnectionPersistenceTest COMMAND ConnectionPersistenceTest)
+
+add_executable(BloomProfileRepositoryTest
+    BloomProfileRepositoryTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/profiles/BloomProfileRepository.cpp
+    ${TEST_CONFIG_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
+)
+
+target_include_directories(BloomProfileRepositoryTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(BloomProfileRepositoryTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Test
+)
+
+add_test(NAME BloomProfileRepositoryTest COMMAND BloomProfileRepositoryTest)
 
 add_executable(ProviderTransportTest
     ProviderTransportTest.cpp
@@ -589,6 +610,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/utils/SystemPowerController.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/CacheMigrator.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DetailViewCache.cpp
+    ${CMAKE_SOURCE_DIR}/src/profiles/BloomProfileRepository.cpp
     ${TEST_CONFIG_SOURCES}
     # Network sources
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp

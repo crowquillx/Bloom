@@ -24,6 +24,7 @@
  * Services must be registered in the following order due to dependencies:
  * 
  * 1. **ConfigManager** - No dependencies, loads configuration
+ * 1.1. **BloomProfileRepository** - Depends on: ConfigManager (Bloom profile store)
  * 2. **IPlayerBackend** - No dependencies, active playback backend implementation
  * 3. **AuthenticationService** - No dependencies, handles authentication/session
  * 4. **LibraryService** - Depends on: AuthenticationService (library/data APIs)

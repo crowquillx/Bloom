@@ -23,8 +23,9 @@ mpv config directory
 
 Session management
 - Config v28 stores versioned provider-neutral records under `settings.connections`; see [provider architecture](provider-architecture.md).
+- Config v30 stores Bloom workspaces under `settings.bloom_profiles` schema `1`; see [profiles](profiles.md). `getBloomProfilesConfig` / `setBloomProfilesConfig` are raw accessors — `BloomProfileRepository` owns validation and CRUD.
 - `setJellyfinSession()`, `getJellyfinSession()`, and `clearJellyfinSession()` are temporary compatibility façades over the active connection.
-- Credentials are stored by `CredentialStore`, never in a connection or new `app.json` writes. Legacy `settings.jellyfin` metadata remains only until its secure-store migration is verified.
+- Credentials are stored by `CredentialStore`, never in a connection, Bloom profile, or new `app.json` writes. Legacy `settings.jellyfin` metadata remains only until its secure-store migration is verified.
 - Handle 401 errors by emitting `sessionExpired()` and invoking logout/clear sessions.
 
 Config API sample (high level)
@@ -56,6 +57,7 @@ MPV profile management
 - Config v27 adds `settings.input_bindings` with schema `1`, empty keyboard overrides, and empty gamepad overrides.
 - Config v28 adds `settings.connections` schema `1`, migrates valid Jellyfin session metadata to a stable connection ID, and retains the legacy record only until credential migration succeeds.
 - Config v29 adds `settings.connection_state` schema `1` and migrates MPV library/series assignments plus library startup-buffering overrides into the active connection scope so identical remote IDs cannot collide.
+- Config v30 adds `settings.bloom_profiles` schema `1`. Migration creates one default `single` Bloom profile for the active connection (or sole saved connection), or an empty block when no connections exist. Deterministic UUIDv5 IDs keep retries idempotent. `settings.connections.active` is unchanged.
 - Built-in profile behavior: `Low Quality` uses mpv `--profile=fast`; `Medium Quality` uses `--profile=high-quality`; `High Quality` uses `--profile=high-quality` plus bundled FSRCNNX, KrigBilateral, and SSimDownscaler GLSL shaders loaded from `~~/shaders/...`. The ArtCNN/nnedi3 profiles use `--profile=high-quality`, `--hwdec=no`, a single selected bundled shader, Gandhi Sans Bold subtitle styling from `~~/fonts`, and optional mpv deband tuning for the `-Deband` variants.
 - Settings > MPV > Edit Profiles > Import Config creates a new profile from an existing `mpv.conf`. v1 imports only global top-level options before the first `[profile]` section and stores them as normalized `extra_args` entries (`--option=value` or `--option`) in `settings.mpv_profiles`; it never overwrites an existing profile.
 - MPV profile import/save/load normalizes one surrounding quote pair from `--option=value` and stores common shader aliases (`--glsl-shader`, `--glsl-shader-append`, `--glsl-shaders`, `--glsl-shaders-append`) as ordered `--glsl-shaders-append=...` entries. On playback, Bloom emits a single `--glsl-shaders-clr` before the profile shader appends so multiple shaders load in profile order while replacing any inherited shader list.
