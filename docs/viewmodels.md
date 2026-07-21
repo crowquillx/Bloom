@@ -68,16 +68,16 @@ private:
 ViewModel for the series-style movie details screen.
 
 ### Purpose
-Acts as the data source for `MovieDetailsView.qml`. It aggregates Jellyfin movie metadata, playback progress, chapters, cast, similar-library recommendations, and external ratings from MDBList (IMDb, TMDB, Rotten Tomatoes, etc.) plus AniList when available.
+Acts as the data source for `MovieDetailsView.qml`. It aggregates canonical movie metadata, playback progress, chapters, cast, similar-library recommendations, and external ratings from MDBList (IMDb, TMDB, Rotten Tomatoes, etc.) plus AniList when available. It consumes `LibraryService::canonicalItemLoaded` / `canonicalSimilarItemsLoaded` only; raw Jellyfin DTO signals remain for unmigrated flows.
 
 ### Public API
 - **Key Properties**:
   - `title`, `overview`, `logoUrl`, `posterUrl`, `backdropUrl`: UI-ready metadata and artwork.
-  - `officialRating`, `runtimeTicks`, `communityRating`, `premiereDate`, `genres`: movie metadata used by the hero chips and synopsis area.
-  - `isWatched`, `playbackPositionTicks`: sync with Jellyfin `UserData` and drive `Play` vs `Resume` UI.
-  - `people`: cast/crew entries used by the lower cast shelf.
+  - `officialRating`, `durationMs`, `communityRating`, `premiereDate`, `genres`: movie metadata used by the hero chips and synopsis area.
+  - `isWatched`, `positionMs`: sync with canonical user state and drive `Play` vs `Resume` UI.
+  - `people`: cast/crew entries used by the lower cast shelf (canonical person maps).
   - `chapters`, `chaptersLoading`: normalized movie chapter cards plus the rail loading state.
-  - `similarItems`, `similarItemsLoading`: recommendation shelf data and loading state for similar titles.
+  - `similarItems`, `similarItemsLoading`: recommendation shelf data and loading state for similar titles (`itemId`, `primaryArtwork`, camelCase fields).
   - `mdbListRatings`: `QVariantMap` containing normalized external ratings, including AniList when merged in.
 - **Methods**:
   - `loadMovieDetails(QString movieId)`: hydrates from cache when possible, then refreshes metadata and similar items from the library service.
@@ -96,7 +96,7 @@ Acts as the data source for `MovieDetailsView.qml`. It aggregates Jellyfin movie
 - **Config**: Reads `ConfigManager` for API keys and cache storage paths.
 
 ### Lifecycle & Side Effects
-- **Caching**: Uses separate in-memory and disk caches for movie details and similar items. Disk cache resides in `<configDir>/cache/movies/` with a 1-hour TTL. Movie chapters keep a small in-memory per-movie cache so returning to a movie does not immediately re-show loading skeletons.
+- **Caching**: Uses separate in-memory and disk caches for canonical movie details and similar items. Disk cache resides under `<configDir>/cache/connections/<scope>/movies/` with `*_details_canonical.json` / `*_similar_items_canonical.json` filenames and a 1-hour TTL; wire-shaped caches are rejected. Movie chapters keep a small in-memory per-movie cache so returning to a movie does not immediately re-show loading skeletons.
 - **Rating Fetching**: Automatically triggers external rating lookups after metadata loads when provider IDs (IMDb/TMDB) are present.
 - **Recommendation Fetching**: Requests similar items after details load, while still allowing cached empty recommendation results to short-circuit redundant network fetches.
 - **State Cleanup**: `clear()` should be called when navigating away from the view to prevent stale shelves or metadata from lingering.

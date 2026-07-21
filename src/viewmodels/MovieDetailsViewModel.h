@@ -8,6 +8,8 @@
 #include <QSet>
 #include <QHash>
 #include <QNetworkAccessManager>
+#include <QVariantList>
+#include <QVariantMap>
 #include <functional>
 
 class LibraryService;
@@ -18,6 +20,8 @@ struct ChapterInfo;
  *
  * This class provides movie metadata (title, overview, logo, etc.) and
  * handles fetching external ratings from MDBList and AniList.
+ * Movie details and similar items are consumed as Bloom canonical camelCase
+ * models with millisecond timing.
  */
 class MovieDetailsViewModel : public BaseViewModel
 {
@@ -36,7 +40,8 @@ class MovieDetailsViewModel : public BaseViewModel
     Q_PROPERTY(bool isWatched READ isWatched NOTIFY isWatchedChanged)
     
     Q_PROPERTY(QString officialRating READ officialRating NOTIFY officialRatingChanged)
-    Q_PROPERTY(qint64 runtimeTicks READ runtimeTicks NOTIFY runtimeTicksChanged)
+    Q_PROPERTY(qint64 durationMs READ durationMs NOTIFY durationMsChanged)
+    Q_PROPERTY(qint64 positionMs READ positionMs NOTIFY positionMsChanged)
     Q_PROPERTY(double communityRating READ communityRating NOTIFY communityRatingChanged)
     Q_PROPERTY(QVariantList people READ people NOTIFY peopleChanged)
     Q_PROPERTY(QVariantList chapters READ chapters NOTIFY chaptersChanged)
@@ -45,7 +50,6 @@ class MovieDetailsViewModel : public BaseViewModel
     Q_PROPERTY(QVariantList similarItems READ similarItems NOTIFY similarItemsChanged)
     Q_PROPERTY(bool similarItemsLoading READ similarItemsLoading NOTIFY similarItemsLoadingChanged)
     Q_PROPERTY(QDateTime premiereDate READ premiereDate NOTIFY premiereDateChanged)
-    Q_PROPERTY(qint64 playbackPositionTicks READ playbackPositionTicks NOTIFY playbackPositionTicksChanged)
 
     // MDBList Ratings
     Q_PROPERTY(QVariantMap mdbListRatings READ mdbListRatings NOTIFY mdbListRatingsChanged)
@@ -65,7 +69,8 @@ public:
     bool isWatched() const { return m_isWatched; }
     
     QString officialRating() const { return m_officialRating; }
-    qint64 runtimeTicks() const { return m_runtimeTicks; }
+    qint64 durationMs() const { return m_durationMs; }
+    qint64 positionMs() const { return m_positionMs; }
     double communityRating() const { return m_communityRating; }
     QVariantList people() const { return m_people; }
     QVariantList chapters() const { return m_chapters; }
@@ -74,7 +79,6 @@ public:
     QVariantList similarItems() const { return m_similarItems; }
     bool similarItemsLoading() const { return m_similarItemsLoading; }
     QDateTime premiereDate() const { return m_premiereDate; }
-    qint64 playbackPositionTicks() const { return m_playbackPositionTicks; }
 
     // Property accessors - MDBList
     QVariantMap mdbListRatings() const { return m_mdbListRatings; }
@@ -141,7 +145,8 @@ signals:
     void isWatchedChanged();
     
     void officialRatingChanged();
-    void runtimeTicksChanged();
+    void durationMsChanged();
+    void positionMsChanged();
     void communityRatingChanged();
     void peopleChanged();
     void chaptersChanged();
@@ -150,23 +155,25 @@ signals:
     void similarItemsChanged();
     void similarItemsLoadingChanged();
     void premiereDateChanged();
-    void playbackPositionTicksChanged();
     void mdbListRatingsChanged();
 
     void movieLoaded();
     void loadError(const QString &error);
 
 private slots:
-    void onMovieDetailsLoaded(const QString &itemId, const QJsonObject &data);
+    void onMovieDetailsLoaded(const QString &itemId, const QVariantMap &data);
     void onMovieDetailsNotModified(const QString &itemId);
-    void onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items);
+    void onSimilarItemsLoaded(const QString &itemId, const QVariantList &items);
     void onSimilarItemsFailed(const QString &itemId, const QString &error);
     void onMovieChaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
     void onMovieChaptersFailed(const QString &itemId, const QString &error);
     void onErrorOccurred(const QString &endpoint, const QString &error);
 
 private:
-    void updateMovieMetadata(const QJsonObject &data);
+    void updateMovieMetadata(const QVariantMap &data);
+    QString cachedArtworkUrl(const QVariantMap &artwork, int width) const;
+    QVariantList mapCanonicalPeople(const QVariantList &people) const;
+    QVariantList normalizeSimilarItems(const QVariantList &items) const;
     void compileRatings();
     void applyMovieChapters(const QString &movieId, const QVariantList &chapters);
     void setMovieChaptersLoading(bool loading);
@@ -185,7 +192,8 @@ private:
     bool m_isWatched = false;
     
     QString m_officialRating;
-    qint64 m_runtimeTicks = 0;
+    qint64 m_durationMs = 0;
+    qint64 m_positionMs = 0;
     double m_communityRating = 0.0;
     QVariantList m_people;
     QVariantList m_chapters;
@@ -195,7 +203,6 @@ private:
     bool m_similarItemsAttempted = false;
     bool m_similarItemsLoading = false;
     QDateTime m_premiereDate;
-    qint64 m_playbackPositionTicks = 0;
 
     QJsonObject m_movieData;
     

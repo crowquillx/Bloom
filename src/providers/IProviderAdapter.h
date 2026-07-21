@@ -2,6 +2,11 @@
 
 #include "providers/ServerConnection.h"
 
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QVariantList>
+#include <QVariantMap>
+
 class IPlaybackProvider;
 class IProviderAuthenticator;
 class IProviderRequestFactory;
@@ -22,4 +27,8 @@ public:
     virtual const IProviderAuthenticator *authenticator() const = 0;
     virtual const IProviderRequestFactory *requestFactory() const = 0;
     virtual const IPlaybackProvider *playbackProvider() const = 0;
+    virtual QVariantMap mapMediaItem(const QJsonObject &wireItem,
+                                     const QString &connectionId) const = 0;
+    virtual QVariantList mapMediaItems(const QJsonArray &wireItems,
+                                       const QString &connectionId) const = 0;
 };

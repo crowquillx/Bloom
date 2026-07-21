@@ -1,10 +1,9 @@
 #include "MovieDetailsViewModel.h"
 #include "../core/ServiceLocator.h"
 #include "../network/LibraryService.h"
+#include "../models/MediaModels.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/DetailViewCache.h"
-#include "../utils/DetailListHelper.h"
-#include "../utils/DetailMetadataHelper.h"
 #include "../utils/ExternalRatingsHelper.h"
 #include <QDateTime>
 #include <QDir>
@@ -50,7 +49,68 @@ QString scopedCacheKey(const QString &remoteId)
     }
     return scope + QLatin1Char('\n') + remoteId;
 }
+
+bool isCanonicalMovieCache(const QJsonObject &movieData)
+{
+    return movieData.contains(QStringLiteral("itemId"))
+        && !movieData.contains(QStringLiteral("Id"))
+        && !movieData.contains(QStringLiteral("RunTimeTicks"))
+        && !movieData.contains(QStringLiteral("UserData"))
+        && !movieData.contains(QStringLiteral("ImageTags"))
+        && !movieData.contains(QStringLiteral("BackdropImageTags"))
+        && !movieData.contains(QStringLiteral("ProviderIds"));
 }
+
+bool isCanonicalSimilarItemsCache(const QJsonArray &items)
+{
+    if (items.isEmpty()) {
+        return true;
+    }
+    const QJsonObject first = items.at(0).toObject();
+    return first.contains(QStringLiteral("itemId"))
+        && !first.contains(QStringLiteral("Id"))
+        && !first.contains(QStringLiteral("ImageTags"));
+}
+
+QJsonArray variantListToJsonArray(const QVariantList &items)
+{
+    QJsonArray array;
+    for (const QVariant &value : items) {
+        if (!value.canConvert<QVariantMap>()) {
+            continue;
+        }
+        array.append(QJsonObject::fromVariantMap(value.toMap()));
+    }
+    return array;
+}
+
+QVariantList jsonArrayToVariantList(const QJsonArray &items)
+{
+    QVariantList mapped;
+    mapped.reserve(items.size());
+    for (const QJsonValue &value : items) {
+        if (value.isObject()) {
+            mapped.append(value.toObject().toVariantMap());
+        }
+    }
+    return mapped;
+}
+
+QStringList genresFromCanonical(const QVariant &genresValue)
+{
+    QStringList genres;
+    const QVariantList list = genresValue.toList();
+    genres.reserve(list.size());
+    for (const QVariant &value : list) {
+        const QString genre = value.toString();
+        if (!genre.isEmpty()) {
+            genres.append(genre);
+        }
+    }
+    return genres;
+}
+
+} // namespace
 
 MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
     : BaseViewModel(parent)
@@ -59,15 +119,13 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
     m_networkManager = new QNetworkAccessManager(this);
     
     if (m_libraryService) {
-        // Connect to generalized item loading signals or specific movie signals if available
-        // LibraryService emits itemLoaded for individual items
         connect(m_libraryService,
-                qOverload<const QString &, const QJsonObject &>(&LibraryService::itemLoaded),
+                qOverload<const QString &, const QVariantMap &>(&LibraryService::canonicalItemLoaded),
                 this, &MovieDetailsViewModel::onMovieDetailsLoaded);
         connect(m_libraryService,
                 qOverload<const QString &>(&LibraryService::itemNotModified),
                 this, &MovieDetailsViewModel::onMovieDetailsNotModified);
-        connect(m_libraryService, &LibraryService::similarItemsLoaded,
+        connect(m_libraryService, &LibraryService::canonicalSimilarItemsLoaded,
                 this, &MovieDetailsViewModel::onSimilarItemsLoaded);
         connect(m_libraryService, &LibraryService::similarItemsFailed,
                 this, &MovieDetailsViewModel::onSimilarItemsFailed);
@@ -77,21 +135,18 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
                 this, &MovieDetailsViewModel::onMovieChaptersFailed);
         connect(m_libraryService, &LibraryService::errorOccurred,
                 this, &MovieDetailsViewModel::onErrorOccurred);
-        // Map generic itemPlayedStatusChanged to internal logic if needed,
-        // or rely on next refresh. But here we can bind to itemUserDataChanged if we implement it.
-        // For now, let's just listen to itemLoaded which contains UserData.
-        // Also listen to itemPlayedStatusChanged to update local state.
-         connect(m_libraryService, &LibraryService::itemPlayedStatusChanged,
+        connect(m_libraryService, &LibraryService::itemPlayedStatusChanged,
                 this, [this](const QString &itemId, bool played) {
-                    if (itemId == m_movieId) {
-                        m_isWatched = played;
-                        emit isWatchedChanged();
-                        // Also update internal QJson object if possible
-                        QJsonObject userData = m_movieData["UserData"].toObject();
-                        userData["Played"] = played;
-                        m_movieData["UserData"] = userData;
-                        storeMovieCache(m_movieId, m_movieData);
+                    if (itemId != m_movieId) {
+                        return;
                     }
+                    m_isWatched = played;
+                    emit isWatchedChanged();
+                    m_movieData.insert(QStringLiteral("watched"), played);
+                    QJsonObject userState = m_movieData.value(QStringLiteral("userState")).toObject();
+                    userState.insert(QStringLiteral("watched"), played);
+                    m_movieData.insert(QStringLiteral("userState"), userState);
+                    storeMovieCache(m_movieId, m_movieData);
                 });
     } else {
         qCWarning(lcViewModels) << "MovieDetailsViewModel: LibraryService not available in ServiceLocator";
@@ -115,7 +170,7 @@ QString MovieDetailsViewModel::movieCachePath(const QString &movieId) const
     if (movieId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(DetailViewCache::sanitizeCacheKey(movieId) + "_details.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(movieId) + "_details_canonical.json");
 }
 
 QString MovieDetailsViewModel::similarItemsCachePath(const QString &movieId) const
@@ -123,34 +178,51 @@ QString MovieDetailsViewModel::similarItemsCachePath(const QString &movieId) con
     if (movieId.isEmpty()) return QString();
     QDir dir(cacheDir());
     dir.mkpath(".");
-    return dir.filePath(DetailViewCache::sanitizeCacheKey(movieId) + "_similar_items.json");
+    return dir.filePath(DetailViewCache::sanitizeCacheKey(movieId) + "_similar_items_canonical.json");
 }
 
 bool MovieDetailsViewModel::loadMovieFromCache(const QString &movieId, QJsonObject &movieData, bool requireFresh) const
 {
-    return DetailViewCache::loadObjectCache(s_movieCache,
-                                            scopedCacheKey(movieId),
-                                            movieCachePath(movieId),
-                                            kMovieMemoryTtlMs,
-                                            kMovieDiskTtlMs,
-                                            movieData,
-                                            requireFresh);
+    if (!DetailViewCache::loadObjectCache(s_movieCache,
+                                          scopedCacheKey(movieId),
+                                          movieCachePath(movieId),
+                                          kMovieMemoryTtlMs,
+                                          kMovieDiskTtlMs,
+                                          movieData,
+                                          requireFresh)) {
+        return false;
+    }
+    if (!isCanonicalMovieCache(movieData)) {
+        movieData = QJsonObject();
+        return false;
+    }
+    return true;
 }
 
 bool MovieDetailsViewModel::loadSimilarItemsFromCache(const QString &movieId, QJsonArray &items, bool requireFresh) const
 {
-    return DetailViewCache::loadArrayCache(s_similarItemsCache,
-                                           scopedCacheKey(movieId),
-                                           similarItemsCachePath(movieId),
-                                           kSimilarMemoryTtlMs,
-                                           kSimilarDiskTtlMs,
-                                           items,
-                                           requireFresh,
-                                           true);
+    if (!DetailViewCache::loadArrayCache(s_similarItemsCache,
+                                         scopedCacheKey(movieId),
+                                         similarItemsCachePath(movieId),
+                                         kSimilarMemoryTtlMs,
+                                         kSimilarDiskTtlMs,
+                                         items,
+                                         requireFresh,
+                                         true)) {
+        return false;
+    }
+    if (!isCanonicalSimilarItemsCache(items)) {
+        items = QJsonArray();
+        return false;
+    }
+    return true;
 }
 
 void MovieDetailsViewModel::storeMovieCache(const QString &movieId, const QJsonObject &movieData) const
 {
+    if (!isCanonicalMovieCache(movieData)) {
+        return;
+    }
     DetailViewCache::storeObjectCache(s_movieCache,
                                       scopedCacheKey(movieId),
                                       movieCachePath(movieId),
@@ -159,6 +231,9 @@ void MovieDetailsViewModel::storeMovieCache(const QString &movieId, const QJsonO
 
 void MovieDetailsViewModel::storeSimilarItemsCache(const QString &movieId, const QJsonArray &items) const
 {
+    if (!isCanonicalSimilarItemsCache(items)) {
+        return;
+    }
     DetailViewCache::storeArrayCache(s_similarItemsCache,
                                      scopedCacheKey(movieId),
                                      similarItemsCachePath(movieId),
@@ -203,23 +278,14 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
         qCDebug(lcViewModels) << "MovieDetailsViewModel: Serving movie details from cache"
                  << (hasFresh ? "FRESH" : "STALE");
         m_movieData = cachedMovie;
-        updateMovieMetadata(cachedMovie);
+        updateMovieMetadata(cachedMovie.toVariantMap());
     }
 
     if (hasAnySimilarItems) {
         qCDebug(lcViewModels) << "MovieDetailsViewModel: Serving similar items from cache"
                  << (hasFreshSimilarItems ? "FRESH" : "STALE")
                  << "count:" << cachedSimilarItems.size();
-        QVariantList mappedItems;
-        mappedItems.reserve(cachedSimilarItems.size());
-        for (const auto &value : cachedSimilarItems) {
-            const QJsonObject item = value.toObject();
-            if (item.isEmpty()) {
-                continue;
-            }
-            mappedItems.append(item.toVariantMap());
-        }
-        m_similarItems = mappedItems;
+        m_similarItems = normalizeSimilarItems(jsonArrayToVariantList(cachedSimilarItems));
         m_similarItemsAttempted = hasFreshSimilarItems;
         m_similarItemsLoading = false;
         emit similarItemsChanged();
@@ -232,8 +298,6 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
 
     qCDebug(lcViewModels) << "MovieDetailsViewModel::loadMovieDetails" << movieId;
     
-    // Fetch from server
-    // Request typical fields for details view
     m_libraryService->getItem(movieId);
     loadMovieChapters(movieId);
 }
@@ -271,7 +335,8 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     m_productionYear = 0;
     m_isWatched = false;
     m_officialRating.clear();
-    m_runtimeTicks = 0;
+    m_durationMs = 0;
+    m_positionMs = 0;
     m_communityRating = 0.0;
     m_people.clear();
     m_chapters.clear();
@@ -282,13 +347,11 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     m_similarItems.clear();
     m_similarItemsAttempted = false;
     m_similarItemsLoading = false;
-    m_playbackPositionTicks = 0;
     m_premiereDate = QDateTime();
     
     m_movieData = QJsonObject();
 
     if (!preserveArtwork) {
-        // Clear ratings data
         m_mdbListRatings.clear();
         m_rawMdbListRatings.clear();
         m_currentAniListImdbId.clear();
@@ -312,7 +375,8 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     emit productionYearChanged();
     emit isWatchedChanged();
     emit officialRatingChanged();
-    emit runtimeTicksChanged();
+    emit durationMsChanged();
+    emit positionMsChanged();
     emit communityRatingChanged();
     emit peopleChanged();
     emit chaptersChanged();
@@ -321,7 +385,6 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     emit similarItemsChanged();
     emit similarItemsLoadingChanged();
     emit premiereDateChanged();
-    emit playbackPositionTicksChanged();
     if (!preserveArtwork) {
         emit mdbListRatingsChanged();
     }
@@ -369,16 +432,16 @@ QVariantMap MovieDetailsViewModel::getMovieData() const
     return m_movieData.toVariantMap();
 }
 
-void MovieDetailsViewModel::onMovieDetailsLoaded(const QString &itemId, const QJsonObject &data)
+void MovieDetailsViewModel::onMovieDetailsLoaded(const QString &itemId, const QVariantMap &data)
 {
     if (itemId != m_movieId) return;
     
     m_loadingMovie = false;
     setLoading(false);
     
-    m_movieData = data;
+    m_movieData = QJsonObject::fromVariantMap(data);
     updateMovieMetadata(data);
-    storeMovieCache(itemId, data);
+    storeMovieCache(itemId, m_movieData);
 
     if (!m_similarItemsAttempted && !m_similarItemsLoading && m_libraryService) {
         m_similarItemsAttempted = true;
@@ -406,16 +469,16 @@ void MovieDetailsViewModel::onMovieDetailsNotModified(const QString &itemId)
     }
 }
 
-void MovieDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items)
+void MovieDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const QVariantList &items)
 {
     if (itemId != m_movieId) {
         return;
     }
 
-    m_similarItems = DetailListHelper::mapSimilarItems(items);
+    m_similarItems = normalizeSimilarItems(items);
     m_similarItemsAttempted = true;
     m_similarItemsLoading = false;
-    storeSimilarItemsCache(itemId, items);
+    storeSimilarItemsCache(itemId, variantListToJsonArray(m_similarItems));
     emit similarItemsChanged();
     emit similarItemsLoadingChanged();
 }
@@ -477,7 +540,7 @@ void MovieDetailsViewModel::onMovieChaptersFailed(const QString &itemId, const Q
 
 void MovieDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
 {
-    // Simple heuristic to check if this error relates to our current loading
+    Q_UNUSED(endpoint)
     if (m_loadingMovie) {
         m_loadingMovie = false;
         setLoading(false);
@@ -486,64 +549,113 @@ void MovieDetailsViewModel::onErrorOccurred(const QString &endpoint, const QStri
     }
 }
 
-
-
-void MovieDetailsViewModel::updateMovieMetadata(const QJsonObject &data)
+QString MovieDetailsViewModel::cachedArtworkUrl(const QVariantMap &artwork, int width) const
 {
-    const auto common = DetailMetadataHelper::extractCommonMetadata(
-        data,
-        m_movieId,
-        [this](const QString &itemId, const QString &imageType, int width) {
-            return m_libraryService ? m_libraryService->getCachedImageUrlWithWidth(itemId, imageType, width)
-                                    : QString();
-        },
-        QString(),
-        true);
+    if (!m_libraryService || artwork.isEmpty()) {
+        return {};
+    }
+    const Bloom::ArtworkRef ref = Bloom::ArtworkRef::fromVariantMap(artwork);
+    if (ref.itemId.isEmpty() || ref.kind == Bloom::ArtworkKind::Unknown) {
+        return {};
+    }
+    return m_libraryService->getCachedArtworkUrl(ref.itemId,
+                                                  Bloom::artworkKindName(ref.kind),
+                                                  ref.index,
+                                                  ref.tag,
+                                                  width);
+}
 
-    m_title = common.title;
-    m_overview = common.overview;
-    m_productionYear = common.productionYear;
-    m_officialRating = common.officialRating;
-    m_runtimeTicks = data.value("RunTimeTicks").toVariant().toLongLong();
-    m_communityRating = data.value("CommunityRating").toDouble();
+QVariantList MovieDetailsViewModel::mapCanonicalPeople(const QVariantList &people) const
+{
+    QVariantList mappedPeople;
+    mappedPeople.reserve(qMin(people.size(), qsizetype(18)));
 
-    if (data.contains("PremiereDate")) {
-        m_premiereDate = QDateTime::fromString(data.value("PremiereDate").toString(), Qt::ISODate);
+    for (const QVariant &value : people) {
+        QVariantMap person = value.toMap();
+        const QString name = person.value(QStringLiteral("name")).toString();
+        if (name.isEmpty()) {
+            continue;
+        }
+
+        QString subtitle = person.value(QStringLiteral("role")).toString();
+        if (subtitle.isEmpty()) {
+            subtitle = person.value(QStringLiteral("kind")).toString();
+        }
+        person.insert(QStringLiteral("subtitle"), subtitle);
+        mappedPeople.append(person);
+
+        if (mappedPeople.size() >= 18) {
+            break;
+        }
     }
 
-    m_genres = common.genres;
-    m_isWatched = common.isWatched;
-    m_playbackPositionTicks = common.playbackPositionTicks;
-    m_people = common.people;
-    m_logoUrl = common.logoUrl;
-    m_posterUrl = common.posterUrl;
-    m_backdropUrl = common.backdropUrl;
+    return mappedPeople;
+}
+
+QVariantList MovieDetailsViewModel::normalizeSimilarItems(const QVariantList &items) const
+{
+    QVariantList mappedItems;
+    mappedItems.reserve(items.size());
+    for (const QVariant &value : items) {
+        const QVariantMap item = value.toMap();
+        if (item.value(QStringLiteral("itemId")).toString().isEmpty()) {
+            continue;
+        }
+        mappedItems.append(item);
+    }
+    return mappedItems;
+}
+
+void MovieDetailsViewModel::updateMovieMetadata(const QVariantMap &data)
+{
+    m_title = data.value(QStringLiteral("name")).toString();
+    m_overview = data.value(QStringLiteral("overview")).toString();
+    m_productionYear = data.value(QStringLiteral("productionYear")).toInt();
+    m_officialRating = data.value(QStringLiteral("officialRating")).toString();
+    m_durationMs = data.value(QStringLiteral("durationMs")).toLongLong();
+    m_communityRating = data.value(QStringLiteral("communityRating")).toDouble();
+    m_positionMs = data.value(QStringLiteral("positionMs")).toLongLong();
+    m_isWatched = data.value(QStringLiteral("watched")).toBool();
+    m_genres = genresFromCanonical(data.value(QStringLiteral("genres")));
+    m_people = mapCanonicalPeople(data.value(QStringLiteral("people")).toList());
+
+    const QString premiereDate = data.value(QStringLiteral("premiereDate")).toString();
+    if (!premiereDate.isEmpty()) {
+        m_premiereDate = QDateTime::fromString(premiereDate, Qt::ISODate);
+    } else {
+        m_premiereDate = QDateTime();
+    }
+
+    m_logoUrl = cachedArtworkUrl(data.value(QStringLiteral("logoArtwork")).toMap(), 2000);
+    m_posterUrl = cachedArtworkUrl(data.value(QStringLiteral("primaryArtwork")).toMap(), 400);
+    m_backdropUrl = cachedArtworkUrl(data.value(QStringLiteral("backdropArtwork")).toMap(), 1920);
+    if (m_backdropUrl.isEmpty()) {
+        m_backdropUrl = m_posterUrl;
+    }
 
     emit titleChanged();
     emit overviewChanged();
     emit productionYearChanged();
     emit officialRatingChanged();
-    emit runtimeTicksChanged();
+    emit durationMsChanged();
     emit communityRatingChanged();
     emit peopleChanged();
     emit genresChanged();
     emit premiereDateChanged();
     emit isWatchedChanged();
-    emit playbackPositionTicksChanged();
+    emit positionMsChanged();
     emit logoUrlChanged();
     emit posterUrlChanged();
     emit backdropUrlChanged();
     
-    // Fetch External Ratings
-    // Get external IDs
-    QString imdbId = data.value("ProviderIds").toObject().value("Imdb").toString();
-    QString tmdbId = data.value("ProviderIds").toObject().value("Tmdb").toString();
+    const QVariantMap providerIds = data.value(QStringLiteral("providerIds")).toMap();
+    const QString imdbId = providerIds.value(QStringLiteral("Imdb")).toString();
+    const QString tmdbId = providerIds.value(QStringLiteral("Tmdb")).toString();
     
     if (!imdbId.isEmpty() || !tmdbId.isEmpty()) {
         fetchMdbListRatings(imdbId, tmdbId, "movie");
     }
     
-    // Try to fetch AniList ratings if it's an anime
     bool isAnime = false;
     for (const auto &genre : m_genres) {
         if (genre.compare("Anime", Qt::CaseInsensitive) == 0 || 
@@ -557,10 +669,6 @@ void MovieDetailsViewModel::updateMovieMetadata(const QJsonObject &data)
         fetchAniListRating(imdbId, m_title, m_productionYear);
     }
 }
-
-// ============================================================
-// External Ratings Logic (Ported from SeriesDetailsViewModel)
-// ============================================================
 
 void MovieDetailsViewModel::fetchMdbListRatings(const QString &imdbId, const QString &tmdbId, const QString &type)
 {
@@ -611,20 +719,16 @@ void MovieDetailsViewModel::fetchAniListRating(const QString &imdbId, const QStr
 {
     if (imdbId.isEmpty()) return;
     
-    // Prevent re-querying if we already looked up this ID
     if (m_currentAniListImdbId == imdbId) return;
     m_currentAniListImdbId = imdbId;
-    m_aniListRating.clear(); // Clear old data
+    m_aniListRating.clear();
 
-    // First try mapping via Wikidata
     fetchAniListIdFromWikidata(imdbId, [this, title, year](const QString &foundId) {
+        Q_UNUSED(year)
         if (!foundId.isEmpty()) {
             qCDebug(lcViewModels) << "Found AniList ID via Wikidata:" << foundId;
             queryAniListById(foundId);
         } else {
-            // Fallback: Search by title if Wikidata fails
-            // NOTE: Implementing just the Wikidata path first as it's cleaner. 
-            // Title search can be fuzzy.
             qCWarning(lcViewModels) << "No AniList ID found in Wikidata for" << title;
         }
     });

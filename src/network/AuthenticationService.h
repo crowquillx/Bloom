@@ -3,7 +3,11 @@
 #include <QObject>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QString>
+#include <QVariantList>
+#include <QVariantMap>
 #include <functional>
 #include <memory>
 #include <QFutureWatcher>
@@ -94,6 +98,10 @@ public:
     QString getAccessToken() const { return m_accessToken; }
     QString getUsername() const { return m_username; }
     const IPlaybackProvider *playbackProvider() const;
+    QVariantMap mapMediaItem(const QJsonObject &wireItem,
+                             const QString &connectionId) const;
+    QVariantList mapMediaItems(const QJsonArray &wireItems,
+                               const QString &connectionId) const;
     bool isAuthenticated() const { return !m_accessToken.isEmpty() && !m_userId.isEmpty(); }
     bool isRestoringSession() const { return m_isRestoringSession; }
     

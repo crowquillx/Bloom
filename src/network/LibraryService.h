@@ -11,6 +11,8 @@
 #include <QHash>
 #include <QSet>
 #include <QDate>
+#include <QVariantList>
+#include <QVariantMap>
 #include <functional>
 #include "Types.h"  // Shared data structs and error helpers
 
@@ -162,6 +164,10 @@ signals:
     // Generic Item Signals
     void itemLoaded(const QString &itemId, const QJsonObject &data);
     void itemLoaded(const QString &itemId, const QJsonObject &data, const QString &requestContext);
+    // Provider-neutral camelCase item projections (mapped once at the service boundary).
+    // Raw itemLoaded signals remain for unmigrated callers during the catalog migration.
+    void canonicalItemLoaded(const QString &itemId, const QVariantMap &item);
+    void canonicalItemLoaded(const QString &itemId, const QVariantMap &item, const QString &requestContext);
     void itemLibraryResolved(const QString &itemId, const QString &libraryId);
     void itemLibraryResolutionFailed(const QString &itemId, const QString &error);
     void itemNotModified(const QString &itemId);
@@ -178,6 +184,7 @@ signals:
     void seriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void seriesDetailsNotModified(const QString &seriesId);
     void similarItemsLoaded(const QString &itemId, const QJsonArray &items);
+    void canonicalSimilarItemsLoaded(const QString &itemId, const QVariantList &items);
     void similarItemsFailed(const QString &itemId, const QString &error);
     void nextUnplayedEpisodeLoaded(const QString &seriesId,
                                    const QJsonObject &episodeData,

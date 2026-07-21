@@ -764,7 +764,9 @@ FocusScope {
         id: movieDetailsComponent
         
         MovieDetailsView {
-            movieId: root.currentMovieData ? root.currentMovieData.Id : ""
+            movieId: root.currentMovieData
+                     ? (root.currentMovieData.itemId || root.currentMovieData.Id || "")
+                     : ""
             pendingReturnState: root._movieDetailsReturnState
             restorePendingReturnState: root._restoreMovieDetailsReturnState
              
@@ -1998,16 +2000,18 @@ FocusScope {
     }
 
     function handleSelection(item) {
+        const mediaType = item ? (item.Type || item.mediaType || "") : ""
+        const remoteId = item ? (item.Id || item.itemId || "") : ""
         console.log("[Library] handleSelection",
-                    "itemType:", item && item.Type,
-                    "itemId:", item && item.Id,
+                    "itemType:", mediaType,
+                    "itemId:", remoteId,
                     "currentParentId:", currentParentId,
                     "currentSeriesId:", currentSeriesId)
         
         // Clear pending restore state when navigating forward
         clearPendingRestoreState()
         
-        if (item.Type === "Series") {
+        if (mediaType === "Series") {
             // Show series details view
             // Capture current grid position for restoration
             var gridRef = contentLoader.item ? contentLoader.item.grid : null
@@ -2032,8 +2036,8 @@ FocusScope {
                         JSON.stringify(previousContext),
                         "stackSize:", navigationStack.length)
             
-            currentSeriesId = item.Id
-            currentParentId = item.Id
+            currentSeriesId = remoteId
+            currentParentId = remoteId
             showSeriesDetails = true
             showSeasonView = false
             
@@ -2130,10 +2134,10 @@ FocusScope {
             currentParentId = item.Id
             showSeriesDetails = false
             showSeasonView = false
-        } else if (item.Type === "Movie") {
+        } else if (mediaType === "Movie") {
             // Show movie details view
             showMovieDetailsView(item)
-        } else if (item.Type === "Episode") {
+        } else if (mediaType === "Episode") {
             // Show episode view
             showEpisodeDetails(item)
         }
@@ -2593,27 +2597,54 @@ FocusScope {
         }
 
         // 1. Item's own backdrops
+        if (item.backdropArtwork && item.backdropArtwork.itemId) {
+            const backdropArt = item.backdropArtwork
+            const canonicalBackdrop = LibraryService.getCachedArtworkUrl(
+                        backdropArt.itemId,
+                        backdropArt.kind || "backdrop",
+                        backdropArt.index || 0,
+                        backdropArt.tag || "",
+                        1920)
+            if (canonicalBackdrop && candidates.indexOf(canonicalBackdrop) === -1) {
+                candidates.push(canonicalBackdrop)
+            }
+        }
         if (item.BackdropImageTags && item.BackdropImageTags.length > 0) {
-            appendBackdropSet(item.Id, item.BackdropImageTags)
+            appendBackdropSet(item.Id || item.itemId, item.BackdropImageTags)
         }
 
         // 2. Parent/Season backdrops
         if (item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0) {
-            var parentId = item.ParentBackdropItemId || item.ParentBackdropImageItemId || item.ParentId
+            const parentId = item.ParentBackdropItemId || item.ParentBackdropImageItemId || item.ParentId || item.parentId
             appendBackdropSet(parentId, item.ParentBackdropImageTags)
         }
 
         // 3. Fallback: Series Backdrop (Blind URL)
         // Always add this as a last resort if we have a SeriesId.
         // Try both "Backdrop/0" and "Backdrop" (no index) to be safe.
-        if (item.SeriesId) {
-            appendUrl(item.SeriesId, "Backdrop/0", 1920, "")
-            appendUrl(item.SeriesId, "Backdrop", 1920, "")
-        } else if (item.ParentId && (item.Type === "Season" || item.Type === "Episode")) {
+        const seriesId = item.SeriesId || item.seriesId || ""
+        if (seriesId) {
+            appendUrl(seriesId, "Backdrop/0", 1920, "")
+            appendUrl(seriesId, "Backdrop", 1920, "")
+        } else if ((item.ParentId || item.parentId) && ((item.Type || item.mediaType) === "Season" || (item.Type || item.mediaType) === "Episode")) {
             // For Season, Parent is Series. For Episode, Parent is Season.
             // If SeriesId is missing, try ParentId if we are a Season.
-            if (item.Type === "Season") {
-                appendUrl(item.ParentId, "Backdrop/0", 1920, "")
+            if ((item.Type || item.mediaType) === "Season") {
+                appendUrl(item.ParentId || item.parentId, "Backdrop/0", 1920, "")
+            }
+        }
+
+        // 4. Canonical primary artwork fallback for migrated recommendation payloads
+        if (candidates.length === 0 && item.primaryArtwork && item.primaryArtwork.itemId) {
+            const primaryArt = item.primaryArtwork
+            const primaryUrl = LibraryService.getCachedArtworkUrl(
+                        primaryArt.itemId,
+                        primaryArt.kind || "primary",
+                        primaryArt.index || 0,
+                        primaryArt.tag || "",
+                        1920)
+            if (primaryUrl) {
+                candidates.push(primaryUrl)
             }
         }
         

@@ -34,9 +34,21 @@ FocusScope {
             Image {
                 id: personImage
                 anchors.fill: parent
-                source: personCard.itemData.Id && personCard.itemData.PrimaryImageTag
-                        ? LibraryService.getCachedImageUrlWithWidth(personCard.itemData.Id, "Primary", 360)
-                        : ""
+                source: {
+                    const artwork = personCard.itemData.artwork
+                    if (artwork && artwork.itemId) {
+                        return LibraryService.getCachedArtworkUrl(
+                                    artwork.itemId,
+                                    artwork.kind || "primary",
+                                    artwork.index || 0,
+                                    artwork.tag || "",
+                                    360)
+                    }
+                    if (personCard.itemData.Id && personCard.itemData.PrimaryImageTag) {
+                        return LibraryService.getCachedImageUrlWithWidth(personCard.itemData.Id, "Primary", 360)
+                    }
+                    return ""
+                }
                 fillMode: Image.PreserveAspectCrop
                 horizontalAlignment: Image.AlignHCenter
                 verticalAlignment: Image.AlignBottom
@@ -96,7 +108,7 @@ FocusScope {
             ScrollingCardLabel {
                 id: castNameLabel
                 anchors.fill: parent
-                text: personCard.itemData.Name || ""
+                text: personCard.itemData.name || personCard.itemData.Name || ""
                 fontPixelSize: Theme.fontSizeSmall
                 fontWeight: Font.DemiBold
                 textColor: Theme.textPrimary
@@ -112,7 +124,11 @@ FocusScope {
             ScrollingCardLabel {
                 id: castSubtitleLabel
                 anchors.fill: parent
-                text: personCard.itemData.Subtitle || ""
+                text: personCard.itemData.subtitle
+                      || personCard.itemData.Subtitle
+                      || personCard.itemData.role
+                      || personCard.itemData.kind
+                      || ""
                 fontPixelSize: Theme.fontSizeSmall
                 fontWeight: Font.Normal
                 textColor: Theme.textSecondary
