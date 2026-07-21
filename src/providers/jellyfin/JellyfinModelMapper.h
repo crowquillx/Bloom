@@ -21,4 +21,5 @@ public:
                                   const QString &connectionId,
                                   const QString &itemId,
                                   int chapterIndex);
+    static QString artworkEndpoint(const Bloom::ArtworkRef &artwork);
 };

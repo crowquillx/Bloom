@@ -37,7 +37,7 @@ Existing list/detail/player flows are migrated in reviewable slices. During migr
 
 ## Artwork identity
 
-`ArtworkRef::cacheKey()` serializes only token-free canonical fields. Token rotation or a refreshed presigned URL must not change the cache key. The image provider resolves the current authenticated fetch request on a cache miss rather than persisting that request URL.
+`ArtworkRef::cacheKey()` serializes only token-free canonical fields. Token rotation or a refreshed provider representation does not change the cache key. `ImageCacheProvider` delegates cache misses to `IArtworkProvider`; `JellyfinArtworkProvider` resolves the current authenticated request with an authorization header and no query token. The resolved request URL is never persisted or logged.
 
 ## Playback boundary
 

@@ -2,6 +2,8 @@
 #include "AuthenticationService.h"
 #include "HttpTransport.h"
 #include "NextEpisodeResolver.h"
+#include "models/MediaModels.h"
+#include "utils/ConfigManager.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTimer>
@@ -11,6 +13,7 @@
 #include <algorithm>
 #include <QLoggingCategory>
 #include <memory>
+#include <optional>
 #include "../utils/BloomLogging.h"
 
 namespace {
@@ -32,6 +35,22 @@ QString buildChaptersEndpoint(const QString &userId, const QString &itemId)
 {
     return QString("/Users/%1/Items/%2?Fields=Chapters&EnableImages=true&EnableImageTypes=Chapter&ImageTypeLimit=100")
         .arg(userId, itemId);
+}
+
+QString activeConnectionId(const AuthenticationService *authService)
+{
+    ConfigManager *config = authService ? authService->configManager() : nullptr;
+    const auto connection = config ? config->getActiveConnection() : std::nullopt;
+    return connection.has_value() ? connection->connectionId : QString();
+}
+
+QString cachedArtworkSource(const Bloom::ArtworkRef &artwork)
+{
+    if (!artwork.isValid()) {
+        return {};
+    }
+    return QStringLiteral("image://cached/%1").arg(
+        QString::fromUtf8(QUrl::toPercentEncoding(artwork.cacheKey())));
 }
 
 QStringList sortedList(QStringList values)
@@ -842,11 +861,14 @@ void LibraryService::getScreensaverItems(int limit)
                     continue;
                 }
 
-                QString backdropUrl = getCachedImageUrlWithWidth(itemId, QStringLiteral("Backdrop"), 1920);
+                const QString backdropUrl = getCachedArtworkUrl(itemId,
+                                                                  QStringLiteral("Backdrop"),
+                                                                  0,
+                                                                  tag,
+                                                                  1920);
                 if (backdropUrl.isEmpty()) {
                     continue;
                 }
-                backdropUrl += QStringLiteral("?tag=") + tag;
                 item.insert(QStringLiteral("BackdropUrl"), backdropUrl);
 
                 if (item.value("ImageTags").toObject().contains(QStringLiteral("Logo"))) {
@@ -1743,27 +1765,38 @@ QString LibraryService::getStreamUrlWithTracks(const QString &itemId, const QStr
 
 QString LibraryService::getImageUrl(const QString &itemId, const QString &imageType)
 {
-    return QString("%1/Items/%2/Images/%3?quality=90&fillWidth=400&api_key=%4")
-        .arg(m_authService->getServerUrl(), itemId, imageType, m_authService->getAccessToken());
+    return getCachedArtworkUrl(itemId, imageType, 0, QString(), 400);
 }
 
 QString LibraryService::getImageUrlWithWidth(const QString &itemId, const QString &imageType, int width)
 {
-    if (width <= 0) width = 1920;
-    return QString("%1/Items/%2/Images/%3?quality=95&fillWidth=%4&api_key=%5")
-        .arg(m_authService->getServerUrl(), itemId, imageType, QString::number(width), m_authService->getAccessToken());
+    return getCachedArtworkUrl(itemId, imageType, 0, QString(), width);
 }
 
 QString LibraryService::getCachedImageUrl(const QString &itemId, const QString &imageType)
 {
-    QString originalUrl = getImageUrl(itemId, imageType);
-    return QString("image://cached/%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(originalUrl)));
+    return getCachedArtworkUrl(itemId, imageType, 0, QString(), 400);
 }
 
 QString LibraryService::getCachedImageUrlWithWidth(const QString &itemId, const QString &imageType, int width)
 {
-    QString originalUrl = getImageUrlWithWidth(itemId, imageType, width);
-    return QString("image://cached/%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(originalUrl)));
+    return getCachedArtworkUrl(itemId, imageType, 0, QString(), width);
+}
+
+QString LibraryService::getCachedArtworkUrl(const QString &itemId,
+                                            const QString &imageType,
+                                            int imageIndex,
+                                            const QString &imageTag,
+                                            int width)
+{
+    Bloom::ArtworkRef artwork;
+    artwork.connectionId = activeConnectionId(m_authService);
+    artwork.itemId = itemId;
+    artwork.kind = Bloom::artworkKindFromName(imageType);
+    artwork.index = qMax(0, imageIndex);
+    artwork.tag = imageTag.trimmed();
+    artwork.requestedWidth = width > 0 ? width : 1920;
+    return cachedArtworkSource(artwork);
 }
 
 QString LibraryService::getCachedChapterThumbnailUrl(const QString &itemId, int chapterIndex, const QString &imageTag, const QString &imagePath, int width)
@@ -1782,16 +1815,11 @@ QString LibraryService::getCachedChapterThumbnailUrl(const QString &itemId, int 
         width = 480;
     }
 
-    QString originalUrl = QString("%1/Items/%2/Images/Chapter/%3?maxWidth=%4&api_key=%5")
-        .arg(m_authService->getServerUrl(),
-             itemId,
-             QString::number(chapterIndex),
-             QString::number(width),
-             m_authService->getAccessToken());
-    if (!imageTag.trimmed().isEmpty()) {
-        originalUrl += QString("&tag=%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(imageTag)));
-    }
-    const QString cachedUrl = QString("image://cached/%1").arg(QString::fromUtf8(QUrl::toPercentEncoding(originalUrl)));
+    const QString cachedUrl = getCachedArtworkUrl(itemId,
+                                                   QStringLiteral("chapter"),
+                                                   chapterIndex,
+                                                   imageTag,
+                                                   width);
     qCInfo(lcLibrary) << "LibraryService: Chapter thumbnail request"
             << "item" << itemId
             << "index" << chapterIndex

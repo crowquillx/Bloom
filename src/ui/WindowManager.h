@@ -4,9 +4,11 @@
 #include <QQmlApplicationEngine>
 #include <QQuickWindow>
 #include <QGuiApplication>
+#include <memory>
 
 class ApplicationInitializer;
 class ConfigManager;
+class IArtworkProvider;
 class ImageCacheProvider;
 class GpuMemoryTrimmer;
 
@@ -25,6 +27,7 @@ public:
 
 private:
     QGuiApplication* m_app;
+    std::unique_ptr<IArtworkProvider> m_artworkProvider;
     QQmlApplicationEngine m_engine;
     ImageCacheProvider* m_imageCacheProvider = nullptr;
     GpuMemoryTrimmer* m_gpuMemoryTrimmer = nullptr;

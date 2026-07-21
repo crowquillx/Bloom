@@ -476,10 +476,11 @@ FocusScope {
         var candidate = backdropCandidates[candidateIndex]
         
         // Construct backdrop URL
-        var url = LibraryService.getCachedImageUrlWithWidth(candidate.itemId, "Backdrop", 1920)
-        if (url && candidate.backdropTag) {
-            url += "?tag=" + candidate.backdropTag
-        }
+        var url = LibraryService.getCachedArtworkUrl(candidate.itemId,
+                                                     "Backdrop",
+                                                     0,
+                                                     candidate.backdropTag || "",
+                                                     1920)
         
         currentBackdropUrl = url
     }

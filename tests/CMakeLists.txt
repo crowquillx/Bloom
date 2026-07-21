@@ -20,6 +20,7 @@ set(TEST_LOGGING_SOURCES
 )
 
 set(TEST_PROVIDER_BOUNDARY_SOURCES
+    ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
     ${CMAKE_SOURCE_DIR}/src/network/HttpTransport.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinAuthenticator.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinRequestFactory.cpp
