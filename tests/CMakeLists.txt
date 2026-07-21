@@ -203,6 +203,25 @@ target_link_libraries(ProviderTransportTest
 
 add_test(NAME ProviderTransportTest COMMAND ProviderTransportTest)
 
+add_executable(CanonicalModelsTest
+    CanonicalModelsTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinModelMapper.cpp
+)
+
+target_include_directories(CanonicalModelsTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(CanonicalModelsTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Test
+)
+
+add_test(NAME CanonicalModelsTest COMMAND CanonicalModelsTest)
+
 add_executable(InputBindingManagerTest
     InputBindingManagerTest.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/InputBindingManager.cpp

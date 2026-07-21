@@ -20,6 +20,8 @@ qt_add_executable(Bloom
     providers/jellyfin/JellyfinAuthenticator.cpp
     providers/jellyfin/JellyfinRequestFactory.h
     providers/jellyfin/JellyfinRequestFactory.cpp
+    providers/jellyfin/JellyfinModelMapper.h
+    providers/jellyfin/JellyfinModelMapper.cpp
     providers/jellyfin/JellyfinProviderAdapter.h
     resources/fonts.qrc
     resources/sounds.qrc
@@ -55,6 +57,8 @@ qt_add_executable(Bloom
     network/SeerrService.cpp
     network/Types.h
     network/Types.cpp
+    models/MediaModels.h
+    models/MediaModels.cpp
     network/SessionManager.h
     network/SessionManager.cpp
     network/SessionService.h
