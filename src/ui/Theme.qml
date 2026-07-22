@@ -378,7 +378,10 @@ QtObject {
     property color overlayDark: "#60000000"
     property color overlayLight: "#40ffffff"
     property color overlayHighlight: "#10ffffff"
-    property color overlayTextBackground: "#aa000000"
+    // Opaque enough for badges/labels drawn over arbitrary poster artwork.
+    property color overlayTextBackground: "#b8000000"
+    property color overlayTextBorder: Qt.rgba(1, 1, 1, 0.18)
+    property color textOnDarkOverlay: "#ffffff"
     property color gradientOverlayStart: "#400f3880"
     property color gradientOverlayMiddle: "#1c0c2099"
     property color gradientOverlayEnd: "#0a060ccc"

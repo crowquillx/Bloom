@@ -108,6 +108,8 @@ Standard component sizes.
 
 Use these instead of hardcoded playback overlay colors so built-in themes remain consistent. `playbackOverlayShadowTint` resolves to black for light themes and the theme background base for dark themes; `playbackOverlayAccentShadowTint` adds a subtle themed accent to active playback chrome shadows.
 
+Artwork overlays (poster badges/labels drawn on top of images) should use `overlayTextBackground`, `overlayTextBorder`, and `textOnDarkOverlay` rather than theme `chip*` / `textPrimary` tokens. Poster artwork can be bright or busy in any theme, so translucent theme chips (especially Rosé Pine / light flavors) lose contrast. `MetadataChip { onArtwork: true }` applies these tokens.
+
 ## Layout Patterns
 
 ### Proportional Sizing

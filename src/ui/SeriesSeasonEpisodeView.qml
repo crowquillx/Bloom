@@ -60,19 +60,20 @@ FocusScope {
     readonly property string selectedEpisodeImageUrl: selectedEpisodeData
                                                      ? (selectedEpisodeData.imageUrl || "")
                                                      : ""
+    // Prefer season poster, then series poster. Episode thumbs are landscape and only
+    // used as a last-resort fill for the portrait hero frame.
     readonly property string selectedSeasonImageUrl: {
         if (SeriesDetailsViewModel.selectedSeasonIndex >= 0) {
             var season = SeriesDetailsViewModel.seasonsModel.getItem(SeriesDetailsViewModel.selectedSeasonIndex)
-            if (season) {
-                return season.imageUrl || ""
+            if (season && season.imageUrl) {
+                return season.imageUrl
             }
         }
         return SeriesDetailsViewModel.posterUrl || ""
     }
-    readonly property string heroArtworkUrl: selectedEpisodeImageUrl !== ""
-                                             ? selectedEpisodeImageUrl
-                                             : (selectedSeasonImageUrl || SeriesDetailsViewModel.posterUrl || "")
-    readonly property bool heroArtworkUsesFit: selectedEpisodeImageUrl !== ""
+    readonly property string heroArtworkUrl: selectedSeasonImageUrl || selectedEpisodeImageUrl || ""
+    readonly property bool heroArtworkUsesFit: selectedSeasonImageUrl === ""
+                                               && selectedEpisodeImageUrl !== ""
     readonly property string selectedEpisodeLabel: {
         if (!selectedEpisodeData) {
             return ""
@@ -1298,8 +1299,14 @@ FocusScope {
 
                                 Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
 
-                                MetadataChip { text: root.videoResolutionBadge() }
-                                MetadataChip { text: root.videoHdrBadge() }
+                                MetadataChip {
+                                    text: root.videoResolutionBadge()
+                                    onArtwork: true
+                                }
+                                MetadataChip {
+                                    text: root.videoHdrBadge()
+                                    onArtwork: true
+                                }
                             }
 
                             Rectangle {
@@ -1307,7 +1314,9 @@ FocusScope {
                                 anchors.bottom: parent.bottom
                                 anchors.margins: Theme.spacingMedium
                                 radius: Theme.radiusMedium
-                                color: Qt.rgba(0, 0, 0, 0.68)
+                                color: Theme.overlayTextBackground
+                                border.width: 1
+                                border.color: Theme.overlayTextBorder
                                 visible: selectedEpisodeLabel !== ""
                                 implicitHeight: episodeLabelText.implicitHeight + Math.round(14 * Theme.layoutScale)
                                 implicitWidth: episodeLabelText.implicitWidth + Math.round(26 * Theme.layoutScale)
@@ -1319,7 +1328,7 @@ FocusScope {
                                     font.pixelSize: Theme.fontSizeSmall
                                     font.family: Theme.fontPrimary
                                     font.weight: Font.Black
-                                    color: Theme.textPrimary
+                                    color: Theme.textOnDarkOverlay
                                 }
                             }
                         }

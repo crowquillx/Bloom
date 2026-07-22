@@ -1014,8 +1014,14 @@ FocusScope {
 
                                 Behavior on opacity { NumberAnimation { duration: Theme.durationFade } }
 
-                                MetadataChip { text: root.videoResolutionBadge() }
-                                MetadataChip { text: root.videoHdrBadge() }
+                                MetadataChip {
+                                    text: root.videoResolutionBadge()
+                                    onArtwork: true
+                                }
+                                MetadataChip {
+                                    text: root.videoHdrBadge()
+                                    onArtwork: true
+                                }
                             }
                         }
                     }
