@@ -41,8 +41,12 @@ FocusScope {
     property bool audioSelectorOpen: false
     property bool subtitleSelectorOpen: false
     property bool volumeSelectorOpen: false
+    property bool volumeOsdVisible: false
+    // Preserves anchor while the panel fades out so it doesn't jump between modes.
+    property bool volumePanelUseButtonAnchor: false
     readonly property bool selectorOpen: audioSelectorOpen || subtitleSelectorOpen || volumeSelectorOpen
     readonly property bool fullControlsVisible: controlsVisible && !seekOnlyMode && !chapterMode
+    readonly property bool volumePanelVisible: volumeSelectorOpen || volumeOsdVisible
     property bool hasPrimedPointerPosition: false
     property real lastPointerY: -1
     readonly property bool introSegmentActive: PlayerController.isInIntroSegment
@@ -62,6 +66,7 @@ FocusScope {
     property int controlsAutoHideMs: 2500
     property int controlsHideAnimMs: 180
     property int seekPreviewHoldMs: 1800
+    property int volumeOsdHoldMs: 1800
     property int sideRailWidth: Math.round(300 * Theme.layoutScale)
     property real controlsSlideDistance: Math.round(28 * Theme.layoutScale)
     property real topControlsOffset: controlsVisible && !seekOnlyMode ? 0 : -controlsSlideDistance
@@ -131,6 +136,8 @@ FocusScope {
         if (!overlayActive) {
             return
         }
+        // Full chrome replaces the transient volume OSD.
+        hideVolumeOsd()
         controlsVisible = true
         seekOnlyMode = false
         chapterMode = false
@@ -145,6 +152,7 @@ FocusScope {
         if (!overlayActive || !PlayerController.hasPlaybackChapters) {
             return false
         }
+        hideVolumeOsd()
         controlsVisible = true
         seekOnlyMode = false
         chapterMode = true
@@ -176,6 +184,7 @@ FocusScope {
         if (!overlayActive) {
             return
         }
+        hideVolumeOsd()
         controlsVisible = true
         seekOnlyMode = keepFullControls === true ? false : true
         hideTimer.stop()
@@ -277,6 +286,7 @@ FocusScope {
         }
         subtitleSelectorOpen = false
         volumeSelectorOpen = false
+        hideVolumeOsd()
         showControls()
         audioSelectorOpen = true
         var idx = audioListIndexForTrack(PlayerController.selectedAudioTrack)
@@ -297,6 +307,7 @@ FocusScope {
         subtitleSelectorOpen = true
         audioSelectorOpen = false
         volumeSelectorOpen = false
+        hideVolumeOsd()
         showControls()
         var idx = subtitleListIndexForTrack(PlayerController.selectedSubtitleTrack)
         subtitleList.currentIndex = idx
@@ -336,6 +347,10 @@ FocusScope {
         if (closeSelectors()) {
             return true
         }
+        if (volumeOsdVisible) {
+            hideVolumeOsd()
+            return true
+        }
         if (skipPopupVisible) {
             skipPopupVisible = false
             skipPopupTimer.stop()
@@ -355,6 +370,20 @@ FocusScope {
         return false
     }
 
+    function hideVolumeOsd() {
+        volumeOsdTimer.stop()
+        volumeOsdVisible = false
+    }
+
+    function showVolumeOsd() {
+        if (!overlayActive || volumeSelectorOpen) {
+            return
+        }
+        volumePanelUseButtonAnchor = false
+        volumeOsdVisible = true
+        volumeOsdTimer.restart()
+    }
+
     function openVolumeSelector() {
         if (volumeSelectorOpen) {
             volumeSelectorOpen = false
@@ -362,16 +391,33 @@ FocusScope {
             return
         }
 
+        // Promote OSD -> interactive without a hide flicker: reanchor and open
+        // the selector first so volumePanelVisible stays true, then clear OSD.
+        volumePanelUseButtonAnchor = true
         audioSelectorOpen = false
         subtitleSelectorOpen = false
-        showControls()
         volumeSelectorOpen = true
+        hideVolumeOsd()
+        showControls()
         Qt.callLater(function() { volumeSliderFocus.forceActiveFocus() })
     }
 
     function adjustVolumeBy(delta) {
         PlayerController.adjustVolume(delta)
-        showControls()
+        if (volumeSelectorOpen) {
+            return
+        }
+        // Any visible chrome (full, seek-only, chapter) should not stack a floating OSD.
+        if (controlsVisible) {
+            if (fullControlsVisible) {
+                showControls()
+            } else if (chapterMode) {
+                hideTimer.restart()
+            }
+            return
+        }
+        // Volume up/down should not open the entire overlay — show the panel alone.
+        showVolumeOsd()
     }
 
     function formatSubtitleDelay(ms) {
@@ -877,6 +923,8 @@ FocusScope {
             audioSelectorOpen = false
             subtitleSelectorOpen = false
             volumeSelectorOpen = false
+            hideVolumeOsd()
+            volumePanelUseButtonAnchor = false
             controlsVisible = false
             seekPreviewActive = false
             seekOnlyMode = false
@@ -958,6 +1006,13 @@ FocusScope {
                 root.showControls()
             }
         }
+    }
+
+    Timer {
+        id: volumeOsdTimer
+        interval: root.volumeOsdHoldMs
+        repeat: false
+        onTriggered: root.volumeOsdVisible = false
     }
 
     Timer {
@@ -2158,23 +2213,46 @@ FocusScope {
 
     Rectangle {
         id: volumePanel
-        visible: root.volumeSelectorOpen
+        // Keep item alive while fading out so opacity Behavior can finish.
+        visible: opacity > 0.001
         z: 1200
-        width: Math.round(380 * Theme.layoutScale)
-        height: Math.round(180 * Theme.layoutScale)
-        x: root.buttonAttachedPanelXInRoot(volumeButton, width)
-        y: root.buttonAttachedPanelYInRoot(volumeButton, height)
-        radius: Theme.radiusXLarge
-        color: Qt.rgba(0.01, 0.02, 0.05, 0.92)
+        width: Math.round(300 * Theme.layoutScale)
+        height: Math.round(128 * Theme.layoutScale)
+        // Interactive selector attaches to the volume button; OSD floats bottom-center.
+        // volumePanelUseButtonAnchor is sticky across the fade so closing the selector
+        // does not jump the panel to the OSD position mid-animation.
+        x: root.volumePanelUseButtonAnchor
+           ? root.buttonAttachedPanelXInRoot(volumeButton, width)
+           : Math.round((root.width - width) / 2)
+        y: root.volumePanelUseButtonAnchor
+           ? root.buttonAttachedPanelYInRoot(volumeButton, height)
+           : Math.round(root.height - height - (120 * Theme.layoutScale))
+        radius: Theme.radiusLarge
+        color: Qt.rgba(0.01, 0.02, 0.05, 0.72)
         border.width: 1
         border.color: Theme.cardBorder
+        opacity: root.volumePanelVisible ? 1.0 : 0.0
+        Behavior on opacity {
+            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+        }
+        // Soften OSD <-> interactive reanchor so the panel does not teleport.
+        Behavior on x {
+            enabled: volumePanel.visible
+            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+        }
+        Behavior on y {
+            enabled: volumePanel.visible
+            NumberAnimation { duration: 140; easing.type: Easing.OutCubic }
+        }
 
         FocusScope {
             id: volumeSliderFocus
             anchors.fill: parent
-            anchors.margins: Math.round(24 * Theme.layoutScale)
+            anchors.margins: Math.round(16 * Theme.layoutScale)
             activeFocusOnTab: true
             focus: root.volumeSelectorOpen
+            // OSD mode is display-only; only the interactive selector takes focus.
+            enabled: root.volumeSelectorOpen
             KeyNavigation.down: volumeButton
             KeyNavigation.up: progressFocus
             Keys.onPressed: function(event) {
@@ -2202,26 +2280,26 @@ FocusScope {
 
             ColumnLayout {
                 anchors.fill: parent
-                spacing: Math.round(14 * Theme.layoutScale)
+                spacing: Math.round(10 * Theme.layoutScale)
 
                 Text {
                     text: qsTr("Volume")
                     color: Theme.textPrimary
                     font.family: Theme.fontPrimary
-                    font.pixelSize: Math.round(42 * Theme.layoutScale * 0.6)
+                    font.pixelSize: Math.round(20 * Theme.layoutScale)
                     font.weight: Font.DemiBold
                 }
 
                 RowLayout {
                     Layout.fillWidth: true
-                    spacing: Math.round(14 * Theme.layoutScale)
+                    spacing: Math.round(10 * Theme.layoutScale)
 
                     Text {
                         text: PlayerController.muted || PlayerController.volume <= 0
                               ? Icons.volumeOff
                               : (PlayerController.volume < 50 ? Icons.volumeDown : Icons.volumeUp)
                         font.family: Theme.fontIcon
-                        font.pixelSize: Math.round(30 * Theme.layoutScale)
+                        font.pixelSize: Math.round(24 * Theme.layoutScale)
                         color: Theme.textPrimary
                         Layout.alignment: Qt.AlignVCenter
                     }
@@ -2240,7 +2318,7 @@ FocusScope {
                         text: PlayerController.muted ? qsTr("Muted") : qsTr("%1%").arg(PlayerController.volume)
                         color: Theme.textPrimary
                         font.family: Theme.fontPrimary
-                        font.pixelSize: Math.round(20 * Theme.layoutScale)
+                        font.pixelSize: Math.round(16 * Theme.layoutScale)
                         font.weight: Font.Medium
                         Layout.alignment: Qt.AlignVCenter
                     }
