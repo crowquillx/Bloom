@@ -165,9 +165,9 @@ private:
     /**
      * @brief Normalises a raw Seerr search/similar result object into the shared item map format.
      *
-     * Sets Source="Seerr", maps TMDB poster paths to full image URLs, synthesises
-     * a stable Id of the form "seerr:{mediaType}:{tmdbId}", and copies SeerrMediaInfo
-     * when present.
+     * Sets source="seerr", maps TMDB poster paths to full image URLs, synthesises
+     * a stable itemId of the form "seerr:{mediaType}:{tmdbId}", and copies
+     * seerrMediaInfo when present.
      */
     QJsonObject mapSearchResultItem(const QJsonObject &item) const;
 

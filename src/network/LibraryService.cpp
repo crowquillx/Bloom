@@ -1542,93 +1542,114 @@ void LibraryService::getThemeSongs(const QString &seriesId)
 
 void LibraryService::search(const QString &searchTerm, int limit)
 {
+    const QString connectionId = activeConnectionId(m_authService);
+    const QString normalizedSearchTerm = searchTerm.trimmed();
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "search";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
+        emit canonicalSearchResultsFailed(connectionId, normalizedSearchTerm, error.userMessage);
         emitError(error);
         return;
     }
-    
-    if (searchTerm.trimmed().isEmpty()) {
-        emit searchResultsLoaded(searchTerm, QJsonArray(), QJsonArray());
+
+    if (normalizedSearchTerm.isEmpty()) {
+        emit canonicalSearchResultsLoaded(connectionId, normalizedSearchTerm, {}, {});
         return;
     }
-    
+
     const QStringList fields = {"Path", "Overview", "ImageTags", "BackdropImageTags", "ProductionYear", "CommunityRating", "UserData"};
-    
+
     QString endpoint = QString("/Users/%1/Items?SearchTerm=%2&IncludeItemTypes=Movie,Series&Recursive=true&Fields=%3&Limit=%4&EnableImageTypes=Primary,Backdrop")
                            .arg(m_authService->getUserId())
-                           .arg(QString::fromUtf8(QUrl::toPercentEncoding(searchTerm.trimmed())))
+                           .arg(QString::fromUtf8(QUrl::toPercentEncoding(normalizedSearchTerm)))
                            .arg(fields.join(","))
                            .arg(limit);
-    
+
     sendRequestWithRetry(endpoint,
         [this, endpoint]() {
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, searchTerm](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
+        [this, connectionId, normalizedSearchTerm](QNetworkReply *reply) {
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             if (!doc.isObject()) {
                 NetworkError error;
                 error.endpoint = "search";
                 error.code = -2;
                 error.userMessage = tr("Invalid search response");
+                emit canonicalSearchResultsFailed(connectionId, normalizedSearchTerm, error.userMessage);
                 emitError(error);
                 return;
             }
-            QJsonArray allItems = doc.object()["Items"].toArray();
-            
-            QJsonArray movies, series;
-            for (const QJsonValue &itemVal : allItems) {
-                QJsonObject item = itemVal.toObject();
-                QString type = item["Type"].toString();
-                if (type == "Movie") movies.append(item);
-                else if (type == "Series") series.append(item);
+
+            QVariantList movies;
+            QVariantList series;
+            const QVariantList items = m_authService->mapMediaItems(
+                doc.object().value(QStringLiteral("Items")).toArray(), connectionId);
+            for (const QVariant &value : items) {
+                const QVariantMap item = value.toMap();
+                const QString mediaType = item.value(QStringLiteral("mediaType")).toString();
+                if (mediaType == QStringLiteral("Movie")) {
+                    movies.append(item);
+                } else if (mediaType == QStringLiteral("Series")) {
+                    series.append(item);
+                }
             }
-            
-            emit searchResultsLoaded(searchTerm, movies, series);
+
+            emit canonicalSearchResultsLoaded(connectionId, normalizedSearchTerm, movies, series);
+        },
+        [this, connectionId, normalizedSearchTerm](const NetworkError &error) {
+            emit canonicalSearchResultsFailed(connectionId, normalizedSearchTerm, error.userMessage);
+            emitError(error);
         });
 }
 
 void LibraryService::getRandomItems(int limit)
 {
+    const QString connectionId = activeConnectionId(m_authService);
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getRandomItems";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
+        emit canonicalRandomItemsFailed(connectionId, error.userMessage);
         emitError(error);
         return;
     }
-    
+
     const QStringList fields = {"Overview", "ImageTags", "BackdropImageTags", "ProductionYear"};
-    
+
     QString endpoint = QString("/Users/%1/Items?IncludeItemTypes=Movie,Series&Recursive=true&SortBy=Random&Limit=%2&Fields=%3")
                            .arg(m_authService->getUserId())
                            .arg(limit)
                            .arg(fields.join(","));
-    
+
     sendRequestWithRetry(endpoint,
         [this, endpoint]() {
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
+        [this, connectionId](QNetworkReply *reply) {
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             if (!doc.isObject()) {
                 NetworkError error;
                 error.endpoint = "getRandomItems";
                 error.code = -2;
                 error.userMessage = tr("Invalid random items response");
+                emit canonicalRandomItemsFailed(connectionId, error.userMessage);
                 emitError(error);
                 return;
             }
-            emit randomItemsLoaded(doc.object()["Items"].toArray());
+            emit canonicalRandomItemsLoaded(
+                connectionId,
+                m_authService->mapMediaItems(
+                    doc.object().value(QStringLiteral("Items")).toArray(), connectionId));
+        },
+        [this, connectionId](const NetworkError &error) {
+            emit canonicalRandomItemsFailed(connectionId, error.userMessage);
+            emitError(error);
         });
 }
 

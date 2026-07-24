@@ -495,7 +495,8 @@ void MockLibraryService::search(const QString &searchTerm, int limit)
     QJsonArray matchedMovies;
     QJsonArray matchedSeries;
     
-    QString term = searchTerm.toLower();
+    const QString normalizedSearchTerm = searchTerm.trimmed();
+    const QString term = normalizedSearchTerm.toLower();
     
     // Search movies
     for (const QJsonValue &val : m_movies["Items"].toArray()) {
@@ -513,9 +514,12 @@ void MockLibraryService::search(const QString &searchTerm, int limit)
         }
     }
     
-    qCDebug(lcTest) << "MockLibraryService::search(" << searchTerm << ") ->" 
+    qCDebug(lcTest) << "MockLibraryService::search(" << searchTerm << ") ->"
              << matchedMovies.size() << "movies," << matchedSeries.size() << "series";
-    emit searchResultsLoaded(searchTerm, matchedMovies, matchedSeries);
+    emit canonicalSearchResultsLoaded(
+        QStringLiteral("mock-connection"), normalizedSearchTerm,
+        JellyfinModelMapper::mediaItems(matchedMovies, QStringLiteral("mock-connection")),
+        JellyfinModelMapper::mediaItems(matchedSeries, QStringLiteral("mock-connection")));
 }
 
 void MockLibraryService::getRandomItems(int limit)
@@ -536,7 +540,9 @@ void MockLibraryService::getRandomItems(int limit)
     }
     
     qCDebug(lcTest) << "MockLibraryService::getRandomItems(" << limit << ") ->" << result.size() << "items";
-    emit randomItemsLoaded(result);
+    emit canonicalRandomItemsLoaded(
+        QStringLiteral("mock-connection"),
+        JellyfinModelMapper::mediaItems(result, QStringLiteral("mock-connection")));
 }
 
 void MockLibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds, bool unwatchedOnly)

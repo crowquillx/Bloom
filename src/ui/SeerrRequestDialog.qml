@@ -119,16 +119,16 @@ Dialog {
      * asynchronously.  If itemData is missing required fields the dialog shows an
      * error immediately without making a network call.
      *
-     * @param itemData     A normalised search-result map (must contain SeerrMediaType and SeerrTmdbId).
+     * @param itemData     A normalised search-result map (must contain seerrMediaType and seerrTmdbId).
      * @param focusTarget  Optional Item to restore focus to when the dialog closes.
      */
     function openForItem(itemData, focusTarget) {
         closeTimer.stop()
         restoreFocusTarget = focusTarget || null
 
-        mediaType = String(itemData.SeerrMediaType || "").toLowerCase()
-        tmdbId = Number(itemData.SeerrTmdbId || -1)
-        mediaTitle = itemData.Name || ""
+        mediaType = String(itemData.seerrMediaType || "").toLowerCase()
+        tmdbId = Number(itemData.seerrTmdbId || -1)
+        mediaTitle = itemData.name || ""
 
         seasonCount = 0
         servers = []
