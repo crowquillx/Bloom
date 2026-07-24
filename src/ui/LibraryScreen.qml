@@ -694,12 +694,6 @@ FocusScope {
                                 artwork.index || 0,
                                 artwork.tag || "",
                                 600)
-                } else if (root.currentSeriesId && root.currentSeriesData
-                           && root.currentSeriesData.ImageTags
-                           && root.currentSeriesData.ImageTags.Logo) {
-                    // Home remains on its raw compatibility payload until its own migration.
-                    overlayLogoUrl = LibraryService.getCachedImageUrlWithWidth(
-                                root.currentSeriesId, "Logo", 600)
                 }
                 root.requestPlaybackWithResolvedLibrary({
                     itemId: episodeId,
@@ -707,7 +701,7 @@ FocusScope {
                     seriesId: root.currentSeriesId,
                     seasonId: "",
                     overlayTitle: root.currentSeriesData
-                                  ? (root.currentSeriesData.name || root.currentSeriesData.Name || qsTr("Now Playing"))
+                                  ? (root.currentSeriesData.name || qsTr("Now Playing"))
                                   : qsTr("Now Playing"),
                     overlaySubtitle: qsTr("Episode"),
                     overlayBackdropUrl: root.currentBackdropUrl,
@@ -742,8 +736,7 @@ FocusScope {
         
         SeriesSeasonEpisodeView {
             seriesId: root.currentSeriesId
-            seriesName: root.currentSeriesData
-                        ? (root.currentSeriesData.name || root.currentSeriesData.Name || "") : ""
+            seriesName: root.currentSeriesData ? (root.currentSeriesData.name || "") : ""
             initialSeasonId: root.currentSeasonId
             initialSeasonIndex: root._lastSelectedSeasonIndex
             initialEpisodeId: root.initialEpisodeId
@@ -777,9 +770,7 @@ FocusScope {
         id: movieDetailsComponent
         
         MovieDetailsView {
-            movieId: root.currentMovieData
-                     ? (root.currentMovieData.itemId || root.currentMovieData.Id || "")
-                     : ""
+            movieId: root.currentMovieData ? (root.currentMovieData.itemId || "") : ""
             pendingReturnState: root._movieDetailsReturnState
             restorePendingReturnState: root._restoreMovieDetailsReturnState
              
@@ -1986,8 +1977,8 @@ FocusScope {
     }
 
     function handleSelection(item) {
-        const mediaType = item ? (item.mediaType || item.Type || "") : ""
-        const remoteId = item ? (item.itemId || item.Id || "") : ""
+        const mediaType = item ? (item.mediaType || "") : ""
+        const remoteId = item ? (item.itemId || "") : ""
         console.log("[Library] handleSelection",
                     "itemType:", mediaType,
                     "itemId:", remoteId,
@@ -2100,8 +2091,8 @@ FocusScope {
                         "stackSize:", navigationStack.length)
             if (currentParentId === "") {
                 currentLibraryId = remoteId
-                currentLibraryName = item.name || item.Name || ""
-                currentLibraryType = item.collectionType || item.CollectionType || ""
+                currentLibraryName = item.name || ""
+                currentLibraryType = item.collectionType || ""
                 librarySearchText = ""
                 resetQueryToolbarVisibility()
                 LibraryViewModel.clearQuery()
@@ -2376,7 +2367,7 @@ FocusScope {
         // Capture episode index for restoration when coming back to season view
         const shouldPushContext = forcePushContext === true
                                 || !isInitialDirectNavigationEntry()
-        const targetEpisodeId = episodeData ? (episodeData.itemId || episodeData.Id || "") : ""
+        const targetEpisodeId = episodeData ? (episodeData.itemId || "") : ""
         var episodeIndex = -1
         if (SeriesDetailsViewModel.episodesModel) {
             for (let i = 0; i < SeriesDetailsViewModel.episodesModel.rowCount(); i++) {
@@ -2416,12 +2407,11 @@ FocusScope {
         
         currentEpisodeData = episodeData
         // Store the episode ID so SeriesSeasonEpisodeView can highlight it
-        initialEpisodeId = episodeData.itemId || episodeData.Id || ""
+        initialEpisodeId = episodeData.itemId || ""
 
         // Extract seasonId from episode data so the view initializes with the correct season.
         if (episodeData) {
-            const extractedSeasonId = episodeData.seasonId || episodeData.parentId
-                    || episodeData.SeasonId || episodeData.ParentId || ""
+            const extractedSeasonId = episodeData.seasonId || episodeData.parentId || ""
             if (extractedSeasonId && currentSeasonId !== extractedSeasonId) {
                 console.log("[Library] Using seasonId from episode data:", extractedSeasonId)
                 currentSeasonId = extractedSeasonId
@@ -2550,107 +2540,49 @@ FocusScope {
         if (!item)
             return []
 
-        var candidates = []
-
-        function appendUrl(id, type, width, tag) {
-            if (!id || !type)
+        const candidates = []
+        function appendArtwork(artwork, fallbackKind, width) {
+            if (!artwork || !artwork.itemId)
                 return
-            let kind = type
-            let index = 0
-            const separator = type.indexOf("/")
-            if (separator >= 0) {
-                kind = type.substring(0, separator)
-                index = Number(type.substring(separator + 1)) || 0
-            }
-            const url = LibraryService.getCachedArtworkUrl(id,
-                                                          kind,
-                                                          index,
-                                                          tag || "",
-                                                          width || 1920)
-            if (url && candidates.indexOf(url) === -1) {
+            const kind = artwork.kind || fallbackKind
+            if (!kind)
+                return
+            const url = LibraryService.getCachedArtworkUrlForConnection(
+                        artwork.connectionId || "",
+                        artwork.itemId,
+                        kind,
+                        artwork.index || 0,
+                        artwork.tag || "",
+                        width)
+            if (url && candidates.indexOf(url) === -1)
                 candidates.push(url)
-            }
         }
 
-        function appendBackdropSet(id, tags) {
-            if (!id || !tags || !tags.length)
-                return
-            for (var i = 0; i < tags.length && i < 2; ++i) {
-                appendUrl(id, "Backdrop/" + i, 1920, tags[i])
-            }
+        const artwork = item.artwork || []
+        for (const ref of artwork) {
+            if (ref && ref.kind === "backdrop")
+                appendArtwork(ref, "backdrop", 1920)
         }
-
-        // 1. Item's own backdrops
-        if (item.backdropArtwork && item.backdropArtwork.itemId) {
-            const backdropArt = item.backdropArtwork
-            const canonicalBackdrop = LibraryService.getCachedArtworkUrlForConnection(
-                        backdropArt.connectionId || "",
-                        backdropArt.itemId,
-                        backdropArt.kind || "backdrop",
-                        backdropArt.index || 0,
-                        backdropArt.tag || "",
-                        1920)
-            if (canonicalBackdrop && candidates.indexOf(canonicalBackdrop) === -1) {
-                candidates.push(canonicalBackdrop)
-            }
+        if (candidates.length === 0)
+            appendArtwork(item.backdropArtwork, "backdrop", 1920)
+        if (candidates.length === 0 && (item.seriesId || currentSeriesId)) {
+            appendArtwork({
+                connectionId: item.connectionId || LibraryService.getActiveConnectionId(),
+                itemId: item.seriesId || currentSeriesId,
+                kind: "backdrop",
+                index: 0,
+                tag: ""
+            }, "backdrop", 1920)
         }
-        if (item.BackdropImageTags && item.BackdropImageTags.length > 0) {
-            appendBackdropSet(item.Id || item.itemId, item.BackdropImageTags)
-        }
-
-        // 2. Parent/Season backdrops
-        if (item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0) {
-            const parentId = item.ParentBackdropItemId || item.ParentBackdropImageItemId || item.ParentId || item.parentId
-            appendBackdropSet(parentId, item.ParentBackdropImageTags)
-        }
-
-        // 3. Fallback: Series Backdrop (Blind URL)
-        // Always add this as a last resort if we have a SeriesId.
-        // Try both "Backdrop/0" and "Backdrop" (no index) to be safe.
-        const seriesId = item.SeriesId || item.seriesId || ""
-        if (seriesId) {
-            appendUrl(seriesId, "Backdrop/0", 1920, "")
-            appendUrl(seriesId, "Backdrop", 1920, "")
-        } else if ((item.ParentId || item.parentId) && ((item.Type || item.mediaType) === "Season" || (item.Type || item.mediaType) === "Episode")) {
-            // For Season, Parent is Series. For Episode, Parent is Season.
-            // If SeriesId is missing, try ParentId if we are a Season.
-            if ((item.Type || item.mediaType) === "Season") {
-                appendUrl(item.ParentId || item.parentId, "Backdrop/0", 1920, "")
-            }
-        }
-
-        // 4. Canonical primary artwork fallback for migrated recommendation payloads
-        if (candidates.length === 0 && item.primaryArtwork && item.primaryArtwork.itemId) {
-            const primaryArt = item.primaryArtwork
-            const primaryUrl = LibraryService.getCachedArtworkUrlForConnection(
-                        primaryArt.connectionId || "",
-                        primaryArt.itemId,
-                        primaryArt.kind || "primary",
-                        primaryArt.index || 0,
-                        primaryArt.tag || "",
-                        1920)
-            if (primaryUrl) {
-                candidates.push(primaryUrl)
-            }
-        }
-        
-        // 4. Ultimate Fallback: Current Context
-        if (currentSeriesId) {
-             appendUrl(currentSeriesId, "Backdrop/0", 1920, "")
-             appendUrl(currentSeriesId, "Backdrop", 1920, "")
-        }
-
+        if (candidates.length === 0)
+            appendArtwork(item.primaryArtwork, "primary", 1920)
         return candidates
     }
 
     function resolveSeriesId(item) {
         if (!item)
             return ""
-        if (item.seriesId || item.SeriesId)
-            return item.seriesId || item.SeriesId
-        if (item.parentId || item.ParentId)
-            return item.parentId || item.ParentId
-        return currentSeriesId || ""
+        return item.seriesId || item.parentId || currentSeriesId || ""
     }
 
     function resolveLibraryIdForPlayback() {
@@ -2949,11 +2881,10 @@ FocusScope {
     function formatTitle(item) {
         if (!item)
             return ""
-        const mediaType = item.mediaType || item.Type || ""
-        const canonicalIndex = item.indexNumber !== undefined && item.indexNumber >= 0
+        const mediaType = item.mediaType || ""
+        const indexNumber = item.indexNumber !== undefined && item.indexNumber >= 0
                 ? item.indexNumber : undefined
-        const indexNumber = canonicalIndex !== undefined ? canonicalIndex : item.IndexNumber
-        const name = item.name || item.Name || ""
+        const name = item.name || ""
         if (mediaType === "Episode" && indexNumber !== undefined)
             return indexNumber + ". " + name
         return name
@@ -2962,12 +2893,11 @@ FocusScope {
     function formatMetaLine(item) {
         if (!item)
             return ""
-        const mediaType = item.mediaType || item.Type || ""
-        const childCount = item.childCount || item.ChildCount || 0
+        const mediaType = item.mediaType || ""
+        const childCount = item.childCount || 0
         const durationMs = item.durationMs || 0
         var parts = []
-        var year = item.productionYear || item.ProductionYear
-                || extractYear(item.premiereDate || item.PremiereDate)
+        var year = item.productionYear || extractYear(item.premiereDate)
         if (year)
             parts.push(year)
         if (mediaType === "Series" && childCount)
@@ -2980,7 +2910,7 @@ FocusScope {
     function formatTypeChip(item) {
         if (!item)
             return ""
-        switch (item.mediaType || item.Type || "") {
+        switch (item.mediaType || "") {
         case "Series": return "Series"
         case "Season": return "Season"
         case "Movie": return "Movie"
@@ -2994,12 +2924,11 @@ FocusScope {
     function formatCountBadge(item) {
         if (!item)
             return ""
-        const mediaType = item.mediaType || item.Type || ""
-        const childCount = item.childCount || item.ChildCount || 0
-        const canonicalIndex = item.indexNumber !== undefined && item.indexNumber >= 0
+        const mediaType = item.mediaType || ""
+        const childCount = item.childCount || 0
+        const indexNumber = item.indexNumber !== undefined && item.indexNumber >= 0
                 ? item.indexNumber : undefined
-        const indexNumber = canonicalIndex !== undefined ? canonicalIndex : item.IndexNumber
-        const productionYear = item.productionYear || item.ProductionYear || 0
+        const productionYear = item.productionYear || 0
         if (mediaType === "Series" && childCount)
             return childCount.toString()
         if (mediaType === "Season" && indexNumber !== undefined)
@@ -3034,7 +2963,7 @@ FocusScope {
     function getSortLetter(item) {
         if (!item)
             return "#"
-        var base = (item.sortName || item.SortName || item.name || item.Name || "").trim()
+        var base = (item.sortName || item.name || "").trim()
         if (!base.length)
             return "#"
         var ch = base.charAt(0).toUpperCase()
