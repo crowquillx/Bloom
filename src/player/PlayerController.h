@@ -224,7 +224,7 @@ public:
     Q_INVOKABLE void setEmbeddedVideoShrinkEnabled(bool enabled);
 
     Q_INVOKABLE void playTestVideo();
-    Q_INVOKABLE void playUrl(const QString &url, const QString &itemId = "", qint64 startPositionTicks = 0, const QString &seriesId = "", const QString &seasonId = "", const QString &libraryId = "", double framerate = 0.0, bool isHDR = false, bool toneMapToSdr = false);
+    Q_INVOKABLE void playUrl(const QString &url, const QString &itemId = "", qint64 startPositionMs = 0, const QString &seriesId = "", const QString &seasonId = "", const QString &libraryId = "", double framerate = 0.0, bool isHDR = false, bool toneMapToSdr = false);
     Q_INVOKABLE void requestPlayback(const QVariantMap &request);
     Q_INVOKABLE void confirmPlaybackVersion(const QString &requestId, const QString &mediaSourceId);
     Q_INVOKABLE void cancelPendingPlaybackRequest(const QString &requestId);
@@ -257,7 +257,7 @@ public:
                                                                int preferredSubtitleIndex = -2) const;
 
     // Extended playUrl with track selection.
-    Q_INVOKABLE void playUrlWithTracks(const QString &url, const QString &itemId, qint64 startPositionTicks,
+    Q_INVOKABLE void playUrlWithTracks(const QString &url, const QString &itemId, qint64 startPositionMs,
                                        const QString &seriesId, const QString &seasonId, const QString &libraryId,
                                        const QString &mediaSourceId, const QString &playSessionId,
                                        const QVariantMap &mediaSource,
@@ -433,7 +433,7 @@ private slots:
     void onMediaSegmentsLoaded(const QString &itemId, const QList<MediaSegmentInfo> &segments);
     void onTrickplayInfoLoaded(const QString &itemId, const QMap<int, TrickplayTileInfo> &trickplayInfo);
     void onChaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
-    void onChaptersFailed(const QString &itemId, const QString &error);
+    void onChaptersFailed(const QString &connectionId, const QString &itemId, const QString &error);
     
     // TrickplayProcessor handlers
     void onTrickplayProcessingComplete(const QString &itemId, int count, int intervalMs,
@@ -684,6 +684,7 @@ private:
     void fallbackToPendingAutoplayPlayback();
     [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex() const;
     void stopAutoplayPlaybackInfoWait();
+    qint64 resumePositionMs(const QJsonObject &item) const;
     void maybeResolvePendingRequestLibraryId(PendingPlaybackRequest &pending);
     void maybeFinalizePendingPlaybackRequest(const QString &requestId);
     void launchResolvedPlaybackRequest(const QString &requestId);
@@ -725,7 +726,7 @@ private:
         QString overlaySubtitle;
         QString overlayBackdropUrl;
         QString overlayLogoUrl;
-        qint64 startPositionTicks = 0;
+        qint64 startPositionMs = 0;
         int preferredAudioIndex = -2;
         int preferredSubtitleIndex = -2;
         bool isMovie = false;
@@ -788,7 +789,7 @@ private:
     struct RecoveryContext {
         QString url;
         QString itemId;
-        qint64 startPositionTicks = 0;
+        qint64 startPositionMs = 0;
         QString seriesId;
         QString seasonId;
         QString libraryId;
@@ -834,7 +835,7 @@ private:
     bool m_hasReportedStart = false;
     double m_seekTargetWhileBuffering = -1;
     bool m_reportProgressOnNextPositionUpdate = false;
-    qint64 m_startPositionTicks = 0;  // Resume position in Jellyfin ticks
+    qint64 m_startPositionMs = 0;
     bool m_shouldAutoplay = false;  // Flag to trigger autoplay on next episode loaded
     // QML-visible/property-facing flag for waiting on next-episode resolution callbacks.
     bool m_awaitingNextEpisodeResolution = false;

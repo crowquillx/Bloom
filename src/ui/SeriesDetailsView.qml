@@ -53,7 +53,7 @@ FocusScope {
     readonly property int shelfEdgePadding: Math.round(14 * Theme.layoutScale)
 
     signal navigateToSeasons(int seasonIndex)
-    signal playNextEpisode(string episodeId, var startPositionTicks)
+    signal playNextEpisode(string episodeId, var startPositionMs)
     signal navigateToEpisode(var episodeData)
     signal itemSelected(var itemData)
     signal backRequested()
@@ -1080,7 +1080,7 @@ FocusScope {
                                 onClicked: {
                                     if (hasNextEpisode) {
                                         root.playNextEpisode(SeriesDetailsViewModel.nextEpisodeId,
-                                                             SeriesDetailsViewModel.nextEpisodePositionMs * 10000)
+                                                             SeriesDetailsViewModel.nextEpisodePositionMs)
                                         return
                                     }
 

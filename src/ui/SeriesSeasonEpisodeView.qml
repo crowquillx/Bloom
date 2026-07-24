@@ -1017,8 +1017,7 @@ FocusScope {
         playbackReturnFocusActivated = false
         root.playRequested({
             itemId: selectedEpisodeId,
-            // PlayerController's compatibility entry point still accepts provider ticks.
-            startPositionTicks: startPositionMs * 10000,
+            startPositionMs: Math.round(startPositionMs),
             seriesId: seriesId,
             seasonId: SeriesDetailsViewModel.selectedSeasonId,
             overlayTitle: overlayTitle,

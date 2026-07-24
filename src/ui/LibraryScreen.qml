@@ -680,7 +680,7 @@ FocusScope {
                 }
             }
             
-            onPlayNextEpisode: function(episodeId, startPositionTicks) {
+            onPlayNextEpisode: function(episodeId, startPositionMs) {
                 var overlayLogoUrl = ""
                 if (SeriesDetailsViewModel.seriesId === root.currentSeriesId
                         && SeriesDetailsViewModel.logoUrl !== "") {
@@ -703,7 +703,7 @@ FocusScope {
                 }
                 root.requestPlaybackWithResolvedLibrary({
                     itemId: episodeId,
-                    startPositionTicks: startPositionTicks || 0,
+                    startPositionMs: startPositionMs || 0,
                     seriesId: root.currentSeriesId,
                     seasonId: "",
                     overlayTitle: root.currentSeriesData

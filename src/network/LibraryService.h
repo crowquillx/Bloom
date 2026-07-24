@@ -200,7 +200,9 @@ signals:
     void canonicalChaptersLoaded(const QString &connectionId,
                                  const QString &itemId,
                                  const QVariantList &chapters);
-    void chaptersFailed(const QString &itemId, const QString &error);
+    void chaptersFailed(const QString &connectionId,
+                       const QString &itemId,
+                       const QString &error);
 
     void nextUpLoaded(const QJsonArray &items);
     void canonicalNextUpLoaded(const QString &connectionId, const QVariantList &items);

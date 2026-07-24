@@ -1348,7 +1348,7 @@ void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoErrorFallsBackToBa
     QCOMPARE(controller.m_currentSeasonId, QStringLiteral("season-9"));
     QCOMPARE(controller.m_currentLibraryId, QStringLiteral("library-9"));
     QCOMPARE(controller.m_pendingUrl, QStringLiteral("https://example.invalid/episode-9"));
-    QCOMPARE(controller.m_startPositionTicks, 4200000000LL);
+    QCOMPARE(controller.m_startPositionMs, 420000LL);
     QVERIFY(controller.m_contentShouldToneMapToSdr);
 }
 
@@ -2919,7 +2919,7 @@ void PlayerControllerAutoplayContextTest::retryRefreshesPlaybackInfoBeforeRestar
     controller.m_recoveryContext.itemId = QStringLiteral("episode-1");
     controller.m_recoveryContext.url = QStringLiteral("https://example.invalid/old-stream");
     controller.m_recoveryContext.mediaSourceId = QStringLiteral("old-source");
-    controller.m_recoveryContext.startPositionTicks = 1200000000;
+    controller.m_recoveryContext.startPositionMs = 120000;
     controller.m_recoveryContext.audioStreamIndex = 1;
     controller.m_recoveryContext.subtitleStreamIndex = -1;
 
@@ -2942,7 +2942,7 @@ void PlayerControllerAutoplayContextTest::retryRefreshesPlaybackInfoBeforeRestar
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
     QCOMPARE(playbackService.requestedDescriptorMediaSourceIds,
              QStringList{QStringLiteral("fresh-source")});
-    QCOMPARE(controller.m_startPositionTicks, 1200000000LL);
+    QCOMPARE(controller.m_startPositionMs, 120000LL);
 }
 
 void PlayerControllerAutoplayContextTest::recoverableBackendStreamErrorStartsRecovery()
@@ -2978,7 +2978,7 @@ void PlayerControllerAutoplayContextTest::recoverableBackendStreamErrorStartsRec
     QVERIFY(controller.m_recoveryContext.valid);
     QCOMPARE(controller.m_recoveryContext.itemId, QStringLiteral("episode-1"));
     QCOMPARE(controller.m_recoveryContext.mediaSourceId, QStringLiteral("media-source-1"));
-    QCOMPARE(controller.m_recoveryContext.startPositionTicks, 57500000LL);
+    QCOMPARE(controller.m_recoveryContext.startPositionMs, 5750LL);
 }
 
 void PlayerControllerAutoplayContextTest::recoverableErrorAfterBackendStopUpgradesTerminalTransition()
@@ -3021,7 +3021,7 @@ void PlayerControllerAutoplayContextTest::recoverableErrorAfterBackendStopUpgrad
     QVERIFY(controller.m_recoveryContext.valid);
     QCOMPARE(controller.m_recoveryContext.itemId, QStringLiteral("episode-1"));
     QCOMPARE(controller.m_recoveryContext.mediaSourceId, QStringLiteral("media-source-1"));
-    QCOMPARE(controller.m_recoveryContext.startPositionTicks, 57500000LL);
+    QCOMPARE(controller.m_recoveryContext.startPositionMs, 5750LL);
     QVERIFY(controller.isPlaybackActive());
 
     QCoreApplication::processEvents();

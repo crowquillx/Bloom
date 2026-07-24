@@ -1586,8 +1586,7 @@ FocusScope {
         const itemId = item.itemId || ""
         const seriesId = item.seriesId || ""
         const seasonId = item.parentId || ""
-        // Playback stack still expects ticks; convert ms only at this boundary.
-        const startTicks = Math.round((item.positionMs || 0) * 10000)
+        const startPositionMs = Math.round(item.positionMs || 0)
         var overlayLogoUrl = root.artworkUrlFromRef(item.logoArtwork, 600)
         if (!overlayLogoUrl && seriesId) {
             overlayLogoUrl = LibraryService.getCachedArtworkUrlForConnection(
@@ -1595,7 +1594,7 @@ FocusScope {
         }
         PlayerController.requestPlayback({
             itemId: itemId,
-            startPositionTicks: startTicks,
+            startPositionMs: startPositionMs,
             seriesId: seriesId,
             seasonId: seasonId,
             overlayTitle: item.seriesName || item.name || qsTr("Now Playing"),
