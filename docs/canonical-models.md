@@ -34,7 +34,7 @@ The types expose temporary `QVariantMap` projections so existing QML-facing faç
 
 `JellyfinModelMapper` converts Jellyfin item, user-state, person, artwork, chapter, and tick fields into Bloom canonical values. Jellyfin ticks are converted to milliseconds there and must not be introduced into new model or QML APIs.
 
-`LibraryService` asks the selected `IProviderAdapter` to map item, item-list, similar-item, series, next-episode, and chapter wire DTOs exactly once. Connection-aware canonical signals carry the `connectionId` captured when the request starts, so asynchronous mapping and consumers never substitute a later active connection.
+`LibraryService` asks the selected `IProviderAdapter` to map item, item-list, similar-item, series, next-episode, and chapter wire DTOs exactly once. Next-episode timeline resolution runs only on canonical episode maps and compares millisecond resume positions; compatibility payloads are selected separately for unmigrated consumers. Connection-aware canonical signals carry the `connectionId` captured when the request starts, so asynchronous mapping and consumers never substitute a later active connection.
 
 Raw compatibility signals remain for unmigrated flows. Migrated consumers connect only to the parallel `canonical*` signals and must not fall back to PascalCase wire keys.
 
@@ -69,4 +69,4 @@ A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `St
 - Jellyfin stream finalization, canonical timing/tracks, and current credential injection at the playback-provider boundary
 - provider-owned playback report endpoint selection and millisecond-to-Jellyfin-tick serialization
 
-`SimilarItemsRetryTest` asserts Movie and Series detail shelves keep canonical request ownership and item/chapter shapes. `SeriesDetailsCacheTest` covers canonical series/list cache persistence, freshness, and wire-cache rejection. `EpisodeSelectionScriptTest` exercises canonical episode identity, season ownership, watched state, and millisecond resume selection. `LibraryViewModelCanonicalTest` covers canonical root-library roles, empty-container filtering, wire-cache rejection, and SWR identity/order checks.
+`SimilarItemsRetryTest` asserts Movie and Series detail shelves keep canonical request ownership and item/chapter shapes. `SeriesDetailsCacheTest` covers canonical series/list cache persistence, freshness, and wire-cache rejection. `NextEpisodeResolverTest` covers canonical timeline ordering, watched/resume state in milliseconds, special placement, and preferred-payload merging without provider DTO fields. `EpisodeSelectionScriptTest` exercises canonical episode identity, season ownership, watched state, and millisecond resume selection. `LibraryViewModelCanonicalTest` covers canonical root-library roles, empty-container filtering, wire-cache rejection, and SWR identity/order checks.

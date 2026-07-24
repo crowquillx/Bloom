@@ -1398,17 +1398,25 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId,
                 emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
                 return;
             }
-            const QJsonArray items = root.value("Items").toArray();
-            const QJsonObject selectedEpisode =
-                NextEpisodeResolver::resolveBestNextEpisode(items, excludeItemId);
-            emit nextUnplayedEpisodeLoaded(seriesId, selectedEpisode, requestContext);
+            const QJsonArray wireItems = root.value("Items").toArray();
+            const QVariantMap selectedEpisode = NextEpisodeResolver::resolveBestNextEpisode(
+                m_authService->mapMediaItems(wireItems, connectionId), excludeItemId);
+
+            QJsonObject selectedWireEpisode;
+            const QString selectedItemId = selectedEpisode.value(QStringLiteral("itemId")).toString();
+            if (!selectedItemId.isEmpty()) {
+                for (const QJsonValue &value : wireItems) {
+                    if (value.isObject()
+                        && value.toObject().value(QStringLiteral("Id")).toString() == selectedItemId) {
+                        selectedWireEpisode = value.toObject();
+                        break;
+                    }
+                }
+            }
+
+            emit nextUnplayedEpisodeLoaded(seriesId, selectedWireEpisode, requestContext);
             emit canonicalNextUnplayedEpisodeLoaded(
-                connectionId,
-                seriesId,
-                selectedEpisode.isEmpty()
-                    ? QVariantMap{}
-                    : m_authService->mapMediaItem(selectedEpisode, connectionId),
-                requestContext);
+                connectionId, seriesId, selectedEpisode, requestContext);
         },
         [this, seriesId, requestContext](const NetworkError &error) {
             emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
