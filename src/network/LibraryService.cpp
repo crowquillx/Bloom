@@ -1074,30 +1074,9 @@ void LibraryService::getChapters(const QString &itemId)
                 return;
             }
 
-            QList<ChapterInfo> chapters;
             const QJsonArray array = doc.object().value(QStringLiteral("Chapters")).toArray();
-            qCInfo(lcLibrary) << "LibraryService: Loaded raw chapter array for item" << itemId
+            qCInfo(lcLibrary) << "LibraryService: Loaded chapter array for item" << itemId
                     << "count" << array.size();
-            chapters.reserve(array.size());
-            for (qsizetype i = 0; i < array.size(); ++i) {
-                const QJsonValue value = array.at(i);
-                if (!value.isObject()) {
-                    continue;
-                }
-                ChapterInfo chapter = ChapterInfo::fromJson(value.toObject(), i);
-                if (chapter.startPositionTicks < 0) {
-                    chapter.startPositionTicks = 0;
-                }
-                qCInfo(lcLibrary) << "LibraryService: Chapter metadata"
-                        << "item" << itemId
-                        << "index" << chapter.index
-                        << "title" << chapter.title
-                        << "ticks" << chapter.startPositionTicks
-                        << "imageTagEmpty" << chapter.imageTag.isEmpty()
-                        << "imagePathEmpty" << chapter.imagePath.isEmpty();
-                chapters.append(chapter);
-            }
-            emit chaptersLoaded(itemId, chapters);
             emit canonicalChaptersLoaded(
                 connectionId,
                 itemId,

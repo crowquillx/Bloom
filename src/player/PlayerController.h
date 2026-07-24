@@ -434,8 +434,12 @@ private slots:
     void onScriptMessage(const QString &messageName, const QStringList &args);
     void onMediaSegmentsLoaded(const QString &itemId, const QList<MediaSegmentInfo> &segments);
     void onTrickplayInfoLoaded(const QString &itemId, const QMap<int, TrickplayTileInfo> &trickplayInfo);
-    void onChaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
-    void onChaptersFailed(const QString &connectionId, const QString &itemId, const QString &error);
+    void onChaptersLoaded(const QString &connectionId,
+                          const QString &itemId,
+                          const QVariantList &chapters);
+    void onChaptersFailed(const QString &connectionId,
+                          const QString &itemId,
+                          const QString &error);
     
     // TrickplayProcessor handlers
     void onTrickplayProcessingComplete(const QString &itemId, int count, int intervalMs,

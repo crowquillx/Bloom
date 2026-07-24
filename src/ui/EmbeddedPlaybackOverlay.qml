@@ -1862,7 +1862,7 @@ FocusScope {
 
                             Text {
                                 width: parent.width
-                                text: modelData.title
+                                text: modelData.name
                                 color: Theme.playbackTimePrimary
                                 font.family: Theme.fontPrimary
                                 font.pixelSize: Math.round(19 * Theme.layoutScale)
@@ -1871,7 +1871,7 @@ FocusScope {
                             }
                             Text {
                                 width: parent.width
-                                text: root.formatTime(modelData.startSeconds)
+                                text: root.formatTime((modelData.startMs || 0) / 1000)
                                 color: Theme.playbackTimeSecondary
                                 font.family: Theme.fontPrimary
                                 font.pixelSize: Math.round(16 * Theme.layoutScale)
