@@ -49,6 +49,27 @@ Bloom::PlaybackTrack mapTrack(const QVariantMap &stream)
     return track;
 }
 
+QString jellyfinPlayMethod(const QString &method)
+{
+    const QString normalized = method.trimmed().toLower();
+    if (normalized == QStringLiteral("transcode")) {
+        return QStringLiteral("Transcode");
+    }
+    if (normalized == QStringLiteral("directstream")) {
+        return QStringLiteral("DirectStream");
+    }
+    return QStringLiteral("DirectPlay");
+}
+
+void addTrackIndex(QJsonObject &body, const QString &field, const QString &trackId)
+{
+    bool ok = false;
+    const int index = trackId.toInt(&ok);
+    if (ok && index >= 0) {
+        body.insert(field, index);
+    }
+}
+
 } // namespace
 
 Bloom::PlaybackDescriptor JellyfinPlaybackProvider::createDescriptor(
@@ -137,4 +158,60 @@ Bloom::PlaybackDescriptor JellyfinPlaybackProvider::createDescriptor(
     url.setQuery(query);
     descriptor.stream.url = url;
     return descriptor;
+}
+
+PlaybackReportRequest JellyfinPlaybackProvider::createReportRequest(
+    const PlaybackReport &report) const
+{
+    PlaybackReportRequest request;
+    QJsonObject body{
+        {QStringLiteral("ItemId"), report.media.itemId},
+        {QStringLiteral("CanSeek"), report.canSeek},
+        {QStringLiteral("IsPaused"), report.isPaused},
+        {QStringLiteral("IsMuted"), report.isMuted},
+        {QStringLiteral("PlayMethod"), jellyfinPlayMethod(report.playbackMethod)},
+        {QStringLiteral("RepeatMode"), report.repeatMode.isEmpty()
+             ? QStringLiteral("RepeatNone") : report.repeatMode},
+        {QStringLiteral("PlaybackOrder"), report.playbackOrder.isEmpty()
+             ? QStringLiteral("Default") : report.playbackOrder}
+    };
+
+    if (report.positionMs >= 0) {
+        body.insert(QStringLiteral("PositionTicks"),
+                    JellyfinModelMapper::millisecondsToTicks(report.positionMs));
+    }
+    if (!report.mediaVersionId.isEmpty()) {
+        body.insert(QStringLiteral("MediaSourceId"), report.mediaVersionId);
+    }
+    addTrackIndex(body, QStringLiteral("AudioStreamIndex"), report.audioTrackId);
+    addTrackIndex(body, QStringLiteral("SubtitleStreamIndex"), report.subtitleTrackId);
+    if (!report.playbackSessionId.isEmpty()) {
+        body.insert(QStringLiteral("PlaySessionId"), report.playbackSessionId);
+    }
+
+    switch (report.event) {
+    case PlaybackReportEvent::Start:
+        request.endpoint = QStringLiteral("/Sessions/Playing");
+        break;
+    case PlaybackReportEvent::Progress:
+        request.endpoint = QStringLiteral("/Sessions/Playing/Progress");
+        body.insert(QStringLiteral("EventName"), QStringLiteral("TimeUpdate"));
+        break;
+    case PlaybackReportEvent::Pause:
+        request.endpoint = QStringLiteral("/Sessions/Playing/Progress");
+        body.insert(QStringLiteral("EventName"), QStringLiteral("Pause"));
+        break;
+    case PlaybackReportEvent::Resume:
+        request.endpoint = QStringLiteral("/Sessions/Playing/Progress");
+        body.insert(QStringLiteral("EventName"), QStringLiteral("Unpause"));
+        break;
+    case PlaybackReportEvent::Stop:
+        request.endpoint = QStringLiteral("/Sessions/Playing/Stopped");
+        request.deferSessionExpiry = false;
+        body.insert(QStringLiteral("EventName"), QStringLiteral("Stop"));
+        break;
+    }
+
+    request.body = body;
+    return request;
 }

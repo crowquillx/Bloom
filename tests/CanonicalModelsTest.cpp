@@ -22,6 +22,7 @@ private slots:
     void jellyfinArtworkEndpointContainsNoCredential();
     void playbackDescriptorExposesProviderNeutralShape();
     void jellyfinPlaybackProviderFinalizesStreamAtBoundary();
+    void jellyfinPlaybackReportsSerializeAtProviderBoundary();
 };
 
 void CanonicalModelsTest::jellyfinTimeConversionUsesMilliseconds()
@@ -394,6 +395,58 @@ void CanonicalModelsTest::playbackDescriptorExposesProviderNeutralShape()
                  .value(QStringLiteral("method")).toString(), QStringLiteral("directPlay"));
     QVERIFY(!map.contains(QStringLiteral("RunTimeTicks")));
     QVERIFY(!map.contains(QStringLiteral("MediaSourceId")));
+}
+
+void CanonicalModelsTest::jellyfinPlaybackReportsSerializeAtProviderBoundary()
+{
+    const JellyfinPlaybackProvider provider;
+    PlaybackReport report;
+    report.event = PlaybackReportEvent::Progress;
+    report.media = {QStringLiteral("connection-1"), QStringLiteral("movie-1")};
+    report.positionMs = 1234;
+    report.mediaVersionId = QStringLiteral("source-1");
+    report.audioTrackId = QStringLiteral("2");
+    report.subtitleTrackId = QStringLiteral("4");
+    report.playbackSessionId = QStringLiteral("session-1");
+    report.canSeek = true;
+    report.isPaused = false;
+    report.isMuted = true;
+    report.playbackMethod = QStringLiteral("directStream");
+
+    const PlaybackReportRequest progress = provider.createReportRequest(report);
+    QCOMPARE(progress.endpoint, QStringLiteral("/Sessions/Playing/Progress"));
+    QVERIFY(progress.deferSessionExpiry);
+    QCOMPARE(progress.body.value(QStringLiteral("ItemId")).toString(),
+             QStringLiteral("movie-1"));
+    QCOMPARE(progress.body.value(QStringLiteral("PositionTicks")).toVariant().toLongLong(),
+             12'340'000LL);
+    QCOMPARE(progress.body.value(QStringLiteral("MediaSourceId")).toString(),
+             QStringLiteral("source-1"));
+    QCOMPARE(progress.body.value(QStringLiteral("AudioStreamIndex")).toInt(), 2);
+    QCOMPARE(progress.body.value(QStringLiteral("SubtitleStreamIndex")).toInt(), 4);
+    QCOMPARE(progress.body.value(QStringLiteral("PlaySessionId")).toString(),
+             QStringLiteral("session-1"));
+    QCOMPARE(progress.body.value(QStringLiteral("PlayMethod")).toString(),
+             QStringLiteral("DirectStream"));
+    QCOMPARE(progress.body.value(QStringLiteral("EventName")).toString(),
+             QStringLiteral("TimeUpdate"));
+
+    report.event = PlaybackReportEvent::Start;
+    report.positionMs = -1;
+    const PlaybackReportRequest start = provider.createReportRequest(report);
+    QCOMPARE(start.endpoint, QStringLiteral("/Sessions/Playing"));
+    QVERIFY(!start.body.contains(QStringLiteral("PositionTicks")));
+    QVERIFY(!start.body.contains(QStringLiteral("EventName")));
+
+    report.event = PlaybackReportEvent::Stop;
+    report.positionMs = 4321;
+    const PlaybackReportRequest stop = provider.createReportRequest(report);
+    QCOMPARE(stop.endpoint, QStringLiteral("/Sessions/Playing/Stopped"));
+    QVERIFY(!stop.deferSessionExpiry);
+    QCOMPARE(stop.body.value(QStringLiteral("PositionTicks")).toVariant().toLongLong(),
+             43'210'000LL);
+    QCOMPARE(stop.body.value(QStringLiteral("EventName")).toString(),
+             QStringLiteral("Stop"));
 }
 
 QTEST_MAIN(CanonicalModelsTest)

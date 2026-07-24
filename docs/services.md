@@ -16,10 +16,10 @@ Key services
 - `IProviderAdapter` / `JellyfinProviderAdapter` — Selected provider implementation bundle consumed by stable application façades.
 - `IProviderRequestFactory` / `JellyfinRequestFactory` — Provider-owned URL and authorization-header construction.
 - `IProviderAuthenticator` / `JellyfinAuthenticator` — Provider-owned login payload, response parsing, and validation routes.
-- `IPlaybackProvider` / `JellyfinPlaybackProvider` — Provider-owned finalization of canonical playback descriptors and authenticated stream requests.
+- `IPlaybackProvider` / `JellyfinPlaybackProvider` — Provider-owned finalization of canonical playback descriptors and serialization of canonical playback reports into provider endpoints and payloads.
 - `AuthenticationService` — Stable QML façade for login, logout, session persistence, and token validation; delegates provider wire details and HTTP execution.
 - `LibraryService` — Library views/items, series details, search, reusable chapter metadata, image/theme-song URLs.
-- `PlaybackService` — Playback reporting, stream info, media segments, trickplay URLs and info.
+- `PlaybackService` — Millisecond-based playback reporting transport, stream info, media segments, trickplay URLs and info.
 - `MediaSegmentProviderService` — Fetches and normalizes external intro/recap/credits/preview markers from configured providers; used by `PlaybackService` after server segment lookup.
 - `SeerrService` — Seerr/Jellyseerr search integration, request-option loading, request submission, and similar-title provider endpoints.
 - `PlayerController` — Orchestrates playback using `IPlayerBackend` and services; owns `TrickplayProcessor`.
