@@ -264,7 +264,8 @@ public:
                                        int audioStreamIndex, int subtitleStreamIndex,
                                        const QVariantList &availableAudioTracks = {},
                                        const QVariantList &availableSubtitleTracks = {},
-                                       double framerate = 0.0, bool isHDR = false, bool toneMapToSdr = false);
+                                       qint64 durationMs = 0, double framerate = 0.0,
+                                       bool isHDR = false, bool toneMapToSdr = false);
     
     Q_INVOKABLE void stop();
     Q_INVOKABLE void pause();
@@ -498,7 +499,7 @@ private:
         QString playSessionId;
         int audioStreamIndex = -1;
         int subtitleStreamIndex = -1;
-        qint64 positionTicks = 0;
+        qint64 positionMs = 0;
         bool canSeek = false;
         bool isPaused = false;
         bool isMuted = false;
@@ -708,10 +709,9 @@ private:
     QString activePlaybackSegmentItemId() const;
     void applyPlaybackSegment(int index, bool reportSegmentStart);
     void clearPlaybackSegments();
-    qint64 currentReportingPositionTicks() const;
-    qint64 currentAggregatePositionTicks() const;
+    qint64 currentReportingPositionMs() const;
     void reportPlaybackStartForSegment(const QVariantMap &segment);
-    void reportPlaybackStopForSegment(const QVariantMap &segment, qint64 positionTicks);
+    void reportPlaybackStopForSegment(const QVariantMap &segment, qint64 positionMs);
     void updateVersionAffinityFromMediaSource(const QVariantMap &mediaSource);
     [[nodiscard]] QString mediaSourceParentPath(const QVariantMap &mediaSource) const;
     [[nodiscard]] QString mediaSourceSignature(const QVariantMap &mediaSource) const;
@@ -804,7 +804,7 @@ private:
         bool isHDR = false;
         QList<QVariantMap> playbackSegments;
         int activePlaybackSegmentIndex = -1;
-        qint64 activePlaybackSegmentOffsetTicks = 0;
+        qint64 activePlaybackSegmentOffsetMs = 0;
         double segmentRelativePosition = 0.0;
         bool valid = false;
     };
@@ -888,7 +888,7 @@ private:
     QVariantList m_nextPlaybackSegments;
     QStringList m_nextPlaylistAppendUrls;
     int m_activePlaybackSegmentIndex = -1;
-    qint64 m_activePlaybackSegmentOffsetTicks = 0;
+    qint64 m_activePlaybackSegmentOffsetMs = 0;
     double m_segmentRelativePosition = 0.0;
     double m_aggregatePlaybackDuration = 0.0;
     QStringList m_pendingPlaylistAppendUrls;

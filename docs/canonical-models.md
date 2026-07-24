@@ -53,7 +53,7 @@ Existing list/detail/player flows are migrated in reviewable slices. During migr
 
 ## Playback boundary
 
-A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `StreamRequest`. `PlaybackService` obtains the selected adapter's `IPlaybackProvider`; `JellyfinPlaybackProvider` resolves relative PlaybackInfo URLs, adds current request authentication and track hints, converts timing, and identifies the canonical playback method. `PlayerController` consumes only the finalized descriptor and may map canonical tracks to mpv runtime track IDs. Provider endpoints, query authentication, provider time units, and reporting DTOs stay outside the controller.
+A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `StreamRequest`. `PlaybackService` obtains the selected adapter's `IPlaybackProvider`; `JellyfinPlaybackProvider` resolves relative PlaybackInfo URLs, adds current request authentication and track hints, converts timing, and identifies the canonical playback method. `PlayerController` consumes only the finalized descriptor and may map canonical tracks to mpv runtime track IDs. Playback positions and multipart durations remain milliseconds through the controller and service façade. The provider serializes report endpoints and payloads, including Jellyfin's final millisecond-to-tick conversion. Provider endpoints, query authentication, provider time units, and reporting DTOs stay outside the controller.
 
 ## Tests
 
@@ -67,5 +67,6 @@ A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `St
 - token-free, round-trippable artwork cache keys
 - provider-neutral playback descriptor projections
 - Jellyfin stream finalization, canonical timing/tracks, and current credential injection at the playback-provider boundary
+- provider-owned playback report endpoint selection and millisecond-to-Jellyfin-tick serialization
 
 `SimilarItemsRetryTest` asserts Movie and Series detail shelves keep canonical request ownership and item/chapter shapes. `SeriesDetailsCacheTest` covers canonical series/list cache persistence, freshness, and wire-cache rejection. `EpisodeSelectionScriptTest` exercises canonical episode identity, season ownership, watched state, and millisecond resume selection. `LibraryViewModelCanonicalTest` covers canonical root-library roles, empty-container filtering, wire-cache rejection, and SWR identity/order checks.

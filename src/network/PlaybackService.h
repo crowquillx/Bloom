@@ -11,6 +11,7 @@ class AuthenticationService;
 class ConfigManager;
 class HttpTransport;
 class MediaSegmentProviderService;
+struct PlaybackReport;
 
 /**
  * @brief Handles playback reporting and playback-related metadata.
@@ -64,7 +65,7 @@ public:
                                                  const QString &playMethod = QStringLiteral("DirectPlay"),
                                                  const QString &repeatMode = QStringLiteral("RepeatNone"),
                                                  const QString &playbackOrder = QStringLiteral("Default"));
-    Q_INVOKABLE virtual void reportPlaybackProgress(const QString &itemId, qint64 positionTicks,
+    Q_INVOKABLE virtual void reportPlaybackProgress(const QString &itemId, qint64 positionMs,
                                                     const QString &mediaSourceId = QString(),
                                                     int audioStreamIndex = -1, int subtitleStreamIndex = -1,
                                                     const QString &playSessionId = QString(),
@@ -72,7 +73,7 @@ public:
                                                     const QString &playMethod = QStringLiteral("DirectPlay"),
                                                     const QString &repeatMode = QStringLiteral("RepeatNone"),
                                                     const QString &playbackOrder = QStringLiteral("Default"));
-    Q_INVOKABLE virtual void reportPlaybackPaused(const QString &itemId, qint64 positionTicks,
+    Q_INVOKABLE virtual void reportPlaybackPaused(const QString &itemId, qint64 positionMs,
                                                   const QString &mediaSourceId = QString(),
                                                   int audioStreamIndex = -1, int subtitleStreamIndex = -1,
                                                   const QString &playSessionId = QString(),
@@ -80,7 +81,7 @@ public:
                                                   const QString &playMethod = QStringLiteral("DirectPlay"),
                                                   const QString &repeatMode = QStringLiteral("RepeatNone"),
                                                   const QString &playbackOrder = QStringLiteral("Default"));
-    Q_INVOKABLE virtual void reportPlaybackResumed(const QString &itemId, qint64 positionTicks,
+    Q_INVOKABLE virtual void reportPlaybackResumed(const QString &itemId, qint64 positionMs,
                                                    const QString &mediaSourceId = QString(),
                                                    int audioStreamIndex = -1, int subtitleStreamIndex = -1,
                                                    const QString &playSessionId = QString(),
@@ -88,7 +89,7 @@ public:
                                                    const QString &playMethod = QStringLiteral("DirectPlay"),
                                                    const QString &repeatMode = QStringLiteral("RepeatNone"),
                                                    const QString &playbackOrder = QStringLiteral("Default"));
-    Q_INVOKABLE virtual void reportPlaybackStopped(const QString &itemId, qint64 positionTicks,
+    Q_INVOKABLE virtual void reportPlaybackStopped(const QString &itemId, qint64 positionMs,
                                                    const QString &mediaSourceId = QString(),
                                                    int audioStreamIndex = -1, int subtitleStreamIndex = -1,
                                                    const QString &playSessionId = QString(),
@@ -155,4 +156,5 @@ private:
                                      const QList<MediaSegmentInfo> &serverSegments,
                                      const QList<MediaSegmentInfo> &mergedSegments);
     void finishMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &segments);
+    void sendPlaybackReport(const PlaybackReport &report);
 };
