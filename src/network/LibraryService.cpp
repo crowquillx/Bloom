@@ -856,11 +856,13 @@ void LibraryService::getHomeBackdropItems(int limit)
 
 void LibraryService::getScreensaverItems(int limit)
 {
+    const QString connectionId = activeConnectionId(m_authService);
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getScreensaverItems";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
+        emit canonicalScreensaverItemsFailed(connectionId, error.userMessage);
         emitError(error);
         return;
     }
@@ -892,7 +894,7 @@ void LibraryService::getScreensaverItems(int limit)
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, requestUserId](QNetworkReply *reply) {
+        [this, connectionId, requestUserId](QNetworkReply *reply) {
             if (!m_authService->isAuthenticated() || m_authService->getUserId() != requestUserId) {
                 return;
             }
@@ -902,52 +904,25 @@ void LibraryService::getScreensaverItems(int limit)
                 error.endpoint = "getScreensaverItems";
                 error.code = -2;
                 error.userMessage = tr("Invalid screensaver response");
+                emit canonicalScreensaverItemsFailed(connectionId, error.userMessage);
                 emitError(error);
                 return;
             }
-            QJsonArray filteredItems;
-            const QJsonArray items = doc.object().value("Items").toArray();
-            for (const QJsonValue &value : items) {
-                QJsonObject item = value.toObject();
-                QString itemId = item.value("Id").toString();
-                QString tag;
-                const QJsonArray backdropTags = item.value("BackdropImageTags").toArray();
-                if (!backdropTags.isEmpty()) {
-                    tag = backdropTags.first().toString();
-                } else {
-                    tag = item.value("ImageTags").toObject().value("Backdrop").toString();
-                }
 
-                const QJsonArray parentBackdropTags = item.value("ParentBackdropImageTags").toArray();
-                if (tag.isEmpty() && !parentBackdropTags.isEmpty()) {
-                    tag = parentBackdropTags.first().toString();
-                    itemId = item.value("ParentBackdropItemId").toString(
-                        item.value("SeriesId").toString(item.value("Id").toString()));
+            QVariantList filteredItems;
+            const QVariantList items = m_authService->mapMediaItems(
+                doc.object().value(QStringLiteral("Items")).toArray(), connectionId);
+            for (const QVariant &value : items) {
+                const QVariantMap item = value.toMap();
+                if (!item.value(QStringLiteral("backdropArtwork")).toMap().isEmpty()) {
+                    filteredItems.append(item);
                 }
-
-                if (itemId.isEmpty() || tag.isEmpty()) {
-                    continue;
-                }
-
-                const QString backdropUrl = getCachedArtworkUrl(itemId,
-                                                                  QStringLiteral("Backdrop"),
-                                                                  0,
-                                                                  tag,
-                                                                  1920);
-                if (backdropUrl.isEmpty()) {
-                    continue;
-                }
-                item.insert(QStringLiteral("BackdropUrl"), backdropUrl);
-
-                if (item.value("ImageTags").toObject().contains(QStringLiteral("Logo"))) {
-                    item.insert(QStringLiteral("LogoUrl"),
-                                getCachedImageUrlWithWidth(item.value("Id").toString(),
-                                                           QStringLiteral("Logo"),
-                                                           700));
-                }
-                filteredItems.append(item);
             }
-            emit screensaverItemsLoaded(filteredItems);
+            emit canonicalScreensaverItemsLoaded(connectionId, filteredItems);
+        },
+        [this, connectionId](const NetworkError &error) {
+            emit canonicalScreensaverItemsFailed(connectionId, error.userMessage);
+            emitError(error);
         });
 }
 

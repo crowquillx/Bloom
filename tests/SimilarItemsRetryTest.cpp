@@ -748,6 +748,7 @@ void SimilarItemsRetryTest::mockHomeSignalsHaveCanonicalParity()
     QSignalSpy overviewSpy(&service, &LibraryService::canonicalHeroSeriesOverviewsLoaded);
     QSignalSpy searchSpy(&service, &LibraryService::canonicalSearchResultsLoaded);
     QSignalSpy randomSpy(&service, &LibraryService::canonicalRandomItemsLoaded);
+    QSignalSpy screensaverSpy(&service, &LibraryService::canonicalScreensaverItemsLoaded);
 
     QCOMPARE(service.getActiveConnectionId(), QStringLiteral("mock-connection"));
     service.getNextUp();
@@ -757,6 +758,7 @@ void SimilarItemsRetryTest::mockHomeSignalsHaveCanonicalParity()
     service.getHeroSeriesOverviews({});
     service.search(QStringLiteral(" test "));
     service.getRandomItems(20);
+    service.getScreensaverItems(80);
 
     QCOMPARE(nextUpSpy.count(), 1);
     QCOMPARE(latestSpy.count(), 1);
@@ -765,9 +767,11 @@ void SimilarItemsRetryTest::mockHomeSignalsHaveCanonicalParity()
     QCOMPARE(overviewSpy.count(), 1);
     QCOMPARE(searchSpy.count(), 1);
     QCOMPARE(randomSpy.count(), 1);
+    QCOMPARE(screensaverSpy.count(), 1);
     QCOMPARE(searchSpy.first().at(0).toString(), QStringLiteral("mock-connection"));
     QCOMPARE(searchSpy.first().at(1).toString(), QStringLiteral("test"));
     QCOMPARE(randomSpy.first().at(0).toString(), QStringLiteral("mock-connection"));
+    QCOMPARE(screensaverSpy.first().at(0).toString(), QStringLiteral("mock-connection"));
 
     const QVariantList randomItems = randomSpy.first().at(1).toList();
     for (const QVariant &value : randomItems) {
@@ -775,6 +779,14 @@ void SimilarItemsRetryTest::mockHomeSignalsHaveCanonicalParity()
         QVERIFY(item.contains(QStringLiteral("itemId")));
         QVERIFY(!item.contains(QStringLiteral("Id")));
         QVERIFY(!item.contains(QStringLiteral("ImageTags")));
+    }
+
+    const QVariantList screensaverItems = screensaverSpy.first().at(1).toList();
+    for (const QVariant &value : screensaverItems) {
+        const QVariantMap item = value.toMap();
+        QVERIFY(item.contains(QStringLiteral("backdropArtwork")));
+        QVERIFY(!item.contains(QStringLiteral("BackdropUrl")));
+        QVERIFY(!item.contains(QStringLiteral("LogoUrl")));
     }
 }
 
