@@ -229,10 +229,10 @@ public:
     Q_INVOKABLE void confirmPlaybackVersion(const QString &requestId, const QString &mediaSourceId);
     Q_INVOKABLE void cancelPendingPlaybackRequest(const QString &requestId);
     
-    /// Play the next episode from the Up Next screen
-    /// @param episodeData JSON object with episode details (Id, Name, SeriesName, etc.)
-    /// @param seriesId The series this episode belongs to
-    Q_INVOKABLE void playNextEpisode(const QJsonObject &episodeData, const QString &seriesId);
+    /// Play the next episode from the Up Next screen.
+    /// @param episodeData Canonical episode model with camelCase fields and millisecond timing.
+    /// @param seriesId The series this episode belongs to.
+    Q_INVOKABLE void playNextEpisode(const QVariantMap &episodeData, const QString &seriesId);
     /**
      * @brief Clears any stored pending autoplay context.
      *
@@ -383,8 +383,8 @@ signals:
     /// @param seriesId The series ID
     /// @param lastAudioIndex The audio track index used in the completed episode
     /// @param lastSubtitleIndex The subtitle override to carry forward (`-2` unset, `-1` off, `>=0` explicit stream)
-    void navigateToNextEpisode(const QJsonObject &episodeData, const QString &seriesId,
-                                int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
+    void navigateToNextEpisode(const QVariantMap &episodeData, const QString &seriesId,
+                               int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
     void playbackVersionSelectionRequested(const QString &requestId, const QVariantMap &dialogModel,
                                            QObject *restoreFocusTarget);
 
@@ -398,8 +398,9 @@ private slots:
     void onCacheEndChanged(double seconds);
     void onPlaybackEnded();
     void onPlaylistPositionChanged(int index);
-    void onNextEpisodeLoaded(const QString &seriesId,
-                             const QJsonObject &episodeData,
+    void onNextEpisodeLoaded(const QString &connectionId,
+                             const QString &seriesId,
+                             const QVariantMap &episodeData,
                              const QString &requestContext);
     void onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void onSeriesDetailsNotModified(const QString &seriesId);
@@ -542,7 +543,7 @@ private:
      * Preserve the current autoplay/navigation context so it can be restored after teardown or state transitions.
      */
     void stashPendingAutoplayContext();
-    void emitNavigateToNextEpisodeQueued(const QJsonObject &episodeData, const QString &seriesId,
+    void emitNavigateToNextEpisodeQueued(const QVariantMap &episodeData, const QString &seriesId,
                                          int lastAudioIndex, int lastSubtitleIndex, bool autoplay);
     /**
      * Set whether the controller is currently awaiting resolution of the next-episode decision.
@@ -685,7 +686,7 @@ private:
     void fallbackToPendingAutoplayPlayback();
     [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex() const;
     void stopAutoplayPlaybackInfoWait();
-    qint64 resumePositionMs(const QJsonObject &item) const;
+    static qint64 resumePositionMs(const QVariantMap &item);
     void maybeResolvePendingRequestLibraryId(PendingPlaybackRequest &pending);
     void maybeFinalizePendingPlaybackRequest(const QString &requestId);
     void launchResolvedPlaybackRequest(const QString &requestId);
@@ -843,7 +844,7 @@ private:
     bool m_waitingForNextEpisodeAtPlaybackEnd = false;
     bool m_nextEpisodePrefetchRequestedForAttempt = false;
     bool m_nextEpisodePrefetchReady = false;
-    QJsonObject m_prefetchedNextEpisodeData;
+    QVariantMap m_prefetchedNextEpisodeData;
     QString m_prefetchedNextEpisodeSeriesId;
     QString m_prefetchedForItemId;
 
@@ -880,7 +881,7 @@ private:
     bool m_pendingAudioTrackPersistenceFromBackend = false;
     bool m_pendingSubtitleTrackPersistenceFromBackend = false;
     bool m_waitingForAutoplayPlaybackInfo = false;
-    QJsonObject m_pendingAutoplayEpisodeData;
+    QVariantMap m_pendingAutoplayEpisodeData;
     QHash<QString, PendingPlaybackRequest> m_pendingPlaybackRequests;
     QHash<QString, QString> m_seriesLibraryIdCache;
     QSet<QString> m_seriesLibraryResolutionInFlight;
