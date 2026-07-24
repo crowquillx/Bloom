@@ -459,7 +459,7 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     connectBackendSignals(m_playerBackend);
     
     // Connect to LibraryService for autoplay next episode
-    connect(m_libraryService, &LibraryService::nextUnplayedEpisodeLoaded,
+    connect(m_libraryService, &LibraryService::canonicalNextUnplayedEpisodeLoaded,
             this, &PlayerController::onNextEpisodeLoaded);
     connect(m_libraryService, &LibraryService::seriesDetailsLoaded,
             this, &PlayerController::onSeriesDetailsLoaded);
@@ -938,7 +938,7 @@ void PlayerController::enterIdleStateImmediate()
     m_pendingSubtitleTrackPersistenceFromBackend = false;
     m_pendingExternalSubtitleIndex = -1;
     stopAutoplayPlaybackInfoWait();
-    m_pendingAutoplayEpisodeData = QJsonObject();
+    m_pendingAutoplayEpisodeData.clear();
     clearPlaybackSegments();
     emit selectedAudioTrackChanged();
     emit selectedSubtitleTrackChanged();
@@ -1908,14 +1908,19 @@ bool PlayerController::runPendingReplacementPlaybackAction()
  * with the episode payload, series id, selected audio/subtitle indices, and the configured autoplay flag. If no
  * episode data is available, clears the pending autoplay context instead of emitting navigation.
  *
+ * @param connectionId Connection that owns the canonical episode payload.
  * @param seriesId Series identifier associated with the loaded next-episode payload.
- * @param episodeData JSON object containing the next-episode metadata (expected keys include "Id", "Name",
- *                    "SeriesName", "ParentIndexNumber", "IndexNumber", and user data used when starting playback).
+ * @param episodeData Canonical episode metadata with camelCase fields and millisecond timing.
  */
-void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
-                                           const QJsonObject &episodeData,
+void PlayerController::onNextEpisodeLoaded(const QString &connectionId,
+                                           const QString &seriesId,
+                                           const QVariantMap &episodeData,
                                            const QString &requestContext)
 {
+    if (m_libraryService && !connectionId.isEmpty()
+        && connectionId != m_libraryService->getActiveConnectionId()) {
+        return;
+    }
     if (!m_waitingForNextEpisodeAtPlaybackEnd) {
         if (seriesId != m_currentSeriesId || m_currentSeriesId.isEmpty()) {
             return;
@@ -1924,7 +1929,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
             return;
         }
 
-        const QString prefetchedEpisodeId = episodeData.value(QStringLiteral("Id")).toString();
+        const QString prefetchedEpisodeId = episodeData.value(QStringLiteral("itemId")).toString();
         const bool pointsToCurrentEpisode = !prefetchedEpisodeId.isEmpty() && prefetchedEpisodeId == m_currentItemId;
         m_prefetchedNextEpisodeData = episodeData;
         m_prefetchedNextEpisodeSeriesId = seriesId;
@@ -1963,10 +1968,10 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
     
     if (episodeData.isEmpty()) {
         qCDebug(lcPlayback) << "PlayerController: No next episode available";
-        QJsonObject noNextEpisodeData;
-        noNextEpisodeData.insert(QStringLiteral("SeriesId"), seriesId);
-        noNextEpisodeData.insert(QStringLiteral("SeasonId"), m_pendingAutoplaySeasonId);
-        noNextEpisodeData.insert(QStringLiteral("NoNextEpisode"), true);
+        QVariantMap noNextEpisodeData;
+        noNextEpisodeData.insert(QStringLiteral("seriesId"), seriesId);
+        noNextEpisodeData.insert(QStringLiteral("seasonId"), m_pendingAutoplaySeasonId);
+        noNextEpisodeData.insert(QStringLiteral("noNextEpisode"), true);
         emitNavigateToNextEpisodeQueued(noNextEpisodeData,
                                         seriesId,
                                         lastAudioIndex,
@@ -1976,7 +1981,7 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
         return;
     }
 
-    const QString episodeId = episodeData.value(QStringLiteral("Id")).toString();
+    const QString episodeId = episodeData.value(QStringLiteral("itemId")).toString();
     if (!episodeId.isEmpty() && episodeId == m_pendingAutoplayItemId) {
         qCWarning(lcPlayback) << "Ignoring next-episode response that points to the current item"
                               << "itemId=" << episodeId;
@@ -1986,10 +1991,10 @@ void PlayerController::onNextEpisodeLoaded(const QString &seriesId,
     }
 
     // Extract episode info
-    QString episodeName = episodeData["Name"].toString();
-    QString seriesName = episodeData["SeriesName"].toString();
-    int seasonNumber = episodeData["ParentIndexNumber"].toInt();
-    int episodeNumber = episodeData["IndexNumber"].toInt();
+    const QString episodeName = episodeData.value(QStringLiteral("name")).toString();
+    const QString seriesName = episodeData.value(QStringLiteral("seriesName")).toString();
+    const int seasonNumber = episodeData.value(QStringLiteral("parentIndexNumber")).toInt();
+    const int episodeNumber = episodeData.value(QStringLiteral("indexNumber")).toInt();
     
     qCDebug(lcPlayback) << "PlayerController: Next episode found:" << seriesName 
              << "S" << seasonNumber << "E" << episodeNumber << "-" << episodeName;
@@ -2012,7 +2017,7 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
         return;
     }
 
-    const QString pendingEpisodeId = m_pendingAutoplayEpisodeData.value(QStringLiteral("Id")).toString();
+    const QString pendingEpisodeId = m_pendingAutoplayEpisodeData.value(QStringLiteral("itemId")).toString();
     if (itemId != pendingEpisodeId) {
         qCDebug(lcPlayback) << "Ignoring stale autoplay PlaybackInfo response"
                             << "itemId=" << itemId
@@ -2024,9 +2029,9 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
 
     const qint64 startPositionMs = resumePositionMs(m_pendingAutoplayEpisodeData);
 
-    QString targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("SeasonId")).toString();
+    QString targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("seasonId")).toString();
     if (targetSeasonId.isEmpty()) {
-        targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("ParentId")).toString();
+        targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("parentId")).toString();
     }
     if (targetSeasonId.isEmpty()) {
         targetSeasonId = m_pendingAutoplaySeasonId;
@@ -2917,17 +2922,16 @@ QString PlayerController::buildVersionSubtitle(const QVariantMap &mediaSource) c
  * currently stashed autoplay parameters. Clears the pending autoplay context on success
  * or if the episode data is invalid.
  *
- * @param episodeData Provider episode object. Identity and display fields retain the legacy
- *                    compatibility shape; resume timing is normalized through the active adapter.
- * @param seriesId    Series identifier associated with the episode (used for playback metadata).
+ * @param episodeData Canonical episode model with camelCase fields and millisecond timing.
+ * @param seriesId Series identifier associated with the episode (used for playback metadata).
  */
-void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QString &seriesId)
+void PlayerController::playNextEpisode(const QVariantMap &episodeData, const QString &seriesId)
 {
-    const QString episodeId = episodeData["Id"].toString();
-    const QString episodeName = episodeData["Name"].toString();
-    const QString seriesName = episodeData["SeriesName"].toString();
-    const int seasonNumber = episodeData["ParentIndexNumber"].toInt();
-    const int episodeNumber = episodeData["IndexNumber"].toInt();
+    const QString episodeId = episodeData.value(QStringLiteral("itemId")).toString();
+    const QString episodeName = episodeData.value(QStringLiteral("name")).toString();
+    const QString seriesName = episodeData.value(QStringLiteral("seriesName")).toString();
+    const int seasonNumber = episodeData.value(QStringLiteral("parentIndexNumber")).toInt();
+    const int episodeNumber = episodeData.value(QStringLiteral("indexNumber")).toInt();
     
     if (episodeId.isEmpty()) {
         qCWarning(lcPlayback) << "PlayerController::playNextEpisode: Empty episode ID";
@@ -2955,9 +2959,9 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
 
     emit autoplayingNextEpisode(episodeName, seriesName);
 
-    QString targetSeasonId = episodeData.value(QStringLiteral("SeasonId")).toString();
+    QString targetSeasonId = episodeData.value(QStringLiteral("seasonId")).toString();
     if (targetSeasonId.isEmpty()) {
-        targetSeasonId = episodeData.value(QStringLiteral("ParentId")).toString();
+        targetSeasonId = episodeData.value(QStringLiteral("parentId")).toString();
     }
     if (targetSeasonId.isEmpty()) {
         targetSeasonId = m_pendingAutoplaySeasonId;
@@ -5043,7 +5047,7 @@ bool PlayerController::matchesPlaybackRequestContext(const QString &requestConte
  */
 bool PlayerController::hasUsablePrefetchedNextEpisode() const
 {
-    const QString prefetchedEpisodeId = m_prefetchedNextEpisodeData.value(QStringLiteral("Id")).toString();
+    const QString prefetchedEpisodeId = m_prefetchedNextEpisodeData.value(QStringLiteral("itemId")).toString();
     if (!m_nextEpisodePrefetchReady
         || m_prefetchedNextEpisodeData.isEmpty()
         || prefetchedEpisodeId.isEmpty()) {
@@ -5099,7 +5103,7 @@ void PlayerController::consumePrefetchedNextEpisodeAndNavigate()
     clearNextEpisodePrefetchState();
 }
 
-void PlayerController::emitNavigateToNextEpisodeQueued(const QJsonObject &episodeData,
+void PlayerController::emitNavigateToNextEpisodeQueued(const QVariantMap &episodeData,
                                                        const QString &seriesId,
                                                        int lastAudioIndex,
                                                        int lastSubtitleIndex,
@@ -5129,7 +5133,7 @@ void PlayerController::clearNextEpisodePrefetchState()
     m_waitingForNextEpisodeAtPlaybackEnd = false;
     m_nextEpisodePrefetchRequestedForAttempt = false;
     m_nextEpisodePrefetchReady = false;
-    m_prefetchedNextEpisodeData = QJsonObject();
+    m_prefetchedNextEpisodeData.clear();
     m_prefetchedNextEpisodeSeriesId.clear();
     m_prefetchedForItemId.clear();
 }
@@ -5181,7 +5185,7 @@ void PlayerController::clearPendingAutoplayContext()
     m_pendingAutoplayFramerate = 0.0;
     m_pendingAutoplayIsHDR = false;
     m_pendingAutoplayToneMapToSdr = false;
-    m_pendingAutoplayEpisodeData = QJsonObject();
+    m_pendingAutoplayEpisodeData.clear();
     setAwaitingNextEpisodeResolution(false);
 }
 
@@ -5203,23 +5207,14 @@ int PlayerController::pendingAutoplaySubtitleOverrideIndex() const
     }
 }
 
-qint64 PlayerController::resumePositionMs(const QJsonObject &item) const
+qint64 PlayerController::resumePositionMs(const QVariantMap &item)
 {
-    if (!m_authService || item.isEmpty()) {
-        return 0;
-    }
-
-    const QString connectionId = m_libraryService
-        ? m_libraryService->getActiveConnectionId()
-        : QString();
-    return qMax<qint64>(0, m_authService->mapMediaItem(item, connectionId)
-                              .value(QStringLiteral("positionMs"))
-                              .toLongLong());
+    return qMax<qint64>(0, item.value(QStringLiteral("positionMs")).toLongLong());
 }
 
 void PlayerController::fallbackToPendingAutoplayPlayback()
 {
-    const QString itemId = m_pendingAutoplayEpisodeData.value(QStringLiteral("Id")).toString();
+    const QString itemId = m_pendingAutoplayEpisodeData.value(QStringLiteral("itemId")).toString();
     if (itemId.isEmpty()) {
         qCWarning(lcPlayback) << "Cannot fall back to pending autoplay playback without an episode id";
         clearPendingAutoplayContext();
@@ -5229,9 +5224,9 @@ void PlayerController::fallbackToPendingAutoplayPlayback()
 
     const qint64 startPositionMs = resumePositionMs(m_pendingAutoplayEpisodeData);
 
-    QString targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("SeasonId")).toString();
+    QString targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("seasonId")).toString();
     if (targetSeasonId.isEmpty()) {
-        targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("ParentId")).toString();
+        targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("parentId")).toString();
     }
     if (targetSeasonId.isEmpty()) {
         targetSeasonId = m_pendingAutoplaySeasonId;

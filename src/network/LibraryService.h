@@ -232,9 +232,6 @@ signals:
     void canonicalSimilarItemsFailedForConnection(const QString &connectionId,
                                                   const QString &itemId,
                                                   const QString &error);
-    void nextUnplayedEpisodeLoaded(const QString &seriesId,
-                                   const QJsonObject &episodeData,
-                                   const QString &requestContext);
     void canonicalNextUnplayedEpisodeLoaded(const QString &connectionId,
                                             const QString &seriesId,
                                             const QVariantMap &episodeData,
