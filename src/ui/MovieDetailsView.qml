@@ -389,10 +389,9 @@ FocusScope {
 
         return {
             itemId: movieId,
-            // Playback stack still expects ticks; convert from canonical milliseconds at the boundary.
-            startPositionTicks: startPositionOverride !== undefined && startPositionOverride !== null
-                                ? startPositionOverride
-                                : Math.round((positionMs || 0) * 10000),
+            startPositionMs: startPositionOverride !== undefined && startPositionOverride !== null
+                             ? Math.round(startPositionOverride)
+                             : Math.round(positionMs || 0),
             seriesId: "",
             seasonId: "",
             overlayTitle: movieName || qsTr("Now Playing"),
@@ -413,7 +412,7 @@ FocusScope {
         startPlaybackWithTracksAt(undefined, playButton)
     }
 
-    function startPlaybackWithTracksAt(startPositionTicks, restoreFocusTarget) {
+    function startPlaybackWithTracksAt(startPositionMs, restoreFocusTarget) {
         resetPlaybackReturnFocusState()
 
         if (playbackInfoLoading || !playbackInfo || !currentMediaSource) {
@@ -428,7 +427,7 @@ FocusScope {
         lastPlaybackRestoreFocusTarget = restoreFocusTarget || playButton
         playbackReturnFocusPending = true
         playbackReturnFocusActivated = false
-        root.playRequested(buildPlaybackRequest(startPositionTicks, lastPlaybackRestoreFocusTarget))
+        root.playRequested(buildPlaybackRequest(startPositionMs, lastPlaybackRestoreFocusTarget))
     }
 
     function formatRuntime(ms) {
@@ -1503,8 +1502,8 @@ FocusScope {
                             Keys.onRightPressed: (event) => { if (index + 1 < chapterList.count) { chapterList.currentIndex = index + 1; event.accepted = true } else event.accepted = false }
                             Keys.onUpPressed: { playButton.forceActiveFocus() }
                             Keys.onDownPressed: { if (castList.count > 0) castSection.focusCurrentOrFirst(); else root.focusTarget(root.nextSectionAfterCast()) }
-                            Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) root.startPlaybackWithTracksAt(modelData.startPositionTicks || 0, chapterDelegate); event.accepted = true }
-                            Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) root.startPlaybackWithTracksAt(modelData.startPositionTicks || 0, chapterDelegate); event.accepted = true }
+                            Keys.onReturnPressed: (event) => { if (!event.isAutoRepeat) root.startPlaybackWithTracksAt(modelData.startMs || 0, chapterDelegate); event.accepted = true }
+                            Keys.onEnterPressed: (event) => { if (!event.isAutoRepeat) root.startPlaybackWithTracksAt(modelData.startMs || 0, chapterDelegate); event.accepted = true }
 
                             Rectangle {
                                 anchors.fill: parent
@@ -1539,8 +1538,8 @@ FocusScope {
                                             color: Theme.textSecondary
                                         }
                                     }
-                                    Text { Layout.fillWidth: true; text: modelData.title || qsTr("Chapter"); font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; font.bold: true; color: Theme.textPrimary; elide: Text.ElideRight }
-                                    Text { Layout.fillWidth: true; text: formatChapterTime(modelData.startSeconds || 0); font.pixelSize: Theme.fontSizeCaption; font.family: Theme.fontPrimary; color: Theme.textSecondary }
+                                    Text { Layout.fillWidth: true; text: modelData.name || qsTr("Chapter"); font.pixelSize: Theme.fontSizeBody; font.family: Theme.fontPrimary; font.bold: true; color: Theme.textPrimary; elide: Text.ElideRight }
+                                    Text { Layout.fillWidth: true; text: formatChapterTime((modelData.startMs || 0) / 1000); font.pixelSize: Theme.fontSizeCaption; font.family: Theme.fontPrimary; color: Theme.textSecondary }
                                 }
                             }
                         }

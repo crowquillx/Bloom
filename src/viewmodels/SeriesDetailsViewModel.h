@@ -416,7 +416,9 @@ private slots:
     void onFocusedEpisodeChaptersLoaded(const QString &connectionId,
                                         const QString &itemId,
                                         const QVariantList &chapters);
-    void onFocusedEpisodeChaptersFailed(const QString &itemId, const QString &error);
+    void onFocusedEpisodeChaptersFailed(const QString &connectionId,
+                                        const QString &itemId,
+                                        const QString &error);
 
 private:
     void updateSeriesMetadata(const QVariantMap &data);

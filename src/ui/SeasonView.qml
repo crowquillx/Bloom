@@ -39,7 +39,7 @@ FocusScope {
     
     // Signals for navigation and actions
     signal episodeSelected(var episodeData)
-    signal playEpisode(string episodeId, var startPositionTicks)
+    signal playEpisode(string episodeId, var startPositionMs)
     signal backRequested()
     
     // Key handling for back navigation
@@ -94,19 +94,18 @@ FocusScope {
         return ""
     }
     
-    // Helper function to format runtime from ticks to minutes
-    function formatRuntime(ticks) {
-        if (!ticks || ticks === 0) return ""
-        var minutes = Math.round(ticks / 600000000) // ticks to minutes
+    // Helper function to format runtime from milliseconds to minutes
+    function formatRuntime(durationMs) {
+        if (!durationMs || durationMs === 0) return ""
+        var minutes = Math.round(durationMs / 60000)
         return minutes + "m"
     }
     
     // Helper function to calculate end time
-    function calculateEndTime(runtimeTicks) {
-        if (!runtimeTicks || runtimeTicks === 0) return ""
+    function calculateEndTime(durationMs) {
+        if (!durationMs || durationMs === 0) return ""
         var now = new Date()
-        var runtimeMs = runtimeTicks / 10000 // ticks to milliseconds
-        var endTime = new Date(now.getTime() + runtimeMs)
+        var endTime = new Date(now.getTime() + durationMs)
         return "Ends at " + endTime.toLocaleTimeString(Qt.locale(), "h:mm AP")
     }
     
@@ -315,9 +314,7 @@ FocusScope {
                         for (var i = 0; i < episodeCount; i++) {
                             var ep = SeriesDetailsViewModel.episodesModel.getItem(i)
                             if (ep && !ep.isPlayed) {
-                                // Get playback position for resume
-                                var startPos = ep.UserData ? ep.UserData.PlaybackPositionTicks : 0
-                                root.playEpisode(ep.Id, startPos)
+                                root.playEpisode(ep.itemId, ep.positionMs || 0)
                                 return
                             }
                         }
@@ -325,7 +322,7 @@ FocusScope {
                         if (episodeCount > 0) {
                             var firstEp = SeriesDetailsViewModel.episodesModel.getItem(0)
                             if (firstEp) {
-                                root.playEpisode(firstEp.Id, 0)
+                                root.playEpisode(firstEp.itemId, 0)
                             }
                         }
                     }
@@ -568,9 +565,9 @@ FocusScope {
                     required property int indexNumber
                     required property int parentIndexNumber
                     required property string overview
-                    required property var runtimeTicks
+                    required property var durationMs
                     required property bool isPlayed
-                    required property var playbackPositionTicks
+                    required property var positionMs
                     required property var communityRating
                     required property string premiereDate
                     required property bool isSpecial
@@ -652,7 +649,7 @@ FocusScope {
                                 
                                 // Progress bar overlay (if partially watched)
                                 Rectangle {
-                                    visible: episodeDelegate.playbackPositionTicks > 0 && !episodeDelegate.isPlayed
+                                    visible: episodeDelegate.positionMs > 0 && !episodeDelegate.isPlayed
                                     anchors.left: parent.left
                                     anchors.right: parent.right
                                     anchors.bottom: parent.bottom
@@ -665,7 +662,7 @@ FocusScope {
                                         anchors.left: parent.left
                                         anchors.top: parent.top
                                         anchors.bottom: parent.bottom
-                                        width: parent.width * Math.min(1, episodeDelegate.playbackPositionTicks / episodeDelegate.runtimeTicks)
+                                        width: parent.width * Math.min(1, episodeDelegate.positionMs / episodeDelegate.durationMs)
                                         radius: 2
                                         color: Theme.accentPrimary
                                     }
@@ -749,8 +746,8 @@ FocusScope {
                                     spacing: 16
                                     
                                     Text {
-                                        visible: episodeDelegate.runtimeTicks > 0
-                                        text: root.formatRuntime(episodeDelegate.runtimeTicks)
+                                        visible: episodeDelegate.durationMs > 0
+                                        text: root.formatRuntime(episodeDelegate.durationMs)
                                         font.pixelSize: Theme.fontSizeSmall
                                         font.family: Theme.fontPrimary
                                         color: Theme.textSecondary
@@ -765,8 +762,8 @@ FocusScope {
                                     }
                                     
                                     Text {
-                                        visible: episodeDelegate.runtimeTicks > 0
-                                        text: root.calculateEndTime(episodeDelegate.runtimeTicks)
+                                        visible: episodeDelegate.durationMs > 0
+                                        text: root.calculateEndTime(episodeDelegate.durationMs)
                                         font.pixelSize: Theme.fontSizeSmall
                                         font.family: Theme.fontPrimary
                                         color: Theme.textSecondary
@@ -799,7 +796,7 @@ FocusScope {
                                 root.episodeSelected(episodeDelegate.modelData)
                             }
                             onDoubleClicked: {
-                                root.playEpisode(episodeDelegate.itemId, episodeDelegate.playbackPositionTicks)
+                                root.playEpisode(episodeDelegate.itemId, episodeDelegate.positionMs)
                             }
                         }
                     }

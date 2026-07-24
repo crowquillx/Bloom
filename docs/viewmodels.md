@@ -44,7 +44,7 @@ Column {
 - Filter facets are loaded per library through `LibraryService::getFilterOptions(...)` and cached separately from item result slices. Recursive filtered queries use collection-type item narrowing (`Movie` for movie libraries, `Series` for TV libraries, both for mixed/unknown libraries).
 - `SeriesDetailsViewModel` inherits `BaseViewModel` for standardized loading/error properties and consumes only connection-aware canonical series/item-list/next-episode/similar-item/focused-item/chapter signals. Nested `SeasonsModel`/`EpisodesModel` expose canonical camelCase roles, including `durationMs`, `positionMs`, special-placement fields, and connection-scoped artwork URLs.
 - `SeriesDetailsViewModel` owns canonical stale-while-revalidate caches for series metadata, seasons, episodes, and recommendations. Wire-shaped payloads are rejected. Request-start `connectionId` and focused-episode ownership tokens prevent late responses from another source or episode from changing the active view.
-- Focused-episode chapters use canonical `name`, `startMs`, and `ArtworkRef` data, with a small in-memory per-episode cache for quick return navigation. `SeriesSeasonEpisodeView.qml` keeps playback and chapter timing in milliseconds until the existing QML-to-player compatibility boundary.
+- Focused-episode chapters use canonical `name`, `startMs`, and `ArtworkRef` data, with a small in-memory per-episode cache for quick return navigation. `SeriesSeasonEpisodeView.qml` and the player request boundary keep playback and chapter timing in milliseconds.
 
 ## Async work and setBusyWhile
 Use `setBusyWhile` to keep loading flags accurate for Qt Concurrent tasks:

@@ -900,7 +900,7 @@ void PlayerController::enterIdleStateImmediate()
     m_hasReportedStart = false;
     m_seekTargetWhileBuffering = -1;
     m_reportProgressOnNextPositionUpdate = false;
-    m_startPositionTicks = 0;
+    m_startPositionMs = 0;
     m_contentFramerate = 0.0;
     m_contentIsHDR = false;
     m_contentShouldToneMapToSdr = false;
@@ -1623,7 +1623,7 @@ bool PlayerController::stashRecoveryContextForCurrentPlayback()
 
     m_recoveryContext.url = segmentUrl;
     m_recoveryContext.itemId = m_currentItemId;
-    m_recoveryContext.startPositionTicks = static_cast<qint64>(m_segmentRelativePosition * 10000000.0);
+    m_recoveryContext.startPositionMs = qRound64(m_segmentRelativePosition * 1000.0);
     m_recoveryContext.seriesId = m_currentSeriesId;
     m_recoveryContext.seasonId = m_currentSeasonId;
     m_recoveryContext.libraryId = m_currentLibraryId;
@@ -1646,7 +1646,7 @@ bool PlayerController::stashRecoveryContextForCurrentPlayback()
                             << "] recovery-context stashed"
                             << "itemId=" << m_recoveryContext.itemId
                             << "mediaSourceId=" << m_recoveryContext.mediaSourceId
-                            << "positionTicks=" << m_recoveryContext.startPositionTicks;
+                            << "positionMs=" << m_recoveryContext.startPositionMs;
 
     if (wasActive != isPlaybackActive()) {
         emit isPlaybackActiveChanged();
@@ -2022,12 +2022,7 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
 
     stopAutoplayPlaybackInfoWait();
 
-    qint64 startPositionTicks = 0;
-    if (m_pendingAutoplayEpisodeData.contains(QStringLiteral("UserData"))
-        && m_pendingAutoplayEpisodeData.value(QStringLiteral("UserData")).isObject()) {
-        const QJsonObject userData = m_pendingAutoplayEpisodeData.value(QStringLiteral("UserData")).toObject();
-        startPositionTicks = static_cast<qint64>(userData.value(QStringLiteral("PlaybackPositionTicks")).toDouble());
-    }
+    const qint64 startPositionMs = resumePositionMs(m_pendingAutoplayEpisodeData);
 
     QString targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("SeasonId")).toString();
     if (targetSeasonId.isEmpty()) {
@@ -2059,7 +2054,7 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
         mediaSource,
         resolved.audioIndex,
         resolved.subtitleIndex,
-        0,
+        startPositionMs,
         playbackInfo.playSessionId);
     QString streamUrl;
     if (!descriptor.stream.isValid()) {
@@ -2085,7 +2080,7 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
 
     playUrlWithTracks(streamUrl,
                       itemId,
-                      startPositionTicks,
+                      startPositionMs,
                       seriesId,
                       targetSeasonId,
                       libraryId,
@@ -2200,7 +2195,7 @@ void PlayerController::requestPlayback(const QVariantMap &request)
     pending.overlaySubtitle = request.value(QStringLiteral("overlaySubtitle")).toString();
     pending.overlayBackdropUrl = request.value(QStringLiteral("overlayBackdropUrl")).toString();
     pending.overlayLogoUrl = request.value(QStringLiteral("overlayLogoUrl")).toString();
-    pending.startPositionTicks = request.value(QStringLiteral("startPositionTicks")).toLongLong();
+    pending.startPositionMs = request.value(QStringLiteral("startPositionMs")).toLongLong();
     pending.preferredAudioIndex = request.value(QStringLiteral("preferredAudioIndex"), -2).toInt();
     pending.preferredSubtitleIndex = request.value(QStringLiteral("preferredSubtitleIndex"), -2).toInt();
     pending.isMovie = request.value(QStringLiteral("isMovie")).toBool();
@@ -2410,6 +2405,7 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
                                                             {QStringLiteral("seasonId"), request.seasonId},
                                                             {QStringLiteral("preferredAudioIndex"), request.preferredAudioIndex},
                                                             {QStringLiteral("preferredSubtitleIndex"), request.preferredSubtitleIndex},
+                                                            {QStringLiteral("startPositionMs"), request.startPositionMs},
                                                             {QStringLiteral("isMovie"), request.isMovie}
                                                         },
                                                         primarySource,
@@ -2445,7 +2441,7 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
     }
     playUrlWithTracks(firstSegment.value(QStringLiteral("url")).toString(),
                       request.itemId,
-                      request.startPositionTicks,
+                      request.startPositionMs,
                       request.seriesId,
                       request.seasonId,
                       request.libraryId,
@@ -2623,7 +2619,7 @@ QVariantList PlayerController::buildMultipartSegments(const QVariantMap &request
         primaryContext.value(QStringLiteral("mediaSource")).toMap(),
         primaryContext.value(QStringLiteral("audioIndex"), -1).toInt(),
         primaryContext.value(QStringLiteral("subtitleIndex"), -1).toInt(),
-        0,
+        request.value(QStringLiteral("startPositionMs")).toLongLong(),
         primaryContext.value(QStringLiteral("playSessionId")).toString());
     if (!primaryDescriptor.stream.isValid()) {
         qCWarning(lcPlayback) << "Primary provider returned an invalid playback descriptor"
@@ -2970,19 +2966,14 @@ void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QSt
         targetSeasonId = m_pendingAutoplaySeasonId;
     }
 
-    qint64 startPositionTicks = 0;
-    if (episodeData.contains(QStringLiteral("UserData"))
-        && episodeData.value(QStringLiteral("UserData")).isObject()) {
-        const QJsonObject userData = episodeData.value(QStringLiteral("UserData")).toObject();
-        startPositionTicks = static_cast<qint64>(userData.value(QStringLiteral("PlaybackPositionTicks")).toDouble());
-    }
+    const qint64 startPositionMs = resumePositionMs(episodeData);
 
     QVariantMap request;
     request[QStringLiteral("itemId")] = episodeId;
     request[QStringLiteral("seriesId")] = seriesId;
     request[QStringLiteral("seasonId")] = targetSeasonId;
     request[QStringLiteral("libraryId")] = m_pendingAutoplayLibraryId;
-    request[QStringLiteral("startPositionTicks")] = startPositionTicks;
+    request[QStringLiteral("startPositionMs")] = startPositionMs;
     request[QStringLiteral("overlayTitle")] = seriesName.isEmpty() ? QStringLiteral("Now Playing") : seriesName;
     request[QStringLiteral("overlaySubtitle")] = subtitle;
     if (!overlayLogoUrl.isEmpty()) {
@@ -3158,7 +3149,7 @@ void PlayerController::playTestVideo()
         m_hasReportedStart = false;
         m_seekTargetWhileBuffering = -1;
         m_reportProgressOnNextPositionUpdate = false;
-        m_startPositionTicks = 0;
+        m_startPositionMs = 0;
         m_playMethod = QStringLiteral("directPlay");
         m_hasReportedStopForAttempt = false;
         m_hasEvaluatedCompletionForAttempt = false;
@@ -3223,21 +3214,21 @@ void PlayerController::playTestVideo()
  *
  * @param url Playback URL to open.
  * @param itemId Optional content item identifier (empty if unknown).
- * @param startPositionTicks Resume/start position in 100-nanosecond ticks (Jellyfin units); if
- *        greater than zero the controller will seek to the corresponding position after buffering.
+ * @param startPositionMs Resume/start position in milliseconds; if greater than zero the
+ *        controller will seek to the corresponding position after buffering.
  * @param seriesId Optional series identifier for episodic content.
  * @param seasonId Optional season identifier for episodic content.
  * @param libraryId Optional library identifier where the item resides.
  * @param framerate Content framerate in frames per second, used for framerate-matching decisions.
  * @param isHDR True if the content is HDR, used for HDR-related display handling.
  */
-void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionTicks, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR, bool toneMapToSdr)
+void PlayerController::playUrl(const QString &url, const QString &itemId, qint64 startPositionMs, const QString &seriesId, const QString &seasonId, const QString &libraryId, double framerate, bool isHDR, bool toneMapToSdr)
 {
     m_playbackAttemptId = ++gPlaybackAttemptCounter;
     const quint64 requestedPlaybackAttemptId = m_playbackAttemptId;
     m_reportProgressOnNextPositionUpdate = false;
     qCDebug(lcPlayback) << "PlayerController: playUrl called with itemId:" << itemId 
-             << "startPositionTicks:" << startPositionTicks
+             << "startPositionMs:" << startPositionMs
              << "seriesId:" << seriesId
              << "seasonId:" << seasonId
              << "libraryId:" << libraryId
@@ -3247,7 +3238,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] play-url"
                             << "itemId=" << itemId
-                            << "startTicks=" << startPositionTicks
+                            << "startPositionMs=" << startPositionMs
                             << "framerate=" << framerate
                             << "isHDR=" << isHDR
                             << "toneMapToSdr=" << toneMapToSdr
@@ -3276,7 +3267,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
     m_nextPlaybackSegments.clear();
     m_nextPlaylistAppendUrls.clear();
 
-    scheduleReplacementPlayback([this, url, itemId, startPositionTicks, seriesId, seasonId,
+    scheduleReplacementPlayback([this, url, itemId, startPositionMs, seriesId, seasonId,
                                  libraryId, framerate, isHDR, toneMapToSdr,
                                  requestedPlayMethod, requestedPinsAudioTrack,
                                  requestedPinsSubtitleTrack, requestedPinnedAudioTrack,
@@ -3294,7 +3285,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_currentPosition = 0;
         m_duration = 0;
         m_hasReportedStart = false;
-        m_startPositionTicks = startPositionTicks;
+        m_startPositionMs = startPositionMs;
         m_shouldAutoplay = false;
         m_contentFramerate = framerate;
         emit subtitleDelayStepChanged();
@@ -3362,10 +3353,9 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
             m_playbackService->getTrickplayInfo(itemId);
         }
 
-        // If we have a start position, queue it as a seek target
-        // Jellyfin ticks are 100ns units, so divide by 10,000,000 to get seconds
-        if (startPositionTicks > 0) {
-            m_seekTargetWhileBuffering = static_cast<double>(startPositionTicks) / 10000000.0;
+        // If we have a start position, queue it as a seek target.
+        if (startPositionMs > 0) {
+            m_seekTargetWhileBuffering = static_cast<double>(startPositionMs) / 1000.0;
             qCDebug(lcPlayback) << "PlayerController: Will seek to" << m_seekTargetWhileBuffering << "seconds after buffering";
         } else {
             m_seekTargetWhileBuffering = -1;
@@ -3486,10 +3476,13 @@ void PlayerController::retry()
         }
 
         if (!m_currentItemId.isEmpty()) {
-            const qint64 retryPositionTicks = currentReportingPositionTicks();
+            const double retryPositionSeconds = m_activePlaybackSegmentIndex >= 0
+                ? m_segmentRelativePosition
+                : m_currentPosition;
+            const qint64 retryPositionMs = qRound64(retryPositionSeconds * 1000.0);
             requestPlayback(QVariantMap{
                 {QStringLiteral("itemId"), m_currentItemId},
-                {QStringLiteral("startPositionTicks"), retryPositionTicks},
+                {QStringLiteral("startPositionMs"), retryPositionMs},
                 {QStringLiteral("seriesId"), m_currentSeriesId},
                 {QStringLiteral("seasonId"), m_currentSeasonId},
                 {QStringLiteral("libraryId"), m_currentLibraryId},
@@ -3621,7 +3614,7 @@ void PlayerController::resumeFromRecoveryContext()
 
     requestPlayback(QVariantMap{
         {QStringLiteral("itemId"), context.itemId},
-        {QStringLiteral("startPositionTicks"), context.startPositionTicks},
+        {QStringLiteral("startPositionMs"), context.startPositionMs},
         {QStringLiteral("seriesId"), context.seriesId},
         {QStringLiteral("seasonId"), context.seasonId},
         {QStringLiteral("libraryId"), context.libraryId},
@@ -4165,7 +4158,7 @@ QVariantMap PlayerController::resolveTrackSelectionForMediaSource(const QVariant
     return result;
 }
 
-void PlayerController::playUrlWithTracks(const QString &url, const QString &itemId, qint64 startPositionTicks,
+void PlayerController::playUrlWithTracks(const QString &url, const QString &itemId, qint64 startPositionMs,
                                          const QString &seriesId, const QString &seasonId, const QString &libraryId,
                                          const QString &mediaSourceId, const QString &playSessionId,
                                          const QVariantMap &mediaSource,
@@ -4217,7 +4210,7 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
         };
     }
 
-    playUrl(url, itemId, startPositionTicks, seriesId, seasonId, libraryId,
+    playUrl(url, itemId, startPositionMs, seriesId, seasonId, libraryId,
             framerate, isHDR, toneMapToSdr);
 }
 
@@ -5212,6 +5205,20 @@ int PlayerController::pendingAutoplaySubtitleOverrideIndex() const
     }
 }
 
+qint64 PlayerController::resumePositionMs(const QJsonObject &item) const
+{
+    if (!m_authService || item.isEmpty()) {
+        return 0;
+    }
+
+    const QString connectionId = m_libraryService
+        ? m_libraryService->getActiveConnectionId()
+        : QString();
+    return qMax<qint64>(0, m_authService->mapMediaItem(item, connectionId)
+                              .value(QStringLiteral("positionMs"))
+                              .toLongLong());
+}
+
 void PlayerController::fallbackToPendingAutoplayPlayback()
 {
     const QString itemId = m_pendingAutoplayEpisodeData.value(QStringLiteral("Id")).toString();
@@ -5222,12 +5229,7 @@ void PlayerController::fallbackToPendingAutoplayPlayback()
         return;
     }
 
-    qint64 startPositionTicks = 0;
-    if (m_pendingAutoplayEpisodeData.contains(QStringLiteral("UserData"))
-        && m_pendingAutoplayEpisodeData.value(QStringLiteral("UserData")).isObject()) {
-        const QJsonObject userData = m_pendingAutoplayEpisodeData.value(QStringLiteral("UserData")).toObject();
-        startPositionTicks = static_cast<qint64>(userData.value(QStringLiteral("PlaybackPositionTicks")).toDouble());
-    }
+    const qint64 startPositionMs = resumePositionMs(m_pendingAutoplayEpisodeData);
 
     QString targetSeasonId = m_pendingAutoplayEpisodeData.value(QStringLiteral("SeasonId")).toString();
     if (targetSeasonId.isEmpty()) {
@@ -5247,7 +5249,7 @@ void PlayerController::fallbackToPendingAutoplayPlayback()
     const QString fallbackUrl = m_libraryService->getStreamUrl(itemId);
     playUrl(fallbackUrl,
             itemId,
-            startPositionTicks,
+            startPositionMs,
             seriesId,
             targetSeasonId,
             libraryId,
@@ -5821,8 +5823,12 @@ void PlayerController::onChaptersLoaded(const QString &itemId, const QList<Chapt
     emit playbackChaptersChanged();
 }
 
-void PlayerController::onChaptersFailed(const QString &itemId, const QString &error)
+void PlayerController::onChaptersFailed(const QString &connectionId, const QString &itemId, const QString &error)
 {
+    if (!connectionId.isEmpty()
+        && connectionId != m_libraryService->getActiveConnectionId()) {
+        return;
+    }
     if (itemId == m_currentItemId) {
         qCDebug(lcPlayback) << "PlayerController: Chapter metadata unavailable for item" << itemId << error;
         clearPlaybackChapters();

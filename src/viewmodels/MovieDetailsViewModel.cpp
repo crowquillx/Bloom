@@ -50,6 +50,11 @@ QString scopedCacheKey(const QString &remoteId)
     return scope + QLatin1Char('\n') + remoteId;
 }
 
+QString movieChapterRequestKey(const QString &connectionId, const QString &itemId)
+{
+    return connectionId + QLatin1Char('\n') + itemId;
+}
+
 bool isCanonicalMovieCache(const QJsonObject &movieData)
 {
     return movieData.contains(QStringLiteral("itemId"))
@@ -129,7 +134,7 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
                 this, &MovieDetailsViewModel::onSimilarItemsLoaded);
         connect(m_libraryService, &LibraryService::similarItemsFailed,
                 this, &MovieDetailsViewModel::onSimilarItemsFailed);
-        connect(m_libraryService, &LibraryService::chaptersLoaded,
+        connect(m_libraryService, &LibraryService::canonicalChaptersLoaded,
                 this, &MovieDetailsViewModel::onMovieChaptersLoaded);
         connect(m_libraryService, &LibraryService::chaptersFailed,
                 this, &MovieDetailsViewModel::onMovieChaptersFailed);
@@ -398,8 +403,9 @@ void MovieDetailsViewModel::loadMovieChapters(const QString &movieId)
     }
 
     m_movieChapterId = movieId;
-    if (m_movieChapterCache.contains(movieId)) {
-        applyMovieChapters(movieId, m_movieChapterCache.value(movieId));
+    const QString requestKey = movieChapterRequestKey(activeCacheScope(), movieId);
+    if (m_movieChapterCache.contains(requestKey)) {
+        applyMovieChapters(movieId, m_movieChapterCache.value(requestKey));
         return;
     }
 
@@ -407,11 +413,11 @@ void MovieDetailsViewModel::loadMovieChapters(const QString &movieId)
     setMovieChaptersLoading(true);
     emit chaptersChanged();
 
-    if (m_pendingMovieChapterIds.contains(movieId)) {
+    if (m_pendingMovieChapterIds.contains(requestKey)) {
         return;
     }
 
-    m_pendingMovieChapterIds.insert(movieId);
+    m_pendingMovieChapterIds.insert(requestKey);
     m_libraryService->getChapters(movieId);
 }
 
@@ -498,44 +504,52 @@ void MovieDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const QS
     qCWarning(lcViewModels) << "MovieDetailsViewModel similar items error:" << error;
 }
 
-void MovieDetailsViewModel::onMovieChaptersLoaded(const QString &itemId,
-                                                  const QList<ChapterInfo> &chapters)
+void MovieDetailsViewModel::onMovieChaptersLoaded(const QString &connectionId,
+                                                  const QString &itemId,
+                                                  const QVariantList &chapters)
 {
-    if (!m_pendingMovieChapterIds.contains(itemId)) {
+    const QString requestKey = movieChapterRequestKey(connectionId, itemId);
+    if (!m_pendingMovieChapterIds.contains(requestKey)) {
         return;
     }
 
-    m_pendingMovieChapterIds.remove(itemId);
+    m_pendingMovieChapterIds.remove(requestKey);
+    if (connectionId != activeCacheScope()) {
+        return;
+    }
     QVariantList normalized;
     normalized.reserve(chapters.size());
-    for (const ChapterInfo &chapter : chapters) {
-        const QString thumbnailUrl = m_libraryService
-            ? m_libraryService->getCachedChapterThumbnailUrl(
-                  itemId, chapter.index, chapter.imageTag, chapter.imagePath)
-            : QString();
-        normalized.append(chapter.toVariantMap(thumbnailUrl));
+    for (const QVariant &value : chapters) {
+        QVariantMap chapter = value.toMap();
+        chapter.insert(QStringLiteral("thumbnailUrl"),
+                       cachedArtworkUrl(chapter.value(QStringLiteral("artwork")).toMap(), 480));
+        normalized.append(chapter);
     }
-    m_movieChapterCache.insert(itemId, normalized);
+    m_movieChapterCache.insert(requestKey, normalized);
 
     if (itemId == m_movieChapterId) {
         applyMovieChapters(itemId, normalized);
     }
 }
 
-void MovieDetailsViewModel::onMovieChaptersFailed(const QString &itemId, const QString &error)
+void MovieDetailsViewModel::onMovieChaptersFailed(const QString &connectionId,
+                                                  const QString &itemId,
+                                                  const QString &error)
 {
-    if (!m_pendingMovieChapterIds.contains(itemId)) {
+    const QString requestKey = movieChapterRequestKey(connectionId, itemId);
+    if (!m_pendingMovieChapterIds.contains(requestKey)) {
+        return;
+    }
+    m_pendingMovieChapterIds.remove(requestKey);
+
+    if (connectionId != activeCacheScope() || itemId != m_movieChapterId) {
         return;
     }
 
-    m_pendingMovieChapterIds.remove(itemId);
     qCWarning(lcViewModels) << "MovieDetailsViewModel movie chapters error for" << itemId << ":" << error;
-
-    if (itemId == m_movieChapterId) {
-        m_chapters.clear();
-        setMovieChaptersLoading(false);
-        emit chaptersChanged();
-    }
+    m_chapters.clear();
+    setMovieChaptersLoading(false);
+    emit chaptersChanged();
 }
 
 void MovieDetailsViewModel::onErrorOccurred(const QString &endpoint, const QString &error)

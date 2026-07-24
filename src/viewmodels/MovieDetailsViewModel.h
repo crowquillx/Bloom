@@ -4,7 +4,6 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
-#include <QList>
 #include <QSet>
 #include <QHash>
 #include <QNetworkAccessManager>
@@ -13,7 +12,6 @@
 #include <functional>
 
 class LibraryService;
-struct ChapterInfo;
 
 /**
  * @brief ViewModel for movie details display in MovieDetailsView.
@@ -165,8 +163,12 @@ private slots:
     void onMovieDetailsNotModified(const QString &itemId);
     void onSimilarItemsLoaded(const QString &itemId, const QVariantList &items);
     void onSimilarItemsFailed(const QString &itemId, const QString &error);
-    void onMovieChaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
-    void onMovieChaptersFailed(const QString &itemId, const QString &error);
+    void onMovieChaptersLoaded(const QString &connectionId,
+                               const QString &itemId,
+                               const QVariantList &chapters);
+    void onMovieChaptersFailed(const QString &connectionId,
+                               const QString &itemId,
+                               const QString &error);
     void onErrorOccurred(const QString &endpoint, const QString &error);
 
 private:

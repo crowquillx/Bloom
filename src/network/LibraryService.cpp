@@ -1042,16 +1042,16 @@ void LibraryService::clearItemCacheValidation(const QString &itemId)
 
 void LibraryService::getChapters(const QString &itemId)
 {
+    const QString connectionId = activeConnectionId(m_authService);
     if (!m_authService->isAuthenticated()) {
-        emit chaptersFailed(itemId, tr("Not authenticated"));
+        emit chaptersFailed(connectionId, itemId, tr("Not authenticated"));
         return;
     }
     if (itemId.isEmpty()) {
-        emit chaptersFailed(itemId, tr("Item ID is empty"));
+        emit chaptersFailed(connectionId, itemId, tr("Item ID is empty"));
         return;
     }
 
-    const QString connectionId = activeConnectionId(m_authService);
     const QString requestKey = connectionId + QLatin1Char('\n') + itemId;
     if (m_inFlightChapterRequests.contains(requestKey)) {
         qCDebug(lcLibrary) << "LibraryService: Skipping duplicate chapter request for item" << itemId;
@@ -1070,7 +1070,7 @@ void LibraryService::getChapters(const QString &itemId)
             const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             if (!doc.isObject()) {
                 qCWarning(lcLibrary) << "LibraryService: Invalid chapter response for item" << itemId;
-                emit chaptersFailed(itemId, tr("Invalid chapter response"));
+                emit chaptersFailed(connectionId, itemId, tr("Invalid chapter response"));
                 return;
             }
 
@@ -1103,9 +1103,9 @@ void LibraryService::getChapters(const QString &itemId)
                 itemId,
                 m_authService->mapChapters(array, connectionId, itemId));
         },
-        [this, itemId, requestKey](const NetworkError &error) {
+        [this, itemId, connectionId, requestKey](const NetworkError &error) {
             m_inFlightChapterRequests.remove(requestKey);
-            emit chaptersFailed(itemId, error.userMessage);
+            emit chaptersFailed(connectionId, itemId, error.userMessage);
         });
 }
 

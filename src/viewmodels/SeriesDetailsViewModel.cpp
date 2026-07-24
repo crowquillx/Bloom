@@ -971,8 +971,9 @@ void SeriesDetailsViewModel::loadFocusedEpisodeChapters(const QString &episodeId
 
     m_focusedEpisodeChapterId = episodeId;
 
-    if (m_episodeChapterCache.contains(episodeId)) {
-        applyFocusedEpisodeChapters(episodeId, m_episodeChapterCache.value(episodeId));
+    const QString requestKey = m_connectionId + QLatin1Char('\n') + episodeId;
+    if (m_episodeChapterCache.contains(requestKey)) {
+        applyFocusedEpisodeChapters(episodeId, m_episodeChapterCache.value(requestKey));
         return;
     }
 
@@ -980,11 +981,11 @@ void SeriesDetailsViewModel::loadFocusedEpisodeChapters(const QString &episodeId
     emit focusedEpisodeChaptersChanged();
     setFocusedEpisodeChaptersLoading(true);
 
-    if (m_pendingEpisodeChapterIds.contains(episodeId)) {
+    if (m_pendingEpisodeChapterIds.contains(requestKey)) {
         return;
     }
 
-    m_pendingEpisodeChapterIds.insert(episodeId);
+    m_pendingEpisodeChapterIds.insert(requestKey);
     m_libraryService->getChapters(episodeId);
 }
 
@@ -1699,11 +1700,12 @@ void SeriesDetailsViewModel::onFocusedEpisodeChaptersLoaded(const QString &conne
                                                             const QString &itemId,
                                                             const QVariantList &chapters)
 {
-    if (connectionId != m_connectionId || !m_pendingEpisodeChapterIds.contains(itemId)) {
+    const QString requestKey = connectionId + QLatin1Char('\n') + itemId;
+    if (connectionId != m_connectionId || !m_pendingEpisodeChapterIds.contains(requestKey)) {
         return;
     }
 
-    m_pendingEpisodeChapterIds.remove(itemId);
+    m_pendingEpisodeChapterIds.remove(requestKey);
 
     QVariantList normalized;
     normalized.reserve(chapters.size());
@@ -1713,23 +1715,26 @@ void SeriesDetailsViewModel::onFocusedEpisodeChaptersLoaded(const QString &conne
                        buildArtworkUrl(chapter.value(QStringLiteral("artwork")).toMap(), 480));
         normalized.append(chapter);
     }
-    m_episodeChapterCache.insert(itemId, normalized);
+    m_episodeChapterCache.insert(requestKey, normalized);
 
     if (itemId == m_focusedEpisodeChapterId) {
         applyFocusedEpisodeChapters(itemId, normalized);
     }
 }
 
-void SeriesDetailsViewModel::onFocusedEpisodeChaptersFailed(const QString &itemId, const QString &error)
+void SeriesDetailsViewModel::onFocusedEpisodeChaptersFailed(const QString &connectionId,
+                                                            const QString &itemId,
+                                                            const QString &error)
 {
-    if (!m_pendingEpisodeChapterIds.contains(itemId)) {
+    const QString requestKey = connectionId + QLatin1Char('\n') + itemId;
+    if (!m_pendingEpisodeChapterIds.contains(requestKey)) {
         return;
     }
 
-    m_pendingEpisodeChapterIds.remove(itemId);
+    m_pendingEpisodeChapterIds.remove(requestKey);
     qCWarning(lcViewModels) << "SeriesDetailsViewModel focused episode chapters error for" << itemId << ":" << error;
 
-    if (itemId == m_focusedEpisodeChapterId) {
+    if (connectionId == m_connectionId && itemId == m_focusedEpisodeChapterId) {
         m_focusedEpisodeChapters.clear();
         setFocusedEpisodeChaptersLoading(false);
         emit focusedEpisodeChaptersChanged();
