@@ -29,7 +29,7 @@ MediaSegmentLookupContext episodeContext()
     context.tmdbId = QStringLiteral("1396");
     context.seasonNumber = 1;
     context.episodeNumber = 1;
-    context.durationTicks = 3600LL * 10000000LL;
+    context.durationMs = 3600LL * 1000LL;
     return context;
 }
 }
@@ -114,7 +114,7 @@ void MediaSegmentProviderServiceTest::dropsOpenEndedSegmentsWithoutDuration()
         }}}
     };
 
-    context.durationTicks = 0;
+    context.durationMs = 0;
     const QList<MediaSegmentInfo> segments = MediaSegmentProviderService::parseTheIntroDbSegments(payload, context);
     QVERIFY(segments.isEmpty());
 }
@@ -182,21 +182,21 @@ void MediaSegmentProviderServiceTest::mergeKeepsServerSegmentAndFillsMissingType
     serverIntro.type = MediaSegmentType::Intro;
     serverIntro.typeString = QStringLiteral("Intro");
     serverIntro.source = QStringLiteral("jellyfin");
-    serverIntro.startTicks = 10 * 10000000LL;
-    serverIntro.endTicks = 70 * 10000000LL;
+    serverIntro.startMs = 10 * 1000LL;
+    serverIntro.endMs = 70 * 1000LL;
 
     MediaSegmentInfo externalIntro = serverIntro;
     externalIntro.source = QStringLiteral("theintrodb");
-    externalIntro.startTicks = 30 * 10000000LL;
-    externalIntro.endTicks = 90 * 10000000LL;
+    externalIntro.startMs = 30 * 1000LL;
+    externalIntro.endMs = 90 * 1000LL;
 
     MediaSegmentInfo externalOutro;
     externalOutro.itemId = QStringLiteral("episode-1");
     externalOutro.type = MediaSegmentType::Outro;
     externalOutro.typeString = QStringLiteral("Outro");
     externalOutro.source = QStringLiteral("theintrodb");
-    externalOutro.startTicks = 3300 * 10000000LL;
-    externalOutro.endTicks = 3600 * 10000000LL;
+    externalOutro.startMs = 3300 * 1000LL;
+    externalOutro.endMs = 3600 * 1000LL;
 
     const QList<MediaSegmentInfo> merged = MediaSegmentProviderService::mergeSegmentsByType(
         {serverIntro},

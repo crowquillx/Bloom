@@ -16,7 +16,6 @@
 #include "../utils/BloomLogging.h"
 
 namespace {
-constexpr double kTicksPerSecond = 10000000.0;
 constexpr int kProviderTransferTimeoutMs = 30000;
 
 const QSet<MediaSegmentType> kSupportedFillTypes = {
@@ -248,8 +247,8 @@ QList<MediaSegmentInfo> MediaSegmentProviderService::parseTheIntroDbSegments(con
     };
 
     QList<MediaSegmentInfo> segments;
-    const double durationSeconds = context.durationTicks > 0
-        ? static_cast<double>(context.durationTicks) / kTicksPerSecond
+    const double durationSeconds = context.durationMs > 0
+        ? static_cast<double>(context.durationMs) / 1000.0
         : 0.0;
 
     for (const Mapping &mapping : mappings) {
@@ -359,7 +358,7 @@ MediaSegmentInfo MediaSegmentProviderService::buildSegment(const MediaSegmentLoo
         return {};
     }
 
-    info.startTicks = static_cast<qint64>(startSeconds * kTicksPerSecond);
-    info.endTicks = static_cast<qint64>(endSeconds * kTicksPerSecond);
+    info.startMs = qRound64(startSeconds * 1000.0);
+    info.endMs = qRound64(endSeconds * 1000.0);
     return info;
 }
