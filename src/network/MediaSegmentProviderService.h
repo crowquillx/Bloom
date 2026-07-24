@@ -22,7 +22,7 @@ struct MediaSegmentLookupContext
     QString tvdbId;
     int seasonNumber = -1;
     int episodeNumber = -1;
-    qint64 durationTicks = 0;
+    qint64 durationMs = 0;
 };
 
 struct MediaSegmentProviderResult

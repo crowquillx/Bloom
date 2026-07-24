@@ -185,23 +185,22 @@ struct MediaSegmentInfo
     Q_PROPERTY(QString id MEMBER id)
     Q_PROPERTY(QString itemId MEMBER itemId)
     Q_PROPERTY(QString type MEMBER typeString)
-    Q_PROPERTY(qint64 startTicks MEMBER startTicks)
-    Q_PROPERTY(qint64 endTicks MEMBER endTicks)
+    Q_PROPERTY(qint64 startMs MEMBER startMs)
+    Q_PROPERTY(qint64 endMs MEMBER endMs)
 
 public:
     QString id;
     QString itemId;
     MediaSegmentType type = MediaSegmentType::Unknown;
     QString typeString;
-    qint64 startTicks = 0;
-    qint64 endTicks = 0;
+    qint64 startMs = 0;
+    qint64 endMs = 0;
     QString source;
     double confidence = 0.0;
     int submissionCount = 0;
 
-    [[nodiscard]] static MediaSegmentInfo fromJson(const QJsonObject &json);
-    [[nodiscard]] constexpr double startSeconds() const { return static_cast<double>(startTicks) / 10000000.0; }
-    [[nodiscard]] constexpr double endSeconds() const { return static_cast<double>(endTicks) / 10000000.0; }
+    [[nodiscard]] constexpr double startSeconds() const { return static_cast<double>(startMs) / 1000.0; }
+    [[nodiscard]] constexpr double endSeconds() const { return static_cast<double>(endMs) / 1000.0; }
 };
 
 struct TrickplayTileInfo
