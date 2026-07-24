@@ -32,10 +32,12 @@ FocusScope {
     property var movieResults: []
     property var seriesResults: []
     property var seerrResults: []
-    property bool isSearching: false
+    readonly property bool isSearching: waitingForLibrarySearch || waitingForSeerrSearch
     property bool hasSearched: false
     property bool waitingForLibrarySearch: false
     property bool waitingForSeerrSearch: false
+    property string pendingLibraryConnectionId: ""
+    property string pendingLibrarySearchTerm: ""
 
     /**
      * Scrolls contentFlickable so that @p item is fully within the visible viewport.
@@ -71,16 +73,18 @@ FocusScope {
         interval: 300
         repeat: false
         onTriggered: {
-            if (searchTerm.trim().length > 0) {
+            const normalizedSearchTerm = searchTerm.trim()
+            if (normalizedSearchTerm.length > 0) {
+                pendingLibraryConnectionId = LibraryService.getActiveConnectionId()
+                pendingLibrarySearchTerm = normalizedSearchTerm
                 waitingForLibrarySearch = true
                 hasSearched = false
-                isSearching = true
-                LibraryService.search(searchTerm.trim())
+                LibraryService.search(normalizedSearchTerm)
 
                 if (SeerrService.isConfigured()) {
                     waitingForSeerrSearch = true
                     seerrResults = []
-                    SeerrService.search(searchTerm.trim())
+                    SeerrService.search(normalizedSearchTerm)
                 } else {
                     waitingForSeerrSearch = false
                     seerrResults = []
@@ -89,7 +93,8 @@ FocusScope {
                 hasSearched = false
                 waitingForLibrarySearch = false
                 waitingForSeerrSearch = false
-                isSearching = false
+                pendingLibraryConnectionId = ""
+                pendingLibrarySearchTerm = ""
                 movieResults = []
                 seriesResults = []
                 seerrResults = []
@@ -120,33 +125,52 @@ FocusScope {
     
     Connections {
         target: LibraryService
-        
-        function onRandomItemsLoaded(items) {
-            suggestions = []
-            for (var i = 0; i < items.length; i++) {
-                suggestions.push(items[i])
+
+        function onCanonicalRandomItemsLoaded(connectionId, items) {
+            if (connectionId !== LibraryService.getActiveConnectionId()) {
+                return
             }
-            suggestionsChanged()
+            suggestions = items || []
         }
-        
-        function onSearchResultsLoaded(term, movies, series) {
-            if (term === searchTerm.trim()) {
-                waitingForLibrarySearch = false
-                isSearching = false
-                hasSearched = true
-                
-                movieResults = []
-                for (var i = 0; i < movies.length; i++) {
-                    movieResults.push(movies[i])
-                }
-                movieResultsChanged()
-                
-                seriesResults = []
-                for (var j = 0; j < series.length; j++) {
-                    seriesResults.push(series[j])
-                }
-                seriesResultsChanged()
+
+        function onCanonicalRandomItemsFailed(connectionId, error) {
+            if (connectionId === LibraryService.getActiveConnectionId()) {
+                suggestions = []
             }
+        }
+
+        function onCanonicalSearchResultsLoaded(connectionId, term, movies, series) {
+            if (connectionId !== pendingLibraryConnectionId
+                    || term !== pendingLibrarySearchTerm) {
+                return
+            }
+            waitingForLibrarySearch = false
+            pendingLibraryConnectionId = ""
+            pendingLibrarySearchTerm = ""
+            if (connectionId !== LibraryService.getActiveConnectionId()
+                    || term !== searchTerm.trim()) {
+                return
+            }
+            hasSearched = true
+            movieResults = movies || []
+            seriesResults = series || []
+        }
+
+        function onCanonicalSearchResultsFailed(connectionId, term, error) {
+            if (connectionId !== pendingLibraryConnectionId
+                    || term !== pendingLibrarySearchTerm) {
+                return
+            }
+            waitingForLibrarySearch = false
+            pendingLibraryConnectionId = ""
+            pendingLibrarySearchTerm = ""
+            if (connectionId !== LibraryService.getActiveConnectionId()
+                    || term !== searchTerm.trim()) {
+                return
+            }
+            hasSearched = true
+            movieResults = []
+            seriesResults = []
         }
     }
 
@@ -342,7 +366,7 @@ FocusScope {
                                     Text {
                                         id: suggestionText
                                         anchors.centerIn: parent
-                                        text: suggestionDelegate.modelData.Name || ""
+                                        text: suggestionDelegate.modelData.name || ""
                                         font.pixelSize: Theme.fontSizeBody
                                         font.family: Theme.fontPrimary
                                         color: suggestionDelegate.activeFocus ? Theme.accentPrimary : Theme.textPrimary
@@ -352,10 +376,10 @@ FocusScope {
                                 }
                                 
                                 onClicked: {
-                                    var item = modelData
-                                    if (item.Type === "Series") {
-                                        root.navigateToSeries(item.Id)
-                                    } else if (item.Type === "Movie") {
+                                    const item = modelData
+                                    if (item.mediaType === "Series") {
+                                        root.navigateToSeries(item.itemId)
+                                    } else if (item.mediaType === "Movie") {
                                         root.navigateToMovie(item)
                                     }
                                 }
@@ -489,7 +513,7 @@ FocusScope {
                                 isFocused: seriesDelegateScope.activeFocus
                                 
                                 onClicked: {
-                                    root.navigateToSeries(seriesDelegateScope.modelData.Id)
+                                    root.navigateToSeries(seriesDelegateScope.modelData.itemId)
                                 }
                             }
                             

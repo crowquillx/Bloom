@@ -139,7 +139,7 @@ FocusScope {
 
     function activateRecommendation(itemData, focusTarget) {
         cancelCountdown()
-        if (itemData && itemData.Source === "Seerr") {
+        if (itemData && itemData.source === "seerr") {
             seerrRequestDialog.openForItem(itemData, focusTarget)
             return
         }

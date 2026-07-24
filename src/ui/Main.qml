@@ -1102,13 +1102,11 @@ Window {
             // Connect navigateToMovie signal - show movie details view
             searchScreen.navigateToMovie.connect(function(movieData) {
                 playPointerSelectSound()
-                // Get library info from the movie data if available
-                var libraryId = movieData.ParentId || ""
-                var libraryName = movieData.LibraryName || ""
+                const libraryId = movieData.parentId || ""
                 stackView.push("LibraryScreen.qml", {
                     currentParentId: libraryId,
                     currentLibraryId: libraryId,
-                    currentLibraryName: libraryName,
+                    currentLibraryName: "",
                     currentMovieData: movieData,
                     showMovieDetails: true,
                     preferStackPopOnDirectBack: true
