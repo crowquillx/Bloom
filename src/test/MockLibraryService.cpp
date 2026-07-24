@@ -422,8 +422,7 @@ void MockLibraryService::getSeriesDetails(const QString &seriesId)
  * @param seriesId The series identifier to search episodes for.
  * @param excludeItemId An optional episode Id to skip; pass an empty string to skip none.
  *
- * @remarks Emits nextUnplayedEpisodeLoaded(seriesId, episode, requestContext) with the found episode as a QJsonObject,
- * or with an empty QJsonObject if no eligible episode is found.
+ * @remarks Emits the canonical next-episode signal with an empty map when no episode is eligible.
  */
 void MockLibraryService::getNextUnplayedEpisode(const QString &seriesId,
                                                 const QString &excludeItemId,
@@ -433,23 +432,9 @@ void MockLibraryService::getNextUnplayedEpisode(const QString &seriesId,
     const QVariantMap resolvedEpisode = NextEpisodeResolver::resolveBestNextEpisode(
         JellyfinModelMapper::mediaItems(wireEpisodes, QStringLiteral("mock-connection")),
         excludeItemId);
-
-    QJsonObject resolvedWireEpisode;
-    const QString resolvedItemId = resolvedEpisode.value(QStringLiteral("itemId")).toString();
-    if (!resolvedItemId.isEmpty()) {
-        for (const QJsonValue &value : wireEpisodes) {
-            if (value.isObject()
-                && value.toObject().value(QStringLiteral("Id")).toString() == resolvedItemId) {
-                resolvedWireEpisode = value.toObject();
-                break;
-            }
-        }
-    }
-
     qCDebug(lcTest) << "MockLibraryService::getNextUnplayedEpisode(" << seriesId
              << ", exclude:" << excludeItemId << ") ->"
              << (resolvedEpisode.isEmpty() ? "no eligible episodes" : "resolved");
-    emit nextUnplayedEpisodeLoaded(seriesId, resolvedWireEpisode, requestContext);
     emit canonicalNextUnplayedEpisodeLoaded(
         QStringLiteral("mock-connection"), seriesId, resolvedEpisode, requestContext);
 }

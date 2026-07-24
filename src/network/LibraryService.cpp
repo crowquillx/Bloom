@@ -1329,9 +1329,8 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
  * @brief Resolves the best next episode for a series, optionally skipping a specific episode.
  *
  * Fetches the recursive episode list for the series, resolves a canonical series order locally,
- * and emits the best next episode based on watch state. On success emits
- * nextUnplayedEpisodeLoaded(seriesId, episode, requestContext) where `episode` is the selected
- * episode object or an empty object if no eligible episode was found.
+ * and emits the best canonical next episode based on watch state. The episode map is empty when
+ * no eligible episode is available.
  *
  * @param seriesId The series identifier to query.
  * @param excludeItemId If non-empty, the returned episode will not have this Id; pass an empty string to allow any episode.
@@ -1401,20 +1400,6 @@ void LibraryService::getNextUnplayedEpisode(const QString &seriesId,
             const QJsonArray wireItems = root.value("Items").toArray();
             const QVariantMap selectedEpisode = NextEpisodeResolver::resolveBestNextEpisode(
                 m_authService->mapMediaItems(wireItems, connectionId), excludeItemId);
-
-            QJsonObject selectedWireEpisode;
-            const QString selectedItemId = selectedEpisode.value(QStringLiteral("itemId")).toString();
-            if (!selectedItemId.isEmpty()) {
-                for (const QJsonValue &value : wireItems) {
-                    if (value.isObject()
-                        && value.toObject().value(QStringLiteral("Id")).toString() == selectedItemId) {
-                        selectedWireEpisode = value.toObject();
-                        break;
-                    }
-                }
-            }
-
-            emit nextUnplayedEpisodeLoaded(seriesId, selectedWireEpisode, requestContext);
             emit canonicalNextUnplayedEpisodeLoaded(
                 connectionId, seriesId, selectedEpisode, requestContext);
         },

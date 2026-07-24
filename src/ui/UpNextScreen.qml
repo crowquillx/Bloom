@@ -25,7 +25,7 @@ FocusScope {
     property int lastAudioIndex: -1
     property int lastSubtitleIndex: -1
     property bool autoplay: false
-    readonly property bool hasNextEpisode: episodeId !== "" && !episodeData.NoNextEpisode
+    readonly property bool hasNextEpisode: episodeId !== "" && !episodeData.noNextEpisode
     
     // Tell Main.qml's global ESC shortcut to skip this screen
     readonly property bool handlesOwnBackNavigation: true
@@ -37,35 +37,25 @@ FocusScope {
     signal recommendationSelected(var itemData)
 
     // ---- Derived episode metadata ----
-    readonly property string episodeName: episodeData.Name || ""
-    readonly property string seriesName: episodeData.SeriesName || ""
-    readonly property int seasonNumber: episodeData.ParentIndexNumber || 0
-    readonly property int episodeNumber: episodeData.IndexNumber || 0
-    readonly property string overview: episodeData.Overview || ""
-    readonly property var runtimeTicks: episodeData.RunTimeTicks || 0
-    readonly property double communityRating: episodeData.CommunityRating || 0
-    readonly property string premiereDate: episodeData.PremiereDate || ""
+    readonly property string episodeName: episodeData.name || ""
+    readonly property string seriesName: episodeData.seriesName || ""
+    readonly property int seasonNumber: episodeData.parentIndexNumber || 0
+    readonly property int episodeNumber: episodeData.indexNumber || 0
+    readonly property string overview: episodeData.overview || ""
+    readonly property double durationMs: episodeData.durationMs || 0
+    readonly property double communityRating: episodeData.communityRating || 0
+    readonly property string premiereDate: episodeData.premiereDate || ""
     readonly property var recommendationItems: (typeof UpNextRecommendationsViewModel !== "undefined")
         ? UpNextRecommendationsViewModel.items : []
     readonly property bool hasRecommendations: !root.hasNextEpisode && recommendationItems.length > 0
 
     // ---- Thumbnail URL construction ----
-    readonly property string episodeId: episodeData.Id || ""
-    readonly property string thumbnailUrl: {
-        if (!episodeId || typeof LibraryService === 'undefined') return ""
-        // Try episode thumb, then primary, then series primary
-        var imageTags = episodeData.ImageTags || {}
-        if (imageTags.Thumb)
-            return LibraryService.getCachedImageUrlWithWidth(episodeId, "Thumb", 960)
-        if (imageTags.Primary)
-            return LibraryService.getCachedImageUrlWithWidth(episodeId, "Primary", 960)
-        // Fallback to series primary
-        var seriesPrimaryTag = episodeData.SeriesPrimaryImageTag || ""
-        var fallbackSeriesId = episodeData.SeriesId || seriesId
-        if (seriesPrimaryTag && fallbackSeriesId)
-            return LibraryService.getCachedImageUrlWithWidth(fallbackSeriesId, "Primary", 960)
-        return ""
-    }
+    readonly property string episodeId: episodeData.itemId || ""
+    readonly property string thumbnailUrl: artworkUrlFromRef(
+                                                   episodeData.thumbArtwork
+                                                   || episodeData.primaryArtwork
+                                                   || episodeData.seriesPrimaryArtwork,
+                                                   960)
 
     // ---- Countdown timer ----
     property int countdown: hasNextEpisode && autoplay
@@ -88,11 +78,24 @@ FocusScope {
     }
 
     // ---- Helper functions ----
-    function formatRuntime(ticks) {
-        if (!ticks || ticks <= 0) return ""
-        var totalMinutes = Math.round(ticks / 600000000)
-        var hours = Math.floor(totalMinutes / 60)
-        var minutes = totalMinutes % 60
+    function artworkUrlFromRef(artwork, width) {
+        if (!artwork || !artwork.itemId || typeof LibraryService === "undefined") {
+            return ""
+        }
+        return LibraryService.getCachedArtworkUrlForConnection(
+                    artwork.connectionId || "",
+                    artwork.itemId,
+                    artwork.kind || "primary",
+                    artwork.index || 0,
+                    artwork.tag || "",
+                    width || 960)
+    }
+
+    function formatRuntime(milliseconds) {
+        if (!milliseconds || milliseconds <= 0) return ""
+        const totalMinutes = Math.round(milliseconds / 60000)
+        const hours = Math.floor(totalMinutes / 60)
+        const minutes = totalMinutes % 60
         if (hours > 0) return hours + "h " + minutes + "m"
         return minutes + "m"
     }
@@ -437,8 +440,8 @@ FocusScope {
                     spacing: Theme.spacingMedium
 
                     Text {
-                        visible: root.runtimeTicks > 0
-                        text: root.formatRuntime(root.runtimeTicks)
+                        visible: root.durationMs > 0
+                        text: root.formatRuntime(root.durationMs)
                         font.pixelSize: Theme.fontSizeBody
                         font.family: Theme.fontPrimary
                         color: Theme.textSecondary

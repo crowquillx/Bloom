@@ -304,9 +304,9 @@ FocusScope {
 
     function restoreUpNextEpisodeContext(episodeData, fallbackSeriesId, audioIndex, subtitleIndex) {
         var itemData = Object.assign({}, episodeData || {})
-        var targetSeriesId = fallbackSeriesId || itemData.SeriesId || currentSeriesId || ""
-        var targetSeasonId = itemData.SeasonId || itemData.ParentId || currentSeasonId || ""
-        var targetEpisodeId = itemData.itemId || itemData.Id || ""
+        var targetSeriesId = fallbackSeriesId || itemData.seriesId || currentSeriesId || ""
+        var targetSeasonId = itemData.seasonId || itemData.parentId || currentSeasonId || ""
+        var targetEpisodeId = itemData.itemId || ""
 
         console.log("[Library] Restoring Up Next context",
                     "seriesId:", targetSeriesId,

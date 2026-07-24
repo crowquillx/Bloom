@@ -1323,15 +1323,15 @@ Window {
         
         function onNavigateToNextEpisode(episodeData, seriesId, lastAudioIndex, lastSubtitleIndex, autoplay) {
             var normalizedSeriesId = seriesId
-                || (episodeData ? (episodeData.SeriesId || episodeData.ParentId || "") : "")
-            var hasNextEpisode = episodeData && episodeData.Id && !episodeData.NoNextEpisode
+                || (episodeData ? (episodeData.seriesId || episodeData.parentId || "") : "")
+            var hasNextEpisode = episodeData && episodeData.itemId && !episodeData.noNextEpisode
             var returnScreen = stackView.currentItem
             var canReuseReturnScreen = returnScreen
                 && returnScreen["canRestoreUpNextEpisodeContext"] === true
                 && returnScreen["currentSeriesId"] === normalizedSeriesId
             console.log("[Main] Up Next screen for:",
-                        hasNextEpisode ? episodeData.SeriesName : "(no next episode)",
-                        hasNextEpisode ? ("S" + episodeData.ParentIndexNumber + "E" + episodeData.IndexNumber) : "",
+                        hasNextEpisode ? episodeData.seriesName : "(no next episode)",
+                        hasNextEpisode ? ("S" + episodeData.parentIndexNumber + "E" + episodeData.indexNumber) : "",
                         "Autoplay:", autoplay,
                         "Reuse return screen:", canReuseReturnScreen)
             
@@ -1376,12 +1376,6 @@ Window {
                     PlayerController.clearPendingAutoplayContext()
 
                     var targetEpisodeData = Object.assign({}, episodeData || {})
-                    if (!targetEpisodeData.itemId && targetEpisodeData.Id) {
-                        targetEpisodeData.itemId = targetEpisodeData.Id
-                    }
-                    if (!targetEpisodeData.SeasonId && targetEpisodeData.ParentId) {
-                        targetEpisodeData.SeasonId = targetEpisodeData.ParentId
-                    }
 
                     if (canReuseReturnScreen
                             && returnScreen
@@ -1397,8 +1391,8 @@ Window {
 
                     var libraryScreen
                     if (hasNextEpisode) {
-                        var targetSeasonId = targetEpisodeData.SeasonId || ""
-                        var targetEpisodeId = targetEpisodeData.itemId || targetEpisodeData.Id || ""
+                        var targetSeasonId = targetEpisodeData.seasonId || targetEpisodeData.parentId || ""
+                        var targetEpisodeId = targetEpisodeData.itemId || ""
 
                         libraryScreen = stackView.push("LibraryScreen.qml", {
                             currentParentId: "",
