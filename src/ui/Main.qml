@@ -1445,7 +1445,7 @@ Window {
                 })
 
                 upNextScreen.recommendationSelected.connect(function(itemData) {
-                    var recommendedSeriesId = itemData ? (itemData.Id || itemData.itemId || "") : ""
+                    const recommendedSeriesId = itemData ? (itemData.itemId || "") : ""
                     if (!recommendedSeriesId) {
                         console.warn("[Main] Up Next: Ignoring recommendation with missing id")
                         return
