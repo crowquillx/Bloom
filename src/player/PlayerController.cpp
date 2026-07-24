@@ -469,7 +469,7 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             this, &PlayerController::onItemLibraryResolved);
     connect(m_libraryService, &LibraryService::itemLibraryResolutionFailed,
             this, &PlayerController::onItemLibraryResolutionFailed);
-    connect(m_libraryService, &LibraryService::chaptersLoaded,
+    connect(m_libraryService, &LibraryService::canonicalChaptersLoaded,
             this, &PlayerController::onChaptersLoaded);
     connect(m_libraryService, &LibraryService::chaptersFailed,
             this, &PlayerController::onChaptersFailed);
@@ -3852,8 +3852,8 @@ void PlayerController::seekToPlaybackChapter(int index)
         return;
     }
     const QVariantMap chapter = m_playbackChapters.at(index).toMap();
-    const double startSeconds = chapter.value(QStringLiteral("startSeconds")).toDouble();
-    seek(startSeconds);
+    const qint64 startMs = chapter.value(QStringLiteral("startMs")).toLongLong();
+    seek(static_cast<double>(startMs) / 1000.0);
 }
 
 void PlayerController::toggleMute()
@@ -5779,7 +5779,8 @@ void PlayerController::updateCurrentPlaybackChapterIndex()
     int nextIndex = -1;
     for (int index = 0; index < m_playbackChapters.size(); ++index) {
         const QVariantMap chapter = m_playbackChapters.at(index).toMap();
-        if (chapter.value(QStringLiteral("startSeconds")).toDouble() <= m_currentPosition) {
+        if (chapter.value(QStringLiteral("startMs")).toLongLong()
+            <= qRound64(m_currentPosition * 1000.0)) {
             nextIndex = index;
         } else {
             break;
@@ -5791,24 +5792,35 @@ void PlayerController::updateCurrentPlaybackChapterIndex()
     }
 }
 
-void PlayerController::onChaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters)
+void PlayerController::onChaptersLoaded(const QString &connectionId,
+                                         const QString &itemId,
+                                         const QVariantList &chapters)
 {
-    if (itemId != m_currentItemId) {
+    if (itemId != m_currentItemId
+        || (!connectionId.isEmpty()
+            && connectionId != m_libraryService->getActiveConnectionId())) {
         return;
     }
 
     QVariantList chapterModels;
     chapterModels.reserve(chapters.size());
-    qCInfo(lcPlayback) << "PlayerController: Normalizing playback chapters for item" << itemId
+    qCInfo(lcPlayback) << "PlayerController: Loaded canonical playback chapters for item" << itemId
             << "count" << chapters.size();
-    for (const ChapterInfo &chapter : chapters) {
-        const QString thumbnailUrl = m_libraryService->getCachedChapterThumbnailUrl(
-            itemId, chapter.index, chapter.imageTag, chapter.imagePath);
-        qCInfo(lcPlayback) << "PlayerController: Playback chapter thumbnail"
-                << "item" << itemId
-                << "index" << chapter.index
-                << "hasThumbnailUrl" << !thumbnailUrl.isEmpty();
-        chapterModels.append(chapter.toVariantMap(thumbnailUrl));
+    for (qsizetype index = 0; index < chapters.size(); ++index) {
+        QVariantMap chapter = chapters.at(index).toMap();
+        const QVariantMap artwork = chapter.value(QStringLiteral("artwork")).toMap();
+        const QString thumbnailUrl = artwork.isEmpty()
+            ? QString()
+            : m_libraryService->getCachedArtworkUrlForConnection(
+                  artwork.value(QStringLiteral("connectionId")).toString(),
+                  artwork.value(QStringLiteral("itemId")).toString(),
+                  artwork.value(QStringLiteral("kind")).toString(),
+                  artwork.value(QStringLiteral("index")).toInt(),
+                  artwork.value(QStringLiteral("tag")).toString(),
+                  640);
+        chapter.insert(QStringLiteral("index"), index);
+        chapter.insert(QStringLiteral("thumbnailUrl"), thumbnailUrl);
+        chapterModels.append(chapter);
     }
 
     m_playbackChapters = chapterModels;

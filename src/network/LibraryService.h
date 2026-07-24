@@ -196,7 +196,6 @@ signals:
     void itemNotModified(const QString &itemId, const QString &requestContext);
     void itemFailed(const QString &itemId, const QString &error, const QString &requestContext);
     void itemUserDataChanged(const QString &itemId, const QJsonObject &userData);
-    void chaptersLoaded(const QString &itemId, const QList<ChapterInfo> &chapters);
     void canonicalChaptersLoaded(const QString &connectionId,
                                  const QString &itemId,
                                  const QVariantList &chapters);
