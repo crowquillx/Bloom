@@ -12,6 +12,7 @@ Item {
     property bool active: ScreensaverController.active
     property var focusWindow: null
     property var items: []
+    property string itemsConnectionId: ""
     property int currentIndex: -1
     property int placementIndex: 0
     property bool showBackdropA: true
@@ -39,6 +40,10 @@ Item {
                 savedNavigationMode = InputModeManager.pointerActive ? "pointer" : "keyboard"
                 InputModeManager.setNavigationMode("keyboard")
                 InputModeManager.hideCursor(true)
+            }
+            const activeConnectionId = LibraryService.getActiveConnectionId()
+            if (itemsConnectionId !== activeConnectionId) {
+                resetArtwork()
             }
             if (artworkMode && items.length === 0) {
                 LibraryService.getScreensaverItems(80)
@@ -84,6 +89,12 @@ Item {
 
     Connections {
         target: AuthenticationService
+        function onLoginSuccess() {
+            root.resetArtwork()
+            if (root.visible && root.artworkMode) {
+                LibraryService.getScreensaverItems(80)
+            }
+        }
         function onLoggedOut() { root.resetArtwork() }
         function onSessionExpired() { root.resetArtwork() }
         function onSessionExpiredAfterPlayback() { root.resetArtwork() }
@@ -91,6 +102,7 @@ Item {
 
     function resetArtwork() {
         root.items = []
+        root.itemsConnectionId = ""
         root.currentIndex = -1
         root.placementIndex = 0
         root.showBackdropA = true
@@ -98,12 +110,29 @@ Item {
         root.backdropBUrl = ""
     }
 
+    function artworkUrlFor(artwork, fallbackKind, width) {
+        if (!artwork || !artwork.itemId) {
+            return ""
+        }
+        const kind = artwork.kind || fallbackKind
+        if (!kind) {
+            return ""
+        }
+        return LibraryService.getCachedArtworkUrlForConnection(
+                    artwork.connectionId || "",
+                    artwork.itemId,
+                    kind,
+                    artwork.index || 0,
+                    artwork.tag || "",
+                    width)
+    }
+
     function backdropUrlFor(item) {
-        return item && item.BackdropUrl ? item.BackdropUrl : ""
+        return item ? artworkUrlFor(item.backdropArtwork, "backdrop", 1920) : ""
     }
 
     function logoUrlFor(item) {
-        return item && item.LogoUrl ? item.LogoUrl : ""
+        return item ? artworkUrlFor(item.logoArtwork, "logo", 700) : ""
     }
 
     function selectNextItem() {
@@ -248,7 +277,7 @@ Item {
         }
 
         Text {
-            text: root.currentItem.Name || root.currentItem.SeriesName || ""
+            text: root.currentItem.name || root.currentItem.seriesName || ""
             visible: !root.bouncingLogoMode && !staticLogo.visible
             width: metadataBlock.width
             color: Qt.rgba(1, 1, 1, 0.78)
@@ -261,7 +290,7 @@ Item {
         }
 
         Text {
-            text: root.currentItem.Overview || ""
+            text: root.currentItem.overview || ""
             width: metadataBlock.width
             color: Qt.rgba(1, 1, 1, 0.62)
             font.family: Theme.fontPrimary
@@ -293,7 +322,7 @@ Item {
                  && root.bouncingLogoMode
                  && root.currentIndex >= 0
                  && (bouncingLogo.source.toString().length === 0 || bouncingLogo.status === Image.Error)
-        text: root.currentItem.Name || ""
+        text: root.currentItem.name || ""
         x: root.logoX
         y: root.logoY
         width: Math.min(Math.round(360 * Theme.layoutScale), root.width * 0.32)
@@ -341,13 +370,20 @@ Item {
 
     Connections {
         target: LibraryService
-        function onScreensaverItemsLoaded(loadedItems) {
-            if (!root.visible) {
+        function onCanonicalScreensaverItemsLoaded(connectionId, loadedItems) {
+            if (!root.visible || connectionId !== LibraryService.getActiveConnectionId()) {
                 return
             }
             root.items = loadedItems || []
+            root.itemsConnectionId = connectionId
             root.currentIndex = -1
             root.selectNextItem()
+        }
+
+        function onCanonicalScreensaverItemsFailed(connectionId, error) {
+            if (root.visible && connectionId === LibraryService.getActiveConnectionId()) {
+                root.resetArtwork()
+            }
         }
     }
 }

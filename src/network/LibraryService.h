@@ -214,7 +214,10 @@ signals:
                                           const QVariantList &items);
     void canonicalHomeBackdropItemsFailed(const QString &connectionId,
                                           const QString &error);
-    void screensaverItemsLoaded(const QJsonArray &items);
+    void canonicalScreensaverItemsLoaded(const QString &connectionId,
+                                         const QVariantList &items);
+    void canonicalScreensaverItemsFailed(const QString &connectionId,
+                                         const QString &error);
     void seriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void canonicalSeriesDetailsLoaded(const QString &connectionId,
                                       const QString &seriesId,
