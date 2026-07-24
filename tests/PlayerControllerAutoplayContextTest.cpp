@@ -218,7 +218,7 @@ public:
     struct Report
     {
         QString itemId;
-        qint64 positionTicks = 0;
+        qint64 positionMs = 0;
         QString mediaSourceId;
         int audioStreamIndex = -1;
         int subtitleStreamIndex = -1;
@@ -300,7 +300,7 @@ public:
         requestedAdditionalPartsContexts.append(requestContext);
     }
 
-    void reportPlaybackProgress(const QString &itemId, qint64 positionTicks,
+    void reportPlaybackProgress(const QString &itemId, qint64 positionMs,
                                 const QString &mediaSourceId,
                                 int audioStreamIndex, int subtitleStreamIndex,
                                 const QString &playSessionId,
@@ -311,12 +311,12 @@ public:
     {
         Q_UNUSED(repeatMode);
         Q_UNUSED(playbackOrder);
-        progressReports.append({itemId, positionTicks, mediaSourceId, audioStreamIndex,
+        progressReports.append({itemId, positionMs, mediaSourceId, audioStreamIndex,
                                 subtitleStreamIndex, playSessionId, canSeek, isPaused,
                                 isMuted, playMethod});
     }
 
-    void reportPlaybackStopped(const QString &itemId, qint64 positionTicks,
+    void reportPlaybackStopped(const QString &itemId, qint64 positionMs,
                                const QString &mediaSourceId,
                                int audioStreamIndex, int subtitleStreamIndex,
                                const QString &playSessionId,
@@ -327,7 +327,7 @@ public:
     {
         Q_UNUSED(repeatMode);
         Q_UNUSED(playbackOrder);
-        stoppedReports.append({itemId, positionTicks, mediaSourceId, audioStreamIndex,
+        stoppedReports.append({itemId, positionMs, mediaSourceId, audioStreamIndex,
                                subtitleStreamIndex, playSessionId, canSeek, isPaused,
                                isMuted, playMethod});
     }
@@ -834,7 +834,7 @@ void PlayerControllerAutoplayContextTest::explicitStopReportsFinalProgressAndSto
     const FakePlaybackService::Report progress = playbackService.progressReports.first();
     const FakePlaybackService::Report stopped = playbackService.stoppedReports.first();
     QCOMPARE(progress.itemId, QStringLiteral("item-1"));
-    QCOMPARE(progress.positionTicks, 425000000LL);
+    QCOMPARE(progress.positionMs, 42500LL);
     QCOMPARE(progress.mediaSourceId, QStringLiteral("media-source-1"));
     QCOMPARE(progress.audioStreamIndex, 2);
     QCOMPARE(progress.subtitleStreamIndex, 5);
@@ -842,7 +842,7 @@ void PlayerControllerAutoplayContextTest::explicitStopReportsFinalProgressAndSto
     QVERIFY(progress.canSeek);
     QVERIFY(!progress.isPaused);
     QCOMPARE(stopped.itemId, progress.itemId);
-    QCOMPARE(stopped.positionTicks, progress.positionTicks);
+    QCOMPARE(stopped.positionMs, progress.positionMs);
     QCOMPARE(stopped.mediaSourceId, progress.mediaSourceId);
     QCOMPARE(stopped.audioStreamIndex, progress.audioStreamIndex);
     QCOMPARE(stopped.subtitleStreamIndex, progress.subtitleStreamIndex);
@@ -922,7 +922,7 @@ void PlayerControllerAutoplayContextTest::explicitMultipartStopReportsActiveSegm
             {QStringLiteral("playSessionId"), QStringLiteral("session-1")},
             {QStringLiteral("audioIndex"), 2},
             {QStringLiteral("subtitleIndex"), -1},
-            {QStringLiteral("runTimeTicks"), 600000000LL}
+            {QStringLiteral("durationMs"), 60000LL}
         },
         QVariantMap{
             {QStringLiteral("itemId"), QStringLiteral("part-2")},
@@ -930,7 +930,7 @@ void PlayerControllerAutoplayContextTest::explicitMultipartStopReportsActiveSegm
             {QStringLiteral("playSessionId"), QStringLiteral("session-2")},
             {QStringLiteral("audioIndex"), 3},
             {QStringLiteral("subtitleIndex"), 7},
-            {QStringLiteral("runTimeTicks"), 600000000LL}
+            {QStringLiteral("durationMs"), 60000LL}
         }
     };
 
@@ -942,11 +942,11 @@ void PlayerControllerAutoplayContextTest::explicitMultipartStopReportsActiveSegm
     const FakePlaybackService::Report progress = playbackService.progressReports.first();
     const FakePlaybackService::Report stopped = playbackService.stoppedReports.first();
     QCOMPARE(progress.itemId, QStringLiteral("part-2"));
-    QCOMPARE(progress.positionTicks, 100000000LL);
+    QCOMPARE(progress.positionMs, 10000LL);
     QCOMPARE(progress.mediaSourceId, QStringLiteral("part-2-source"));
     QCOMPARE(progress.playSessionId, QStringLiteral("session-2"));
     QCOMPARE(stopped.itemId, QStringLiteral("part-2"));
-    QCOMPARE(stopped.positionTicks, 100000000LL);
+    QCOMPARE(stopped.positionMs, 10000LL);
     QCOMPARE(stopped.mediaSourceId, QStringLiteral("part-2-source"));
     QCOMPARE(stopped.playSessionId, QStringLiteral("session-2"));
     QCOMPARE(stopped.audioStreamIndex, 3);
@@ -3190,7 +3190,7 @@ void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntil
             {QStringLiteral("subtitleIndex"), -1},
             {QStringLiteral("availableAudioTracks"), controller.buildAvailableTrackOptions(part1Source, QStringLiteral("Audio"))},
             {QStringLiteral("availableSubtitleTracks"), controller.buildAvailableTrackOptions(part1Source, QStringLiteral("Subtitle"))},
-            {QStringLiteral("runTimeTicks"), 600000000LL},
+            {QStringLiteral("durationMs"), 60000LL},
             {QStringLiteral("url"), QStringLiteral("https://example.invalid/part-1")}
         },
         QVariantMap{
@@ -3202,7 +3202,7 @@ void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntil
             {QStringLiteral("subtitleIndex"), -1},
             {QStringLiteral("availableAudioTracks"), controller.buildAvailableTrackOptions(part2Source, QStringLiteral("Audio"))},
             {QStringLiteral("availableSubtitleTracks"), controller.buildAvailableTrackOptions(part2Source, QStringLiteral("Subtitle"))},
-            {QStringLiteral("runTimeTicks"), 600000000LL},
+            {QStringLiteral("durationMs"), 60000LL},
             {QStringLiteral("url"), QStringLiteral("https://example.invalid/part-2")}
         }
     };
@@ -3216,7 +3216,7 @@ void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntil
 
     controller.onPlaylistPositionChanged(1);
     QCOMPARE(controller.m_activePlaybackSegmentIndex, 1);
-    QCOMPARE(controller.m_activePlaybackSegmentOffsetTicks, 600000000LL);
+    QCOMPARE(controller.m_activePlaybackSegmentOffsetMs, 60000LL);
     QCOMPARE(controller.m_mediaSourceId, QStringLiteral("part-2-source"));
     QCOMPARE(controller.m_playSessionId, QStringLiteral("session-2"));
     QCOMPARE(controller.activePlaybackSegmentItemId(), QStringLiteral("part-2"));

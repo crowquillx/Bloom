@@ -103,8 +103,8 @@ Key components
 - MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
 - PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
 - PlayerController: provider-neutral state machine that handles play/pause/resume, listens for backend updates, manages track selection, and sends canonical playback state through `PlaybackService`.
-- `IPlaybackProvider` / `JellyfinPlaybackProvider`: finalize provider PlaybackInfo into Bloom `PlaybackDescriptor` values, including the authenticated stream request, canonical timing/tracks, playback method, and session identity.
-- PlaybackService: stable application façade for playback preparation and provider-specific reporting transport.
+- `IPlaybackProvider` / `JellyfinPlaybackProvider`: finalize provider PlaybackInfo into Bloom `PlaybackDescriptor` values and serialize canonical playback reports into provider endpoints and wire payloads.
+- PlaybackService: stable application façade for playback preparation and reporting transport; its public timing contract uses milliseconds.
 - TrackPreferencesManager: persists explicit audio/subtitle user choices to a separate JSON file using a versioned schema.
 
 HDR and Dolby Vision policy

@@ -13,4 +13,6 @@ public:
         int selectedSubtitleTrack,
         qint64 startPositionMs,
         const QString &playbackSessionId = QString()) const override;
+
+    PlaybackReportRequest createReportRequest(const PlaybackReport &report) const override;
 };

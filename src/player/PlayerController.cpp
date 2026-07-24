@@ -1099,7 +1099,7 @@ void PlayerController::onEnterPausedState()
         : segment.value(QStringLiteral("itemId")).toString();
     if (!reportItemId.isEmpty()) {
         m_playbackService->reportPlaybackPaused(reportItemId,
-                                                currentReportingPositionTicks(),
+                                                currentReportingPositionMs(),
                                                 segment.isEmpty() ? m_mediaSourceId : segment.value(QStringLiteral("mediaSourceId")).toString(),
                                                 segment.isEmpty() ? m_selectedAudioTrack : segment.value(QStringLiteral("audioIndex")).toInt(),
                                                 segment.isEmpty() ? m_selectedSubtitleTrack : segment.value(QStringLiteral("subtitleIndex")).toInt(),
@@ -1236,7 +1236,7 @@ void PlayerController::onPositionChanged(double seconds)
 {
     double previousPosition = m_currentPosition;
     m_segmentRelativePosition = seconds;
-    const double offsetSeconds = static_cast<double>(m_activePlaybackSegmentOffsetTicks) / 10000000.0;
+    const double offsetSeconds = static_cast<double>(m_activePlaybackSegmentOffsetMs) / 1000.0;
     const double aggregatePosition = offsetSeconds + seconds;
     m_currentPosition = aggregatePosition;
     if (m_reportProgressOnNextPositionUpdate
@@ -1347,7 +1347,7 @@ void PlayerController::onPauseChanged(bool paused)
         processEvent(Event::Pause);
     } else if (!paused && m_playbackState == Paused) {
         // Report resume to server
-        m_playbackService->reportPlaybackResumed(reportItemId, currentReportingPositionTicks(),
+        m_playbackService->reportPlaybackResumed(reportItemId, currentReportingPositionMs(),
                                                  segment.isEmpty() ? m_mediaSourceId : segment.value(QStringLiteral("mediaSourceId")).toString(),
                                                  segment.isEmpty() ? m_selectedAudioTrack : segment.value(QStringLiteral("audioIndex")).toInt(),
                                                  segment.isEmpty() ? m_selectedSubtitleTrack : segment.value(QStringLiteral("subtitleIndex")).toInt(),
@@ -1390,11 +1390,11 @@ void PlayerController::onPlaylistPositionChanged(int index)
 
     const QVariantMap previousSegment = activePlaybackSegment();
     if (!previousSegment.isEmpty()) {
-        qint64 stopTicks = previousSegment.value(QStringLiteral("runTimeTicks")).toLongLong();
-        if (stopTicks <= 0) {
-            stopTicks = currentReportingPositionTicks();
+        qint64 stopMs = previousSegment.value(QStringLiteral("durationMs")).toLongLong();
+        if (stopMs <= 0) {
+            stopMs = currentReportingPositionMs();
         }
-        reportPlaybackStopForSegment(previousSegment, stopTicks);
+        reportPlaybackStopForSegment(previousSegment, stopMs);
     }
 
     applyPlaybackSegment(index, m_playbackState == Playing || m_playbackState == Paused);
@@ -1638,7 +1638,7 @@ bool PlayerController::stashRecoveryContextForCurrentPlayback()
     m_recoveryContext.isHDR = m_contentIsHDR;
     m_recoveryContext.playbackSegments = m_playbackSegments;
     m_recoveryContext.activePlaybackSegmentIndex = m_activePlaybackSegmentIndex;
-    m_recoveryContext.activePlaybackSegmentOffsetTicks = m_activePlaybackSegmentOffsetTicks;
+    m_recoveryContext.activePlaybackSegmentOffsetMs = m_activePlaybackSegmentOffsetMs;
     m_recoveryContext.segmentRelativePosition = m_segmentRelativePosition;
     m_recoveryContext.valid = true;
 
@@ -2091,6 +2091,7 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
                       resolved.subtitleIndex,
                       availableAudioTracks,
                       availableSubtitleTracks,
+                      descriptor.durationMs,
                       videoFramerateForMediaSource(mediaSource),
                       mediaSourceIsHdr(mediaSource),
                       kindShouldToneMapToSdr(classifyMediaSourceHdr(mediaSource),
@@ -2452,6 +2453,7 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
                       firstSegment.value(QStringLiteral("subtitleIndex"), -1).toInt(),
                       firstSegment.value(QStringLiteral("availableAudioTracks")).toList(),
                       firstSegment.value(QStringLiteral("availableSubtitleTracks")).toList(),
+                      firstSegment.value(QStringLiteral("durationMs")).toLongLong(),
                       firstSegment.value(QStringLiteral("framerate")).toDouble(),
                       firstSegment.value(QStringLiteral("isHDR")).toBool(),
                       firstSegment.value(QStringLiteral("toneMapToSdr")).toBool());
@@ -2582,8 +2584,7 @@ QVariantMap PlayerController::resolveSegmentPlaybackContext(const QString &scope
         {QStringLiteral("framerate"), videoFramerateForMediaSource(resolvedSource)},
         {QStringLiteral("isHDR"), kindIsHdr(hdrKind)},
         {QStringLiteral("hdrKind"), QString::fromLatin1(hdrContentKindName(hdrKind))},
-        {QStringLiteral("toneMapToSdr"), kindShouldToneMapToSdr(hdrKind, m_config->getDolbyVisionFallbackMode())},
-        {QStringLiteral("runTimeTicks"), resolvedSource.value(QStringLiteral("runTimeTicks")).toLongLong()}
+        {QStringLiteral("toneMapToSdr"), kindShouldToneMapToSdr(hdrKind, m_config->getDolbyVisionFallbackMode())}
     };
 }
 
@@ -2637,6 +2638,7 @@ QVariantList PlayerController::buildMultipartSegments(const QVariantMap &request
         primaryDescriptor.stream.pinnedAudioTrackId.toInt();
     primarySegment[QStringLiteral("pinnedSubtitleTrack")] =
         primaryDescriptor.stream.pinnedSubtitleTrackId.toInt();
+    primarySegment[QStringLiteral("durationMs")] = primaryDescriptor.durationMs;
     segments.append(primarySegment);
 
     for (const PendingPlaybackRequest &pendingRequest : m_pendingPlaybackRequests) {
@@ -2693,6 +2695,7 @@ QVariantList PlayerController::buildMultipartSegments(const QVariantMap &request
                 partDescriptor.stream.pinnedAudioTrackId.toInt();
             segment[QStringLiteral("pinnedSubtitleTrack")] =
                 partDescriptor.stream.pinnedSubtitleTrackId.toInt();
+            segment[QStringLiteral("durationMs")] = partDescriptor.durationMs;
             segments.append(segment);
         }
         break;
@@ -2705,7 +2708,7 @@ void PlayerController::clearPlaybackSegments()
 {
     m_playbackSegments.clear();
     m_activePlaybackSegmentIndex = -1;
-    m_activePlaybackSegmentOffsetTicks = 0;
+    m_activePlaybackSegmentOffsetMs = 0;
     m_segmentRelativePosition = 0.0;
     m_aggregatePlaybackDuration = 0.0;
     m_pendingPlaylistAppendUrls.clear();
@@ -2735,9 +2738,9 @@ void PlayerController::applyPlaybackSegment(int index, bool reportSegmentStart)
     }
 
     m_activePlaybackSegmentIndex = index;
-    m_activePlaybackSegmentOffsetTicks = 0;
+    m_activePlaybackSegmentOffsetMs = 0;
     for (int i = 0; i < index; ++i) {
-        m_activePlaybackSegmentOffsetTicks += m_playbackSegments.at(i).value(QStringLiteral("runTimeTicks")).toLongLong();
+        m_activePlaybackSegmentOffsetMs += m_playbackSegments.at(i).value(QStringLiteral("durationMs")).toLongLong();
     }
     m_segmentRelativePosition = 0.0;
 
@@ -2794,17 +2797,12 @@ void PlayerController::applyPlaybackSegment(int index, bool reportSegmentStart)
     }
 }
 
-qint64 PlayerController::currentReportingPositionTicks() const
+qint64 PlayerController::currentReportingPositionMs() const
 {
     if (m_activePlaybackSegmentIndex >= 0) {
-        return static_cast<qint64>(m_segmentRelativePosition * 10000000.0);
+        return qRound64(m_segmentRelativePosition * 1000.0);
     }
-    return static_cast<qint64>(m_currentPosition * 10000000.0);
-}
-
-qint64 PlayerController::currentAggregatePositionTicks() const
-{
-    return static_cast<qint64>(m_currentPosition * 10000000.0);
+    return qRound64(m_currentPosition * 1000.0);
 }
 
 void PlayerController::reportPlaybackStartForSegment(const QVariantMap &segment)
@@ -2829,7 +2827,7 @@ void PlayerController::reportPlaybackStartForSegment(const QVariantMap &segment)
                                            m_playMethod);
 }
 
-void PlayerController::reportPlaybackStopForSegment(const QVariantMap &segment, qint64 positionTicks)
+void PlayerController::reportPlaybackStopForSegment(const QVariantMap &segment, qint64 positionMs)
 {
     if (segment.isEmpty() || !m_playbackService) {
         return;
@@ -2841,7 +2839,7 @@ void PlayerController::reportPlaybackStopForSegment(const QVariantMap &segment, 
     }
 
     m_playbackService->reportPlaybackStopped(itemId,
-                                             positionTicks,
+                                             positionMs,
                                              segment.value(QStringLiteral("mediaSourceId")).toString(),
                                              segment.value(QStringLiteral("audioIndex"), -1).toInt(),
                                              segment.value(QStringLiteral("subtitleIndex"), -1).toInt(),
@@ -2919,9 +2917,8 @@ QString PlayerController::buildVersionSubtitle(const QVariantMap &mediaSource) c
  * currently stashed autoplay parameters. Clears the pending autoplay context on success
  * or if the episode data is invalid.
  *
- * @param episodeData JSON object describing the episode. If present, the function reads
- *                    "Id", "Name", "SeriesName", "ParentIndexNumber" (season), "IndexNumber"
- *                    (episode), and "UserData.PlaybackPositionTicks" (resume position).
+ * @param episodeData Provider episode object. Identity and display fields retain the legacy
+ *                    compatibility shape; resume timing is normalized through the active adapter.
  * @param seriesId    Series identifier associated with the episode (used for playback metadata).
  */
 void PlayerController::playNextEpisode(const QJsonObject &episodeData, const QString &seriesId)
@@ -3312,7 +3309,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
                 QVariant::fromValue(requestedPlaybackAttemptId);
             m_playbackSegments.append(segmentMap);
             m_aggregatePlaybackDuration += static_cast<double>(
-                segmentMap.value(QStringLiteral("runTimeTicks")).toLongLong()) / 10000000.0;
+                segmentMap.value(QStringLiteral("durationMs")).toLongLong()) / 1000.0;
         }
         if (!m_playbackSegments.isEmpty()) {
             if (m_aggregatePlaybackDuration > 0.0) {
@@ -4165,7 +4162,8 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
                                          int audioStreamIndex, int subtitleStreamIndex,
                                          const QVariantList &availableAudioTracks,
                                          const QVariantList &availableSubtitleTracks,
-                                         double framerate, bool isHDR, bool toneMapToSdr)
+                                         qint64 durationMs, double framerate,
+                                         bool isHDR, bool toneMapToSdr)
 {
     qCDebug(lcPlayback) << "PlayerController: playUrlWithTracks called with itemId:" << itemId
              << "audioIndex:" << audioStreamIndex
@@ -4199,7 +4197,7 @@ void PlayerController::playUrlWithTracks(const QString &url, const QString &item
                 {QStringLiteral("subtitleIndex"), subtitleStreamIndex},
                 {QStringLiteral("availableAudioTracks"), resolvedAvailableAudioTracks},
                 {QStringLiteral("availableSubtitleTracks"), resolvedAvailableSubtitleTracks},
-                {QStringLiteral("runTimeTicks"), mediaSource.value(QStringLiteral("runTimeTicks")).toLongLong()},
+                {QStringLiteral("durationMs"), durationMs},
                 {QStringLiteral("playMethod"), requestedPlayMethod},
                 {QStringLiteral("pinsAudioTrack"), requestedPinsAudioTrack},
                 {QStringLiteral("pinsSubtitleTrack"), requestedPinsSubtitleTrack},
@@ -4815,7 +4813,7 @@ void PlayerController::reportPlaybackProgress()
         : segment.value(QStringLiteral("itemId")).toString();
     if (!reportItemId.isEmpty() && m_playbackService && m_playbackState == Playing) {
         m_playbackService->reportPlaybackProgress(reportItemId,
-                                                  currentReportingPositionTicks(),
+                                                  currentReportingPositionMs(),
                                                   segment.isEmpty() ? m_mediaSourceId : segment.value(QStringLiteral("mediaSourceId")).toString(),
                                                   segment.isEmpty() ? m_selectedAudioTrack : segment.value(QStringLiteral("audioIndex")).toInt(),
                                                   segment.isEmpty() ? m_selectedSubtitleTrack : segment.value(QStringLiteral("subtitleIndex")).toInt(),
@@ -4834,7 +4832,7 @@ void PlayerController::reportPlaybackProgressNow()
     if (!reportItemId.isEmpty() && m_playbackService
         && (m_playbackState == Playing || m_playbackState == Paused)) {
         m_playbackService->reportPlaybackProgress(reportItemId,
-                                                  currentReportingPositionTicks(),
+                                                  currentReportingPositionMs(),
                                                   segment.isEmpty() ? m_mediaSourceId : segment.value(QStringLiteral("mediaSourceId")).toString(),
                                                   segment.isEmpty() ? m_selectedAudioTrack : segment.value(QStringLiteral("audioIndex")).toInt(),
                                                   segment.isEmpty() ? m_selectedSubtitleTrack : segment.value(QStringLiteral("subtitleIndex")).toInt(),
@@ -4865,7 +4863,7 @@ PlayerController::PlaybackStopReportSnapshot PlayerController::capturePlaybackSt
     snapshot.playSessionId = segment.isEmpty()
         ? m_playSessionId
         : segment.value(QStringLiteral("playSessionId")).toString();
-    snapshot.positionTicks = currentReportingPositionTicks();
+    snapshot.positionMs = currentReportingPositionMs();
     snapshot.canSeek = m_duration > 0.0;
     snapshot.isPaused = m_playbackState == Paused;
     snapshot.isMuted = m_muted;
@@ -4893,7 +4891,7 @@ void PlayerController::reportPlaybackStop()
                            << "position=" << snapshot.aggregatePositionSeconds << "s /" << snapshot.durationSeconds << "s"
                            << "(" << percentage << "%)";
         m_playbackService->reportPlaybackProgress(snapshot.itemId,
-                                                  snapshot.positionTicks,
+                                                  snapshot.positionMs,
                                                   snapshot.mediaSourceId,
                                                   snapshot.audioStreamIndex,
                                                   snapshot.subtitleStreamIndex,
@@ -4903,7 +4901,7 @@ void PlayerController::reportPlaybackStop()
                                                   snapshot.isMuted,
                                                   snapshot.playMethod);
         m_playbackService->reportPlaybackStopped(snapshot.itemId,
-                                                 snapshot.positionTicks,
+                                                 snapshot.positionMs,
                                                  snapshot.mediaSourceId,
                                                  snapshot.audioStreamIndex,
                                                  snapshot.subtitleStreamIndex,
