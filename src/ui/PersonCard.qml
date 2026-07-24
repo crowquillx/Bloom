@@ -45,9 +45,6 @@ FocusScope {
                                     artwork.tag || "",
                                     360)
                     }
-                    if (personCard.itemData.Id && personCard.itemData.PrimaryImageTag) {
-                        return LibraryService.getCachedImageUrlWithWidth(personCard.itemData.Id, "Primary", 360)
-                    }
                     return ""
                 }
                 fillMode: Image.PreserveAspectCrop
@@ -109,7 +106,7 @@ FocusScope {
             ScrollingCardLabel {
                 id: castNameLabel
                 anchors.fill: parent
-                text: personCard.itemData.name || personCard.itemData.Name || ""
+                text: personCard.itemData.name || ""
                 fontPixelSize: Theme.fontSizeSmall
                 fontWeight: Font.DemiBold
                 textColor: Theme.textPrimary
@@ -126,7 +123,6 @@ FocusScope {
                 id: castSubtitleLabel
                 anchors.fill: parent
                 text: personCard.itemData.subtitle
-                      || personCard.itemData.Subtitle
                       || personCard.itemData.role
                       || personCard.itemData.kind
                       || ""

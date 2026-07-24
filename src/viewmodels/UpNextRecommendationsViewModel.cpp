@@ -15,24 +15,24 @@ UpNextRecommendationsViewModel::UpNextRecommendationsViewModel(QObject *parent)
     m_seerrService = ServiceLocator::tryGet<SeerrService>();
 
     if (m_libraryService) {
-        connect(m_libraryService, &LibraryService::similarItemsLoaded,
+        connect(m_libraryService, &LibraryService::canonicalSimilarItemsLoadedForConnection,
                 this, &UpNextRecommendationsViewModel::onSimilarItemsLoaded);
-        connect(m_libraryService, &LibraryService::similarItemsFailed,
+        connect(m_libraryService, &LibraryService::canonicalSimilarItemsFailedForConnection,
                 this, &UpNextRecommendationsViewModel::onSimilarItemsFailed);
-        connect(m_libraryService, &LibraryService::seriesDetailsLoaded,
+        connect(m_libraryService, &LibraryService::canonicalSeriesDetailsLoaded,
                 this, &UpNextRecommendationsViewModel::onSeriesDetailsLoaded);
-        connect(m_libraryService, &LibraryService::seriesDetailsNotModified,
+        connect(m_libraryService, &LibraryService::canonicalSeriesDetailsNotModified,
                 this, &UpNextRecommendationsViewModel::onSeriesDetailsNotModified);
+        connect(m_libraryService, &LibraryService::canonicalSeriesDetailsFailed,
+                this, &UpNextRecommendationsViewModel::onSeriesDetailsFailed);
         connect(m_libraryService,
-                qOverload<const QString &, const QJsonObject &, const QString &>(&LibraryService::itemLoaded),
+                qOverload<const QString &, const QVariantMap &, const QString &>(&LibraryService::canonicalItemLoaded),
                 this, &UpNextRecommendationsViewModel::onSeriesDetailsFallbackLoaded);
         connect(m_libraryService,
                 qOverload<const QString &, const QString &>(&LibraryService::itemNotModified),
                 this, &UpNextRecommendationsViewModel::onSeriesDetailsFallbackNotModified);
         connect(m_libraryService, &LibraryService::itemFailed,
                 this, &UpNextRecommendationsViewModel::onSeriesDetailsFallbackFailed);
-        connect(m_libraryService, &LibraryService::errorOccurred,
-                this, &UpNextRecommendationsViewModel::onLibraryErrorOccurred);
     } else {
         qWarning() << "UpNextRecommendationsViewModel: LibraryService not available";
     }
@@ -51,12 +51,7 @@ QVariantList UpNextRecommendationsViewModel::items() const
         return m_cachedItems;
     }
 
-    m_cachedItems.clear();
-    m_cachedItems.reserve(m_limit);
-    const QJsonArray merged = mergeRecommendations(m_jellyfinItems, m_seerrItems, m_limit);
-    for (const QJsonValue &value : merged) {
-        m_cachedItems.append(value.toObject().toVariantMap());
-    }
+    m_cachedItems = mergeRecommendations(m_libraryItems, m_seerrItems, m_limit);
     m_itemsDirty = false;
     return m_cachedItems;
 }
@@ -75,7 +70,7 @@ void UpNextRecommendationsViewModel::loadForSeries(const QString &seriesId, int 
     resetRequestState(seriesId, limit);
     setLoading(true);
 
-    m_waitingForJellyfin = true;
+    m_waitingForLibrary = true;
     m_libraryService->getSimilarItems(m_seriesId, m_limit);
 
     m_waitingForSeriesDetails = true;
@@ -84,14 +79,15 @@ void UpNextRecommendationsViewModel::loadForSeries(const QString &seriesId, int 
 
 void UpNextRecommendationsViewModel::clear()
 {
-    const bool hadItems = !m_jellyfinItems.isEmpty() || !m_seerrItems.isEmpty();
+    const bool hadItems = !m_libraryItems.isEmpty() || !m_seerrItems.isEmpty();
+    m_connectionId.clear();
     m_seriesId.clear();
     m_limit = 6;
     m_pendingSeerrTmdbId = -1;
     m_seriesDetailsFallbackContext.clear();
-    m_jellyfinItems = {};
+    m_libraryItems = {};
     m_seerrItems = {};
-    m_waitingForJellyfin = false;
+    m_waitingForLibrary = false;
     m_waitingForSeriesDetails = false;
     m_waitingForSeerr = false;
     m_itemsDirty = true;
@@ -102,21 +98,21 @@ void UpNextRecommendationsViewModel::clear()
     }
 }
 
-QJsonArray UpNextRecommendationsViewModel::mergeRecommendations(const QJsonArray &jellyfinItems,
-                                                                const QJsonArray &seerrItems,
-                                                                int limit)
+QVariantList UpNextRecommendationsViewModel::mergeRecommendations(const QVariantList &libraryItems,
+                                                                  const QVariantList &seerrItems,
+                                                                  int limit)
 {
-    QJsonArray merged;
+    QVariantList merged;
     QSet<QString> seen;
     const int cappedLimit = qMax(0, limit);
 
-    const auto appendSeries = [&merged, &seen, cappedLimit](const QJsonArray &items) {
-        for (const QJsonValue &value : items) {
+    const auto appendSeries = [&merged, &seen, cappedLimit](const QVariantList &items) {
+        for (const QVariant &value : items) {
             if (merged.size() >= cappedLimit) {
                 return;
             }
 
-            const QJsonObject item = value.toObject();
+            const QVariantMap item = value.toMap();
             if (!isSeriesItem(item)) {
                 continue;
             }
@@ -133,45 +129,36 @@ QJsonArray UpNextRecommendationsViewModel::mergeRecommendations(const QJsonArray
         }
     };
 
-    appendSeries(jellyfinItems);
+    appendSeries(libraryItems);
     appendSeries(seerrItems);
     return merged;
 }
 
-bool UpNextRecommendationsViewModel::isSeriesItem(const QJsonObject &item)
+bool UpNextRecommendationsViewModel::isSeriesItem(const QVariantMap &item)
 {
-    QString type = item.value(QStringLiteral("mediaType")).toString();
-    if (type.isEmpty()) {
-        type = item.value(QStringLiteral("Type")).toString();
-    }
-    const QString seerrType = item.value(QStringLiteral("seerrMediaType")).toString().toLower();
-    return type.compare(QStringLiteral("Series"), Qt::CaseInsensitive) == 0
-        || seerrType == QStringLiteral("tv");
+    return item.value(QStringLiteral("mediaType")).toString()
+               .compare(QStringLiteral("Series"), Qt::CaseInsensitive) == 0;
 }
 
-QString UpNextRecommendationsViewModel::dedupeKey(const QJsonObject &item)
+QString UpNextRecommendationsViewModel::dedupeKey(const QVariantMap &item)
 {
-    const QJsonObject providerIds = item.value(QStringLiteral("ProviderIds")).toObject();
-    const QString tmdb = providerIds.value(QStringLiteral("Tmdb")).toVariant().toString().trimmed();
+    const QVariantMap providerIds = item.value(QStringLiteral("providerIds")).toMap();
+    const QString tmdb = providerIds.value(QStringLiteral("Tmdb")).toString().trimmed();
     if (!tmdb.isEmpty()) {
         return QStringLiteral("tmdb:%1").arg(tmdb);
     }
 
-    const QString imdb = providerIds.value(QStringLiteral("Imdb")).toVariant().toString().trimmed().toLower();
+    const QString imdb = providerIds.value(QStringLiteral("Imdb")).toString().trimmed().toLower();
     if (!imdb.isEmpty()) {
         return QStringLiteral("imdb:%1").arg(imdb);
     }
 
-    const int seerrTmdb = item.value(QStringLiteral("seerrTmdbId")).toInt(-1);
+    const int seerrTmdb = item.value(QStringLiteral("seerrTmdbId"), -1).toInt();
     if (seerrTmdb > 0) {
         return QStringLiteral("tmdb:%1").arg(seerrTmdb);
     }
 
-    QString itemTitle = item.value(QStringLiteral("name")).toString();
-    if (itemTitle.isEmpty()) {
-        itemTitle = item.value(QStringLiteral("Name")).toString();
-    }
-    const QString title = normalizedTitle(itemTitle);
+    const QString title = normalizedTitle(item.value(QStringLiteral("name")).toString());
     if (title.isEmpty()) {
         return {};
     }
@@ -189,20 +176,14 @@ QString UpNextRecommendationsViewModel::normalizedTitle(const QString &title)
     return normalized;
 }
 
-int UpNextRecommendationsViewModel::itemYear(const QJsonObject &item)
+int UpNextRecommendationsViewModel::itemYear(const QVariantMap &item)
 {
-    int productionYear = item.value(QStringLiteral("productionYear")).toInt(0);
-    if (productionYear <= 0) {
-        productionYear = item.value(QStringLiteral("ProductionYear")).toInt(0);
-    }
+    const int productionYear = item.value(QStringLiteral("productionYear")).toInt();
     if (productionYear > 0) {
         return productionYear;
     }
 
-    QString premiereDate = item.value(QStringLiteral("premiereDate")).toString();
-    if (premiereDate.isEmpty()) {
-        premiereDate = item.value(QStringLiteral("PremiereDate")).toString();
-    }
+    const QString premiereDate = item.value(QStringLiteral("premiereDate")).toString();
     bool ok = false;
     const int year = premiereDate.left(4).toInt(&ok);
     return ok ? year : 0;
@@ -219,7 +200,7 @@ void UpNextRecommendationsViewModel::setLoading(bool loading)
 
 void UpNextRecommendationsViewModel::finishProviderIfComplete()
 {
-    if (!m_waitingForJellyfin && !m_waitingForSeriesDetails && !m_waitingForSeerr) {
+    if (!m_waitingForLibrary && !m_waitingForSeriesDetails && !m_waitingForSeerr) {
         notifyItemsChanged();
         setLoading(false);
     }
@@ -233,13 +214,14 @@ void UpNextRecommendationsViewModel::notifyItemsChanged()
 
 void UpNextRecommendationsViewModel::resetRequestState(const QString &seriesId, int limit)
 {
+    m_connectionId = m_libraryService ? m_libraryService->getActiveConnectionId() : QString();
     m_seriesId = seriesId;
     m_limit = qBound(1, limit, 24);
     m_pendingSeerrTmdbId = -1;
     m_seriesDetailsFallbackContext.clear();
-    m_jellyfinItems = {};
+    m_libraryItems = {};
     m_seerrItems = {};
-    m_waitingForJellyfin = false;
+    m_waitingForLibrary = false;
     m_waitingForSeriesDetails = false;
     m_waitingForSeerr = false;
     m_itemsDirty = true;
@@ -247,7 +229,7 @@ void UpNextRecommendationsViewModel::resetRequestState(const QString &seriesId, 
     emit itemsChanged();
 }
 
-void UpNextRecommendationsViewModel::requestSeerrSimilarIfPossible(const QJsonObject &seriesData)
+void UpNextRecommendationsViewModel::requestSeerrSimilarIfPossible(const QVariantMap &seriesData)
 {
     m_waitingForSeriesDetails = false;
 
@@ -256,9 +238,9 @@ void UpNextRecommendationsViewModel::requestSeerrSimilarIfPossible(const QJsonOb
         return;
     }
 
-    const QJsonObject providerIds = seriesData.value(QStringLiteral("ProviderIds")).toObject();
+    const QVariantMap providerIds = seriesData.value(QStringLiteral("providerIds")).toMap();
     bool ok = false;
-    const int tmdbId = providerIds.value(QStringLiteral("Tmdb")).toVariant().toString().toInt(&ok);
+    const int tmdbId = providerIds.value(QStringLiteral("Tmdb")).toString().toInt(&ok);
     if (!ok || tmdbId <= 0) {
         finishProviderIfComplete();
         return;
@@ -291,52 +273,73 @@ bool UpNextRecommendationsViewModel::matchesSeriesDetailsFallback(const QString 
         && !m_seriesDetailsFallbackContext.isEmpty();
 }
 
-void UpNextRecommendationsViewModel::onSimilarItemsLoaded(const QString &itemId, const QJsonArray &items)
+void UpNextRecommendationsViewModel::onSimilarItemsLoaded(const QString &connectionId,
+                                                           const QString &itemId,
+                                                           const QVariantList &items)
 {
-    if (itemId != m_seriesId || !m_waitingForJellyfin) {
+    if (connectionId != m_connectionId || itemId != m_seriesId || !m_waitingForLibrary) {
         return;
     }
 
-    m_jellyfinItems = items;
-    m_waitingForJellyfin = false;
+    m_libraryItems = items;
+    m_waitingForLibrary = false;
     finishProviderIfComplete();
 }
 
-void UpNextRecommendationsViewModel::onSimilarItemsFailed(const QString &itemId, const QString &error)
+void UpNextRecommendationsViewModel::onSimilarItemsFailed(const QString &connectionId,
+                                                           const QString &itemId,
+                                                           const QString &error)
 {
-    if (itemId != m_seriesId || !m_waitingForJellyfin) {
+    if (connectionId != m_connectionId || itemId != m_seriesId || !m_waitingForLibrary) {
         return;
     }
 
-    qWarning() << "UpNextRecommendationsViewModel Jellyfin recommendations failed:" << error;
-    m_jellyfinItems = {};
-    m_waitingForJellyfin = false;
+    qWarning() << "UpNextRecommendationsViewModel library recommendations failed:" << error;
+    m_libraryItems = {};
+    m_waitingForLibrary = false;
     finishProviderIfComplete();
 }
 
-void UpNextRecommendationsViewModel::onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData)
+void UpNextRecommendationsViewModel::onSeriesDetailsLoaded(const QString &connectionId,
+                                                            const QString &seriesId,
+                                                            const QVariantMap &seriesData)
 {
-    if (seriesId != m_seriesId || !m_waitingForSeriesDetails) {
+    if (connectionId != m_connectionId || seriesId != m_seriesId || !m_waitingForSeriesDetails) {
         return;
     }
 
     requestSeerrSimilarIfPossible(seriesData);
 }
 
-void UpNextRecommendationsViewModel::onSeriesDetailsNotModified(const QString &seriesId)
+void UpNextRecommendationsViewModel::onSeriesDetailsNotModified(const QString &connectionId,
+                                                                 const QString &seriesId)
 {
-    if (seriesId != m_seriesId || !m_waitingForSeriesDetails) {
+    if (connectionId != m_connectionId || seriesId != m_seriesId || !m_waitingForSeriesDetails) {
         return;
     }
 
     requestSeriesDetailsFallback();
 }
 
+void UpNextRecommendationsViewModel::onSeriesDetailsFailed(const QString &connectionId,
+                                                            const QString &seriesId,
+                                                            const QString &error)
+{
+    if (connectionId != m_connectionId || seriesId != m_seriesId || !m_waitingForSeriesDetails) {
+        return;
+    }
+
+    qWarning() << "UpNextRecommendationsViewModel series details failed:" << error;
+    m_waitingForSeriesDetails = false;
+    finishProviderIfComplete();
+}
+
 void UpNextRecommendationsViewModel::onSeriesDetailsFallbackLoaded(const QString &itemId,
-                                                                   const QJsonObject &itemData,
+                                                                   const QVariantMap &itemData,
                                                                    const QString &requestContext)
 {
-    if (!matchesSeriesDetailsFallback(itemId, requestContext)) {
+    if (!matchesSeriesDetailsFallback(itemId, requestContext)
+            || itemData.value(QStringLiteral("connectionId")).toString() != m_connectionId) {
         return;
     }
 
@@ -381,7 +384,7 @@ void UpNextRecommendationsViewModel::onSeerrSimilarResultsLoaded(const QString &
         return;
     }
 
-    m_seerrItems = results;
+    m_seerrItems = results.toVariantList();
     m_waitingForSeerr = false;
     finishProviderIfComplete();
 }
@@ -399,24 +402,5 @@ void UpNextRecommendationsViewModel::onSeerrSimilarResultsFailed(const QString &
     qWarning() << "UpNextRecommendationsViewModel Seerr recommendations failed:" << error;
     m_seerrItems = {};
     m_waitingForSeerr = false;
-    finishProviderIfComplete();
-}
-
-void UpNextRecommendationsViewModel::onLibraryErrorOccurred(const QString &endpoint, const QString &error)
-{
-    if (!m_waitingForSeriesDetails || !m_seriesDetailsFallbackContext.isEmpty()) {
-        return;
-    }
-
-    const QRegularExpression seriesIdRegex(
-        QStringLiteral("/Items/%1(?:\\D|$)").arg(QRegularExpression::escape(m_seriesId)));
-    const bool isSeriesDetailsError = endpoint == QStringLiteral("getSeriesDetails")
-        || seriesIdRegex.match(endpoint).hasMatch();
-    if (!isSeriesDetailsError) {
-        return;
-    }
-
-    qWarning() << "UpNextRecommendationsViewModel series details failed:" << error;
-    m_waitingForSeriesDetails = false;
     finishProviderIfComplete();
 }

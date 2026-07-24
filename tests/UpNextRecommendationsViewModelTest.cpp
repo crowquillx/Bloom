@@ -18,29 +18,35 @@ public:
     {
         Q_UNUSED(limit)
         similarRequests.append(itemId);
-        emit similarItemsLoaded(itemId, similarItems);
+        if (!deferSimilar) {
+            emit canonicalSimilarItemsLoadedForConnection(
+                QStringLiteral("connection-1"), itemId, similarItems);
+        }
     }
 
     void getSeriesDetails(const QString &seriesId) override
     {
         seriesDetailsRequests.append(seriesId);
+        if (deferSeriesDetails) {
+            return;
+        }
         if (emitNotModifiedForSeriesDetails) {
-            emit seriesDetailsNotModified(seriesId);
+            emit canonicalSeriesDetailsNotModified(QStringLiteral("connection-1"), seriesId);
             return;
         }
         if (emitPathErrorForSeriesDetails) {
-            emit errorOccurred(QStringLiteral("/Users/user-1/Items/%1?Fields=ProviderIds").arg(seriesId),
-                               QStringLiteral("timeout"));
+            emit canonicalSeriesDetailsFailed(
+                QStringLiteral("connection-1"), seriesId, QStringLiteral("timeout"));
             return;
         }
-        emit seriesDetailsLoaded(seriesId, seriesDetails);
+        emit canonicalSeriesDetailsLoaded(QStringLiteral("connection-1"), seriesId, seriesDetails);
     }
 
     void getItem(const QString &itemId, const QString &requestContext) override
     {
         itemRequests.append(itemId);
         itemRequestContexts.append(requestContext);
-        emit itemLoaded(itemId, fallbackItem, requestContext);
+        emit canonicalItemLoaded(itemId, fallbackItem, requestContext);
     }
 
     void clearItemCacheValidation(const QString &itemId) override
@@ -48,9 +54,9 @@ public:
         clearedItemCacheIds.append(itemId);
     }
 
-    QJsonArray similarItems;
-    QJsonObject seriesDetails;
-    QJsonObject fallbackItem;
+    QVariantList similarItems;
+    QVariantMap seriesDetails;
+    QVariantMap fallbackItem;
     QStringList similarRequests;
     QStringList seriesDetailsRequests;
     QStringList itemRequests;
@@ -58,6 +64,13 @@ public:
     QStringList clearedItemCacheIds;
     bool emitNotModifiedForSeriesDetails = false;
     bool emitPathErrorForSeriesDetails = false;
+    bool deferSimilar = false;
+    bool deferSeriesDetails = false;
+
+    QString getActiveConnectionId() const override
+    {
+        return QStringLiteral("connection-1");
+    }
 };
 
 class UpNextRecommendationsViewModelTest : public QObject
@@ -66,14 +79,14 @@ class UpNextRecommendationsViewModelTest : public QObject
 
 private slots:
     void cleanup();
-    void jellyfinResultsAppearBeforeSeerrResults();
-    void canonicalSeriesAreAccepted();
+    void libraryResultsAppearBeforeSeerrResults();
     void nonSeriesResultsAreFiltered();
     void duplicateTitlesCollapseToJellyfinItem();
     void resultCountIsCapped();
     void unavailableProvidersLeaveEmptyNotLoading();
     void seriesDetailsNotModifiedUsesFallbackItem();
     void seriesDetailsPathErrorClearsLoading();
+    void staleConnectionSignalsAreIgnored();
 };
 
 void UpNextRecommendationsViewModelTest::cleanup()
@@ -81,88 +94,70 @@ void UpNextRecommendationsViewModelTest::cleanup()
     ServiceLocator::clear();
 }
 
-void UpNextRecommendationsViewModelTest::jellyfinResultsAppearBeforeSeerrResults()
+void UpNextRecommendationsViewModelTest::libraryResultsAppearBeforeSeerrResults()
 {
-    const QJsonArray jellyfin{
-        QJsonObject{{"Id", "jf-1"}, {"Type", "Series"}, {"Name", "Local First"}}
+    const QVariantList library{
+        QVariantMap{{"itemId", "library-1"}, {"mediaType", "Series"}, {"name", "Local First"}}
     };
-    const QJsonArray seerr{
-        QJsonObject{{"itemId", "seerr:tv:2"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"name", "Discovery Second"}}
+    const QVariantList seerr{
+        QVariantMap{{"itemId", "seerr:tv:2"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"mediaType", "Series"}, {"name", "Discovery Second"}}
     };
 
-    const QJsonArray merged = UpNextRecommendationsViewModel::mergeRecommendations(jellyfin, seerr, 6);
+    const QVariantList merged = UpNextRecommendationsViewModel::mergeRecommendations(library, seerr, 6);
 
     QCOMPARE(merged.size(), 2);
-    QCOMPARE(merged.at(0).toObject().value("Id").toString(), QStringLiteral("jf-1"));
-    QCOMPARE(merged.at(1).toObject().value("itemId").toString(), QStringLiteral("seerr:tv:2"));
-}
-
-void UpNextRecommendationsViewModelTest::canonicalSeriesAreAccepted()
-{
-    const QJsonArray canonical{
-        QJsonObject{
-            {"itemId", "series-1"},
-            {"mediaType", "Series"},
-            {"name", "Canonical Series"}
-        }
-    };
-
-    const QJsonArray merged = UpNextRecommendationsViewModel::mergeRecommendations(
-        canonical, {}, 6);
-
-    QCOMPARE(merged.size(), 1);
-    QCOMPARE(merged.at(0).toObject().value("itemId").toString(),
-             QStringLiteral("series-1"));
+    QCOMPARE(merged.at(0).toMap().value("itemId").toString(), QStringLiteral("library-1"));
+    QCOMPARE(merged.at(1).toMap().value("itemId").toString(), QStringLiteral("seerr:tv:2"));
 }
 
 void UpNextRecommendationsViewModelTest::nonSeriesResultsAreFiltered()
 {
-    const QJsonArray jellyfin{
-        QJsonObject{{"Id", "movie-1"}, {"Type", "Movie"}, {"Name", "A Movie"}},
-        QJsonObject{{"Id", "series-1"}, {"Type", "Series"}, {"Name", "A Series"}}
+    const QVariantList library{
+        QVariantMap{{"itemId", "movie-1"}, {"mediaType", "Movie"}, {"name", "A Movie"}},
+        QVariantMap{{"itemId", "series-1"}, {"mediaType", "Series"}, {"name", "A Series"}}
     };
-    const QJsonArray seerr{
-        QJsonObject{{"itemId", "seerr:movie:1"}, {"source", "seerr"}, {"seerrMediaType", "movie"}, {"name", "A Seerr Movie"}},
-        QJsonObject{{"itemId", "seerr:tv:1"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"name", "A Seerr Series"}}
+    const QVariantList seerr{
+        QVariantMap{{"itemId", "seerr:movie:1"}, {"source", "seerr"}, {"seerrMediaType", "movie"}, {"mediaType", "Movie"}, {"name", "A Seerr Movie"}},
+        QVariantMap{{"itemId", "seerr:tv:1"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"mediaType", "Series"}, {"name", "A Seerr Series"}}
     };
 
-    const QJsonArray merged = UpNextRecommendationsViewModel::mergeRecommendations(jellyfin, seerr, 6);
+    const QVariantList merged = UpNextRecommendationsViewModel::mergeRecommendations(library, seerr, 6);
 
     QCOMPARE(merged.size(), 2);
-    QCOMPARE(merged.at(0).toObject().value("Id").toString(), QStringLiteral("series-1"));
-    QCOMPARE(merged.at(1).toObject().value("itemId").toString(), QStringLiteral("seerr:tv:1"));
+    QCOMPARE(merged.at(0).toMap().value("itemId").toString(), QStringLiteral("series-1"));
+    QCOMPARE(merged.at(1).toMap().value("itemId").toString(), QStringLiteral("seerr:tv:1"));
 }
 
 void UpNextRecommendationsViewModelTest::duplicateTitlesCollapseToJellyfinItem()
 {
-    const QJsonArray jellyfin{
-        QJsonObject{{"Id", "jf-1"}, {"Type", "Series"}, {"Name", "Same Show"}, {"ProductionYear", 2020}}
+    const QVariantList library{
+        QVariantMap{{"itemId", "library-1"}, {"mediaType", "Series"}, {"name", "Same Show"}, {"productionYear", 2020}}
     };
-    const QJsonArray seerr{
-        QJsonObject{{"itemId", "seerr:tv:10"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"name", "Same Show!"}, {"productionYear", 2020}}
+    const QVariantList seerr{
+        QVariantMap{{"itemId", "seerr:tv:10"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"mediaType", "Series"}, {"name", "Same Show!"}, {"productionYear", 2020}}
     };
 
-    const QJsonArray merged = UpNextRecommendationsViewModel::mergeRecommendations(jellyfin, seerr, 6);
+    const QVariantList merged = UpNextRecommendationsViewModel::mergeRecommendations(library, seerr, 6);
 
     QCOMPARE(merged.size(), 1);
-    QCOMPARE(merged.at(0).toObject().value("Id").toString(), QStringLiteral("jf-1"));
+    QCOMPARE(merged.at(0).toMap().value("itemId").toString(), QStringLiteral("library-1"));
 }
 
 void UpNextRecommendationsViewModelTest::resultCountIsCapped()
 {
-    QJsonArray jellyfin;
+    QVariantList library;
     for (int i = 0; i < 8; ++i) {
-        jellyfin.append(QJsonObject{
-            {"Id", QStringLiteral("jf-%1").arg(i)},
-            {"Type", "Series"},
-            {"Name", QStringLiteral("Series %1").arg(i)}
+        library.append(QVariantMap{
+            {"itemId", QStringLiteral("library-%1").arg(i)},
+            {"mediaType", "Series"},
+            {"name", QStringLiteral("Series %1").arg(i)}
         });
     }
 
-    const QJsonArray merged = UpNextRecommendationsViewModel::mergeRecommendations(jellyfin, {}, 6);
+    const QVariantList merged = UpNextRecommendationsViewModel::mergeRecommendations(library, {}, 6);
 
     QCOMPARE(merged.size(), 6);
-    QCOMPARE(merged.at(5).toObject().value("Id").toString(), QStringLiteral("jf-5"));
+    QCOMPARE(merged.at(5).toMap().value("itemId").toString(), QStringLiteral("library-5"));
 }
 
 void UpNextRecommendationsViewModelTest::unavailableProvidersLeaveEmptyNotLoading()
@@ -180,10 +175,11 @@ void UpNextRecommendationsViewModelTest::seriesDetailsNotModifiedUsesFallbackIte
 {
     auto *libraryService = new UpNextTestLibraryService(this);
     libraryService->emitNotModifiedForSeriesDetails = true;
-    libraryService->fallbackItem = QJsonObject{
-        {"Id", "series-1"},
-        {"Type", "Series"},
-        {"ProviderIds", QJsonObject{{"Tmdb", "1234"}}}
+    libraryService->fallbackItem = QVariantMap{
+        {"connectionId", "connection-1"},
+        {"itemId", "series-1"},
+        {"mediaType", "Series"},
+        {"providerIds", QVariantMap{{"Tmdb", "1234"}}}
     };
     ServiceLocator::registerService<LibraryService>(libraryService);
 
@@ -206,6 +202,41 @@ void UpNextRecommendationsViewModelTest::seriesDetailsPathErrorClearsLoading()
     vm.loadForSeries(QStringLiteral("series-1"), 6);
 
     QVERIFY(!vm.loading());
+}
+
+void UpNextRecommendationsViewModelTest::staleConnectionSignalsAreIgnored()
+{
+    auto *libraryService = new UpNextTestLibraryService(this);
+    libraryService->deferSimilar = true;
+    libraryService->deferSeriesDetails = true;
+    ServiceLocator::registerService<LibraryService>(libraryService);
+
+    UpNextRecommendationsViewModel vm;
+    vm.loadForSeries(QStringLiteral("series-1"), 6);
+
+    const QVariantList recommendations{
+        QVariantMap{{"connectionId", "connection-1"},
+                    {"itemId", "series-2"},
+                    {"mediaType", "Series"},
+                    {"name", "Next Show"}}
+    };
+    emit libraryService->canonicalSimilarItemsLoadedForConnection(
+        QStringLiteral("connection-2"), QStringLiteral("series-1"), recommendations);
+    emit libraryService->canonicalSeriesDetailsFailed(
+        QStringLiteral("connection-2"), QStringLiteral("series-1"), QStringLiteral("stale"));
+
+    QVERIFY(vm.loading());
+    QVERIFY(vm.items().isEmpty());
+
+    emit libraryService->canonicalSimilarItemsLoadedForConnection(
+        QStringLiteral("connection-1"), QStringLiteral("series-1"), recommendations);
+    emit libraryService->canonicalSeriesDetailsFailed(
+        QStringLiteral("connection-1"), QStringLiteral("series-1"), QStringLiteral("done"));
+
+    QVERIFY(!vm.loading());
+    QCOMPARE(vm.items().size(), 1);
+    QCOMPARE(vm.items().first().toMap().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("series-2"));
 }
 
 QTEST_MAIN(UpNextRecommendationsViewModelTest)

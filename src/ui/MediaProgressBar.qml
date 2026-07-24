@@ -22,10 +22,6 @@ Item {
     // Canonical progress data in milliseconds.
     property real positionMs: 0
     property real durationMs: 0
-
-    // Transitional aliases for unmigrated callers. New code must use milliseconds.
-    property var positionTicks: 0
-    property var runtimeTicks: 0
     
     // Visual properties
     property int barHeight: 4
@@ -36,13 +32,10 @@ Item {
     
     // Computed progress (0.0 to 1.0)
     readonly property real progress: {
-        const usesMilliseconds = positionMs > 0 || durationMs > 0
-        const position = usesMilliseconds ? positionMs : positionTicks
-        const duration = usesMilliseconds ? durationMs : runtimeTicks
-        if (!duration || duration <= 0 || !position || position <= 0) {
+        if (durationMs <= 0 || positionMs <= 0) {
             return 0
         }
-        return Math.min(1.0, position / duration)
+        return Math.min(1.0, positionMs / durationMs)
     }
     
     // Only visible when there's actual progress
