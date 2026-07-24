@@ -18,7 +18,7 @@ Provider parsing
 
 Adding a provider
 - Add request and parser code to `MediaSegmentProviderService`.
-- Normalize all times to `MediaSegmentInfo` ticks.
+- Normalize all times to `MediaSegmentInfo` milliseconds (`startMs` / `endMs`).
 - Set `source` to a stable lowercase provider id.
 - Add the provider id to `ConfigManager::getMediaSegmentProviderOrder()` defaults only when it is suitable as a default.
 - Add parser and merge tests in `MediaSegmentProviderServiceTest`.

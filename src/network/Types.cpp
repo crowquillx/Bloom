@@ -384,62 +384,6 @@ QVariantMap ChapterInfo::toVariantMap(const QString &thumbnailUrl) const
 }
 
 // ============================================================================
-// MediaSegmentInfo Implementation
-// ============================================================================
-
-/**
- * @brief Parse MediaSegmentInfo from Jellyfin API JSON response
- * 
- * Deserializes media segment markers (intro/outro/credits) from Jellyfin plugins
- * like "Intro Skipper". These segments define time ranges for UI skip buttons.
- * 
- * Jellyfin API reference:
- * Endpoint: GET /Episode/{itemId}/IntroTimestamps (plugin-specific)
- * 
- * Key fields:
- * - StartTicks/EndTicks: Time range in ticks (1 tick = 100ns)
- * - Type: Segment type string ("IntroStart", "IntroEnd", "OutroStart", etc.)
- * 
- * The Type string is parsed into a MediaSegmentType enum for easier handling.
- * Ticks are converted to seconds via startSeconds()/endSeconds() helpers.
- * 
- * @param json JSON object representing a media segment
- * @return Populated MediaSegmentInfo with parsed type enum
- */
-MediaSegmentInfo MediaSegmentInfo::fromJson(const QJsonObject &json)
-{
-    MediaSegmentInfo info;
-    info.id = json["Id"].toString();
-    info.itemId = json["ItemId"].toString();
-    info.startTicks = static_cast<qint64>(json["StartTicks"].toDouble());
-    info.endTicks = static_cast<qint64>(json["EndTicks"].toDouble());
-    info.source = json.value("Source").toString(json.value("source").toString());
-    info.confidence = json.value("Confidence").toDouble(json.value("confidence").toDouble());
-    if (json.contains("SubmissionCount")) {
-        info.submissionCount = json.value("SubmissionCount").toInt();
-    } else {
-        info.submissionCount = json.value("submission_count").toInt();
-    }
-    
-    QString typeStr = json["Type"].toString();
-    info.typeString = typeStr;
-    
-    if (typeStr.compare("IntroStart", Qt::CaseInsensitive) == 0) {
-        info.type = MediaSegmentType::IntroStart;
-    } else if (typeStr.compare("IntroEnd", Qt::CaseInsensitive) == 0) {
-        info.type = MediaSegmentType::IntroEnd;
-    } else if (typeStr.compare("OutroStart", Qt::CaseInsensitive) == 0) {
-        info.type = MediaSegmentType::OutroStart;
-    } else if (typeStr.compare("OutroEnd", Qt::CaseInsensitive) == 0) {
-        info.type = MediaSegmentType::OutroEnd;
-    } else {
-        info.type = MediaSegmentType::Unknown;
-    }
-    
-    return info;
-}
-
-// ============================================================================
 // TrickplayTileInfo Implementation
 // ============================================================================
 

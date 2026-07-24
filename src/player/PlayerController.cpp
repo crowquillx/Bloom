@@ -5574,7 +5574,7 @@ void PlayerController::updateSkipSegmentState()
     bool inOutro = false;
 
     for (const auto &segment : std::as_const(m_currentSegments)) {
-        if (segment.startTicks < 0 || segment.endTicks <= segment.startTicks) {
+        if (segment.startMs < 0 || segment.endMs <= segment.startMs) {
             continue;
         }
 
@@ -5626,7 +5626,7 @@ void PlayerController::updateSkipSegmentState()
 bool PlayerController::seekToSegmentEnd(MediaSegmentType segmentType)
 {
     for (const auto &segment : std::as_const(m_currentSegments)) {
-        if (segment.type != segmentType || segment.endTicks <= 0) {
+        if (segment.type != segmentType || segment.endMs <= 0) {
             continue;
         }
 
@@ -5879,8 +5879,8 @@ void PlayerController::onMediaSegmentsLoaded(const QString &itemId, const QList<
     
     // Segment metadata is kept in controller state for native overlay handling.
     for (const auto &segment : segments) {
-        double startSeconds = static_cast<double>(segment.startTicks) / 10000000.0;
-        double endSeconds = static_cast<double>(segment.endTicks) / 10000000.0;
+        const double startSeconds = static_cast<double>(segment.startMs) / 1000.0;
+        const double endSeconds = static_cast<double>(segment.endMs) / 1000.0;
 
         if (segment.type == MediaSegmentType::Intro) {
             qCDebug(lcPlayback) << "PlayerController: Intro segment:" << startSeconds << "->" << endSeconds;

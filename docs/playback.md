@@ -280,7 +280,7 @@ Multipart reporting model
 - Bloom keeps two playback identities for multipart items:
   - logical item: the original movie/episode shown in the overlay and used for completion/autoplay decisions
   - reporting segment: the currently active physical part used for Jellyfin start/progress/pause/stop reporting
-- Progress shown in the client is aggregate across all parts. The controller tracks the prior-segment tick offset and combines it with the current segment position for timeline and completion-threshold calculations.
+- Progress shown in the client is aggregate across all parts. The controller tracks the prior-segment millisecond offset and combines it with the current segment position for timeline and completion-threshold calculations.
 - On playlist position changes, Bloom swaps the active segment metadata, refreshes per-part media segments/trickplay data, reports the segment handoff to Jellyfin, and suppresses terminal playback-end handling until the final playlist entry finishes.
 
 Playback Reporting

@@ -346,8 +346,8 @@ QList<MediaSegmentInfo> PlaybackService::parseIntroSkipperSegments(const QString
         if (startSeconds < 0.0 || endSeconds <= startSeconds) {
             continue;
         }
-        info.startTicks = static_cast<qint64>(startSeconds * 10000000.0);
-        info.endTicks = static_cast<qint64>(endSeconds * 10000000.0);
+        info.startMs = qRound64(startSeconds * 1000.0);
+        info.endMs = qRound64(endSeconds * 1000.0);
 
         if (typeMapping.contains(typeName)) {
             const auto mapping = typeMapping[typeName];
@@ -393,16 +393,16 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
         },
         [this, itemId, serverSegments](QNetworkReply *reply) {
             const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            const QJsonObject item = doc.object();
+            const QVariantMap item = m_authService->mapMediaItem(doc.object(), QString());
             MediaSegmentLookupContext context;
             context.itemId = itemId;
-            context.type = item.value(QStringLiteral("Type")).toString();
-            context.seriesId = item.value(QStringLiteral("SeriesId")).toString();
-            context.seasonNumber = item.value(QStringLiteral("ParentIndexNumber")).toInt(-1);
-            context.episodeNumber = item.value(QStringLiteral("IndexNumber")).toInt(-1);
-            context.durationTicks = static_cast<qint64>(item.value(QStringLiteral("RunTimeTicks")).toDouble());
+            context.type = item.value(QStringLiteral("mediaType")).toString();
+            context.seriesId = item.value(QStringLiteral("seriesId")).toString();
+            context.seasonNumber = item.value(QStringLiteral("parentIndexNumber"), -1).toInt();
+            context.episodeNumber = item.value(QStringLiteral("indexNumber"), -1).toInt();
+            context.durationMs = item.value(QStringLiteral("durationMs")).toLongLong();
 
-            const QJsonObject providerIds = item.value(QStringLiteral("ProviderIds")).toObject();
+            const QVariantMap providerIds = item.value(QStringLiteral("providerIds")).toMap();
             context.imdbId = providerIds.value(QStringLiteral("Imdb")).toString();
             context.tmdbId = providerIds.value(QStringLiteral("Tmdb")).toString();
             context.tvdbId = providerIds.value(QStringLiteral("Tvdb")).toString();
@@ -510,9 +510,9 @@ void PlaybackService::getTrickplayInfo(const QString &itemId)
             QJsonDocument doc = QJsonDocument::fromJson(data);
             QJsonObject obj = doc.object();
             
-            // Get RunTimeTicks to calculate actual thumbnail count
-            qint64 runTimeTicks = static_cast<qint64>(obj["RunTimeTicks"].toDouble());
-            double durationSeconds = runTimeTicks / 10000000.0;
+            const QVariantMap item = m_authService->mapMediaItem(obj, QString());
+            const double durationSeconds =
+                static_cast<double>(item.value(QStringLiteral("durationMs")).toLongLong()) / 1000.0;
             
             // Debug: Log the raw Trickplay JSON response
             QJsonObject trickplayRaw = obj["Trickplay"].toObject();
