@@ -429,14 +429,29 @@ void MockLibraryService::getNextUnplayedEpisode(const QString &seriesId,
                                                 const QString &excludeItemId,
                                                 const QString &requestContext)
 {
-    const QJsonArray episodes = findEpisodesBySeriesId(seriesId);
-    const QJsonObject resolvedEpisode =
-        NextEpisodeResolver::resolveBestNextEpisode(episodes, excludeItemId);
+    const QJsonArray wireEpisodes = findEpisodesBySeriesId(seriesId);
+    const QVariantMap resolvedEpisode = NextEpisodeResolver::resolveBestNextEpisode(
+        JellyfinModelMapper::mediaItems(wireEpisodes, QStringLiteral("mock-connection")),
+        excludeItemId);
+
+    QJsonObject resolvedWireEpisode;
+    const QString resolvedItemId = resolvedEpisode.value(QStringLiteral("itemId")).toString();
+    if (!resolvedItemId.isEmpty()) {
+        for (const QJsonValue &value : wireEpisodes) {
+            if (value.isObject()
+                && value.toObject().value(QStringLiteral("Id")).toString() == resolvedItemId) {
+                resolvedWireEpisode = value.toObject();
+                break;
+            }
+        }
+    }
 
     qCDebug(lcTest) << "MockLibraryService::getNextUnplayedEpisode(" << seriesId
              << ", exclude:" << excludeItemId << ") ->"
              << (resolvedEpisode.isEmpty() ? "no eligible episodes" : "resolved");
-    emit nextUnplayedEpisodeLoaded(seriesId, resolvedEpisode, requestContext);
+    emit nextUnplayedEpisodeLoaded(seriesId, resolvedWireEpisode, requestContext);
+    emit canonicalNextUnplayedEpisodeLoaded(
+        QStringLiteral("mock-connection"), seriesId, resolvedEpisode, requestContext);
 }
 
 void MockLibraryService::markSeriesWatched(const QString &seriesId)

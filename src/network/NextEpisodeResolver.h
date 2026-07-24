@@ -1,13 +1,13 @@
 #pragma once
 
-#include <QJsonArray>
-#include <QJsonObject>
 #include <QString>
+#include <QVariantList>
+#include <QVariantMap>
 
 namespace NextEpisodeResolver {
 
-QJsonObject resolveBestNextEpisode(const QJsonArray &episodes,
+QVariantMap resolveBestNextEpisode(const QVariantList &episodes,
                                    const QString &excludeItemId = QString(),
-                                   const QJsonObject &preferredEpisode = QJsonObject());
+                                   const QVariantMap &preferredEpisode = QVariantMap());
 
 }
