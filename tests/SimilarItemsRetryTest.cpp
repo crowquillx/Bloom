@@ -442,12 +442,25 @@ void SimilarItemsRetryTest::movieChaptersScopeMismatchAllowsCurrentScopeRequest(
 {
     ServiceLocator::clear();
     auto *service = new EpisodeChaptersLibraryService(this);
+    auto *config = new ConfigManager(this);
+    config->upsertConnection(ServerConnection{
+        .connectionId = QStringLiteral("connection-a"),
+        .baseUrl = QStringLiteral("https://a.example.test"),
+        .accountId = QStringLiteral("user-a")
+    });
     ServiceLocator::registerService<LibraryService>(service);
+    ServiceLocator::registerService<ConfigManager>(config);
 
     MovieDetailsViewModel vm;
     vm.loadMovieChapters(QStringLiteral("movie-1"));
     QCOMPARE(service->requests, QStringList{QStringLiteral("movie-1")});
     QVERIFY(vm.chaptersLoading());
+
+    config->upsertConnection(ServerConnection{
+        .connectionId = QStringLiteral("connection-b"),
+        .baseUrl = QStringLiteral("https://b.example.test"),
+        .accountId = QStringLiteral("user-b")
+    });
 
     emit service->canonicalChaptersLoaded(QStringLiteral("connection-a"),
                                           QStringLiteral("movie-1"),
