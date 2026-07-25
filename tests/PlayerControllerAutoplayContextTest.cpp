@@ -248,8 +248,10 @@ public:
         int selectedAudioTrack,
         int selectedSubtitleTrack,
         qint64 startPositionMs,
-        const QString &playbackSessionId) override
+        const QString &playbackSessionId,
+        bool emitFailure = true) override
     {
+        Q_UNUSED(emitFailure)
         if (!providerSource.value(QStringLiteral("directStreamUrl")).toString().isEmpty()
             || !providerSource.value(QStringLiteral("transcodingUrl")).toString().isEmpty()) {
             JellyfinPlaybackProvider provider;
@@ -567,9 +569,14 @@ void PlayerControllerAutoplayContextTest::playbackServiceReportsMissingProvider(
     PlaybackService playbackService(nullptr);
     QSignalSpy errorSpy(&playbackService, &PlaybackService::errorOccurred);
 
+    const Bloom::PlaybackDescriptor silentDescriptor =
+        playbackService.createPlaybackDescriptor(
+            QStringLiteral("item-1"), QVariantMap{}, -1, -1, 0, QString(), false);
+    QVERIFY(!silentDescriptor.isValid());
+    QCOMPARE(errorSpy.count(), 0);
+
     const Bloom::PlaybackDescriptor descriptor = playbackService.createPlaybackDescriptor(
         QStringLiteral("item-1"), QVariantMap{}, -1, -1);
-
     QVERIFY(!descriptor.isValid());
     QCOMPARE(errorSpy.count(), 1);
     QCOMPARE(errorSpy.first().at(0).toString(), QStringLiteral("createPlaybackDescriptor"));
@@ -1372,7 +1379,7 @@ void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoErrorFallsBackToBa
     TrackPreferencesManager trackPrefs;
     DisplayManager displayManager(&config);
     AuthenticationService authService(nullptr);
-    PlaybackService playbackService(&authService);
+    FakePlaybackService playbackService(&authService);
     FakeLibraryService libraryService(&authService);
     FakePlayerBackend backend;
 
@@ -1419,7 +1426,7 @@ void PlayerControllerAutoplayContextTest::autoplayToneMapStateSurvivesPlaybackIn
     TrackPreferencesManager trackPrefs;
     DisplayManager displayManager(&config);
     AuthenticationService authService(nullptr);
-    PlaybackService playbackService(&authService);
+    FakePlaybackService playbackService(&authService);
     FakeLibraryService libraryService(&authService);
     FakePlayerBackend backend;
 
@@ -1628,7 +1635,7 @@ void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoUsesStoredSubtitle
     TrackPreferencesManager trackPrefs;
     DisplayManager displayManager(&config);
     AuthenticationService authService(nullptr);
-    PlaybackService playbackService(&authService);
+    FakePlaybackService playbackService(&authService);
     FakeLibraryService libraryService(&authService);
     FakePlayerBackend backend;
 
@@ -1922,7 +1929,7 @@ void PlayerControllerAutoplayContextTest::autoplayPlaybackInfoUsesGlobalSubtitle
     TrackPreferencesManager trackPrefs;
     DisplayManager displayManager(&config);
     AuthenticationService authService(nullptr);
-    PlaybackService playbackService(&authService);
+    FakePlaybackService playbackService(&authService);
     FakeLibraryService libraryService(&authService);
     FakePlayerBackend backend;
 
@@ -1974,7 +1981,7 @@ void PlayerControllerAutoplayContextTest::staleAutoplayPlaybackInfoResponseFalls
     TrackPreferencesManager trackPrefs;
     DisplayManager displayManager(&config);
     AuthenticationService authService(nullptr);
-    PlaybackService playbackService(&authService);
+    FakePlaybackService playbackService(&authService);
     FakeLibraryService libraryService(&authService);
     FakePlayerBackend backend;
 
@@ -2209,7 +2216,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackPromptsForVersionSelect
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({versionA, versionB}),
                                                       requestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, requestId);
 
     QCOMPARE(selectionSpy.count(), 1);
     const QList<QVariant> arguments = selectionSpy.takeFirst();
@@ -2282,7 +2289,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackRecoversLibraryProfileF
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({mediaSource}),
                                                       requestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, requestId);
 
     QVERIFY(backend.lastStartArgs.isEmpty());
     QVERIFY(backend.lastStartUrl.isEmpty());
@@ -2488,7 +2495,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackWaitsForSeriesDetailsPa
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({mediaSource}),
                                                       requestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, requestId);
 
     QVERIFY(backend.lastStartUrl.isEmpty());
     QVERIFY(backend.lastStartArgs.isEmpty());
@@ -2572,7 +2579,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackUsesRecoveredLibraryWhe
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({mediaSource}),
                                                       requestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, requestId);
 
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
     QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--test-library-profile=yes")));
@@ -2646,7 +2653,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackFallsBackWithoutRecover
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({mediaSource}),
                                                       requestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, requestId);
 
     QVERIFY(backend.lastStartUrl.isEmpty());
 
@@ -2726,7 +2733,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackKeepsSeriesProfilePrior
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({mediaSource}),
                                                       requestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, requestId);
     emit libraryService.itemLibraryResolved(QStringLiteral("series-1"),
                                             QStringLiteral("library-1"));
 
@@ -2767,14 +2774,14 @@ void PlayerControllerAutoplayContextTest::explicitPlaybackIgnoresUnscopedStalePl
         {QVariantMap{{QStringLiteral("type"), QStringLiteral("Video")}}});
 
     emit playbackService.playbackInfoLoaded(QStringLiteral("episode-1"), buildPlaybackInfo({staleSource}));
-    emit playbackService.additionalPartsLoaded(QStringLiteral("episode-1"), QJsonArray{});
+    emit playbackService.additionalPartsLoaded(QStringLiteral("episode-1"), QVariantList{});
     QVERIFY(backend.lastStartUrl.isEmpty());
     QVERIFY(playbackService.requestedDescriptorMediaSourceIds.isEmpty());
 
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({freshSource}),
                                                       requestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, requestId);
 
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
     QCOMPARE(playbackService.requestedDescriptorMediaSourceIds,
@@ -2822,13 +2829,13 @@ void PlayerControllerAutoplayContextTest::explicitPlaybackIgnoresCanceledRequest
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({staleSource}),
                                                       oldRequestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, oldRequestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, oldRequestId);
     QVERIFY(backend.lastStartUrl.isEmpty());
 
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({freshSource}),
                                                       newRequestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, newRequestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, newRequestId);
 
     QCOMPARE(playbackService.requestedDescriptorMediaSourceIds,
              QStringList{QStringLiteral("fresh-source")});
@@ -2944,7 +2951,7 @@ void PlayerControllerAutoplayContextTest::additionalPartPlaybackInfoFailureSkips
                                                       requestId);
     emit playbackService.additionalPartsLoadedForRequest(
         QStringLiteral("episode-1"),
-        QJsonArray{QJsonObject{{QStringLiteral("Id"), QStringLiteral("episode-1-part-2")}}},
+        QVariantList{QVariantMap{{QStringLiteral("itemId"), QStringLiteral("episode-1-part-2")}}},
         requestId);
     emit playbackService.playbackInfoFailedForRequest(QStringLiteral("episode-1-part-2"),
                                                       QStringLiteral("part missing"),
@@ -2998,7 +3005,7 @@ void PlayerControllerAutoplayContextTest::retryRefreshesPlaybackInfoBeforeRestar
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({freshSource}),
                                                       requestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, requestId);
 
     QCOMPARE(backend.lastStartUrl, QStringLiteral("https://example.invalid/episode-1"));
     QCOMPARE(playbackService.requestedDescriptorMediaSourceIds,
@@ -3174,7 +3181,7 @@ void PlayerControllerAutoplayContextTest::playbackInfoDirectStreamUrlIsPreferred
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
                                                       buildPlaybackInfo({source}),
                                                       requestId);
-    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QJsonArray{}, requestId);
+    emit playbackService.additionalPartsLoadedForRequest(QStringLiteral("episode-1"), QVariantList{}, requestId);
 
     const QUrl startedUrl(backend.lastStartUrl);
     QCOMPARE(startedUrl.scheme(), QStringLiteral("https"));

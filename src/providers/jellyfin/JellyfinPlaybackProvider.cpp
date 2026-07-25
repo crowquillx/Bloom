@@ -114,7 +114,8 @@ Bloom::PlaybackDescriptor JellyfinPlaybackProvider::createDescriptor(
         descriptor.stream.method = Bloom::PlaybackMethod::Transcode;
     }
     if (selectedUrl.isEmpty()) {
-        selectedUrl = QStringLiteral("/Videos/%1/stream?Static=true").arg(media.itemId);
+        selectedUrl = QStringLiteral("/Videos/%1/stream?Container=mp4,mkv&Static=true")
+                          .arg(media.itemId);
         descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
     }
 
