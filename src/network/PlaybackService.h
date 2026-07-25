@@ -150,7 +150,6 @@ private:
                                int attemptNumber = 0);
     
     void emitError(const NetworkError &error);
-    QList<MediaSegmentInfo> parseIntroSkipperSegments(const QString &itemId, const QJsonObject &obj) const;
     void maybeLoadExternalMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &serverSegments);
     void loadMediaSegmentLookupContext(const QString &itemId, const QList<MediaSegmentInfo> &serverSegments);
     void finishExternalMediaSegments(const QString &itemId,

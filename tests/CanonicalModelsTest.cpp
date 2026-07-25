@@ -16,6 +16,8 @@ class CanonicalModelsTest : public QObject
 private slots:
     void jellyfinTimeConversionUsesMilliseconds();
     void jellyfinPlaybackInfoMapsToMilliseconds();
+    void jellyfinTrickplayAndSegmentsMapAtProviderBoundary();
+    void jellyfinRemoteSessionsMapAtProviderBoundary();
     void jellyfinItemMapsToCanonicalCamelCase();
     void jellyfinParentBackdropUsesImageItemId();
     void jellyfinSeriesFieldsAndChaptersMapCanonically();
@@ -23,6 +25,7 @@ private slots:
     void jellyfinArtworkEndpointContainsNoCredential();
     void playbackDescriptorExposesProviderNeutralShape();
     void jellyfinPlaybackProviderFinalizesStreamAtBoundary();
+    void jellyfinPlaybackProviderFinalizesTrickplayUrl();
     void jellyfinPlaybackReportsSerializeAtProviderBoundary();
 };
 
@@ -66,6 +69,92 @@ void CanonicalModelsTest::jellyfinPlaybackInfoMapsToMilliseconds()
     const QVariantMap source = playbackInfo.getMediaSourcesVariant().first().toMap();
     QCOMPARE(source.value(QStringLiteral("durationMs")).toLongLong(), 2000);
     QVERIFY(!source.contains(QStringLiteral("runTimeTicks")));
+}
+
+void CanonicalModelsTest::jellyfinTrickplayAndSegmentsMapAtProviderBoundary()
+{
+    const TrickplayTileInfoMap trickplay = JellyfinModelMapper::trickplayInfo(
+        QJsonObject{
+            {QStringLiteral("RunTimeTicks"), 50'000'000},
+            {QStringLiteral("Trickplay"), QJsonObject{
+                 {QStringLiteral("source-1"), QJsonObject{
+                      {QStringLiteral("320"), QJsonObject{
+                           {QStringLiteral("Width"), 320},
+                           {QStringLiteral("Height"), 180},
+                           {QStringLiteral("TileWidth"), 10},
+                           {QStringLiteral("TileHeight"), 10},
+                           {QStringLiteral("ThumbnailCount"), 2},
+                           {QStringLiteral("Interval"), 1000},
+                           {QStringLiteral("Bandwidth"), 8000}
+                       }}
+                  }}
+             }}
+        });
+
+    QCOMPARE(trickplay.size(), 1);
+    QCOMPARE(trickplay.value(320).height, 180);
+    QCOMPARE(trickplay.value(320).thumbnailCount, 5);
+    QCOMPARE(trickplay.value(320).interval, 1000);
+
+    const QList<MediaSegmentInfo> segments = JellyfinModelMapper::introSkipperSegments(
+        QStringLiteral("episode-1"),
+        QJsonObject{
+            {QStringLiteral("Introduction"), QJsonObject{
+                 {QStringLiteral("Valid"), true},
+                 {QStringLiteral("EpisodeId"), QStringLiteral("episode-1")},
+                 {QStringLiteral("Start"), 1.25},
+                 {QStringLiteral("End"), 8.5}
+             }},
+            {QStringLiteral("Credits"), QJsonObject{
+                 {QStringLiteral("Valid"), false},
+                 {QStringLiteral("Start"), 10.0},
+                 {QStringLiteral("End"), 20.0}
+             }}
+        });
+
+    QCOMPARE(segments.size(), 1);
+    QCOMPARE(segments.first().itemId, QStringLiteral("episode-1"));
+    QCOMPARE(segments.first().type, MediaSegmentType::Intro);
+    QCOMPARE(segments.first().typeString, QStringLiteral("Intro"));
+    QCOMPARE(segments.first().startMs, 1250);
+    QCOMPARE(segments.first().endMs, 8500);
+    QCOMPARE(segments.first().source, QStringLiteral("jellyfin"));
+}
+
+void CanonicalModelsTest::jellyfinRemoteSessionsMapAtProviderBoundary()
+{
+    const QVariantList sessions = JellyfinModelMapper::remoteSessions(
+        QJsonArray{
+            QJsonObject{
+                {QStringLiteral("Id"), QStringLiteral("session-1")},
+                {QStringLiteral("DeviceId"), QStringLiteral("device-1")},
+                {QStringLiteral("DeviceName"), QStringLiteral("Living Room")},
+                {QStringLiteral("Client"), QStringLiteral("Bloom")},
+                {QStringLiteral("ApplicationVersion"), QStringLiteral("1.2.3")},
+                {QStringLiteral("UserId"), QStringLiteral("user-1")},
+                {QStringLiteral("UserName"), QStringLiteral("Ada")},
+                {QStringLiteral("LastActivityDate"), QStringLiteral("2026-01-02T03:04:05Z")},
+                {QStringLiteral("IsRemoteSession"), true},
+                {QStringLiteral("SupportsRemoteControl"), true},
+                {QStringLiteral("PlayState"), QJsonObject{
+                     {QStringLiteral("PlayMethod"), QStringLiteral("DirectPlay")}
+                 }}
+            }
+        },
+        QStringLiteral("connection-1"));
+
+    QCOMPARE(sessions.size(), 1);
+    const QVariantMap session = sessions.first().toMap();
+    QCOMPARE(session.value(QStringLiteral("connectionId")).toString(),
+             QStringLiteral("connection-1"));
+    QCOMPARE(session.value(QStringLiteral("id")).toString(), QStringLiteral("session-1"));
+    QCOMPARE(session.value(QStringLiteral("deviceId")).toString(), QStringLiteral("device-1"));
+    QCOMPARE(session.value(QStringLiteral("clientVersion")).toString(),
+             QStringLiteral("1.2.3"));
+    QCOMPARE(session.value(QStringLiteral("playState")).toString(),
+             QStringLiteral("DirectPlay"));
+    QVERIFY(session.value(QStringLiteral("lastActivityDate")).toDateTime().isValid());
+    QVERIFY(!session.contains(QStringLiteral("DeviceId")));
 }
 
 void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()
@@ -404,6 +493,25 @@ void CanonicalModelsTest::jellyfinPlaybackProviderFinalizesStreamAtBoundary()
     const Bloom::PlaybackDescriptor prefixed = provider.createDescriptor(
         context, media, prefixedSource, -1, -1, 0);
     QCOMPARE(prefixed.stream.url.path(), QStringLiteral("/base/Videos/movie-1/stream"));
+}
+
+void CanonicalModelsTest::jellyfinPlaybackProviderFinalizesTrickplayUrl()
+{
+    const JellyfinPlaybackProvider provider;
+    const QUrl url = provider.createTrickplayTileUrl(
+        PlaybackProviderContext{
+            QUrl(QStringLiteral("https://media.example.test/base/")),
+            QStringLiteral("secret-token")
+        },
+        QStringLiteral("movie-1"),
+        320,
+        4);
+
+    QCOMPARE(url.path(), QStringLiteral("/base/Videos/movie-1/Trickplay/320/4.jpg"));
+    QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("api_key")),
+             QStringLiteral("secret-token"));
+    QVERIFY(provider.createTrickplayTileUrl(
+        PlaybackProviderContext{}, QStringLiteral("movie-1"), 320, 4).isEmpty());
 }
 
 void CanonicalModelsTest::playbackDescriptorExposesProviderNeutralShape()

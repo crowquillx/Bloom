@@ -74,6 +74,30 @@ PlaybackInfoResponse AuthenticationService::mapPlaybackInfo(
         : PlaybackInfoResponse{};
 }
 
+TrickplayTileInfoMap AuthenticationService::mapTrickplayInfo(
+    const QJsonObject &wireItem) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapTrickplayInfo(wireItem)
+        : TrickplayTileInfoMap{};
+}
+
+QList<MediaSegmentInfo> AuthenticationService::mapIntroSkipperSegments(
+    const QString &itemId, const QJsonObject &wireSegments) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapIntroSkipperSegments(itemId, wireSegments)
+        : QList<MediaSegmentInfo>{};
+}
+
+QVariantList AuthenticationService::mapRemoteSessions(
+    const QJsonArray &wireSessions, const QString &connectionId) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapRemoteSessions(wireSessions, connectionId)
+        : QVariantList{};
+}
+
 QVariantMap AuthenticationService::mapMediaItem(const QJsonObject &wireItem,
                                                  const QString &connectionId) const
 {

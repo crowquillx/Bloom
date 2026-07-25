@@ -13,6 +13,7 @@
 #include <QFutureWatcher>
 #include <QtConcurrent>
 
+#include "network/Types.h"
 #include "providers/ServerConnection.h"
 #include "security/CredentialStore.h"
 
@@ -23,7 +24,6 @@ class IProviderRequestFactory;
 class ISecretStore;
 class ConfigManager;
 class HttpTransport;
-struct PlaybackInfoResponse;
 
 /**
  * @brief Handles user authentication, session management, and token validation.
@@ -100,6 +100,11 @@ public:
     QString getUsername() const { return m_username; }
     const IPlaybackProvider *playbackProvider() const;
     PlaybackInfoResponse mapPlaybackInfo(const QJsonObject &wirePlaybackInfo) const;
+    TrickplayTileInfoMap mapTrickplayInfo(const QJsonObject &wireItem) const;
+    QList<MediaSegmentInfo> mapIntroSkipperSegments(
+        const QString &itemId, const QJsonObject &wireSegments) const;
+    QVariantList mapRemoteSessions(const QJsonArray &wireSessions,
+                                   const QString &connectionId) const;
     QVariantMap mapMediaItem(const QJsonObject &wireItem,
                              const QString &connectionId) const;
     QVariantList mapMediaItems(const QJsonArray &wireItems,

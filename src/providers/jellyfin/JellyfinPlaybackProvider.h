@@ -14,5 +14,11 @@ public:
         qint64 startPositionMs,
         const QString &playbackSessionId = QString()) const override;
 
+    QUrl createTrickplayTileUrl(
+        const PlaybackProviderContext &context,
+        const QString &itemId,
+        int width,
+        int tileIndex) const override;
+
     PlaybackReportRequest createReportRequest(const PlaybackReport &report) const override;
 };

@@ -64,5 +64,11 @@ public:
         qint64 startPositionMs,
         const QString &playbackSessionId = QString()) const = 0;
 
+    virtual QUrl createTrickplayTileUrl(
+        const PlaybackProviderContext &context,
+        const QString &itemId,
+        int width,
+        int tileIndex) const = 0;
+
     virtual PlaybackReportRequest createReportRequest(const PlaybackReport &report) const = 0;
 };

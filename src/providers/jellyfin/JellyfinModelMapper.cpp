@@ -228,6 +228,128 @@ PlaybackInfoResponse JellyfinModelMapper::playbackInfo(const QJsonObject &wirePl
     return response;
 }
 
+TrickplayTileInfo JellyfinModelMapper::trickplayTile(const QJsonObject &wireTile)
+{
+    TrickplayTileInfo info;
+    info.width = wireTile.value(QStringLiteral("Width")).toInt();
+    info.height = wireTile.value(QStringLiteral("Height")).toInt();
+    info.tileWidth = wireTile.value(QStringLiteral("TileWidth")).toInt();
+    info.tileHeight = wireTile.value(QStringLiteral("TileHeight")).toInt();
+    info.thumbnailCount = wireTile.value(QStringLiteral("ThumbnailCount")).toInt();
+    info.interval = wireTile.value(QStringLiteral("Interval")).toInt();
+    info.bandwidth = wireTile.value(QStringLiteral("Bandwidth")).toInt();
+    return info;
+}
+
+TrickplayTileInfoMap JellyfinModelMapper::trickplayInfo(const QJsonObject &wireItem)
+{
+    const qint64 durationMs = ticksToMilliseconds(
+        wireItem.value(QStringLiteral("RunTimeTicks")).toVariant().toLongLong());
+    const QJsonObject wireSources = wireItem.value(QStringLiteral("Trickplay")).toObject();
+    TrickplayTileInfoMap result;
+
+    for (auto sourceIt = wireSources.constBegin(); sourceIt != wireSources.constEnd(); ++sourceIt) {
+        const QJsonObject wireResolutions = sourceIt.value().toObject();
+        for (auto resolutionIt = wireResolutions.constBegin();
+             resolutionIt != wireResolutions.constEnd(); ++resolutionIt) {
+            bool widthValid = false;
+            const int width = resolutionIt.key().toInt(&widthValid);
+            if (!widthValid || !resolutionIt.value().isObject()) {
+                continue;
+            }
+
+            TrickplayTileInfo info = trickplayTile(resolutionIt.value().toObject());
+            if (info.interval > 0 && durationMs > 0) {
+                const int calculatedCount = static_cast<int>(
+                    std::ceil(static_cast<double>(durationMs) / info.interval));
+                info.thumbnailCount = qMax(info.thumbnailCount, calculatedCount);
+            }
+            result.insert(width, info);
+        }
+        if (!result.isEmpty()) {
+            break;
+        }
+    }
+    return result;
+}
+
+QList<MediaSegmentInfo> JellyfinModelMapper::introSkipperSegments(
+    const QString &itemId, const QJsonObject &wireSegments)
+{
+    static const QMap<QString, QPair<MediaSegmentType, QString>> typeMapping{
+        {QStringLiteral("Introduction"), {MediaSegmentType::Intro, QStringLiteral("Intro")}},
+        {QStringLiteral("Credits"), {MediaSegmentType::Outro, QStringLiteral("Outro")}},
+        {QStringLiteral("Recap"), {MediaSegmentType::Recap, QStringLiteral("Recap")}},
+        {QStringLiteral("Preview"), {MediaSegmentType::Preview, QStringLiteral("Preview")}},
+        {QStringLiteral("Commercial"), {MediaSegmentType::Commercial, QStringLiteral("Commercial")}}
+    };
+
+    QList<MediaSegmentInfo> segments;
+    for (auto it = wireSegments.constBegin(); it != wireSegments.constEnd(); ++it) {
+        const QJsonObject wireSegment = it.value().toObject();
+        if (!wireSegment.value(QStringLiteral("Valid")).toBool()) {
+            continue;
+        }
+
+        const double startSeconds = wireSegment.value(QStringLiteral("Start")).toDouble();
+        const double endSeconds = wireSegment.value(QStringLiteral("End")).toDouble();
+        if (startSeconds < 0.0 || endSeconds <= startSeconds) {
+            continue;
+        }
+
+        MediaSegmentInfo info;
+        info.itemId = wireSegment.value(QStringLiteral("EpisodeId")).toString(itemId);
+        info.source = QStringLiteral("jellyfin");
+        info.startMs = qRound64(startSeconds * 1000.0);
+        info.endMs = qRound64(endSeconds * 1000.0);
+        const auto mapping = typeMapping.constFind(it.key());
+        if (mapping == typeMapping.constEnd()) {
+            info.type = MediaSegmentType::Unknown;
+            info.typeString = it.key();
+        } else {
+            info.type = mapping->first;
+            info.typeString = mapping->second;
+        }
+        segments.append(info);
+    }
+    return segments;
+}
+
+QVariantList JellyfinModelMapper::remoteSessions(const QJsonArray &wireSessions,
+                                                  const QString &connectionId)
+{
+    QVariantList sessions;
+    sessions.reserve(wireSessions.size());
+    for (const QJsonValue &value : wireSessions) {
+        if (!value.isObject()) {
+            continue;
+        }
+
+        const QJsonObject wireSession = value.toObject();
+        const QJsonObject wirePlayState =
+            wireSession.value(QStringLiteral("PlayState")).toObject();
+        sessions.append(QVariantMap{
+            {QStringLiteral("connectionId"), connectionId},
+            {QStringLiteral("id"), wireSession.value(QStringLiteral("Id")).toString()},
+            {QStringLiteral("deviceId"), wireSession.value(QStringLiteral("DeviceId")).toString()},
+            {QStringLiteral("deviceName"), wireSession.value(QStringLiteral("DeviceName")).toString()},
+            {QStringLiteral("client"), wireSession.value(QStringLiteral("Client")).toString()},
+            {QStringLiteral("clientVersion"), wireSession.value(QStringLiteral("ApplicationVersion")).toString()},
+            {QStringLiteral("userId"), wireSession.value(QStringLiteral("UserId")).toString()},
+            {QStringLiteral("userName"), wireSession.value(QStringLiteral("UserName")).toString()},
+            {QStringLiteral("lastActivityDate"), QDateTime::fromString(
+                 wireSession.value(QStringLiteral("LastActivityDate")).toString(), Qt::ISODate)},
+            {QStringLiteral("lastPlaybackCheckIn"), QDateTime::fromString(
+                 wireSession.value(QStringLiteral("LastPlaybackCheckIn")).toString(), Qt::ISODate)},
+            {QStringLiteral("isRemoteSession"), wireSession.value(QStringLiteral("IsRemoteSession")).toBool()},
+            {QStringLiteral("supportsRemoteControl"), wireSession.value(QStringLiteral("SupportsRemoteControl")).toBool()},
+            {QStringLiteral("playState"), wirePlayState.value(QStringLiteral("PlayMethod")).toString()},
+            {QStringLiteral("hasCustomDeviceName"), wireSession.value(QStringLiteral("HasCustomDeviceName")).toBool()}
+        });
+    }
+    return sessions;
+}
+
 QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
                                            const QString &connectionId)
 {

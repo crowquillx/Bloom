@@ -4,31 +4,9 @@
 #include <QVariantList>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
-#include <QDateTime>
 
 class AuthenticationService;
 class HttpTransport;
-
-/**
- * @brief Session information structure
- */
-struct SessionInfo {
-    QString id;
-    QString deviceId;
-    QString deviceName;
-    QString client;
-    QString clientVersion;
-    QString userId;
-    QString userName;
-    QDateTime lastActivityDate;
-    QDateTime lastPlaybackCheckIn;
-    bool isRemoteSession = false;
-    bool supportsRemoteControl = false;
-    QString playState;
-    bool hasCustomDeviceName = false;
-
-    QVariantMap toVariantMap() const;
-};
 
 /**
  * @brief Wraps Jellyfin /Sessions API for session management.
