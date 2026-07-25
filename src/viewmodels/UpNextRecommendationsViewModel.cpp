@@ -71,9 +71,8 @@ void UpNextRecommendationsViewModel::loadForSeries(const QString &seriesId, int 
     setLoading(true);
 
     m_waitingForLibrary = true;
-    m_libraryService->getSimilarItems(m_seriesId, m_limit);
-
     m_waitingForSeriesDetails = true;
+    m_libraryService->getSimilarItems(m_seriesId, m_limit);
     m_libraryService->getSeriesDetails(m_seriesId);
 }
 

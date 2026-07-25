@@ -6,6 +6,7 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QString>
+#include <QStringList>
 #include <QVariantList>
 #include <QVariantMap>
 #include <functional>
@@ -100,18 +101,25 @@ public:
     QString getUsername() const { return m_username; }
     const IPlaybackProvider *playbackProvider() const;
     PlaybackInfoResponse mapPlaybackInfo(const QJsonObject &wirePlaybackInfo) const;
+    ParsedItemsResult parseItemsResponse(const QByteArray &wireResponse,
+                                         const QString &parentId) const;
+    std::function<ParsedItemsResult(const QByteArray &, const QString &)>
+        itemsResponseParser() const;
     TrickplayTileInfoMap mapTrickplayInfo(const QJsonObject &wireItem) const;
     QList<MediaSegmentInfo> mapIntroSkipperSegments(
         const QString &itemId, const QJsonObject &wireSegments) const;
     QVariantList mapRemoteSessions(const QJsonArray &wireSessions,
                                    const QString &connectionId) const;
+    QString mapLibraryIdFromAncestors(const QJsonArray &wireAncestors) const;
+    QVariantMap mapFilterOptions(const QJsonObject &wireFilters) const;
+    QStringList mapNamedItems(const QJsonObject &wireItems) const;
     QVariantMap mapMediaItem(const QJsonObject &wireItem,
                              const QString &connectionId) const;
     QVariantList mapMediaItems(const QJsonArray &wireItems,
                                const QString &connectionId) const;
-    QVariantList mapChapters(const QJsonArray &wireChapters,
-                             const QString &connectionId,
-                             const QString &itemId) const;
+    QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
+                                     const QString &connectionId,
+                                     const QString &itemId) const;
     bool isAuthenticated() const { return !m_accessToken.isEmpty() && !m_userId.isEmpty(); }
     bool isRestoringSession() const { return m_isRestoringSession; }
     

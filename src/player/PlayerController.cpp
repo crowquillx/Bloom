@@ -3641,7 +3641,7 @@ void PlayerController::setSelectedAudioTrack(int index)
     m_selectedAudioTrack = index;
     qCDebug(lcPlayback) << "User audio track selection:"
                         << "sourceIndex=" << index
-                        << "previousJellyfinIndex=" << previousAudioTrack;
+                        << "previousSourceIndex=" << previousAudioTrack;
 
     if (m_playbackState == Playing || m_playbackState == Paused) {
         if (index >= 0) {
@@ -3651,7 +3651,7 @@ void PlayerController::setSelectedAudioTrack(int index)
                 qCDebug(lcPlayback) << "Applying audio track switch via aid:" << mpvTrackId;
                 m_playerBackend->sendVariantCommand({"set_property", "aid", mpvTrackId});
             } else {
-                qCWarning(lcPlayback) << "No mapped mpv audio track for jellyfin index" << index
+                qCWarning(lcPlayback) << "No mapped mpv audio track for provider source index" << index
                                       << "- skipping runtime aid command";
             }
         } else {
@@ -3717,7 +3717,7 @@ void PlayerController::setSelectedSubtitleTrack(int index)
     m_selectedSubtitleTrack = index;
     qCDebug(lcPlayback) << "User subtitle track selection:"
                         << "sourceIndex=" << index
-                        << "previousJellyfinIndex=" << previousSubtitleTrack;
+                        << "previousSourceIndex=" << previousSubtitleTrack;
 
     if (m_playbackState == Playing || m_playbackState == Paused) {
         if (index >= 0 || m_externalSubtitleTrackMap.contains(index)) {
@@ -3731,7 +3731,7 @@ void PlayerController::setSelectedSubtitleTrack(int index)
                 m_pendingExternalSubtitleIndex = index;
                 qCDebug(lcPlayback) << "Deferring sid application for pending external subtitle:" << index;
             } else {
-                qCWarning(lcPlayback) << "No mapped mpv subtitle track for jellyfin index" << index
+                qCWarning(lcPlayback) << "No mapped mpv subtitle track for provider source index" << index
                                       << "- skipping runtime sid command";
             }
         } else {
@@ -4272,10 +4272,10 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
     const QVariantList audioStreams = mediaStreamsForType(mediaSource, QStringLiteral("Audio"));
     const QVariantList subtitleStreams = mediaStreamsForType(mediaSource, QStringLiteral("Subtitle"));
 
-    const auto resolveJellyfinAudioDefault = [&]() -> std::pair<int, QString> {
-        const int jellyfinDefault = mediaSource.value(QStringLiteral("defaultAudioStreamIndex"), -1).toInt();
-        if (jellyfinDefault >= 0 && hasStreamIndex(audioStreams, jellyfinDefault)) {
-            return {jellyfinDefault, QStringLiteral("jellyfin-default")};
+    const auto resolveProviderAudioDefault = [&]() -> std::pair<int, QString> {
+        const int providerDefault = mediaSource.value(QStringLiteral("defaultAudioStreamIndex"), -1).toInt();
+        if (providerDefault >= 0 && hasStreamIndex(audioStreams, providerDefault)) {
+            return {providerDefault, QStringLiteral("jellyfin-default")};
         }
         return {-1, {}};
     };
@@ -4291,9 +4291,9 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
     };
 
     const auto resolveBuiltInAudioFallback = [&]() -> std::pair<int, QString> {
-        const auto [jellyfinDefault, jellyfinSource] = resolveJellyfinAudioDefault();
-        if (jellyfinDefault >= 0) {
-            return {jellyfinDefault, jellyfinSource};
+        const auto [providerDefault, providerSource] = resolveProviderAudioDefault();
+        if (providerDefault >= 0) {
+            return {providerDefault, providerSource};
         }
 
         const auto [fileDefault, fileSource] = resolveFileAudioDefault();
@@ -4307,10 +4307,10 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
         return {fallback, fallback >= 0 ? QStringLiteral("fallback") : QStringLiteral("none")};
     };
 
-    const auto resolveJellyfinSubtitleDefault = [&]() -> std::pair<int, QString> {
-        const int jellyfinDefault = mediaSource.value(QStringLiteral("defaultSubtitleStreamIndex"), -1).toInt();
-        if (jellyfinDefault >= 0 && hasStreamIndex(subtitleStreams, jellyfinDefault)) {
-            return {jellyfinDefault, QStringLiteral("jellyfin-default")};
+    const auto resolveProviderSubtitleDefault = [&]() -> std::pair<int, QString> {
+        const int providerDefault = mediaSource.value(QStringLiteral("defaultSubtitleStreamIndex"), -1).toInt();
+        if (providerDefault >= 0 && hasStreamIndex(subtitleStreams, providerDefault)) {
+            return {providerDefault, QStringLiteral("jellyfin-default")};
         }
         return {-1, {}};
     };
@@ -4326,9 +4326,9 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
     };
 
     const auto resolveBuiltInSubtitleFallback = [&]() -> std::pair<int, QString> {
-        const auto [jellyfinDefault, jellyfinSource] = resolveJellyfinSubtitleDefault();
-        if (jellyfinDefault >= 0) {
-            return {jellyfinDefault, jellyfinSource};
+        const auto [providerDefault, providerSource] = resolveProviderSubtitleDefault();
+        if (providerDefault >= 0) {
+            return {providerDefault, providerSource};
         }
 
         const auto [fileDefault, fileSource] = resolveFileSubtitleDefault();

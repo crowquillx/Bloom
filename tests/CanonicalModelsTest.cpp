@@ -5,6 +5,7 @@
 #include "providers/jellyfin/JellyfinPlaybackProvider.h"
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QUrlQuery>
 #include <limits>
@@ -69,6 +70,19 @@ void CanonicalModelsTest::jellyfinPlaybackInfoMapsToMilliseconds()
     const QVariantMap source = playbackInfo.getMediaSourcesVariant().first().toMap();
     QCOMPARE(source.value(QStringLiteral("durationMs")).toLongLong(), 2000);
     QVERIFY(!source.contains(QStringLiteral("runTimeTicks")));
+
+    const ParsedItemsResult items = JellyfinModelMapper::itemsResponse(
+        QJsonDocument(QJsonObject{
+            {QStringLiteral("Items"), QJsonArray{
+                 QJsonObject{{QStringLiteral("Id"), QStringLiteral("movie-1")}}
+             }},
+            {QStringLiteral("TotalRecordCount"), 3}
+        }).toJson(),
+        QStringLiteral("library-1"));
+    QVERIFY(items.success);
+    QCOMPARE(items.parentId, QStringLiteral("library-1"));
+    QCOMPARE(items.items.size(), 1);
+    QCOMPARE(items.totalRecordCount, 3);
 }
 
 void CanonicalModelsTest::jellyfinTrickplayAndSegmentsMapAtProviderBoundary()
@@ -155,6 +169,35 @@ void CanonicalModelsTest::jellyfinRemoteSessionsMapAtProviderBoundary()
              QStringLiteral("DirectPlay"));
     QVERIFY(session.value(QStringLiteral("lastActivityDate")).toDateTime().isValid());
     QVERIFY(!session.contains(QStringLiteral("DeviceId")));
+
+    QCOMPARE(JellyfinModelMapper::libraryIdFromAncestors(
+                 QJsonArray{
+                     QJsonObject{
+                         {QStringLiteral("Id"), QStringLiteral("series-1")},
+                         {QStringLiteral("Type"), QStringLiteral("Series")}
+                     },
+                     QJsonObject{
+                         {QStringLiteral("Id"), QStringLiteral("library-1")},
+                         {QStringLiteral("Type"), QStringLiteral("CollectionFolder")},
+                         {QStringLiteral("CollectionType"), QStringLiteral("tvshows")}
+                     }
+                 }),
+             QStringLiteral("library-1"));
+
+    const QVariantMap filters = JellyfinModelMapper::filterOptions(QJsonObject{
+        {QStringLiteral("Genres"), QJsonArray{QStringLiteral("Drama")}},
+        {QStringLiteral("Tags"), QJsonArray{QStringLiteral("Favorite")}}
+    });
+    QCOMPARE(filters.value(QStringLiteral("genres")).toStringList(),
+             QStringList{QStringLiteral("Drama")});
+    QCOMPARE(filters.value(QStringLiteral("tags")).toStringList(),
+             QStringList{QStringLiteral("Favorite")});
+    QCOMPARE(JellyfinModelMapper::namedItems(QJsonObject{
+                 {QStringLiteral("Items"), QJsonArray{
+                      QJsonObject{{QStringLiteral("Name"), QStringLiteral("Studio A")}}
+                  }}
+             }),
+             QStringList{QStringLiteral("Studio A")});
 }
 
 void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()

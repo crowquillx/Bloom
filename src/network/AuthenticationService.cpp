@@ -74,6 +74,21 @@ PlaybackInfoResponse AuthenticationService::mapPlaybackInfo(
         : PlaybackInfoResponse{};
 }
 
+ParsedItemsResult AuthenticationService::parseItemsResponse(
+    const QByteArray &wireResponse, const QString &parentId) const
+{
+    const auto parser = itemsResponseParser();
+    return parser ? parser(wireResponse, parentId) : ParsedItemsResult{};
+}
+
+std::function<ParsedItemsResult(const QByteArray &, const QString &)>
+AuthenticationService::itemsResponseParser() const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->itemsResponseParser()
+        : std::function<ParsedItemsResult(const QByteArray &, const QString &)>{};
+}
+
 TrickplayTileInfoMap AuthenticationService::mapTrickplayInfo(
     const QJsonObject &wireItem) const
 {
@@ -98,6 +113,29 @@ QVariantList AuthenticationService::mapRemoteSessions(
         : QVariantList{};
 }
 
+QString AuthenticationService::mapLibraryIdFromAncestors(
+    const QJsonArray &wireAncestors) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapLibraryIdFromAncestors(wireAncestors)
+        : QString{};
+}
+
+QVariantMap AuthenticationService::mapFilterOptions(
+    const QJsonObject &wireFilters) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapFilterOptions(wireFilters)
+        : QVariantMap{};
+}
+
+QStringList AuthenticationService::mapNamedItems(const QJsonObject &wireItems) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapNamedItems(wireItems)
+        : QStringList{};
+}
+
 QVariantMap AuthenticationService::mapMediaItem(const QJsonObject &wireItem,
                                                  const QString &connectionId) const
 {
@@ -114,12 +152,13 @@ QVariantList AuthenticationService::mapMediaItems(const QJsonArray &wireItems,
         : QVariantList{};
 }
 
-QVariantList AuthenticationService::mapChapters(const QJsonArray &wireChapters,
-                                                 const QString &connectionId,
-                                                 const QString &itemId) const
+QVariantList AuthenticationService::mapChaptersFromItem(
+    const QJsonObject &wireItem,
+    const QString &connectionId,
+    const QString &itemId) const
 {
     return m_providerAdapter
-        ? m_providerAdapter->mapChapters(wireChapters, connectionId, itemId)
+        ? m_providerAdapter->mapChaptersFromItem(wireItem, connectionId, itemId)
         : QVariantList{};
 }
 

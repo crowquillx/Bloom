@@ -19,6 +19,12 @@ public:
     {
         return JellyfinModelMapper::playbackInfo(wirePlaybackInfo);
     }
+    ProviderItemsResponseParser itemsResponseParser() const override
+    {
+        return [](const QByteArray &wireResponse, const QString &parentId) {
+            return JellyfinModelMapper::itemsResponse(wireResponse, parentId);
+        };
+    }
     TrickplayTileInfoMap mapTrickplayInfo(
         const QJsonObject &wireItem) const override
     {
@@ -34,6 +40,19 @@ public:
     {
         return JellyfinModelMapper::remoteSessions(wireSessions, connectionId);
     }
+    QString mapLibraryIdFromAncestors(
+        const QJsonArray &wireAncestors) const override
+    {
+        return JellyfinModelMapper::libraryIdFromAncestors(wireAncestors);
+    }
+    QVariantMap mapFilterOptions(const QJsonObject &wireFilters) const override
+    {
+        return JellyfinModelMapper::filterOptions(wireFilters);
+    }
+    QStringList mapNamedItems(const QJsonObject &wireItems) const override
+    {
+        return JellyfinModelMapper::namedItems(wireItems);
+    }
     QVariantMap mapMediaItem(const QJsonObject &wireItem,
                              const QString &connectionId) const override
     {
@@ -44,11 +63,12 @@ public:
     {
         return JellyfinModelMapper::mediaItems(wireItems, connectionId);
     }
-    QVariantList mapChapters(const QJsonArray &wireChapters,
-                             const QString &connectionId,
-                             const QString &itemId) const override
+    QVariantList mapChaptersFromItem(const QJsonObject &wireItem,
+                                     const QString &connectionId,
+                                     const QString &itemId) const override
     {
-        return JellyfinModelMapper::chapters(wireChapters, connectionId, itemId);
+        return JellyfinModelMapper::chapters(
+            wireItem.value(QStringLiteral("Chapters")).toArray(), connectionId, itemId);
     }
 
 private:
