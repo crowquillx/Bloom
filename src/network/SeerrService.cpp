@@ -132,8 +132,8 @@ void SeerrService::validateConnection()
  * @brief Converts a raw Seerr API result object into the normalised item map used by UI delegates.
  *
  * Poster paths that are relative (not already a full URL) are expanded to the TMDB
- * image CDN at w342 resolution.  A synthetic "seerr:{type}:{tmdbId}" Id is generated so
- * delegates can key on items from both Jellyfin and Seerr sources consistently.
+ * image CDN at w342 resolution. A synthetic "seerr:{type}:{tmdbId}" itemId lets
+ * delegates key on local-library and discovery items consistently.
  */
 QJsonObject SeerrService::mapSearchResultItem(const QJsonObject &item) const
 {
@@ -149,42 +149,41 @@ QJsonObject SeerrService::mapSearchResultItem(const QJsonObject &item) const
     }
 
     QJsonObject mapped;
-    mapped["Source"] = "Seerr";
-    mapped["SeerrMediaType"] = mediaType;
-    mapped["SeerrTmdbId"] = item.value("id").toInt();
-    mapped["PosterPath"] = posterPath;
+    mapped["source"] = "seerr";
+    mapped["seerrMediaType"] = mediaType;
+    mapped["seerrTmdbId"] = item.value("id").toInt();
+    mapped["posterPath"] = posterPath;
     mapped["imageUrl"] = imageUrl;
-    mapped["BackdropPath"] = item.value("backdropPath").toString();
-    mapped["Overview"] = item.value("overview").toString();
+    mapped["backdropPath"] = item.value("backdropPath").toString();
+    mapped["overview"] = item.value("overview").toString();
 
     if (mediaType == "movie") {
-        mapped["Type"] = "Movie";
-        mapped["Name"] = item.value("title").toString();
+        mapped["mediaType"] = "Movie";
+        mapped["name"] = item.value("title").toString();
 
         const QString releaseDate = item.value("releaseDate").toString();
         const QString yearToken = releaseDate.section('-', 0, 0);
         bool ok = false;
         const int year = yearToken.toInt(&ok);
-        if (ok) mapped["ProductionYear"] = year;
+        if (ok) mapped["productionYear"] = year;
     } else {
-        mapped["Type"] = "Series";
-        mapped["Name"] = item.value("name").toString();
+        mapped["mediaType"] = "Series";
+        mapped["name"] = item.value("name").toString();
 
         const QString firstAirDate = item.value("firstAirDate").toString();
         const QString yearToken = firstAirDate.section('-', 0, 0);
         bool ok = false;
         const int year = yearToken.toInt(&ok);
-        if (ok) mapped["ProductionYear"] = year;
+        if (ok) mapped["productionYear"] = year;
     }
 
-    // Synthetic ID so delegates can treat Seerr entries similarly to Jellyfin entries.
-    mapped["Id"] = QString("seerr:%1:%2")
+    mapped["itemId"] = QString("seerr:%1:%2")
         .arg(mediaType)
-        .arg(mapped.value("SeerrTmdbId").toInt());
+        .arg(mapped.value("seerrTmdbId").toInt());
 
     const QJsonObject mediaInfo = item.value("mediaInfo").toObject();
     if (!mediaInfo.isEmpty()) {
-        mapped["SeerrMediaInfo"] = mediaInfo;
+        mapped["seerrMediaInfo"] = mediaInfo;
     }
 
     return mapped;

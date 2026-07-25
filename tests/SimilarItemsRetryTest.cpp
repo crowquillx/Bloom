@@ -746,6 +746,8 @@ void SimilarItemsRetryTest::mockHomeSignalsHaveCanonicalParity()
     QSignalSpy backdropSpy(&service, &LibraryService::canonicalHomeBackdropItemsLoaded);
     QSignalSpy heroSpy(&service, &LibraryService::canonicalHeroLibraryItemsLoaded);
     QSignalSpy overviewSpy(&service, &LibraryService::canonicalHeroSeriesOverviewsLoaded);
+    QSignalSpy searchSpy(&service, &LibraryService::canonicalSearchResultsLoaded);
+    QSignalSpy randomSpy(&service, &LibraryService::canonicalRandomItemsLoaded);
 
     QCOMPARE(service.getActiveConnectionId(), QStringLiteral("mock-connection"));
     service.getNextUp();
@@ -753,12 +755,27 @@ void SimilarItemsRetryTest::mockHomeSignalsHaveCanonicalParity()
     service.getHomeBackdropItems(80);
     service.getHeroLibraryItems(10, {}, false);
     service.getHeroSeriesOverviews({});
+    service.search(QStringLiteral(" test "));
+    service.getRandomItems(20);
 
     QCOMPARE(nextUpSpy.count(), 1);
     QCOMPARE(latestSpy.count(), 1);
     QCOMPARE(backdropSpy.count(), 1);
     QCOMPARE(heroSpy.count(), 1);
     QCOMPARE(overviewSpy.count(), 1);
+    QCOMPARE(searchSpy.count(), 1);
+    QCOMPARE(randomSpy.count(), 1);
+    QCOMPARE(searchSpy.first().at(0).toString(), QStringLiteral("mock-connection"));
+    QCOMPARE(searchSpy.first().at(1).toString(), QStringLiteral("test"));
+    QCOMPARE(randomSpy.first().at(0).toString(), QStringLiteral("mock-connection"));
+
+    const QVariantList randomItems = randomSpy.first().at(1).toList();
+    for (const QVariant &value : randomItems) {
+        const QVariantMap item = value.toMap();
+        QVERIFY(item.contains(QStringLiteral("itemId")));
+        QVERIFY(!item.contains(QStringLiteral("Id")));
+        QVERIFY(!item.contains(QStringLiteral("ImageTags")));
+    }
 }
 
 void SimilarItemsRetryTest::connectionScopeCacheKeysAreCollisionResistant()

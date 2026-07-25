@@ -8,20 +8,9 @@ import BloomUI
 /**
  * SearchResultCard - A card displaying a movie or series in search results.
  *
- * Supports both Jellyfin library items and Seerr items (detected via itemData.Source === "Seerr").
- * Shows poster image (TMDb CDN for Seerr; ImageCacheProvider for Jellyfin), title, production
- * year, and contextual badges:
- *  - Series: unwatched episode count badge (Jellyfin only).
- *  - Movie:  watched checkmark (Jellyfin only).
- *  - Seerr:  "Seerr" label + availability status badge (Pending / Processing / Available / etc.).
- *
- * Responds to both pointer hover (scale 1.02) and keyboard/gamepad focus (scale 1.05) via
- * InputModeManager.pointerActive.  Emits clicked() on mouse press or keyboard activation.
- *
- * Key computed properties:
- *  - isSeerr          true when the item originates from a Seerr search.
- *  - seerrStatusLabel Human-readable label derived from SeerrMediaInfo.status (0 = no label).
- *  - posterSource     Full image URL; prefers itemData.imageUrl (Seerr) over the Jellyfin cache.
+ * Supports canonical library items and Seerr discovery items.
+ * Shows a poster, title, year, and source-appropriate watched, unwatched, or availability badges.
+ * Responds to pointer hover and keyboard/gamepad focus.
  */
 Item {
     id: root
@@ -34,13 +23,14 @@ Item {
     property bool isFocused: false
     
     // Computed properties
-    property bool isSeerr: itemData.Source === "Seerr"
-    property string itemName: itemData.Name || ""
-    property string itemType: itemData.Type || ""
-    property string itemYear: itemData.ProductionYear ? String(itemData.ProductionYear) : ""
-    property string itemId: itemData.Id || ""
-    property bool isPlayed: itemData.UserData ? itemData.UserData.Played : false
-    property int seerrStatus: itemData.SeerrMediaInfo && itemData.SeerrMediaInfo.status ? itemData.SeerrMediaInfo.status : 0
+    property bool isSeerr: itemData.source === "seerr"
+    property string itemName: itemData.name || ""
+    property string itemType: itemData.mediaType || ""
+    property string itemYear: itemData.productionYear ? String(itemData.productionYear) : ""
+    property string itemId: itemData.itemId || ""
+    property bool isPlayed: itemData.watched || false
+    property int seerrStatus: itemData.seerrMediaInfo && itemData.seerrMediaInfo.status
+                              ? itemData.seerrMediaInfo.status : 0
     property string seerrStatusLabel: {
         switch (seerrStatus) {
         case 2: return qsTr("Pending")
@@ -52,11 +42,20 @@ Item {
         }
     }
     property string posterSource: {
-        const seerrImageUrl = itemData.imageUrl || ""
-        if (seerrImageUrl.length > 0) {
-            return seerrImageUrl
+        if (isSeerr) {
+            return itemData.imageUrl || ""
         }
-        return itemId ? LibraryService.getCachedImageUrlWithWidth(itemId, "Primary", 300) : ""
+        const artwork = itemData.primaryArtwork
+        if (!artwork || !artwork.itemId) {
+            return ""
+        }
+        return LibraryService.getCachedArtworkUrlForConnection(
+                    artwork.connectionId || "",
+                    artwork.itemId,
+                    artwork.kind || "primary",
+                    artwork.index || 0,
+                    artwork.tag || "",
+                    300)
     }
     
     // ========================================
@@ -155,8 +154,7 @@ Item {
                     anchors.top: parent.top
                     anchors.right: parent.right
                     parentWidth: parent.width
-                    count: (itemType === "Series" && itemData.UserData) 
-                           ? (itemData.UserData.UnplayedItemCount || 0) : 0
+                    count: itemType === "Series" ? (itemData.unplayedItemCount || 0) : 0
                     isFullyWatched: isPlayed
                     visible: !isSeerr && itemType === "Series"
                 }

@@ -140,8 +140,11 @@ QJsonArray UpNextRecommendationsViewModel::mergeRecommendations(const QJsonArray
 
 bool UpNextRecommendationsViewModel::isSeriesItem(const QJsonObject &item)
 {
-    const QString type = item.value(QStringLiteral("Type")).toString();
-    const QString seerrType = item.value(QStringLiteral("SeerrMediaType")).toString().toLower();
+    QString type = item.value(QStringLiteral("mediaType")).toString();
+    if (type.isEmpty()) {
+        type = item.value(QStringLiteral("Type")).toString();
+    }
+    const QString seerrType = item.value(QStringLiteral("seerrMediaType")).toString().toLower();
     return type.compare(QStringLiteral("Series"), Qt::CaseInsensitive) == 0
         || seerrType == QStringLiteral("tv");
 }
@@ -159,12 +162,16 @@ QString UpNextRecommendationsViewModel::dedupeKey(const QJsonObject &item)
         return QStringLiteral("imdb:%1").arg(imdb);
     }
 
-    const int seerrTmdb = item.value(QStringLiteral("SeerrTmdbId")).toInt(-1);
+    const int seerrTmdb = item.value(QStringLiteral("seerrTmdbId")).toInt(-1);
     if (seerrTmdb > 0) {
         return QStringLiteral("tmdb:%1").arg(seerrTmdb);
     }
 
-    const QString title = normalizedTitle(item.value(QStringLiteral("Name")).toString());
+    QString itemTitle = item.value(QStringLiteral("name")).toString();
+    if (itemTitle.isEmpty()) {
+        itemTitle = item.value(QStringLiteral("Name")).toString();
+    }
+    const QString title = normalizedTitle(itemTitle);
     if (title.isEmpty()) {
         return {};
     }
@@ -184,12 +191,18 @@ QString UpNextRecommendationsViewModel::normalizedTitle(const QString &title)
 
 int UpNextRecommendationsViewModel::itemYear(const QJsonObject &item)
 {
-    const int productionYear = item.value(QStringLiteral("ProductionYear")).toInt(0);
+    int productionYear = item.value(QStringLiteral("productionYear")).toInt(0);
+    if (productionYear <= 0) {
+        productionYear = item.value(QStringLiteral("ProductionYear")).toInt(0);
+    }
     if (productionYear > 0) {
         return productionYear;
     }
 
-    const QString premiereDate = item.value(QStringLiteral("PremiereDate")).toString();
+    QString premiereDate = item.value(QStringLiteral("premiereDate")).toString();
+    if (premiereDate.isEmpty()) {
+        premiereDate = item.value(QStringLiteral("PremiereDate")).toString();
+    }
     bool ok = false;
     const int year = premiereDate.left(4).toInt(&ok);
     return ok ? year : 0;

@@ -67,6 +67,7 @@ class UpNextRecommendationsViewModelTest : public QObject
 private slots:
     void cleanup();
     void jellyfinResultsAppearBeforeSeerrResults();
+    void canonicalSeriesAreAccepted();
     void nonSeriesResultsAreFiltered();
     void duplicateTitlesCollapseToJellyfinItem();
     void resultCountIsCapped();
@@ -86,14 +87,32 @@ void UpNextRecommendationsViewModelTest::jellyfinResultsAppearBeforeSeerrResults
         QJsonObject{{"Id", "jf-1"}, {"Type", "Series"}, {"Name", "Local First"}}
     };
     const QJsonArray seerr{
-        QJsonObject{{"Id", "seerr:tv:2"}, {"Source", "Seerr"}, {"SeerrMediaType", "tv"}, {"Name", "Discovery Second"}}
+        QJsonObject{{"itemId", "seerr:tv:2"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"name", "Discovery Second"}}
     };
 
     const QJsonArray merged = UpNextRecommendationsViewModel::mergeRecommendations(jellyfin, seerr, 6);
 
     QCOMPARE(merged.size(), 2);
     QCOMPARE(merged.at(0).toObject().value("Id").toString(), QStringLiteral("jf-1"));
-    QCOMPARE(merged.at(1).toObject().value("Id").toString(), QStringLiteral("seerr:tv:2"));
+    QCOMPARE(merged.at(1).toObject().value("itemId").toString(), QStringLiteral("seerr:tv:2"));
+}
+
+void UpNextRecommendationsViewModelTest::canonicalSeriesAreAccepted()
+{
+    const QJsonArray canonical{
+        QJsonObject{
+            {"itemId", "series-1"},
+            {"mediaType", "Series"},
+            {"name", "Canonical Series"}
+        }
+    };
+
+    const QJsonArray merged = UpNextRecommendationsViewModel::mergeRecommendations(
+        canonical, {}, 6);
+
+    QCOMPARE(merged.size(), 1);
+    QCOMPARE(merged.at(0).toObject().value("itemId").toString(),
+             QStringLiteral("series-1"));
 }
 
 void UpNextRecommendationsViewModelTest::nonSeriesResultsAreFiltered()
@@ -103,15 +122,15 @@ void UpNextRecommendationsViewModelTest::nonSeriesResultsAreFiltered()
         QJsonObject{{"Id", "series-1"}, {"Type", "Series"}, {"Name", "A Series"}}
     };
     const QJsonArray seerr{
-        QJsonObject{{"Id", "seerr:movie:1"}, {"Source", "Seerr"}, {"SeerrMediaType", "movie"}, {"Name", "A Seerr Movie"}},
-        QJsonObject{{"Id", "seerr:tv:1"}, {"Source", "Seerr"}, {"SeerrMediaType", "tv"}, {"Name", "A Seerr Series"}}
+        QJsonObject{{"itemId", "seerr:movie:1"}, {"source", "seerr"}, {"seerrMediaType", "movie"}, {"name", "A Seerr Movie"}},
+        QJsonObject{{"itemId", "seerr:tv:1"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"name", "A Seerr Series"}}
     };
 
     const QJsonArray merged = UpNextRecommendationsViewModel::mergeRecommendations(jellyfin, seerr, 6);
 
     QCOMPARE(merged.size(), 2);
     QCOMPARE(merged.at(0).toObject().value("Id").toString(), QStringLiteral("series-1"));
-    QCOMPARE(merged.at(1).toObject().value("Id").toString(), QStringLiteral("seerr:tv:1"));
+    QCOMPARE(merged.at(1).toObject().value("itemId").toString(), QStringLiteral("seerr:tv:1"));
 }
 
 void UpNextRecommendationsViewModelTest::duplicateTitlesCollapseToJellyfinItem()
@@ -120,7 +139,7 @@ void UpNextRecommendationsViewModelTest::duplicateTitlesCollapseToJellyfinItem()
         QJsonObject{{"Id", "jf-1"}, {"Type", "Series"}, {"Name", "Same Show"}, {"ProductionYear", 2020}}
     };
     const QJsonArray seerr{
-        QJsonObject{{"Id", "seerr:tv:10"}, {"Source", "Seerr"}, {"SeerrMediaType", "tv"}, {"Name", "Same Show!"}, {"ProductionYear", 2020}}
+        QJsonObject{{"itemId", "seerr:tv:10"}, {"source", "seerr"}, {"seerrMediaType", "tv"}, {"name", "Same Show!"}, {"productionYear", 2020}}
     };
 
     const QJsonArray merged = UpNextRecommendationsViewModel::mergeRecommendations(jellyfin, seerr, 6);

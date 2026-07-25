@@ -67,7 +67,7 @@ FocusScope {
         required property var itemData
         property bool isFocused: false
         property bool isHovered: InputModeManager.pointerActive && recommendationMouseArea.containsMouse
-        readonly property bool isSeerr: itemData.Source === "Seerr"
+        readonly property bool isSeerr: itemData.source === "seerr"
         readonly property string posterSource: {
             if (isSeerr) {
                 return itemData.imageUrl || ""
@@ -84,10 +84,10 @@ FocusScope {
             }
             return ""
         }
-        readonly property string title: isSeerr ? (itemData.Name || "") : (itemData.name || "")
+        readonly property string title: itemData.name || ""
         readonly property string subtitle: {
-            const productionYear = isSeerr ? itemData.ProductionYear : itemData.productionYear
-            const premiereDate = isSeerr ? itemData.PremiereDate : itemData.premiereDate
+            const productionYear = itemData.productionYear
+            const premiereDate = itemData.premiereDate
             if (productionYear) {
                 return String(productionYear)
             }
@@ -161,9 +161,7 @@ FocusScope {
 
                     Text {
                         anchors.centerIn: parent
-                        text: recommendationCard.isSeerr
-                              ? (recommendationCard.itemData.SeerrMediaType === "tv" ? Icons.tvShows : Icons.movie)
-                              : (recommendationCard.itemData.mediaType === "Series" ? Icons.tvShows : Icons.movie)
+                        text: recommendationCard.itemData.mediaType === "Series" ? Icons.tvShows : Icons.movie
                         font.family: Theme.fontIcon
                         font.pixelSize: Math.round(56 * Theme.layoutScale)
                         color: Theme.textSecondary

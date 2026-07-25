@@ -242,8 +242,17 @@ signals:
     void itemPlayedStatusChanged(const QString &itemId, bool isPlayed);
     void favoriteStatusChanged(const QString &itemId, bool isFavorite);
     void themeSongsLoaded(const QString &seriesId, const QStringList &urls);
-    void searchResultsLoaded(const QString &searchTerm, const QJsonArray &movies, const QJsonArray &series);
-    void randomItemsLoaded(const QJsonArray &items);
+    void canonicalSearchResultsLoaded(const QString &connectionId,
+                                      const QString &searchTerm,
+                                      const QVariantList &movies,
+                                      const QVariantList &series);
+    void canonicalSearchResultsFailed(const QString &connectionId,
+                                      const QString &searchTerm,
+                                      const QString &error);
+    void canonicalRandomItemsLoaded(const QString &connectionId,
+                                    const QVariantList &items);
+    void canonicalRandomItemsFailed(const QString &connectionId,
+                                    const QString &error);
     void heroLibraryItemsLoaded(const QJsonArray &items);
     void canonicalHeroLibraryItemsLoaded(const QString &connectionId,
                                          const QVariantList &items);
