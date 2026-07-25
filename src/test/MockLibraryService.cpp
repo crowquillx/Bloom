@@ -310,44 +310,22 @@ void MockLibraryService::getScreensaverItems(int limit)
         allItems.append(val);
     }
 
-    QJsonArray result;
+    QVariantList result;
+    const QVariantList items = JellyfinModelMapper::mediaItems(
+        allItems, QStringLiteral("mock-connection"));
     const int requestedLimit = qBound(10, limit > 0 ? limit : 80, 200);
-    for (int i = 0; i < allItems.size() && result.size() < requestedLimit; ++i) {
-        QJsonObject item = allItems[i].toObject();
-        QString itemId = item.value("Id").toString();
-        QString tag;
-        const QJsonArray backdropTags = item.value("BackdropImageTags").toArray();
-        if (!backdropTags.isEmpty()) {
-            tag = backdropTags.first().toString();
-        } else {
-            tag = item.value("ImageTags").toObject().value("Backdrop").toString();
+    for (const QVariant &value : items) {
+        const QVariantMap item = value.toMap();
+        if (!item.value(QStringLiteral("backdropArtwork")).toMap().isEmpty()) {
+            result.append(item);
         }
-        const QJsonArray parentBackdropTags = item.value("ParentBackdropImageTags").toArray();
-        if (tag.isEmpty() && !parentBackdropTags.isEmpty()) {
-            tag = parentBackdropTags.first().toString();
-            itemId = item.value("ParentBackdropItemId").toString(
-                item.value("SeriesId").toString(item.value("Id").toString()));
+        if (result.size() >= requestedLimit) {
+            break;
         }
-        if (itemId.isEmpty() || tag.isEmpty()) {
-            continue;
-        }
-        item.insert(QStringLiteral("BackdropUrl"),
-                    getCachedArtworkUrl(itemId,
-                                        QStringLiteral("Backdrop"),
-                                        0,
-                                        tag,
-                                        1920));
-        if (item.value("ImageTags").toObject().contains(QStringLiteral("Logo"))) {
-            item.insert(QStringLiteral("LogoUrl"),
-                        getCachedImageUrlWithWidth(item.value("Id").toString(),
-                                                   QStringLiteral("Logo"),
-                                                   700));
-        }
-        result.append(item);
     }
 
     qCDebug(lcTest) << "MockLibraryService::getScreensaverItems(" << limit << ") ->" << result.size() << "items";
-    emit screensaverItemsLoaded(result);
+    emit canonicalScreensaverItemsLoaded(QStringLiteral("mock-connection"), result);
 }
 
 void MockLibraryService::getItem(const QString &itemId)

@@ -22,6 +22,7 @@ FocusScope {
 
     // Rotating backdrop state
     property var backdropCandidates: []
+    property string backdropConnectionId: ""
     property string currentBackdropUrl: ""
 
     // Cached MPV profile names (shared with MpvSettings)
@@ -189,8 +190,10 @@ FocusScope {
 
     StackView.onStatusChanged: {
         if (StackView.status === StackView.Active) {
-            if (backdropCandidates.length === 0)
+            if (backdropCandidates.length === 0
+                    || backdropConnectionId !== LibraryService.getActiveConnectionId()) {
                 refreshBackdropCandidates()
+            }
             if (focusUpdatesOnActivate) {
                 requestUpdateSectionFocus()
                 focusUpdatesOnActivate = false
@@ -204,61 +207,72 @@ FocusScope {
     // Backdrop
     // ========================================
 
-    function refreshBackdropCandidates() {
+    function resetBackdropCandidates() {
         backdropCandidates = []
+        backdropConnectionId = ""
         currentBackdropUrl = ""
+    }
+
+    function refreshBackdropCandidates() {
+        resetBackdropCandidates()
+        backdropConnectionId = LibraryService.getActiveConnectionId()
         LibraryService.getViews()
     }
 
     function addBackdropCandidate(item) {
-        if (!item) return
-        var itemId = item.Id
-        var backdropTag = ""
-        var backdropItemId = itemId
-        if (item.BackdropImageTags && item.BackdropImageTags.length > 0) {
-            backdropTag = item.BackdropImageTags[0]
-        } else if (item.ParentBackdropImageTags && item.ParentBackdropImageTags.length > 0) {
-            backdropTag = item.ParentBackdropImageTags[0]
-            backdropItemId = item.ParentBackdropItemId || item.SeriesId || itemId
-        }
-        if (!backdropTag || !backdropItemId) return
+        const artwork = item ? item.backdropArtwork : null
+        if (!artwork || !artwork.itemId) return
         for (var i = 0; i < backdropCandidates.length; ++i) {
-            if (backdropCandidates[i].itemId === backdropItemId && backdropCandidates[i].backdropTag === backdropTag)
+            const candidate = backdropCandidates[i]
+            if (candidate.connectionId === artwork.connectionId
+                    && candidate.itemId === artwork.itemId
+                    && candidate.index === artwork.index
+                    && candidate.tag === artwork.tag) {
                 return
+            }
         }
-        var newCandidates = backdropCandidates.slice()
-        newCandidates.push({ itemId: backdropItemId, backdropTag: backdropTag })
+        const newCandidates = backdropCandidates.slice()
+        newCandidates.push(artwork)
         backdropCandidates = newCandidates
         if (backdropCandidates.length === 1) selectRandomBackdrop()
     }
 
     function selectRandomBackdrop() {
         if (backdropCandidates.length === 0) { currentBackdropUrl = ""; return }
-        var randomIndex = Math.floor(Math.random() * backdropCandidates.length)
-        var candidate = backdropCandidates[randomIndex]
-        var url = LibraryService.getCachedArtworkUrl(candidate.itemId,
-                                                     "Backdrop",
-                                                     0,
-                                                     candidate.backdropTag || "",
-                                                     1920)
-        currentBackdropUrl = url
+        const randomIndex = Math.floor(Math.random() * backdropCandidates.length)
+        const artwork = backdropCandidates[randomIndex]
+        currentBackdropUrl = LibraryService.getCachedArtworkUrlForConnection(
+                    artwork.connectionId || "",
+                    artwork.itemId,
+                    artwork.kind || "backdrop",
+                    artwork.index || 0,
+                    artwork.tag || "",
+                    1920)
+    }
+
+    Connections {
+        target: AuthenticationService
+        function onLoginSuccess() { root.refreshBackdropCandidates() }
+        function onLoggedOut() { root.resetBackdropCandidates() }
+        function onSessionExpired() { root.resetBackdropCandidates() }
+        function onSessionExpiredAfterPlayback() { root.resetBackdropCandidates() }
     }
 
     Connections {
         target: LibraryService
-        function onViewsLoaded(views) {
-            if (!views || views.length === undefined) return
-            var ids = []
-            for (var i = 0; i < views.length; ++i) ids.push(views[i].Id)
+        function onCanonicalViewsLoadedForConnection(connectionId, views) {
+            if (connectionId !== backdropConnectionId || !views || views.length === undefined) return
+            const ids = []
+            for (var i = 0; i < views.length; ++i) ids.push(views[i].itemId)
             LibraryService.getNextUp()
             for (var j = 0; j < ids.length; ++j) LibraryService.getLatestMedia(ids[j])
         }
-        function onNextUpLoaded(items) {
-            if (!items || items.length === undefined) return
+        function onCanonicalNextUpLoaded(connectionId, items) {
+            if (connectionId !== backdropConnectionId || !items || items.length === undefined) return
             for (var i = 0; i < items.length; ++i) addBackdropCandidate(items[i])
         }
-        function onLatestMediaLoaded(parentId, items) {
-            if (!items || items.length === undefined) return
+        function onCanonicalLatestMediaLoaded(connectionId, parentId, items) {
+            if (connectionId !== backdropConnectionId || !items || items.length === undefined) return
             for (var i = 0; i < items.length; ++i) addBackdropCandidate(items[i])
         }
     }
