@@ -15,6 +15,7 @@ class CanonicalModelsTest : public QObject
 
 private slots:
     void jellyfinTimeConversionUsesMilliseconds();
+    void jellyfinPlaybackInfoMapsToMilliseconds();
     void jellyfinItemMapsToCanonicalCamelCase();
     void jellyfinParentBackdropUsesImageItemId();
     void jellyfinSeriesFieldsAndChaptersMapCanonically();
@@ -33,6 +34,38 @@ void CanonicalModelsTest::jellyfinTimeConversionUsesMilliseconds()
     QCOMPARE(JellyfinModelMapper::millisecondsToTicks(-1), 0);
     QCOMPARE(JellyfinModelMapper::millisecondsToTicks(std::numeric_limits<qint64>::max()),
              std::numeric_limits<qint64>::max());
+}
+
+void CanonicalModelsTest::jellyfinPlaybackInfoMapsToMilliseconds()
+{
+    const PlaybackInfoResponse playbackInfo = JellyfinModelMapper::playbackInfo(
+        QJsonObject{
+            {QStringLiteral("PlaySessionId"), QStringLiteral("session-1")},
+            {QStringLiteral("MediaSources"), QJsonArray{
+                 QJsonObject{
+                     {QStringLiteral("Id"), QStringLiteral("source-1")},
+                     {QStringLiteral("RunTimeTicks"), 20'000'000},
+                     {QStringLiteral("MediaStreams"), QJsonArray{
+                          QJsonObject{
+                              {QStringLiteral("Index"), 3},
+                              {QStringLiteral("Type"), QStringLiteral("Audio")},
+                              {QStringLiteral("DisplayTitle"), QStringLiteral("English")},
+                              {QStringLiteral("CodecTag"), 4'294'967'295.0}
+                          }
+                      }}
+                 }
+             }}
+        });
+
+    QCOMPARE(playbackInfo.playSessionId, QStringLiteral("session-1"));
+    QCOMPARE(playbackInfo.mediaSources.size(), 1);
+    QCOMPARE(playbackInfo.mediaSources.first().durationMs, 2000);
+    QCOMPARE(playbackInfo.mediaSources.first().mediaStreams.first().index, 3);
+    QCOMPARE(playbackInfo.mediaSources.first().mediaStreams.first().codecTag,
+             QStringLiteral("4294967295"));
+    const QVariantMap source = playbackInfo.getMediaSourcesVariant().first().toMap();
+    QCOMPARE(source.value(QStringLiteral("durationMs")).toLongLong(), 2000);
+    QVERIFY(!source.contains(QStringLiteral("runTimeTicks")));
 }
 
 void CanonicalModelsTest::jellyfinItemMapsToCanonicalCamelCase()
@@ -319,7 +352,7 @@ void CanonicalModelsTest::jellyfinPlaybackProviderFinalizesStreamAtBoundary()
     const QVariantMap source{
         {QStringLiteral("id"), QStringLiteral("source-1")},
         {QStringLiteral("directStreamUrl"), QStringLiteral("/Videos/movie-1/stream")},
-        {QStringLiteral("runTimeTicks"), 20'000'000},
+        {QStringLiteral("durationMs"), 2000},
         {QStringLiteral("mediaStreams"), QVariantList{
              QVariantMap{
                  {QStringLiteral("type"), QStringLiteral("Audio")},

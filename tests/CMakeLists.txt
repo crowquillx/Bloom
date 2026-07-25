@@ -262,8 +262,10 @@ add_test(NAME ProviderTransportTest COMMAND ProviderTransportTest)
 add_executable(CanonicalModelsTest
     CanonicalModelsTest.cpp
     ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinModelMapper.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinPlaybackProvider.cpp
+    ${TEST_LOGGING_SOURCES}
 )
 
 target_include_directories(CanonicalModelsTest PRIVATE
@@ -274,6 +276,7 @@ target_include_directories(CanonicalModelsTest PRIVATE
 target_link_libraries(CanonicalModelsTest
     PRIVATE
         Qt6::Core
+        Qt6::Network
         Qt6::Test
 )
 

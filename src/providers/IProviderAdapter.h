@@ -1,5 +1,6 @@
 #pragma once
 
+#include "network/Types.h"
 #include "providers/ServerConnection.h"
 
 #include <QJsonArray>
@@ -27,6 +28,8 @@ public:
     virtual const IProviderAuthenticator *authenticator() const = 0;
     virtual const IProviderRequestFactory *requestFactory() const = 0;
     virtual const IPlaybackProvider *playbackProvider() const = 0;
+    virtual PlaybackInfoResponse mapPlaybackInfo(
+        const QJsonObject &wirePlaybackInfo) const = 0;
     virtual QVariantMap mapMediaItem(const QJsonObject &wireItem,
                                      const QString &connectionId) const = 0;
     virtual QVariantList mapMediaItems(const QJsonArray &wireItems,

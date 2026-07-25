@@ -12,6 +12,7 @@
 #include "network/AuthenticationService.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
+#include "providers/jellyfin/JellyfinModelMapper.h"
 #include "providers/jellyfin/JellyfinPlaybackProvider.h"
 #include "utils/ConfigManager.h"
 #include "utils/DisplayManager.h"
@@ -361,7 +362,7 @@ static MediaSourceInfo buildMediaSourceInfo(const QString &id,
                                             int defaultSubtitle = -1,
                                             const QString &container = QStringLiteral("mkv"),
                                             int bitRate = 0,
-                                            qint64 runTimeTicks = 0,
+                                            qint64 durationMs = 0,
                                             const QString &directStreamUrl = QString(),
                                             const QString &transcodingUrl = QString())
 {
@@ -373,7 +374,7 @@ static MediaSourceInfo buildMediaSourceInfo(const QString &id,
     info.transcodingUrl = transcodingUrl;
     info.container = container;
     info.bitRate = bitRate;
-    info.runTimeTicks = runTimeTicks;
+    info.durationMs = durationMs;
     info.defaultAudioStreamIndex = defaultAudio;
     info.defaultSubtitleStreamIndex = defaultSubtitle;
     for (const QVariantMap &stream : streams) {
@@ -1537,7 +1538,7 @@ void PlayerControllerAutoplayContextTest::dolbyVisionWithHdr10BaseLayerDoesNotFo
     QCOMPARE(context.value(QStringLiteral("hdrKind")).toString(), QStringLiteral("dolby-vision-compatible"));
     QVERIFY(!context.value(QStringLiteral("toneMapToSdr")).toBool());
 
-    const MediaSourceInfo jellyfinNumericSource = MediaSourceInfo::fromJson(QJsonObject{
+    const MediaSourceInfo jellyfinNumericSource = JellyfinModelMapper::mediaSource(QJsonObject{
         {QStringLiteral("Id"), QStringLiteral("media-source-dv-p7-json")},
         {QStringLiteral("Name"), QStringLiteral("Obsession (2026) [DV HDR10]")},
         {QStringLiteral("Path"), QStringLiteral("/library/Obsession (2026) [DV HDR10].mkv")},
@@ -2185,7 +2186,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackPromptsForVersionSelect
         -1,
         QStringLiteral("mkv"),
         8000000,
-        1200000000);
+        120000);
     const MediaSourceInfo versionB = buildMediaSourceInfo(
         QStringLiteral("source-4k"),
         QStringLiteral("4K"),
@@ -2202,7 +2203,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackPromptsForVersionSelect
         -1,
         QStringLiteral("mkv"),
         22000000,
-        1200000000);
+        120000);
 
     const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
@@ -2275,7 +2276,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackRecoversLibraryProfileF
         -1,
         QStringLiteral("mkv"),
         8000000,
-        1200000000);
+        120000);
 
     const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
@@ -2481,7 +2482,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackWaitsForSeriesDetailsPa
         -1,
         QStringLiteral("mkv"),
         8000000,
-        1200000000);
+        120000);
 
     const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
@@ -2565,7 +2566,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackUsesRecoveredLibraryWhe
         -1,
         QStringLiteral("mkv"),
         8000000,
-        1200000000);
+        120000);
 
     const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
@@ -2639,7 +2640,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackFallsBackWithoutRecover
         -1,
         QStringLiteral("mkv"),
         8000000,
-        1200000000);
+        120000);
 
     const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
@@ -2719,7 +2720,7 @@ void PlayerControllerAutoplayContextTest::requestPlaybackKeepsSeriesProfilePrior
         -1,
         QStringLiteral("mkv"),
         8000000,
-        1200000000);
+        120000);
 
     const QString requestId = controller.m_pendingPlaybackRequests.constBegin().key();
     emit playbackService.playbackInfoLoadedForRequest(QStringLiteral("episode-1"),
@@ -3219,7 +3220,7 @@ void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntil
                              -1,
                              QStringLiteral("mkv"),
                              8000000,
-                             600000000),
+                             60000),
         buildMediaSourceInfo(QStringLiteral("part-2-source"),
                              QStringLiteral("1080p"),
                              QStringLiteral("/library/show/1080p/part-2.mkv"),
@@ -3231,7 +3232,7 @@ void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntil
                              -1,
                              QStringLiteral("mkv"),
                              8000000,
-                             600000000)
+                             60000)
     });
 
     const QVariantMap part1Source = segmentInfo.getMediaSourcesVariant().at(0).toMap();

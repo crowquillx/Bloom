@@ -202,9 +202,8 @@ void PlaybackService::getPlaybackInfo(const QString &itemId, const QString &requ
             return m_authService->networkManager()->post(request, QByteArray("{}"));
         },
         [this, itemId, requestContext](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
-            PlaybackInfoResponse info = PlaybackInfoResponse::fromJson(doc.object());
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            const PlaybackInfoResponse info = m_authService->mapPlaybackInfo(doc.object());
             emit playbackInfoLoaded(itemId, info);
             if (!requestContext.isEmpty()) {
                 emit playbackInfoLoadedForRequest(itemId, info, requestContext);
