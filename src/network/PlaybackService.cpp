@@ -18,6 +18,15 @@
 
 namespace {
 
+QString activeConnectionId(AuthenticationService *authService, ConfigManager *configManager)
+{
+    ConfigManager *config = configManager
+        ? configManager
+        : (authService ? authService->configManager() : nullptr);
+    const auto connection = config ? config->getActiveConnection() : std::nullopt;
+    return connection.has_value() ? connection->connectionId : QString();
+}
+
 PlaybackReport makePlaybackReport(PlaybackReportEvent event,
                                   const QString &itemId,
                                   qint64 positionMs,
@@ -75,14 +84,17 @@ Bloom::PlaybackDescriptor PlaybackService::createPlaybackDescriptor(
     int selectedAudioTrack,
     int selectedSubtitleTrack,
     qint64 startPositionMs,
-    const QString &playbackSessionId)
+    const QString &playbackSessionId,
+    bool emitFailure)
 {
     if (!m_authService || !m_provider) {
-        NetworkError error;
-        error.code = -1;
-        error.endpoint = QStringLiteral("createPlaybackDescriptor");
-        error.userMessage = tr("Playback provider is unavailable.");
-        emitError(error);
+        if (emitFailure) {
+            NetworkError error;
+            error.code = -1;
+            error.endpoint = QStringLiteral("createPlaybackDescriptor");
+            error.userMessage = tr("Playback provider is unavailable.");
+            emitError(error);
+        }
         return {};
     }
 
@@ -107,7 +119,7 @@ Bloom::PlaybackDescriptor PlaybackService::createPlaybackDescriptor(
         selectedSubtitleTrack,
         startPositionMs,
         playbackSessionId);
-    if (!descriptor.isValid()) {
+    if (!descriptor.isValid() && emitFailure) {
         NetworkError error;
         error.code = -2;
         error.endpoint = QStringLiteral("createPlaybackDescriptor");
@@ -235,6 +247,7 @@ void PlaybackService::getAdditionalParts(const QString &itemId, const QString &r
         return;
     }
 
+    const QString connectionId = activeConnectionId(m_authService, m_configManager);
     QString endpoint = QString("/Videos/%1/AdditionalParts?UserId=%2")
         .arg(itemId, m_authService->getUserId());
 
@@ -243,13 +256,12 @@ void PlaybackService::getAdditionalParts(const QString &itemId, const QString &r
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, itemId, requestContext](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
-            QJsonArray parts;
-            if (doc.isObject()) {
-                parts = doc.object().value(QStringLiteral("Items")).toArray();
-            }
+        [this, itemId, requestContext, connectionId](QNetworkReply *reply) {
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            const QVariantList parts = doc.isObject()
+                ? m_authService->mapMediaItems(
+                      doc.object().value(QStringLiteral("Items")).toArray(), connectionId)
+                : QVariantList{};
             emit additionalPartsLoaded(itemId, parts);
             if (!requestContext.isEmpty()) {
                 emit additionalPartsLoadedForRequest(itemId, parts, requestContext);

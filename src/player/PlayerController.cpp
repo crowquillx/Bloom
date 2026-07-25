@@ -2054,32 +2054,31 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
     const QString mediaSourceId = mediaSource.value(QStringLiteral("id")).toString();
     const QVariantList availableAudioTracks = buildAvailableTrackOptions(mediaSource, QStringLiteral("Audio"));
     const QVariantList availableSubtitleTracks = buildAvailableTrackOptions(mediaSource, QStringLiteral("Subtitle"));
-    const Bloom::PlaybackDescriptor descriptor = m_playbackService->createPlaybackDescriptor(
+    Bloom::PlaybackDescriptor descriptor = m_playbackService->createPlaybackDescriptor(
         itemId,
         mediaSource,
         resolved.audioIndex,
         resolved.subtitleIndex,
         startPositionMs,
-        playbackInfo.playSessionId);
-    QString streamUrl;
+        playbackInfo.playSessionId,
+        false);
     if (!descriptor.stream.isValid()) {
-        qCWarning(lcPlayback) << "Autoplay provider returned an invalid playback descriptor;"
-                                 " using the compatibility stream façade"
-                              << "itemId=" << itemId;
-        streamUrl = m_libraryService->getStreamUrl(itemId);
-        m_nextPlaybackMethod = QStringLiteral("DirectPlay");
-        m_nextStreamPinsAudioTrack = false;
-        m_nextStreamPinsSubtitleTrack = false;
-        m_nextPinnedAudioTrack = -1;
-        m_nextPinnedSubtitleTrack = -1;
-    } else {
-        streamUrl = descriptor.stream.url.toString();
-        m_nextPlaybackMethod = Bloom::playbackMethodName(descriptor.stream.method);
-        m_nextStreamPinsAudioTrack = descriptor.stream.pinsAudioTrack;
-        m_nextStreamPinsSubtitleTrack = descriptor.stream.pinsSubtitleTrack;
-        m_nextPinnedAudioTrack = descriptor.stream.pinnedAudioTrackId.toInt();
-        m_nextPinnedSubtitleTrack = descriptor.stream.pinnedSubtitleTrackId.toInt();
+        descriptor = m_playbackService->createPlaybackDescriptor(
+            itemId, {}, -1, -1, startPositionMs, playbackInfo.playSessionId);
     }
+    if (!descriptor.stream.isValid()) {
+        qCWarning(lcPlayback) << "Autoplay provider returned no valid stream request"
+                              << "itemId=" << itemId;
+        clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
+        return;
+    }
+    const QString streamUrl = descriptor.stream.url.toString();
+    m_nextPlaybackMethod = Bloom::playbackMethodName(descriptor.stream.method);
+    m_nextStreamPinsAudioTrack = descriptor.stream.pinsAudioTrack;
+    m_nextStreamPinsSubtitleTrack = descriptor.stream.pinsSubtitleTrack;
+    m_nextPinnedAudioTrack = descriptor.stream.pinnedAudioTrackId.toInt();
+    m_nextPinnedSubtitleTrack = descriptor.stream.pinnedSubtitleTrackId.toInt();
     const QString seriesId = m_pendingAutoplaySeriesId;
     const QString libraryId = m_pendingAutoplayLibraryId;
 
@@ -2298,14 +2297,14 @@ void PlayerController::cancelPendingPlaybackRequest(const QString &requestId)
     m_pendingPlaybackRequests.remove(requestId);
 }
 
-void PlayerController::onAdditionalPartsLoaded(const QString &itemId, const QJsonArray &parts)
+void PlayerController::onAdditionalPartsLoaded(const QString &itemId, const QVariantList &parts)
 {
     Q_UNUSED(itemId);
     Q_UNUSED(parts);
 }
 
 void PlayerController::onAdditionalPartsLoadedForRequest(const QString &itemId,
-                                                         const QJsonArray &parts,
+                                                         const QVariantList &parts,
                                                          const QString &requestContext)
 {
     auto it = m_pendingPlaybackRequests.find(requestContext);
@@ -2316,8 +2315,8 @@ void PlayerController::onAdditionalPartsLoadedForRequest(const QString &itemId,
     it->additionalPartsLoaded = true;
     it->additionalParts = parts;
 
-    for (const QJsonValue &partValue : parts) {
-        const QString partId = partValue.toObject().value(QStringLiteral("Id")).toString();
+    for (const QVariant &partValue : parts) {
+        const QString partId = partValue.toMap().value(QStringLiteral("itemId")).toString();
         if (partId.isEmpty() || partId == itemId || it->awaitedPlaybackInfoIds.contains(partId)) {
             continue;
         }
@@ -2339,7 +2338,7 @@ void PlayerController::onAdditionalPartsFailedForRequest(const QString &itemId,
     }
 
     it->additionalPartsLoaded = true;
-    it->additionalParts = QJsonArray();
+    it->additionalParts = {};
     maybeFinalizePendingPlaybackRequest(requestContext);
 }
 
@@ -2651,9 +2650,8 @@ QVariantList PlayerController::buildMultipartSegments(const QVariantMap &request
             continue;
         }
 
-        for (const QJsonValue &partValue : pendingRequest.additionalParts) {
-            const QJsonObject partObject = partValue.toObject();
-            const QString partId = partObject.value(QStringLiteral("Id")).toString();
+        for (const QVariant &partValue : pendingRequest.additionalParts) {
+            const QString partId = partValue.toMap().value(QStringLiteral("itemId")).toString();
             if (partId.isEmpty()) {
                 continue;
             }
@@ -5239,8 +5237,21 @@ void PlayerController::fallbackToPendingAutoplayPlayback()
     const bool toneMapToSdr = m_pendingAutoplayToneMapToSdr;
     stopAutoplayPlaybackInfoWait();
 
-    const QString fallbackUrl = m_libraryService->getStreamUrl(itemId);
-    playUrl(fallbackUrl,
+    const Bloom::PlaybackDescriptor descriptor =
+        m_playbackService->createPlaybackDescriptor(itemId, {}, -1, -1, startPositionMs);
+    if (!descriptor.stream.isValid()) {
+        qCWarning(lcPlayback) << "Autoplay provider returned no fallback stream request"
+                              << "itemId=" << itemId;
+        clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
+        return;
+    }
+    m_nextPlaybackMethod = Bloom::playbackMethodName(descriptor.stream.method);
+    m_nextStreamPinsAudioTrack = descriptor.stream.pinsAudioTrack;
+    m_nextStreamPinsSubtitleTrack = descriptor.stream.pinsSubtitleTrack;
+    m_nextPinnedAudioTrack = descriptor.stream.pinnedAudioTrackId.toInt();
+    m_nextPinnedSubtitleTrack = descriptor.stream.pinnedSubtitleTrackId.toInt();
+    playUrl(descriptor.stream.url.toString(),
             itemId,
             startPositionMs,
             seriesId,

@@ -411,9 +411,9 @@ private slots:
     void onPlaybackInfoFailedForRequest(const QString &itemId,
                                         const QString &error,
                                         const QString &requestContext);
-    void onAdditionalPartsLoaded(const QString &itemId, const QJsonArray &parts);
+    void onAdditionalPartsLoaded(const QString &itemId, const QVariantList &parts);
     void onAdditionalPartsLoadedForRequest(const QString &itemId,
-                                           const QJsonArray &parts,
+                                           const QVariantList &parts,
                                            const QString &requestContext);
     void onAdditionalPartsFailedForRequest(const QString &itemId,
                                            const QString &error,
@@ -742,7 +742,7 @@ private:
         bool additionalPartsLoaded = false;
         bool versionSelectionRequested = false;
         QString chosenMediaSourceId;
-        QJsonArray additionalParts;
+        QVariantList additionalParts;
         QSet<QString> awaitedPlaybackInfoIds;
         QSet<QString> failedPlaybackInfoIds;
         bool primaryPlaybackInfoFailed = false;

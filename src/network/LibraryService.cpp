@@ -3,6 +3,7 @@
 #include "HttpTransport.h"
 #include "NextEpisodeResolver.h"
 #include "models/MediaModels.h"
+#include "providers/IPlaybackProvider.h"
 #include "utils/ConfigManager.h"
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -1486,6 +1487,7 @@ void LibraryService::getThemeSongs(const QString &seriesId)
 {
     if (!m_authService->isAuthenticated()) return;
     
+    const QString connectionId = activeConnectionId(m_authService);
     QString endpoint = QString("/Items/%1/ThemeSongs?UserId=%2").arg(seriesId, m_authService->getUserId());
     
     sendRequestWithRetry(endpoint,
@@ -1493,9 +1495,8 @@ void LibraryService::getThemeSongs(const QString &seriesId)
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, seriesId](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
+        [this, seriesId, connectionId](QNetworkReply *reply) {
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             if (!doc.isObject()) {
                 NetworkError error;
                 error.endpoint = "getThemeSongs";
@@ -1504,11 +1505,12 @@ void LibraryService::getThemeSongs(const QString &seriesId)
                 emitError(error);
                 return;
             }
-            QJsonArray items = doc.object()["Items"].toArray();
-            
+            const QVariantList items = m_authService->mapMediaItems(
+                doc.object().value(QStringLiteral("Items")).toArray(), connectionId);
+
             QStringList urls;
-            for (const auto &item : items) {
-                QString itemId = item.toObject()["Id"].toString();
+            for (const QVariant &item : items) {
+                const QString itemId = item.toMap().value(QStringLiteral("itemId")).toString();
                 if (!itemId.isEmpty()) {
                     urls.append(getStreamUrl(itemId));
                 }
@@ -1886,27 +1888,33 @@ QString LibraryService::getActiveConnectionId() const
 
 QString LibraryService::getStreamUrl(const QString &itemId)
 {
-    return QString("%1/Videos/%2/stream?Container=mp4,mkv&Static=true&api_key=%3")
-        .arg(m_authService->getServerUrl(), itemId, m_authService->getAccessToken());
+    return getStreamUrlWithTracks(itemId, {}, -1, -1);
 }
 
 QString LibraryService::getStreamUrlWithTracks(const QString &itemId, const QString &mediaSourceId,
                                                 int audioStreamIndex, int subtitleStreamIndex)
 {
-    QString url = QString("%1/Videos/%2/stream?Static=true&api_key=%3")
-        .arg(m_authService->getServerUrl(), itemId, m_authService->getAccessToken());
-    
-    if (!mediaSourceId.isEmpty()) {
-        url += QString("&MediaSourceId=%1").arg(mediaSourceId);
+    const IPlaybackProvider *provider = m_authService
+        ? m_authService->playbackProvider() : nullptr;
+    if (!provider || itemId.isEmpty()) {
+        if (!provider) {
+            qCWarning(lcLibrary) << "getStreamUrlWithTracks: playback provider is unavailable;"
+                                    " returning empty URL for itemId=" << itemId;
+        }
+        return {};
     }
-    if (audioStreamIndex >= 0) {
-        url += QString("&AudioStreamIndex=%1").arg(audioStreamIndex);
-    }
-    if (subtitleStreamIndex >= 0) {
-        url += QString("&SubtitleStreamIndex=%1").arg(subtitleStreamIndex);
-    }
-    
-    return url;
+
+    Bloom::MediaRef media{activeConnectionId(m_authService), itemId};
+    const PlaybackProviderContext context{
+        QUrl(m_authService->getServerUrl()),
+        m_authService->getAccessToken()
+    };
+    const QVariantMap source{
+        {QStringLiteral("id"), mediaSourceId}
+    };
+    const Bloom::PlaybackDescriptor descriptor = provider->createDescriptor(
+        context, media, source, audioStreamIndex, subtitleStreamIndex, 0);
+    return descriptor.stream.isValid() ? descriptor.stream.url.toString() : QString();
 }
 
 QString LibraryService::getImageUrl(const QString &itemId, const QString &imageType)

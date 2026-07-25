@@ -42,7 +42,8 @@ public:
         int selectedAudioTrack,
         int selectedSubtitleTrack,
         qint64 startPositionMs = 0,
-        const QString &playbackSessionId = QString());
+        const QString &playbackSessionId = QString(),
+        bool emitFailure = true);
     
     // Playback Info - Get media streams and track information
     Q_INVOKABLE virtual void getPlaybackInfo(const QString &itemId);
@@ -108,9 +109,9 @@ signals:
     void playbackInfoFailedForRequest(const QString &itemId,
                                       const QString &error,
                                       const QString &requestContext);
-    void additionalPartsLoaded(const QString &itemId, const QJsonArray &parts);
+    void additionalPartsLoaded(const QString &itemId, const QVariantList &parts);
     void additionalPartsLoadedForRequest(const QString &itemId,
-                                         const QJsonArray &parts,
+                                         const QVariantList &parts,
                                          const QString &requestContext);
     void additionalPartsFailedForRequest(const QString &itemId,
                                          const QString &error,
