@@ -1130,11 +1130,13 @@ void LibraryService::resolveLibraryForItem(const QString &itemId)
 
 void LibraryService::getSeriesDetails(const QString &seriesId)
 {
+    const QString connectionId = activeConnectionId(m_authService);
     if (!m_authService->isAuthenticated()) {
         NetworkError error;
         error.endpoint = "getSeriesDetails";
         error.code = -1;
         error.userMessage = tr("Not authenticated");
+        emit canonicalSeriesDetailsFailed(connectionId, seriesId, error.userMessage);
         emitError(error);
         return;
     }
@@ -1146,7 +1148,6 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
         "RecursiveItemCount", "Status"
     };
     
-    const QString connectionId = activeConnectionId(m_authService);
     QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
         .arg(m_authService->getUserId(), seriesId, fields.join(","));
     
@@ -1185,6 +1186,7 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
                 error.endpoint = "getSeriesDetails";
                 error.code = -2;
                 error.userMessage = tr("Invalid series details response");
+                emit canonicalSeriesDetailsFailed(connectionId, seriesId, error.userMessage);
                 emitError(error);
                 return;
             }
@@ -1194,6 +1196,10 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
                 connectionId,
                 seriesId,
                 m_authService->mapMediaItem(wireSeries, connectionId));
+        },
+        [this, connectionId, seriesId](const NetworkError &error) {
+            emit canonicalSeriesDetailsFailed(connectionId, seriesId, error.userMessage);
+            emitError(error);
         });
 }
 

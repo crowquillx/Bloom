@@ -14,8 +14,8 @@ import QtQuick.Controls
  *       anchors.top: parent.top
  *       anchors.right: parent.right
  *       parentWidth: parent.width
- *       count: modelData.UserData ? modelData.UserData.UnplayedItemCount : 0
- *       isFullyWatched: modelData.UserData ? modelData.UserData.Played : false
+ *       count: modelData.unplayedItemCount || 0
+ *       isFullyWatched: modelData.watched || false
  *   }
  */
 Item {

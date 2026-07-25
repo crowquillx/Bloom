@@ -225,6 +225,9 @@ signals:
     void seriesDetailsNotModified(const QString &seriesId);
     void canonicalSeriesDetailsNotModified(const QString &connectionId,
                                            const QString &seriesId);
+    void canonicalSeriesDetailsFailed(const QString &connectionId,
+                                      const QString &seriesId,
+                                      const QString &error);
     void similarItemsLoaded(const QString &itemId, const QJsonArray &items);
     void canonicalSimilarItemsLoaded(const QString &itemId, const QVariantList &items);
     void canonicalSimilarItemsLoadedForConnection(const QString &connectionId,
