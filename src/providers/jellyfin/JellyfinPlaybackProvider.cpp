@@ -161,6 +161,28 @@ Bloom::PlaybackDescriptor JellyfinPlaybackProvider::createDescriptor(
     return descriptor;
 }
 
+QUrl JellyfinPlaybackProvider::createTrickplayTileUrl(
+    const PlaybackProviderContext &context,
+    const QString &itemId,
+    int width,
+    int tileIndex) const
+{
+    if (!context.serverUrl.isValid() || itemId.isEmpty() || width <= 0 || tileIndex < 0) {
+        return {};
+    }
+
+    QUrl url = resolveProviderUrl(
+        context.serverUrl,
+        QStringLiteral("/Videos/%1/Trickplay/%2/%3.jpg")
+            .arg(itemId, QString::number(width), QString::number(tileIndex)));
+    QUrlQuery query(url);
+    if (!context.accessToken.isEmpty()) {
+        query.addQueryItem(QStringLiteral("api_key"), context.accessToken);
+    }
+    url.setQuery(query);
+    return url;
+}
+
 PlaybackReportRequest JellyfinPlaybackProvider::createReportRequest(
     const PlaybackReport &report) const
 {

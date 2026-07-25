@@ -10,9 +10,7 @@
 #include <QPointer>
 #include <QTimer>
 #include <QUrl>
-#include <QUrlQuery>
 #include <QLoggingCategory>
-#include <cmath>
 #include <optional>
 #include "../utils/BloomLogging.h"
 
@@ -324,55 +322,9 @@ void PlaybackService::getMediaSegments(const QString &itemId)
         QJsonDocument doc = QJsonDocument::fromJson(data);
         QJsonObject obj = doc.object();
         
-        maybeLoadExternalMediaSegments(itemId, parseIntroSkipperSegments(itemId, obj));
+        maybeLoadExternalMediaSegments(
+            itemId, m_authService->mapIntroSkipperSegments(itemId, obj));
     });
-}
-
-QList<MediaSegmentInfo> PlaybackService::parseIntroSkipperSegments(const QString &itemId, const QJsonObject &obj) const
-{
-    QList<MediaSegmentInfo> segments;
-
-    static const QMap<QString, QPair<MediaSegmentType, QString>> typeMapping = {
-        {"Introduction", {MediaSegmentType::Intro, "Intro"}},
-        {"Credits", {MediaSegmentType::Outro, "Outro"}},
-        {"Recap", {MediaSegmentType::Recap, "Recap"}},
-        {"Preview", {MediaSegmentType::Preview, "Preview"}},
-        {"Commercial", {MediaSegmentType::Commercial, "Commercial"}}
-    };
-
-    for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
-        const QString typeName = it.key();
-        const QJsonObject segmentObj = it.value().toObject();
-
-        if (!segmentObj["Valid"].toBool(false)) {
-            continue;
-        }
-
-        MediaSegmentInfo info;
-        info.itemId = segmentObj["EpisodeId"].toString(itemId);
-        info.source = QStringLiteral("jellyfin");
-
-        const double startSeconds = segmentObj["Start"].toDouble();
-        const double endSeconds = segmentObj["End"].toDouble();
-        if (startSeconds < 0.0 || endSeconds <= startSeconds) {
-            continue;
-        }
-        info.startMs = qRound64(startSeconds * 1000.0);
-        info.endMs = qRound64(endSeconds * 1000.0);
-
-        if (typeMapping.contains(typeName)) {
-            const auto mapping = typeMapping[typeName];
-            info.type = mapping.first;
-            info.typeString = mapping.second;
-        } else {
-            info.type = MediaSegmentType::Unknown;
-            info.typeString = typeName;
-        }
-
-        segments.append(info);
-    }
-
-    return segments;
 }
 
 void PlaybackService::maybeLoadExternalMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &serverSegments)
@@ -517,76 +469,32 @@ void PlaybackService::getTrickplayInfo(const QString &itemId)
             return m_authService->networkManager()->get(request);
         },
         [this, itemId](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
-            QJsonObject obj = doc.object();
-            
-            const QVariantMap item = m_authService->mapMediaItem(obj, QString());
-            const double durationSeconds =
-                static_cast<double>(item.value(QStringLiteral("durationMs")).toLongLong()) / 1000.0;
-            
-            // Debug: Log the raw Trickplay JSON response
-            QJsonObject trickplayRaw = obj["Trickplay"].toObject();
-            qCDebug(lcPlayback) << "Trickplay raw JSON for" << itemId << ":"
-                                      << QJsonDocument(trickplayRaw).toJson(QJsonDocument::Compact)
-                                      << "Duration:" << durationSeconds << "s";
-            
-            // Trickplay is nested: { "Trickplay": { "<itemId>": { "320": { ... } } } }
-            QJsonObject trickplayObj = obj["Trickplay"].toObject();
-            QMap<int, TrickplayTileInfo> trickplayInfo;
-            
-            // The trickplay data is keyed by the item's media source ID (often same as item ID)
-            // We need to look at all keys to find the trickplay data
-            for (auto mediaSourceIt = trickplayObj.begin(); mediaSourceIt != trickplayObj.end(); ++mediaSourceIt) {
-                QJsonObject resolutionsObj = mediaSourceIt.value().toObject();
-                
-                for (auto it = resolutionsObj.begin(); it != resolutionsObj.end(); ++it) {
-                    bool ok;
-                    int width = it.key().toInt(&ok);
-                    if (ok && it.value().isObject()) {
-                        TrickplayTileInfo info = TrickplayTileInfo::fromJson(it.value().toObject());
-                        
-                        // Calculate correct thumbnail count from duration if the API value seems wrong
-                        // The API's ThumbnailCount can be stale or incorrect in some Jellyfin versions
-                        if (info.interval > 0 && durationSeconds > 0) {
-                            int calculatedCount = static_cast<int>(std::ceil(durationSeconds * 1000.0 / info.interval));
-                            if (calculatedCount > info.thumbnailCount) {
-                                qCDebug(lcPlayback) << "Overriding ThumbnailCount from" << info.thumbnailCount
-                                                          << "to calculated" << calculatedCount
-                                                          << "(duration:" << durationSeconds << "s, interval:" << info.interval << "ms)";
-                                info.thumbnailCount = calculatedCount;
-                            }
-                        }
-                        
-                        trickplayInfo.insert(width, info);
-                    }
-                }
-                
-                // Usually there's only one media source with trickplay data
-                if (!trickplayInfo.isEmpty()) {
-                    break;
-                }
-            }
-            
+            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+            const TrickplayTileInfoMap trickplayInfo =
+                m_authService->mapTrickplayInfo(doc.object());
             if (trickplayInfo.isEmpty()) {
                 qCDebug(lcPlayback) << "No trickplay info available for" << itemId;
             } else {
-                qCDebug(lcPlayback) << "Trickplay info loaded for" << itemId 
-                                          << "- Resolutions:" << trickplayInfo.keys();
+                qCDebug(lcPlayback) << "Trickplay info loaded for" << itemId
+                                    << "- Resolutions:" << trickplayInfo.keys();
             }
-            
             emit trickplayInfoLoaded(itemId, trickplayInfo);
         });
 }
 
 QString PlaybackService::getTrickplayTileUrl(const QString &itemId, int width, int tileIndex)
 {
-    return QString("%1/Videos/%2/Trickplay/%3/%4.jpg?api_key=%5")
-        .arg(m_authService->getServerUrl())
-        .arg(itemId)
-        .arg(width)
-        .arg(tileIndex)
-        .arg(m_authService->getAccessToken());
+    if (!m_authService || !m_provider) {
+        return {};
+    }
+    return m_provider->createTrickplayTileUrl(
+        PlaybackProviderContext{
+            QUrl(m_authService->getServerUrl()),
+            m_authService->getAccessToken()
+        },
+        itemId,
+        width,
+        tileIndex).toString();
 }
 
 // ============================================================================

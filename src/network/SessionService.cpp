@@ -6,28 +6,8 @@
 #include <QUrl>
 #include <QJsonDocument>
 #include <QJsonArray>
-#include <QJsonObject>
 #include <QDebug>
 #include "../utils/BloomLogging.h"
-
-QVariantMap SessionInfo::toVariantMap() const
-{
-    QVariantMap map;
-    map["id"] = id;
-    map["deviceId"] = deviceId;
-    map["deviceName"] = deviceName;
-    map["client"] = client;
-    map["clientVersion"] = clientVersion;
-    map["userId"] = userId;
-    map["userName"] = userName;
-    map["lastActivityDate"] = lastActivityDate;
-    map["lastPlaybackCheckIn"] = lastPlaybackCheckIn;
-    map["isRemoteSession"] = isRemoteSession;
-    map["supportsRemoteControl"] = supportsRemoteControl;
-    map["playState"] = playState;
-    map["hasCustomDeviceName"] = hasCustomDeviceName;
-    return map;
-}
 
 SessionService::SessionService(AuthenticationService *authService, QObject *parent)
     : QObject(parent)
@@ -215,45 +195,14 @@ void SessionService::onFetchSessionsFinished(QNetworkReply *reply)
         return;
     }
 
-    QJsonArray sessionsArray = doc.array();
-    m_sessions.clear();
-
-    for (const QJsonValue &value : sessionsArray) {
-        if (!value.isObject()) continue;
-
-        QJsonObject obj = value.toObject();
-        SessionInfo info;
-        
-        info.id = obj["Id"].toString();
-        info.deviceId = obj["DeviceId"].toString();
-        info.deviceName = obj["DeviceName"].toString();
-        info.client = obj["Client"].toString();
-        info.clientVersion = obj["ApplicationVersion"].toString();
-        info.userId = obj["UserId"].toString();
-        info.userName = obj["UserName"].toString();
-        info.isRemoteSession = obj["IsRemoteSession"].toBool();
-        info.supportsRemoteControl = obj["SupportsRemoteControl"].toBool();
-        info.hasCustomDeviceName = obj["HasCustomDeviceName"].toBool();
-
-        // Parse dates
-        QString lastActivity = obj["LastActivityDate"].toString();
-        if (!lastActivity.isEmpty()) {
-            info.lastActivityDate = QDateTime::fromString(lastActivity, Qt::ISODate);
+    QString connectionId;
+    if (ConfigManager *config = m_authService->configManager()) {
+        const auto connection = config->getActiveConnection();
+        if (connection.has_value()) {
+            connectionId = connection->connectionId;
         }
-
-        QString lastPlayback = obj["LastPlaybackCheckIn"].toString();
-        if (!lastPlayback.isEmpty()) {
-            info.lastPlaybackCheckIn = QDateTime::fromString(lastPlayback, Qt::ISODate);
-        }
-
-        // Play state (if present)
-        QJsonObject playStateObj = obj["PlayState"].toObject();
-        if (!playStateObj.isEmpty()) {
-            info.playState = playStateObj["PlayMethod"].toString();
-        }
-
-        m_sessions.append(info.toVariantMap());
     }
+    m_sessions = m_authService->mapRemoteSessions(doc.array(), connectionId);
 
     // Identify our session
     identifyCurrentSession();

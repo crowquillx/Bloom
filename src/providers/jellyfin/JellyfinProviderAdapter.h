@@ -19,6 +19,21 @@ public:
     {
         return JellyfinModelMapper::playbackInfo(wirePlaybackInfo);
     }
+    TrickplayTileInfoMap mapTrickplayInfo(
+        const QJsonObject &wireItem) const override
+    {
+        return JellyfinModelMapper::trickplayInfo(wireItem);
+    }
+    QList<MediaSegmentInfo> mapIntroSkipperSegments(
+        const QString &itemId, const QJsonObject &wireSegments) const override
+    {
+        return JellyfinModelMapper::introSkipperSegments(itemId, wireSegments);
+    }
+    QVariantList mapRemoteSessions(const QJsonArray &wireSessions,
+                                   const QString &connectionId) const override
+    {
+        return JellyfinModelMapper::remoteSessions(wireSessions, connectionId);
+    }
     QVariantMap mapMediaItem(const QJsonObject &wireItem,
                              const QString &connectionId) const override
     {

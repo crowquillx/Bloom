@@ -30,6 +30,12 @@ public:
     virtual const IPlaybackProvider *playbackProvider() const = 0;
     virtual PlaybackInfoResponse mapPlaybackInfo(
         const QJsonObject &wirePlaybackInfo) const = 0;
+    virtual TrickplayTileInfoMap mapTrickplayInfo(
+        const QJsonObject &wireItem) const = 0;
+    virtual QList<MediaSegmentInfo> mapIntroSkipperSegments(
+        const QString &itemId, const QJsonObject &wireSegments) const = 0;
+    virtual QVariantList mapRemoteSessions(const QJsonArray &wireSessions,
+                                           const QString &connectionId) const = 0;
     virtual QVariantMap mapMediaItem(const QJsonObject &wireItem,
                                      const QString &connectionId) const = 0;
     virtual QVariantList mapMediaItems(const QJsonArray &wireItems,

@@ -164,50 +164,6 @@ QVariantList PlaybackInfoResponse::getMediaSourcesVariant() const
 // TrickplayTileInfo Implementation
 // ============================================================================
 
-/**
- * @brief Parse TrickplayTileInfo from Jellyfin API JSON response
- * 
- * Deserializes trickplay (thumbnail preview) metadata from Jellyfin.
- * Trickplay tiles are sprite sheets containing multiple thumbnails for scrubbing.
- * 
- * Jellyfin API reference:
- * Endpoint: GET /Items/{itemId}/TrickplayInfo
- * 
- * Key fields:
- * - Width/Height: Total sprite sheet dimensions
- * - TileWidth/TileHeight: Grid dimensions (e.g., 10x10 = 100 thumbnails per sheet)
- * - Interval: Milliseconds between thumbnails
- * - ThumbnailCount: Total number of thumbnails across all tiles
- * 
- * Helper methods getTileIndex() and getOffsetInTile() calculate which sprite sheet
- * and position to use for a given thumbnail index during scrubbing.
- * 
- * @param json JSON object from Jellyfin TrickplayInfo response
- * @return Populated TrickplayTileInfo for thumbnail sprite calculations
- */
-TrickplayTileInfo TrickplayTileInfo::fromJson(const QJsonObject &json)
-{
-    TrickplayTileInfo info;
-    info.width = json["Width"].toInt();
-    info.height = json["Height"].toInt();
-    info.tileWidth = json["TileWidth"].toInt();
-    info.tileHeight = json["TileHeight"].toInt();
-    info.thumbnailCount = json["ThumbnailCount"].toInt();
-    info.interval = json["Interval"].toInt();
-    info.bandwidth = json["Bandwidth"].toInt();
-    
-    qCDebug(lcJellyfinNetwork) << "TrickplayTileInfo::fromJson parsed:"
-             << "Width:" << info.width
-             << "Height:" << info.height
-             << "TileWidth:" << info.tileWidth
-             << "TileHeight:" << info.tileHeight
-             << "ThumbnailCount:" << info.thumbnailCount
-             << "Interval:" << info.interval
-             << "Bandwidth:" << info.bandwidth;
-    
-    return info;
-}
-
 // ============================================================================
 // ErrorHandler Implementation
 // ============================================================================

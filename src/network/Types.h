@@ -190,7 +190,6 @@ public:
     int interval = 0;
     int bandwidth = 0;
 
-    [[nodiscard]] static TrickplayTileInfo fromJson(const QJsonObject &json);
     [[nodiscard]] constexpr int getTileIndex(int thumbnailIndex) const
     {
         if (tileWidth <= 0 || tileHeight <= 0) return -1;

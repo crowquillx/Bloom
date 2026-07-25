@@ -85,7 +85,7 @@ Config v29 stores server-owned preferences under `settings.connection_state.scop
 
 Bloom-owned media contracts live in `src/models/MediaModels.*` and are documented in [`canonical-models.md`](canonical-models.md). `MediaRef` always combines connection and remote item identity; canonical times use milliseconds; `ArtworkRef` cache identities contain no credentials; and `PlaybackDescriptor` carries a finalized provider-neutral stream request. Temporary `QVariantMap` projections use Bloom-defined camelCase fields.
 
-Provider conversion belongs inside provider adapters. `JellyfinModelMapper` is the Jellyfin DTO boundary and owns tick-to-millisecond conversion for mapped items, chapters, playback sources, and streams. Shared playback projections expose milliseconds only while stable QML-facing façade names remain available.
+Provider conversion belongs inside provider adapters. `JellyfinModelMapper` is the Jellyfin DTO boundary and owns tick-to-millisecond conversion for mapped items, chapters, playback sources, streams, trickplay metadata, Intro Skipper segments, and remote sessions. Shared playback and session projections expose camelCase fields and milliseconds only while stable QML-facing façade names remain available.
 
 ## Request, authentication, and transport boundaries
 
