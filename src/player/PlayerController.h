@@ -246,8 +246,8 @@ public:
     /**
      * @brief Resolves the effective startup audio/subtitle selection for a media source.
      *
-     * `preferredAudioIndex` and `preferredSubtitleIndex` use Jellyfin stream indices with
-     * sentinel values: `-2` means "unset/no override", `-1` means "off" (subtitle only),
+     * `preferredAudioIndex` and `preferredSubtitleIndex` use provider source-track indices
+     * with sentinel values: `-2` means "unset/no override", `-1` means "off" (subtitle only),
      * and `>= 0` means an explicit stream index.
      */
     Q_INVOKABLE QVariantMap resolveTrackSelectionForMediaSource(const QVariantMap &mediaSource,
@@ -641,15 +641,15 @@ private:
 
     void updateTrackMappings(const QVariantMap &mediaSource);
     /**
-     * Map a Jellyfin audio stream index to the corresponding mpv audio track number.
-     * @param sourceStreamIndex Jellyfin audio stream index.
+     * Map a provider source-track index to the corresponding mpv audio track number.
+     * @param sourceStreamIndex Provider source-track index.
      * @returns 1-based mpv audio track number, or -1 when auto/none is intended.
      */
     int mpvAudioTrackForSourceIndex(int sourceStreamIndex) const;
     int sourceAudioTrackForMpvTrack(int mpvTrackId) const;
     /**
-     * Map a Jellyfin subtitle stream index to the corresponding mpv subtitle track number.
-     * @param sourceStreamIndex Jellyfin subtitle stream index.
+     * Map a provider source-track index to the corresponding mpv subtitle track number.
+     * @param sourceStreamIndex Provider source-track index.
      * @returns 1-based mpv subtitle track number, or -1 when subtitles are disabled.
      */
     int mpvSubtitleTrackForSourceIndex(int sourceStreamIndex) const;
@@ -870,12 +870,12 @@ private:
     int m_subtitleDelayMs = 0;          // mpv sub-delay in milliseconds, scoped like subtitle preferences
     int m_mpvAudioTrack = -1;           // mpv audio track number (1-based, -1 = auto)
     int m_mpvSubtitleTrack = -1;        // mpv subtitle track number (1-based, -1 = disabled)
-    QHash<int, int> m_audioTrackMap;    // Jellyfin stream index -> mpv aid track ID (1-based)
-    QHash<int, int> m_subtitleTrackMap; // Jellyfin stream index -> mpv sid track ID (1-based)
+    QHash<int, int> m_audioTrackMap;    // Provider source index -> mpv aid track ID (1-based)
+    QHash<int, int> m_subtitleTrackMap; // Provider source index -> mpv sid track ID (1-based)
     QHash<int, int> m_externalSubtitleTrackMap; // Synthetic external index -> mpv sid track ID (1-based)
     int m_pendingExternalSubtitleIndex = -1;     // Synthetic index awaiting sid resolution from mpv
-    QHash<int, int> m_audioTrackReverseMap;    // mpv aid track ID (1-based) -> Jellyfin stream index
-    QHash<int, int> m_subtitleTrackReverseMap; // mpv sid track ID (1-based) -> Jellyfin stream index
+    QHash<int, int> m_audioTrackReverseMap;    // mpv aid track ID (1-based) -> provider source index
+    QHash<int, int> m_subtitleTrackReverseMap; // mpv sid track ID (1-based) -> provider source index
     QString m_mediaSourceId;            // Current media source ID
     QString m_playSessionId;            // Playback session ID for reporting
     QVariantList m_availableAudioTracks;

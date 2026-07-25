@@ -33,7 +33,7 @@ void LibraryCacheStoreTest::replaceAllAndRead()
     QVERIFY(store.open());
 
     QJsonArray items;
-    items.append(QJsonObject{{"Id", "one"}, {"Name", "One"}});
+    items.append(QJsonObject{{"itemId", "one"}, {"name", "One"}});
 
     QVERIFY(store.replaceAll("parent", items, 1));
 
@@ -42,7 +42,7 @@ void LibraryCacheStoreTest::replaceAllAndRead()
     QCOMPARE(slice.items.size(), 1);
     QCOMPARE(slice.totalCount, 1);
     QVERIFY(slice.isFresh(600000));
-    QCOMPARE(slice.items.first().toObject().value("Id").toString(), QStringLiteral("one"));
+    QCOMPARE(slice.items.first().toObject().value("itemId").toString(), QStringLiteral("one"));
 }
 
 void LibraryCacheStoreTest::canonicalRowsPersistAndUpsert()
@@ -79,17 +79,17 @@ void LibraryCacheStoreTest::upsertWithOffsets()
     QVERIFY(store.open());
 
     QJsonArray initial;
-    initial.append(QJsonObject{{"Id", "one"}, {"Name", "One"}});
+    initial.append(QJsonObject{{"itemId", "one"}, {"name", "One"}});
     QVERIFY(store.replaceAll("parent", initial, 1));
 
     QJsonArray next;
-    next.append(QJsonObject{{"Id", "two"}, {"Name", "Two"}});
+    next.append(QJsonObject{{"itemId", "two"}, {"name", "Two"}});
     QVERIFY(store.upsertItems("parent", next, 2, false, 1));
 
     auto slice = store.read("parent");
     QCOMPARE(slice.items.size(), 2);
-    QCOMPARE(slice.items.at(0).toObject().value("Id").toString(), QStringLiteral("one"));
-    QCOMPARE(slice.items.at(1).toObject().value("Id").toString(), QStringLiteral("two"));
+    QCOMPARE(slice.items.at(0).toObject().value("itemId").toString(), QStringLiteral("one"));
+    QCOMPARE(slice.items.at(1).toObject().value("itemId").toString(), QStringLiteral("two"));
     QCOMPARE(slice.totalCount, 2);
 }
 
@@ -100,17 +100,17 @@ void LibraryCacheStoreTest::upsertWithPrune()
     QVERIFY(store.open());
 
     QJsonArray initial;
-    initial.append(QJsonObject{{"Id", "one"}, {"Name", "One"}});
-    initial.append(QJsonObject{{"Id", "two"}, {"Name", "Two"}});
+    initial.append(QJsonObject{{"itemId", "one"}, {"name", "One"}});
+    initial.append(QJsonObject{{"itemId", "two"}, {"name", "Two"}});
     QVERIFY(store.replaceAll("parent", initial, 2));
 
     QJsonArray latest;
-    latest.append(QJsonObject{{"Id", "two"}, {"Name", "Two"}});
+    latest.append(QJsonObject{{"itemId", "two"}, {"name", "Two"}});
     QVERIFY(store.upsertItems("parent", latest, 1, true, 0));
 
     auto slice = store.read("parent");
     QCOMPARE(slice.items.size(), 1);
-    QCOMPARE(slice.items.first().toObject().value("Id").toString(), QStringLiteral("two"));
+    QCOMPARE(slice.items.first().toObject().value("itemId").toString(), QStringLiteral("two"));
     QCOMPARE(slice.totalCount, 1);
 }
 
@@ -122,7 +122,7 @@ void LibraryCacheStoreTest::freshnessDetection()
     QVERIFY(store.open());
 
     QJsonArray items;
-    items.append(QJsonObject{{"Id", "one"}, {"Name", "One"}});
+    items.append(QJsonObject{{"itemId", "one"}, {"name", "One"}});
     QVERIFY(store.replaceAll("parent", items, 1));
 
     // Force stale timestamp

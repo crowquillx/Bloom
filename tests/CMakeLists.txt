@@ -604,7 +604,9 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/core/ApplicationInitializer.cpp
     ${CMAKE_SOURCE_DIR}/src/core/ServiceLocator.cpp
     # Utils sources
+    ${CMAKE_SOURCE_DIR}/src/utils/AudioOutputRouter.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/InputBindingManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/InputModeManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/TrackPreferencesManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/LibraryCacheStore.cpp
@@ -640,6 +642,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.h
     ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.cpp
     # UI sources
+    ${CMAKE_SOURCE_DIR}/src/ui/ScreensaverController.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/WindowManager.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ResponsiveLayoutManager.cpp

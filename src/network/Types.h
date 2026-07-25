@@ -255,13 +255,6 @@ struct ParsedItemsResult
     int totalRecordCount = 0;
 };
 
-class JsonParser
-{
-public:
-    static bool shouldParseAsync(const QByteArray &data);
-    static ParsedItemsResult parseItemsResponse(const QByteArray &data, const QString &parentId);
-};
-
 // ============================================================================
 // Meta type registration helper
 // ============================================================================

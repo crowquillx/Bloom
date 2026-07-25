@@ -32,7 +32,7 @@ The types expose temporary `QVariantMap` projections so existing QML-facing faç
 
 ## Jellyfin conversion
 
-`JellyfinModelMapper` converts Jellyfin item, user-state, person, artwork, chapter, playback-source, stream, trickplay, Intro Skipper segment, remote-session, and tick fields into Bloom canonical values. Jellyfin `PlaybackInfo` DTO parsing and tick conversion occur there; shared playback-source projections expose `durationMs` and must not carry provider time units. Trickplay duration correction, segment second-to-millisecond conversion, and remote-session PascalCase mapping also remain inside this provider boundary.
+`JellyfinModelMapper` converts Jellyfin item, user-state, person, artwork, chapter, playback-source, stream, trickplay, Intro Skipper segment, remote-session, ancestor, filter-facet, item-list envelope, and tick fields into Bloom canonical values. Jellyfin `PlaybackInfo` DTO parsing and tick conversion occur there; shared playback-source projections expose `durationMs` and must not carry provider time units. Trickplay duration correction, segment second-to-millisecond conversion, remote-session PascalCase mapping, and list/facet envelope extraction also remain inside this provider boundary.
 
 `LibraryService` asks the selected `IProviderAdapter` to map item, item-list, similar-item, series, next-episode, and chapter wire DTOs exactly once. Next-episode timeline resolution runs only on canonical episode maps and compares millisecond resume positions. Connection-aware canonical signals carry the `connectionId` captured when the request starts, so asynchronous mapping and consumers never substitute a later active connection.
 
@@ -72,6 +72,6 @@ A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `St
 - Jellyfin `PlaybackInfo`, media-source, and stream mapping with millisecond durations and no shared tick fields
 - Jellyfin stream finalization, canonical timing/tracks, and current credential injection at the playback-provider boundary
 - provider-owned playback report endpoint selection and millisecond-to-Jellyfin-tick serialization
-- Jellyfin trickplay, Intro Skipper segment, and remote-session DTO mapping plus provider-owned authenticated trickplay tile URLs
+- Jellyfin trickplay, Intro Skipper segment, remote-session, ancestor, filter-facet, and item-list DTO mapping plus provider-owned authenticated trickplay tile URLs
 
 `SimilarItemsRetryTest` asserts Movie and Series detail shelves keep canonical request ownership and item/chapter shapes. `SeriesDetailsCacheTest` covers canonical series/list cache persistence, freshness, and wire-cache rejection. `NextEpisodeResolverTest` covers canonical timeline ordering, watched/resume state in milliseconds, special placement, and preferred-payload merging without provider DTO fields. `EpisodeSelectionScriptTest` exercises canonical episode identity, season ownership, watched state, and millisecond resume selection. `LibraryViewModelCanonicalTest` covers canonical root-library roles, empty-container filtering, wire-cache rejection, and SWR identity/order checks.

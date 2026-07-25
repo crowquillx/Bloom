@@ -255,10 +255,10 @@ void PlaybackService::getAdditionalParts(const QString &itemId, const QString &r
             return m_authService->networkManager()->get(request);
         },
         [this, itemId, requestContext, connectionId](QNetworkReply *reply) {
-            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            const QVariantList parts = doc.isObject()
-                ? m_authService->mapMediaItems(
-                      doc.object().value(QStringLiteral("Items")).toArray(), connectionId)
+            const ParsedItemsResult response =
+                m_authService->parseItemsResponse(reply->readAll(), QString());
+            const QVariantList parts = response.success
+                ? m_authService->mapMediaItems(response.items, connectionId)
                 : QVariantList{};
             emit additionalPartsLoaded(itemId, parts);
             if (!requestContext.isEmpty()) {
@@ -392,7 +392,9 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
                 },
                 [this, context, serverSegments, itemId](QNetworkReply *seriesReply) mutable {
                     const QJsonDocument seriesDoc = QJsonDocument::fromJson(seriesReply->readAll());
-                    const QJsonObject seriesProviderIds = seriesDoc.object().value(QStringLiteral("ProviderIds")).toObject();
+                    const QVariantMap seriesProviderIds = m_authService
+                        ->mapMediaItem(seriesDoc.object(), QString())
+                        .value(QStringLiteral("providerIds")).toMap();
                     if (context.imdbId.isEmpty()) context.imdbId = seriesProviderIds.value(QStringLiteral("Imdb")).toString();
                     if (context.tmdbId.isEmpty()) context.tmdbId = seriesProviderIds.value(QStringLiteral("Tmdb")).toString();
                     if (context.tvdbId.isEmpty()) context.tvdbId = seriesProviderIds.value(QStringLiteral("Tvdb")).toString();

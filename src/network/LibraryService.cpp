@@ -45,6 +45,12 @@ QString activeConnectionId(const AuthenticationService *authService)
     return connection.has_value() ? connection->connectionId : QString();
 }
 
+bool shouldParseItemsAsync(const QByteArray &data)
+{
+    constexpr qsizetype asyncThresholdBytes = 250 * 1024;
+    return data.size() > asyncThresholdBytes;
+}
+
 QString cachedArtworkSource(const Bloom::ArtworkRef &artwork)
 {
     if (!artwork.isValid()) {
@@ -193,26 +199,6 @@ QString buildItemsEndpoint(const QString &userId, const LibraryItemQuery &query)
     return url.toString(QUrl::FullyEncoded);
 }
 
-QStringList parseStringList(const QJsonValue &value)
-{
-    QStringList result;
-    if (value.isArray()) {
-        const QJsonArray array = value.toArray();
-        for (const auto &entry : array) {
-            if (entry.isString()) {
-                result.append(entry.toString());
-            } else {
-                const QJsonObject obj = entry.toObject();
-                const QString name = obj.value("Name").toString();
-                if (!name.isEmpty()) {
-                    result.append(name);
-                }
-            }
-        }
-    }
-    return sortedList(result);
-}
-
 }
 
 QString LibraryItemQuery::normalizedSortBy() const
@@ -349,7 +335,7 @@ void LibraryService::getViews()
         [this, connectionId](QNetworkReply *reply) {
             QByteArray data = reply->readAll();
             
-            if (JsonParser::shouldParseAsync(data)) {
+            if (shouldParseItemsAsync(data)) {
                 emit parsingStarted("views");
                 
                 auto *watcher = new QFutureWatcher<ParsedItemsResult>(this);
@@ -375,13 +361,18 @@ void LibraryService::getViews()
                     }
                 });
                 
-                QFuture<ParsedItemsResult> future = QtConcurrent::run([data]() {
-                    return JsonParser::parseItemsResponse(data, QString());
-                });
+                const auto parseItemsResponse = m_authService->itemsResponseParser();
+                QFuture<ParsedItemsResult> future = QtConcurrent::run(
+                    [parseItemsResponse, data]() {
+                        return parseItemsResponse
+                            ? parseItemsResponse(data, QString())
+                            : ParsedItemsResult{};
+                    });
                 watcher->setFuture(future);
             } else {
-                QJsonDocument doc = QJsonDocument::fromJson(data);
-                if (!doc.isObject()) {
+                const ParsedItemsResult result =
+                    m_authService->parseItemsResponse(data, QString());
+                if (!result.success) {
                     NetworkError error;
                     error.endpoint = "getViews";
                     error.code = -2;
@@ -389,8 +380,7 @@ void LibraryService::getViews()
                     emitError(error);
                     return;
                 }
-                QJsonObject obj = doc.object();
-                QJsonArray items = obj["Items"].toArray();
+                const QJsonArray items = result.items;
                 emit viewsLoaded(items);
                 const QVariantList canonicalItems =
                     m_authService->mapMediaItems(items, connectionId);
@@ -472,7 +462,7 @@ void LibraryService::getItems(const LibraryItemQuery &query)
                 }
             }
             
-            if (JsonParser::shouldParseAsync(data)) {
+            if (shouldParseItemsAsync(data)) {
                 emit parsingStarted("library");
                 
                 auto *watcher = new QFutureWatcher<ParsedItemsResult>(this);
@@ -508,15 +498,20 @@ void LibraryService::getItems(const LibraryItemQuery &query)
                     }
                 });
                 
-                QFuture<ParsedItemsResult> future = QtConcurrent::run([data, parentId, queryKey]() {
-                    auto result = JsonParser::parseItemsResponse(data, parentId);
-                    result.queryKey = queryKey;
-                    return result;
-                });
+                const auto parseItemsResponse = m_authService->itemsResponseParser();
+                QFuture<ParsedItemsResult> future = QtConcurrent::run(
+                    [parseItemsResponse, data, parentId, queryKey]() {
+                        auto result = parseItemsResponse
+                            ? parseItemsResponse(data, parentId)
+                            : ParsedItemsResult{};
+                        result.queryKey = queryKey;
+                        return result;
+                    });
                 watcher->setFuture(future);
             } else {
-                QJsonDocument doc = QJsonDocument::fromJson(data);
-                if (!doc.isObject()) {
+                const ParsedItemsResult result =
+                    m_authService->parseItemsResponse(data, parentId);
+                if (!result.success) {
                     NetworkError error;
                     error.endpoint = "getItems";
                     error.code = -2;
@@ -524,9 +519,8 @@ void LibraryService::getItems(const LibraryItemQuery &query)
                     emitError(error);
                     return;
                 }
-                QJsonObject obj = doc.object();
-                QJsonArray items = obj["Items"].toArray();
-                int totalRecordCount = obj["TotalRecordCount"].toInt();
+                const QJsonArray items = result.items;
+                const int totalRecordCount = result.totalRecordCount;
                 emit itemsLoaded(parentId, items);
                 emit itemsLoadedWithTotal(parentId, items, totalRecordCount);
                 emit itemsLoadedWithTotalForQuery(parentId, queryKey, items, totalRecordCount);
@@ -603,10 +597,11 @@ void LibraryService::getFilterOptions(const QString &parentId,
         [this, filtersEndpoint]() {
             return m_authService->networkManager()->get(m_authService->createRequest(filtersEndpoint));
         },
-        [state, finish](QNetworkReply *reply) {
-            const QJsonObject obj = QJsonDocument::fromJson(reply->readAll()).object();
-            state->insert("filterGenres", parseStringList(obj.value("Genres")));
-            state->insert("tags", parseStringList(obj.value("Tags")));
+        [this, state, finish](QNetworkReply *reply) {
+            const QVariantMap options = m_authService->mapFilterOptions(
+                QJsonDocument::fromJson(reply->readAll()).object());
+            state->insert("filterGenres", options.value(QStringLiteral("genres")).toStringList());
+            state->insert("tags", options.value(QStringLiteral("tags")).toStringList());
             finish();
         },
         [finish](const NetworkError &) {
@@ -617,9 +612,9 @@ void LibraryService::getFilterOptions(const QString &parentId,
         [this, genresEndpoint]() {
             return m_authService->networkManager()->get(m_authService->createRequest(genresEndpoint));
         },
-        [state, finish](QNetworkReply *reply) {
-            const QJsonObject obj = QJsonDocument::fromJson(reply->readAll()).object();
-            state->insert("genres", parseStringList(obj.value("Items")));
+        [this, state, finish](QNetworkReply *reply) {
+            state->insert("genres", m_authService->mapNamedItems(
+                QJsonDocument::fromJson(reply->readAll()).object()));
             finish();
         },
         [finish](const NetworkError &) {
@@ -630,9 +625,9 @@ void LibraryService::getFilterOptions(const QString &parentId,
         [this, studiosEndpoint]() {
             return m_authService->networkManager()->get(m_authService->createRequest(studiosEndpoint));
         },
-        [state, finish](QNetworkReply *reply) {
-            const QJsonObject obj = QJsonDocument::fromJson(reply->readAll()).object();
-            state->insert("studios", parseStringList(obj.value("Items")));
+        [this, state, finish](QNetworkReply *reply) {
+            state->insert("studios", m_authService->mapNamedItems(
+                QJsonDocument::fromJson(reply->readAll()).object()));
             finish();
         },
         [finish](const NetworkError &) {
@@ -675,8 +670,8 @@ void LibraryService::getNextUp()
                 emitError(error);
                 return;
             }
-            QJsonObject obj = doc.object();
-            QJsonArray items = obj["Items"].toArray();
+            const QJsonArray items =
+                m_authService->parseItemsResponse(data, QString()).items;
             emit nextUpLoaded(items);
             emit canonicalNextUpLoaded(
                 connectionId, m_authService->mapMediaItems(items, connectionId));
@@ -768,7 +763,8 @@ void LibraryService::getHomeBackdropItems(int limit)
                     emitError(error);
                     return;
                 }
-                QJsonArray items = doc.object()["Items"].toArray();
+                const QJsonArray items =
+                    m_authService->parseItemsResponse(data, QString()).items;
                 qCDebug(lcLibrary) << "getHomeBackdropItems starter sample size:" << items.size()
                                         << "requestedLimit:" << requestedLimit;
                 emit homeBackdropItemsLoaded(items);
@@ -815,8 +811,8 @@ void LibraryService::getHomeBackdropItems(int limit)
                     return;
                 }
 
-                QJsonObject obj = doc.object();
-                QJsonArray pageItems = obj["Items"].toArray();
+                const QJsonArray pageItems =
+                    m_authService->parseItemsResponse(data, QString()).items;
                 qCDebug(lcLibrary) << "getHomeBackdropItems page startIndex:" << startIndex
                                         << "pageItems:" << pageItems.size()
                                         << "requestedLimit:" << requestedLimit;
@@ -899,8 +895,9 @@ void LibraryService::getScreensaverItems(int limit)
             if (!m_authService->isAuthenticated() || m_authService->getUserId() != requestUserId) {
                 return;
             }
-            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (!doc.isObject()) {
+            const ParsedItemsResult response =
+                m_authService->parseItemsResponse(reply->readAll(), QString());
+            if (!response.success) {
                 NetworkError error;
                 error.endpoint = "getScreensaverItems";
                 error.code = -2;
@@ -911,8 +908,8 @@ void LibraryService::getScreensaverItems(int limit)
             }
 
             QVariantList filteredItems;
-            const QVariantList items = m_authService->mapMediaItems(
-                doc.object().value(QStringLiteral("Items")).toArray(), connectionId);
+            const QVariantList items =
+                m_authService->mapMediaItems(response.items, connectionId);
             for (const QVariant &value : items) {
                 const QVariantMap item = value.toMap();
                 if (!item.value(QStringLiteral("backdropArtwork")).toMap().isEmpty()) {
@@ -1050,13 +1047,11 @@ void LibraryService::getChapters(const QString &itemId)
                 return;
             }
 
-            const QJsonArray array = doc.object().value(QStringLiteral("Chapters")).toArray();
+            const QVariantList chapters = m_authService->mapChaptersFromItem(
+                doc.object(), connectionId, itemId);
             qCInfo(lcLibrary) << "LibraryService: Loaded chapter array for item" << itemId
-                    << "count" << array.size();
-            emit canonicalChaptersLoaded(
-                connectionId,
-                itemId,
-                m_authService->mapChapters(array, connectionId, itemId));
+                              << "count" << chapters.size();
+            emit canonicalChaptersLoaded(connectionId, itemId, chapters);
         },
         [this, itemId, connectionId, requestKey](const NetworkError &error) {
             m_inFlightChapterRequests.remove(requestKey);
@@ -1090,22 +1085,8 @@ void LibraryService::resolveLibraryForItem(const QString &itemId)
                 return;
             }
 
-            const QJsonArray ancestors = doc.array();
-            QString libraryId;
-
-            for (const QJsonValue &value : ancestors) {
-                const QJsonObject ancestor = value.toObject();
-                const QString type = ancestor.value(QStringLiteral("Type")).toString();
-                const QString collectionType = ancestor.value(QStringLiteral("CollectionType")).toString();
-                if (type == QStringLiteral("CollectionFolder") || !collectionType.isEmpty()) {
-                    libraryId = ancestor.value(QStringLiteral("Id")).toString();
-                    break;
-                }
-            }
-
-            if (libraryId.isEmpty() && !ancestors.isEmpty()) {
-                libraryId = ancestors.last().toObject().value(QStringLiteral("Id")).toString();
-            }
+            const QString libraryId =
+                m_authService->mapLibraryIdFromAncestors(doc.array());
 
             if (libraryId.isEmpty()) {
                 emit itemLibraryResolutionFailed(itemId, tr("Library ancestor not found"));
@@ -1496,8 +1477,9 @@ void LibraryService::getThemeSongs(const QString &seriesId)
             return m_authService->networkManager()->get(request);
         },
         [this, seriesId, connectionId](QNetworkReply *reply) {
-            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (!doc.isObject()) {
+            const ParsedItemsResult response =
+                m_authService->parseItemsResponse(reply->readAll(), QString());
+            if (!response.success) {
                 NetworkError error;
                 error.endpoint = "getThemeSongs";
                 error.code = -2;
@@ -1505,8 +1487,8 @@ void LibraryService::getThemeSongs(const QString &seriesId)
                 emitError(error);
                 return;
             }
-            const QVariantList items = m_authService->mapMediaItems(
-                doc.object().value(QStringLiteral("Items")).toArray(), connectionId);
+            const QVariantList items =
+                m_authService->mapMediaItems(response.items, connectionId);
 
             QStringList urls;
             for (const QVariant &item : items) {
@@ -1556,8 +1538,9 @@ void LibraryService::search(const QString &searchTerm, int limit)
             return m_authService->networkManager()->get(request);
         },
         [this, connectionId, normalizedSearchTerm](QNetworkReply *reply) {
-            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (!doc.isObject()) {
+            const ParsedItemsResult response =
+                m_authService->parseItemsResponse(reply->readAll(), QString());
+            if (!response.success) {
                 NetworkError error;
                 error.endpoint = "search";
                 error.code = -2;
@@ -1569,8 +1552,8 @@ void LibraryService::search(const QString &searchTerm, int limit)
 
             QVariantList movies;
             QVariantList series;
-            const QVariantList items = m_authService->mapMediaItems(
-                doc.object().value(QStringLiteral("Items")).toArray(), connectionId);
+            const QVariantList items =
+                m_authService->mapMediaItems(response.items, connectionId);
             for (const QVariant &value : items) {
                 const QVariantMap item = value.toMap();
                 const QString mediaType = item.value(QStringLiteral("mediaType")).toString();
@@ -1615,8 +1598,9 @@ void LibraryService::getRandomItems(int limit)
             return m_authService->networkManager()->get(request);
         },
         [this, connectionId](QNetworkReply *reply) {
-            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (!doc.isObject()) {
+            const ParsedItemsResult response =
+                m_authService->parseItemsResponse(reply->readAll(), QString());
+            if (!response.success) {
                 NetworkError error;
                 error.endpoint = "getRandomItems";
                 error.code = -2;
@@ -1627,8 +1611,7 @@ void LibraryService::getRandomItems(int limit)
             }
             emit canonicalRandomItemsLoaded(
                 connectionId,
-                m_authService->mapMediaItems(
-                    doc.object().value(QStringLiteral("Items")).toArray(), connectionId));
+                m_authService->mapMediaItems(response.items, connectionId));
         },
         [this, connectionId](const NetworkError &error) {
             emit canonicalRandomItemsFailed(connectionId, error.userMessage);
@@ -1707,7 +1690,8 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
                     emitError(error);
                     return;
                 }
-                const QJsonArray items = doc.object()["Items"].toArray();
+                const QJsonArray items =
+                    m_authService->parseItemsResponse(data, QString()).items;
                 emit heroLibraryItemsLoaded(items);
                 emit canonicalHeroLibraryItemsLoaded(
                     connectionId, m_authService->mapMediaItems(items, connectionId));
@@ -1745,7 +1729,8 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
                     emitError(error);
                     return;
                 }
-                const QJsonArray items = doc.object()["Items"].toArray();
+                const QJsonArray items =
+                    m_authService->parseItemsResponse(data, QString()).items;
                 emit heroLibraryItemsLoaded(items);
                 emit canonicalHeroLibraryItemsLoaded(
                     connectionId, m_authService->mapMediaItems(items, connectionId));
@@ -1779,7 +1764,8 @@ void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds
                 QByteArray data = reply->readAll();
                 QJsonDocument doc = QJsonDocument::fromJson(data);
                 if (doc.isObject()) {
-                    const QJsonArray items = doc.object()["Items"].toArray();
+                    const QJsonArray items =
+                        m_authService->parseItemsResponse(data, QString()).items;
                     for (const QJsonValue &v : items) {
                         if (aggregate->size() >= clampedLimit) break;
                         aggregate->append(v);
@@ -1857,12 +1843,11 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
                 return m_authService->networkManager()->get(request);
             },
             [this, overviews, remaining, seriesId, connectionId](QNetworkReply *reply) {
-                const QByteArray data = reply->readAll();
-                const QJsonDocument doc = QJsonDocument::fromJson(data);
-                QString overview;
-                if (doc.isObject()) {
-                    overview = doc.object().value(QStringLiteral("Overview")).toString();
-                }
+                const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
+                const QString overview = doc.isObject()
+                    ? m_authService->mapMediaItem(doc.object(), connectionId)
+                          .value(QStringLiteral("overview")).toString()
+                    : QString();
                 overviews->insert(seriesId, overview);
                 if (--(*remaining) <= 0) {
                     emit heroSeriesOverviewsLoaded(*overviews);

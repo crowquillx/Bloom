@@ -1,6 +1,8 @@
 #include "JellyfinModelMapper.h"
 
 #include <QDateTime>
+#include <QJsonDocument>
+#include <QJsonParseError>
 #include <QJsonValue>
 #include <QUrlQuery>
 #include <cmath>
@@ -74,6 +76,19 @@ QVariantList people(const QJsonArray &wirePeople, const QString &connectionId)
         }
         result.append(person.toVariantMap());
     }
+    return result;
+}
+
+QStringList namedStringList(const QJsonArray &values)
+{
+    QStringList result;
+    for (const QVariant &value : stringList(values)) {
+        const QString name = value.toString();
+        if (!name.isEmpty()) {
+            result.append(name);
+        }
+    }
+    result.removeDuplicates();
     return result;
 }
 
@@ -228,6 +243,26 @@ PlaybackInfoResponse JellyfinModelMapper::playbackInfo(const QJsonObject &wirePl
     return response;
 }
 
+ParsedItemsResult JellyfinModelMapper::itemsResponse(
+    const QByteArray &wireResponse, const QString &parentId)
+{
+    ParsedItemsResult result;
+    result.parentId = parentId;
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(wireResponse, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        return result;
+    }
+
+    const QJsonObject root = document.object();
+    result.items = root.value(QStringLiteral("Items")).toArray();
+    result.totalRecordCount = root.value(QStringLiteral("TotalRecordCount"))
+                                  .toInt(result.items.size());
+    result.success = true;
+    return result;
+}
+
 TrickplayTileInfo JellyfinModelMapper::trickplayTile(const QJsonObject &wireTile)
 {
     TrickplayTileInfo info;
@@ -348,6 +383,37 @@ QVariantList JellyfinModelMapper::remoteSessions(const QJsonArray &wireSessions,
         });
     }
     return sessions;
+}
+
+QString JellyfinModelMapper::libraryIdFromAncestors(const QJsonArray &wireAncestors)
+{
+    for (const QJsonValue &value : wireAncestors) {
+        const QJsonObject ancestor = value.toObject();
+        const QString type = ancestor.value(QStringLiteral("Type")).toString();
+        const QString collectionType =
+            ancestor.value(QStringLiteral("CollectionType")).toString();
+        if (type == QStringLiteral("CollectionFolder") || !collectionType.isEmpty()) {
+            return ancestor.value(QStringLiteral("Id")).toString();
+        }
+    }
+    return wireAncestors.isEmpty()
+        ? QString()
+        : wireAncestors.last().toObject().value(QStringLiteral("Id")).toString();
+}
+
+QVariantMap JellyfinModelMapper::filterOptions(const QJsonObject &wireFilters)
+{
+    return {
+        {QStringLiteral("genres"), namedStringList(
+             wireFilters.value(QStringLiteral("Genres")).toArray())},
+        {QStringLiteral("tags"), namedStringList(
+             wireFilters.value(QStringLiteral("Tags")).toArray())}
+    };
+}
+
+QStringList JellyfinModelMapper::namedItems(const QJsonObject &wireItems)
+{
+    return namedStringList(wireItems.value(QStringLiteral("Items")).toArray());
 }
 
 QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
