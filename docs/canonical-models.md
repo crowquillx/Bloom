@@ -32,7 +32,7 @@ The types expose temporary `QVariantMap` projections so existing QML-facing faç
 
 ## Jellyfin conversion
 
-`JellyfinModelMapper` converts Jellyfin item, user-state, person, artwork, chapter, and tick fields into Bloom canonical values. Jellyfin ticks are converted to milliseconds there and must not be introduced into new model or QML APIs.
+`JellyfinModelMapper` converts Jellyfin item, user-state, person, artwork, chapter, playback-source, stream, and tick fields into Bloom canonical values. Jellyfin `PlaybackInfo` DTO parsing and tick conversion occur there; shared playback-source projections expose `durationMs` and must not carry provider time units.
 
 `LibraryService` asks the selected `IProviderAdapter` to map item, item-list, similar-item, series, next-episode, and chapter wire DTOs exactly once. Next-episode timeline resolution runs only on canonical episode maps and compares millisecond resume positions. Connection-aware canonical signals carry the `connectionId` captured when the request starts, so asynchronous mapping and consumers never substitute a later active connection.
 
@@ -56,7 +56,7 @@ Existing list/detail/player flows are migrated in reviewable slices. During migr
 
 ## Playback boundary
 
-A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `StreamRequest`. `PlaybackService` obtains the selected adapter's `IPlaybackProvider`; `JellyfinPlaybackProvider` resolves relative PlaybackInfo URLs, adds current request authentication and track hints, converts timing, and identifies the canonical playback method. `PlayerController` consumes only the finalized descriptor and may map canonical tracks to mpv runtime track IDs. Playback positions and multipart durations remain milliseconds through the controller and service façade. The provider serializes report endpoints and payloads, including Jellyfin's final millisecond-to-tick conversion. Provider endpoints, query authentication, provider time units, and reporting DTOs stay outside the controller.
+A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `StreamRequest`. `PlaybackService` parses the response and delegates `PlaybackInfo` mapping through `AuthenticationService::mapPlaybackInfo`; `AuthenticationService` forwards it to the selected `IProviderAdapter`. `PlaybackService` then obtains the adapter's `IPlaybackProvider` to finalize the stream. `JellyfinPlaybackProvider` resolves relative stream URLs, adds current request authentication and track hints, and identifies the canonical playback method. `PlayerController` consumes only millisecond playback-source projections and finalized descriptors, and may map canonical tracks to mpv runtime track IDs. Playback positions and multipart durations remain milliseconds through the controller and service façade. The provider serializes report endpoints and payloads, including Jellyfin's final millisecond-to-tick conversion. Provider endpoints, query authentication, provider time units, and reporting DTOs stay outside the controller.
 
 ## Tests
 
@@ -69,6 +69,7 @@ A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `St
 - canonical chapter mapping with millisecond starts and token-free chapter artwork references
 - token-free, round-trippable artwork cache keys
 - provider-neutral playback descriptor projections
+- Jellyfin `PlaybackInfo`, media-source, and stream mapping with millisecond durations and no shared tick fields
 - Jellyfin stream finalization, canonical timing/tracks, and current credential injection at the playback-provider boundary
 - provider-owned playback report endpoint selection and millisecond-to-Jellyfin-tick serialization
 

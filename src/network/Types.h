@@ -75,7 +75,6 @@ public:
     int dolbyVisionBlSignalCompatibilityId = 0;
     QString videoDoViTitle;
 
-    [[nodiscard]] static MediaStreamInfo fromJson(const QJsonObject &json);
     [[nodiscard]] QVariantMap toVariantMap() const;
 };
 
@@ -91,7 +90,7 @@ struct MediaSourceInfo
     Q_PROPERTY(qint64 size MEMBER size)
     Q_PROPERTY(int bitRate MEMBER bitRate)
     Q_PROPERTY(QString videoType MEMBER videoType)
-    Q_PROPERTY(qint64 runTimeTicks MEMBER runTimeTicks)
+    Q_PROPERTY(qint64 durationMs MEMBER durationMs)
     Q_PROPERTY(int defaultAudioStreamIndex MEMBER defaultAudioStreamIndex)
     Q_PROPERTY(int defaultSubtitleStreamIndex MEMBER defaultSubtitleStreamIndex)
     Q_PROPERTY(QVariantList mediaStreams READ getMediaStreamsVariant)
@@ -106,12 +105,10 @@ public:
     qint64 size = 0;
     int bitRate = 0;
     QString videoType;
-    qint64 runTimeTicks = 0;
+    qint64 durationMs = 0;
     int defaultAudioStreamIndex = -1;
     int defaultSubtitleStreamIndex = -1;
     QList<MediaStreamInfo> mediaStreams;
-
-    [[nodiscard]] static MediaSourceInfo fromJson(const QJsonObject &json);
 
     [[nodiscard]] QList<MediaStreamInfo> getVideoStreams() const;
     [[nodiscard]] QList<MediaStreamInfo> getAudioStreams() const;
@@ -129,7 +126,6 @@ public:
     QString playSessionId;
     QList<MediaSourceInfo> mediaSources;
 
-    [[nodiscard]] static PlaybackInfoResponse fromJson(const QJsonObject &json);
     [[nodiscard]] QVariantList getMediaSourcesVariant() const;
 };
 

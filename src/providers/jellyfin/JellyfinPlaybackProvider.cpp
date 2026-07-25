@@ -85,8 +85,8 @@ Bloom::PlaybackDescriptor JellyfinPlaybackProvider::createDescriptor(
     descriptor.media = media;
     descriptor.mediaVersionId = providerSource.value(QStringLiteral("id")).toString();
     descriptor.playbackSessionId = playbackSessionId;
-    descriptor.durationMs = JellyfinModelMapper::ticksToMilliseconds(
-        providerSource.value(QStringLiteral("runTimeTicks")).toLongLong());
+    descriptor.durationMs = qMax<qint64>(
+        0, providerSource.value(QStringLiteral("durationMs")).toLongLong());
     descriptor.startPositionMs = qMax<qint64>(0, startPositionMs);
     descriptor.selectedAudioTrackId = selectedAudioTrack >= 0
         ? QString::number(selectedAudioTrack) : QString();

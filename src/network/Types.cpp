@@ -1,9 +1,7 @@
 #include "Types.h"
 #include <QJsonDocument>
 #include <QJsonParseError>
-#include <QtMath>
 #include "../utils/BloomLogging.h"
-#include <cmath>
 
 /**
  * @brief Register Qt metatypes for network data structures
@@ -32,116 +30,6 @@ void registerNetworkMetaTypes()
 // ============================================================================
 // MediaStreamInfo Implementation
 // ============================================================================
-
-namespace {
-
-QString jsonValueToString(const QJsonValue &value)
-{
-    if (value.isString()) {
-        return value.toString();
-    }
-    if (value.isDouble()) {
-        const double number = value.toDouble();
-        if (qFuzzyCompare(number, std::round(number))) {
-            return QString::number(static_cast<int>(number));
-        }
-        return QString::number(number);
-    }
-    return QString();
-}
-
-int jsonValueToInt(const QJsonValue &value, int defaultValue = 0)
-{
-    if (value.isDouble()) {
-        return value.toInt(defaultValue);
-    }
-    if (value.isString()) {
-        bool ok = false;
-        const int parsed = value.toString().toInt(&ok);
-        return ok ? parsed : defaultValue;
-    }
-    return defaultValue;
-}
-
-QString jsonValueToStreamType(const QJsonValue &value)
-{
-    if (value.isString()) {
-        return value.toString();
-    }
-    if (!value.isDouble()) {
-        return QString();
-    }
-
-    switch (value.toInt(-1)) {
-    case 0:
-        return QStringLiteral("Audio");
-    case 1:
-        return QStringLiteral("Video");
-    case 2:
-        return QStringLiteral("Subtitle");
-    default:
-        return QString();
-    }
-}
-
-} // namespace
-
-/**
- * @brief Parse MediaStreamInfo from Jellyfin API JSON response
- * 
- * Deserializes a single media stream (audio/video/subtitle) from the Jellyfin API.
- * Typically found in the "MediaStreams" array within MediaSource objects.
- * 
- * Jellyfin API reference: /Items/{itemId}/PlaybackInfo response
- * Endpoint: GET /Items/{itemId}/PlaybackInfo
- * 
- * Key fields:
- * - Index: Stream index for mpv selection (e.g., --aid=1, --sid=2)
- * - Type: "Video", "Audio", or "Subtitle"
- * - Codec: Codec identifier (e.g., "h264", "aac", "srt")
- * - DisplayTitle: Human-readable stream description for UI
- * - IsDefault/IsForced: Stream selection hints from server
- * - Language: ISO 639 language code (e.g., "eng", "jpn")
- * 
- * @param json JSON object representing a single MediaStream from Jellyfin
- * @return Populated MediaStreamInfo struct
- */
-MediaStreamInfo MediaStreamInfo::fromJson(const QJsonObject &json)
-{
-    MediaStreamInfo info;
-    info.index = json["Index"].toInt(-1);
-    info.type = jsonValueToStreamType(json["Type"]);
-    info.codec = json["Codec"].toString();
-    info.language = json["Language"].toString();
-    info.title = json["Title"].toString();
-    info.displayTitle = json["DisplayTitle"].toString();
-    info.isDefault = json["IsDefault"].toBool();
-    info.isForced = json["IsForced"].toBool();
-    info.isExternal = json["IsExternal"].toBool();
-    info.isHearingImpaired = json["IsHearingImpaired"].toBool();
-    info.channels = json["Channels"].toInt();
-    info.channelLayout = json["ChannelLayout"].toString();
-    info.bitRate = json["BitRate"].toInt();
-    info.width = json["Width"].toInt();
-    info.height = json["Height"].toInt();
-    info.averageFrameRate = json["AverageFrameRate"].toDouble();
-    info.realFrameRate = json["RealFrameRate"].toDouble();
-    info.profile = json["Profile"].toString();
-    info.videoRange = jsonValueToString(json["VideoRange"]);
-    info.videoRangeType = jsonValueToString(json["VideoRangeType"]);
-    info.codecTag = jsonValueToString(json["CodecTag"]);
-    info.codecTagString = jsonValueToString(json["CodecTagString"]);
-    info.codecId = jsonValueToString(json["CodecId"]);
-    info.dolbyVisionProfile = jsonValueToInt(json.contains(QStringLiteral("DvProfile"))
-                                                 ? json[QStringLiteral("DvProfile")]
-                                                 : json[QStringLiteral("DolbyVisionProfile")]);
-    info.dolbyVisionLevel = jsonValueToInt(json.contains(QStringLiteral("DvLevel"))
-                                               ? json[QStringLiteral("DvLevel")]
-                                               : json[QStringLiteral("DolbyVisionLevel")]);
-    info.dolbyVisionBlSignalCompatibilityId = jsonValueToInt(json[QStringLiteral("DvBlSignalCompatibilityId")]);
-    info.videoDoViTitle = json[QStringLiteral("VideoDoViTitle")].toString();
-    return info;
-}
 
 /**
  * @brief Convert MediaStreamInfo to QVariantMap for QML exposure
@@ -187,52 +75,6 @@ QVariantMap MediaStreamInfo::toVariantMap() const
 // ============================================================================
 // MediaSourceInfo Implementation
 // ============================================================================
-
-/**
- * @brief Parse MediaSourceInfo from Jellyfin API JSON response
- * 
- * Deserializes a media source container from the Jellyfin PlaybackInfo response.
- * A MediaSource represents a single playable version of an item (e.g., different
- * qualities, direct play vs. transcode).
- * 
- * Jellyfin API reference: /Items/{itemId}/PlaybackInfo response
- * Endpoint: GET /Items/{itemId}/PlaybackInfo
- * 
- * Key fields:
- * - Id: Unique identifier for this media source
- * - Container: File container format (e.g., "mkv", "mp4")
- * - RunTimeTicks: Duration in ticks (1 tick = 100ns, divide by 10,000,000 for seconds)
- * - MediaStreams: Array of audio/video/subtitle streams (parsed recursively)
- * - DefaultAudioStreamIndex/DefaultSubtitleStreamIndex: Server-recommended defaults
- * 
- * The MediaStreams array is parsed into MediaStreamInfo objects for stream selection.
- * 
- * @param json JSON object representing a MediaSource from Jellyfin
- * @return Populated MediaSourceInfo struct with nested MediaStreamInfo list
- */
-MediaSourceInfo MediaSourceInfo::fromJson(const QJsonObject &json)
-{
-    MediaSourceInfo info;
-    info.id = json["Id"].toString();
-    info.name = json["Name"].toString();
-    info.path = json["Path"].toString();
-    info.directStreamUrl = json["DirectStreamUrl"].toString();
-    info.transcodingUrl = json["TranscodingUrl"].toString();
-    info.container = json["Container"].toString();
-    info.size = static_cast<qint64>(json["Size"].toDouble());
-    info.bitRate = json["Bitrate"].toInt();
-    info.videoType = json["VideoType"].toString();
-    info.runTimeTicks = static_cast<qint64>(json["RunTimeTicks"].toDouble());
-    info.defaultAudioStreamIndex = json["DefaultAudioStreamIndex"].toInt(-1);
-    info.defaultSubtitleStreamIndex = json["DefaultSubtitleStreamIndex"].toInt(-1);
-    
-    QJsonArray streamsArray = json["MediaStreams"].toArray();
-    for (const QJsonValue &streamVal : streamsArray) {
-        info.mediaStreams.append(MediaStreamInfo::fromJson(streamVal.toObject()));
-    }
-    
-    return info;
-}
 
 /**
  * @brief Filter and return only video streams from mediaStreams
@@ -295,38 +137,6 @@ QVariantList MediaSourceInfo::getMediaStreamsVariant() const
 // PlaybackInfoResponse Implementation
 // ============================================================================
 
-/**
- * @brief Parse PlaybackInfoResponse from Jellyfin API JSON response
- * 
- * Deserializes the top-level response from the Jellyfin PlaybackInfo endpoint.
- * This endpoint is called before starting playback to retrieve available media
- * sources, streams, and the play session ID for progress reporting.
- * 
- * Jellyfin API reference:
- * Endpoint: POST /Items/{itemId}/PlaybackInfo
- * Response contains:
- * - PlaySessionId: Unique session identifier for progress reporting
- * - MediaSources: Array of available sources (direct play, transcode options)
- * 
- * The PlaySessionId is used in subsequent /Sessions/Playing/* endpoints to report
- * playback progress, pause, and stop events.
- * 
- * @param json JSON object from Jellyfin PlaybackInfo response
- * @return Populated PlaybackInfoResponse with MediaSources and session ID
- */
-PlaybackInfoResponse PlaybackInfoResponse::fromJson(const QJsonObject &json)
-{
-    PlaybackInfoResponse response;
-    response.playSessionId = json["PlaySessionId"].toString();
-    
-    QJsonArray sourcesArray = json["MediaSources"].toArray();
-    for (const QJsonValue &sourceVal : sourcesArray) {
-        response.mediaSources.append(MediaSourceInfo::fromJson(sourceVal.toObject()));
-    }
-    
-    return response;
-}
-
 QVariantList PlaybackInfoResponse::getMediaSourcesVariant() const
 {
     QVariantList result;
@@ -341,7 +151,7 @@ QVariantList PlaybackInfoResponse::getMediaSourcesVariant() const
         sourceMap["size"] = source.size;
         sourceMap["bitRate"] = source.bitRate;
         sourceMap["videoType"] = source.videoType;
-        sourceMap["runTimeTicks"] = source.runTimeTicks;
+        sourceMap["durationMs"] = source.durationMs;
         sourceMap["defaultAudioStreamIndex"] = source.defaultAudioStreamIndex;
         sourceMap["defaultSubtitleStreamIndex"] = source.defaultSubtitleStreamIndex;
         sourceMap["mediaStreams"] = source.getMediaStreamsVariant();

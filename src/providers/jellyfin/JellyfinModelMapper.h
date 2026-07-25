@@ -1,6 +1,7 @@
 #pragma once
 
 #include "models/MediaModels.h"
+#include "network/Types.h"
 
 #include <QJsonArray>
 #include <QJsonObject>
@@ -12,6 +13,10 @@ class JellyfinModelMapper
 public:
     static qint64 ticksToMilliseconds(qint64 ticks);
     static qint64 millisecondsToTicks(qint64 milliseconds);
+
+    static MediaStreamInfo mediaStream(const QJsonObject &wireStream);
+    static MediaSourceInfo mediaSource(const QJsonObject &wireSource);
+    static PlaybackInfoResponse playbackInfo(const QJsonObject &wirePlaybackInfo);
 
     static QVariantMap mediaItem(const QJsonObject &wireItem,
                                  const QString &connectionId);

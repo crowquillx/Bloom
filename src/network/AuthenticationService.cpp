@@ -66,6 +66,14 @@ const IPlaybackProvider *AuthenticationService::playbackProvider() const
     return m_providerAdapter ? m_providerAdapter->playbackProvider() : nullptr;
 }
 
+PlaybackInfoResponse AuthenticationService::mapPlaybackInfo(
+    const QJsonObject &wirePlaybackInfo) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->mapPlaybackInfo(wirePlaybackInfo)
+        : PlaybackInfoResponse{};
+}
+
 QVariantMap AuthenticationService::mapMediaItem(const QJsonObject &wireItem,
                                                  const QString &connectionId) const
 {

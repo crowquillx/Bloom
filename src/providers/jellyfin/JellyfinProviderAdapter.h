@@ -14,6 +14,11 @@ public:
     const IProviderAuthenticator *authenticator() const override { return &m_authenticator; }
     const IProviderRequestFactory *requestFactory() const override { return &m_requestFactory; }
     const IPlaybackProvider *playbackProvider() const override { return &m_playbackProvider; }
+    PlaybackInfoResponse mapPlaybackInfo(
+        const QJsonObject &wirePlaybackInfo) const override
+    {
+        return JellyfinModelMapper::playbackInfo(wirePlaybackInfo);
+    }
     QVariantMap mapMediaItem(const QJsonObject &wireItem,
                              const QString &connectionId) const override
     {

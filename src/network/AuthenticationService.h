@@ -23,6 +23,7 @@ class IProviderRequestFactory;
 class ISecretStore;
 class ConfigManager;
 class HttpTransport;
+struct PlaybackInfoResponse;
 
 /**
  * @brief Handles user authentication, session management, and token validation.
@@ -98,6 +99,7 @@ public:
     QString getAccessToken() const { return m_accessToken; }
     QString getUsername() const { return m_username; }
     const IPlaybackProvider *playbackProvider() const;
+    PlaybackInfoResponse mapPlaybackInfo(const QJsonObject &wirePlaybackInfo) const;
     QVariantMap mapMediaItem(const QJsonObject &wireItem,
                              const QString &connectionId) const;
     QVariantList mapMediaItems(const QJsonArray &wireItems,
