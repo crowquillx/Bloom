@@ -259,6 +259,113 @@ target_link_libraries(ProviderTransportTest
 
 add_test(NAME ProviderTransportTest COMMAND ProviderTransportTest)
 
+add_executable(SiloAuthenticationTest
+    SiloAuthenticationTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${TEST_CONFIG_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
+)
+
+target_include_directories(SiloAuthenticationTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(SiloAuthenticationTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME SiloAuthenticationTest COMMAND SiloAuthenticationTest)
+
+add_executable(ProviderCatalogTest
+    ProviderCatalogTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinAuthenticator.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinPlaybackProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinRequestFactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${TEST_LOGGING_SOURCES}
+)
+
+target_include_directories(ProviderCatalogTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(ProviderCatalogTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME ProviderCatalogTest COMMAND ProviderCatalogTest)
+
+add_executable(SiloCatalogServiceTest
+    SiloCatalogServiceTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${TEST_CONFIG_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
+)
+
+target_include_directories(SiloCatalogServiceTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(SiloCatalogServiceTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME SiloCatalogServiceTest COMMAND SiloCatalogServiceTest)
+
+add_executable(ArtworkRefreshTest
+    ArtworkRefreshTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${TEST_CONFIG_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
+)
+
+target_include_directories(ArtworkRefreshTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(ArtworkRefreshTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Concurrent
+        Qt6::Gui
+        Qt6::Network
+        Qt6::Quick
+        Qt6::Sql
+        Qt6::Test
+)
+
+add_test(NAME ArtworkRefreshTest COMMAND ArtworkRefreshTest)
+
 add_executable(CanonicalModelsTest
     CanonicalModelsTest.cpp
     ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
@@ -620,6 +727,9 @@ qt_add_executable(VisualRegressionTest
     # Network sources
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/ActiveArtworkProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloArtworkProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp

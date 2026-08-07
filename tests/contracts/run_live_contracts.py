@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Bloom's MediaBrowser contract probes against an operator-owned server."""
+"""Run Bloom's opt-in provider contract probes against an operator-owned server."""
 
 from __future__ import annotations
 
@@ -93,6 +93,7 @@ class HttpTransport:
 
 class MediaBrowserV1Probe:
     """The current Bloom wire surface. Other protocol drivers can be added beside it."""
+    requires_credentials = True
 
     def __init__(self, transport: HttpTransport, username: str, password: str, version: str):
         self.transport = transport
@@ -554,8 +555,39 @@ class MediaBrowserV1Probe:
         return results
 
 
-DRIVERS = {"mediabrowser-v1": MediaBrowserV1Probe}
+class SiloNativeV1Probe:
+    """Read-only native checks that are deterministic without fixture media or credentials."""
 
+    requires_credentials = False
+
+    def __init__(self, transport: HttpTransport, username: str, password: str, version: str):
+        self.transport = transport
+
+    def run(self, expected: dict[str, str], allow_mutations: bool):
+        if "native.health" not in expected:
+            return []
+
+        response = self.transport.request("GET", "/api/v1/health", headers={"Accept": "application/json"})
+        payload = response.json() if response.status == 200 else None
+        status = payload.get("status") if isinstance(payload, dict) else None
+        server_id_present = isinstance(payload, dict) and "server_id" in payload
+        server_id = payload.get("server_id") if isinstance(payload, dict) else None
+        server_id_valid = not server_id_present or isinstance(server_id, str) and bool(server_id.strip())
+        valid = response.status == 200 and status == "ok" and server_id_valid
+        wanted = expected["native.health"]
+        observed = wanted if valid else "missing"
+        evidence = (
+            f"health returned HTTP {response.status}, status={status!r}, "
+            f"server_id={'present' if server_id_present else 'omitted'}; "
+            "installation uniqueness is intentionally not inferred"
+        )
+        return [ProbeResult("native.health", wanted, observed, observed == wanted, evidence)]
+
+
+DRIVERS = {
+    "mediabrowser-v1": MediaBrowserV1Probe,
+    "silo-native-v1": SiloNativeV1Probe,
+}
 
 def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description=__doc__)
@@ -571,8 +603,6 @@ def main(argv: list[str] | None = None):
     args = parser.parse_args(argv)
 
     password = os.environ.get(args.password_env, "")
-    if not args.username or not password:
-        parser.error(f"--username/BLOOM_CONTRACT_USERNAME and {args.password_env} are required")
 
     data = load_and_validate(args.matrix)
     deployment = next((item for item in data["deployments"] if item["id"] == args.deployment), None)
@@ -582,12 +612,21 @@ def main(argv: list[str] | None = None):
     driver_type = DRIVERS.get(surface)
     if not driver_type:
         parser.error(f"no live probe driver is registered for surface {surface!r}")
+    if getattr(driver_type, "requires_credentials", True) and (not args.username or not password):
+        parser.error(f"--username/BLOOM_CONTRACT_USERNAME and {args.password_env} are required for {surface}")
 
-    expected = {
-        contract["id"]: contract["expectations"][args.deployment]["outcome"]
-        for contract in data["contracts"]
-        if args.deployment in contract["expectations"]
-    }
+    if surface == "silo-native-v1":
+        expected = {
+            requirement["id"]: requirement["outcome"]
+            for requirement in data["nativeSiloContract"]["requirements"]
+            if requirement.get("liveProbe", False)
+        }
+    else:
+        expected = {
+            contract["id"]: contract["expectations"][args.deployment]["outcome"]
+            for contract in data["contracts"]
+            if args.deployment in contract["expectations"]
+        }
     driver = driver_type(HttpTransport(args.base_url, args.timeout), args.username, password, args.version)
     results = driver.run(expected, args.allow_mutations)
 

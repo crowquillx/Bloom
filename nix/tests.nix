@@ -58,6 +58,10 @@ stdenv.mkDerivation {
       ConnectionPersistenceTest \
       BloomProfileRepositoryTest \
       ProviderTransportTest \
+      SiloAuthenticationTest \
+      ProviderCatalogTest \
+      SiloCatalogServiceTest \
+      ArtworkRefreshTest \
       CanonicalModelsTest \
       InputBindingManagerTest \
       PlayerBackendFactoryTest \

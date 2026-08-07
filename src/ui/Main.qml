@@ -64,6 +64,7 @@ Window {
     /// Whether the user is logged in (controls sidebar visibility)
     property bool isLoggedIn: false
     property var sidebarProxy: sidebarLoader.item || sidebarStub
+    property bool pendingAuthenticatedNavigation: false
     
     /// Sidebar overlay mode threshold (narrow screens use overlay)
     readonly property int overlayThreshold: 960
@@ -122,6 +123,28 @@ Window {
         Qt.callLater(function() {
             if (dialog.primaryButton) {
                 dialog.primaryButton.forceActiveFocus()
+            }
+        })
+    }
+
+    function showLoginScreen() {
+        pendingAuthenticatedNavigation = false
+        sidebarProxy.close()
+        isLoggedIn = false
+
+        var current = stackView.currentItem
+        if (!current || current.objectName !== "loginScreen") {
+            stackView.clear()
+            current = stackView.push("LoginScreen.qml")
+        }
+
+        window.requestActivate()
+        Qt.callLater(function() {
+            var loginScreen = stackView.currentItem
+            if (loginScreen && loginScreen.objectName === "loginScreen") {
+                loginScreen.forceActiveFocus()
+            } else {
+                mainContentArea.forceActiveFocus()
             }
         })
     }
@@ -1173,28 +1196,37 @@ Window {
         target: AuthenticationService
         
         function onSessionExpiredAfterPlayback() {
-            console.log("Main.qml: Session expired after playback, showing toast")
-            // Show toast explaining what happened
             toast.show(qsTr("Your session has expired. Please log in again."))
+            window.showLoginScreen()
+        }
+
+        function onSessionExpired() {
+            toast.show(qsTr("Your session has expired. Please log in again."))
+            window.showLoginScreen()
+        }
+
+        function onAuthenticationStepChanged() {
+            if (window.pendingAuthenticatedNavigation
+                    && AuthenticationService.authenticationStep === "authenticated") {
+                onLoginSuccess("", "", "")
+            }
         }
         
         function onLoginSuccess(userId, accessToken, username) {
-            console.log("=== Main.qml: onLoginSuccess CALLED ===")
-            console.log("Main.qml: userId=", userId, "username=", username)
-            console.log("Main.qml: stackView.depth before replace:", stackView.depth)
-            console.log("Main.qml: stackView.currentItem before replace:", stackView.currentItem)
-            
-            // Mark as logged in to show sidebar
+            window.pendingAuthenticatedNavigation = true
+            if (AuthenticationService.authenticationStep !== "authenticated"
+                    || !AuthenticationService.authenticated) {
+                return
+            }
+            if (window.isLoggedIn) {
+                window.pendingAuthenticatedNavigation = false
+                return
+            }
+
+            window.pendingAuthenticatedNavigation = false
             window.isLoggedIn = true
-            console.log("Main.qml: isLoggedIn set to true")
-            
-            // Replace instead of push to prevent going back to login
-            console.log("Main.qml: About to call stackView.replace with HomeScreen.qml")
+
             var homeScreen = stackView.replace("HomeScreen.qml")
-            console.log("Main.qml: stackView.replace returned:", homeScreen)
-            console.log("Main.qml: stackView.depth after replace:", stackView.depth)
-            console.log("Main.qml: stackView.currentItem after replace:", stackView.currentItem)
-            
             if (homeScreen) {
                 console.log("Main.qml: homeScreen is valid, connecting signals...")
                 // Connect navigateToLibrary signal
@@ -1299,17 +1331,7 @@ Window {
         }
         
         function onLoggedOut() {
-            console.log("Main.qml: Logged out, returning to login screen")
-            
-            // Close sidebar if open
-            sidebarProxy.close()
-
-            // Mark as logged out to hide sidebar
-            window.isLoggedIn = false
-
-            // Clear all screens and go back to login
-            stackView.clear()
-            stackView.push("LoginScreen.qml")
+            window.showLoginScreen()
         }
         
         ignoreUnknownSignals: true

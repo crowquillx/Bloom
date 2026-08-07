@@ -23,6 +23,16 @@ enum class ArtworkKind {
 QString artworkKindName(ArtworkKind kind);
 ArtworkKind artworkKindFromName(const QString &name);
 
+enum class ArtworkOwnerKind {
+    MediaItem,
+    Library,
+    Person,
+    Chapter
+};
+
+QString artworkOwnerKindName(ArtworkOwnerKind kind);
+ArtworkOwnerKind artworkOwnerKindFromName(const QString &name);
+
 struct MediaRef {
     QString connectionId;
     QString itemId;
@@ -35,11 +45,15 @@ struct ArtworkRef {
     QString connectionId;
     QString itemId;
     ArtworkKind kind = ArtworkKind::Unknown;
+    ArtworkOwnerKind ownerKind = ArtworkOwnerKind::MediaItem;
     int index = 0;
     QString tag;
     int requestedWidth = 0;
+    // Opaque, transient fetch location; excluded from equality and cache identity.
+    QString sourceUrl;
 
     bool isValid() const;
+    bool operator==(const ArtworkRef &other) const;
     QString cacheKey() const;
     QVariantMap toVariantMap() const;
 

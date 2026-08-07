@@ -6,30 +6,59 @@
 #include "providers/IProviderAuthenticator.h"
 #include "providers/IProviderRequestFactory.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
-#include <QNetworkRequest>
-#include <QUrl>
-#include <QJsonDocument>
-#include <QJsonObject>
+#include <algorithm>
+#include <QCoreApplication>
 #include <QDebug>
-#include <QPointer>
-#include <QThreadPool>
+#include <QJsonDocument>
+#include <QNetworkRequest>
+#include <QSysInfo>
+#include <QUrl>
 #include "../utils/BloomLogging.h"
+
+namespace {
+QJsonArray responseArray(const QByteArray &body, const QString &member)
+{
+    const QJsonDocument document = QJsonDocument::fromJson(body);
+    if (document.isArray()) {
+        return document.array();
+    }
+    if (document.isObject()) {
+        return document.object().value(member).toArray();
+    }
+    return {};
+}
+
+QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
+{
+    QJsonObject result;
+    const auto add = [&result, capabilities](ProviderCapability capability, const char *name) {
+        result[QString::fromLatin1(name)] = capabilities.testFlag(capability);
+    };
+    add(ProviderCapability::RefreshAuthentication, "refresh_authentication");
+    add(ProviderCapability::Profiles, "profiles");
+    add(ProviderCapability::ProfilePin, "profile_pin");
+    add(ProviderCapability::AuthSessions, "auth_sessions");
+    add(ProviderCapability::Catalog, "catalog");
+    add(ProviderCapability::NativeState, "native_state");
+    add(ProviderCapability::MediaSegments, "media_segments");
+    add(ProviderCapability::Playback, "playback");
+    add(ProviderCapability::PlaybackReporting, "playback_reporting");
+    return result;
+}
+}
 
 AuthenticationService::AuthenticationService(ISecretStore *secretStore, QObject *parent)
     : QObject(parent)
     , m_ownedTransport(std::make_unique<HttpTransport>())
     , m_ownedProviderAdapter(std::make_unique<JellyfinProviderAdapter>())
+    , m_providerAdapters{m_ownedProviderAdapter.get()}
     , m_transport(m_ownedTransport.get())
     , m_providerAdapter(m_ownedProviderAdapter.get())
     , m_requestFactory(m_providerAdapter->requestFactory())
     , m_providerAuthenticator(m_providerAdapter->authenticator())
     , m_secretStore(secretStore)
 {
-    m_transport->setUrlRedactor([this](const QUrl &url) {
-        return m_requestFactory->redactedUrl(url);
-    });
-    connect(m_transport, &HttpTransport::unauthorized,
-            this, &AuthenticationService::handleUnauthorized);
+    configureTransport();
 }
 
 AuthenticationService::AuthenticationService(ISecretStore *secretStore,
@@ -37,33 +66,101 @@ AuthenticationService::AuthenticationService(ISecretStore *secretStore,
                                                IProviderAdapter *providerAdapter,
                                                QObject *parent)
     : QObject(parent)
+    , m_providerAdapters{providerAdapter}
     , m_transport(transport)
     , m_providerAdapter(providerAdapter)
     , m_requestFactory(providerAdapter ? providerAdapter->requestFactory() : nullptr)
     , m_providerAuthenticator(providerAdapter ? providerAdapter->authenticator() : nullptr)
     , m_secretStore(secretStore)
 {
-    Q_ASSERT(m_transport);
-    Q_ASSERT(m_providerAdapter);
-    Q_ASSERT(m_requestFactory);
-    Q_ASSERT(m_providerAuthenticator);
-    m_transport->setUrlRedactor([this](const QUrl &url) {
-        return m_requestFactory->redactedUrl(url);
-    });
-    connect(m_transport, &HttpTransport::unauthorized,
-            this, &AuthenticationService::handleUnauthorized);
+    configureTransport();
+}
+
+AuthenticationService::AuthenticationService(
+    ISecretStore *secretStore,
+    HttpTransport *transport,
+    const QList<IProviderAdapter *> &providerAdapters,
+    QObject *parent)
+    : QObject(parent)
+    , m_providerAdapters(providerAdapters)
+    , m_transport(transport)
+    , m_secretStore(secretStore)
+{
+    IProviderAdapter *initial = providerForKind(ProviderKind::Jellyfin);
+    if (!initial && !m_providerAdapters.isEmpty()) {
+        initial = m_providerAdapters.constFirst();
+    }
+    activateProvider(initial);
+    configureTransport();
 }
 
 AuthenticationService::~AuthenticationService()
 {
     if (m_transport) {
+        disconnect(m_transport, nullptr, this, nullptr);
+        m_transport->cancelAll();
         m_transport->setUrlRedactor({});
+        m_transport->setUnauthorizedRecovery({});
     }
+}
+
+void AuthenticationService::configureTransport()
+{
+    Q_ASSERT(m_transport);
+    Q_ASSERT(m_providerAdapter);
+    Q_ASSERT(m_requestFactory);
+    Q_ASSERT(m_providerAuthenticator);
+    if (!m_transport) {
+        return;
+    }
+
+    m_transport->setUrlRedactor([this](const QUrl &url) {
+        return m_requestFactory ? m_requestFactory->redactedUrl(url) : url.toString();
+    });
+    m_transport->setUnauthorizedRecovery(
+        [this](std::function<void(bool)> completion) {
+            refreshAuthentication(std::move(completion));
+        });
+    connect(m_transport, &HttpTransport::unauthorized,
+            this, &AuthenticationService::handleUnauthorized, Qt::UniqueConnection);
+}
+
+IProviderAdapter *AuthenticationService::providerForKind(ProviderKind kind) const
+{
+    for (IProviderAdapter *adapter : m_providerAdapters) {
+        if (adapter && adapter->providerKind() == kind) {
+            return adapter;
+        }
+    }
+    return nullptr;
+}
+
+bool AuthenticationService::activateProvider(IProviderAdapter *adapter)
+{
+    if (!adapter || !adapter->requestFactory() || !adapter->authenticator()) {
+        return false;
+    }
+    m_providerAdapter = adapter;
+    m_requestFactory = adapter->requestFactory();
+    m_providerAuthenticator = adapter->authenticator();
+    return true;
 }
 
 const IPlaybackProvider *AuthenticationService::playbackProvider() const
 {
     return m_providerAdapter ? m_providerAdapter->playbackProvider() : nullptr;
+}
+
+const ICatalogProvider *AuthenticationService::catalogProvider() const
+{
+    return m_providerAdapter ? m_providerAdapter->catalogProvider() : nullptr;
+}
+
+ProviderKind AuthenticationService::activeProviderKind() const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->providerKind()
+        : m_activeConnection.providerKind;
 }
 
 PlaybackInfoResponse AuthenticationService::mapPlaybackInfo(
@@ -164,7 +261,7 @@ QVariantList AuthenticationService::mapChaptersFromItem(
 
 QNetworkAccessManager *AuthenticationService::networkManager() const
 {
-    return m_transport->networkManager();
+    return m_transport ? m_transport->networkManager() : nullptr;
 }
 
 void AuthenticationService::initialize(ConfigManager *configManager)
@@ -184,6 +281,7 @@ void AuthenticationService::initialize(ConfigManager *configManager)
     const std::optional<ServerConnection> connection = configManager->getActiveConnection();
     const bool pendingLegacyMigration = configManager->hasPendingLegacyJellyfinMigration();
     const bool legacyMatchesConnection = connection.has_value()
+        && connection->providerKind == ProviderKind::Jellyfin
         && ServerConnection::normalizeBaseUrl(legacySession.serverUrl) == connection->baseUrl
         && legacySession.userId == connection->accountId;
     ISecretStore *store = m_secretStore;
@@ -193,30 +291,37 @@ void AuthenticationService::initialize(ConfigManager *configManager)
         [session, legacySession, connection, pendingLegacyMigration,
          legacyMatchesConnection, store, deviceId]() {
             RestorationResult result{};
-            result.serverUrl = session.serverUrl;
-            result.userId = session.userId;
-            result.username = session.username;
             result.connection = connection.value_or(ServerConnection{});
+            if (connection.has_value()) {
+                result.serverUrl = connection->baseUrl;
+                result.userId = connection->accountId;
+                result.username = connection->username;
+            }
 
-            if (!store || !connection.has_value() || !connection->isValid()
-                || connection->providerKind != ProviderKind::Jellyfin || !session.isValid()) {
+            if (!store || !connection.has_value() || !connection->isValid()) {
                 return result;
             }
 
             CredentialStore credentials(store);
-            const CredentialReadResult credentialResult = credentials.readAccessToken(
-                *connection,
-                deviceId,
-                legacyMatchesConnection ? legacySession.serverUrl : QString(),
-                legacyMatchesConnection ? legacySession.username : QString(),
-                session.accessToken);
-            result.accessToken = credentialResult.secret;
-            result.success = !result.accessToken.isEmpty();
-            result.error = credentialResult.error;
-            result.cleanupError = credentialResult.cleanupError;
-            result.legacyMigrationComplete = pendingLegacyMigration
-                && legacyMatchesConnection && result.success && result.error.isEmpty()
-                && result.cleanupError.isEmpty();
+            if (connection->providerKind == ProviderKind::Jellyfin) {
+                const CredentialReadResult access = credentials.readAccessToken(
+                    *connection,
+                    deviceId,
+                    legacyMatchesConnection ? legacySession.serverUrl : QString(),
+                    legacyMatchesConnection ? legacySession.username : QString(),
+                    session.accessToken);
+                result.accessToken = access.secret;
+                result.error = access.error;
+                result.cleanupError = access.cleanupError;
+                result.legacyMigrationComplete = pendingLegacyMigration
+                    && legacyMatchesConnection && !result.accessToken.isEmpty()
+                    && result.error.isEmpty() && result.cleanupError.isEmpty();
+            } else {
+                result.accessToken = credentials.read(*connection, CredentialKind::AccessToken);
+            }
+            result.refreshToken = credentials.read(*connection, CredentialKind::RefreshToken);
+            result.profileToken = credentials.read(*connection, CredentialKind::ProfileToken);
+            result.success = !result.accessToken.isEmpty() || !result.refreshToken.isEmpty();
             return result;
         });
 
@@ -231,26 +336,26 @@ void AuthenticationService::initialize(ConfigManager *configManager)
 
         if (connectionChanged) {
             qCInfo(lcAuth) << "Ignoring stale session restoration result after connection switch";
-        } else {
+        } else if (result.success && activateProvider(
+                       providerForKind(result.connection.providerKind))) {
             if (result.legacyMigrationComplete) {
                 configManager->finalizeLegacyJellyfinMigration();
             }
-
-            if (result.success) {
-                m_activeConnection = result.connection;
-                restoreSession(result.serverUrl,
-                               result.userId,
-                               result.accessToken,
-                               result.username);
-            } else if (!result.error.isEmpty()) {
-                qCWarning(lcAuth) << "Session restoration failed:" << result.error;
-            }
+            m_activeConnection = result.connection;
+            m_refreshToken = result.refreshToken;
+            m_profileToken = result.profileToken;
+            restoreSession(result.serverUrl,
+                           result.userId,
+                           result.accessToken,
+                           result.username);
+        } else if (!result.error.isEmpty()) {
+            qCWarning(lcAuth) << "Session restoration failed:" << result.error;
         }
+
         if (!result.cleanupError.isEmpty()) {
             qCWarning(lcAuth) << "Legacy credential cleanup failed:"
                               << result.cleanupError;
         }
-
         m_isRestoringSession = false;
         emit isRestoringSessionChanged();
     });
@@ -258,47 +363,217 @@ void AuthenticationService::initialize(ConfigManager *configManager)
     m_restorationWatcher.setFuture(future);
 }
 
-QString AuthenticationService::normalizeUrl(const QString &url)
+QString AuthenticationService::normalizeUrl(const QString &url) const
 {
-    QString normalized = url.trimmed();
-    while (normalized.endsWith('/')) {
-        normalized.chop(1);
+    return ServerConnection::normalizeBaseUrl(url);
+}
+
+ProviderRequestContext AuthenticationService::requestContext(bool includeAuthentication) const
+{
+    ProviderRequestContext context;
+    context.baseUrl = m_serverUrl;
+    if (includeAuthentication) {
+        context.accessToken = m_accessToken;
+        context.profileId = m_pendingProfileId.isEmpty()
+            ? m_activeConnection.profileId : m_pendingProfileId;
+        context.profileToken = m_profileToken;
     }
-    return normalized;
+    context.clientName = QStringLiteral("Bloom");
+    context.clientVersion = QCoreApplication::applicationVersion();
+    context.deviceId = m_configManager
+        ? m_configManager->getDeviceId()
+        : QStringLiteral("bloom-desktop-fallback");
+    context.deviceName = QSysInfo::machineHostName();
+    if (context.deviceName.isEmpty()) {
+        context.deviceName = QStringLiteral("Bloom Device");
+    }
+    context.devicePlatform = QSysInfo::productType();
+    if (context.devicePlatform.isEmpty()) {
+        context.devicePlatform = QSysInfo::kernelType();
+    }
+    return context;
 }
 
 QNetworkRequest AuthenticationService::createRequest(const QString &endpoint) const
 {
-    ProviderRequestContext context;
-    context.baseUrl = m_serverUrl;
-    context.accessToken = m_accessToken;
-    context.deviceId = m_configManager
-        ? m_configManager->getDeviceId()
-        : QStringLiteral("bloom-desktop-fallback");
-    return m_requestFactory->createRequest(context, endpoint);
+    return m_requestFactory
+        ? m_requestFactory->createRequest(requestContext(true), endpoint)
+        : QNetworkRequest{};
 }
 
-void AuthenticationService::authenticate(const QString &serverUrl, const QString &username, const QString &password)
+QNetworkRequest AuthenticationService::createUnauthenticatedRequest(
+    const QString &endpoint) const
 {
-    m_serverUrl = normalizeUrl(serverUrl);
+    return m_requestFactory
+        ? m_requestFactory->createRequest(requestContext(false), endpoint)
+        : QNetworkRequest{};
+}
 
-    const ProviderAuthenticationRequest authenticationRequest =
-        m_providerAuthenticator->createLoginRequest(username, password);
-    const QNetworkRequest request = createRequest(authenticationRequest.endpoint);
+void AuthenticationService::setProviderSelection(const QString &selection)
+{
+    const QString normalized = selection.trimmed().toLower();
+    if (normalized != QStringLiteral("auto")
+        && normalized != QStringLiteral("jellyfin")
+        && normalized != QStringLiteral("silo")) {
+        emit loginError(tr("Unknown provider selection: %1").arg(selection));
+        return;
+    }
+    if (normalized == m_providerSelection) {
+        return;
+    }
+
+    const bool wasAuthenticated = isAuthenticated();
+    clearAccountStateInternal(false, wasAuthenticated);
+    m_providerSelection = normalized;
+    emit providerSelectionChanged();
+
+    if (normalized != QStringLiteral("auto")) {
+        const ProviderKind kind = normalized == QStringLiteral("silo")
+            ? ProviderKind::Silo : ProviderKind::Jellyfin;
+        if (IProviderAdapter *adapter = providerForKind(kind)) {
+            activateProvider(adapter);
+        }
+    }
+}
+
+void AuthenticationService::authenticate(const QString &serverUrl,
+                                           const QString &username,
+                                           const QString &password)
+{
+    clearAccountStateInternal(false, false);
+    m_serverUrl = normalizeUrl(serverUrl);
+    emit serverUrlChanged();
+    const quint64 generation = m_stateGeneration;
+
+    if (m_serverUrl.isEmpty()) {
+        emit loginError(tr("Server URL is required."));
+        return;
+    }
+
+    if (m_providerSelection == QStringLiteral("auto")) {
+        probeProviderAndLogin(username, password, generation);
+        return;
+    }
+
+    const ProviderKind kind = m_providerSelection == QStringLiteral("silo")
+        ? ProviderKind::Silo : ProviderKind::Jellyfin;
+    if (!activateProvider(providerForKind(kind))) {
+        emit loginError(tr("The selected provider is not available."));
+        return;
+    }
+    performLogin(username, password, generation);
+}
+
+void AuthenticationService::probeProviderAndLogin(const QString &username,
+                                                    const QString &password,
+                                                    quint64 generation)
+{
+    IProviderAdapter *silo = providerForKind(ProviderKind::Silo);
+    IProviderAdapter *jellyfin = providerForKind(ProviderKind::Jellyfin);
+    const auto fallback = [this, jellyfin, username, password, generation]() {
+        if (generation != m_stateGeneration) {
+            return;
+        }
+        m_detectionResult = {};
+        if (!activateProvider(jellyfin)) {
+            emit loginError(tr("No compatible authentication provider is available."));
+            return;
+        }
+        performLogin(username, password, generation);
+    };
+
+    if (!silo || !silo->requestFactory()) {
+        fallback();
+        return;
+    }
+
+    const QString endpoint = QStringLiteral("/api/v1/health");
+    ProviderRequestContext context = requestContext(false);
+    const IProviderRequestFactory *factory = silo->requestFactory();
     HttpRequestOptions options;
     options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
+    m_transport->sendWithRetry(
+        this,
+        endpoint,
+        [this, factory, context, endpoint]() {
+            return networkManager()->get(factory->createRequest(context, endpoint));
+        },
+        [this, silo, username, password, generation, fallback](QNetworkReply *reply) {
+            if (generation != m_stateGeneration) {
+                return;
+            }
+            const QJsonObject payload = QJsonDocument::fromJson(reply->readAll()).object();
+            if (payload.value(QStringLiteral("status")).toString()
+                != QStringLiteral("ok")) {
+                fallback();
+                return;
+            }
+            if (!activateProvider(silo)) {
+                fallback();
+                return;
+            }
+            if (const auto detected = silo->mapDetectionResult(payload);
+                detected.has_value()) {
+                m_detectionResult = *detected;
+            } else {
+                m_detectionResult = {};
+                m_detectionResult.providerKind = ProviderKind::Silo;
+                m_detectionResult.protocolMode = ProtocolMode::Native;
+                m_detectionResult.serverId =
+                    payload.value(QStringLiteral("server_id")).toString();
+                m_detectionResult.serverName =
+                    payload.value(QStringLiteral("server_name")).toString();
+            }
+            performLogin(username, password, generation);
+        },
+        [fallback](const NetworkError &) {
+            fallback();
+        },
+        options);
+}
 
+void AuthenticationService::performLogin(const QString &username,
+                                          const QString &password,
+                                          quint64 generation)
+{
+    if (!m_providerAuthenticator) {
+        emit loginError(tr("Authentication provider is unavailable."));
+        return;
+    }
+    const ProviderAuthenticationRequest authenticationRequest =
+        m_providerAuthenticator->createLoginRequest(username, password);
+    if (!authenticationRequest.isValid()) {
+        emit loginError(tr("The provider cannot create a login request."));
+        return;
+    }
+
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
     m_transport->sendWithRetry(
         this,
         authenticationRequest.endpoint,
-        [this, request, body = authenticationRequest.body]() {
-            return networkManager()->post(request, body);
+        [this, endpoint = authenticationRequest.endpoint,
+         body = authenticationRequest.body]() {
+            return networkManager()->post(createUnauthenticatedRequest(endpoint), body);
         },
-        [this](QNetworkReply *reply) {
-            onAuthenticateFinished(reply);
+        [this, generation](QNetworkReply *reply) {
+            if (generation != m_stateGeneration) {
+                return;
+            }
+            const ProviderAuthenticationResult authentication =
+                m_providerAuthenticator->parseLoginResponse(reply->readAll());
+            if (!authentication.isValid()) {
+                emit loginError(tr("Authentication response was incomplete."));
+                return;
+            }
+            handleAuthenticationResult(authentication, generation);
         },
-        [this](const NetworkError &error) {
+        [this, generation](const NetworkError &error) {
+            if (generation != m_stateGeneration) {
+                return;
+            }
             if (error.code == 401) {
                 emit loginError(tr("Invalid username or password"));
                 return;
@@ -311,85 +586,531 @@ void AuthenticationService::authenticate(const QString &serverUrl, const QString
         options);
 }
 
-void AuthenticationService::onAuthenticateFinished(QNetworkReply *reply)
+void AuthenticationService::handleAuthenticationResult(
+    const ProviderAuthenticationResult &authentication,
+    quint64 generation)
 {
-    const ProviderAuthenticationResult authentication =
-        m_providerAuthenticator->parseLoginResponse(reply->readAll());
-    if (!authentication.isValid()) {
-        emit loginError(tr("Authentication response was incomplete."));
+    if (generation != m_stateGeneration || !authentication.isValid()) {
         return;
     }
 
     m_accessToken = authentication.accessToken;
+    if (!authentication.refreshToken.isEmpty()) {
+        m_refreshToken = authentication.refreshToken;
+    }
+    if (!authentication.profileToken.isEmpty()) {
+        m_profileToken = authentication.profileToken;
+    }
     m_userId = authentication.accountId;
-    m_username = authentication.username;
-    
-    qCDebug(lcAuth) << "Authentication successful. User ID:" << m_userId << "Username:" << m_username;
+    if (!authentication.username.isEmpty()) {
+        m_username = authentication.username;
+    }
 
+    ServerConnection connection;
     if (m_configManager) {
-        m_configManager->setJellyfinSession(m_serverUrl, m_userId, QString(), m_username);
-        m_activeConnection = m_configManager->getActiveConnection().value_or(ServerConnection{});
+        for (const ServerConnection &candidate : m_configManager->getConnections()) {
+            if (candidate.providerKind == m_providerAdapter->providerKind()
+                && candidate.baseUrl == m_serverUrl
+                && candidate.accountId == m_userId) {
+                connection = candidate;
+                break;
+            }
+        }
+    }
+    connection.providerKind = m_providerAdapter->providerKind();
+    connection.protocolMode = m_providerAdapter->protocolMode();
+    connection.baseUrl = m_serverUrl;
+    connection.accountId = m_userId;
+    connection.profileId = authentication.profileId;
+    if (connection.providerKind == ProviderKind::Jellyfin
+        && connection.profileId.isEmpty()) {
+        connection.profileId = m_userId;
+    }
+    connection.username = m_username;
+    connection.displayName = m_username;
+    if (m_detectionResult.providerKind == connection.providerKind) {
+        connection.serverId = m_detectionResult.serverId;
+        connection.serverName = m_detectionResult.serverName;
+        connection.capabilities = capabilitiesObject(m_detectionResult.capabilities);
+    }
+    if (connection.connectionId.isEmpty()) {
+        connection.connectionId = ServerConnection::createDeterministicConnectionId(
+            connection.providerKind, connection.baseUrl, connection.accountId);
+    }
+    if (connection.credentialReference.isEmpty()) {
+        connection.credentialReference =
+            ServerConnection::createCredentialReference(connection.connectionId);
+    }
+    m_activeConnection = connection;
+
+    persistConnection();
+    persistCredentials();
+
+    if (m_providerAdapter->supportsCapability(ProviderCapability::Profiles)) {
+        loadProfiles(true);
+    } else {
+        finishAuthentication();
+    }
+}
+
+void AuthenticationService::persistConnection()
+{
+    if (!m_configManager || !m_activeConnection.isValid()) {
+        return;
+    }
+    m_configManager->upsertConnection(m_activeConnection, true);
+    if (m_activeConnection.providerKind == ProviderKind::Jellyfin) {
+        m_configManager->setJellyfinSession(
+            m_serverUrl, m_userId, QString(), m_username);
+    }
+    m_activeConnection = m_configManager->getActiveConnection().value_or(m_activeConnection);
+}
+
+void AuthenticationService::persistCredentials()
+{
+    if (!m_secretStore || !m_activeConnection.isValid()) {
+        return;
     }
 
-    if (m_secretStore && m_activeConnection.isValid()) {
-        const QString token = m_accessToken;
-        const ServerConnection connection = m_activeConnection;
-        const QString deviceId = m_configManager ? m_configManager->getDeviceId() : QString();
-        const ConfigManager::SessionData legacySession = m_configManager
-            ? m_configManager->getPendingLegacyJellyfinSession()
-            : ConfigManager::SessionData{};
-        const bool legacyMatchesConnection =
-            ServerConnection::normalizeBaseUrl(legacySession.serverUrl) == connection.baseUrl
-            && legacySession.userId == connection.accountId;
-        ISecretStore *store = m_secretStore;
-        QPointer<ConfigManager> configManager = m_configManager;
-
-        QThreadPool::globalInstance()->start(
-            [store, connection, token, deviceId, legacySession,
-             legacyMatchesConnection, configManager]() {
-                CredentialStore credentials(store);
-                if (!credentials.write(connection, CredentialKind::AccessToken, token)) {
-                    qCWarning(lcAuth) << "Failed to store token in keychain:" << store->lastError();
-                    return;
-                }
-                if (credentials.read(connection, CredentialKind::AccessToken) != token) {
-                    credentials.remove(connection, CredentialKind::AccessToken);
-                    qCWarning(lcAuth) << "Stored token failed keychain verification";
-                    return;
-                }
-
-                if (legacyMatchesConnection) {
-                    const CredentialReadResult cleanup = credentials.readAccessToken(
-                        connection,
-                        deviceId,
-                        legacySession.serverUrl,
-                        legacySession.username);
-                    if (!cleanup.error.isEmpty() || !cleanup.cleanupError.isEmpty()
-                        || cleanup.secret != token) {
-                        qCWarning(lcAuth) << "Legacy credential cleanup failed:"
-                                          << (cleanup.error.isEmpty()
-                                                  ? cleanup.cleanupError
-                                                  : cleanup.error);
-                        return;
-                    }
-                }
-
-                qCDebug(lcAuth) << "Token stored in provider-neutral keychain entry";
-                if (legacyMatchesConnection && configManager) {
-                    QMetaObject::invokeMethod(configManager, [configManager]() {
-                        if (configManager) {
-                            configManager->finalizeLegacyJellyfinMigration();
-                        }
-                    }, Qt::QueuedConnection);
-                }
-            });
+    CredentialStore credentials(m_secretStore);
+    bool accessStored = true;
+    if (!m_accessToken.isEmpty()) {
+        accessStored = credentials.write(
+            m_activeConnection, CredentialKind::AccessToken, m_accessToken);
+    } else {
+        accessStored = credentials.remove(
+            m_activeConnection, CredentialKind::AccessToken);
     }
-    
+    const bool refreshStored = !m_refreshToken.isEmpty()
+        ? credentials.write(
+              m_activeConnection, CredentialKind::RefreshToken, m_refreshToken)
+        : credentials.remove(m_activeConnection, CredentialKind::RefreshToken);
+    const bool profileStored = !m_profileToken.isEmpty()
+        ? credentials.write(
+              m_activeConnection, CredentialKind::ProfileToken, m_profileToken)
+        : credentials.remove(m_activeConnection, CredentialKind::ProfileToken);
+    if (!accessStored || !refreshStored || !profileStored) {
+        qCWarning(lcAuth) << "Failed to persist one or more authentication credentials:"
+                          << m_secretStore->lastError();
+    }
+
+    if (!accessStored || m_accessToken.isEmpty() || !m_configManager
+        || m_activeConnection.providerKind != ProviderKind::Jellyfin) {
+        return;
+    }
+    const ConfigManager::SessionData legacy =
+        m_configManager->getPendingLegacyJellyfinSession();
+    if (ServerConnection::normalizeBaseUrl(legacy.serverUrl) != m_activeConnection.baseUrl
+        || legacy.userId != m_activeConnection.accountId) {
+        return;
+    }
+    const CredentialReadResult cleanup = credentials.readAccessToken(
+        m_activeConnection,
+        m_configManager->getDeviceId(),
+        legacy.serverUrl,
+        legacy.username);
+    if (cleanup.secret == m_accessToken && cleanup.error.isEmpty()
+        && cleanup.cleanupError.isEmpty()) {
+        m_configManager->finalizeLegacyJellyfinMigration();
+    }
+}
+
+void AuthenticationService::finishAuthentication()
+{
+    if (m_accessToken.isEmpty() || m_userId.isEmpty()) {
+        emit loginError(tr("Authentication response was incomplete."));
+        return;
+    }
+    m_sessionExpiredPending = false;
+    m_sessionExpiredEmitted = false;
+    updateAuthenticationStep(QStringLiteral("authenticated"));
     emit serverUrlChanged();
     emit userIdChanged();
-    emit authenticatedChanged();
-    qCCritical(lcAuth) << "=== AuthenticationService: EMITTING loginSuccess signal ===" << m_userId << m_username;
     emit loginSuccess(m_userId, m_accessToken, m_username);
+}
+
+void AuthenticationService::loadProfiles(bool finishWhenUnavailable)
+{
+    if (!m_providerAdapter) {
+        return;
+    }
+    const auto endpoint = m_providerAdapter->endpointFor(ProviderRoute::Profiles);
+    if (!m_providerAdapter->supportsCapability(ProviderCapability::Profiles)
+        || !endpoint.has_value()) {
+        if (finishWhenUnavailable) {
+            finishAuthentication();
+        }
+        return;
+    }
+
+    const quint64 generation = m_stateGeneration;
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    m_transport->sendWithRetry(
+        this,
+        *endpoint,
+        [this, endpoint = *endpoint]() {
+            return networkManager()->get(createRequest(endpoint));
+        },
+        [this, generation, finishWhenUnavailable](QNetworkReply *reply) {
+            if (generation != m_stateGeneration) {
+                return;
+            }
+            const auto mapped = m_providerAdapter->mapProfiles(
+                responseArray(reply->readAll(), QStringLiteral("profiles")));
+            if (!mapped.has_value()) {
+                emit loginError(tr("The provider returned an invalid profile list."));
+                return;
+            }
+            replaceProfiles(*mapped);
+            if (m_providerProfiles.isEmpty()) {
+                if (finishWhenUnavailable) {
+                    emit loginError(tr("No profiles are available for this account."));
+                }
+                return;
+            }
+            if (m_providerProfiles.size() == 1) {
+                selectProfile(m_providerProfiles.constFirst().id);
+            } else {
+                updateAuthenticationStep(QStringLiteral("profiles"));
+            }
+        },
+        [this, generation](const NetworkError &error) {
+            if (generation == m_stateGeneration) {
+                emit loginError(tr("Unable to load profiles: %1").arg(error.userMessage));
+            }
+        },
+        options);
+}
+
+void AuthenticationService::replaceProfiles(const QList<ProviderProfile> &profiles)
+{
+    m_providerProfiles = profiles;
+    QVariantList values;
+    values.reserve(profiles.size());
+    for (const ProviderProfile &profile : profiles) {
+        values.append(QVariantMap{
+            {QStringLiteral("id"), profile.id},
+            {QStringLiteral("name"), profile.name},
+            {QStringLiteral("avatarUrl"), profile.avatarUrl},
+            {QStringLiteral("hasPin"), profile.hasPin},
+            {QStringLiteral("isChild"), profile.isChild},
+            {QStringLiteral("isPrimary"), profile.isPrimary}
+        });
+    }
+    m_profiles = values;
+    emit profilesChanged();
+}
+
+void AuthenticationService::selectProfile(const QString &profileId)
+{
+    const auto profile = std::find_if(
+        m_providerProfiles.cbegin(), m_providerProfiles.cend(),
+        [&profileId](const ProviderProfile &candidate) {
+            return candidate.id == profileId;
+        });
+    if (profile == m_providerProfiles.cend()) {
+        emit loginError(tr("Unknown profile."));
+        return;
+    }
+
+    m_pendingProfileId = profileId;
+    if (profile->hasPin) {
+        updateAuthenticationStep(QStringLiteral("pin"));
+        return;
+    }
+    verifyProfilePin(profileId, QString());
+}
+
+void AuthenticationService::verifyProfilePin(const QString &profileId, const QString &pin)
+{
+    if (!m_providerAuthenticator || profileId.isEmpty()) {
+        emit loginError(tr("A profile must be selected."));
+        return;
+    }
+    const auto request = m_providerAuthenticator->createProfileLoginRequest(profileId, pin);
+    if (!request.has_value() || !request->isValid()) {
+        const auto profile = std::find_if(
+            m_providerProfiles.cbegin(), m_providerProfiles.cend(),
+            [&profileId](const ProviderProfile &candidate) {
+                return candidate.id == profileId;
+            });
+        if (profile != m_providerProfiles.cend() && !profile->hasPin && pin.isEmpty()) {
+            m_activeConnection.profileId = profileId;
+            m_pendingProfileId.clear();
+            persistConnection();
+            persistCredentials();
+            finishAuthentication();
+            return;
+        }
+        emit loginError(tr("The provider does not support profile PIN verification."));
+        return;
+    }
+
+    m_pendingProfileId = profileId;
+    const quint64 generation = m_stateGeneration;
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    m_transport->sendWithRetry(
+        this,
+        request->endpoint,
+        [this, endpoint = request->endpoint, body = request->body]() {
+            return networkManager()->post(createRequest(endpoint), body);
+        },
+        [this, generation](QNetworkReply *reply) {
+            if (generation != m_stateGeneration) {
+                return;
+            }
+            const ProviderProfileAuthenticationResult authentication =
+                m_providerAuthenticator->parseProfileLoginResponse(reply->readAll());
+            if (authentication.isIncorrectPin()) {
+                updateAuthenticationStep(QStringLiteral("pin"));
+                emit loginError(tr("Invalid profile PIN"));
+                return;
+            }
+            if (!authentication.isValid() || authentication.profileToken.isEmpty()) {
+                emit loginError(tr("Profile verification response was incomplete."));
+                return;
+            }
+            m_profileToken = authentication.profileToken;
+            m_activeConnection.profileId = m_pendingProfileId;
+            m_pendingProfileId.clear();
+            persistConnection();
+            persistCredentials();
+            finishAuthentication();
+        },
+        [this, generation](const NetworkError &error) {
+            if (generation == m_stateGeneration) {
+                emit loginError(error.code == 401
+                    ? tr("Invalid profile PIN")
+                    : tr("Profile verification failed: %1").arg(error.userMessage));
+            }
+        },
+        options);
+}
+
+void AuthenticationService::switchProfile()
+{
+    if (m_accessToken.isEmpty() || !m_providerAdapter
+        || !m_providerAdapter->supportsCapability(ProviderCapability::Profiles)) {
+        return;
+    }
+    clearProfileStateInternal(true);
+    loadProfiles(false);
+}
+
+void AuthenticationService::loadAuthSessions()
+{
+    if (!isAuthenticated() || !m_providerAdapter) {
+        return;
+    }
+    const auto endpoint = m_providerAdapter->endpointFor(ProviderRoute::AuthSessions);
+    if (!m_providerAdapter->supportsCapability(ProviderCapability::AuthSessions)
+        || !endpoint.has_value()) {
+        replaceAuthSessions({});
+        return;
+    }
+
+    const quint64 generation = m_stateGeneration;
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    m_transport->sendWithRetry(
+        this,
+        *endpoint,
+        [this, endpoint = *endpoint]() {
+            return networkManager()->get(createRequest(endpoint));
+        },
+        [this, generation](QNetworkReply *reply) {
+            if (generation != m_stateGeneration) {
+                return;
+            }
+            const auto mapped = m_providerAdapter->mapAuthSessions(
+                responseArray(reply->readAll(), QStringLiteral("sessions")));
+            if (!mapped.has_value()) {
+                emit loginError(tr("The provider returned an invalid session list."));
+                return;
+            }
+            replaceAuthSessions(*mapped);
+        },
+        [this, generation](const NetworkError &error) {
+            if (generation == m_stateGeneration) {
+                emit loginError(tr("Unable to load authentication sessions: %1")
+                                    .arg(error.userMessage));
+            }
+        },
+        options);
+}
+
+void AuthenticationService::replaceAuthSessions(
+    const QList<ProviderAuthSession> &sessions)
+{
+    QVariantList values;
+    values.reserve(sessions.size());
+    for (const ProviderAuthSession &session : sessions) {
+        values.append(QVariantMap{
+            {QStringLiteral("id"), session.id},
+            {QStringLiteral("deviceName"), session.deviceName},
+            {QStringLiteral("ipAddress"), session.ipAddress},
+            {QStringLiteral("createdAt"), session.createdAt},
+            {QStringLiteral("expiresAt"), session.expiresAt},
+            {QStringLiteral("revokedAt"), session.revokedAt},
+            {QStringLiteral("isCurrent"), session.isCurrent}
+        });
+    }
+    m_authSessions = values;
+    emit authSessionsChanged();
+}
+
+void AuthenticationService::revokeAuthSession(const QString &sessionId)
+{
+    if (!isAuthenticated() || !m_providerAdapter || sessionId.isEmpty()) {
+        return;
+    }
+    ProviderRouteContext routeContext;
+    routeContext.accountId = m_userId;
+    routeContext.profileId = m_activeConnection.profileId;
+    routeContext.sessionId = sessionId;
+    const auto endpoint = m_providerAdapter->endpointFor(
+        ProviderRoute::RevokeAuthSession, routeContext);
+    if (!endpoint.has_value()) {
+        emit loginError(tr("The provider does not support session revocation."));
+        return;
+    }
+    bool revokingCurrent = false;
+    for (const QVariant &value : m_authSessions) {
+        const QVariantMap session = value.toMap();
+        if (session.value(QStringLiteral("id")).toString() == sessionId) {
+            revokingCurrent =
+                session.value(QStringLiteral("isCurrent")).toBool();
+            break;
+        }
+    }
+
+    const quint64 generation = m_stateGeneration;
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    m_transport->sendWithRetry(
+        this,
+        *endpoint,
+        [this, endpoint = *endpoint]() {
+            return networkManager()->deleteResource(createRequest(endpoint));
+        },
+        [this, generation, revokingCurrent](QNetworkReply *) {
+            if (generation != m_stateGeneration) {
+                return;
+            }
+            if (revokingCurrent) {
+                logout();
+            } else {
+                loadAuthSessions();
+            }
+        },
+        [this, generation](const NetworkError &error) {
+            if (generation == m_stateGeneration) {
+                emit loginError(tr("Unable to revoke authentication session: %1")
+                                    .arg(error.userMessage));
+            }
+        },
+        options);
+}
+
+void AuthenticationService::remoteLogout()
+{
+    if (m_accessToken.isEmpty() || !m_providerAdapter) {
+        logout();
+        return;
+    }
+    const QString endpoint = m_providerAdapter->providerKind() == ProviderKind::Silo
+        ? QStringLiteral("/api/v1/auth/logout")
+        : QStringLiteral("/Sessions/Logout");
+    const quint64 generation = m_stateGeneration;
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    m_transport->sendWithRetry(
+        this,
+        endpoint,
+        [this, endpoint]() {
+            return networkManager()->post(createRequest(endpoint), QByteArray{});
+        },
+        [this, generation](QNetworkReply *) {
+            if (generation == m_stateGeneration) {
+                logout();
+            }
+        },
+        [this, generation](const NetworkError &error) {
+            if (generation != m_stateGeneration) {
+                return;
+            }
+            if (error.code == 401) {
+                logout();
+            } else {
+                emit loginError(tr("Remote logout failed: %1").arg(error.userMessage));
+            }
+        },
+        options);
+}
+
+void AuthenticationService::refreshAuthentication(std::function<void(bool)> completion)
+{
+    if (!m_providerAuthenticator || m_refreshToken.isEmpty()) {
+        completion(false);
+        return;
+    }
+    const auto request = m_providerAuthenticator->createRefreshRequest(m_refreshToken);
+    if (!request.has_value() || !request->isValid()) {
+        completion(false);
+        return;
+    }
+
+    const quint64 generation = m_stateGeneration;
+    const auto sharedCompletion =
+        std::make_shared<std::function<void(bool)>>(std::move(completion));
+    const auto complete = [sharedCompletion](bool success) {
+        if (!*sharedCompletion) {
+            return;
+        }
+        auto callback = std::move(*sharedCompletion);
+        callback(success);
+    };
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
+    m_transport->sendWithRetry(
+        this,
+        request->endpoint,
+        [this, endpoint = request->endpoint, body = request->body]() {
+            return networkManager()->post(createUnauthenticatedRequest(endpoint), body);
+        },
+        [this, generation, complete](QNetworkReply *reply) {
+            if (generation != m_stateGeneration) {
+                complete(false);
+                return;
+            }
+            const ProviderAuthenticationResult authentication =
+                m_providerAuthenticator->parseRefreshResponse(reply->readAll());
+            if (!authentication.isValidRefresh()) {
+                complete(false);
+                return;
+            }
+
+            QString nextAccessToken = authentication.accessToken;
+            QString nextRefreshToken = authentication.refreshToken;
+            m_accessToken.swap(nextAccessToken);
+            m_refreshToken.swap(nextRefreshToken);
+            persistCredentials();
+            complete(true);
+        },
+        [this, generation, complete](const NetworkError &) {
+            if (generation == m_stateGeneration) {
+                complete(false);
+            }
+        },
+        options);
 }
 
 void AuthenticationService::restoreSession(const QString &serverUrl,
@@ -397,28 +1118,58 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
                                            const QString &accessToken,
                                            const QString &username)
 {
+    m_transport->cancelAll();
+    ++m_stateGeneration;
+    const quint64 generation = m_stateGeneration;
     m_serverUrl = normalizeUrl(serverUrl);
     m_userId = userId;
     m_accessToken = accessToken;
     m_username = username;
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
-    
-    qCDebug(lcAuth) << "Restoring session for user:" << userId << "on server:" << serverUrl;
-    
-    // Validate the restored session
-    validateAccessToken([this](bool valid) {
-        if (valid) {
-            qCDebug(lcAuth) << "Session restored successfully";
-            emit serverUrlChanged();
-            emit userIdChanged();
-            emit authenticatedChanged();
-            qCCritical(lcAuth) << "=== AuthenticationService: EMITTING loginSuccess from restoreSession ===" << m_userId;
-            emit loginSuccess(m_userId, m_accessToken, m_username);
-        } else {
-            qCWarning(lcAuth) << "Stored session is invalid or expired";
-            logout();
+    updateAuthenticationStep(QStringLiteral("credentials"));
+
+    const auto finishRestore = [this, generation]() {
+        if (generation != m_stateGeneration) {
+            return;
         }
+        if (m_providerAdapter
+            && m_providerAdapter->supportsCapability(ProviderCapability::Profiles)
+            && m_activeConnection.profileId.isEmpty()) {
+            loadProfiles(true);
+        } else {
+            finishAuthentication();
+        }
+    };
+
+    validateAccessToken([this, generation, finishRestore](bool valid) {
+        if (generation != m_stateGeneration) {
+            return;
+        }
+        if (valid) {
+            finishRestore();
+            return;
+        }
+        refreshAuthentication([this, generation, finishRestore](bool refreshed) {
+            if (generation != m_stateGeneration) {
+                return;
+            }
+            if (!refreshed) {
+                qCWarning(lcAuth) << "Stored session is invalid or expired";
+                clearAccountStateInternal(true, true);
+                return;
+            }
+            validateAccessToken([this, generation, finishRestore](bool refreshValid) {
+                if (generation != m_stateGeneration) {
+                    return;
+                }
+                if (refreshValid) {
+                    finishRestore();
+                } else {
+                    clearAccountStateInternal(true, true);
+                }
+            });
+        });
     });
 }
 
@@ -433,58 +1184,109 @@ void AuthenticationService::seedSession(const QString &serverUrl,
     m_username = username;
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
-
+    updateAuthenticationStep(QStringLiteral("authenticated"));
     emit serverUrlChanged();
     emit userIdChanged();
-    emit authenticatedChanged();
 }
 
 void AuthenticationService::logout()
 {
-    qCDebug(lcAuth) << "Logging out user:" << m_userId;
-    m_transport->cancelAll();
+    clearAccountStateInternal(true, true);
+}
 
-    ServerConnection connection = m_activeConnection;
-    if (!connection.isValid() && m_configManager) {
-        connection = m_configManager->getActiveConnection().value_or(ServerConnection{});
-    }
-    if (m_secretStore && connection.isValid() && m_configManager) {
-        const QString deviceId = m_configManager->getDeviceId();
-        ConfigManager::SessionData legacySession =
-            m_configManager->getPendingLegacyJellyfinSession();
-        const bool legacyMatchesConnection =
-            ServerConnection::normalizeBaseUrl(legacySession.serverUrl) == connection.baseUrl
-            && legacySession.userId == connection.accountId;
-        if (!legacyMatchesConnection) {
-            legacySession = {};
+void AuthenticationService::clearAccountState()
+{
+    clearAccountStateInternal(true, true);
+}
+
+void AuthenticationService::clearProfileState()
+{
+    clearProfileStateInternal(true);
+}
+
+void AuthenticationService::clearProfileStateInternal(bool persist)
+{
+    const bool wasAuthenticated = isAuthenticated();
+    m_pendingProfileId.clear();
+    m_profileToken.clear();
+    m_activeConnection.profileId.clear();
+    replaceProfiles({});
+    replaceAuthSessions({});
+    if (persist && m_activeConnection.isValid()) {
+        if (m_secretStore) {
+            CredentialStore(m_secretStore).remove(
+                m_activeConnection, CredentialKind::ProfileToken);
         }
-        ISecretStore *store = m_secretStore;
-        QThreadPool::globalInstance()->start(
-            [store, connection, deviceId, legacySession]() {
-                CredentialStore credentials(store);
-                if (!credentials.removeAll(connection,
-                                           deviceId,
-                                           legacySession.serverUrl,
-                                           legacySession.username)) {
-                    qCWarning(lcAuth) << "Failed to remove one or more session credentials:"
-                                      << store->lastError();
-                } else {
-                    qCDebug(lcAuth) << "Session credentials deleted from keychain";
-                }
-            });
+        persistConnection();
+    }
+    m_authenticationStep = m_accessToken.isEmpty()
+        ? QStringLiteral("credentials") : QStringLiteral("profiles");
+    emit authenticationStepChanged();
+    if (wasAuthenticated != isAuthenticated()) {
+        emit authenticatedChanged();
+    }
+}
+
+void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
+                                                       bool emitLogout)
+{
+    const bool wasAuthenticated = isAuthenticated();
+    m_transport->cancelAll();
+    ++m_stateGeneration;
+
+    const ServerConnection connection = m_activeConnection.isValid()
+        ? m_activeConnection
+        : (m_configManager
+               ? m_configManager->getActiveConnection().value_or(ServerConnection{})
+               : ServerConnection{});
+    if (removeCredentials && m_secretStore && connection.isValid()) {
+        CredentialStore credentials(m_secretStore);
+        const QString deviceId = m_configManager ? m_configManager->getDeviceId() : QString();
+        credentials.removeAll(connection, deviceId);
+    }
+    if (m_configManager) {
+        if (removeCredentials && connection.providerKind == ProviderKind::Jellyfin) {
+            m_configManager->clearJellyfinSession();
+        } else {
+            m_configManager->clearActiveConnection();
+        }
     }
 
     m_activeConnection = {};
+    m_detectionResult = {};
     m_accessToken.clear();
+    m_refreshToken.clear();
+    m_profileToken.clear();
     m_userId.clear();
     m_username.clear();
+    m_pendingProfileId.clear();
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
-    
+    replaceProfiles({});
+    replaceAuthSessions({});
+    m_authenticationStep = QStringLiteral("credentials");
+    emit authenticationStepChanged();
     emit serverUrlChanged();
     emit userIdChanged();
-    emit authenticatedChanged();
-    emit loggedOut();
+    if (wasAuthenticated) {
+        emit authenticatedChanged();
+    }
+    if (emitLogout) {
+        emit loggedOut();
+    }
+}
+
+void AuthenticationService::updateAuthenticationStep(const QString &step)
+{
+    if (m_authenticationStep == step) {
+        return;
+    }
+    const bool wasAuthenticated = isAuthenticated();
+    m_authenticationStep = step;
+    emit authenticationStepChanged();
+    if (wasAuthenticated != isAuthenticated()) {
+        emit authenticatedChanged();
+    }
 }
 
 void AuthenticationService::checkPendingSessionExpiry()
@@ -502,7 +1304,6 @@ bool AuthenticationService::checkForSessionExpiry(QNetworkReply *reply, bool def
     if (statusCode != 401) {
         return false;
     }
-
     handleUnauthorized(deferLogout);
     return true;
 }
@@ -511,7 +1312,9 @@ void AuthenticationService::handleUnauthorized(bool deferLogout)
 {
     qCWarning(lcAuth) << "Received 401 Unauthorized - session expired";
     if (deferLogout) {
-        m_sessionExpiredPending = true;
+        if (!m_sessionExpiredEmitted) {
+            m_sessionExpiredPending = true;
+        }
     } else if (!m_sessionExpiredEmitted) {
         m_sessionExpiredEmitted = true;
         emit sessionExpired();
@@ -520,32 +1323,41 @@ void AuthenticationService::handleUnauthorized(bool deferLogout)
 
 void AuthenticationService::validateAccessToken(std::function<void(bool)> callback)
 {
-    if (m_accessToken.isEmpty() || m_userId.isEmpty()) {
+    if (!m_providerAuthenticator || m_accessToken.isEmpty() || m_userId.isEmpty()) {
         callback(false);
         return;
     }
-    
     const QString endpoint = m_providerAuthenticator->sessionValidationEndpoint(m_userId);
-    const QNetworkRequest request = createRequest(endpoint);
+    if (endpoint.isEmpty()) {
+        callback(false);
+        return;
+    }
+
+    const auto sharedCallback =
+        std::make_shared<std::function<void(bool)>>(std::move(callback));
+    const auto complete = [sharedCallback](bool valid) {
+        if (!*sharedCallback) {
+            return;
+        }
+        auto resultCallback = std::move(*sharedCallback);
+        resultCallback(valid);
+    };
     HttpRequestOptions options;
     options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
-
     m_transport->sendWithRetry(
         this,
         endpoint,
-        [this, request]() {
-            return networkManager()->get(request);
+        [this, endpoint]() {
+            return networkManager()->get(createRequest(endpoint));
         },
-        [callback](QNetworkReply *reply) {
+        [complete](QNetworkReply *reply) {
             const int statusCode = reply->attribute(
                 QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            callback(statusCode == 200);
+            complete(statusCode >= 200 && statusCode < 300);
         },
-        [callback](const NetworkError &error) {
-            qCDebug(lcAuth) << "Token validation failed. Status/error:" << error.code
-                            << error.userMessage;
-            callback(false);
+        [complete](const NetworkError &) {
+            complete(false);
         },
         options);
 }

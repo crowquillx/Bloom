@@ -18,13 +18,17 @@ qt_add_executable(Bloom
     profiles/BloomProfileRepository.h
     profiles/BloomProfileRepository.cpp
     providers/IProviderAdapter.h
+    providers/ICatalogProvider.h
     providers/IArtworkProvider.h
+    providers/ActiveArtworkProvider.h
+    providers/ActiveArtworkProvider.cpp
     providers/IProviderAuthenticator.h
     providers/IProviderRequestFactory.h
     providers/jellyfin/JellyfinAuthenticator.h
     providers/jellyfin/JellyfinAuthenticator.cpp
     providers/jellyfin/JellyfinArtworkProvider.h
     providers/jellyfin/JellyfinArtworkProvider.cpp
+    providers/jellyfin/JellyfinCatalogProvider.h
     providers/jellyfin/JellyfinRequestFactory.h
     providers/jellyfin/JellyfinRequestFactory.cpp
     providers/jellyfin/JellyfinModelMapper.h
@@ -33,6 +37,14 @@ qt_add_executable(Bloom
     providers/jellyfin/JellyfinPlaybackProvider.h
     providers/jellyfin/JellyfinPlaybackProvider.cpp
     providers/jellyfin/JellyfinProviderAdapter.h
+    providers/silo/SiloAuthenticator.h
+    providers/silo/SiloArtworkProvider.h
+    providers/silo/SiloArtworkProvider.cpp
+    providers/silo/SiloCatalogProvider.h
+    providers/silo/SiloRequestFactory.h
+    providers/silo/SiloModelMapper.h
+    providers/silo/SiloModelMapper.cpp
+    providers/silo/SiloProviderAdapter.h
     resources/fonts.qrc
     resources/sounds.qrc
     resources/images.qrc

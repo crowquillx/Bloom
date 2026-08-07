@@ -2,6 +2,7 @@
 
 #include "network/Types.h"
 
+#include <QList>
 #include <QNetworkAccessManager>
 #include <QPointer>
 #include <functional>
@@ -50,12 +51,14 @@ public:
     using ResponseHandler = std::function<void(QNetworkReply *)>;
     using FailureHandler = std::function<void(const NetworkError &)>;
     using UrlRedactor = std::function<QString(const QUrl &)>;
+    using UnauthorizedRecovery = std::function<void(std::function<void(bool)>)>;
 
     explicit HttpTransport(QObject *parent = nullptr);
     explicit HttpTransport(QNetworkAccessManager *networkManager, QObject *parent = nullptr);
 
     QNetworkAccessManager *networkManager() const { return m_networkManager; }
     void setUrlRedactor(UrlRedactor redactor);
+    void setUnauthorizedRecovery(UnauthorizedRecovery recovery);
     void cancelAll();
 
     HttpRequestHandle *sendWithRetry(QObject *context,
@@ -71,6 +74,11 @@ signals:
 private:
     QNetworkAccessManager *m_networkManager = nullptr;
     UrlRedactor m_urlRedactor;
+    UnauthorizedRecovery m_unauthorizedRecovery;
+    bool m_unauthorizedRecoveryInProgress = false;
+    quint64 m_unauthorizedRecoveryGeneration = 0;
+    quint64 m_authenticationEpoch = 0;
+    QList<std::function<void(bool)>> m_pendingUnauthorizedRecoveries;
 
     void startAttempt(const QPointer<HttpRequestHandle> &handle,
                       const QPointer<QObject> &context,
@@ -79,6 +87,9 @@ private:
                       const ResponseHandler &responseHandler,
                       const FailureHandler &failureHandler,
                       const HttpRequestOptions &options,
-                      int attemptNumber);
+                      int attemptNumber,
+                      bool authenticationRetried,
+                      quint64 authenticationEpoch);
+    void recoverUnauthorized(std::function<void(bool)> completion);
     QString redactedEndpoint(const QString &endpoint, const QNetworkReply *reply = nullptr) const;
 };

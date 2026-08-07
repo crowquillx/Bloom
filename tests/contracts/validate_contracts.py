@@ -11,6 +11,37 @@ from pathlib import Path
 from typing import Any
 
 ALLOWED_OUTCOMES = {"supported", "partial", "stubbed", "missing", "not-applicable"}
+NATIVE_CAPABILITY_STATES = {"available", "conditional", "unavailable"}
+REQUIRED_NATIVE_COVERAGE = {
+    "native.health",
+    "native.auth.providers",
+    "native.auth.login",
+    "native.auth.errors",
+    "native.auth.refresh",
+    "native.auth.me",
+    "native.auth.logout",
+    "native.auth.sessions",
+    "native.profiles.list",
+    "native.profiles.pin",
+    "native.catalog.libraries",
+    "native.catalog.page",
+    "native.catalog.query",
+    "native.catalog.detail",
+    "native.catalog.hierarchy",
+    "native.state.watched",
+    "native.state.favorite",
+    "native.artwork.refetch",
+    "native.playback.capability",
+    "native.playback.start-legacy",
+    "native.playback.progress",
+    "native.playback.stop",
+    "native.playback.transcode",
+    "native.playback.track",
+    "native.markers",
+    "native.chapters",
+    "native.trickplay",
+    "native.theme-songs",
+}
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 DIGEST_IMAGE_RE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 HTTP_STATUS_RE = re.compile(r"\bHTTP\s+\d{3}\b", re.IGNORECASE)
@@ -110,12 +141,96 @@ def validate_contract_data(data: dict[str, Any]):
 
     native = data.get("nativeSiloContract")
     _require(isinstance(native, dict), "nativeSiloContract must be an object")
-    for field in ("detection", "authenticationRoutes", "profileRoutes", "catalogRoutes", "playbackRoutes", "requiredHeaders", "identityRules", "playbackDecision"):
+    for field in ("sourceRevision", "detection", "requiredHeaders", "identityRules", "coverageRequirements", "requirements", "playbackDecision", "headResearch"):
         _require(bool(native.get(field)), f"nativeSiloContract needs {field}")
-    _require(isinstance(native.get("detection"), dict), "nativeSiloContract detection must be an object")
-    _require(native["detection"].get("path") == "/api/v1/health", "native detection must use /api/v1/health")
-    _require("server_id" in native["detection"].get("requiredFields", []), "native health detection must require server_id")
+    _require(native["sourceRevision"] == snapshot["siloRevision"], "native sourceRevision must match the pinned Silo revision")
+    _require(SHA_RE.fullmatch(native["sourceRevision"]) is not None, "native sourceRevision must be a full Git SHA")
+    for field in ("requiredHeaders", "identityRules"):
+        values = native.get(field)
+        _require(isinstance(values, list) and values, f"nativeSiloContract {field} must be a non-empty array")
+        _require(all(isinstance(value, str) and value.strip() for value in values), f"nativeSiloContract {field} entries must be non-empty")
+    _require(any("Bearer" in header for header in native["requiredHeaders"]), "native requiredHeaders must include bearer authentication")
+    _require(any("X-Profile-Id" in header for header in native["requiredHeaders"]), "native requiredHeaders must include profile selection")
+    _require(any("X-Profile-Token" in header for header in native["requiredHeaders"]), "native requiredHeaders must include PIN verification")
 
+    detection = native.get("detection")
+    _require(isinstance(detection, dict), "nativeSiloContract detection must be an object")
+    _require(detection.get("method") == "GET" and detection.get("path") == "/api/v1/health", "native detection must use GET /api/v1/health")
+    _require("status" in detection.get("requiredFields", []), "native health detection must require status")
+    _require("server_id" not in detection.get("requiredFields", []), "native health detection must not require optional server_id")
+    _require("server_id" in detection.get("optionalFields", []), "native health detection must describe optional server_id")
+    _require(detection.get("requiredValues", {}).get("status") == "ok", "native health detection must require status=ok")
+    server_id_policy = detection.get("serverIdPolicy", "").lower()
+    _require(
+        all(term in server_id_policy for term in ("optional", "deterministic", "unique")),
+        "native health detection must document the optional deterministic server_id caveat",
+    )
+
+    native_coverage = native.get("coverageRequirements")
+    native_requirements = native.get("requirements")
+    _require(isinstance(native_coverage, list) and native_coverage, "native coverageRequirements must be a non-empty array")
+    _require(len(native_coverage) == len(set(native_coverage)), "native coverageRequirements must be unique")
+    _require(set(native_coverage) == REQUIRED_NATIVE_COVERAGE, "native coverageRequirements must cover the #77-#80 baseline")
+    _require(isinstance(native_requirements, list) and native_requirements, "native requirements must be a non-empty array")
+    native_ids = _unique_ids(native_requirements, "native requirement")
+    _require(native_ids == set(native_coverage), "native coverageRequirements and requirements must match")
+
+    evidence_prefix = f"https://github.com/Silo-Server/silo-server/blob/{native['sourceRevision']}/"
+    for requirement in native_requirements:
+        requirement_id = requirement["id"]
+        _require(requirement.get("issue") in {77, 78, 79, 80}, f"{requirement_id} must reference issue 77, 78, 79, or 80")
+        for field in ("method", "path"):
+            _require(isinstance(requirement.get(field), str) and requirement[field].strip(), f"{requirement_id} needs {field}")
+        _require(requirement.get("outcome") in ALLOWED_OUTCOMES, f"{requirement_id} has an invalid outcome")
+
+        capability = requirement.get("capability")
+        _require(isinstance(capability, dict), f"{requirement_id} capability must be an object")
+        capability_state = capability.get("state")
+        _require(capability_state in NATIVE_CAPABILITY_STATES, f"{requirement_id} has an invalid capability state")
+        _require(isinstance(capability.get("discovery"), str) and capability["discovery"].strip(), f"{requirement_id} needs capability discovery evidence")
+        if capability_state == "unavailable":
+            _require(requirement["outcome"] in {"missing", "not-applicable"}, f"{requirement_id} unavailable capability cannot be labeled supported")
+
+        request_semantics = requirement.get("requestSemantics")
+        required_semantics = requirement.get("requiredSemantics")
+        _require(isinstance(request_semantics, list) and request_semantics, f"{requirement_id} needs requestSemantics")
+        _require(isinstance(required_semantics, list) and required_semantics, f"{requirement_id} needs requiredSemantics")
+        _require(
+            all(isinstance(rule, str) and rule.strip() for rule in request_semantics + required_semantics),
+            f"{requirement_id} semantics must be non-empty strings",
+        )
+        _require(
+            any(_has_behavior_semantics(rule) for rule in required_semantics),
+            f"{requirement_id} must assert payload or behavior semantics, not only an HTTP status",
+        )
+
+        evidence_sources = requirement.get("evidenceSources")
+        _require(isinstance(evidence_sources, list) and evidence_sources, f"{requirement_id} needs pinned evidenceSources")
+        _require(
+            all(isinstance(url, str) and url.startswith(evidence_prefix) for url in evidence_sources),
+            f"{requirement_id} evidenceSources must be pinned to native sourceRevision",
+        )
+        _require(isinstance(requirement.get("liveProbe", False), bool), f"{requirement_id} liveProbe must be boolean")
+        if requirement.get("liveProbe", False):
+            _require(
+                requirement["method"] == "GET" and requirement["path"] == "/api/v1/health",
+                f"{requirement_id} liveProbe must be deterministic and read-only",
+            )
+
+    _require(native_ids.issuperset({"native.trickplay", "native.theme-songs"}), "native baseline must name unsupported optional capabilities")
+    by_native_id = {requirement["id"]: requirement for requirement in native_requirements}
+    for unsupported_id in ("native.trickplay", "native.theme-songs"):
+        _require(by_native_id[unsupported_id]["capability"]["state"] == "unavailable", f"{unsupported_id} must remain explicitly unavailable")
+
+    head_research = native.get("headResearch")
+    _require(isinstance(head_research, dict), "native headResearch must be an object")
+    _require(SHA_RE.fullmatch(head_research.get("revision", "")) is not None, "native headResearch revision must be a full Git SHA")
+    _require(head_research.get("status") == "research-only-not-release-validated", "native headResearch must not claim release validation")
+    _require(isinstance(head_research.get("finding"), str) and head_research["finding"].strip(), "native headResearch needs a finding")
+    _require(
+        isinstance(head_research.get("source"), str) and f"/blob/{head_research['revision']}/" in head_research["source"],
+        "native headResearch source must be pinned to its revision",
+    )
     upstream_issues = data.get("upstreamIssues")
     _require(isinstance(upstream_issues, list) and upstream_issues, "upstreamIssues must be a non-empty array")
     _require(all(isinstance(url, str) and url.startswith("https://github.com/") for url in upstream_issues), "upstreamIssues entries must be GitHub URLs")

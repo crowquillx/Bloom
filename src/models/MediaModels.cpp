@@ -32,6 +32,26 @@ ArtworkKind artworkKindFromName(const QString &name)
     return ArtworkKind::Unknown;
 }
 
+QString artworkOwnerKindName(ArtworkOwnerKind kind)
+{
+    switch (kind) {
+    case ArtworkOwnerKind::MediaItem: return QStringLiteral("mediaItem");
+    case ArtworkOwnerKind::Library: return QStringLiteral("library");
+    case ArtworkOwnerKind::Person: return QStringLiteral("person");
+    case ArtworkOwnerKind::Chapter: return QStringLiteral("chapter");
+    }
+    return QStringLiteral("mediaItem");
+}
+
+ArtworkOwnerKind artworkOwnerKindFromName(const QString &name)
+{
+    const QString normalized = name.trimmed().toLower();
+    if (normalized == QStringLiteral("library")) return ArtworkOwnerKind::Library;
+    if (normalized == QStringLiteral("person")) return ArtworkOwnerKind::Person;
+    if (normalized == QStringLiteral("chapter")) return ArtworkOwnerKind::Chapter;
+    return ArtworkOwnerKind::MediaItem;
+}
+
 bool MediaRef::isValid() const
 {
     return !connectionId.trimmed().isEmpty() && !itemId.trimmed().isEmpty();
@@ -54,12 +74,24 @@ bool ArtworkRef::isValid() const
         && requestedWidth >= 0;
 }
 
+bool ArtworkRef::operator==(const ArtworkRef &other) const
+{
+    return connectionId == other.connectionId
+        && itemId == other.itemId
+        && kind == other.kind
+        && ownerKind == other.ownerKind
+        && index == other.index
+        && tag == other.tag
+        && requestedWidth == other.requestedWidth;
+}
+
 QString ArtworkRef::cacheKey() const
 {
     const QJsonObject object{
         {QStringLiteral("connectionId"), connectionId},
         {QStringLiteral("itemId"), itemId},
         {QStringLiteral("kind"), artworkKindName(kind)},
+        {QStringLiteral("ownerKind"), artworkOwnerKindName(ownerKind)},
         {QStringLiteral("index"), index},
         {QStringLiteral("tag"), tag},
         {QStringLiteral("requestedWidth"), requestedWidth}
@@ -76,9 +108,11 @@ QVariantMap ArtworkRef::toVariantMap() const
         {QStringLiteral("connectionId"), connectionId},
         {QStringLiteral("itemId"), itemId},
         {QStringLiteral("kind"), artworkKindName(kind)},
+        {QStringLiteral("ownerKind"), artworkOwnerKindName(ownerKind)},
         {QStringLiteral("index"), index},
         {QStringLiteral("tag"), tag},
         {QStringLiteral("requestedWidth"), requestedWidth},
+        {QStringLiteral("sourceUrl"), sourceUrl},
         {QStringLiteral("cacheKey"), cacheKey()}
     };
 }
@@ -105,9 +139,12 @@ ArtworkRef ArtworkRef::fromVariantMap(const QVariantMap &map)
     ref.connectionId = map.value(QStringLiteral("connectionId")).toString();
     ref.itemId = map.value(QStringLiteral("itemId")).toString();
     ref.kind = artworkKindFromName(map.value(QStringLiteral("kind")).toString());
+    ref.ownerKind = artworkOwnerKindFromName(
+        map.value(QStringLiteral("ownerKind")).toString());
     ref.index = map.value(QStringLiteral("index"), 0).toInt();
     ref.tag = map.value(QStringLiteral("tag")).toString();
     ref.requestedWidth = map.value(QStringLiteral("requestedWidth"), 0).toInt();
+    ref.sourceUrl = map.value(QStringLiteral("sourceUrl")).toString();
     return ref;
 }
 

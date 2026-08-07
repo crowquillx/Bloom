@@ -59,6 +59,7 @@ private slots:
 private:
     void loadFromCache();
     void fetchFromNetwork();
+    void refreshArtworkRequest(const QString &networkError);
     void saveToCache(const QByteArray &data);
     void finishWithImage(const QImage &image);
     
@@ -70,6 +71,7 @@ private:
     bool m_cancelled = false;
     QNetworkReply *m_reply = nullptr;
     std::optional<QNetworkRequest> m_resolvedRequest;
+    bool m_refreshAttempted = false;
     QMutex m_mutex;
 };
 

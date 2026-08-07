@@ -22,6 +22,7 @@ class ProviderContractValidationTest(unittest.TestCase):
     def test_checked_in_contract_is_valid(self):
         validated = load_and_validate(self.contract_path)
         self.assertGreater(len(validated["contracts"]), 20)
+        self.assertGreater(len(validated["nativeSiloContract"]["requirements"]), 20)
 
     def test_rejects_status_only_semantics(self):
         for rule in ("HTTP status is 200", "Returns HTTP 404"):
@@ -60,8 +61,49 @@ class ProviderContractValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "detection must be an object"):
             validate_contract_data(data)
 
+    def test_native_health_allows_omitted_server_id(self):
+        data = copy.deepcopy(self.valid_data)
+        detection = data["nativeSiloContract"]["detection"]
+        self.assertNotIn("server_id", detection["requiredFields"])
+        self.assertIn("server_id", detection["optionalFields"])
+        validate_contract_data(data)
+
+    def test_rejects_missing_native_requirement(self):
+        data = copy.deepcopy(self.valid_data)
+        data["nativeSiloContract"]["requirements"] = [
+            requirement
+            for requirement in data["nativeSiloContract"]["requirements"]
+            if requirement["id"] != "native.playback.track"
+        ]
+
+        with self.assertRaisesRegex(ContractValidationError, "coverageRequirements and requirements must match"):
+            validate_contract_data(data)
+
+    def test_rejects_native_evidence_from_another_revision(self):
+        data = copy.deepcopy(self.valid_data)
+        data["nativeSiloContract"]["requirements"][0]["evidenceSources"] = [
+            "https://github.com/Silo-Server/silo-server/blob/main/internal/api/handlers/health.go"
+        ]
+
+        with self.assertRaisesRegex(ContractValidationError, "pinned to native sourceRevision"):
+            validate_contract_data(data)
+
+    def test_rejects_unavailable_capability_labeled_supported(self):
+        data = copy.deepcopy(self.valid_data)
+        trickplay = next(
+            requirement
+            for requirement in data["nativeSiloContract"]["requirements"]
+            if requirement["id"] == "native.trickplay"
+        )
+        trickplay["outcome"] = "supported"
+
+        with self.assertRaisesRegex(ContractValidationError, "unavailable capability cannot be labeled supported"):
+            validate_contract_data(data)
+
     def test_live_drivers_are_registered_by_protocol_surface(self):
         self.assertIn("mediabrowser-v1", DRIVERS)
+        self.assertIn("silo-native-v1", DRIVERS)
+        self.assertFalse(DRIVERS["silo-native-v1"].requires_credentials)
         self.assertNotIn("jellyfin-supported", DRIVERS)
         self.assertNotIn("silo-8044eb8-compat", DRIVERS)
 
@@ -70,6 +112,35 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertEqual(response.json(), {"Items": []})
         malformed = Response(200, {"Content-Type": "text/html"}, b"not-json")
         self.assertIsNone(malformed.json())
+
+    def test_native_live_probe_is_read_only_and_accepts_omitted_server_id(self):
+        class RecordingTransport:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, method, path, **kwargs):
+                self.calls.append((method, path, kwargs))
+                return Response(200, {"Content-Type": "application/json"}, b'{"status": "ok"}')
+
+        transport = RecordingTransport()
+        probe = DRIVERS["silo-native-v1"](transport, "", "", "0.0-contract")
+        results = probe.run({"native.health": "partial"}, allow_mutations=False)
+
+        self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/api/v1/health")])
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].passed)
+        self.assertIn("server_id=omitted", results[0].evidence)
+
+    def test_native_live_probe_rejects_success_shaped_bad_health(self):
+        class BadHealthTransport:
+            def request(self, method, path, **kwargs):
+                return Response(200, {"Content-Type": "application/json"}, b'{"status": "degraded"}')
+
+        probe = DRIVERS["silo-native-v1"](BadHealthTransport(), "", "", "0.0-contract")
+        result = probe.run({"native.health": "partial"}, allow_mutations=False)[0]
+
+        self.assertEqual(result.observed, "missing")
+        self.assertFalse(result.passed)
 
     def test_transport_converts_network_failure_to_response(self):
         class FailingOpener:

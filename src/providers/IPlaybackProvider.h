@@ -43,6 +43,13 @@ struct PlaybackProviderContext
 {
     QUrl serverUrl;
     QString accessToken;
+    QString profileId;
+    QString profileToken;
+    QString clientName;
+    QString clientVersion;
+    QString deviceId;
+    QString deviceName;
+    QString devicePlatform;
 };
 
 /**

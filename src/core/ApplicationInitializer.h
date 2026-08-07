@@ -24,7 +24,8 @@ class LibraryViewModel;
 class SeriesDetailsViewModel;
 class MovieDetailsViewModel;
 class UpNextRecommendationsViewModel;
-class IProviderAdapter;
+class JellyfinProviderAdapter;
+class SiloProviderAdapter;
 class ISecretStore;
 class HttpTransport;
 class SidebarSettings;
@@ -105,10 +106,11 @@ private:
     std::unique_ptr<DisplayManager> m_displayManager;
     std::unique_ptr<TrackPreferencesManager> m_trackPreferencesManager;
     std::unique_ptr<IPlayerBackend> m_playerBackend;
-    // ISecretStore — owned here, raw pointer passed to AuthenticationService
+    // Declared before AuthenticationService so transport and adapters outlive its raw pointers.
     std::unique_ptr<ISecretStore> m_secretStore;
     std::unique_ptr<HttpTransport> m_httpTransport;
-    std::unique_ptr<IProviderAdapter> m_providerAdapter;
+    std::unique_ptr<JellyfinProviderAdapter> m_jellyfinProviderAdapter;
+    std::unique_ptr<SiloProviderAdapter> m_siloProviderAdapter;
 
     std::unique_ptr<AuthenticationService> m_authService;
     std::unique_ptr<LibraryService> m_libraryService;

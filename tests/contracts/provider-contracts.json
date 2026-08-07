@@ -463,19 +463,396 @@
     }
   ],
   "nativeSiloContract": {
+    "sourceRevision": "8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6",
     "detection": {
       "method": "GET",
       "path": "/api/v1/health",
-      "requiredFields": ["status", "server_id"],
-      "notes": ["server_id identifies one installation reached through multiple URLs", "Do not infer Silo from compatibility /System/Info"]
+      "requiredFields": ["status"],
+      "optionalFields": ["server_name", "server_id"],
+      "requiredValues": {"status": "ok"},
+      "serverIdPolicy": "server_id is optional and its default is deterministic across installations, so it is not sufficient as a unique connection identity",
+      "notes": ["Do not infer Silo from compatibility /System/Info", "Persist server_id only when present and do not assume it is globally unique"]
     },
-    "authenticationRoutes": ["GET /api/v1/auth/providers", "POST /api/v1/auth/login", "POST /api/v1/auth/refresh", "GET /api/v1/auth/me", "POST /api/v1/auth/logout", "GET /api/v1/auth/sessions", "DELETE /api/v1/auth/sessions/{id}"],
-    "profileRoutes": ["GET /api/v1/profiles", "POST /api/v1/profiles/{id}/verify-pin"],
-    "catalogRoutes": ["GET /api/v1/user/libraries", "GET /api/v1/catalog", "POST /api/v1/catalog/query", "GET /api/v1/catalog/items/{id}", "GET /api/v1/catalog/items/{id}/versions", "GET /api/v1/catalog/series/{id}/seasons", "GET /api/v1/catalog/series/{id}/seasons/{number}/episodes"],
-    "playbackRoutes": ["GET /api/v1/playback/capability", "POST /api/v1/playback/start", "POST /api/v1/playback/{session_id}/progress", "DELETE /api/v1/playback/{session_id}"],
     "requiredHeaders": ["Authorization: Bearer <access token>", "X-Profile-Id after profile selection", "X-Profile-Token after successful PIN verification", "X-Silo-Client", "X-Silo-Client-Version", "X-Silo-Device-Id", "X-Silo-Device-Name", "X-Silo-Device-Platform"],
-    "identityRules": ["Use content_id for catalog and user-state identity", "Use file_id for playback", "Use milliseconds inside Bloom", "Treat native artwork URLs as expiring fetch locations, not cache identities"],
-    "playbackDecision": "Use the legacy native playback envelope until Silo documents an mpv-compatible protocol-v3 contract; v3 currently advertises media3_only."
+    "identityRules": ["Use content_id for catalog and user-state identity", "Use file_id for playback and version selection", "Use seconds in Silo playback and marker envelopes and convert to milliseconds at Bloom's adapter boundary", "Treat native artwork URLs as expiring fetch locations, not cache identities"],
+    "coverageRequirements": [
+      "native.health",
+      "native.auth.providers",
+      "native.auth.login",
+      "native.auth.errors",
+      "native.auth.refresh",
+      "native.auth.me",
+      "native.auth.logout",
+      "native.auth.sessions",
+      "native.profiles.list",
+      "native.profiles.pin",
+      "native.catalog.libraries",
+      "native.catalog.page",
+      "native.catalog.query",
+      "native.catalog.detail",
+      "native.catalog.hierarchy",
+      "native.state.watched",
+      "native.state.favorite",
+      "native.artwork.refetch",
+      "native.playback.capability",
+      "native.playback.start-legacy",
+      "native.playback.progress",
+      "native.playback.stop",
+      "native.playback.transcode",
+      "native.playback.track",
+      "native.markers",
+      "native.chapters",
+      "native.trickplay",
+      "native.theme-songs"
+    ],
+    "requirements": [
+      {
+        "id": "native.health",
+        "issue": 77,
+        "method": "GET",
+        "path": "/api/v1/health",
+        "outcome": "partial",
+        "capability": {"state": "available", "discovery": "public route"},
+        "requestSemantics": ["No authentication or profile header is required"],
+        "requiredSemantics": ["HTTP 200 JSON has status equal to ok", "server_id and server_name may be omitted", "The configured default server_id is deterministic and therefore cannot prove installation uniqueness"],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/health.go",
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/config/config.go"
+        ],
+        "liveProbe": true
+      },
+      {
+        "id": "native.auth.providers",
+        "issue": 77,
+        "method": "GET",
+        "path": "/api/v1/auth/providers",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "route response"},
+        "requestSemantics": ["The route is public and precedes login"],
+        "requiredSemantics": ["Response is an array of provider objects with id, display_name, mode, and default", "OAuth providers are omitted unless their completion routes are available"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/auth.go"]
+      },
+      {
+        "id": "native.auth.login",
+        "issue": 77,
+        "method": "POST",
+        "path": "/api/v1/auth/login",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "auth providers"},
+        "requestSemantics": ["JSON contains username and password plus optional provider", "User-Agent supplies the stored device name"],
+        "requiredSemantics": ["Success returns access_token, refresh_token, positive expires_in, and a user with numeric id and username", "Login creates one auth session for the account and device"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/auth.go"]
+      },
+      {
+        "id": "native.auth.errors",
+        "issue": 77,
+        "method": "GET/POST/DELETE",
+        "path": "/api/v1/auth/*",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "route status and JSON envelope"},
+        "requestSemantics": ["Malformed, invalid, expired, revoked, forbidden, and missing resources are handled separately"],
+        "requiredSemantics": ["Errors use JSON fields error and message", "Invalid credentials return 401 invalid_credentials", "Invalid or expired refresh tokens return 401 invalid_token and revoked sessions return 401 session_revoked", "Missing bearer authentication returns 401 without a protected payload"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/auth.go"]
+      },
+      {
+        "id": "native.auth.refresh",
+        "issue": 77,
+        "method": "POST",
+        "path": "/api/v1/auth/refresh",
+        "outcome": "partial",
+        "capability": {"state": "available", "discovery": "route response"},
+        "requestSemantics": ["JSON contains refresh_token and no bearer access token is required"],
+        "requiredSemantics": ["Success returns replacement access_token, refresh_token, and expires_in and extends the session window", "The pinned implementation does not revoke the previously issued refresh JWT, so clients must update stored tokens but cannot treat reuse of the old token as a rotation failure"],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/auth.go",
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/auth/service.go"
+        ]
+      },
+      {
+        "id": "native.auth.me",
+        "issue": 77,
+        "method": "GET",
+        "path": "/api/v1/auth/me",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "protected route"},
+        "requestSemantics": ["Authorization carries a bearer access token"],
+        "requiredSemantics": ["Response identifies the authenticated account with id, username, role, permissions, and download_allowed", "The account response does not select a household profile"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/auth.go"]
+      },
+      {
+        "id": "native.auth.logout",
+        "issue": 77,
+        "method": "POST",
+        "path": "/api/v1/auth/logout",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "protected route"},
+        "requestSemantics": ["Authorization identifies the caller session"],
+        "requiredSemantics": ["Success revokes the caller session and returns 204", "Subsequent bearer or refresh use for that session is rejected"],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/auth.go",
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/auth/service.go"
+        ]
+      },
+      {
+        "id": "native.auth.sessions",
+        "issue": 77,
+        "method": "GET/DELETE",
+        "path": "/api/v1/auth/sessions and /api/v1/auth/sessions/{id}",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "protected routes"},
+        "requestSemantics": ["Authorization scopes list and revoke operations to the authenticated account"],
+        "requiredSemantics": ["List response has sessions with id, device_name, ip_address, created_at, expires_at, and optional revoked_at", "DELETE revokes only a session owned by the caller and returns 204", "An unknown or other-account session is reported as not_found"],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/auth.go",
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/auth/service.go"
+        ]
+      },
+      {
+        "id": "native.profiles.list",
+        "issue": 77,
+        "method": "GET",
+        "path": "/api/v1/profiles",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "protected route"},
+        "requestSemantics": ["Bearer authentication identifies the account; no profile selection is required to list its profiles"],
+        "requiredSemantics": ["Response has profiles and avatar_upload_enabled", "Each profile has stable id, name, has_pin, is_child, is_primary, access settings, and playback preferences"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/profiles.go"]
+      },
+      {
+        "id": "native.profiles.pin",
+        "issue": 77,
+        "method": "POST",
+        "path": "/api/v1/profiles/{id}/verify-pin",
+        "outcome": "supported",
+        "capability": {"state": "conditional", "discovery": "profiles[].has_pin"},
+        "requestSemantics": ["JSON contains pin and bearer authentication binds verification to the account session"],
+        "requiredSemantics": ["A correct PIN returns valid true plus profile_token and expires_at", "An incorrect PIN returns HTTP 200 with valid false and no token", "A missing profile or profile without a PIN returns 404", "X-Profile-Token is bound to user, auth session, profile, and access-policy revision"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/profiles.go"]
+      },
+      {
+        "id": "native.catalog.libraries",
+        "issue": 78,
+        "method": "GET",
+        "path": "/api/v1/user/libraries",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "protected route"},
+        "requestSemantics": ["Bearer and selected profile scope library visibility"],
+        "requiredSemantics": ["Only profile-accessible libraries are returned", "Library IDs are presentation scopes and do not replace content_id item identity"],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/libraries.go",
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/router.go"
+        ]
+      },
+      {
+        "id": "native.catalog.page",
+        "issue": 78,
+        "method": "GET",
+        "path": "/api/v1/catalog",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "total_exact, has_more, and snapshot response fields"},
+        "requestSemantics": ["limit is capped at 100", "Clients replay the RFC3339Nano snapshot on later offset pages", "include_total=false permits an inexact or omitted-cost count"],
+        "requiredSemantics": ["Response has items, total, total_exact, and has_more", "A generated snapshot freezes results to items created at or before its timestamp and is reusable on later pages", "total_exact is false for grouped work views and whenever the source did not compute an exact total"],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/catalog.go",
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/catalog/catalog_parser.go"
+        ]
+      },
+      {
+        "id": "native.catalog.query",
+        "issue": 78,
+        "method": "POST",
+        "path": "/api/v1/catalog/query",
+        "outcome": "partial",
+        "capability": {"state": "conditional", "discovery": "/api/v1/catalog/filters plus request validation"},
+        "requestSemantics": ["JSON filter_config, library_id, limit, offset, sort, and order drive a bounded query"],
+        "requiredSemantics": ["Invalid or unsupported filter rules return 400 rather than silently disappearing", "Response carries items, total, and has_more", "The pinned POST response uses total_exact false even though its window count is exact and has no snapshot field, so snapshot-aware pagination must use GET /catalog"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/catalog.go"]
+      },
+      {
+        "id": "native.catalog.detail",
+        "issue": 78,
+        "method": "GET",
+        "path": "/api/v1/catalog/items/{id} and /api/v1/catalog/items/{id}/versions",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "canonical resource routes"},
+        "requestSemantics": ["id is content_id; selected file identity remains file_id inside versions"],
+        "requiredSemantics": ["Detail includes content_id, type, title, provider IDs where known, user state, versions, subtitles, markers, artwork, and multipart playback_variants", "Version entries preserve file_id, technical tracks, duration, edition, ordered multipart indices, chapters, and markers", "Unauthorized file paths are removed without removing playable file identity"],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/catalog_resources.go",
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/catalog/detail.go"
+        ]
+      },
+      {
+        "id": "native.catalog.hierarchy",
+        "issue": 78,
+        "method": "GET",
+        "path": "/api/v1/catalog/items/{id}/episodes and /api/v1/catalog/series/{id}/seasons*",
+        "outcome": "supported",
+        "capability": {"state": "conditional", "discovery": "item type"},
+        "requestSemantics": ["Series and season routes use content_id plus a numeric season number where applicable"],
+        "requiredSemantics": ["Series routes return ordered seasons and episodes with stable content_id values", "Synthetic and persisted seasons preserve access checks and profile user-data rollups"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/catalog_resources.go"]
+      },
+      {
+        "id": "native.state.watched",
+        "issue": 78,
+        "method": "POST/DELETE",
+        "path": "/api/v1/watched/{id}",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "profile-scoped route"},
+        "requestSemantics": ["id is content_id and X-Profile-Id is required"],
+        "requiredSemantics": ["POST marks the resolved playable target or hierarchy watched and DELETE reverses it", "Response reports content_id, type, affected_count, and played", "A subsequent detail/user-state read reflects the mutation"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/items.go"]
+      },
+      {
+        "id": "native.state.favorite",
+        "issue": 78,
+        "method": "GET/PUT/DELETE",
+        "path": "/api/v1/favorites/{item_id}",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "profile-scoped route"},
+        "requestSemantics": ["item_id is content_id and X-Profile-Id is required"],
+        "requiredSemantics": ["GET returns 204 when favorited and 404 when not", "PUT and DELETE are idempotent profile-scoped mutations returning 204", "List/detail user state reflects changes"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/favorites.go"]
+      },
+      {
+        "id": "native.artwork.refetch",
+        "issue": 78,
+        "method": "GET",
+        "path": "opaque URLs from catalog, detail, person, and chapter resources",
+        "outcome": "supported",
+        "capability": {"state": "conditional", "discovery": "*_url fields"},
+        "requestSemantics": ["Clients preserve absolute or relative opaque URLs and every signed query parameter"],
+        "requiredSemantics": ["Artwork URLs are fetch locations rather than durable cache keys", "Missing or expired artwork triggers refetch of the owning catalog/detail resource to obtain a fresh URL", "Poster, backdrop, logo, person, and chapter URLs may be omitted when no image exists"],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/catalog/detail.go",
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/items.go"
+        ]
+      },
+      {
+        "id": "native.playback.capability",
+        "issue": 79,
+        "method": "GET",
+        "path": "/api/v1/playback/capability",
+        "outcome": "partial",
+        "capability": {"state": "conditional", "discovery": "enabled, protocol_versions, features, deliveries, and transformations"},
+        "requestSemantics": ["Bearer authentication is required"],
+        "requiredSemantics": ["Disabled protocol v3 returns enabled false, reason disabled, and empty feature, delivery, and transformation arrays", "Enabled protocol v3 advertises only runtime-probed transformations and includes media3_only", "media3_only is not an mpv capability and the response does not advertise the legacy envelope, so Bloom must use the pinned legacy contract rather than infer v3 suitability"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/playback_v3.go"]
+      },
+      {
+        "id": "native.playback.start-legacy",
+        "issue": 79,
+        "method": "POST",
+        "path": "/api/v1/playback/start",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "absence of protocol_version selects the legacy decoder"},
+        "requestSemantics": ["JSON includes file_id, optional matching profile_id, play_method or client codec/container/HDR capabilities, start_position seconds, and optional audio_track_index", "X-Profile-Id is mandatory and file_id must be accessible to that profile"],
+        "requiredSemantics": ["Without protocol_version 3 the legacy decoder selects direct, remux, or transcode and returns HTTP 201", "Response includes session_id, media_file_id, play_method, position, stream_url, audio_track_index, duration_seconds, subtitle_urls, and playback_info", "Relative or absolute stream/subtitle URLs and signed query parameters remain opaque", "Alternate-version selection is reflected by media_file_id and multipart ordering remains in catalog playback_variants"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/playback.go"]
+      },
+      {
+        "id": "native.playback.progress",
+        "issue": 79,
+        "method": "POST",
+        "path": "/api/v1/playback/{session_id}/progress",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "legacy playback session"},
+        "requestSemantics": ["JSON contains position seconds and is_paused"],
+        "requiredSemantics": ["Only the session owner may update progress", "Update returns 204 and best-effort persists resume/completion state to the selected profile", "Pause and resume transitions update scrobble state without ending the session"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/playback.go"]
+      },
+      {
+        "id": "native.playback.stop",
+        "issue": 79,
+        "method": "DELETE",
+        "path": "/api/v1/playback/{session_id}",
+        "outcome": "supported",
+        "capability": {"state": "available", "discovery": "legacy playback session"},
+        "requestSemantics": ["Bearer account must own session_id"],
+        "requiredSemantics": ["Stop persists final session progress, tears down stream/transcode resources, and returns 204", "Missing sessions use the playback_session_not_found error rather than succeeding silently"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/playback.go"]
+      },
+      {
+        "id": "native.playback.transcode",
+        "issue": 79,
+        "method": "POST",
+        "path": "/api/v1/playback/transcode/start",
+        "outcome": "supported",
+        "capability": {"state": "conditional", "discovery": "legacy start play_method plus user/server transcode policy"},
+        "requestSemantics": ["JSON names session_id, seek_seconds, target codecs/resolution/bitrate, segment_duration, and subtitle burn-in selection"],
+        "requiredSemantics": ["Response has manifest_url, duration_seconds, player_start_seconds, stream_origin_seconds, timeline_offset_seconds, and can_seek_anywhere", "Signed manifest URLs are replaced after recipe, seek, quality, file, or subtitle changes", "Server policy may return transcoding_disabled, audio_transcoding_disabled, no_alternate_version, or subtitle_source_unavailable instead of claiming support"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/playback.go"]
+      },
+      {
+        "id": "native.playback.track",
+        "issue": 79,
+        "method": "PATCH",
+        "path": "/api/v1/playback/{session_id}/audio",
+        "outcome": "supported",
+        "capability": {"state": "conditional", "discovery": "audio track inventory in catalog versions"},
+        "requestSemantics": ["JSON contains audio_track_index and position seconds"],
+        "requiredSemantics": ["Out-of-range indices return 400 and other-account sessions return 403", "Success returns audio_track_index, effective play_method, replacement stream_url, switch_mode reload, and playback_info", "A track change may promote direct play to remux or audio transcode and must replace the signed stream recipe"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/playback.go"]
+      },
+      {
+        "id": "native.markers",
+        "issue": 80,
+        "method": "GET",
+        "path": "/api/v1/markers/items/{id} and /api/v1/markers/files/{fileId}",
+        "outcome": "supported",
+        "capability": {"state": "conditional", "discovery": "route availability and marker fields"},
+        "requestSemantics": ["Item lookup uses content_id; exact-version lookup uses file_id; profile access is enforced"],
+        "requiredSemantics": ["Response includes file_id and intro, credits, recap, and preview objects", "Each marker exposes optional start/end seconds plus provenance fields source, provider, confidence, algorithm, and detected_at", "Absent segment values remain null rather than fabricated zero-length markers"],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/markers.go",
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/router.go"
+        ]
+      },
+      {
+        "id": "native.chapters",
+        "issue": 80,
+        "method": "GET",
+        "path": "/api/v1/catalog/items/{id} and /api/v1/catalog/items/{id}/versions",
+        "outcome": "supported",
+        "capability": {"state": "conditional", "discovery": "versions[].chapters"},
+        "requestSemantics": ["Chapter identity is scoped to a file_id version"],
+        "requiredSemantics": ["Each chapter contains index, title, start_seconds, end_seconds, source, optional thumbnail_url, and optional thumbnail_thumbhash", "Chapter thumbnails are opaque expiring artwork URLs and follow the owning-detail refetch rule", "An item with no chapters returns an empty chapter array rather than a fake chapter"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/catalog/detail.go"]
+      },
+      {
+        "id": "native.trickplay",
+        "issue": 80,
+        "method": "GET",
+        "path": "no native route at the pinned revision",
+        "outcome": "missing",
+        "capability": {"state": "unavailable", "discovery": "no route or advertised capability"},
+        "requestSemantics": ["Bloom must not probe Jellyfin trickplay routes on a native connection"],
+        "requiredSemantics": ["Hide seek-preview UI or degrade quietly because neither native trickplay metadata nor tile delivery is registered"],
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/router.go"]
+      },
+      {
+        "id": "native.theme-songs",
+        "issue": 80,
+        "method": "GET",
+        "path": "no native media theme-song route at the pinned revision",
+        "outcome": "missing",
+        "capability": {"state": "unavailable", "discovery": "no route or advertised capability"},
+        "requestSemantics": ["Bloom must not confuse the /api/v1/theme UI-branding routes with playable media theme songs"],
+        "requiredSemantics": ["Hide series theme-song playback because no native media-item theme-song contract is exposed"],
+        "evidenceSources": [
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/router.go",
+          "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/theme.go"
+        ]
+      }
+    ],
+    "playbackDecision": "Use the legacy native playback envelope until Silo documents an mpv-compatible protocol-v3 contract; v3 currently advertises media3_only.",
+    "headResearch": {
+      "revision": "39efe308afe903c0fab4cc06fa1795449e6fc2e1",
+      "status": "research-only-not-release-validated",
+      "finding": "The legacy start decoder and start/progress/stop/transcode/audio request fields remain compatible with the pinned baseline; the audio-switch response has additive timeline fields.",
+      "source": "https://github.com/Silo-Server/silo-server/blob/39efe308afe903c0fab4cc06fa1795449e6fc2e1/internal/api/handlers/playback.go"
+    }
   },
   "upstreamIssues": [
     "https://github.com/Silo-Server/silo-server/issues/431",

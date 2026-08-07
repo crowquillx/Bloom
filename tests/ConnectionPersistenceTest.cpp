@@ -168,6 +168,26 @@ ServerConnection jellyfinConnection()
     return connection;
 }
 
+ServerConnection siloConnection(const QString &connectionId,
+                                const QString &baseUrl,
+                                const QString &accountId,
+                                const QString &profileId,
+                                const QString &serverId = QString())
+{
+    ServerConnection connection;
+    connection.connectionId = connectionId;
+    connection.providerKind = ProviderKind::Silo;
+    connection.protocolMode = ProtocolMode::Native;
+    connection.baseUrl = baseUrl;
+    connection.serverId = serverId;
+    connection.accountId = accountId;
+    connection.profileId = profileId;
+    connection.username = accountId;
+    connection.displayName = profileId;
+    connection.credentialReference = ServerConnection::createCredentialReference(connectionId);
+    return connection;
+}
+
 } // namespace
 
 class ConnectionPersistenceTest : public QObject
@@ -188,6 +208,9 @@ private slots:
     void connectionPersistenceSupportsMultipleServers();
     void connectionScopedSettingsPreventRemoteIdCollisions();
     void preActivationConnectionStateIsAdopted();
+    void siloConnectionsDoNotMergeOnMissingOrDefaultServerIdentity();
+    void siloAccountAndProfileSwitchesKeepStateIsolated();
+    void siloCredentialsAreKindAndConnectionScoped();
     void reservedConnectionScopeIdsAreRejected();
     void inactiveSoleConnectionReceivesV28StateMigration();
     void credentialStoreMigratesLegacyEntryAfterVerifiedCopy();
@@ -528,6 +551,120 @@ void ConnectionPersistenceTest::connectionScopedSettingsPreventRemoteIdCollision
     QVERIFY(config.setActiveConnection(second.connectionId));
     QCOMPARE(config.getLibraryProfile(QStringLiteral("shared-library")),
              QStringLiteral("Medium Quality"));
+}
+
+void ConnectionPersistenceTest::siloConnectionsDoNotMergeOnMissingOrDefaultServerIdentity()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation isolation(tempDir.path());
+
+    {
+        ConfigManager config;
+        config.load();
+        config.upsertConnection(siloConnection(QStringLiteral("silo-one"),
+                                               QStringLiteral("https://one.example.test"),
+                                               QStringLiteral("account-1"),
+                                               QStringLiteral("profile-1")));
+        config.upsertConnection(siloConnection(QStringLiteral("silo-two"),
+                                               QStringLiteral("https://two.example.test"),
+                                               QStringLiteral("account-2"),
+                                               QStringLiteral("profile-2"),
+                                               QStringLiteral("b2d9e6c9-1237-5add-a687-5dae547ece33")));
+        config.upsertConnection(siloConnection(QStringLiteral("silo-three"),
+                                               QStringLiteral("https://three.example.test"),
+                                               QStringLiteral("account-3"),
+                                               QStringLiteral("profile-3"),
+                                               QStringLiteral("b2d9e6c9-1237-5add-a687-5dae547ece33")));
+
+        QCOMPARE(config.getConnections().size(), 3);
+        QVERIFY(config.getConnection(QStringLiteral("silo-one")).has_value());
+        QVERIFY(config.getConnection(QStringLiteral("silo-two")).has_value());
+        QVERIFY(config.getConnection(QStringLiteral("silo-three")).has_value());
+    }
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getConnections().size(), 3);
+    QVERIFY(reloaded.getConnection(QStringLiteral("silo-one"))->serverId.isEmpty());
+    QCOMPARE(reloaded.getConnection(QStringLiteral("silo-two"))->serverId,
+             QStringLiteral("b2d9e6c9-1237-5add-a687-5dae547ece33"));
+    QCOMPARE(reloaded.getConnection(QStringLiteral("silo-three"))->serverId,
+             QStringLiteral("b2d9e6c9-1237-5add-a687-5dae547ece33"));
+}
+
+void ConnectionPersistenceTest::siloAccountAndProfileSwitchesKeepStateIsolated()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation isolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    const ServerConnection adult = siloConnection(QStringLiteral("silo-adult"),
+                                                  QStringLiteral("https://silo.example.test"),
+                                                  QStringLiteral("account-1"),
+                                                  QStringLiteral("profile-adult"));
+    const ServerConnection child = siloConnection(QStringLiteral("silo-child"),
+                                                  QStringLiteral("https://silo.example.test"),
+                                                  QStringLiteral("account-1"),
+                                                  QStringLiteral("profile-child"));
+
+    config.upsertConnection(adult);
+    config.setLibraryProfile(QStringLiteral("shared-library"), QStringLiteral("Adult Quality"));
+    config.upsertConnection(child);
+    QVERIFY(config.getLibraryProfile(QStringLiteral("shared-library")).isEmpty());
+    config.setLibraryProfile(QStringLiteral("shared-library"), QStringLiteral("Child Quality"));
+
+    QVERIFY(config.setActiveConnection(adult.connectionId));
+    QCOMPARE(config.getActiveConnection()->profileId, QStringLiteral("profile-adult"));
+    QCOMPARE(config.getLibraryProfile(QStringLiteral("shared-library")),
+             QStringLiteral("Adult Quality"));
+    QVERIFY(config.setActiveConnection(child.connectionId));
+    QCOMPARE(config.getActiveConnection()->profileId, QStringLiteral("profile-child"));
+    QCOMPARE(config.getLibraryProfile(QStringLiteral("shared-library")),
+             QStringLiteral("Child Quality"));
+}
+
+void ConnectionPersistenceTest::siloCredentialsAreKindAndConnectionScoped()
+{
+    FakeSecretStore secretStore;
+    CredentialStore credentials(&secretStore);
+    const ServerConnection adult = siloConnection(QStringLiteral("silo-adult"),
+                                                  QStringLiteral("https://silo.example.test"),
+                                                  QStringLiteral("account-1"),
+                                                  QStringLiteral("profile-adult"));
+    const ServerConnection child = siloConnection(QStringLiteral("silo-child"),
+                                                  QStringLiteral("https://silo.example.test"),
+                                                  QStringLiteral("account-1"),
+                                                  QStringLiteral("profile-child"));
+
+    QVERIFY(credentials.write(adult, CredentialKind::AccessToken, QStringLiteral("adult-access")));
+    QVERIFY(credentials.write(adult, CredentialKind::RefreshToken, QStringLiteral("adult-refresh")));
+    QVERIFY(credentials.write(adult, CredentialKind::ProfileToken, QStringLiteral("adult-profile")));
+    QVERIFY(credentials.write(child, CredentialKind::AccessToken, QStringLiteral("child-access")));
+    QVERIFY(credentials.write(child, CredentialKind::RefreshToken, QStringLiteral("child-refresh")));
+    QVERIFY(credentials.write(child, CredentialKind::ProfileToken, QStringLiteral("child-profile")));
+
+    QCOMPARE(credentials.read(adult, CredentialKind::AccessToken), QStringLiteral("adult-access"));
+    QCOMPARE(credentials.read(adult, CredentialKind::RefreshToken), QStringLiteral("adult-refresh"));
+    QCOMPARE(credentials.read(adult, CredentialKind::ProfileToken), QStringLiteral("adult-profile"));
+    QCOMPARE(credentials.read(child, CredentialKind::AccessToken), QStringLiteral("child-access"));
+    QCOMPARE(credentials.read(child, CredentialKind::RefreshToken), QStringLiteral("child-refresh"));
+    QCOMPARE(credentials.read(child, CredentialKind::ProfileToken), QStringLiteral("child-profile"));
+
+    QVERIFY(credentials.remove(adult, CredentialKind::ProfileToken));
+    QVERIFY(credentials.read(adult, CredentialKind::ProfileToken).isEmpty());
+    QCOMPARE(credentials.read(adult, CredentialKind::AccessToken), QStringLiteral("adult-access"));
+    QCOMPARE(credentials.read(adult, CredentialKind::RefreshToken), QStringLiteral("adult-refresh"));
+    QCOMPARE(credentials.read(child, CredentialKind::ProfileToken), QStringLiteral("child-profile"));
+
+    QVERIFY(credentials.removeAll(adult, QStringLiteral("device-1")));
+    QVERIFY(credentials.read(adult, CredentialKind::AccessToken).isEmpty());
+    QVERIFY(credentials.read(adult, CredentialKind::RefreshToken).isEmpty());
+    QCOMPARE(credentials.read(child, CredentialKind::AccessToken), QStringLiteral("child-access"));
+    QCOMPARE(credentials.read(child, CredentialKind::RefreshToken), QStringLiteral("child-refresh"));
+    QCOMPARE(credentials.read(child, CredentialKind::ProfileToken), QStringLiteral("child-profile"));
 }
 
 void ConnectionPersistenceTest::preActivationConnectionStateIsAdopted()

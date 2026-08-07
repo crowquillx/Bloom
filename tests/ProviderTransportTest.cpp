@@ -127,9 +127,14 @@ void ProviderTransportTest::jellyfinRequestFactoryBuildsHeaderWithAndWithoutToke
     QVERIFY(!anonymousHeader.contains("Token="));
 
     context.accessToken = QStringLiteral("secret-token");
+    context.profileId = QStringLiteral("silo-profile-must-not-leak");
+    context.profileToken = QStringLiteral("silo-profile-token-must-not-leak");
     const QNetworkRequest authenticated = factory.createRequest(context, QStringLiteral("/Users/user-1"));
     QCOMPARE(authenticated.url(), QUrl(QStringLiteral("https://media.example.test/Users/user-1")));
     QVERIFY(authenticated.rawHeader("Authorization").contains("Token=\"secret-token\""));
+    QVERIFY(authenticated.rawHeader("Authorization").startsWith("MediaBrowser "));
+    QVERIFY(!authenticated.hasRawHeader("X-Profile-Id"));
+    QVERIFY(!authenticated.hasRawHeader("X-Profile-Token"));
 }
 
 void ProviderTransportTest::jellyfinRequestFactoryNormalizesUrlAndRedactsSecrets()
@@ -170,6 +175,12 @@ void ProviderTransportTest::jellyfinAuthenticatorOwnsLoginAndValidationWireContr
     QCOMPARE(result.accessToken, QStringLiteral("token-1"));
     QCOMPARE(result.accountId, QStringLiteral("user-1"));
     QCOMPARE(result.username, QStringLiteral("Alice"));
+
+    QVERIFY(!authenticator.createRefreshRequest(QStringLiteral("refresh-token")).has_value());
+    QVERIFY(!authenticator.parseLoginResponse(QByteArrayLiteral("not-json")).isValid());
+    QVERIFY(!authenticator.parseLoginResponse(
+                 QByteArrayLiteral(R"({"AccessToken":"token-only","User":{}})"))
+                 .isValid());
 }
 
 void ProviderTransportTest::transportRetriesTransientFailures()
