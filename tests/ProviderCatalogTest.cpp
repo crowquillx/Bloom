@@ -435,6 +435,14 @@ void ProviderCatalogTest::siloEpisodeParentAndBoundedTimes()
 void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
 {
     SiloCatalogProvider provider;
+    ProviderCatalogQuery parentOnlyQuery;
+    parentOnlyQuery.parentId = QStringLiteral("series/one");
+    const ProviderCatalogRequest seasonsRequest =
+        provider.createRequest(ProviderCatalogOperation::Items, parentOnlyQuery);
+    QVERIFY(seasonsRequest.supported);
+    QCOMPARE(seasonsRequest.relativeEndpoint,
+             QStringLiteral("/api/v1/catalog/series/series%2Fone/seasons"));
+
     ProviderCatalogQuery query;
     query.seriesId = QStringLiteral("series/one");
     query.parentId = QStringLiteral("0");

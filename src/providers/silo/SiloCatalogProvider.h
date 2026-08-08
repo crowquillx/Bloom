@@ -605,10 +605,15 @@ private:
         if (!trimmedParentId.isEmpty()) {
             static_cast<void>(trimmedParentId.toInt(&libraryIdOk));
         }
-        if (!libraryIdOk && query.includeItemTypes.size() == 1) {
+        if (!libraryIdOk
+            && (query.includeItemTypes.isEmpty() || query.includeItemTypes.size() == 1)) {
             if (hasHierarchyModifiers(query)) {
                 return unsupported(QStringLiteral(
                     "Silo hierarchy routes do not support catalog filters or pagination"));
+            }
+            if (query.includeItemTypes.isEmpty()) {
+                return getWithContentId(QStringLiteral("/api/v1/catalog/series/%1/seasons"),
+                                        query.parentId);
             }
             const QString type = normalizedItemType(query.includeItemTypes.first());
             if (type == QStringLiteral("season")) {
