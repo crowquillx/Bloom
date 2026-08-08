@@ -40,6 +40,24 @@ class ProbeResult:
     passed: bool
     evidence: str
 
+def complete_expected_results(
+    expected: dict[str, str],
+    results: list[ProbeResult],
+) -> list[ProbeResult]:
+    reported = {result.contract for result in results}
+    results.extend(
+        ProbeResult(
+            contract=contract,
+            expected=outcome,
+            observed="missing",
+            passed=False,
+            evidence="live driver omitted this expected probe",
+        )
+        for contract, outcome in expected.items()
+        if contract not in reported
+    )
+    return results
+
 
 class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     """Keep credentials on the configured origin by refusing automatic redirects."""
@@ -1160,6 +1178,15 @@ class SiloNativeV1Probe:
                     "partial",
                     "selected detail lacks a boolean user_state.is_favorite field",
                 )
+        elif allow_mutations:
+            for contract in state_contracts:
+                self._record(
+                    results,
+                    expected,
+                    contract,
+                    "partial",
+                    "selected detail lacks an object user_state envelope",
+                )
 
 
         artwork_urls = [
@@ -1386,7 +1413,10 @@ def main(argv: list[str] | None = None):
         )
     else:
         driver = driver_type(transport, args.username, password, args.version)
-    results = driver.run(expected, args.allow_mutations)
+    results = complete_expected_results(
+        expected,
+        driver.run(expected, args.allow_mutations),
+    )
 
     for result in results:
         mark = "SKIP" if result.observed == "inconclusive" else "PASS" if result.passed else "FAIL"

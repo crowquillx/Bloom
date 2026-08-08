@@ -225,6 +225,33 @@ class ProviderContractValidationTest(unittest.TestCase):
             with self.subTest(contract_id=contract_id):
                 self.assertTrue(requirements[contract_id]["liveProbe"])
                 self.assertTrue(requirements[contract_id]["requiresMutationFlag"])
+    def test_live_report_fails_when_driver_omits_expected_probe(self):
+        results = [
+            run_live_contracts.ProbeResult(
+                contract="native.health",
+                expected="partial",
+                observed="partial",
+                passed=True,
+                evidence="health checked",
+            )
+        ]
+
+        completed = run_live_contracts.complete_expected_results(
+            {
+                "native.health": "partial",
+                "native.state.watched": "supported",
+            },
+            results,
+        )
+
+        self.assertEqual(
+            [result.contract for result in completed],
+            ["native.health", "native.state.watched"],
+        )
+        self.assertFalse(completed[1].passed)
+        self.assertEqual(completed[1].observed, "missing")
+        self.assertIn("omitted", completed[1].evidence)
+
 
 
     def test_rejects_native_route_shape_drift(self):
