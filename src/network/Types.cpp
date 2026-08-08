@@ -154,6 +154,9 @@ QVariantList PlaybackInfoResponse::getMediaSourcesVariant() const
         sourceMap["durationMs"] = source.durationMs;
         sourceMap["defaultAudioStreamIndex"] = source.defaultAudioStreamIndex;
         sourceMap["defaultSubtitleStreamIndex"] = source.defaultSubtitleStreamIndex;
+        sourceMap["playbackVariantId"] = source.playbackVariantId;
+        sourceMap["presentationPartIndex"] = source.presentationPartIndex;
+        sourceMap["presentationPartTotal"] = source.presentationPartTotal;
         sourceMap["mediaStreams"] = source.getMediaStreamsVariant();
         result.append(sourceMap);
     }

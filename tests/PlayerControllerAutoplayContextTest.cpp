@@ -285,6 +285,39 @@ public:
         return descriptor;
     }
 
+    void requestPlaybackDescriptor(const QString &itemId,
+                                   const QVariantMap &providerSource,
+                                   int selectedAudioTrack,
+                                   int selectedSubtitleTrack,
+                                   qint64 startPositionMs,
+                                   const QString &playbackSessionId,
+                                   const QString &requestContext) override
+    {
+        const Bloom::PlaybackDescriptor descriptor = createPlaybackDescriptor(
+            itemId, providerSource, selectedAudioTrack, selectedSubtitleTrack,
+            startPositionMs, playbackSessionId);
+        if (descriptor.stream.isValid()) {
+            emit playbackDescriptorLoadedForRequest(itemId, descriptor, requestContext);
+        } else {
+            emit playbackDescriptorFailedForRequest(itemId,
+                                                     QStringLiteral("invalid descriptor"),
+                                                     requestContext);
+        }
+    }
+
+    bool switchPlaybackAudio(const QString &playbackSessionId,
+                             int audioTrackIndex,
+                             qint64 positionMs,
+                             const QString &requestContext) override
+    {
+        Q_UNUSED(audioTrackIndex);
+        Q_UNUSED(positionMs);
+        emit playbackAudioSwitchedForRequest(playbackSessionId,
+                                             QUrl(QStringLiteral("https://example.invalid/reloaded")),
+                                             requestContext);
+        return true;
+    }
+
     void getPlaybackInfo(const QString &itemId) override
     {
         requestedPlaybackInfoItemIds.append(itemId);

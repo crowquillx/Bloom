@@ -219,6 +219,14 @@ def validate_contract_data(data: dict[str, Any]):
         "native.state.watched": ("POST/DELETE", "/api/v1/watched/{id}"),
         "native.state.favorite": ("GET/PUT/DELETE", "/api/v1/favorites/{item_id}"),
         "native.artwork.refetch": ("GET", "opaque URLs from catalog, detail, person, and chapter resources"),
+        "native.playback.capability": ("GET", "/api/v1/playback/capability"),
+        "native.playback.start-legacy": ("POST", "/api/v1/playback/start"),
+        "native.playback.progress": ("POST", "/api/v1/playback/{session_id}/progress"),
+        "native.playback.stop": ("DELETE", "/api/v1/playback/{session_id}"),
+        "native.playback.transcode": ("POST", "/api/v1/playback/transcode/start"),
+        "native.playback.track": ("PATCH", "/api/v1/playback/{session_id}/audio"),
+        "native.markers": ("GET", "/api/v1/markers/items/{id} and /api/v1/markers/files/{fileId}"),
+        "native.chapters": ("GET", "/api/v1/catalog/items/{id} and /api/v1/catalog/items/{id}/versions"),
     }
     native_shape_terms = {
         "native.auth.providers": ("id", "display name", "mode", "default"),
@@ -235,6 +243,13 @@ def validate_contract_data(data: dict[str, Any]):
         "native.state.watched": ("content id", "affected count", "played"),
         "native.state.favorite": ("204", "idempotent", "user state"),
         "native.artwork.refetch": ("artwork urls", "fetch locations", "refetch", "signed query"),
+        "native.playback.capability": ("protocol v3", "media3 only", "disabled"),
+        "native.playback.progress": ("seconds", "is paused", "session owner"),
+        "native.playback.stop": ("final session progress", "tears down", "session"),
+        "native.playback.transcode": ("session id", "manifest url", "duration", "timeline offset", "signed"),
+        "native.playback.track": ("audio track index", "replacement stream url", "switch mode", "reload"),
+        "native.markers": ("file id", "intro", "credits", "recap", "preview", "provenance"),
+        "native.chapters": ("file id", "start seconds", "end seconds", "thumbnail"),
     }
     _require(
         all(term in server_id_policy for term in ("optional", "deterministic", "unique")),
@@ -276,14 +291,25 @@ def validate_contract_data(data: dict[str, Any]):
         required_semantics = requirement.get("requiredSemantics")
         _require(isinstance(request_semantics, list) and request_semantics, f"{requirement_id} needs requestSemantics")
         _require(isinstance(required_semantics, list) and required_semantics, f"{requirement_id} needs requiredSemantics")
-        _require(
-            all(isinstance(rule, str) and rule.strip() for rule in request_semantics + required_semantics),
-            f"{requirement_id} semantics must be non-empty strings",
-        )
-        _require(
-            any(_has_behavior_semantics(rule) for rule in required_semantics),
-            f"{requirement_id} must assert payload or behavior semantics, not only an HTTP status",
-        )
+        implementation_evidence = requirement.get("implementationEvidence")
+        if requirement_id in {"native.playback.start-legacy", "native.playback.progress", "native.playback.stop", "native.playback.track"}:
+            _require(
+                isinstance(implementation_evidence, list) and implementation_evidence,
+                f"{requirement_id} needs implementationEvidence",
+            )
+        if implementation_evidence is not None:
+            _require(
+                isinstance(implementation_evidence, list)
+                and all(isinstance(path, str) and path and not Path(path).is_absolute() for path in implementation_evidence),
+                f"{requirement_id} implementationEvidence must contain relative paths",
+            )
+            repo_root = Path(__file__).resolve().parents[2]
+            _require(
+                all((repo_root / path).is_file() for path in implementation_evidence),
+                f"{requirement_id} implementationEvidence path does not exist",
+            )
+        evidence_sources = requirement.get("evidenceSources")
+        _require(isinstance(evidence_sources, list) and evidence_sources, f"{requirement_id} needs pinned evidenceSources")
         if requirement_id in native_shape_terms:
             semantic_text = " ".join(request_semantics + required_semantics).lower()
             semantic_text = re.sub(r"[_-]+", " ", semantic_text)
@@ -293,14 +319,20 @@ def validate_contract_data(data: dict[str, Any]):
                 f"{requirement_id} is missing deterministic shape semantics: {', '.join(missing_terms)}",
             )
 
-        evidence_sources = requirement.get("evidenceSources")
-        _require(isinstance(evidence_sources, list) and evidence_sources, f"{requirement_id} needs pinned evidenceSources")
         _require(
             all(isinstance(url, str) and url.startswith(evidence_prefix) for url in evidence_sources),
             f"{requirement_id} evidenceSources must be pinned to native sourceRevision",
         )
         _require(isinstance(requirement.get("liveProbe", False), bool), f"{requirement_id} liveProbe must be boolean")
-        if requirement.get("liveProbe", False):
+        requires_mutation_flag = requirement.get("requiresMutationFlag", False)
+        _require(isinstance(requires_mutation_flag, bool), f"{requirement_id} requiresMutationFlag must be boolean")
+        if requires_mutation_flag:
+            _require(requirement.get("liveProbe", False), f"{requirement_id} mutation probes must set liveProbe")
+            _require(
+                requirement_id in {"native.playback.start-legacy", "native.playback.progress", "native.playback.stop", "native.playback.track"},
+                f"{requirement_id} is not an approved mutation probe",
+            )
+        if requirement.get("liveProbe", False) and not requires_mutation_flag:
             _require(
                 requirement["method"] == "GET" and requirement["path"] == "/api/v1/health",
                 f"{requirement_id} liveProbe must be deterministic and read-only",

@@ -103,8 +103,8 @@ Key components
 - MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
 - PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
 - PlayerController: provider-neutral state machine that handles play/pause/resume, listens for backend updates, manages track selection, and sends canonical playback state through `PlaybackService`.
-- `IPlaybackProvider` / `JellyfinPlaybackProvider`: finalize provider PlaybackInfo into Bloom `PlaybackDescriptor` values and serialize canonical playback reports into provider endpoints and wire payloads.
-- PlaybackService: stable application façade for playback preparation and reporting transport; its public timing contract uses milliseconds.
+- `IPlaybackProvider` / `JellyfinPlaybackProvider` / `SiloPlaybackProvider`: finalize provider PlaybackInfo into Bloom `PlaybackDescriptor` values and serialize canonical playback reports into provider endpoints and wire payloads. Silo uses its pinned legacy native envelope; Jellyfin retains its synchronous descriptor path.
+- `PlaybackService`: stable application façade for playback preparation and reporting transport; its public timing contract uses milliseconds.
 - TrackPreferencesManager: persists explicit audio/subtitle user choices to a separate JSON file using a versioned schema.
 
 HDR and Dolby Vision policy
@@ -264,6 +264,20 @@ Playback overlay metadata
   - Movies: title + production year.
   - Episodes: series title + `Sxx Exx - Episode Name`.
 - Fallback behavior still exists (`currentItemId`) when explicit metadata is not provided.
+
+Native Silo playback (pinned legacy envelope)
+- Native playback uses the legacy Silo envelope at revision `8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6` (the same immutable revision documented in [provider compatibility](provider-compatibility.md)). Bloom deliberately omits `protocol_version: 3`: the pinned capability route advertises `media3_only`, which is a Media3/Android contract and is not an mpv wire contract. Bloom must not infer mpv support from a v3 capability response.
+- Start is `POST /api/v1/playback/start`. The body contains numeric `file_id`, the selected `profile_id`, `start_position` in seconds, optional `audio_track_index`, and mpv capabilities for codecs, containers, resolution, HDR, passthrough, and bitmap subtitles. There is no invented native “variant” field: alternate versions are selected by their catalog `file_id`; multipart parts are separate sequential native sessions.
+- The `201` response is mapped into the provider-neutral `PlaybackDescriptor`: `session_id`/`media_file_id`, effective `play_method`, `position`, `stream_url`, `subtitle_urls`, selected audio index, duration, and `playback_info`. Direct play, remux, and HLS/transcode responses are accepted when Silo's policy/runtime permits them. Range-capable direct URLs are passed to mpv unchanged so seeking remains a server capability, not a client URL rewrite.
+- Stream and subtitle URLs are opaque signed locations. Bloom resolves relative URLs against the configured server origin with `QUrl` while preserving absolute URLs and every existing query byte-for-byte; it never appends auth query parameters or reconstructs a URL from IDs.
+- Progress and pause/resume use `POST /api/v1/playback/{session_id}/progress` with `{ "seconds": <seconds>, "is_paused": <bool> }`. Stop uses `DELETE /api/v1/playback/{session_id}`. Playback network calls go through `AuthenticationService`/`HttpTransport`, including the normal refresh-once behavior and current profile headers.
+- Runtime audio switching uses `PATCH /api/v1/playback/{session_id}/audio` with the selected track index. A successful response supplies a replacement signed reload URL and effective play method; Bloom swaps the mpv stream without inventing a provider variant.
+- PlaybackInfo for native Silo is derived from catalog item/version track data, not Jellyfin `/Items/{id}/PlaybackInfo` or `/Videos/*` endpoints. Direct/remux/HLS capability, subtitle inventory, and version identity therefore remain provider-native.
+- Native multipart playback resolves each catalog part/version by `file_id`, starts one native session per physical file, and reports each session's progress/stop independently while preserving the logical item's aggregate timeline and autoplay context. Native Silo does not use Jellyfin `/AdditionalParts`.
+- Recovery retries the provider request through the shared transport once after authentication refresh; transient stream interruption remains mpv's reconnect/cache path. A failed native start or expired opaque URL is surfaced as playback failure/refetched from its owning catalog resource rather than silently falling back to a Jellyfin stream.
+- Pinned limits are intentional: protocol-v3 is unavailable for mpv, native trickplay and playable theme-song routes are absent, capability discovery does not establish an mpv contract, and transcode/HLS/audio-switch behavior remains conditional on Silo policy and runtime support. The Silo HEAD comparison in the contract matrix is research-only and does not change the pinned release claim.
+
+Jellyfin and native Silo playback share the provider-neutral descriptor/reporting boundary; only the provider owns endpoint construction and wire serialization.
 
 Alternate versions and multipart playback
 - Jellyfin alternate media sources are surfaced from `PlaybackInfoResponse.mediaSources`. When there is more than one source and playback is user-initiated, Bloom now prompts before playback starts instead of silently taking the first source.
