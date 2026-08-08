@@ -169,7 +169,14 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         m_inFlightChapterRequests.clear();
     };
     connect(m_authService, &AuthenticationService::authenticationStepChanged,
-            this, invalidateRequests);
+            this, [this, invalidateRequests]() {
+        // Entering the authenticated state enables catalog requests. QML may
+        // issue one synchronously from the same notification, so only
+        // invalidate while authentication is unavailable.
+        if (!m_authService->isAuthenticated()) {
+            invalidateRequests();
+        }
+    });
     connect(m_authService, &AuthenticationService::userIdChanged,
             this, invalidateRequests);
 }
