@@ -24,7 +24,7 @@ FocusScope {
     property Item _lastFocusedItem: null
     function defaultTrackOptions(includeOff) {
         var options = [
-            { label: qsTr("Jellyfin Default"), value: "jellyfin-default" },
+            { label: qsTr("Server Default"), value: "jellyfin-default" },
             { label: qsTr("File Default"), value: "file-default" }
         ]
         if (includeOff) {

@@ -19,6 +19,17 @@ static constexpr auto kWinLibmpvBackendName = "win-libmpv";
 
 #if defined(Q_OS_LINUX)
 static constexpr auto kDefaultBackendName = kLinuxLibmpvBackendName;
+
+static bool isWaylandSession()
+{
+    const QByteArray sessionType = qgetenv("XDG_SESSION_TYPE").trimmed().toLower();
+    return sessionType == "wayland" || !qgetenv("WAYLAND_DISPLAY").trimmed().isEmpty();
+}
+
+static bool waylandLibmpvOptInEnabled()
+{
+    return qgetenv("BLOOM_ENABLE_WAYLAND_LIBMPV").trimmed() == "1";
+}
 #elif defined(Q_OS_WIN)
 static constexpr auto kDefaultBackendName = kWinLibmpvBackendName;
 #else
@@ -41,6 +52,14 @@ std::unique_ptr<IPlayerBackend> PlayerBackendFactory::create(const QString &conf
     if (!normalizedConfiguredBackend.isEmpty()) {
         return createByName(normalizedConfiguredBackend, parent);
     }
+
+    // Wayland keeps embedded libmpv opt-in; explicit backend selection above wins.
+    // This avoids making OpenGL runtime support a prerequisite for normal sessions.
+#if defined(Q_OS_LINUX)
+    if (isWaylandSession() && !waylandLibmpvOptInEnabled()) {
+        return createByName(QString::fromLatin1(kExternalBackendName), parent);
+    }
+#endif
 
     return createByName(QString::fromLatin1(kDefaultBackendName), parent);
 }

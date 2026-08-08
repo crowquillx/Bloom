@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 
+#include <memory>
 #include <QHostAddress>
 #include <QNetworkRequest>
 #include <QPointer>
@@ -168,6 +169,7 @@ class ArtworkRefreshTest : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase();
     void missingArtworkDegradesWithoutRefresh();
     void tokenFreeCacheMissRetainsTransientSourceUrl();
     void signedUrlIsNotPartOfCacheIdentity();
@@ -175,7 +177,19 @@ private slots:
     void authorizationFailureRefreshesExactlyOnce();
     void jellyfinRefreshKeepsExistingResolvedRequest();
     void siloRefreshCompletesAfterAuthenticationServiceDestruction();
+
+private:
+    QTemporaryDir m_temporaryDirectory;
+    std::unique_ptr<ScopedConfigIsolation> m_configIsolation;
 };
+
+void ArtworkRefreshTest::initTestCase()
+{
+    QVERIFY(m_temporaryDirectory.isValid());
+    m_configIsolation = std::make_unique<ScopedConfigIsolation>(
+        m_temporaryDirectory.path());
+}
+
 void ArtworkRefreshTest::missingArtworkDegradesWithoutRefresh()
 {
     MissingArtworkProvider artworkProvider;
@@ -297,9 +311,6 @@ void ArtworkRefreshTest::authorizationFailureRefreshesExactlyOnce()
 
 void ArtworkRefreshTest::jellyfinRefreshKeepsExistingResolvedRequest()
 {
-    QTemporaryDir temporaryDirectory;
-    QVERIFY(temporaryDirectory.isValid());
-    ScopedConfigIsolation isolation(temporaryDirectory.path());
 
     ConfigManager config;
     ServerConnection connection;

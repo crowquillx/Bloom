@@ -2,7 +2,9 @@
 
 Bloom is migrating from one implicit Jellyfin session to provider-neutral, connection-scoped services. The current implementation keeps the existing QML-facing authentication, library, and playback APIs stable while the boundaries are introduced incrementally under issue #75.
 
-Native Silo is not enabled by the connection model alone. Until the native authentication, catalog, and playback adapters pass their release gates, use the support labels defined in [provider compatibility](provider-compatibility.md).
+Native Silo is implemented behind the provider adapter boundary and is released as **experimental native Silo support**. It is not first-class support: the pinned native contract and platform/runtime gates still leave optional capabilities unavailable. Use the support labels defined in [provider compatibility](provider-compatibility.md).
+
+The native Silo path is selected only after deterministic health detection (`GET /api/v1/health` with `status: "ok"`). A compatibility connection remains a separate MediaBrowser/Jellyfin surface and never silently upgrades to native.
 
 ## Server connections
 
@@ -66,12 +68,12 @@ The account key contains no server URL, username, remote item ID, or secret. Acc
 
 Config v27 migration creates a connection from a valid `settings.jellyfin` record but temporarily retains that record as rollback metadata. At session restoration:
 
-1. Bloom reads a provider-neutral access-token entry.
-2. If absent, Bloom reads the legacy `Bloom/Jellyfin` key for the old `serverUrl|username|deviceId` account.
-3. Bloom writes and reads back the provider-neutral entry.
+1. Bloom reads a provider-neutral access-token entry from `CredentialStore`.
+2. If absent, `CredentialStore` reads the legacy `Bloom/Jellyfin` key for the old `serverUrl|username|deviceId` account.
+3. `CredentialStore` may consume a legacy plaintext token from the old config only as a one-time migration fallback when neither secure entry exists; it writes the token to secure storage and reads it back.
 4. Only after verification does Bloom delete the old keychain entry and remove `settings.jellyfin`.
 
-If a write, verification, or deletion fails, the old config/keychain entry remains and restoration continues with the legacy token when possible. A legacy token found directly in `app.json` is a final fallback only when neither a provider-neutral nor legacy keychain credential exists; it never overwrites an existing secure credential and is removed only after a verified secure-store copy. Logout removes provider-neutral credentials and any remaining legacy Jellyfin entry using the restored username, fixing cleanup after a restored session.
+If a write, verification, or deletion fails, the old config/keychain entry remains as rollback material and restoration continues with the legacy token when possible. Current credentials are never stored in `app.json`: access, refresh, and profile tokens are retained only by `CredentialStore`, and the plaintext fallback is removed after a verified secure-store copy. Logout removes provider-neutral credentials and any remaining legacy Jellyfin entry using the restored username, fixing cleanup after a restored session.
 
 Provider-neutral credential keys do not include the rotating device ID. Device rotation first resolves any pending legacy entry and aborts if the credential cannot be preserved.
 
@@ -89,29 +91,29 @@ Provider conversion belongs inside provider adapters. `JellyfinModelMapper` is t
 
 ## Request, authentication, and transport boundaries
 
-`IProviderAdapter` bundles the provider implementation consumed by stable application façades. `JellyfinProviderAdapter` exposes the Jellyfin authenticator, request factory, and playback provider while identifying its provider/protocol mode; login, restore, browse, playback, and remote-session traffic therefore share one selected provider boundary without changing QML APIs.
+`SiloProviderAdapter` exposes `SiloAuthenticator`, `SiloRequestFactory`, `SiloCatalogProvider`, `SiloArtworkProvider`, and `SiloPlaybackProvider` for the native `/api/v1` surface. `SiloAuthenticator` owns login, refresh, `/auth/me`, and profile-PIN request/response wire contracts; the adapter's route mapping and model mapper supply provider discovery, caller logout, auth-session list/revoke, and profile listing. Access, refresh, and profile tokens are supplied from `CredentialStore` and never from QML or connection metadata.
 
-`IProviderRequestFactory` owns provider-specific URL and authorization-header construction. `JellyfinRequestFactory` is the only production source of the `MediaBrowser` header and also redacts token-bearing query parameters before URLs reach logs.
+`IProviderAdapter` bundles the provider implementation consumed by stable application façades. `JellyfinProviderAdapter` exposes the Jellyfin authenticator, request factory, catalog, artwork, and playback providers while identifying its provider/protocol mode; login, restore, browse, artwork, playback, and remote-session traffic therefore share one selected provider boundary without changing QML APIs.
 
-`IProviderAuthenticator` owns provider login payloads, response parsing, and validation routes. `JellyfinAuthenticator` implements the existing AuthenticateByName flow while `AuthenticationService` remains the stable QML-facing session façade.
+`IProviderRequestFactory` owns provider-specific URL and authorization-header construction. `JellyfinRequestFactory` is the only production source of the `MediaBrowser` header. `SiloRequestFactory` emits bearer authorization plus `X-Silo-Client`, `X-Silo-Client-Version`, `X-Silo-Device-Id`, `X-Silo-Device-Name`, `X-Silo-Device-Platform`, and selected `X-Profile-Id`/`X-Profile-Token` headers on same-origin native requests. Both factories redact token-bearing query parameters before URLs reach logs.
+
+`IProviderAuthenticator` owns provider login payloads, response parsing, and validation routes. `JellyfinAuthenticator` implements the existing AuthenticateByName flow while `SiloAuthenticator` validates access/refresh pairs, account identity, profile tokens, and typed error envelopes. `AuthenticationService` remains the stable QML-facing session façade.
 
 `HttpTransport` owns the shared `QNetworkAccessManager` and centralizes retry/backoff, cancellation, error mapping, redacted request logging, and unauthorized policy. Catalog and remote-session `401` responses expire immediately; playback reads can defer expiry until playback stops. Canceled work is never retried. `SessionService` uses the shared transport instead of a private network manager.
 
-`LibraryService`, `PlaybackService`, and `SessionService` remain the stable Jellyfin catalog/playback/remote-session adapters for their existing QML signals while all of their HTTP requests flow through the selected provider request factory and transport. Canonical JSON/model conversion continues with the provider model work without changing those façade contracts. QML must not select protocol routes, construct provider headers, or read credentials. Native Silo authentication remains deferred until its adapter can own access, refresh, and profile-token behavior.
+`LibraryService`, `PlaybackService`, and `SessionService` remain stable application façades for catalog/playback/remote-session signals while requests flow through the selected provider adapter, request factory, and transport. `SiloCatalogProvider` maps `content_id` catalog identity separately from `file_id` playback/version identity; `SiloArtworkProvider` treats signed URLs as opaque and refetches the owning resource after expiry; `SiloPlaybackProvider` maps the pinned legacy envelope into `PlaybackDescriptor` and provider-native reports. QML must not select protocol routes, construct provider headers, or read credentials. Native Silo protocol v3 remains explicitly unavailable for Bloom/mpv because the pinned capability is `media3_only`, not an mpv contract.
 
 ## Verification
 
-Connection, credential, request-factory, and transport tests cover:
+Connection, credential, request-factory, transport, and provider-boundary tests cover:
 
-- v27 Jellyfin metadata migration
-- token exclusion from `app.json`
-- retained rollback metadata until secure migration completes
-- verified legacy keychain copy and cleanup
-- failed-copy recovery
-- multiple persisted connections and active selection
-- Jellyfin header/authentication wire ownership and URL redaction
-- transient retry, non-retryable cancellation/client failures, and unauthorized policy
-- connection isolation for MPV assignments, buffering overrides, track preferences, and caches
+- `ConnectionPersistenceTest`: v27 Jellyfin metadata migration/rollback preservation, token exclusion from new `app.json` writes, verified legacy keychain/config copy, failed-copy recovery, multiple connections, Silo URL-scoped identity, and connection isolation.
+- `SiloPlaybackProviderTest`: legacy start/progress/stop/audio-switch and recovery mapping, opaque signed URLs, multipart file identity, and conditional HLS/transcode behavior.
+- `ProviderCatalogTest` and `SiloCatalogServiceTest`: provider-neutral catalog identity, snapshots, paging/filter limitations, marker/chapter mapping, state mutations, and unsupported-capability reporting.
+- `ArtworkRefreshTest`: provider artwork expiry refetch and token-free cache identity.
+- Provider/model and controller tests cover connection-scoped caches, MPV assignments, buffering overrides, track preferences, and provider-aware recovery.
+
+The machine/source-grounded compatibility matrix and pinned revision are maintained in [provider compatibility](provider-compatibility.md). Native protocol v3/media3-only, trickplay, playable theme songs, and other unavailable capabilities must remain labeled unavailable rather than supported.
 
 Use the blessed project checks:
 

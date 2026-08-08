@@ -18,7 +18,7 @@ Overview
 Backend architecture
 - Playback now routes through `IPlayerBackend` (`src/player/backend/IPlayerBackend.h`).
 - `PlayerController` depends on the backend interface (not directly on `PlayerProcessManager`).
-- Default backend is platform-aware via `PlayerBackendFactory` (Linux prefers embedded backend when runtime-supported; Windows defaults to `win-libmpv`; others default external).
+- Default backend is platform-aware via `PlayerBackendFactory` (Wayland defaults to external mpv IPC; non-Wayland Linux prefers embedded when runtime-supported; Windows forces `win-libmpv`; other platforms default external).
 - Active backend is logged at startup from `ApplicationInitializer`.
 - Optional environment override for backend selection: `BLOOM_PLAYER_BACKEND`.
 - Optional config backend preference: `settings.playback.player_backend` in `app.json` (`external-mpv-ipc`, `linux-libmpv-opengl`, `win-libmpv`, or unset for platform default).
@@ -128,7 +128,7 @@ Audio/Subtitle Track Selection
 - Initial selection resolution order:
   - request-time override from the playback request/autoplay context, if valid
   - explicit saved preference for the current season/movie scope, if still valid
-  - global app fallback from Settings > Playback (`Jellyfin Default`, `File Default`, common language, or subtitle `Off`/`Forced`)
+  - global app fallback from Settings > Playback (`Server Default`, `File Default`, common language, or subtitle `Off`/`Forced`)
   - built-in safety fallback
 - Built-in audio fallback uses Jellyfin `defaultAudioStreamIndex`, then file-level `isDefault`, then the first audio stream.
 - Built-in subtitle fallback uses Jellyfin `defaultSubtitleStreamIndex`, then file-level `isDefault`, then forced subtitles, then subtitles off.
@@ -319,13 +319,13 @@ Playback caching and network resilience
 - This allows mpv to buffer aggressively in RAM so brief server outages do not stall playback.
 - Startup buffering mode can be set globally (`settings.playback.startup_buffering_mode`) and overridden per library under the active `settings.connection_state` scope. `normal` keeps existing startup behavior. `remote-mount` starts mpv paused and appends startup-prebuffer args after profile args (`cache-pause-initial`, `cache-pause-wait=60`, `demuxer-readahead-secs=60`, `cache-secs=120`, and larger demuxer/cache buffers). Bloom keeps the full-screen startup buffering UI visible and unpauses only after `demuxer-cache-time` reaches the initial cache target or the extended startup timeout is reached.
 - Runtime rebuffering uses the compact native playback spinner over the video instead of the full-screen startup card. This keeps the current frame visible while `paused-for-cache` or recovery is active.
-- For longer server outages, `PlayerController` supports automatic recovery:
-  - When playback hits `Error` because of a network/timeout failure, the controller stashes a `RecoveryContext` with the current item, stream URL, track selections, and last known position.
+- For longer server outages, `PlayerController` supports provider-aware automatic recovery:
+  - When playback hits `Error` because of a network/timeout failure, the controller stashes a `RecoveryContext` with the active connection/provider, canonical media identity, provider source/version, track selections, and last known position.
   - If the backend reports stopped before the recoverable mpv error arrives, `PlayerController` upgrades the pending terminal transition from `Stop` to `Error`, stashes the same recovery context, and keeps playback active so embedded video/overlay surfaces are not torn down during retry.
-  - If `autoRecoverPlayback` is enabled (default `true`, stored in `settings.playback.auto_recover_playback`), the controller enters recovery mode and pings the server every 5 seconds via `LibraryService::pingServer()`.
-  - When the ping succeeds, playback refreshes Jellyfin `PlaybackInfo` and resumes at the last known position using a fresh media source plus the prior track preference hints.
-  - Recovery retries indefinitely until the server returns or the user explicitly stops/retries/clears the error.
-  - Manual retry (`retry()` / `Event::Play`) while recovering refreshes Jellyfin `PlaybackInfo` and resumes from the stashed position instead of replaying the old stream URL.
+  - If `autoRecoverPlayback` is enabled (default `true`, stored in `settings.playback.auto_recover_playback`), the controller enters recovery mode and pings the selected provider every 5 seconds via `LibraryService::pingServer()`.
+  - When the ping succeeds, recovery asks the selected `IPlaybackProvider` for fresh playback information: Jellyfin refreshes `/Items/{id}/PlaybackInfo`; native Silo refetches catalog item/version data and starts its pinned legacy native session. Both resume at the last known position with prior track hints.
+  - Recovery retries indefinitely until the provider returns or the user explicitly stops/retries/clears the error. A failed native start or expired signed URL is surfaced/refetched through Silo's owning catalog resource, never silently replaced with a Jellyfin stream.
+  - Manual retry (`retry()` / `Event::Play`) follows the same provider-aware refresh path instead of replaying an old stream URL.
 - `autoRecoverPlayback` is not exposed in the settings UI; it can be toggled by editing `app.json` directly.
 
 mpv config hints
@@ -342,12 +342,12 @@ Jellyfin integration
   - `/Shows/NextUp`
   - `/Items/{itemId}/PlaybackInfo` - Get media streams and track info
   - `/Sessions/Playing` - Start, progress, stop reporting with track selection
-- The client must persist session information via `ConfigManager` and restore sessions during startup.
-- On 401 responses, emit a sessionExpired event and trigger a logout/restore flow.
+- The client persists non-secret session/connection metadata via `ConfigManager`; access, refresh, and profile credentials are restored through `CredentialStore`.
+- On 401 responses, the selected provider's transport/authenticator performs the refresh-once policy, then emits a sessionExpired event and triggers the provider-aware logout/restore flow. Native Silo recovery never switches to a Jellyfin endpoint.
 
 Security & privacy
-- Session tokens should be persisted securely in `app.json` and cleared on logout.
-- Avoid logging sensitive tokens; prefer obfuscated logging when necessary.
+- Access, refresh, and profile tokens issued after PIN verification are persisted only by `CredentialStore`; `app.json` stores provider-neutral connection metadata and an opaque credential reference.
+- Avoid logging sensitive tokens or opaque signed media/artwork query values; prefer redacted logging when necessary.
 
 Troubleshooting
 - Ensure proper owner and permissions for socket/pipes when using Unix sockets.

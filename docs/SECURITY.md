@@ -2,12 +2,12 @@
 
 ## Credential Storage
 
-Bloom uses platform-native secure storage for server-connection access, refresh, and profile tokens, including Jellyfin access tokens:
+Bloom uses platform-native secure storage for server-connection access, refresh, and profile tokens:
 
 - **Linux**: `libsecret` (GNOME Keyring / KWallet via Secret Service API)
 - **Windows**: Windows Credential Manager
 
-Current Bloom releases never write tokens to plain-text configuration. The configuration file `~/.config/Bloom/app.json` stores only non-sensitive connection metadata such as provider, server URL, account/profile IDs, and display names. Older installations may retain a legacy token temporarily until Bloom verifies that it has been copied to secure storage.
+Current Bloom writes never persist tokens in `app.json`. The configuration file `~/.config/Bloom/app.json` stores only non-sensitive, provider-neutral connection metadata such as provider, protocol mode, normalized server URL, account/profile IDs, capabilities, display names, and an opaque credential reference. Older installations may retain legacy migration material temporarily until `CredentialStore` verifies a secure copy.
 
 ## Storage Schema
 
@@ -23,7 +23,15 @@ Legacy Jellyfin releases used service `"Bloom/Jellyfin"` with account `"<server_
 
 ## Migration from Legacy Config
 
-When upgrading, Bloom creates provider-neutral connection metadata and migrates any legacy Jellyfin credential on session restoration. Existing provider-neutral and legacy keychain credentials take precedence over a plaintext config fallback, so stale rollback metadata cannot overwrite a newer secure credential. Bloom writes and reads back the provider-neutral credential before removing either the old keychain entry or legacy `settings.jellyfin` metadata. If secure storage is unavailable or verification fails, the legacy data remains recoverable and migration is retried later.
+When upgrading, Bloom creates provider-neutral connection metadata and lets `CredentialStore` migrate any legacy Jellyfin credential during session restoration. Provider-neutral and legacy keychain credentials take precedence. If both secure entries are absent, `CredentialStore` may consume a legacy plaintext token once, write it to the provider-neutral secure-store entry, and read it back for verification; the plaintext value is not retained as current configuration. Bloom removes the old keychain entry and legacy `settings.jellyfin` metadata only after verification. If secure storage is unavailable or verification fails, the old keychain/config material remains recoverable as rollback data and migration is retried later. The connection migration sequence is also summarized in [provider architecture](provider-architecture.md).
+
+Logout removes all provider-neutral credential kinds for the active connection and any matching legacy Jellyfin entry. It does not delete another connection's credentials or metadata.
+
+### Native Silo credential boundaries
+
+Native Silo login, refresh, `/auth/me`, and profile PIN request/response wire contracts are owned by `SiloAuthenticator`; adapter route mapping/model parsing supplies provider discovery, caller logout, auth-session operations, and profile listing. Bearer access/refresh tokens and the optional profile token are stored only through `CredentialStore`; `SiloRequestFactory` adds device/profile headers to same-origin native requests and redacts token-bearing query parameters in logs. Signed media/artwork URLs are opaque fetch locations, not credentials to copy into config or reconstruct.
+
+Native and compatibility connections are separate. A Silo compatibility listener uses the MediaBrowser/Jellyfin credential flow and profile suffix limitations; the native listener uses `/api/v1` and must pass health detection. A `401` is handled by the selected provider's refresh-once policy, then provider-aware session expiry/logout; Bloom never retries native requests by switching to a Jellyfin endpoint.
 
 **Requirements**:
 - On Linux, a Secret Service-compatible keyring must be available (GNOME Keyring or KWallet).
@@ -45,6 +53,13 @@ If your keyring is locked, Bloom cannot access stored credentials. You will need
    ```
 2. Open Seahorse → Login keyring → Unlock it.
 3. Optionally, configure your keyring to unlock at login.
+
+### Native Silo login or profile failures
+
+- Confirm the URL is the native listener and that `GET /api/v1/health` returns `{"status":"ok"}`. A refusal or `404` on `/api/v1` usually means the native listener is disabled or the connection points at the compatibility port.
+- Native profile selection requires `X-Profile-Id`; a PIN-protected profile additionally requires a successful `/api/v1/profiles/{id}/verify-pin` response before Bloom stores/uses `X-Profile-Token`.
+- Do not paste bearer, refresh, profile, or signed URL values into `app.json` or bug reports. Inspect only redacted request logs and the provider-neutral connection metadata.
+- If refresh fails or the session is revoked, sign out and sign in again for that connection. Bloom does not fall back to compatibility or Jellyfin routes.
 
 ### Viewing Stored Credentials
 

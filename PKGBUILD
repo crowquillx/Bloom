@@ -1,8 +1,8 @@
 # Maintainer: crowquillx
 pkgname=bloom-jellyfin
-pkgver=0.7.1
+pkgver=0.8.0
 pkgrel=1
-pkgdesc="Jellyfin HTPC client with 10-foot UI"
+pkgdesc="Media client for Jellyfin and Silo servers; experimental native Silo support"
 arch=('x86_64')
 url="https://github.com/crowquillx/Bloom"
 license=('MIT')

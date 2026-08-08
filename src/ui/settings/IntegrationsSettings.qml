@@ -93,7 +93,7 @@ FocusScope {
                 }
 
                 Text {
-                    text: qsTr("Connect your MDBList account to display enhanced ratings from IMDb, Metacritic, and other sources alongside Jellyfin content.")
+                    text: qsTr("Connect your MDBList account to display enhanced ratings from IMDb, Metacritic, and other sources alongside content from your connected server.")
                     font.pixelSize: Theme.fontSizeSmall
                     font.family: Theme.fontPrimary
                     color: Theme.textSecondary
@@ -169,7 +169,7 @@ FocusScope {
                 }
 
                 Text {
-                    text: qsTr("Use external segment providers to fill missing intro, recap, and credits markers when Jellyfin does not provide them.")
+                    text: qsTr("Use external segment providers to fill missing intro, recap, and credits markers when your server does not provide them.")
                     font.pixelSize: Theme.fontSizeSmall
                     font.family: Theme.fontPrimary
                     color: Theme.textSecondary
@@ -180,7 +180,7 @@ FocusScope {
                 SettingsToggleRow {
                     id: externalSegmentsToggle
                     label: qsTr("Use External Segment Providers")
-                    description: qsTr("Jellyfin server segments are always preferred; providers only fill missing segment types.")
+                    description: qsTr("Server-provided segments are always preferred; external providers only fill missing segment types.")
                     checked: ConfigManager.externalSegmentProvidersEnabled
                     ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
                     KeyNavigation.up: seerrApiKeyInput.input

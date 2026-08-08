@@ -7,10 +7,10 @@ The machine-readable source is [`tests/contracts/provider-contracts.json`](../te
 ## Support terminology
 
 - **Silo compatibility support**: Bloom connects to Silo's optional Jellyfin compatibility listener. The native API is not used, and household-profile login has compatibility-specific limitations.
-- **Experimental native Silo support**: Bloom connects to `/api/v1` with Silo's compatibility listener disabled and implements native authentication, household-profile, catalog, signed-artwork, and legacy mpv playback boundaries from the pinned revision; optional v3/media3-only features remain unavailable.
-- **First-class Silo support**: Bloom connects to `/api/v1` without the compatibility listener and passes authentication, profile, catalog, playback, recovery, and platform gates in issue #73.
+- **Experimental native Silo support**: Bloom connects to `/api/v1` with Silo's compatibility listener disabled and implements native authentication, household-profile, catalog, signed-artwork, and legacy mpv playback boundaries from the pinned revision; optional v3/media3-only features remain unavailable. This is the release label for the current native path.
+- **First-class Silo support**: A future claim requiring authentication, profile, catalog, playback, recovery, and platform gates in issue #73. Bloom does **not** make this claim for the current release.
 
-These labels describe a connection's protocol mode, not an application-wide provider choice. A future provider can add another protocol surface and deployment to the contract matrix without changing existing Jellyfin or Silo rows.
+These labels describe a connection's protocol mode, not an application-wide provider choice. A future provider can add another protocol surface and deployment to the contract matrix without changing existing Jellyfin or Silo rows. The machine contract currently records the native deployment as `research-only` because live native Silo/Jellyfin hosts and platform runtime hardware are unavailable; that evidence state does not convert unavailable capabilities into support.
 
 Contract outcomes are:
 
@@ -52,7 +52,7 @@ Ports are deployment configuration, not protocol identity.
 3. Pin `SILO_IMAGE` to the digest above.
 4. Start the bundled PostgreSQL, Redis, and Silo services.
 5. Complete onboarding at `http://127.0.0.1:8090` and add a movie and series library. For compatibility coverage, enable Jellyfin-compatible app support and restart Silo.
-6. Point Bloom at `http://127.0.0.1:8096` for compatibility coverage, or leave the compatibility listener disabled and point Bloom at `http://127.0.0.1:8090` for the native mode implemented by PR #111.
+6. For **Silo compatibility support**, point Bloom at `http://127.0.0.1:8096`. For **experimental native Silo support**, leave the compatibility listener disabled, confirm `GET http://127.0.0.1:8090/api/v1/health` returns `status: "ok"`, and point Bloom at `http://127.0.0.1:8090`. Bloom must record the selected `protocol_mode`; it must not switch protocol surfaces after a failed login.
 
 Example Fish session after editing `.env`:
 
@@ -64,6 +64,26 @@ curl --fail --silent http://127.0.0.1:8096/System/Info | jq
 ```
 
 The compatibility listener may be unbound before it is enabled. A connection refusal on `8096` is therefore different from invalid credentials.
+
+### Native versus compatibility connection instructions
+
+- Compatibility uses the MediaBrowser/Jellyfin login flow. A single matching profile may work with ordinary credentials; household profiles use Silo's compatibility `username#profile` and PIN `password#pin` suffixes.
+- Native uses Silo provider discovery and `/api/v1/auth/login`, then optional `/api/v1/profiles/{id}/verify-pin`. Bloom stores access, refresh, and profile tokens only in `CredentialStore`; `app.json` keeps connection metadata and an opaque credential reference.
+- Native detection is deterministic health detection (`status: "ok"`), not a successful compatibility `/System/Info` response. Native and compatibility connections are separate records and never silently fall back to one another.
+- Native playback intentionally omits `protocol_version: 3`; the pinned capability is `media3_only`, not an mpv contract. Protocol v3 remains unavailable for Bloom/mpv.
+
+### Silo troubleshooting
+
+- **Connection refused on 8096**: the compatibility listener is disabled or unbound; this is different from invalid credentials. Enable it only for compatibility testing and restart Silo.
+- **Native `404` or non-JSON health**: verify Bloom points to the native listener and the pinned Silo revision exposes `/api/v1/health`; do not identify Silo from `/System/Info`.
+- **Login succeeds but profile access fails**: list profiles, select the account/profile identity, and complete PIN verification when `has_pin` is true. A wrong PIN is a valid `200 {"valid": false}` response, not a transport failure.
+- **Artwork disappears after caching**: signed artwork URLs are opaque and may expire. Refetch the owning catalog/detail/person/chapter resource; never strip or rebuild its query parameters.
+- **Playback cannot seek or show previews**: direct range playback is the strongest native/compatibility path; native trickplay is unavailable at the pin, and HLS/transcode/audio switching are conditional on Silo policy/runtime.
+- **401 during playback**: shared transport refreshes once through the selected provider. Native recovery refetches catalog/version data and starts a native legacy session; it never retries by constructing a Jellyfin URL.
+
+### Migration and rollback
+
+Connection migration preserves the old `settings.jellyfin` metadata and legacy keychain entry until `CredentialStore` writes and reads back the provider-neutral credential. A failed write, verification, or cleanup leaves rollback material intact and retries later. Logout removes provider-neutral credential kinds plus matching legacy Jellyfin credentials without deleting another connection's metadata. See [provider architecture](provider-architecture.md) and [SECURITY.md](SECURITY.md) for the exact key schema and cleanup behavior.
 
 For the baseline library, use at least:
 
@@ -127,11 +147,11 @@ python3 tests/contracts/run_live_contracts.py \
   --output .contract-data/jellyfin-report.json
 ```
 
-The live driver is selected by protocol surface, while expectations are selected by deployment. Native health is always safe without credentials; credentialed native runs use a dedicated fixture account and perform auth/profile/catalog/artwork reads plus login/refresh/logout cleanup. Native playback start/progress/audio-switch/stop probes remain skipped unless `--allow-mutations` is explicitly supplied with fixture credentials. MediaBrowser mutating probes also remain opt-in. Played/favorite probes restore their exact original booleans; playback reporting can change resume state, so run it only with a dedicated fixture account/library. The harness rejects embedded base-URL credentials, never writes password/PIN/token values to reports, never forwards provider authorization to a different origin, and refuses automatic redirects.
+The live driver is selected by protocol surface, while expectations are selected by deployment. Native health is safe without credentials; credentialed native runs use a dedicated fixture account and perform auth/profile/catalog/artwork reads plus login/refresh/logout cleanup. Native playback start/progress/audio-switch/stop probes remain skipped unless `--allow-mutations` is explicitly supplied with fixture credentials. MediaBrowser mutating probes are also opt-in, and reports never contain password, PIN, or token values.
 
 ## Bloom's current MediaBrowser contract
 
-`JellyfinRequestFactory` owns MediaBrowser URL/header construction and `JellyfinAuthenticator` owns the login/validation wire contract. `HttpTransport` owns shared execution policy. `LibraryService`, `PlaybackService`, and `SessionService` still own provider routes and response JSON; the remaining #75/#76 adapter work moves those details behind catalog, playback, and remote-session boundaries.
+`JellyfinRequestFactory` owns MediaBrowser URL/header construction and `JellyfinAuthenticator` owns the login/validation wire contract. `JellyfinCatalogProvider`, `JellyfinArtworkProvider`, and `JellyfinPlaybackProvider` own Jellyfin request/response conversion at the provider boundary; `HttpTransport` owns shared execution policy. `LibraryService`, `PlaybackService`, and `SessionService` expose stable provider-neutral façades, while Silo counterparts implement their native routes without changing those QML contracts.
 
 Shared assumptions:
 
@@ -139,10 +159,11 @@ Shared assumptions:
 - `JellyfinRequestFactory` sends `Content-Type: application/json` and a `MediaBrowser` authorization header with Bloom client, desktop device, stable device ID, version, and optional token.
 - `JellyfinAuthenticator` expects `AccessToken`, `User.Id`, and `User.Name`.
 - Lists generally use `{ "Items": [...], "TotalRecordCount": n }`.
-- Jellyfin time is in 100-nanosecond ticks. Ticks must not escape the future Jellyfin adapter.
-- Current image, stream, subtitle, and trickplay URLs may contain `api_key`; later artwork/playback boundaries must replace persistent token-bearing URLs.
+- Jellyfin time is in 100-nanosecond ticks. Ticks must not escape the Jellyfin adapter.
+- Current image, stream, subtitle, and trickplay URLs may contain `api_key`; provider artwork/playback boundaries replace persistent token-bearing URLs with opaque request descriptors.
 - Bloom derives the home continue-watching rail from Next Up items whose `UserData.PlaybackPositionTicks` is positive.
-- Application logout is currently local. `SessionService` uses `/Sessions/{id}/Logout` only for remote-session revocation.
+- Application logout is currently local. `SessionService` uses `/Sessions/{id}/Logout` only for remote-session revocation; native Silo uses its caller-logout/auth-session routes.
+
 
 ## Compatibility results
 
@@ -316,3 +337,5 @@ python3 -m unittest discover -s tests/contracts -p provider_contracts_test.py
 ```
 
 It is also registered as `ProviderContractValidationTest` in CTest and runs in the Nix test derivation.
+
+Manual release evidence is tracked in the [manual validation ledger](manual-validation.md); unavailable live/platform rows must remain explicitly unavailable rather than inferred from source or HTTP status.

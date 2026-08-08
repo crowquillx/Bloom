@@ -2,7 +2,7 @@ Bloom — Project Rules & Architecture (Condensed)
 
 Purpose: Single-page developer reference for architecture, conventions, and quick build/run steps. Keep this file short — deep dives live in `docs/` (playback, theme, services, config, developer_notes).
 
-Goals: 10-foot Jellyfin HTPC client; high-quality mpv playback; Wayland-first Linux support. MUST be completely keyboard/gamepad navigable. 
+Goals: 10-foot media HTPC client for Jellyfin and Silo servers; high-quality mpv playback; Wayland-first Linux support. MUST be completely keyboard/gamepad navigable.
 
 QML & Focus
 - Use `FocusScope` as the root of navigable views; QML `Item` should be used if the view is not intended to be focusable.
@@ -50,8 +50,6 @@ Documentation & update policy:
 
 If making a commit, use Conventional Commits spec. See [docs/conventional-commits.md](docs/conventional-commits.md) for the canonical guidance.
 
-
-
 PR checklist (docs):
 - [ ] Documentation updated in the appropriate `docs/` page(s).
 - [ ] `AGENTS.md` updated if the change is architectural or alters project conventions.
@@ -65,6 +63,7 @@ See also:
 - docs/build.md     — Nix build, packaging, CI, and Windows instructions
 - docs/playback.md  — mpv and playback/reporting integration
 - docs/provider-compatibility.md — provider-neutral server contract matrix, reproducible Jellyfin/Silo pins, and native API assumptions
+- docs/manual-validation.md — v0.8.0 release-graduation ledger, commands, evidence, and unavailable gates
 - docs/provider-architecture.md — connection identity, credential migration, and incremental provider adapter boundaries
 - docs/profiles.md — Bloom profiles (workspace memberships distinct from provider profiles)
 - docs/canonical-models.md — Bloom-owned media, artwork, and playback model contracts
@@ -85,5 +84,9 @@ See also:
 License: See `LICENSE`.
 
 Testing policy:
-- Automated tests are currently local-only and are not run in CI.
-- `nix flake check` remains the blessed local command for the full check suite.
+- The Nix `.#checks.x86_64-linux.tests` derivation runs automatically in CI,
+  alongside the other flake checks; `nix flake check` remains the blessed local
+  command for the full check suite.
+- Live provider/server, display, GPU, and playback contracts requiring hosts or
+  runtime hardware remain manual validation; unavailable environments are not
+  automated passes.

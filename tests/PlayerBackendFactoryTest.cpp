@@ -17,6 +17,8 @@ class PlayerBackendFactoryTest : public QObject
 
 private slots:
     void createsPlatformDefaultBackend();
+    void waylandDefaultsToExternalBackend();
+    void waylandLibmpvOptInUsesEmbeddedBackendWhenSupported();
     void backendStartsInStoppedState();
     void createByNameSupportsExternal();
     void createByNameLinuxSelectionBehavior();
@@ -46,6 +48,46 @@ void PlayerBackendFactoryTest::createsPlatformDefaultBackend()
     QCOMPARE(backend->backendName(), QStringLiteral("win-libmpv"));
 #else
     QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+#endif
+}
+
+void PlayerBackendFactoryTest::waylandDefaultsToExternalBackend()
+{
+#if defined(Q_OS_LINUX)
+    qunsetenv("BLOOM_PLAYER_BACKEND");
+    qunsetenv("BLOOM_ENABLE_WAYLAND_LIBMPV");
+    qputenv("XDG_SESSION_TYPE", "wayland");
+    qunsetenv("WAYLAND_DISPLAY");
+
+    const std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create();
+
+    qunsetenv("XDG_SESSION_TYPE");
+
+    QVERIFY(backend != nullptr);
+    QCOMPARE(backend->backendName(), QStringLiteral("external-mpv-ipc"));
+#else
+    QSKIP("Wayland backend policy is only compiled on Linux");
+#endif
+}
+
+void PlayerBackendFactoryTest::waylandLibmpvOptInUsesEmbeddedBackendWhenSupported()
+{
+#if defined(Q_OS_LINUX)
+    qunsetenv("BLOOM_PLAYER_BACKEND");
+    qputenv("BLOOM_ENABLE_WAYLAND_LIBMPV", "1");
+    qputenv("XDG_SESSION_TYPE", "wayland");
+    qunsetenv("WAYLAND_DISPLAY");
+
+    const std::unique_ptr<IPlayerBackend> backend = PlayerBackendFactory::create();
+
+    qunsetenv("BLOOM_ENABLE_WAYLAND_LIBMPV");
+    qunsetenv("XDG_SESSION_TYPE");
+
+    QVERIFY(backend != nullptr);
+    QVERIFY(backend->backendName() == QStringLiteral("linux-libmpv-opengl")
+            || backend->backendName() == QStringLiteral("external-mpv-ipc"));
+#else
+    QSKIP("Wayland backend policy is only compiled on Linux");
 #endif
 }
 

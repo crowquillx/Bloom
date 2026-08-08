@@ -25,6 +25,7 @@ jobs:
         run: |
           nix build \
             .#checks.x86_64-linux.qml-lint \
+            .#checks.x86_64-linux.tests \
             .#checks.x86_64-linux.metadata \
             .#checks.x86_64-linux.release-manifest \
             .#bloom \
@@ -39,7 +40,7 @@ jobs:
           body: |
             Weekly dependency refresh.
 
-            The flake lock was updated and the build plus non-test validation passed.
+            The flake lock was updated and the build, deterministic tests, and validation checks passed.
             Portable, Flatpak, Windows, and GitHub Actions pins remain explicit
             in `packaging/dependencies.json` and Dependabot.
           labels: dependencies
