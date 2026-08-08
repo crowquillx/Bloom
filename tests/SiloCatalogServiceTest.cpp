@@ -171,6 +171,7 @@ private slots:
     void responsePreservesSnapshotAndPaginationTruth();
     void nativeResponseShapesPreserveHomeLibrarySearchAndDetailData();
     void sparseNativeMappingsPreserveFallbacksAndState();
+    void immediateCatalogRequestSurvivesAuthenticationCompletion();
     void requestHeadersAndGenerationSuppressStaleReplies();
 };
 
@@ -558,6 +559,57 @@ void SiloCatalogServiceTest::nativeResponseShapesPreserveHomeLibrarySearchAndDet
                  .first().toObject().value(QStringLiteral("part_count")).toInt(),
              2);
     QCOMPARE(detailResponse.rawItem.value(QStringLiteral("subtitles")).toArray().size(), 1);
+}
+
+void SiloCatalogServiceTest::immediateCatalogRequestSurvivesAuthenticationCompletion()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+    ScopedConfigIsolation isolation(temporaryDirectory.path());
+    ConfigManager config;
+
+    ControlledNetworkAccessManager manager;
+    manager.responses = {
+        {200,
+         QByteArrayLiteral(
+             R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":42,"username":"Alice"}})"),
+         false},
+        {200,
+         QByteArrayLiteral(
+             R"({"profiles":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true}]})"),
+         false},
+        {200,
+         QByteArrayLiteral(R"([{"id":1,"name":"Movies"}])"),
+         false}
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    auth.initialize(&config);
+    QTRY_VERIFY_WITH_TIMEOUT(!auth.isRestoringSession(), 1000);
+
+    LibraryService service(&auth);
+    QSignalSpy viewsSpy(&service, &LibraryService::canonicalViewsLoadedForConnection);
+    QVERIFY(viewsSpy.isValid());
+    connect(&auth, &AuthenticationService::authenticatedChanged,
+            &service, [&]() {
+        if (auth.isAuthenticated()) {
+            service.getViews();
+        }
+    });
+
+    auth.setProviderSelection(QStringLiteral("silo"));
+    auth.authenticate(QStringLiteral("https://silo.example.test"),
+                      QStringLiteral("Alice"),
+                      QStringLiteral("password"));
+
+    QTRY_COMPARE_WITH_TIMEOUT(viewsSpy.count(), 1, 1000);
+    QCOMPARE(manager.requests.constLast().request.url().path(),
+             QStringLiteral("/api/v1/user/libraries"));
+    const QVariantList views = viewsSpy.first().at(1).toList();
+    QCOMPARE(views.size(), 1);
+    QCOMPARE(views.constFirst().toMap().value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("1"));
 }
 
 void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()

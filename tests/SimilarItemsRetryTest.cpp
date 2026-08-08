@@ -1,13 +1,16 @@
 #include <QtTest/QtTest>
 
-#include "../src/viewmodels/MovieDetailsViewModel.h"
-#include "../src/viewmodels/SeriesDetailsViewModel.h"
+#include <memory>
 
 #include "../src/core/ServiceLocator.h"
 #include "../src/network/LibraryService.h"
 #include "../src/test/MockLibraryService.h"
 #include "../src/utils/ConfigManager.h"
 #include "../src/utils/DetailViewCache.h"
+#include "../src/viewmodels/MovieDetailsViewModel.h"
+#include "../src/viewmodels/SeriesDetailsViewModel.h"
+
+#include "TestConfigIsolation.h"
 
 class CountingLibraryService : public LibraryService
 {
@@ -140,6 +143,7 @@ class SimilarItemsRetryTest : public QObject
     Q_OBJECT
 
 private slots:
+    void initTestCase();
     void init();
     void cleanup();
     void movieSimilarItemsFailureAllowsRetry();
@@ -161,8 +165,17 @@ private slots:
     void connectionScopeCacheKeysAreCollisionResistant();
 
 private:
+    QTemporaryDir m_configDirectory;
+    std::unique_ptr<ScopedConfigIsolation> m_configIsolation;
     CountingLibraryService *m_libraryService = nullptr;
 };
+
+void SimilarItemsRetryTest::initTestCase()
+{
+    QVERIFY(m_configDirectory.isValid());
+    m_configIsolation =
+        std::make_unique<ScopedConfigIsolation>(m_configDirectory.path());
+}
 
 void SimilarItemsRetryTest::init()
 {

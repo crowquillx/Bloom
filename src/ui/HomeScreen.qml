@@ -12,18 +12,20 @@ FocusScope {
     property string navigationId: "home"
 
     property var librariesModel: []
+    property bool librariesLoading: true
+    property string librariesError: ""
     property var nextUpModel: []
     property var continueWatchingModel: []
     property var displayedNextUpModel: []
     property var recentlyAddedMap: ({}) // Map of libraryId -> items array
     // Home card sizing — dynamically fills row based on visible-items breakpoint
-    property int homeCardWidth: Math.round((parent.width - Theme.paddingLarge * 2 - Theme.spacingMedium * (Theme.homeRowVisibleItems - 1)) / Theme.homeRowVisibleItems)
+    property int homeCardWidth: Math.round(Math.max(0, root.width - Theme.paddingLarge * 2 - Theme.spacingMedium * (Theme.homeRowVisibleItems - 1)) / Theme.homeRowVisibleItems)
     // Force 16:9 aspect to reduce image crop vs. server thumbs
     property int homeCardHeight: Math.round(homeCardWidth * 9 / 16)
     // Request higher-resolution images for the scaled cards
     property int homeCardImageRequestWidth: Math.round(homeCardWidth * 2)
     // Recently Added poster sizing — same column count as home cards
-    property int recentlyAddedPosterWidth: Math.round((parent.width - Theme.paddingLarge * 2 - Theme.spacingMedium * (Theme.homeRowVisibleItems - 1)) / Theme.homeRowVisibleItems)
+    property int recentlyAddedPosterWidth: Math.round(Math.max(0, root.width - Theme.paddingLarge * 2 - Theme.spacingMedium * (Theme.homeRowVisibleItems - 1)) / Theme.homeRowVisibleItems)
     property int recentlyAddedPosterHeight: Math.round(recentlyAddedPosterWidth * 1.5)
 
     // Smooth transitions when breakpoint changes resize cards
@@ -1504,12 +1506,25 @@ FocusScope {
         }
     }
     
-    // Loading indicator
     BusyIndicator {
         anchors.centerIn: parent
-        running: librariesModel.length === 0
+        running: root.librariesLoading
         visible: running
         palette.dark: "white"
+    }
+
+    Text {
+        anchors.centerIn: parent
+        visible: !root.librariesLoading && root.librariesModel.length === 0
+        text: root.librariesError !== ""
+              ? qsTr("Could not load media libraries: %1").arg(root.librariesError)
+              : qsTr("No media libraries are available for this profile.")
+        color: Theme.textSecondary
+        font.pixelSize: Theme.fontSizeBody
+        font.family: Theme.fontPrimary
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.WordWrap
+        width: Math.max(0, Math.min(parent.width - Theme.spacingXLarge * 2, 640))
     }
     
     // Functions
@@ -1706,6 +1721,8 @@ FocusScope {
         
         function onCanonicalViewsLoadedForConnection(connectionId, views) {
             if (!root.acceptsConnectionResponse(connectionId)) return
+            librariesLoading = false
+            librariesError = ""
             var orderedViews = orderLibraries(views)
             librariesModel = orderedViews
             heroProvider.rebuild()
@@ -1840,6 +1857,10 @@ FocusScope {
 
         function onErrorOccurred(endpoint, error) {
             console.error("Error in " + endpoint + ": " + error)
+            if (endpoint === "getViews") {
+                librariesLoading = false
+                librariesError = error
+            }
         }
     }
 
@@ -1905,6 +1926,8 @@ FocusScope {
         if (homeBackdropSettings.lastBackdropUrl !== "") {
             currentBackdropUrl = homeBackdropSettings.lastBackdropUrl
         }
+        librariesLoading = true
+        librariesError = ""
         console.log("[FocusDebug] HomeScreen completed, requesting initial views")
         LibraryService.getViews()
         heroProvider.rebuild()
