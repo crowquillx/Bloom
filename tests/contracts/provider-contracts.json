@@ -922,7 +922,9 @@
         "capability": {"state": "available", "discovery": "profile-scoped route"},
         "requestSemantics": ["id is content_id and X-Profile-Id is required"],
         "requiredSemantics": ["POST marks the resolved playable target or hierarchy watched and DELETE reverses it", "Response reports content_id, type, affected_count, and played", "A subsequent detail/user-state read reflects the mutation"],
-        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/items.go"]
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/items.go"],
+        "liveProbe": true,
+        "requiresMutationFlag": true
       },
       {
         "id": "native.state.favorite",
@@ -933,7 +935,9 @@
         "capability": {"state": "available", "discovery": "profile-scoped route"},
         "requestSemantics": ["item_id is content_id and X-Profile-Id is required"],
         "requiredSemantics": ["GET returns 204 when favorited and 404 when not", "PUT and DELETE are idempotent profile-scoped mutations returning 204", "List/detail user state reflects changes"],
-        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/favorites.go"]
+        "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/favorites.go"],
+        "liveProbe": true,
+        "requiresMutationFlag": true
       },
       {
         "id": "native.artwork.refetch",

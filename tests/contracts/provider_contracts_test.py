@@ -216,6 +216,16 @@ class ProviderContractValidationTest(unittest.TestCase):
         data["nativeSiloContract"]["sourceRevision"] = "0" * 40
         with self.assertRaisesRegex(ContractValidationError, "sourceRevision must match"):
             validate_contract_data(data)
+    def test_native_state_roundtrips_are_opt_in_mutations(self):
+        requirements = {
+            requirement["id"]: requirement
+            for requirement in self.valid_data["nativeSiloContract"]["requirements"]
+        }
+        for contract_id in ("native.state.watched", "native.state.favorite"):
+            with self.subTest(contract_id=contract_id):
+                self.assertTrue(requirements[contract_id]["liveProbe"])
+                self.assertTrue(requirements[contract_id]["requiresMutationFlag"])
+
 
     def test_rejects_native_route_shape_drift(self):
         data = copy.deepcopy(self.valid_data)
@@ -373,6 +383,17 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/api/v1/health")])
         self.assertEqual({result.observed for result in results[1:]}, {"inconclusive"})
         self.assertTrue(all(result.passed for result in results))
+    def test_native_playback_version_accepts_numeric_wire_identity(self):
+        select_version = run_live_contracts.SiloNativeV1Probe._playback_version
+
+        numeric = {"file_id": 17282}
+        numeric_string = {"file_id": "17283"}
+        self.assertIs(select_version([numeric]), numeric)
+        self.assertIs(select_version([numeric_string]), numeric_string)
+        self.assertIsNone(select_version([{"file_id": True}]))
+        self.assertIsNone(select_version([{"file_id": -1}]))
+        self.assertIsNone(select_version([{"file_id": "not-numeric"}]))
+
 
     def test_native_live_probe_rejects_success_shaped_bad_health(self):
         class BadHealthTransport:

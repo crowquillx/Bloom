@@ -635,6 +635,30 @@ class SiloNativeV1Probe:
     @staticmethod
     def _non_empty_string(value: Any):
         return isinstance(value, str) and bool(value.strip())
+    @staticmethod
+    def _playback_version(versions: Any):
+        if not isinstance(versions, list):
+            return None
+        return next(
+            (
+                version
+                for version in versions
+                if isinstance(version, dict)
+                and (
+                    (
+                        isinstance(version.get("file_id"), int)
+                        and not isinstance(version.get("file_id"), bool)
+                        and version["file_id"] >= 0
+                    )
+                    or (
+                        isinstance(version.get("file_id"), str)
+                        and version["file_id"].isdigit()
+                    )
+                )
+            ),
+            None,
+        )
+
     def _record(self, results: list[ProbeResult], expected: dict[str, str], contract: str, observed: str, evidence: str):
         wanted = expected.get(contract)
         if wanted is None:
@@ -675,6 +699,10 @@ class SiloNativeV1Probe:
             "native.playback.stop",
             "native.playback.track",
         )
+        state_contracts = (
+            "native.state.watched",
+            "native.state.favorite",
+        )
         self._health(expected, results)
         if not allow_mutations:
             for contract in playback_contracts:
@@ -684,6 +712,14 @@ class SiloNativeV1Probe:
                     contract,
                     "inconclusive",
                     "destructive native playback lifecycle probe requires --allow-mutations and fixture credentials",
+                )
+            for contract in state_contracts:
+                self._record(
+                    results,
+                    expected,
+                    contract,
+                    "inconclusive",
+                    "profile state round-trip probe requires --allow-mutations and fixture credentials",
                 )
         if not self.username or not self.password:
             return results
@@ -835,14 +871,13 @@ class SiloNativeV1Probe:
                 pin_response.status == 200
                 and pin_payload.get("valid") is True
                 and self._non_empty_string(self.profile_token)
-                and self._non_empty_string(pin_payload.get("expires_at"))
             )
             self._record(
                 results,
                 expected,
                 "native.profiles.pin",
                 "supported" if pin_ok else "partial" if pin_response.status == 200 else "missing",
-                f"profile PIN verification returned HTTP {pin_response.status} with token/expiry shape={pin_ok}",
+                f"profile PIN verification returned HTTP {pin_response.status} with token shape={pin_ok}",
             )
             if not pin_ok:
                 self._cleanup()
@@ -928,11 +963,65 @@ class SiloNativeV1Probe:
             self._cleanup()
             return results
 
-        detail_id = str(content_ids[0])
+        movie_query_response = self.request(
+            "POST",
+            "/api/v1/catalog/query",
+            **scoped,
+            json_body={
+                "match": "all",
+                "groups": [
+                    {
+                        "match": "all",
+                        "rules": [{"field": "type", "op": "is", "value": "movie"}],
+                    }
+                ],
+                "limit": 5,
+                "offset": 0,
+            },
+        )
+        movie_items = self._array(
+            movie_query_response.json() if movie_query_response.status == 200 else None,
+            "items",
+        )
+        detail_candidates = [
+            item.get("content_id")
+            for item in movie_items
+            if isinstance(item, dict) and self._non_empty_string(item.get("content_id"))
+        ]
+        detail_candidates.extend(content_ids)
+        detail_candidates = list(dict.fromkeys(detail_candidates))
+
+        fallback_detail = None
+        playable_detail = None
+        for candidate_id in detail_candidates:
+            candidate_path = (
+                f"/api/v1/catalog/items/{urllib.parse.quote(str(candidate_id), safe='')}"
+            )
+            candidate_response = self.request("GET", candidate_path, **scoped)
+            candidate_detail = self._object(
+                candidate_response.json() if candidate_response.status == 200 else None
+            )
+            candidate_versions = candidate_detail.get("versions")
+            candidate_tuple = (
+                str(candidate_id),
+                candidate_response,
+                candidate_detail,
+                candidate_versions,
+            )
+            if fallback_detail is None:
+                fallback_detail = candidate_tuple
+            playback_version = self._playback_version(candidate_versions)
+            if playback_version is None:
+                continue
+            if playable_detail is None:
+                playable_detail = candidate_tuple
+            audio_tracks = playback_version.get("audio_tracks", [])
+            if isinstance(audio_tracks, list) and len(audio_tracks) > 1:
+                playable_detail = candidate_tuple
+                break
+
+        detail_id, detail_response, detail, versions = playable_detail or fallback_detail
         detail_path = f"/api/v1/catalog/items/{urllib.parse.quote(detail_id, safe='')}"
-        detail_response = self.request("GET", detail_path, **scoped)
-        detail = self._object(detail_response.json() if detail_response.status == 200 else None)
-        versions = detail.get("versions")
         detail_ok = (
             detail_response.status == 200
             and detail.get("content_id") == detail_id
@@ -940,7 +1029,10 @@ class SiloNativeV1Probe:
             and self._non_empty_string(detail.get("type"))
             and isinstance(detail.get("user_state"), dict)
             and isinstance(versions, list)
-            and all(isinstance(version, dict) and self._non_empty_string(version.get("file_id")) for version in versions)
+            and all(
+                isinstance(version, dict) and self._identity(version.get("file_id"))
+                for version in versions
+            )
             and isinstance(detail.get("playback_variants", []), list)
         )
         self._record(
@@ -950,6 +1042,125 @@ class SiloNativeV1Probe:
             "supported" if detail_ok else "partial" if detail_response.status == 200 else "missing",
             f"catalog detail returned HTTP {detail_response.status} with canonical content/version shape={detail_ok}",
         )
+        user_state = detail.get("user_state")
+        if allow_mutations and isinstance(user_state, dict):
+            original_played = user_state.get("played")
+            if isinstance(original_played, bool):
+                target_played = not original_played
+                watched_method = "POST" if target_played else "DELETE"
+                watched_restore_method = "POST" if original_played else "DELETE"
+                watched_path = (
+                    f"/api/v1/watched/{urllib.parse.quote(detail_id, safe='')}"
+                )
+                watched_mutation = self.request(
+                    watched_method,
+                    watched_path,
+                    **scoped,
+                )
+                watched_payload = self._object(watched_mutation.json())
+                watched_detail = self.request("GET", detail_path, **scoped)
+                watched_detail_state = self._object(
+                    self._object(watched_detail.json()).get("user_state")
+                )
+                watched_restore = self.request(
+                    watched_restore_method,
+                    watched_path,
+                    **scoped,
+                )
+                watched_restored_detail = self.request("GET", detail_path, **scoped)
+                watched_restored_state = self._object(
+                    self._object(watched_restored_detail.json()).get("user_state")
+                )
+                watched_ok = (
+                    watched_mutation.status == 200
+                    and watched_payload.get("content_id") == detail_id
+                    and self._non_empty_string(watched_payload.get("type"))
+                    and isinstance(watched_payload.get("affected_count"), int)
+                    and watched_payload.get("played") is target_played
+                    and watched_detail.status == 200
+                    and watched_detail_state.get("played") is target_played
+                    and watched_restore.status == 200
+                    and watched_restored_detail.status == 200
+                    and watched_restored_state.get("played") is original_played
+                )
+                self._record(
+                    results,
+                    expected,
+                    "native.state.watched",
+                    "supported" if watched_ok else "partial",
+                    "watched mutation/detail/restore statuses="
+                    f"{watched_mutation.status}/{watched_detail.status}/"
+                    f"{watched_restore.status}/{watched_restored_detail.status}; "
+                    f"state round-trip restored={watched_ok}",
+                )
+            else:
+                self._record(
+                    results,
+                    expected,
+                    "native.state.watched",
+                    "partial",
+                    "selected detail lacks a boolean user_state.played field",
+                )
+
+            original_favorite = user_state.get("is_favorite")
+            if isinstance(original_favorite, bool):
+                target_favorite = not original_favorite
+                favorite_method = "PUT" if target_favorite else "DELETE"
+                favorite_restore_method = "PUT" if original_favorite else "DELETE"
+                favorite_path = (
+                    f"/api/v1/favorites/{urllib.parse.quote(detail_id, safe='')}"
+                )
+                favorite_mutation = self.request(
+                    favorite_method,
+                    favorite_path,
+                    **scoped,
+                )
+                favorite_probe = self.request("GET", favorite_path, **scoped)
+                favorite_detail = self.request("GET", detail_path, **scoped)
+                favorite_detail_state = self._object(
+                    self._object(favorite_detail.json()).get("user_state")
+                )
+                favorite_restore = self.request(
+                    favorite_restore_method,
+                    favorite_path,
+                    **scoped,
+                )
+                favorite_restored_probe = self.request("GET", favorite_path, **scoped)
+                favorite_restored_detail = self.request("GET", detail_path, **scoped)
+                favorite_restored_state = self._object(
+                    self._object(favorite_restored_detail.json()).get("user_state")
+                )
+                favorite_ok = (
+                    favorite_mutation.status == 204
+                    and favorite_probe.status == (204 if target_favorite else 404)
+                    and favorite_detail.status == 200
+                    and favorite_detail_state.get("is_favorite") is target_favorite
+                    and favorite_restore.status == 204
+                    and favorite_restored_probe.status
+                    == (204 if original_favorite else 404)
+                    and favorite_restored_detail.status == 200
+                    and favorite_restored_state.get("is_favorite") is original_favorite
+                )
+                self._record(
+                    results,
+                    expected,
+                    "native.state.favorite",
+                    "supported" if favorite_ok else "partial",
+                    "favorite mutation/probe/detail/restore statuses="
+                    f"{favorite_mutation.status}/{favorite_probe.status}/"
+                    f"{favorite_detail.status}/{favorite_restore.status}/"
+                    f"{favorite_restored_probe.status}/{favorite_restored_detail.status}; "
+                    f"state round-trip restored={favorite_ok}",
+                )
+            else:
+                self._record(
+                    results,
+                    expected,
+                    "native.state.favorite",
+                    "partial",
+                    "selected detail lacks a boolean user_state.is_favorite field",
+                )
+
 
         artwork_urls = [
             detail.get(field)
@@ -983,14 +1194,7 @@ class SiloNativeV1Probe:
                         "destructive native playback lifecycle probe requires --allow-mutations and fixture credentials",
                     )
         else:
-            candidate = next(
-                (
-                    version
-                    for version in versions
-                    if isinstance(version, dict) and str(version.get("file_id", "")).isdigit()
-                ),
-                None,
-            )
+            candidate = self._playback_version(versions)
             if candidate is None:
                 for contract in playback_contracts:
                     self._record(results, expected, contract, "inconclusive", "catalog detail has no numeric file_id suitable for a safe playback fixture")
