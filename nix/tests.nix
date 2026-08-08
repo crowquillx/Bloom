@@ -62,6 +62,7 @@ stdenv.mkDerivation {
       ProviderCatalogTest \
       SiloCatalogServiceTest \
       ArtworkRefreshTest \
+      SiloPlaybackProviderTest \
       CanonicalModelsTest \
       InputBindingManagerTest \
       PlayerBackendFactoryTest \
