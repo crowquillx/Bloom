@@ -133,6 +133,9 @@ struct PlaybackTrack {
     bool isForced = false;
     bool isExternal = false;
     bool isHearingImpaired = false;
+    // Transient executable location for external subtitle tracks. This is
+    // retained in-process only and is not part of persistent model identity.
+    QUrl externalUrl;
 
     QVariantMap toVariantMap() const;
 };

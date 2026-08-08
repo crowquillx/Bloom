@@ -8,6 +8,7 @@
 #include <QMetaObject>
 #include <QSet>
 #include <QStringList>
+#include <QUrl>
 #include <QVariantMap>
 #include <QVariantList>
 #include <QPointer>
@@ -17,6 +18,7 @@
 #include "backend/IPlayerBackend.h"
 #include "TrickplayProcessor.h"
 #include "../network/Types.h"
+#include "../models/MediaModels.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/TrackPreferencesManager.h"
 #include "../utils/DisplayManager.h"
@@ -411,6 +413,18 @@ private slots:
     void onPlaybackInfoFailedForRequest(const QString &itemId,
                                         const QString &error,
                                         const QString &requestContext);
+    void onPlaybackDescriptorLoadedForRequest(const QString &itemId,
+                                              const Bloom::PlaybackDescriptor &descriptor,
+                                              const QString &requestContext);
+    void onPlaybackDescriptorFailedForRequest(const QString &itemId,
+                                              const QString &error,
+                                              const QString &requestContext);
+    void onPlaybackAudioSwitchedForRequest(const QString &sessionId,
+                                           const QUrl &reloadUrl,
+                                           const QString &requestContext);
+    void onPlaybackAudioSwitchFailedForRequest(const QString &sessionId,
+                                               const QString &error,
+                                               const QString &requestContext);
     void onAdditionalPartsLoaded(const QString &itemId, const QVariantList &parts);
     void onAdditionalPartsLoadedForRequest(const QString &itemId,
                                            const QVariantList &parts,
@@ -674,6 +688,26 @@ private:
     QVariantList buildAvailableTrackOptions(const QVariantMap &mediaSource, const QString &streamType) const;
     double videoFramerateForMediaSource(const QVariantMap &mediaSource) const;
     bool mediaSourceIsHdr(const QVariantMap &mediaSource) const;
+    void maybeResolvePendingRequestLibraryId(PendingPlaybackRequest &pending);
+    void maybeFinalizePendingPlaybackRequest(const QString &requestId);
+    void launchResolvedPlaybackRequest(const QString &requestId);
+    void failPendingPlaybackRequest(const QString &requestId, const QString &message);
+    void requestPlaybackDescriptors(const QString &requestId);
+    void maybeFinalizePlaybackDescriptors(const QString &requestId);
+    void applyPlaybackDescriptorToSegment(QVariantMap &segment,
+                                          const Bloom::PlaybackDescriptor &descriptor) const;
+    void appendDescriptorExternalSubtitleTracks(QVariantList &availableSubtitleTracks,
+                                                const Bloom::PlaybackDescriptor &descriptor,
+                                                int *selectedSubtitleIndex) const;
+    void queueActiveSegmentExternalSubtitleTracks();
+    void applyPendingExternalSubtitleTracks();
+    void addExternalSubtitleTrackInternal(const QString &subtitleUrl,
+                                          const QString &displayTitle,
+                                          const QString &language,
+                                          int sourceStreamIndexHint,
+                                          bool select);
+    QVariantMap buildPlaybackVersionDialogModel(const QString &requestId) const;
+    QString buildVersionSubtitle(const QVariantMap &mediaSource) const;
     /**
      * Convert a playback state enum value to a human-readable string.
      * @param state PlaybackState value to convert.
@@ -690,13 +724,8 @@ private:
     void fallbackToPendingAutoplayPlayback();
     [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex() const;
     void stopAutoplayPlaybackInfoWait();
+    void armAutoplayPlaybackInfoWait();
     static qint64 resumePositionMs(const QVariantMap &item);
-    void maybeResolvePendingRequestLibraryId(PendingPlaybackRequest &pending);
-    void maybeFinalizePendingPlaybackRequest(const QString &requestId);
-    void launchResolvedPlaybackRequest(const QString &requestId);
-    void failPendingPlaybackRequest(const QString &requestId, const QString &message);
-    QVariantMap buildPlaybackVersionDialogModel(const QString &requestId) const;
-    QString buildVersionSubtitle(const QVariantMap &mediaSource) const;
     QVariantMap selectMediaSourceForRequest(const QVariantList &mediaSources,
                                             const QString &forcedMediaSourceId,
                                             bool useAffinityFallback) const;
@@ -741,13 +770,17 @@ private:
         QObject *restoreFocusTarget = nullptr;
         bool additionalPartsLoaded = false;
         bool versionSelectionRequested = false;
+        QHash<QString, PlaybackInfoResponse> playbackInfos;
+        QVariantList descriptorSegments;
+        QHash<QString, Bloom::PlaybackDescriptor> descriptors;
+        int pendingDescriptorCount = 0;
+        bool descriptorsRequested = false;
         QString chosenMediaSourceId;
         QVariantList additionalParts;
         QSet<QString> awaitedPlaybackInfoIds;
         QSet<QString> failedPlaybackInfoIds;
         bool primaryPlaybackInfoFailed = false;
         QString failureMessage;
-        QHash<QString, PlaybackInfoResponse> playbackInfos;
     };
 
     IPlayerBackend *m_playerBackend;
@@ -877,6 +910,18 @@ private:
     QHash<int, int> m_audioTrackReverseMap;    // mpv aid track ID (1-based) -> provider source index
     QHash<int, int> m_subtitleTrackReverseMap; // mpv sid track ID (1-based) -> provider source index
     QString m_mediaSourceId;            // Current media source ID
+    QVariantList m_pendingExternalSubtitleTracks;
+    QString m_pendingAutoplayDescriptorContext;
+    QString m_pendingAutoplayDescriptorItemId;
+    QVariantMap m_pendingAutoplayDescriptorSource;
+    int m_pendingAutoplayDescriptorAudioIndex = -1;
+    int m_pendingAutoplayDescriptorSubtitleIndex = -1;
+    qint64 m_pendingAutoplayDescriptorStartPositionMs = 0;
+    QString m_pendingAutoplayDescriptorSessionId;
+    QVariantList m_pendingAutoplayDescriptorAudioTracks;
+    QVariantList m_pendingAutoplayDescriptorSubtitleTracks;
+    QString m_pendingAudioSwitchContext;
+    int m_pendingAudioSwitchPreviousTrack = -2;
     QString m_playSessionId;            // Playback session ID for reporting
     QVariantList m_availableAudioTracks;
     QVariantList m_availableSubtitleTracks;

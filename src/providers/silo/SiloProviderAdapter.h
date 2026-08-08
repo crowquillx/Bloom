@@ -4,8 +4,8 @@
 #include "providers/silo/SiloAuthenticator.h"
 #include "providers/silo/SiloCatalogProvider.h"
 #include "providers/silo/SiloModelMapper.h"
+#include "providers/silo/SiloPlaybackProvider.h"
 #include "providers/silo/SiloRequestFactory.h"
-
 #include <QUrl>
 
 class SiloProviderAdapter final : public IProviderAdapter
@@ -17,14 +17,12 @@ public:
     const IProviderAuthenticator *authenticator() const override { return &m_authenticator; }
     const IProviderRequestFactory *requestFactory() const override { return &m_requestFactory; }
 
-    // Native playback is intentionally not advertised until the dedicated playback phase.
-    const IPlaybackProvider *playbackProvider() const override { return nullptr; }
+    const IPlaybackProvider *playbackProvider() const override { return &m_playbackProvider; }
     const ICatalogProvider *catalogProvider() const override { return &m_catalogProvider; }
 
     PlaybackInfoResponse mapPlaybackInfo(const QJsonObject &wirePlaybackInfo) const override
     {
-        Q_UNUSED(wirePlaybackInfo)
-        return {};
+        return SiloModelMapper::playbackInfo(wirePlaybackInfo);
     }
 
     ProviderItemsResponseParser itemsResponseParser() const override
@@ -130,8 +128,10 @@ public:
             return endpointWithId(QStringLiteral("/api/v1/markers/items/%1"),
                                   context.itemId);
         case ProviderRoute::PlaybackInfo:
+            return endpointWithId(QStringLiteral("/api/v1/catalog/items/%1"),
+                                  context.itemId);
         case ProviderRoute::PlaybackCapability:
-            return std::nullopt;
+            return QStringLiteral("/api/v1/playback/capability");
         }
         return std::nullopt;
     }
@@ -202,6 +202,8 @@ private:
         capabilities |= ProviderCapability::AuthSessions;
         capabilities |= ProviderCapability::Catalog;
         capabilities |= ProviderCapability::NativeState;
+        capabilities |= ProviderCapability::Playback;
+        capabilities |= ProviderCapability::PlaybackReporting;
         capabilities |= ProviderCapability::MediaSegments;
         return capabilities;
     }
@@ -216,7 +218,8 @@ private:
         return format.arg(QString::fromLatin1(QUrl::toPercentEncoding(normalized)));
     }
 
-    SiloAuthenticator m_authenticator;
     SiloCatalogProvider m_catalogProvider;
+    SiloAuthenticator m_authenticator;
+    SiloPlaybackProvider m_playbackProvider;
     SiloRequestFactory m_requestFactory;
 };

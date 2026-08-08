@@ -285,6 +285,43 @@ public:
         return descriptor;
     }
 
+    void requestPlaybackDescriptor(const QString &itemId,
+                                   const QVariantMap &providerSource,
+                                   int selectedAudioTrack,
+                                   int selectedSubtitleTrack,
+                                   qint64 startPositionMs,
+                                   const QString &playbackSessionId,
+                                   const QString &requestContext) override
+    {
+        const Bloom::PlaybackDescriptor descriptor = createPlaybackDescriptor(
+            itemId, providerSource, selectedAudioTrack, selectedSubtitleTrack,
+            startPositionMs, playbackSessionId);
+        requestedDescriptorContexts.append(requestContext);
+        if (deferDescriptorRequests) {
+            return;
+        }
+        if (descriptor.stream.isValid()) {
+            emit playbackDescriptorLoadedForRequest(itemId, descriptor, requestContext);
+        } else {
+            emit playbackDescriptorFailedForRequest(itemId,
+                                                     QStringLiteral("invalid descriptor"),
+                                                     requestContext);
+        }
+    }
+
+    bool switchPlaybackAudio(const QString &playbackSessionId,
+                             int audioTrackIndex,
+                             qint64 positionMs,
+                             const QString &requestContext) override
+    {
+        Q_UNUSED(audioTrackIndex);
+        Q_UNUSED(positionMs);
+        emit playbackAudioSwitchedForRequest(playbackSessionId,
+                                             QUrl(QStringLiteral("https://example.invalid/reloaded")),
+                                             requestContext);
+        return true;
+    }
+
     void getPlaybackInfo(const QString &itemId) override
     {
         requestedPlaybackInfoItemIds.append(itemId);
@@ -347,6 +384,8 @@ public:
     QStringList requestedPlaybackInfoContexts;
     QStringList requestedAdditionalPartsItemIds;
     QStringList requestedAdditionalPartsContexts;
+    bool deferDescriptorRequests = false;
+    QStringList requestedDescriptorContexts;
     mutable QStringList requestedDescriptorItemIds;
     mutable QStringList requestedDescriptorMediaSourceIds;
     mutable QList<int> requestedDescriptorAudioIndexes;
@@ -453,15 +492,17 @@ private slots:
     void explicitPausedStopReportsPausedState();
     void explicitMultipartStopReportsActiveSegmentContext();
     void playbackEndedUpgradesQueuedStopFinalization();
-    void nextEpisodeNavigationKeepsAwaitingUntilQueuedDelivery();
-    void upNextIdleParkingInvalidatesQueuedDisplayRestore();
-    void deferredPostPlaybackDisplayRestoreCanBeReleased();
-    void nextEpisodeNavigationUsesPendingTrackContext();
-    void nextEpisodeIgnoresMismatchedSeries();
-    void nextEpisodeIgnoresMismatchedConnection();
     void playbackPrefetchIgnoresGenericNextEpisodeResponses();
     void autoplayPlaybackInfoErrorFallsBackToBasicPlayback();
     void autoplayToneMapStateSurvivesPlaybackInfoFallback();
+    void staleNativeAudioSwitchResponseIsIgnoredAfterNonNativeSelection();
+    void autoplayDescriptorWaitIsBoundedAndFallbackIsOneShot();
+    void nextEpisodeNavigationUsesPendingTrackContext();
+    void nextEpisodeNavigationKeepsAwaitingUntilQueuedDelivery();
+    void upNextIdleParkingInvalidatesQueuedDisplayRestore();
+    void deferredPostPlaybackDisplayRestoreCanBeReleased();
+    void nextEpisodeIgnoresMismatchedSeries();
+    void nextEpisodeIgnoresMismatchedConnection();
     void displayHdrPolicyDoesNotToggleWhenToneMappingToSdr();
     void dolbyVisionWithHdr10BaseLayerDoesNotForceToneMap();
     void autoplayPlaybackInfoUsesStoredSubtitlePreferenceWhenOverrideUnset();
@@ -505,6 +546,9 @@ private slots:
     void runtimeTrackSelectionUsesCanonicalMapAndSubtitleNone();
     void runtimeSubtitleDelayAppliesAndPersists();
     void backendTrackSyncUsesReverseMap();
+    void descriptorPinnedTrackIdsDefaultToMinusOne();
+    void nativeAudioReloadRetainsTrackMapping();
+    void externalSubtitleSelectionReaddsUnresolvedTrack();
 
 private:
     QTemporaryDir m_configHome;
@@ -1454,6 +1498,99 @@ void PlayerControllerAutoplayContextTest::autoplayToneMapStateSurvivesPlaybackIn
     QCOMPARE(controller.m_currentItemId, QStringLiteral("episode-dv"));
     QVERIFY(controller.m_contentIsHDR);
     QVERIFY(controller.m_contentShouldToneMapToSdr);
+}
+
+void PlayerControllerAutoplayContextTest::staleNativeAudioSwitchResponseIsIgnoredAfterNonNativeSelection()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_streamPinsAudioTrack = true;
+    controller.m_playSessionId = QStringLiteral("session-audio");
+    controller.m_selectedAudioTrack = 3;
+    controller.m_pendingAudioSwitchContext = QStringLiteral("audio|7|4");
+    controller.m_pendingAudioSwitchPreviousTrack = 3;
+
+    controller.setSelectedAudioTrack(-1);
+
+    QVERIFY(controller.m_pendingAudioSwitchContext.isEmpty());
+    QCOMPARE(controller.selectedAudioTrack(), -1);
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onPlaybackAudioSwitchFailedForRequest",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("session-audio")),
+                                      Q_ARG(QString, QStringLiteral("stale failure")),
+                                      Q_ARG(QString, QStringLiteral("audio|7|4"))));
+    QCOMPARE(controller.selectedAudioTrack(), -1);
+}
+
+void PlayerControllerAutoplayContextTest::autoplayDescriptorWaitIsBoundedAndFallbackIsOneShot()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    playbackService.deferDescriptorRequests = true;
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    controller.m_pendingAutoplaySeriesId = QStringLiteral("series-bound");
+    controller.m_pendingAutoplaySeasonId = QStringLiteral("season-bound");
+    controller.m_pendingAutoplayEpisodeData = QVariantMap{
+        {QStringLiteral("itemId"), QStringLiteral("episode-bound")},
+        {QStringLiteral("seasonId"), QStringLiteral("season-bound")}
+    };
+    controller.m_waitingForAutoplayPlaybackInfo = true;
+
+    PlaybackInfoResponse playbackInfo;
+    playbackInfo.playSessionId = QStringLiteral("session-bound");
+    MediaSourceInfo mediaSource;
+    mediaSource.id = QStringLiteral("source-bound");
+    mediaSource.mediaStreams = {
+        MediaStreamInfo{.index = 1, .type = QStringLiteral("Audio")}
+    };
+    playbackInfo.mediaSources.append(mediaSource);
+
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onPlaybackInfoLoaded",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QString, QStringLiteral("episode-bound")),
+                                      Q_ARG(PlaybackInfoResponse, playbackInfo)));
+    QVERIFY(controller.m_waitingForAutoplayPlaybackInfo);
+    QCOMPARE(playbackService.requestedDescriptorContexts.size(), 1);
+
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onAutoplayPlaybackInfoTimeout",
+                                      Qt::DirectConnection));
+    QVERIFY(controller.m_waitingForAutoplayPlaybackInfo);
+    QCOMPARE(playbackService.requestedDescriptorContexts.size(), 2);
+
+    QVERIFY(QMetaObject::invokeMethod(&controller,
+                                      "onAutoplayPlaybackInfoTimeout",
+                                      Qt::DirectConnection));
+    QVERIFY(!controller.m_waitingForAutoplayPlaybackInfo);
+    QCOMPARE(playbackService.requestedDescriptorContexts.size(), 2);
 }
 
 void PlayerControllerAutoplayContextTest::displayHdrPolicyDoesNotToggleWhenToneMappingToSdr()
@@ -3267,9 +3404,24 @@ void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntil
             {QStringLiteral("playSessionId"), QStringLiteral("session-2")},
             {QStringLiteral("mediaSource"), part2Source},
             {QStringLiteral("audioIndex"), 2},
-            {QStringLiteral("subtitleIndex"), -1},
+            {QStringLiteral("subtitleIndex"), -1000},
             {QStringLiteral("availableAudioTracks"), controller.buildAvailableTrackOptions(part2Source, QStringLiteral("Audio"))},
-            {QStringLiteral("availableSubtitleTracks"), controller.buildAvailableTrackOptions(part2Source, QStringLiteral("Subtitle"))},
+            {QStringLiteral("availableSubtitleTracks"), QVariantList{
+                QVariantMap{
+                    {QStringLiteral("index"), -1000},
+                    {QStringLiteral("displayTitle"), QStringLiteral("Part 2 selected")},
+                    {QStringLiteral("language"), QStringLiteral("eng")},
+                    {QStringLiteral("isExternal"), true},
+                    {QStringLiteral("externalUrl"), QStringLiteral("https://example.invalid/part-2-selected.vtt")}
+                },
+                QVariantMap{
+                    {QStringLiteral("index"), -1001},
+                    {QStringLiteral("displayTitle"), QStringLiteral("Part 2 alternate")},
+                    {QStringLiteral("language"), QStringLiteral("fra")},
+                    {QStringLiteral("isExternal"), true},
+                    {QStringLiteral("externalUrl"), QStringLiteral("https://example.invalid/part-2-alternate.vtt")}
+                }
+            }},
             {QStringLiteral("durationMs"), 60000LL},
             {QStringLiteral("url"), QStringLiteral("https://example.invalid/part-2")}
         }
@@ -3288,6 +3440,22 @@ void PlayerControllerAutoplayContextTest::multipartIntermediateEndIsIgnoredUntil
     QCOMPARE(controller.m_mediaSourceId, QStringLiteral("part-2-source"));
     QCOMPARE(controller.m_playSessionId, QStringLiteral("session-2"));
     QCOMPARE(controller.activePlaybackSegmentItemId(), QStringLiteral("part-2"));
+    QCOMPARE(controller.m_externalSubtitleTrackMap.size(), 2);
+    QVERIFY(controller.m_externalSubtitleTrackMap.contains(-1000));
+    QVERIFY(controller.m_externalSubtitleTrackMap.contains(-1001));
+    QVERIFY(controller.m_pendingExternalSubtitleTracks.isEmpty());
+    QCOMPARE(backend.variantCommands.size(), 2);
+    QCOMPARE(backend.variantCommands.at(0).at(0).toString(), QStringLiteral("sub-add"));
+    QCOMPARE(backend.variantCommands.at(0).at(1).toString(),
+             QStringLiteral("https://example.invalid/part-2-alternate.vtt"));
+    QCOMPARE(backend.variantCommands.at(0).at(2).toString(), QStringLiteral("auto"));
+    QCOMPARE(backend.variantCommands.at(1).at(1).toString(),
+             QStringLiteral("https://example.invalid/part-2-selected.vtt"));
+    QCOMPARE(backend.variantCommands.at(1).at(2).toString(), QStringLiteral("select"));
+
+    // Re-emitting the same playlist position must not add duplicate subtitle tracks.
+    controller.onPlaylistPositionChanged(1);
+    QCOMPARE(backend.variantCommands.size(), 2);
 }
 
 void PlayerControllerAutoplayContextTest::versionAffinityPrefersMatchingParentPath()
@@ -3544,6 +3712,128 @@ void PlayerControllerAutoplayContextTest::backendTrackSyncUsesReverseMap()
     QCOMPARE(preferences.subtitle.mode, TrackPreferenceMode::ExplicitStream);
     QCOMPARE(preferences.subtitle.streamIndex, 12);
 }
+
+void PlayerControllerAutoplayContextTest::descriptorPinnedTrackIdsDefaultToMinusOne()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    Bloom::PlaybackDescriptor descriptor;
+    descriptor.stream.url = QUrl(QStringLiteral("https://example.invalid/stream"));
+    descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
+    QVariantMap segment;
+    controller.applyPlaybackDescriptorToSegment(segment, descriptor);
+    QCOMPARE(segment.value(QStringLiteral("pinnedAudioTrack")).toInt(), -1);
+    QCOMPARE(segment.value(QStringLiteral("pinnedSubtitleTrack")).toInt(), -1);
+
+    descriptor.stream.pinnedAudioTrackId = QStringLiteral("not-a-number");
+    descriptor.stream.pinnedSubtitleTrackId = QStringLiteral("also-invalid");
+    controller.applyPlaybackDescriptorToSegment(segment, descriptor);
+    controller.m_pendingAutoplayDescriptorContext =
+        QStringLiteral("autoplay|descriptor|item-1");
+    controller.m_pendingAutoplayDescriptorItemId = QStringLiteral("item-1");
+    controller.m_pendingAutoplayDescriptorAudioIndex = -1;
+    controller.m_pendingAutoplayDescriptorSubtitleIndex = -1;
+    controller.onPlaybackDescriptorLoadedForRequest(
+        QStringLiteral("item-1"),
+        descriptor,
+        controller.m_pendingAutoplayDescriptorContext);
+    QCOMPARE(controller.m_nextPinnedAudioTrack, -1);
+    QCOMPARE(controller.m_nextPinnedSubtitleTrack, -1);
+    QCOMPARE(segment.value(QStringLiteral("pinnedAudioTrack")).toInt(), -1);
+    QCOMPARE(segment.value(QStringLiteral("pinnedSubtitleTrack")).toInt(), -1);
+}
+
+void PlayerControllerAutoplayContextTest::nativeAudioReloadRetainsTrackMapping()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    FakePlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_playSessionId = QStringLiteral("session-1");
+    controller.m_pendingAudioSwitchContext = QStringLiteral("audio|attempt|9");
+    controller.m_selectedAudioTrack = 9;
+    controller.m_activeMediaSource = buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 4}},
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")}, {QStringLiteral("index"), 9}}
+    });
+    controller.updateTrackMappings(controller.m_activeMediaSource);
+
+    controller.onPlaybackAudioSwitchedForRequest(
+        QStringLiteral("session-1"),
+        QUrl(QStringLiteral("https://example.invalid/reloaded")),
+        QStringLiteral("audio|attempt|9"));
+    backend.emitAudioTrackId(2);
+
+    QCOMPARE(controller.selectedAudioTrack(), 9);
+    QCOMPARE(controller.m_mpvAudioTrack, 2);
+}
+
+void PlayerControllerAutoplayContextTest::externalSubtitleSelectionReaddsUnresolvedTrack()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    controller.m_playbackState = PlayerController::Playing;
+
+    controller.addExternalSubtitleTrackInternal(
+        QStringLiteral("https://example.invalid/subtitle.vtt"),
+        QStringLiteral("English"),
+        QStringLiteral("eng"),
+        -1000,
+        false);
+    QCOMPARE(controller.m_externalSubtitleTrackMap.value(-1000), -1);
+    backend.variantCommands.clear();
+
+    controller.setSelectedSubtitleTrack(-1000);
+
+    QVERIFY(backend.variantCommands.contains(QVariantList{
+        QStringLiteral("sub-add"),
+        QStringLiteral("https://example.invalid/subtitle.vtt"),
+        QStringLiteral("select"),
+        QStringLiteral("English"),
+        QStringLiteral("eng")
+    }));
+}
+
 
 QTEST_MAIN(PlayerControllerAutoplayContextTest)
 #include "PlayerControllerAutoplayContextTest.moc"

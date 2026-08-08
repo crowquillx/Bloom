@@ -747,8 +747,11 @@
         "path": "/api/v1/playback/start",
         "outcome": "supported",
         "capability": {"state": "available", "discovery": "absence of protocol_version selects the legacy decoder"},
-        "requestSemantics": ["JSON includes file_id, optional matching profile_id, play_method or client codec/container/HDR capabilities, start_position seconds, and optional audio_track_index", "X-Profile-Id is mandatory and file_id must be accessible to that profile"],
-        "requiredSemantics": ["Without protocol_version 3 the legacy decoder selects direct, remux, or transcode and returns HTTP 201", "Response includes session_id, media_file_id, play_method, position, stream_url, audio_track_index, duration_seconds, subtitle_urls, and playback_info", "Relative or absolute stream/subtitle URLs and signed query parameters remain opaque", "Alternate-version selection is reflected by media_file_id and multipart ordering remains in catalog playback_variants"],
+        "requestSemantics": ["JSON includes numeric file_id, optional matching profile_id, play_method or mpv codec/container/HDR/resolution/passthrough/bitmap-subtitle capabilities, start_position seconds, and optional audio_track_index; no native variant field is sent", "The selected catalog version and multipart part are identified by file_id"],
+        "requiredSemantics": ["Without protocol_version 3 the legacy decoder selects direct, remux, or HLS/transcode and returns HTTP 201", "Response includes session_id, media_file_id, play_method, position, stream_url, audio_track_index, duration_seconds, subtitle_urls, and playback_info", "Relative or absolute stream/subtitle URLs and signed query parameters remain opaque and range-capable direct URLs are preserved", "Alternate-version selection is reflected by media_file_id and multipart playback uses sequential native sessions per file_id", "Native start failures and expired stream locations are surfaced for recovery/refetch rather than silently falling back to Jellyfin"],
+        "implementationEvidence": ["src/providers/silo/SiloPlaybackProvider.cpp", "src/providers/silo/SiloPlaybackProvider.h"],
+        "liveProbe": true,
+        "requiresMutationFlag": true,
         "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/playback.go"]
       },
       {
@@ -758,8 +761,11 @@
         "path": "/api/v1/playback/{session_id}/progress",
         "outcome": "supported",
         "capability": {"state": "available", "discovery": "legacy playback session"},
-        "requestSemantics": ["JSON contains position seconds and is_paused"],
-        "requiredSemantics": ["Only the session owner may update progress", "Update returns 204 and best-effort persists resume/completion state to the selected profile", "Pause and resume transitions update scrobble state without ending the session"],
+        "requestSemantics": ["JSON contains seconds and is_paused"],
+        "liveProbe": true,
+        "requiresMutationFlag": true,
+        "requiredSemantics": ["Only the session owner may update progress", "Update returns 204 and best-effort persists resume/completion state to the selected profile using seconds", "Pause and resume transitions update scrobble state without ending the session"],
+        "implementationEvidence": ["src/providers/silo/SiloPlaybackProvider.cpp", "src/providers/silo/SiloPlaybackProvider.h"],
         "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/playback.go"]
       },
       {
@@ -768,9 +774,12 @@
         "method": "DELETE",
         "path": "/api/v1/playback/{session_id}",
         "outcome": "supported",
+        "liveProbe": true,
+        "requiresMutationFlag": true,
         "capability": {"state": "available", "discovery": "legacy playback session"},
         "requestSemantics": ["Bearer account must own session_id"],
         "requiredSemantics": ["Stop persists final session progress, tears down stream/transcode resources, and returns 204", "Missing sessions use the playback_session_not_found error rather than succeeding silently"],
+        "implementationEvidence": ["src/providers/silo/SiloPlaybackProvider.cpp", "src/providers/silo/SiloPlaybackProvider.h"],
         "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/playback.go"]
       },
       {
@@ -778,7 +787,7 @@
         "issue": 79,
         "method": "POST",
         "path": "/api/v1/playback/transcode/start",
-        "outcome": "supported",
+        "outcome": "partial",
         "capability": {"state": "conditional", "discovery": "legacy start play_method plus user/server transcode policy"},
         "requestSemantics": ["JSON names session_id, seek_seconds, target codecs/resolution/bitrate, segment_duration, and subtitle burn-in selection"],
         "requiredSemantics": ["Response has manifest_url, duration_seconds, player_start_seconds, stream_origin_seconds, timeline_offset_seconds, and can_seek_anywhere", "Signed manifest URLs are replaced after recipe, seek, quality, file, or subtitle changes", "Server policy may return transcoding_disabled, audio_transcoding_disabled, no_alternate_version, or subtitle_source_unavailable instead of claiming support"],
@@ -789,10 +798,13 @@
         "issue": 79,
         "method": "PATCH",
         "path": "/api/v1/playback/{session_id}/audio",
+        "liveProbe": true,
+        "requiresMutationFlag": true,
         "outcome": "supported",
         "capability": {"state": "conditional", "discovery": "audio track inventory in catalog versions"},
-        "requestSemantics": ["JSON contains audio_track_index and position seconds"],
+        "requestSemantics": ["JSON contains audio_track_index"],
         "requiredSemantics": ["Out-of-range indices return 400 and other-account sessions return 403", "Success returns audio_track_index, effective play_method, replacement stream_url, switch_mode reload, and playback_info", "A track change may promote direct play to remux or audio transcode and must replace the signed stream recipe"],
+        "implementationEvidence": ["src/providers/silo/SiloPlaybackProvider.cpp", "src/providers/silo/SiloPlaybackProvider.h"],
         "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/playback.go"]
       },
       {

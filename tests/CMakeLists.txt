@@ -27,6 +27,8 @@ set(TEST_PROVIDER_BOUNDARY_SOURCES
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinModelMapper.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinPlaybackProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinRequestFactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloPlaybackProvider.cpp
 )
 
 set(TEST_CONFIG_SOURCES
@@ -284,6 +286,28 @@ target_link_libraries(SiloAuthenticationTest
 )
 
 add_test(NAME SiloAuthenticationTest COMMAND SiloAuthenticationTest)
+add_executable(SiloPlaybackProviderTest
+    SiloPlaybackProviderTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloPlaybackProvider.cpp
+)
+
+target_include_directories(SiloPlaybackProviderTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(SiloPlaybackProviderTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME SiloPlaybackProviderTest COMMAND SiloPlaybackProviderTest)
+
 
 add_executable(ProviderCatalogTest
     ProviderCatalogTest.cpp

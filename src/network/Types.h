@@ -93,6 +93,9 @@ struct MediaSourceInfo
     Q_PROPERTY(qint64 durationMs MEMBER durationMs)
     Q_PROPERTY(int defaultAudioStreamIndex MEMBER defaultAudioStreamIndex)
     Q_PROPERTY(int defaultSubtitleStreamIndex MEMBER defaultSubtitleStreamIndex)
+    Q_PROPERTY(QString playbackVariantId MEMBER playbackVariantId)
+    Q_PROPERTY(int presentationPartIndex MEMBER presentationPartIndex)
+    Q_PROPERTY(int presentationPartTotal MEMBER presentationPartTotal)
     Q_PROPERTY(QVariantList mediaStreams READ getMediaStreamsVariant)
 
 public:
@@ -108,6 +111,9 @@ public:
     qint64 durationMs = 0;
     int defaultAudioStreamIndex = -1;
     int defaultSubtitleStreamIndex = -1;
+    QString playbackVariantId;
+    int presentationPartIndex = 0;
+    int presentationPartTotal = 0;
     QList<MediaStreamInfo> mediaStreams;
 
     [[nodiscard]] QList<MediaStreamInfo> getVideoStreams() const;

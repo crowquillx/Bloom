@@ -14,6 +14,8 @@ class SiloModelMapper
 {
 public:
     static qint64 secondsToMilliseconds(double seconds);
+    static PlaybackInfoResponse playbackInfo(const QJsonObject &wireItem);
+    static PlaybackInfoResponse playbackInfoFromVersions(const QJsonArray &wireVersions);
 
     static ParsedItemsResult itemsResponse(const QByteArray &wireResponse,
                                            const QString &parentId);

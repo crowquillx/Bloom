@@ -70,6 +70,54 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertNotIn("server_id", detection["requiredFields"])
         self.assertIn("server_id", detection["optionalFields"])
         validate_contract_data(data)
+    def test_native_playback_routes_and_semantics_are_pinned(self):
+        requirements = {
+            requirement["id"]: requirement
+            for requirement in self.valid_data["nativeSiloContract"]["requirements"]
+        }
+        expected_routes = {
+            "native.playback.capability": ("GET", "/api/v1/playback/capability"),
+            "native.playback.start-legacy": ("POST", "/api/v1/playback/start"),
+            "native.playback.progress": ("POST", "/api/v1/playback/{session_id}/progress"),
+            "native.playback.stop": ("DELETE", "/api/v1/playback/{session_id}"),
+            "native.playback.track": ("PATCH", "/api/v1/playback/{session_id}/audio"),
+        }
+        for contract_id, (expected_method, expected_path) in expected_routes.items():
+            with self.subTest(contract_id=contract_id):
+                requirement = requirements[contract_id]
+                self.assertEqual(requirement["method"], expected_method)
+                self.assertEqual(requirement["path"], expected_path)
+                semantics = " ".join(requirement["requestSemantics"] + requirement["requiredSemantics"]).lower()
+                expected_term = {
+                    "native.playback.capability": "protocol v3",
+                    "native.playback.start-legacy": "file_id",
+                    "native.playback.progress": "seconds",
+                    "native.playback.stop": "tears down",
+                    "native.playback.track": "audio_track_index",
+                }[contract_id]
+                self.assertIn(expected_term, semantics)
+
+        start = requirements["native.playback.start-legacy"]
+        start_semantics = " ".join(start["requestSemantics"] + start["requiredSemantics"]).lower()
+        for term in ("start_position", "audio_track_index", "codec", "container", "hdr", "subtitle", "stream_url", "playback_info", "range", "multipart"):
+            self.assertIn(term, start_semantics)
+
+    def test_native_playback_pin_identity_and_implementation_evidence(self):
+        native = self.valid_data["nativeSiloContract"]
+        snapshot = self.valid_data["snapshot"]
+        self.assertEqual(native["sourceRevision"], snapshot["siloRevision"])
+        self.assertEqual(snapshot["siloImageTag"], snapshot["siloRevision"][:7])
+        for requirement in native["requirements"]:
+            if requirement["id"] in {"native.playback.start-legacy", "native.playback.progress", "native.playback.stop", "native.playback.track"}:
+                self.assertTrue(requirement["implementationEvidence"])
+                self.assertTrue(all(path.startswith("src/") for path in requirement["implementationEvidence"]))
+
+    def test_rejects_native_playback_pin_drift(self):
+        data = copy.deepcopy(self.valid_data)
+        data["nativeSiloContract"]["sourceRevision"] = "0" * 40
+        with self.assertRaisesRegex(ContractValidationError, "sourceRevision must match"):
+            validate_contract_data(data)
+
     def test_rejects_native_route_shape_drift(self):
         data = copy.deepcopy(self.valid_data)
         page = next(
@@ -79,7 +127,10 @@ class ProviderContractValidationTest(unittest.TestCase):
         )
         page["path"] = "/api/v1/catalog/search"
 
-        with self.assertRaisesRegex(ContractValidationError, "route shape drifted"):
+        with self.assertRaisesRegex(
+            ContractValidationError,
+            r"native\.catalog\.page route shape drifted from the pinned native contract",
+        ):
             validate_contract_data(data)
 
     def test_rejects_native_auth_and_catalog_shape_drift(self):
@@ -91,7 +142,7 @@ class ProviderContractValidationTest(unittest.TestCase):
         )
         login["requiredSemantics"] = ["HTTP 200"]
 
-        with self.assertRaisesRegex(ContractValidationError, "not only an HTTP status"):
+        with self.assertRaisesRegex(ContractValidationError, "missing deterministic shape semantics"):
             validate_contract_data(data)
 
     def test_native_deployment_is_distinct_from_compatibility_mode(self):
@@ -109,11 +160,11 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertNotEqual(native["id"], compatibility["id"])
         self.assertNotEqual(native["supportLabel"], compatibility["supportLabel"])
         validate_contract_data(self.valid_data)
-
     def test_rejects_native_contract_without_live_probe(self):
         data = copy.deepcopy(self.valid_data)
         for requirement in data["nativeSiloContract"]["requirements"]:
             requirement.pop("liveProbe", None)
+            requirement.pop("requiresMutationFlag", None)
 
         with self.assertRaisesRegex(ContractValidationError, "at least one liveProbe"):
             validate_contract_data(data)
@@ -200,6 +251,29 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0].passed)
         self.assertIn("server_id=omitted", results[0].evidence)
+    def test_native_playback_probe_requires_explicit_mutation_flag(self):
+        class RecordingTransport:
+            def __init__(self):
+                self.calls = []
+
+            def request(self, method, path, **kwargs):
+                self.calls.append((method, path, kwargs))
+                return Response(200, {"Content-Type": "application/json"}, b'{"status": "ok"}')
+
+        transport = RecordingTransport()
+        probe = DRIVERS["silo-native-v1"](transport, "", "", "0.0-contract")
+        expected = {
+            "native.health": "partial",
+            "native.playback.start-legacy": "supported",
+            "native.playback.progress": "supported",
+            "native.playback.stop": "supported",
+            "native.playback.track": "supported",
+        }
+        results = probe.run(expected, allow_mutations=False)
+
+        self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/api/v1/health")])
+        self.assertEqual({result.observed for result in results[1:]}, {"inconclusive"})
+        self.assertTrue(all(result.passed for result in results))
 
     def test_native_live_probe_rejects_success_shaped_bad_health(self):
         class BadHealthTransport:

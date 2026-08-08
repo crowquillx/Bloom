@@ -556,7 +556,7 @@ class MediaBrowserV1Probe:
 
 
 class SiloNativeV1Probe:
-    """Probe native Silo health, auth, profiles, catalog, and artwork when credentials are supplied."""
+    """Probe native Silo reads and an opt-in legacy playback lifecycle."""
 
     requires_credentials = False
 
@@ -627,9 +627,14 @@ class SiloNativeV1Probe:
         return []
 
     @staticmethod
+    def _identity(value: Any):
+        return (isinstance(value, str) and bool(value.strip())) or (
+            isinstance(value, int) and not isinstance(value, bool)
+        )
+
+    @staticmethod
     def _non_empty_string(value: Any):
         return isinstance(value, str) and bool(value.strip())
-
     def _record(self, results: list[ProbeResult], expected: dict[str, str], contract: str, observed: str, evidence: str):
         wanted = expected.get(contract)
         if wanted is None:
@@ -663,7 +668,23 @@ class SiloNativeV1Probe:
 
     def run(self, expected: dict[str, str], allow_mutations: bool):
         results: list[ProbeResult] = []
+        playback_contracts = (
+            "native.playback.capability",
+            "native.playback.start-legacy",
+            "native.playback.progress",
+            "native.playback.stop",
+            "native.playback.track",
+        )
         self._health(expected, results)
+        if not allow_mutations:
+            for contract in playback_contracts:
+                self._record(
+                    results,
+                    expected,
+                    contract,
+                    "inconclusive",
+                    "destructive native playback lifecycle probe requires --allow-mutations and fixture credentials",
+                )
         if not self.username or not self.password:
             return results
 
@@ -949,6 +970,125 @@ class SiloNativeV1Probe:
                 "supported" if artwork_ok else "partial",
                 f"opaque artwork URL returned HTTP {artwork_response.status}, {content_type!r}, {len(artwork_response.body)} bytes",
             )
+
+        if not allow_mutations:
+            recorded_contracts = {result.contract for result in results}
+            for contract in playback_contracts:
+                if contract not in recorded_contracts:
+                    self._record(
+                        results,
+                        expected,
+                        contract,
+                        "inconclusive",
+                        "destructive native playback lifecycle probe requires --allow-mutations and fixture credentials",
+                    )
+        else:
+            candidate = next(
+                (
+                    version
+                    for version in versions
+                    if isinstance(version, dict) and str(version.get("file_id", "")).isdigit()
+                ),
+                None,
+            )
+            if candidate is None:
+                for contract in playback_contracts:
+                    self._record(results, expected, contract, "inconclusive", "catalog detail has no numeric file_id suitable for a safe playback fixture")
+            else:
+                file_id = int(candidate["file_id"])
+                start_body = {
+                    "file_id": file_id,
+                    "start_position": 0,
+                    "codecs_video": ["h264", "hevc"],
+                    "codecs_audio": ["aac", "ac3"],
+                    "containers": ["mp4", "mkv", "webm"],
+                    "max_resolution": "8k",
+                    "hdr": True,
+                    "audio_passthrough": {
+                        "passthrough_codecs": ["aac", "ac3"],
+                        "spatializer_enabled": False,
+                        "max_channels": 8,
+                    },
+                    "supports_bitmap_subtitle_burn_in": True,
+                }
+                if self.profile_id:
+                    start_body["profile_id"] = self.profile_id
+                start_response = self.request("POST", "/api/v1/playback/start", **scoped, json_body=start_body)
+                start_payload = self._object(start_response.json())
+                session_id = start_payload.get("session_id", "")
+                position = start_payload.get("position", start_payload.get("start_position"))
+                start_ok = (
+                    start_response.status == 201
+                    and self._identity(session_id)
+                    and self._identity(start_payload.get("media_file_id"))
+                    and self._non_empty_string(start_payload.get("play_method"))
+                    and isinstance(position, (int, float))
+                    and self._non_empty_string(start_payload.get("stream_url"))
+                    and isinstance(start_payload.get("subtitle_urls"), (dict, list))
+                    and isinstance(start_payload.get("playback_info"), dict)
+                )
+                self._record(
+                    results,
+                    expected,
+                    "native.playback.start-legacy",
+                    "supported" if start_ok else "partial" if start_response.status == 201 else "missing",
+                    f"legacy start returned HTTP {start_response.status} with session/file/method/URL/playback_info shape={start_ok}",
+                )
+                if not start_ok:
+                    for contract in playback_contracts[2:]:
+                        self._record(results, expected, contract, "inconclusive", "legacy start did not create a session")
+                else:
+                    progress = self.request(
+                        "POST",
+                        f"/api/v1/playback/{urllib.parse.quote(str(session_id), safe='')}/progress",
+                        **scoped,
+                        json_body={"seconds": 0, "is_paused": True},
+                    )
+                    self._record(
+                        results,
+                        expected,
+                        "native.playback.progress",
+                        "supported" if progress.status == 204 else "partial",
+                        f"native progress returned HTTP {progress.status} with position seconds and pause state",
+                    )
+                    audio_tracks = candidate.get("audio_tracks", candidate.get("audioStreams", []))
+                    if isinstance(audio_tracks, list) and len(audio_tracks) > 1:
+                        track = self.request(
+                            "PATCH",
+                            f"/api/v1/playback/{urllib.parse.quote(str(session_id), safe='')}/audio",
+                            **scoped,
+                            json_body={"audio_track_index": 1},
+                        )
+                        track_payload = self._object(track.json())
+                        track_ok = (
+                            track.status == 200
+                            and isinstance(track_payload.get("audio_track_index"), int)
+                            and self._non_empty_string(track_payload.get("stream_url"))
+                            and track_payload.get("switch_mode") == "reload"
+                        )
+                        self._record(
+                            results,
+                            expected,
+                            "native.playback.track",
+                            "supported" if track_ok else "partial",
+                            f"native audio switch returned HTTP {track.status} with reload URL/effective track shape={track_ok}",
+                        )
+                    else:
+                        self._record(results, expected, "native.playback.track", "inconclusive", "selected version exposes fewer than two audio tracks")
+                    stop = self.request(
+                        "DELETE",
+                        f"/api/v1/playback/{urllib.parse.quote(str(session_id), safe='')}",
+                        **scoped,
+                    )
+                    self._record(
+                        results,
+                        expected,
+                        "native.playback.stop",
+                        "supported" if stop.status == 204 else "partial",
+                        f"native stop returned HTTP {stop.status}; session cleanup was requested",
+                    )
+                self._record(results, expected, "native.playback.capability", "inconclusive", "legacy lifecycle probe intentionally does not infer mpv support from protocol-v3 capability")
+
 
         sessions = self.request("GET", "/api/v1/auth/sessions", token=self.access_token)
         session_items = self._array(sessions.json() if sessions.status == 200 else None, "sessions")

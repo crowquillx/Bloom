@@ -283,7 +283,8 @@ QVariantMap PlaybackTrack::toVariantMap() const
         {QStringLiteral("isDefault"), isDefault},
         {QStringLiteral("isForced"), isForced},
         {QStringLiteral("isExternal"), isExternal},
-        {QStringLiteral("isHearingImpaired"), isHearingImpaired}
+        {QStringLiteral("isHearingImpaired"), isHearingImpaired},
+        {QStringLiteral("externalUrl"), externalUrl}
     };
 }
 

@@ -43,6 +43,8 @@ qt_add_executable(Bloom
     providers/silo/SiloCatalogProvider.h
     providers/silo/SiloRequestFactory.h
     providers/silo/SiloModelMapper.h
+    providers/silo/SiloPlaybackProvider.h
+    providers/silo/SiloPlaybackProvider.cpp
     providers/silo/SiloModelMapper.cpp
     providers/silo/SiloProviderAdapter.h
     resources/fonts.qrc
