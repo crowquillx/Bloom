@@ -18,6 +18,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QImageWriter>
+#include <QPointer>
 #include <utility>
 #include "../utils/BloomLogging.h"
 
@@ -202,11 +203,34 @@ void CachedImageResponse::onNetworkReplyFinished()
         return;
     }
     
-    if (m_reply->error() != QNetworkReply::NoError) {
-        QString error = m_reply->errorString();
+    const int httpStatus = m_reply->attribute(
+        QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const bool refreshableStatus = httpStatus == 401 || httpStatus == 403;
+    if (refreshableStatus) {
+        const QString error = m_reply->error() == QNetworkReply::NoError
+            ? QStringLiteral("HTTP error: %1").arg(httpStatus)
+            : QStringLiteral("Network error: %1").arg(m_reply->errorString());
         m_reply->deleteLater();
         m_reply = nullptr;
-        finishWithError("Network error: " + error);
+
+        if (!m_refreshAttempted
+            && m_url.startsWith(QStringLiteral("artwork:"))
+            && m_provider->m_artworkProvider) {
+            m_refreshAttempted = true;
+            locker.unlock();
+            refreshArtworkRequest(error);
+            return;
+        }
+
+        finishWithError(error);
+        return;
+    }
+
+    if (m_reply->error() != QNetworkReply::NoError) {
+        const QString error = m_reply->errorString();
+        m_reply->deleteLater();
+        m_reply = nullptr;
+        finishWithError(QStringLiteral("Network error: %1").arg(error));
         return;
     }
     
@@ -248,6 +272,50 @@ void CachedImageResponse::onNetworkReplyFinished()
     }
     
     finishWithImage(image);
+}
+
+void CachedImageResponse::refreshArtworkRequest(const QString &networkError)
+{
+    Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromCacheKey(m_url);
+    artwork.sourceUrl = Bloom::ArtworkRef::transientSourceUrlForCacheKey(m_url);
+    IArtworkProvider *artworkProvider = m_provider->m_artworkProvider;
+    if (!artwork.isValid() || !artworkProvider) {
+        finishWithError(networkError);
+        return;
+    }
+
+    const QPointer<CachedImageResponse> guard(this);
+    artworkProvider->refreshArtwork(
+        artwork,
+        [guard, networkError](std::optional<QNetworkRequest> refreshedRequest) {
+            if (!guard) {
+                return;
+            }
+
+            QMetaObject::invokeMethod(
+                guard.data(),
+                [guard, networkError,
+                 refreshedRequest = std::move(refreshedRequest)]() mutable {
+                    if (!guard) {
+                        return;
+                    }
+
+                    QMutexLocker locker(&guard->m_mutex);
+                    if (guard->m_cancelled) {
+                        guard->finishWithError(QStringLiteral("Request cancelled"));
+                        return;
+                    }
+                    if (!refreshedRequest.has_value()) {
+                        guard->finishWithError(networkError);
+                        return;
+                    }
+
+                    guard->m_resolvedRequest = std::move(refreshedRequest);
+                    locker.unlock();
+                    guard->fetchFromNetwork();
+                },
+                Qt::QueuedConnection);
+        });
 }
 
 void CachedImageResponse::saveToCache(const QByteArray &data)
@@ -655,12 +723,12 @@ std::optional<QNetworkRequest> ImageCacheProvider::resolveRequest(const QString 
                                   Qt::BlockingQueuedConnection);
         return resolved;
     }
-
     if (cacheKey.startsWith(QStringLiteral("artwork:"))) {
         if (!m_artworkProvider) {
             return std::nullopt;
         }
-        const Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromCacheKey(cacheKey);
+        Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromCacheKey(cacheKey);
+        artwork.sourceUrl = Bloom::ArtworkRef::transientSourceUrlForCacheKey(cacheKey);
         if (!artwork.isValid()) {
             return std::nullopt;
         }

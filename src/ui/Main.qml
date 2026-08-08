@@ -12,6 +12,123 @@ Window {
     title: "Bloom"
     color: Theme.backgroundPrimary
     
+    function navigateToAuthenticatedHome(userId, accessToken, username) {
+            window.pendingAuthenticatedNavigation = true
+            if (AuthenticationService.authenticationStep !== "authenticated"
+                    || !AuthenticationService.authenticated) {
+                return
+            }
+            if (window.isLoggedIn) {
+                window.pendingAuthenticatedNavigation = false
+                return
+            }
+
+            window.pendingAuthenticatedNavigation = false
+            window.isLoggedIn = true
+
+            var homeScreen = stackView.replace("HomeScreen.qml")
+            if (homeScreen) {
+                console.log("Main.qml: homeScreen is valid, connecting signals...")
+                // Connect navigateToLibrary signal
+                homeScreen.navigateToLibrary.connect(function(libraryId, libraryName) {
+                    playPointerSelectSound()
+                    stackView.push("LibraryScreen.qml", {
+                        currentParentId: libraryId,
+                        currentLibraryId: libraryId,
+                        currentLibraryName: libraryName
+                    })
+                })
+                
+                // Connect navigateToMovie signal - show movie details view
+                homeScreen.navigateToMovie.connect(function(movieData, libraryId, libraryName) {
+                    playPointerSelectSound()
+                    stackView.push("LibraryScreen.qml", {
+                        currentParentId: libraryId,
+                        currentLibraryId: libraryId,
+                        currentLibraryName: libraryName,
+                        directNavigationMode: true,
+                        returnToHomeOnDirectBack: true
+                    })
+                    // Defer calling showMovieDetailsView until screen is ready
+                    Qt.callLater(function() {
+                        var screen = stackView.currentItem
+                        if (screen && typeof screen["showMovieDetailsView"] === "function") {
+                            screen["showMovieDetailsView"](movieData)
+                        }
+                    })
+                })
+                
+                // Connect navigateToEpisode signal - show episode view
+                homeScreen.navigateToEpisode.connect(function(episodeData, seriesId, libraryId, libraryName) {
+                    playPointerSelectSound()
+                    stackView.push("LibraryScreen.qml", {
+                        currentParentId: libraryId,
+                        currentLibraryId: libraryId,
+                        currentLibraryName: libraryName,
+                        currentSeriesId: seriesId,
+                        directNavigationMode: true,
+                        returnToHomeOnDirectBack: true
+                    })
+                    // Need to load series details first for context, then show episode
+                    LibraryService.getSeriesDetails(seriesId)
+                    // Defer calling showEpisodeDetails until screen is ready
+                    Qt.callLater(function() {
+                        var screen = stackView.currentItem
+                        if (screen && typeof screen["showEpisodeDetails"] === "function") {
+                            screen["showEpisodeDetails"](episodeData)
+                        }
+                    })
+                })
+                
+                // Connect navigateToSeason signal - show season view
+                homeScreen.navigateToSeason.connect(function(seasonId, seasonNumber, seriesId, libraryId, libraryName) {
+                    playPointerSelectSound()
+                    stackView.push("LibraryScreen.qml", {
+                        currentParentId: libraryId,
+                        currentLibraryId: libraryId,
+                        currentLibraryName: libraryName,
+                        currentSeriesId: seriesId,
+                        currentSeasonId: seasonId,
+                        currentSeasonNumber: seasonNumber,
+                        showSeasonView: true,
+                        directNavigationMode: true,
+                        returnToHomeOnDirectBack: true
+                    })
+                    // Load series details for logo/poster context
+                    LibraryService.getSeriesDetails(seriesId)
+                    // Load season episodes
+                    SeriesDetailsViewModel.loadSeasonEpisodes(seasonId)
+                })
+                
+                // Connect navigateToSeries signal - show series details view
+                homeScreen.navigateToSeries.connect(function(seriesId, libraryId, libraryName) {
+                    playPointerSelectSound()
+                    stackView.push("LibraryScreen.qml", {
+                        currentParentId: libraryId,
+                        currentLibraryId: libraryId,
+                        currentLibraryName: libraryName,
+                        currentSeriesId: seriesId,
+                        showSeriesDetails: true,
+                        directNavigationMode: true,
+                        returnToHomeOnDirectBack: true
+                    })
+                    // Load series details, seasons, and next episode
+                    LibraryService.getSeriesDetails(seriesId)
+                    LibraryService.getItems(seriesId, 0, 0)  // Load seasons
+                    LibraryService.getNextUnplayedEpisode(seriesId)
+                })
+            }
+            updateSidebarNavigation()
+
+            if (pendingStartupUpdatePopup) {
+                Qt.callLater(function() {
+                    if (window.isLoggedIn) {
+                        pendingStartupUpdatePopup = false
+                        openStartupUpdateDialog()
+                    }
+                })
+            }
+        }
     Component.onCompleted: {
         console.log("=== Main.qml: Window Component.onCompleted ===")
         console.log("Main.qml: AuthenticationService =", AuthenticationService)
@@ -26,6 +143,9 @@ Window {
         }
 
         startupUpdateTimer.start()
+        if (AuthenticationService.authenticated && AuthenticationService.authenticationStep === "authenticated") {
+            window.navigateToAuthenticatedHome("", "", "")
+        }
     }
 
     Binding {
@@ -64,6 +184,7 @@ Window {
     /// Whether the user is logged in (controls sidebar visibility)
     property bool isLoggedIn: false
     property var sidebarProxy: sidebarLoader.item || sidebarStub
+    property bool pendingAuthenticatedNavigation: false
     
     /// Sidebar overlay mode threshold (narrow screens use overlay)
     readonly property int overlayThreshold: 960
@@ -122,6 +243,28 @@ Window {
         Qt.callLater(function() {
             if (dialog.primaryButton) {
                 dialog.primaryButton.forceActiveFocus()
+            }
+        })
+    }
+
+    function showLoginScreen() {
+        pendingAuthenticatedNavigation = false
+        sidebarProxy.close()
+        isLoggedIn = false
+
+        var current = stackView.currentItem
+        if (!current || current.objectName !== "loginScreen") {
+            stackView.clear()
+            current = stackView.push("LoginScreen.qml")
+        }
+
+        window.requestActivate()
+        Qt.callLater(function() {
+            var loginScreen = stackView.currentItem
+            if (loginScreen && loginScreen.objectName === "loginScreen") {
+                loginScreen.forceActiveFocus()
+            } else {
+                mainContentArea.forceActiveFocus()
             }
         })
     }
@@ -1173,143 +1316,30 @@ Window {
         target: AuthenticationService
         
         function onSessionExpiredAfterPlayback() {
-            console.log("Main.qml: Session expired after playback, showing toast")
-            // Show toast explaining what happened
             toast.show(qsTr("Your session has expired. Please log in again."))
+            window.showLoginScreen()
+        }
+
+        function onSessionExpired() {
+            toast.show(qsTr("Your session has expired. Please log in again."))
+            window.showLoginScreen()
+        }
+
+        function onAuthenticationStepChanged() {
+            if ((window.pendingAuthenticatedNavigation || !window.isLoggedIn)
+                    && AuthenticationService.authenticationStep === "authenticated"
+                    && AuthenticationService.authenticated) {
+                window.navigateToAuthenticatedHome("", "", "")
+            }
+        }
+
+        function onLoginSuccess(userId, accessToken, username) {
+            window.navigateToAuthenticatedHome(userId, accessToken, username)
         }
         
-        function onLoginSuccess(userId, accessToken, username) {
-            console.log("=== Main.qml: onLoginSuccess CALLED ===")
-            console.log("Main.qml: userId=", userId, "username=", username)
-            console.log("Main.qml: stackView.depth before replace:", stackView.depth)
-            console.log("Main.qml: stackView.currentItem before replace:", stackView.currentItem)
-            
-            // Mark as logged in to show sidebar
-            window.isLoggedIn = true
-            console.log("Main.qml: isLoggedIn set to true")
-            
-            // Replace instead of push to prevent going back to login
-            console.log("Main.qml: About to call stackView.replace with HomeScreen.qml")
-            var homeScreen = stackView.replace("HomeScreen.qml")
-            console.log("Main.qml: stackView.replace returned:", homeScreen)
-            console.log("Main.qml: stackView.depth after replace:", stackView.depth)
-            console.log("Main.qml: stackView.currentItem after replace:", stackView.currentItem)
-            
-            if (homeScreen) {
-                console.log("Main.qml: homeScreen is valid, connecting signals...")
-                // Connect navigateToLibrary signal
-                homeScreen.navigateToLibrary.connect(function(libraryId, libraryName) {
-                    playPointerSelectSound()
-                    stackView.push("LibraryScreen.qml", {
-                        currentParentId: libraryId,
-                        currentLibraryId: libraryId,
-                        currentLibraryName: libraryName
-                    })
-                })
-                
-                // Connect navigateToMovie signal - show movie details view
-                homeScreen.navigateToMovie.connect(function(movieData, libraryId, libraryName) {
-                    playPointerSelectSound()
-                    stackView.push("LibraryScreen.qml", {
-                        currentParentId: libraryId,
-                        currentLibraryId: libraryId,
-                        currentLibraryName: libraryName,
-                        directNavigationMode: true,
-                        returnToHomeOnDirectBack: true
-                    })
-                    // Defer calling showMovieDetailsView until screen is ready
-                    Qt.callLater(function() {
-                        var screen = stackView.currentItem
-                        if (screen && typeof screen["showMovieDetailsView"] === "function") {
-                            screen["showMovieDetailsView"](movieData)
-                        }
-                    })
-                })
-                
-                // Connect navigateToEpisode signal - show episode view
-                homeScreen.navigateToEpisode.connect(function(episodeData, seriesId, libraryId, libraryName) {
-                    playPointerSelectSound()
-                    stackView.push("LibraryScreen.qml", {
-                        currentParentId: libraryId,
-                        currentLibraryId: libraryId,
-                        currentLibraryName: libraryName,
-                        currentSeriesId: seriesId,
-                        directNavigationMode: true,
-                        returnToHomeOnDirectBack: true
-                    })
-                    // Need to load series details first for context, then show episode
-                    LibraryService.getSeriesDetails(seriesId)
-                    // Defer calling showEpisodeDetails until screen is ready
-                    Qt.callLater(function() {
-                        var screen = stackView.currentItem
-                        if (screen && typeof screen["showEpisodeDetails"] === "function") {
-                            screen["showEpisodeDetails"](episodeData)
-                        }
-                    })
-                })
-                
-                // Connect navigateToSeason signal - show season view
-                homeScreen.navigateToSeason.connect(function(seasonId, seasonNumber, seriesId, libraryId, libraryName) {
-                    playPointerSelectSound()
-                    stackView.push("LibraryScreen.qml", {
-                        currentParentId: libraryId,
-                        currentLibraryId: libraryId,
-                        currentLibraryName: libraryName,
-                        currentSeriesId: seriesId,
-                        currentSeasonId: seasonId,
-                        currentSeasonNumber: seasonNumber,
-                        showSeasonView: true,
-                        directNavigationMode: true,
-                        returnToHomeOnDirectBack: true
-                    })
-                    // Load series details for logo/poster context
-                    LibraryService.getSeriesDetails(seriesId)
-                    // Load season episodes
-                    SeriesDetailsViewModel.loadSeasonEpisodes(seasonId)
-                })
-                
-                // Connect navigateToSeries signal - show series details view
-                homeScreen.navigateToSeries.connect(function(seriesId, libraryId, libraryName) {
-                    playPointerSelectSound()
-                    stackView.push("LibraryScreen.qml", {
-                        currentParentId: libraryId,
-                        currentLibraryId: libraryId,
-                        currentLibraryName: libraryName,
-                        currentSeriesId: seriesId,
-                        showSeriesDetails: true,
-                        directNavigationMode: true,
-                        returnToHomeOnDirectBack: true
-                    })
-                    // Load series details, seasons, and next episode
-                    LibraryService.getSeriesDetails(seriesId)
-                    LibraryService.getItems(seriesId, 0, 0)  // Load seasons
-                    LibraryService.getNextUnplayedEpisode(seriesId)
-                })
-            }
-            updateSidebarNavigation()
-
-            if (pendingStartupUpdatePopup) {
-                Qt.callLater(function() {
-                    if (window.isLoggedIn) {
-                        pendingStartupUpdatePopup = false
-                        openStartupUpdateDialog()
-                    }
-                })
-            }
-        }
         
         function onLoggedOut() {
-            console.log("Main.qml: Logged out, returning to login screen")
-            
-            // Close sidebar if open
-            sidebarProxy.close()
-
-            // Mark as logged out to hide sidebar
-            window.isLoggedIn = false
-
-            // Clear all screens and go back to login
-            stackView.clear()
-            stackView.push("LoginScreen.qml")
+            window.showLoginScreen()
         }
         
         ignoreUnknownSignals: true

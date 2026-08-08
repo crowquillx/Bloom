@@ -58,6 +58,10 @@ stdenv.mkDerivation {
       ConnectionPersistenceTest \
       BloomProfileRepositoryTest \
       ProviderTransportTest \
+      SiloAuthenticationTest \
+      ProviderCatalogTest \
+      SiloCatalogServiceTest \
+      ArtworkRefreshTest \
       CanonicalModelsTest \
       InputBindingManagerTest \
       PlayerBackendFactoryTest \
@@ -74,6 +78,7 @@ stdenv.mkDerivation {
   doCheck = true;
   checkPhase = ''
     runHook preCheck
+    python3 -m unittest "$src/tests/contracts/provider_contracts_test.py"
     export QT_QPA_PLATFORM=offscreen
     ctest --output-on-failure \
       --exclude-regex '^(VisualRegressionTest|SeriesDetailsCacheTest)$'

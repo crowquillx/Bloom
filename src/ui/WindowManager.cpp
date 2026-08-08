@@ -18,8 +18,7 @@
 #include "viewmodels/MovieDetailsViewModel.h"
 #include "viewmodels/UpNextRecommendationsViewModel.h"
 #include "network/AuthenticationService.h"
-#include "providers/IArtworkProvider.h"
-#include "providers/jellyfin/JellyfinArtworkProvider.h"
+#include "providers/ActiveArtworkProvider.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
 #include "network/SeerrService.h"
@@ -67,7 +66,7 @@ WindowManager::~WindowManager()
 void WindowManager::setup(ConfigManager* configManager)
 {
     // ImageCacheProvider
-    m_artworkProvider = std::make_unique<JellyfinArtworkProvider>(
+    m_artworkProvider = std::make_unique<ActiveArtworkProvider>(
         ServiceLocator::get<AuthenticationService>());
     m_imageCacheProvider = new ImageCacheProvider(configManager->getImageCacheSizeMB(),
                                                    m_artworkProvider.get());

@@ -35,12 +35,14 @@
 #include "network/SessionService.h"
 #include "providers/IProviderAdapter.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
+#include "providers/silo/SiloProviderAdapter.h"
 #include "updates/UpdateService.h"
 #include "test/TestModeController.h"
 #include "test/MockAuthenticationService.h"
 #include "test/MockLibraryService.h"
 
 #include <QGuiApplication>
+#include <QList>
 #include <QDebug>
 #include <cstdio>
 
@@ -218,15 +220,21 @@ void ApplicationInitializer::registerServices()
         // 2.5 SecretStore - Create platform-specific secure storage
         m_secretStore = SecretStoreFactory::create();
         
-        // 3. Provider-neutral transport and Jellyfin wire adapters
+        // 3. Provider-neutral transport and provider adapters. Jellyfin stays first
+        // so it remains the safe default until automatic or explicit selection runs.
         m_httpTransport = std::make_unique<HttpTransport>();
-        m_providerAdapter = std::make_unique<JellyfinProviderAdapter>();
+        m_jellyfinProviderAdapter = std::make_unique<JellyfinProviderAdapter>();
+        m_siloProviderAdapter = std::make_unique<SiloProviderAdapter>();
+        const QList<IProviderAdapter *> providerAdapters{
+            m_jellyfinProviderAdapter.get(),
+            m_siloProviderAdapter.get(),
+        };
 
         // 3.1 AuthenticationService - stable façade over provider boundaries
         m_authService = std::make_unique<AuthenticationService>(
             m_secretStore.get(),
             m_httpTransport.get(),
-            m_providerAdapter.get());
+            providerAdapters);
         ServiceLocator::registerService<AuthenticationService>(m_authService.get());
         
         // 3.2 LibraryService - Depends on AuthenticationService
@@ -350,14 +358,20 @@ void ApplicationInitializer::initializeServices()
     // clearing centralized here so real and mock services share logout behavior.
     connect(auth, &AuthenticationService::loggedOut,
         [config]() {
-            config->clearJellyfinSession();
+            config->clearActiveConnection();
     });
     connect(auth, &AuthenticationService::loggedOut, this, [this]() {
+        if (m_libraryViewModel) {
+            m_libraryViewModel->clear();
+        }
         if (m_seriesDetailsViewModel) {
             m_seriesDetailsViewModel->clear();
         }
         if (m_movieDetailsViewModel) {
             m_movieDetailsViewModel->clear();
+        }
+        if (m_upNextRecommendationsViewModel) {
+            m_upNextRecommendationsViewModel->clear();
         }
     });
 

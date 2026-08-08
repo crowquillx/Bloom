@@ -1,8 +1,11 @@
 #include "HttpTransport.h"
 
 #include <QLoggingCategory>
+#include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QTimer>
+#include <memory>
+#include <utility>
 #include <QUrl>
 
 Q_LOGGING_CATEGORY(lcHttpTransport, "bloom.network.transport")
@@ -42,11 +45,36 @@ void HttpTransport::setUrlRedactor(UrlRedactor redactor)
     m_urlRedactor = std::move(redactor);
 }
 
+void HttpTransport::setUnauthorizedRecovery(UnauthorizedRecovery recovery)
+{
+    // A provider/session switch must not let an old refresh replay requests
+    // with credentials belonging to the previous provider.
+    if (m_unauthorizedRecoveryInProgress) {
+        ++m_unauthorizedRecoveryGeneration;
+        m_unauthorizedRecoveryInProgress = false;
+        const auto pending = std::exchange(
+            m_pendingUnauthorizedRecoveries,
+            QList<std::function<void(bool)>>{});
+        for (const auto &callback : pending) {
+            callback(false);
+        }
+    }
+    m_unauthorizedRecovery = std::move(recovery);
+}
+
 void HttpTransport::cancelAll()
 {
     const auto handles = findChildren<HttpRequestHandle *>(QString(), Qt::FindDirectChildrenOnly);
     for (HttpRequestHandle *handle : handles) {
         handle->cancel();
+    }
+    ++m_unauthorizedRecoveryGeneration;
+    m_unauthorizedRecoveryInProgress = false;
+    const auto pending = std::exchange(
+        m_pendingUnauthorizedRecoveries,
+        QList<std::function<void(bool)>>{});
+    for (const auto &callback : pending) {
+        callback(false);
     }
 }
 
@@ -73,7 +101,9 @@ HttpRequestHandle *HttpTransport::sendWithRetry(QObject *context,
                  responseHandler,
                  failureHandler,
                  options,
-                 0);
+                 0,
+                 false,
+                 m_authenticationEpoch);
     return handle;
 }
 
@@ -84,7 +114,9 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
                                  const ResponseHandler &responseHandler,
                                  const FailureHandler &failureHandler,
                                  const HttpRequestOptions &options,
-                                 int attemptNumber)
+                                 int attemptNumber,
+                                 bool authenticationRetried,
+                                 quint64 authenticationEpoch)
 {
     if (!handle || !context || handle->isCanceled()) {
         return;
@@ -113,7 +145,8 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
 
     connect(reply, &QNetworkReply::finished, context,
             [this, handle, context, endpoint, requestFactory, responseHandler,
-             failureHandler, options, attemptNumber, reply]() {
+             failureHandler, options, attemptNumber, authenticationRetried,
+             authenticationEpoch, reply]() {
         if (!handle || !context) {
             return;
         }
@@ -126,7 +159,13 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
             return;
         }
 
-        if (reply->error() == QNetworkReply::NoError) {
+        const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const bool isUnauthorized = httpStatus == 401;
+
+        // Some test doubles and custom QNetworkAccessManager implementations
+        // report an HTTP 401 with NoError. Status handling must still take
+        // precedence over the successful-network-error path.
+        if (reply->error() == QNetworkReply::NoError && !isUnauthorized) {
             if (responseHandler) {
                 responseHandler(reply);
             }
@@ -134,13 +173,64 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
             return;
         }
 
-        const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         NetworkError error = ErrorHandler::createError(reply, endpoint);
 
-        if (httpStatus == 401) {
+        if (isUnauthorized) {
             error.code = 401;
+            if (options.unauthorizedPolicy != UnauthorizedPolicy::Ignore
+                && !authenticationRetried
+                && authenticationEpoch < m_authenticationEpoch) {
+                startAttempt(handle,
+                             context,
+                             endpoint,
+                             requestFactory,
+                             responseHandler,
+                             failureHandler,
+                             options,
+                             attemptNumber,
+                             true,
+                             m_authenticationEpoch);
+                return;
+            }
+            if (options.unauthorizedPolicy != UnauthorizedPolicy::Ignore
+                && !authenticationRetried && m_unauthorizedRecovery) {
+                recoverUnauthorized(
+                    [this, handle, context, endpoint, requestFactory, responseHandler,
+                     failureHandler, options, attemptNumber, error](bool recovered) {
+                    if (!handle || !context || handle->isCanceled()) {
+                        return;
+                    }
+                    if (recovered) {
+                        startAttempt(handle,
+                                     context,
+                                     endpoint,
+                                     requestFactory,
+                                     responseHandler,
+                                     failureHandler,
+                                     options,
+                                     attemptNumber,
+                                     true,
+                                     m_authenticationEpoch);
+                        return;
+                    }
+
+                    const bool defer =
+                        options.unauthorizedPolicy == UnauthorizedPolicy::DeferSessionExpiry;
+                    emit unauthorized(defer);
+                    NetworkError sessionError = error;
+                    sessionError.userMessage =
+                        tr("Session expired. Please log in again.");
+                    if (failureHandler) {
+                        failureHandler(sessionError);
+                    }
+                    handle->deleteLater();
+                });
+                return;
+            }
+
             if (options.unauthorizedPolicy != UnauthorizedPolicy::Ignore) {
-                const bool defer = options.unauthorizedPolicy == UnauthorizedPolicy::DeferSessionExpiry;
+                const bool defer =
+                    options.unauthorizedPolicy == UnauthorizedPolicy::DeferSessionExpiry;
                 emit unauthorized(defer);
                 error.userMessage = tr("Session expired. Please log in again.");
             }
@@ -162,7 +252,8 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
                                     << "in" << delayMs << "ms";
             QTimer::singleShot(delayMs, this,
                                [this, handle, context, endpoint, requestFactory,
-                                responseHandler, failureHandler, options, attemptNumber]() {
+                                responseHandler, failureHandler, options, attemptNumber,
+                                authenticationRetried, authenticationEpoch]() {
                 startAttempt(handle,
                              context,
                              endpoint,
@@ -170,7 +261,9 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
                              responseHandler,
                              failureHandler,
                              options,
-                             attemptNumber + 1);
+                             attemptNumber + 1,
+                             authenticationRetried,
+                             authenticationEpoch);
             });
             return;
         }
@@ -179,6 +272,47 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
             failureHandler(error);
         }
         handle->deleteLater();
+    });
+}
+
+void HttpTransport::recoverUnauthorized(std::function<void(bool)> completion)
+{
+    m_pendingUnauthorizedRecoveries.append(std::move(completion));
+    if (m_unauthorizedRecoveryInProgress) {
+        return;
+    }
+
+    if (!m_unauthorizedRecovery) {
+        const auto pending = std::exchange(
+            m_pendingUnauthorizedRecoveries,
+            QList<std::function<void(bool)>>{});
+        for (const auto &callback : pending) {
+            callback(false);
+        }
+        return;
+    }
+
+    m_unauthorizedRecoveryInProgress = true;
+    const quint64 recoveryGeneration = ++m_unauthorizedRecoveryGeneration;
+    const auto completed = std::make_shared<bool>(false);
+    const QPointer<HttpTransport> guardedThis(this);
+    m_unauthorizedRecovery(
+        [guardedThis, completed, recoveryGeneration](bool recovered) {
+        if (!guardedThis || std::exchange(*completed, true)
+            || recoveryGeneration != guardedThis->m_unauthorizedRecoveryGeneration) {
+            return;
+        }
+
+        guardedThis->m_unauthorizedRecoveryInProgress = false;
+        if (recovered) {
+            ++guardedThis->m_authenticationEpoch;
+        }
+        const auto pending = std::exchange(
+            guardedThis->m_pendingUnauthorizedRecoveries,
+            QList<std::function<void(bool)>>{});
+        for (const auto &callback : pending) {
+            callback(recovered);
+        }
     });
 }
 

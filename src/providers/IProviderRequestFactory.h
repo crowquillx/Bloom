@@ -7,7 +7,13 @@
 struct ProviderRequestContext {
     QString baseUrl;
     QString accessToken;
+    QString profileId;
+    QString profileToken;
+    QString clientName;
+    QString clientVersion;
     QString deviceId;
+    QString deviceName;
+    QString devicePlatform;
 };
 
 /**

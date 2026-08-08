@@ -5,19 +5,21 @@
 #include <QJsonObject>
 #include <QStringList>
 #include <QNetworkReply>
-#include <QFuture>
-#include <QFutureWatcher>
-#include <QtConcurrent>
 #include <QHash>
 #include <QSet>
+#include <QList>
+#include <QPointer>
 #include <QDate>
 #include <QVariantList>
 #include <QVariantMap>
 #include <functional>
+
 #include "Types.h"  // Shared data structs and error helpers
+#include "providers/ICatalogProvider.h"
 
 class AuthenticationService;
 class HttpTransport;
+class HttpRequestHandle;
 
 struct LibraryItemQuery {
     QString parentId;
@@ -278,28 +280,47 @@ signals:
     void parsingFinished(const QString &operation);
 
 private:
+    struct CatalogRequestIdentity {
+        quint64 generation = 0;
+        QString connectionId;
+        QString userId;
+        QString profileId;
+        const ICatalogProvider *provider = nullptr;
+    };
+
+    using CatalogResponseHandler =
+        std::function<void(const ProviderCatalogResponse &)>;
+    using CatalogNotModifiedHandler = std::function<void()>;
+    using FailureHandler = std::function<void(const NetworkError &)>;
+
     AuthenticationService *m_authService;
     HttpTransport *m_transport = nullptr;
     RetryPolicy m_retryPolicy;
-    
-    // Retry mechanism types
-    using ResponseHandler = std::function<void(QNetworkReply*)>;
-    using RequestFactory = std::function<QNetworkReply*()>;
-    using FailureHandler = std::function<void(const NetworkError&)>;
-    
-    void sendRequestWithRetry(const QString &endpoint,
-                               RequestFactory requestFactory,
-                               ResponseHandler responseHandler,
-                               FailureHandler failureHandler = FailureHandler(),
-                               int attemptNumber = 0);
-    
+
+    ProviderCatalogQuery baseCatalogQuery() const;
+    CatalogRequestIdentity catalogRequestIdentity() const;
+    bool isCurrent(const CatalogRequestIdentity &identity) const;
+    void sendCatalogRequest(
+        const QString &operationName,
+        ProviderCatalogOperation operation,
+        const ProviderCatalogQuery &query,
+        CatalogResponseHandler responseHandler,
+        FailureHandler failureHandler = FailureHandler(),
+        CatalogNotModifiedHandler notModifiedHandler = CatalogNotModifiedHandler());
+    void emitCatalogError(const QString &operationName,
+                          const QString &message,
+                          FailureHandler failureHandler = FailureHandler(),
+                          int code = -1);
+    void emitItemStateResponse(const QString &itemId,
+                               const ProviderCatalogResponse &response);
     void emitError(const NetworkError &error);
 
-    // In-flight request ownership
     QSet<QString> m_inFlightChapterRequests;
-    quint64 m_heroLibraryRequestGeneration = 0;
+    QList<QPointer<HttpRequestHandle>> m_catalogRequests;
+    quint64 m_requestGeneration = 0;
+    quint64 m_heroRequestGeneration = 0;
 
-    // Cache validation state (per endpoint/parent)
+    // Cache validation state (per provider-owned endpoint).
     QHash<QString, QString> m_etags;
     QHash<QString, QString> m_lastModified;
 };

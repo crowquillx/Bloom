@@ -23,6 +23,16 @@ enum class ArtworkKind {
 QString artworkKindName(ArtworkKind kind);
 ArtworkKind artworkKindFromName(const QString &name);
 
+enum class ArtworkOwnerKind {
+    MediaItem,
+    Library,
+    Person,
+    Chapter
+};
+
+QString artworkOwnerKindName(ArtworkOwnerKind kind);
+ArtworkOwnerKind artworkOwnerKindFromName(const QString &name);
+
 struct MediaRef {
     QString connectionId;
     QString itemId;
@@ -35,14 +45,22 @@ struct ArtworkRef {
     QString connectionId;
     QString itemId;
     ArtworkKind kind = ArtworkKind::Unknown;
+    ArtworkOwnerKind ownerKind = ArtworkOwnerKind::MediaItem;
     int index = 0;
     QString tag;
     int requestedWidth = 0;
+    // Opaque, transient fetch location. It is retained only in memory and is
+    // excluded from equality, cache identity, and serialized model metadata.
+    QString sourceUrl;
 
     bool isValid() const;
+    bool operator==(const ArtworkRef &other) const;
     QString cacheKey() const;
     QVariantMap toVariantMap() const;
 
+    // Resolves the in-process source associated with a token-free cache key.
+    // The value is intentionally unavailable after process restart.
+    static QString transientSourceUrlForCacheKey(const QString &key);
     static ArtworkRef fromCacheKey(const QString &key);
     static ArtworkRef fromVariantMap(const QVariantMap &map);
 };
@@ -71,6 +89,14 @@ struct Chapter {
     QString name;
     qint64 startMs = 0;
     ArtworkRef artwork;
+    // Optional canonical metadata preserved by providers that expose richer
+    // chapter envelopes (for example, file-scoped native chapters).
+    int index = -1;
+    QString fileId;
+    qint64 endMs = 0;
+    QString source;
+    QString thumbnailUrl;
+    QString thumbnailThumbhash;
 
     QVariantMap toVariantMap() const;
 };

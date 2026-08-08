@@ -1,8 +1,34 @@
 #include "MediaModels.h"
 
+#include <QCache>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMutex>
+#include <QMutexLocker>
 #include <string>
+
+namespace {
+
+QMutex transientArtworkSourceMutex;
+QCache<QString, QString> transientArtworkSources(512);
+
+void rememberTransientArtworkSource(const QString &cacheKey, const QString &sourceUrl)
+{
+    if (cacheKey.isEmpty() || sourceUrl.isEmpty()) {
+        return;
+    }
+    QMutexLocker locker(&transientArtworkSourceMutex);
+    transientArtworkSources.insert(cacheKey, new QString(sourceUrl));
+}
+
+QString transientArtworkSource(const QString &cacheKey)
+{
+    QMutexLocker locker(&transientArtworkSourceMutex);
+    const QString *source = transientArtworkSources.object(cacheKey);
+    return source ? *source : QString();
+}
+
+} // namespace
 
 namespace Bloom {
 
@@ -32,6 +58,32 @@ ArtworkKind artworkKindFromName(const QString &name)
     return ArtworkKind::Unknown;
 }
 
+QString artworkOwnerKindName(ArtworkOwnerKind kind)
+{
+    switch (kind) {
+    case ArtworkOwnerKind::MediaItem: return QStringLiteral("mediaItem");
+    case ArtworkOwnerKind::Library: return QStringLiteral("library");
+    case ArtworkOwnerKind::Person: return QStringLiteral("person");
+    case ArtworkOwnerKind::Chapter: return QStringLiteral("chapter");
+    }
+    return QStringLiteral("mediaItem");
+}
+
+ArtworkOwnerKind artworkOwnerKindFromName(const QString &name)
+{
+    const QString normalized = name.trimmed().toLower();
+    if (normalized == QStringLiteral("mediaitem")) return ArtworkOwnerKind::MediaItem;
+    if (normalized == QStringLiteral("library")) return ArtworkOwnerKind::Library;
+    if (normalized == QStringLiteral("person")) return ArtworkOwnerKind::Person;
+    if (normalized == QStringLiteral("chapter")) return ArtworkOwnerKind::Chapter;
+    return ArtworkOwnerKind::MediaItem;
+}
+
+QString ArtworkRef::transientSourceUrlForCacheKey(const QString &key)
+{
+    return transientArtworkSource(key);
+}
+
 bool MediaRef::isValid() const
 {
     return !connectionId.trimmed().isEmpty() && !itemId.trimmed().isEmpty();
@@ -54,12 +106,24 @@ bool ArtworkRef::isValid() const
         && requestedWidth >= 0;
 }
 
+bool ArtworkRef::operator==(const ArtworkRef &other) const
+{
+    return connectionId == other.connectionId
+        && itemId == other.itemId
+        && kind == other.kind
+        && ownerKind == other.ownerKind
+        && index == other.index
+        && tag == other.tag
+        && requestedWidth == other.requestedWidth;
+}
+
 QString ArtworkRef::cacheKey() const
 {
     const QJsonObject object{
         {QStringLiteral("connectionId"), connectionId},
         {QStringLiteral("itemId"), itemId},
         {QStringLiteral("kind"), artworkKindName(kind)},
+        {QStringLiteral("ownerKind"), artworkOwnerKindName(ownerKind)},
         {QStringLiteral("index"), index},
         {QStringLiteral("tag"), tag},
         {QStringLiteral("requestedWidth"), requestedWidth}
@@ -67,19 +131,23 @@ QString ArtworkRef::cacheKey() const
     const QByteArray payload = QJsonDocument(object).toJson(QJsonDocument::Compact)
                                    .toBase64(QByteArray::Base64UrlEncoding
                                              | QByteArray::OmitTrailingEquals);
-    return QStringLiteral("artwork:") + QString::fromLatin1(payload);
+    const QString key = QStringLiteral("artwork:") + QString::fromLatin1(payload);
+    rememberTransientArtworkSource(key, sourceUrl);
+    return key;
 }
 
 QVariantMap ArtworkRef::toVariantMap() const
 {
+    const QString key = cacheKey();
     return {
         {QStringLiteral("connectionId"), connectionId},
         {QStringLiteral("itemId"), itemId},
         {QStringLiteral("kind"), artworkKindName(kind)},
+        {QStringLiteral("ownerKind"), artworkOwnerKindName(ownerKind)},
         {QStringLiteral("index"), index},
         {QStringLiteral("tag"), tag},
         {QStringLiteral("requestedWidth"), requestedWidth},
-        {QStringLiteral("cacheKey"), cacheKey()}
+        {QStringLiteral("cacheKey"), key}
     };
 }
 
@@ -99,15 +167,21 @@ ArtworkRef ArtworkRef::fromCacheKey(const QString &key)
     return fromVariantMap(document.object().toVariantMap());
 }
 
+// Cache keys never restore sourceUrl. Persistent model metadata does not
+// contain it; in-memory callers may provide it through a QVariantMap.
+
 ArtworkRef ArtworkRef::fromVariantMap(const QVariantMap &map)
 {
     ArtworkRef ref;
     ref.connectionId = map.value(QStringLiteral("connectionId")).toString();
     ref.itemId = map.value(QStringLiteral("itemId")).toString();
     ref.kind = artworkKindFromName(map.value(QStringLiteral("kind")).toString());
+    ref.ownerKind = artworkOwnerKindFromName(
+        map.value(QStringLiteral("ownerKind")).toString());
     ref.index = map.value(QStringLiteral("index"), 0).toInt();
     ref.tag = map.value(QStringLiteral("tag")).toString();
     ref.requestedWidth = map.value(QStringLiteral("requestedWidth"), 0).toInt();
+    ref.sourceUrl = map.value(QStringLiteral("sourceUrl")).toString();
     return ref;
 }
 
@@ -143,6 +217,24 @@ QVariantMap Chapter::toVariantMap() const
         {QStringLiteral("name"), name},
         {QStringLiteral("startMs"), startMs}
     };
+    if (index >= 0) {
+        map[QStringLiteral("index")] = index;
+    }
+    if (!fileId.isEmpty()) {
+        map[QStringLiteral("fileId")] = fileId;
+    }
+    if (endMs > 0) {
+        map[QStringLiteral("endMs")] = endMs;
+    }
+    if (!source.isEmpty()) {
+        map[QStringLiteral("source")] = source;
+    }
+    if (!thumbnailUrl.isEmpty()) {
+        map[QStringLiteral("thumbnailUrl")] = thumbnailUrl;
+    }
+    if (!thumbnailThumbhash.isEmpty()) {
+        map[QStringLiteral("thumbnailThumbhash")] = thumbnailThumbhash;
+    }
     if (artwork.isValid()) {
         map[QStringLiteral("artwork")] = artwork.toVariantMap();
     }

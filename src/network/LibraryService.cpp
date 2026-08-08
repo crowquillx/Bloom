@@ -5,38 +5,19 @@
 #include "models/MediaModels.h"
 #include "providers/IPlaybackProvider.h"
 #include "utils/ConfigManager.h"
-#include <QJsonDocument>
+#include <QFutureWatcher>
 #include <QJsonObject>
 #include <QTimer>
 #include <QUrl>
-#include <QUrlQuery>
-#include <QSet>
+#include <QtConcurrent>
 #include <algorithm>
-#include <QLoggingCategory>
 #include <memory>
 #include <optional>
+#include <utility>
+#include <QLoggingCategory>
 #include "../utils/BloomLogging.h"
 
 namespace {
-
-const QStringList kItemFields = {
-    "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
-    "Genres", "Studios", "People", "UserData",
-    "ProductionYear", "PremiereDate", "OfficialRating",
-    "RunTimeTicks", "CommunityRating", "ProviderIds"
-};
-
-QString buildItemEndpoint(const QString &userId, const QString &itemId)
-{
-    return QString("/Users/%1/Items/%2?Fields=%3")
-        .arg(userId, itemId, kItemFields.join(","));
-}
-
-QString buildChaptersEndpoint(const QString &userId, const QString &itemId)
-{
-    return QString("/Users/%1/Items/%2?Fields=Chapters&EnableImages=true&EnableImageTypes=Chapter&ImageTypeLimit=100")
-        .arg(userId, itemId);
-}
 
 QString activeConnectionId(const AuthenticationService *authService)
 {
@@ -45,10 +26,11 @@ QString activeConnectionId(const AuthenticationService *authService)
     return connection.has_value() ? connection->connectionId : QString();
 }
 
-bool shouldParseItemsAsync(const QByteArray &data)
+QString activeProfileId(const AuthenticationService *authService)
 {
-    constexpr qsizetype asyncThresholdBytes = 250 * 1024;
-    return data.size() > asyncThresholdBytes;
+    ConfigManager *config = authService ? authService->configManager() : nullptr;
+    const auto connection = config ? config->getActiveConnection() : std::nullopt;
+    return connection.has_value() ? connection->profileId : QString();
 }
 
 QString cachedArtworkSource(const Bloom::ArtworkRef &artwork)
@@ -70,6 +52,23 @@ QStringList sortedList(QStringList values)
     return values;
 }
 
+QStringList metadataStrings(const QVariant &value)
+{
+    if (value.canConvert<QStringList>()) {
+        return value.toStringList();
+    }
+    QStringList result;
+    const QVariantList values = value.toList();
+    result.reserve(values.size());
+    for (const QVariant &entry : values) {
+        const QString text = entry.toString();
+        if (!text.isEmpty()) {
+            result.append(text);
+        }
+    }
+    return result;
+}
+
 QString triStateKey(LibraryItemQuery::TriState state)
 {
     switch (state) {
@@ -83,120 +82,30 @@ QString triStateKey(LibraryItemQuery::TriState state)
     return QStringLiteral("any");
 }
 
-void addJoined(QUrlQuery &urlQuery, const QString &key, const QStringList &values, const QString &separator = QStringLiteral("|"))
+ProviderCatalogTriState providerTriState(LibraryItemQuery::TriState state)
 {
-    const QStringList normalized = sortedList(values);
-    if (!normalized.isEmpty()) {
-        urlQuery.addQueryItem(key, normalized.join(separator));
+    switch (state) {
+    case LibraryItemQuery::TriState::Yes:
+        return ProviderCatalogTriState::Yes;
+    case LibraryItemQuery::TriState::No:
+        return ProviderCatalogTriState::No;
+    case LibraryItemQuery::TriState::Any:
+        return ProviderCatalogTriState::Any;
     }
+    return ProviderCatalogTriState::Any;
 }
 
-void addFields(QUrlQuery &urlQuery, bool includeHeavyFields)
+QHash<QByteArray, QByteArray> responseHeaders(const QNetworkReply *reply)
 {
-    QStringList fields = {
-        "Type",
-        "ParentIndexNumber",
-        "IndexNumber",
-        "LocationType",
-        "ImageTags",
-        "BackdropImageTags",
-        "ParentBackdropImageTags",
-        "ParentBackdropImageItemId",
-        "ParentBackdropItemId",
-        "ParentPrimaryImageTag",
-        "ParentPrimaryImageItemId",
-        "SeriesPrimaryImageTag",
-        "ProductionYear",
-        "PremiereDate",
-        "DateCreated",
-        "ChildCount",
-        "ParentId",
-        "SeasonId",
-        "SeriesId",
-        "SeriesName",
-        "UserData",
-        "RunTimeTicks",
-        "Overview",
-        "CommunityRating",
-        "Studios",
-        "Genres",
-        "Tags",
-        "SpecialEpisodeNumbers",
-        "AirsBeforeSeasonNumber",
-        "AirsAfterSeasonNumber",
-        "AirsBeforeEpisodeNumber"
-    };
-
-    if (includeHeavyFields) {
-        fields.prepend("Path");
-        fields.prepend("MediaSources");
+    QHash<QByteArray, QByteArray> headers;
+    if (!reply) {
+        return headers;
     }
-
-    urlQuery.addQueryItem("Fields", fields.join(","));
-    urlQuery.addQueryItem("EnableImageTypes", "Primary,Backdrop,Thumb,Logo");
-}
-
-QString buildItemsEndpoint(const QString &userId, const LibraryItemQuery &query)
-{
-    QUrl url(QStringLiteral("/Users/%1/Items").arg(userId));
-    QUrlQuery urlQuery;
-
-    if (!query.parentId.isEmpty()) {
-        urlQuery.addQueryItem("ParentId", query.parentId);
+    const auto pairs = reply->rawHeaderPairs();
+    for (const auto &pair : pairs) {
+        headers.insert(pair.first, pair.second);
     }
-    addFields(urlQuery, query.includeHeavyFields);
-    if (query.startIndex > 0) {
-        urlQuery.addQueryItem("StartIndex", QString::number(query.startIndex));
-    }
-    if (query.limit > 0) {
-        urlQuery.addQueryItem("Limit", QString::number(query.limit));
-    }
-    if (!query.searchTerm.trimmed().isEmpty()) {
-        urlQuery.addQueryItem("SearchTerm", query.searchTerm.trimmed());
-    }
-    addJoined(urlQuery, "Genres", query.genres, ",");
-    addJoined(urlQuery, "Tags", query.tags, ",");
-    addJoined(urlQuery, "Studios", query.studios, ",");
-    if (query.minPremiereDate.isValid()) {
-        urlQuery.addQueryItem("MinPremiereDate", query.minPremiereDate.startOfDay(Qt::UTC).toString(Qt::ISODate));
-    }
-    if (query.maxPremiereDate.isValid()) {
-        urlQuery.addQueryItem("MaxPremiereDate", query.maxPremiereDate.endOfDay(Qt::UTC).toString(Qt::ISODate));
-    }
-    if (query.minDateLastSaved.isValid()) {
-        urlQuery.addQueryItem("MinDateLastSaved", query.minDateLastSaved.startOfDay(Qt::UTC).toString(Qt::ISODate));
-    }
-    if (query.watched != LibraryItemQuery::TriState::Any) {
-        urlQuery.addQueryItem("IsPlayed", query.watched == LibraryItemQuery::TriState::Yes ? "true" : "false");
-    }
-    if (query.favorite != LibraryItemQuery::TriState::Any) {
-        urlQuery.addQueryItem("IsFavorite", query.favorite == LibraryItemQuery::TriState::Yes ? "true" : "false");
-    }
-    if (query.minCommunityRating > 0.0) {
-        urlQuery.addQueryItem("MinCommunityRating", QString::number(query.minCommunityRating, 'f', 1));
-    }
-    if (!query.years.isEmpty()) {
-        QStringList years;
-        years.reserve(query.years.size());
-        for (int year : query.years) {
-            if (year > 0) {
-                years.append(QString::number(year));
-            }
-        }
-        addJoined(urlQuery, "Years", years);
-    }
-    addJoined(urlQuery, "IncludeItemTypes", query.includeItemTypes, ",");
-    if (query.recursive) {
-        urlQuery.addQueryItem("Recursive", "true");
-    }
-
-    urlQuery.addQueryItem("SortBy", query.normalizedSortBy());
-    if (!query.sortOrder.isEmpty()) {
-        urlQuery.addQueryItem("SortOrder", query.sortOrder);
-    }
-
-    url.setQuery(urlQuery);
-    return url.toString(QUrl::FullyEncoded);
+    return headers;
 }
 
 }
@@ -243,62 +152,252 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
     , m_transport(authService ? authService->transport() : nullptr)
     , m_retryPolicy{3, 1000, true}
 {
-    if (m_authService) {
-        const auto clearAccountState = [this]() {
-            m_etags.clear();
-            m_lastModified.clear();
-            m_inFlightChapterRequests.clear();
-            ++m_heroLibraryRequestGeneration;
-        };
-        connect(m_authService, &AuthenticationService::loggedOut,
-                this, clearAccountState);
-        connect(m_authService, &AuthenticationService::loginSuccess,
-                this, [clearAccountState](const QString &, const QString &, const QString &) {
-            clearAccountState();
-        });
+    if (!m_authService) {
+        return;
     }
+
+    const auto invalidateRequests = [this]() {
+        ++m_requestGeneration;
+        for (const QPointer<HttpRequestHandle> &handle : std::as_const(m_catalogRequests)) {
+            if (handle) {
+                handle->cancel();
+            }
+        }
+        m_catalogRequests.clear();
+        m_etags.clear();
+        m_lastModified.clear();
+        m_inFlightChapterRequests.clear();
+    };
+    connect(m_authService, &AuthenticationService::authenticationStepChanged,
+            this, invalidateRequests);
+    connect(m_authService, &AuthenticationService::userIdChanged,
+            this, invalidateRequests);
 }
 
-// ============================================================================
-// Request Helpers
-// ============================================================================
-
-void LibraryService::sendRequestWithRetry(const QString &endpoint,
-                                           RequestFactory requestFactory,
-                                           ResponseHandler responseHandler,
-                                           FailureHandler failureHandler,
-                                           int attemptNumber)
+ProviderCatalogQuery LibraryService::baseCatalogQuery() const
 {
-    Q_UNUSED(attemptNumber)
-    if (!m_transport) {
-        NetworkError error;
-        error.code = -1;
-        error.endpoint = endpoint;
-        error.userMessage = tr("Network transport is unavailable.");
-        if (failureHandler) {
-            failureHandler(error);
-        } else {
-            emitError(error);
-        }
+    ProviderCatalogQuery query;
+    if (m_authService) {
+        query.userId = m_authService->getUserId();
+    }
+    return query;
+}
+
+LibraryService::CatalogRequestIdentity LibraryService::catalogRequestIdentity() const
+{
+    CatalogRequestIdentity identity;
+    identity.generation = m_requestGeneration;
+    identity.connectionId = activeConnectionId(m_authService);
+    identity.userId = m_authService ? m_authService->getUserId() : QString();
+    identity.profileId = activeProfileId(m_authService);
+    identity.provider = m_authService ? m_authService->catalogProvider() : nullptr;
+    return identity;
+}
+
+bool LibraryService::isCurrent(const CatalogRequestIdentity &identity) const
+{
+    return m_authService
+        && m_authService->isAuthenticated()
+        && identity.generation == m_requestGeneration
+        && identity.connectionId == activeConnectionId(m_authService)
+        && identity.userId == m_authService->getUserId()
+        && identity.profileId == activeProfileId(m_authService)
+        && identity.provider == m_authService->catalogProvider();
+}
+
+void LibraryService::sendCatalogRequest(
+    const QString &operationName,
+    ProviderCatalogOperation operation,
+    const ProviderCatalogQuery &query,
+    CatalogResponseHandler responseHandler,
+    FailureHandler failureHandler,
+    CatalogNotModifiedHandler notModifiedHandler)
+{
+    if (!m_authService || !m_authService->isAuthenticated()) {
+        emitCatalogError(operationName, tr("Not authenticated"), std::move(failureHandler));
         return;
+    }
+    if (!m_transport || !m_authService->networkManager()) {
+        emitCatalogError(
+            operationName, tr("Network transport is unavailable."), std::move(failureHandler));
+        return;
+    }
+
+    const CatalogRequestIdentity identity = catalogRequestIdentity();
+    if (!identity.provider) {
+        emitCatalogError(
+            operationName, tr("The active provider has no catalog service."),
+            std::move(failureHandler));
+        return;
+    }
+
+    ProviderCatalogRequest providerRequest =
+        identity.provider->createRequest(operation, query);
+    if (!providerRequest.supported || providerRequest.relativeEndpoint.isEmpty()) {
+        emitCatalogError(
+            operationName,
+            providerRequest.unsupportedReason.isEmpty()
+                ? tr("The active provider does not support this operation.")
+                : providerRequest.unsupportedReason,
+            std::move(failureHandler),
+            -3);
+        return;
+    }
+    if (query.useCacheValidation) {
+        const QString etag = m_etags.value(providerRequest.relativeEndpoint);
+        const QString lastModified = m_lastModified.value(providerRequest.relativeEndpoint);
+        if (!etag.isEmpty()) {
+            providerRequest.extraHeaders.insert(
+                QByteArrayLiteral("If-None-Match"), etag.toUtf8());
+        }
+        if (!lastModified.isEmpty()) {
+            providerRequest.extraHeaders.insert(
+                QByteArrayLiteral("If-Modified-Since"), lastModified.toUtf8());
+        }
     }
 
     HttpRequestOptions options;
     options.retryPolicy = m_retryPolicy;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
-    m_transport->sendWithRetry(
+    HttpRequestHandle *handle = m_transport->sendWithRetry(
         this,
-        endpoint,
-        std::move(requestFactory),
-        std::move(responseHandler),
-        [this, failureHandler = std::move(failureHandler)](const NetworkError &error) {
+        providerRequest.relativeEndpoint,
+        [this, identity, providerRequest]() -> QNetworkReply * {
+            if (!isCurrent(identity)) {
+                return nullptr;
+            }
+            QNetworkRequest request =
+                m_authService->createRequest(providerRequest.relativeEndpoint);
+            for (auto it = providerRequest.extraHeaders.cbegin();
+                 it != providerRequest.extraHeaders.cend();
+                 ++it) {
+                request.setRawHeader(it.key(), it.value());
+            }
+            switch (providerRequest.method) {
+            case ProviderHttpMethod::Get:
+                return m_authService->networkManager()->get(request);
+            case ProviderHttpMethod::Post:
+                return m_authService->networkManager()->post(request, providerRequest.body);
+            case ProviderHttpMethod::Put:
+                return m_authService->networkManager()->put(request, providerRequest.body);
+            case ProviderHttpMethod::Delete:
+                return m_authService->networkManager()->deleteResource(request);
+            }
+            return nullptr;
+        },
+        [this, identity, operationName, operation, providerRequest,
+         responseHandler = std::move(responseHandler),
+         failureHandler, notModifiedHandler = std::move(notModifiedHandler)](
+            QNetworkReply *reply) mutable {
+            if (!isCurrent(identity)) {
+                return;
+            }
+            const int status =
+                reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            if (status == 304) {
+                if (notModifiedHandler) {
+                    notModifiedHandler();
+                }
+                return;
+            }
+
+            const QByteArray body = reply->readAll();
+            const QHash<QByteArray, QByteArray> headers = responseHeaders(reply);
+            emit parsingStarted(operationName);
+
+            auto *watcher = new QFutureWatcher<ProviderCatalogResponse>(this);
+            connect(watcher, &QFutureWatcher<ProviderCatalogResponse>::finished,
+                    this,
+                    [this, watcher, identity, operationName, operation, providerRequest,
+                     responseHandler = std::move(responseHandler), failureHandler]() mutable {
+                const ProviderCatalogResponse response = watcher->result();
+                watcher->deleteLater();
+                emit parsingFinished(operationName);
+                if (!isCurrent(identity)) {
+                    return;
+                }
+                if (!response.valid) {
+                    emitCatalogError(
+                        operationName,
+                        response.error.isEmpty()
+                            ? tr("Invalid provider response.") : response.error,
+                        failureHandler,
+                        -2);
+                    return;
+                }
+
+                const QString etag =
+                    response.snapshot.value(QStringLiteral("etag")).toString();
+                const QString lastModified =
+                    response.snapshot.value(QStringLiteral("lastModified")).toString();
+                if (!etag.isEmpty()) {
+                    m_etags.insert(providerRequest.relativeEndpoint, etag);
+                }
+                if (!lastModified.isEmpty()) {
+                    m_lastModified.insert(providerRequest.relativeEndpoint, lastModified);
+                }
+                if (responseHandler) {
+                    responseHandler(response);
+                }
+            });
+            watcher->setFuture(QtConcurrent::run(
+                [provider = identity.provider, operation, body, headers]() {
+                    return provider->parseResponse(operation, body, headers);
+                }));
+        },
+        [this, identity, operationName,
+         failureHandler](const NetworkError &transportError) {
+            if (!isCurrent(identity)) {
+                return;
+            }
+            NetworkError error = transportError;
+            error.endpoint = operationName;
             if (failureHandler) {
                 failureHandler(error);
-            } else {
-                emitError(error);
             }
+            emitError(error);
         },
         options);
+    m_catalogRequests.removeIf(
+        [](const QPointer<HttpRequestHandle> &candidate) { return candidate.isNull(); });
+    m_catalogRequests.append(handle);
+}
+
+void LibraryService::emitCatalogError(
+    const QString &operationName,
+    const QString &message,
+    FailureHandler failureHandler,
+    int code)
+{
+    NetworkError error;
+    error.code = code;
+    error.endpoint = operationName;
+    error.userMessage = message;
+    if (failureHandler) {
+        failureHandler(error);
+    }
+    emitError(error);
+}
+
+void LibraryService::emitItemStateResponse(
+    const QString &itemId,
+    const ProviderCatalogResponse &response)
+{
+    if (response.rawItem.isEmpty()) {
+        return;
+    }
+    QJsonObject state = response.rawItem;
+    if (m_authService
+        && m_authService->activeProviderKind() == ProviderKind::Silo) {
+        const QVariantMap item = m_authService->mapMediaItem(
+            response.rawItem, activeConnectionId(m_authService));
+        const QVariantMap userState =
+            item.value(QStringLiteral("userState")).toMap();
+        if (!userState.isEmpty()) {
+            state = QJsonObject::fromVariantMap(userState);
+        }
+    }
+    emit itemUserDataChanged(itemId, state);
 }
 
 void LibraryService::emitError(const NetworkError &error)
@@ -315,89 +414,25 @@ void LibraryService::emitError(const NetworkError &error)
 
 void LibraryService::getViews()
 {
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getViews";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emitError(error);
-        return;
-    }
-    
     const QString connectionId = activeConnectionId(m_authService);
-    QString endpoint = QString("/Users/%1/Views").arg(m_authService->getUserId());
-    
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, connectionId](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            
-            if (shouldParseItemsAsync(data)) {
-                emit parsingStarted("views");
-                
-                auto *watcher = new QFutureWatcher<ParsedItemsResult>(this);
-                connect(watcher, &QFutureWatcher<ParsedItemsResult>::finished, this,
-                        [this, watcher, connectionId]() {
-                    ParsedItemsResult result = watcher->result();
-                    watcher->deleteLater();
-                    
-                    emit parsingFinished("views");
-                    
-                    if (result.success) {
-                        emit viewsLoaded(result.items);
-                        const QVariantList canonicalItems =
-                            m_authService->mapMediaItems(result.items, connectionId);
-                        emit canonicalViewsLoaded(canonicalItems);
-                        emit canonicalViewsLoadedForConnection(connectionId, canonicalItems);
-                    } else {
-                        NetworkError error;
-                        error.endpoint = "getViews";
-                        error.code = -2;
-                        error.userMessage = tr("Failed to parse server response");
-                        emitError(error);
-                    }
-                });
-                
-                const auto parseItemsResponse = m_authService->itemsResponseParser();
-                QFuture<ParsedItemsResult> future = QtConcurrent::run(
-                    [parseItemsResponse, data]() {
-                        return parseItemsResponse
-                            ? parseItemsResponse(data, QString())
-                            : ParsedItemsResult{};
-                    });
-                watcher->setFuture(future);
-            } else {
-                const ParsedItemsResult result =
-                    m_authService->parseItemsResponse(data, QString());
-                if (!result.success) {
-                    NetworkError error;
-                    error.endpoint = "getViews";
-                    error.code = -2;
-                    error.userMessage = tr("Invalid server response");
-                    emitError(error);
-                    return;
-                }
-                const QJsonArray items = result.items;
-                emit viewsLoaded(items);
-                const QVariantList canonicalItems =
-                    m_authService->mapMediaItems(items, connectionId);
-                emit canonicalViewsLoaded(canonicalItems);
-                emit canonicalViewsLoadedForConnection(connectionId, canonicalItems);
-            }
+    ProviderCatalogQuery query = baseCatalogQuery();
+    sendCatalogRequest(
+        QStringLiteral("getViews"),
+        ProviderCatalogOperation::Views,
+        query,
+        [this, connectionId](const ProviderCatalogResponse &response) {
+            emit viewsLoaded(response.rawItems);
+            const QVariantList items =
+                m_authService->mapMediaItems(response.rawItems, connectionId);
+            emit canonicalViewsLoaded(items);
+            emit canonicalViewsLoadedForConnection(connectionId, items);
         });
 }
 
-// ============================================================================
-// Items with Pagination
-// ============================================================================
-
 void LibraryService::getItems(const QString &parentId, int startIndex, int limit,
-                               const QStringList &genres, const QStringList &networks,
-                               const QString &sortBy, const QString &sortOrder,
-                               bool includeHeavyFields, bool useCacheValidation)
+                              const QStringList &genres, const QStringList &networks,
+                              const QString &sortBy, const QString &sortOrder,
+                              bool includeHeavyFields, bool useCacheValidation)
 {
     LibraryItemQuery query;
     query.parentId = parentId;
@@ -414,130 +449,55 @@ void LibraryService::getItems(const QString &parentId, int startIndex, int limit
 
 void LibraryService::getItems(const LibraryItemQuery &query)
 {
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getItems";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emitError(error);
-        return;
-    }
-
     const QString parentId = query.parentId;
     const QString queryKey = query.requestKey.isEmpty() ? query.cacheKey() : query.requestKey;
     const QString connectionId = activeConnectionId(m_authService);
-    const QString endpoint = buildItemsEndpoint(m_authService->getUserId(), query);
-    
-    sendRequestWithRetry(endpoint,
-        [this, endpoint, query]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            if (query.useCacheValidation) {
-                if (m_etags.contains(endpoint)) {
-                    request.setRawHeader("If-None-Match", m_etags.value(endpoint).toUtf8());
-                }
-                if (m_lastModified.contains(endpoint)) {
-                    request.setRawHeader("If-Modified-Since", m_lastModified.value(endpoint).toUtf8());
-                }
-            }
-            return m_authService->networkManager()->get(request);
-        },
-        [this, parentId, endpoint, query, queryKey, connectionId](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            if (httpStatus == 304 && query.useCacheValidation) {
-                emit itemsNotModified(parentId);
-                emit itemsNotModifiedForQuery(parentId, queryKey);
-                emit canonicalItemsNotModifiedForConnection(connectionId, parentId, queryKey);
-                return;
-            }
 
-            if (query.useCacheValidation) {
-                QByteArray etag = reply->rawHeader("ETag");
-                if (!etag.isEmpty()) {
-                    m_etags[endpoint] = QString::fromUtf8(etag);
-                }
-                QByteArray lastMod = reply->rawHeader("Last-Modified");
-                if (!lastMod.isEmpty()) {
-                    m_lastModified[endpoint] = QString::fromUtf8(lastMod);
-                }
-            }
-            
-            if (shouldParseItemsAsync(data)) {
-                emit parsingStarted("library");
-                
-                auto *watcher = new QFutureWatcher<ParsedItemsResult>(this);
-                connect(watcher, &QFutureWatcher<ParsedItemsResult>::finished, this,
-                        [this, watcher, connectionId]() {
-                    ParsedItemsResult result = watcher->result();
-                    watcher->deleteLater();
-                    emit parsingFinished("library");
-                    
-                    if (result.success) {
-                        emit itemsLoaded(result.parentId, result.items);
-                        emit itemsLoadedWithTotal(result.parentId, result.items, result.totalRecordCount);
-                        emit itemsLoadedWithTotalForQuery(result.parentId, result.queryKey, result.items, result.totalRecordCount);
-                        const QVariantList canonicalItems =
-                            m_authService->mapMediaItems(result.items, connectionId);
-                        emit canonicalItemsLoadedWithTotalForQuery(
-                            result.parentId,
-                            result.queryKey,
-                            canonicalItems,
-                            result.totalRecordCount);
-                        emit canonicalItemsLoadedForConnection(
-                            connectionId,
-                            result.parentId,
-                            result.queryKey,
-                            canonicalItems,
-                            result.totalRecordCount);
-                    } else {
-                        NetworkError error;
-                        error.endpoint = "getItems";
-                        error.code = -2;
-                        error.userMessage = tr("Failed to parse library data");
-                        emitError(error);
-                    }
-                });
-                
-                const auto parseItemsResponse = m_authService->itemsResponseParser();
-                QFuture<ParsedItemsResult> future = QtConcurrent::run(
-                    [parseItemsResponse, data, parentId, queryKey]() {
-                        auto result = parseItemsResponse
-                            ? parseItemsResponse(data, parentId)
-                            : ParsedItemsResult{};
-                        result.queryKey = queryKey;
-                        return result;
-                    });
-                watcher->setFuture(future);
-            } else {
-                const ParsedItemsResult result =
-                    m_authService->parseItemsResponse(data, parentId);
-                if (!result.success) {
-                    NetworkError error;
-                    error.endpoint = "getItems";
-                    error.code = -2;
-                    error.userMessage = tr("Invalid library response");
-                    emitError(error);
-                    return;
-                }
-                const QJsonArray items = result.items;
-                const int totalRecordCount = result.totalRecordCount;
-                emit itemsLoaded(parentId, items);
-                emit itemsLoadedWithTotal(parentId, items, totalRecordCount);
-                emit itemsLoadedWithTotalForQuery(parentId, queryKey, items, totalRecordCount);
-                const QVariantList canonicalItems =
-                    m_authService->mapMediaItems(items, connectionId);
-                emit canonicalItemsLoadedWithTotalForQuery(
-                    parentId,
-                    queryKey,
-                    canonicalItems,
-                    totalRecordCount);
-                emit canonicalItemsLoadedForConnection(
-                    connectionId,
-                    parentId,
-                    queryKey,
-                    canonicalItems,
-                    totalRecordCount);
-            }
+    ProviderCatalogQuery providerQuery = baseCatalogQuery();
+    providerQuery.parentId = query.parentId;
+    providerQuery.startIndex = query.startIndex;
+    providerQuery.limit = query.limit;
+    providerQuery.searchTerm = query.searchTerm;
+    providerQuery.genres = query.genres;
+    providerQuery.tags = query.tags;
+    providerQuery.studios = query.studios;
+    providerQuery.minPremiereDate = query.minPremiereDate;
+    providerQuery.maxPremiereDate = query.maxPremiereDate;
+    providerQuery.minDateLastSaved = query.minDateLastSaved;
+    providerQuery.watched = providerTriState(query.watched);
+    providerQuery.favorite = providerTriState(query.favorite);
+    providerQuery.minCommunityRating = query.minCommunityRating;
+    providerQuery.years = query.years;
+    providerQuery.sortBy = query.sortBy;
+    providerQuery.sortOrder = query.sortOrder;
+    providerQuery.includeItemTypes = query.includeItemTypes;
+    providerQuery.recursive = query.recursive;
+    providerQuery.includeHeavyFields = query.includeHeavyFields;
+    providerQuery.useCacheValidation = query.useCacheValidation;
+
+    sendCatalogRequest(
+        QStringLiteral("getItems"),
+        ProviderCatalogOperation::Items,
+        providerQuery,
+        [this, parentId, queryKey, connectionId](
+            const ProviderCatalogResponse &response) {
+            emit itemsLoaded(parentId, response.rawItems);
+            emit itemsLoadedWithTotal(parentId, response.rawItems, response.total);
+            emit itemsLoadedWithTotalForQuery(
+                parentId, queryKey, response.rawItems, response.total);
+            const QVariantList items =
+                m_authService->mapMediaItems(response.rawItems, connectionId);
+            emit canonicalItemsLoadedWithTotalForQuery(
+                parentId, queryKey, items, response.total);
+            emit canonicalItemsLoadedForConnection(
+                connectionId, parentId, queryKey, items, response.total);
+        },
+        FailureHandler(),
+        [this, parentId, queryKey, connectionId]() {
+            emit itemsNotModified(parentId);
+            emit itemsNotModifiedForQuery(parentId, queryKey);
+            emit canonicalItemsNotModifiedForConnection(
+                connectionId, parentId, queryKey);
         });
 }
 
@@ -545,371 +505,190 @@ void LibraryService::getFilterOptions(const QString &parentId,
                                       const QStringList &includeItemTypes,
                                       bool recursive)
 {
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getFilterOptions";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emitError(error);
+    if (!m_authService || !m_authService->isAuthenticated()) {
+        emitCatalogError(
+            QStringLiteral("getFilterOptions"), tr("Not authenticated"));
         return;
     }
-
-    auto buildFacetEndpoint = [this, parentId, includeItemTypes, recursive](const QString &path) {
-        QUrl url(path);
-        QUrlQuery query;
-        query.addQueryItem("UserId", m_authService->getUserId());
-        if (!parentId.isEmpty()) {
-            query.addQueryItem("ParentId", parentId);
-        }
-        if (!includeItemTypes.isEmpty()) {
-            query.addQueryItem("IncludeItemTypes", includeItemTypes.join(","));
-        }
-        if (recursive) {
-            query.addQueryItem("Recursive", "true");
-        }
-        query.addQueryItem("Limit", "500");
-        url.setQuery(query);
-        return url.toString(QUrl::FullyEncoded);
+    const QStringList facets = {
+        QString(),
+        QStringLiteral("genres"),
+        QStringLiteral("studios")
     };
-
-    const QString filtersEndpoint = buildFacetEndpoint("/Items/Filters");
-    const QString genresEndpoint = buildFacetEndpoint("/Genres");
-    const QString studiosEndpoint = buildFacetEndpoint("/Studios");
-
     auto state = std::make_shared<QHash<QString, QStringList>>();
-    auto remaining = std::make_shared<int>(3);
-    auto finish = [this, parentId, state, remaining]() {
-        --(*remaining);
-        if (*remaining > 0) {
+    auto remaining = std::make_shared<int>(facets.size());
+    const auto finish = [this, parentId, state, remaining]() {
+        if (--(*remaining) > 0) {
             return;
         }
-        QStringList genres = state->value("genres");
-        genres.append(state->value("filterGenres"));
-        QStringList tags = state->value("tags");
-        QStringList studios = state->value("studios");
-        genres = sortedList(genres);
-        tags = sortedList(tags);
-        studios = sortedList(studios);
-        emit filterOptionsLoaded(parentId, genres, tags, studios);
+        QStringList genres = state->value(QStringLiteral("genres"));
+        genres.append(state->value(QStringLiteral("filterGenres")));
+        emit filterOptionsLoaded(
+            parentId,
+            sortedList(genres),
+            sortedList(state->value(QStringLiteral("tags"))),
+            sortedList(state->value(QStringLiteral("studios"))));
     };
 
-    sendRequestWithRetry(filtersEndpoint,
-        [this, filtersEndpoint]() {
-            return m_authService->networkManager()->get(m_authService->createRequest(filtersEndpoint));
-        },
-        [this, state, finish](QNetworkReply *reply) {
-            const QVariantMap options = m_authService->mapFilterOptions(
-                QJsonDocument::fromJson(reply->readAll()).object());
-            state->insert("filterGenres", options.value(QStringLiteral("genres")).toStringList());
-            state->insert("tags", options.value(QStringLiteral("tags")).toStringList());
-            finish();
-        },
-        [finish](const NetworkError &) {
-            finish();
-        });
-
-    sendRequestWithRetry(genresEndpoint,
-        [this, genresEndpoint]() {
-            return m_authService->networkManager()->get(m_authService->createRequest(genresEndpoint));
-        },
-        [this, state, finish](QNetworkReply *reply) {
-            state->insert("genres", m_authService->mapNamedItems(
-                QJsonDocument::fromJson(reply->readAll()).object()));
-            finish();
-        },
-        [finish](const NetworkError &) {
-            finish();
-        });
-
-    sendRequestWithRetry(studiosEndpoint,
-        [this, studiosEndpoint]() {
-            return m_authService->networkManager()->get(m_authService->createRequest(studiosEndpoint));
-        },
-        [this, state, finish](QNetworkReply *reply) {
-            state->insert("studios", m_authService->mapNamedItems(
-                QJsonDocument::fromJson(reply->readAll()).object()));
-            finish();
-        },
-        [finish](const NetworkError &) {
-            finish();
-        });
+    for (const QString &facet : facets) {
+        ProviderCatalogQuery providerQuery = baseCatalogQuery();
+        providerQuery.parentId = parentId;
+        providerQuery.includeItemTypes = includeItemTypes;
+        providerQuery.recursive = recursive;
+        providerQuery.filterFacet = facet;
+        sendCatalogRequest(
+            QStringLiteral("getFilterOptions"),
+            ProviderCatalogOperation::FilterOptions,
+            providerQuery,
+            [state, finish, facet](const ProviderCatalogResponse &response) {
+                if (facet.isEmpty()) {
+                    state->insert(
+                        QStringLiteral("filterGenres"),
+                        metadataStrings(response.filterMetadata.value(
+                            QStringLiteral("genres"))));
+                    state->insert(
+                        QStringLiteral("tags"),
+                        metadataStrings(response.filterMetadata.value(
+                            QStringLiteral("tags"))));
+                    const QStringList studios = metadataStrings(
+                        response.filterMetadata.value(QStringLiteral("studios")));
+                    if (!studios.isEmpty()) {
+                        state->insert(QStringLiteral("studios"), studios);
+                    }
+                } else {
+                    state->insert(
+                        facet,
+                        metadataStrings(response.filterMetadata.value(
+                            QStringLiteral("namedItems"))));
+                }
+                finish();
+            },
+            [finish](const NetworkError &) {
+                finish();
+            });
+    }
 }
-
-// ============================================================================
-// Next Up & Latest Media
-// ============================================================================
 
 void LibraryService::getNextUp()
 {
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getNextUp";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emitError(error);
-        return;
-    }
-    
     const QString connectionId = activeConnectionId(m_authService);
-    QString endpoint = QString("/Shows/NextUp?UserId=%1&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,SeriesThumbImageTag,ParentThumbItemId,ParentThumbImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,UserData,RunTimeTicks&EnableImageTypes=Primary,Thumb,Backdrop,Logo")
-        .arg(m_authService->getUserId());
-    
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, connectionId](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
-            if (!doc.isObject()) {
-                NetworkError error;
-                error.endpoint = "getNextUp";
-                error.code = -2;
-                error.userMessage = tr("Invalid next up response");
-                emitError(error);
-                return;
-            }
-            const QJsonArray items =
-                m_authService->parseItemsResponse(data, QString()).items;
-            emit nextUpLoaded(items);
+    sendCatalogRequest(
+        QStringLiteral("getNextUp"),
+        ProviderCatalogOperation::NextUp,
+        baseCatalogQuery(),
+        [this, connectionId](const ProviderCatalogResponse &response) {
+            emit nextUpLoaded(response.rawItems);
             emit canonicalNextUpLoaded(
-                connectionId, m_authService->mapMediaItems(items, connectionId));
+                connectionId,
+                m_authService->mapMediaItems(response.rawItems, connectionId));
         });
 }
 
 void LibraryService::getLatestMedia(const QString &parentId)
 {
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getLatestMedia";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emitError(error);
-        return;
-    }
-    
     const QString connectionId = activeConnectionId(m_authService);
-    QString endpoint = QString("/Users/%1/Items/Latest?ParentId=%2&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,SeriesThumbImageTag,ParentThumbItemId,ParentThumbImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,ProductionYear,Status,EndDate,ParentIndexNumber,IndexNumber,UserData,RunTimeTicks&EnableImageTypes=Primary,Backdrop,Thumb,Logo")
-        .arg(m_authService->getUserId(), parentId);
-    
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, parentId, connectionId](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
-            if (!doc.isArray()) {
-                NetworkError error;
-                error.endpoint = "getLatestMedia";
-                error.code = -2;
-                error.userMessage = tr("Invalid latest media response");
-                emitError(error);
-                return;
-            }
-            QJsonArray items = doc.array();
-            emit latestMediaLoaded(parentId, items);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.parentId = parentId;
+    sendCatalogRequest(
+        QStringLiteral("getLatestMedia"),
+        ProviderCatalogOperation::LatestMedia,
+        query,
+        [this, parentId, connectionId](const ProviderCatalogResponse &response) {
+            emit latestMediaLoaded(parentId, response.rawItems);
             emit canonicalLatestMediaLoaded(
-                connectionId, parentId, m_authService->mapMediaItems(items, connectionId));
+                connectionId,
+                parentId,
+                m_authService->mapMediaItems(response.rawItems, connectionId));
         });
 }
 
 void LibraryService::getHomeBackdropItems(int limit)
 {
     const QString connectionId = activeConnectionId(m_authService);
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getHomeBackdropItems";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emit canonicalHomeBackdropItemsFailed(connectionId, error.userMessage);
-        emitError(error);
-        return;
-    }
+    const quint64 generation = m_requestGeneration;
+    const int requestedLimit = limit > 0 ? qBound(50, limit, 20000) : 0;
 
-    const QStringList fields = {
-        "Id",
-        "ImageTags",
-        "BackdropImageTags",
-        "ParentBackdropImageTags",
-        "ParentBackdropItemId",
-        "SeriesId"
-    };
-    const int requestedLimit = (limit > 0) ? qBound(50, limit, 20000) : 0;
-
-    // Fast starter query: small random sample so Home can show a backdrop quickly.
     if (requestedLimit > 0) {
-        QString endpoint = QString("/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series,Season,Episode&SortBy=Random&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableTotalRecordCount=false&Limit=%3")
-                               .arg(m_authService->getUserId())
-                               .arg(fields.join(","))
-                               .arg(requestedLimit);
-
-        sendRequestWithRetry(endpoint,
-            [this, endpoint]() {
-                QNetworkRequest request = m_authService->createRequest(endpoint);
-                return m_authService->networkManager()->get(request);
-            },
-            [this, requestedLimit, connectionId](QNetworkReply *reply) {
-                QByteArray data = reply->readAll();
-                QJsonDocument doc = QJsonDocument::fromJson(data);
-                if (!doc.isObject()) {
-                    NetworkError error;
-                    error.endpoint = "getHomeBackdropItems";
-                    error.code = -2;
-                    error.userMessage = tr("Invalid home backdrop response");
-                    emit canonicalHomeBackdropItemsFailed(connectionId, error.userMessage);
-                    emitError(error);
-                    return;
-                }
-                const QJsonArray items =
-                    m_authService->parseItemsResponse(data, QString()).items;
-                qCDebug(lcLibrary) << "getHomeBackdropItems starter sample size:" << items.size()
-                                        << "requestedLimit:" << requestedLimit;
-                emit homeBackdropItemsLoaded(items);
+        ProviderCatalogQuery query = baseCatalogQuery();
+        query.limit = requestedLimit;
+        sendCatalogRequest(
+            QStringLiteral("getHomeBackdropItems"),
+            ProviderCatalogOperation::HomeBackdrops,
+            query,
+            [this, connectionId](const ProviderCatalogResponse &response) {
+                emit homeBackdropItemsLoaded(response.rawItems);
                 emit canonicalHomeBackdropItemsLoaded(
-                    connectionId, m_authService->mapMediaItems(items, connectionId));
+                    connectionId,
+                    m_authService->mapMediaItems(response.rawItems, connectionId));
             },
             [this, connectionId](const NetworkError &error) {
-                emit canonicalHomeBackdropItemsFailed(connectionId, error.userMessage);
-                emitError(error);
+                emit canonicalHomeBackdropItemsFailed(
+                    connectionId, error.userMessage);
             });
         return;
     }
 
-    const int pageSize = 250;
-    const int pageDelayMs = 250;
-
-    auto aggregate = std::make_shared<QJsonArray>();
-    auto fetchPage = std::make_shared<std::function<void(int)>>();
-    *fetchPage = [this, fields, pageSize, requestedLimit, aggregate, fetchPage, connectionId](int startIndex) {
-        if (activeConnectionId(m_authService) != connectionId) {
+    auto fetchPage =
+        std::make_shared<std::function<void(int, std::optional<QString>)>>();
+    *fetchPage = [this, connectionId, generation, fetchPage](
+                     int startIndex, std::optional<QString> snapshot) {
+        if (generation != m_requestGeneration) {
             return;
         }
-        QString endpoint = QString("/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series,Season,Episode&SortBy=SortName&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableTotalRecordCount=false&StartIndex=%3&Limit=%4")
-                               .arg(m_authService->getUserId())
-                               .arg(fields.join(","))
-                               .arg(startIndex)
-                               .arg(pageSize);
-
-        sendRequestWithRetry(endpoint,
-            [this, endpoint]() {
-                QNetworkRequest request = m_authService->createRequest(endpoint);
-                return m_authService->networkManager()->get(request);
-            },
-            [this, startIndex, pageSize, requestedLimit, aggregate, fetchPage, connectionId](QNetworkReply *reply) {
-                QByteArray data = reply->readAll();
-                QJsonDocument doc = QJsonDocument::fromJson(data);
-                if (!doc.isObject()) {
-                    NetworkError error;
-                    error.endpoint = "getHomeBackdropItems";
-                    error.code = -2;
-                    error.userMessage = tr("Invalid home backdrop response");
-                    emit canonicalHomeBackdropItemsFailed(connectionId, error.userMessage);
-                    emitError(error);
-                    return;
-                }
-
-                const QJsonArray pageItems =
-                    m_authService->parseItemsResponse(data, QString()).items;
-                qCDebug(lcLibrary) << "getHomeBackdropItems page startIndex:" << startIndex
-                                        << "pageItems:" << pageItems.size()
-                                        << "requestedLimit:" << requestedLimit;
-
-                // Emit progressively so Home can render backdrops immediately.
-                if (!pageItems.isEmpty()) {
-                    emit homeBackdropItemsLoaded(pageItems);
+        ProviderCatalogQuery query = baseCatalogQuery();
+        query.startIndex = startIndex;
+        query.snapshot = snapshot;
+        sendCatalogRequest(
+            QStringLiteral("getHomeBackdropItems"),
+            ProviderCatalogOperation::HomeBackdrops,
+            query,
+            [this, connectionId, generation, fetchPage, startIndex, snapshot](
+                const ProviderCatalogResponse &response) {
+                if (!response.rawItems.isEmpty()) {
+                    emit homeBackdropItemsLoaded(response.rawItems);
                     emit canonicalHomeBackdropItemsLoaded(
-                        connectionId, m_authService->mapMediaItems(pageItems, connectionId));
+                        connectionId,
+                        m_authService->mapMediaItems(response.rawItems, connectionId));
                 }
-
-                for (const QJsonValue &value : pageItems) {
-                    aggregate->append(value);
+                const bool hasMore = response.hasMore
+                    || (m_authService->activeProviderKind() == ProviderKind::Jellyfin
+                        && response.rawItems.size() == 250);
+                if (generation == m_requestGeneration
+                    && hasMore
+                    && !response.rawItems.isEmpty()) {
+                    const int nextStart = startIndex + response.rawItems.size();
+                    std::optional<QString> nextSnapshot = snapshot;
+                    const QString responseSnapshot =
+                        response.snapshot.value(QStringLiteral("snapshot")).toString();
+                    if (!responseSnapshot.isEmpty()) {
+                        nextSnapshot = responseSnapshot;
+                    }
+                    QTimer::singleShot(250, this, [fetchPage, nextStart, nextSnapshot]() {
+                        (*fetchPage)(nextStart, nextSnapshot);
+                    });
                 }
-
-                const bool reachedRequestedLimit = requestedLimit > 0 && aggregate->size() >= requestedLimit;
-                const bool reachedServerEndByPage = pageItems.size() < pageSize;
-
-                if (reachedRequestedLimit || reachedServerEndByPage) {
-                    qCDebug(lcLibrary) << "getHomeBackdropItems completed aggregate size:" << aggregate->size()
-                                            << "requestedLimit:" << requestedLimit;
-                    return;
-                }
-
-                const int nextStart = startIndex + pageItems.size();
-                QTimer::singleShot(pageDelayMs, this, [fetchPage, nextStart]() {
-                    (*fetchPage)(nextStart);
-                });
             },
             [this, connectionId](const NetworkError &error) {
-                emit canonicalHomeBackdropItemsFailed(connectionId, error.userMessage);
-                emitError(error);
+                emit canonicalHomeBackdropItemsFailed(
+                    connectionId, error.userMessage);
             });
     };
-
-    (*fetchPage)(0);
+    (*fetchPage)(0, std::nullopt);
 }
 
 void LibraryService::getScreensaverItems(int limit)
 {
     const QString connectionId = activeConnectionId(m_authService);
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getScreensaverItems";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emit canonicalScreensaverItemsFailed(connectionId, error.userMessage);
-        emitError(error);
-        return;
-    }
-
-    const int requestedLimit = qBound(10, limit > 0 ? limit : 80, 200);
-    const QString requestUserId = m_authService->getUserId();
-    const QStringList fields = {
-        "Id",
-        "Name",
-        "Overview",
-        "Type",
-        "SeriesName",
-        "SeriesId",
-        "ImageTags",
-        "BackdropImageTags",
-        "ParentBackdropImageTags",
-        "ParentBackdropItemId",
-        "ParentId",
-        "ProductionYear"
-    };
-
-    const QString endpoint = QString("/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series&SortBy=Random&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop,Logo&ImageTypeLimit=1&EnableTotalRecordCount=false&Limit=%3")
-                                 .arg(requestUserId)
-                                 .arg(fields.join(","))
-                                 .arg(requestedLimit);
-
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, connectionId, requestUserId](QNetworkReply *reply) {
-            if (!m_authService->isAuthenticated() || m_authService->getUserId() != requestUserId) {
-                return;
-            }
-            const ParsedItemsResult response =
-                m_authService->parseItemsResponse(reply->readAll(), QString());
-            if (!response.success) {
-                NetworkError error;
-                error.endpoint = "getScreensaverItems";
-                error.code = -2;
-                error.userMessage = tr("Invalid screensaver response");
-                emit canonicalScreensaverItemsFailed(connectionId, error.userMessage);
-                emitError(error);
-                return;
-            }
-
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.limit = qBound(10, limit > 0 ? limit : 80, 200);
+    sendCatalogRequest(
+        QStringLiteral("getScreensaverItems"),
+        ProviderCatalogOperation::ScreensaverItems,
+        query,
+        [this, connectionId](const ProviderCatalogResponse &response) {
             QVariantList filteredItems;
             const QVariantList items =
-                m_authService->mapMediaItems(response.items, connectionId);
+                m_authService->mapMediaItems(response.rawItems, connectionId);
             for (const QVariant &value : items) {
                 const QVariantMap item = value.toMap();
                 if (!item.value(QStringLiteral("backdropArtwork")).toMap().isEmpty()) {
@@ -920,13 +699,8 @@ void LibraryService::getScreensaverItems(int limit)
         },
         [this, connectionId](const NetworkError &error) {
             emit canonicalScreensaverItemsFailed(connectionId, error.userMessage);
-            emitError(error);
         });
 }
-
-// ============================================================================
-// Generic Item Details
-// ============================================================================
 
 void LibraryService::getItem(const QString &itemId)
 {
@@ -935,70 +709,29 @@ void LibraryService::getItem(const QString &itemId)
 
 void LibraryService::getItem(const QString &itemId, const QString &requestContext)
 {
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getItem";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emit itemFailed(itemId, error.userMessage, requestContext);
-        emitError(error);
-        return;
-    }
-
     const QString connectionId = activeConnectionId(m_authService);
-    const QString endpoint = buildItemEndpoint(m_authService->getUserId(), itemId);
-    
-    sendRequestWithRetry(endpoint,
-        [this, endpoint, itemId]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            if (m_etags.contains(endpoint)) {
-                request.setRawHeader("If-None-Match", m_etags.value(endpoint).toUtf8());
-            }
-            if (m_lastModified.contains(endpoint)) {
-                request.setRawHeader("If-Modified-Since", m_lastModified.value(endpoint).toUtf8());
-            }
-            return m_authService->networkManager()->get(request);
-        },
-        [this, itemId, endpoint, requestContext, connectionId](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            if (httpStatus == 304) {
-                emit itemNotModified(itemId, requestContext);
-                emit itemNotModified(itemId);
-                return;
-            }
-
-            QByteArray etag = reply->rawHeader("ETag");
-            if (!etag.isEmpty()) {
-                m_etags[endpoint] = QString::fromUtf8(etag);
-            }
-            QByteArray lastMod = reply->rawHeader("Last-Modified");
-            if (!lastMod.isEmpty()) {
-                m_lastModified[endpoint] = QString::fromUtf8(lastMod);
-            }
-
-            QJsonDocument doc = QJsonDocument::fromJson(data);
-            if (!doc.isObject()) {
-                NetworkError error;
-                error.endpoint = "getItem";
-                error.code = -2;
-                error.userMessage = tr("Invalid item response");
-                emit itemFailed(itemId, error.userMessage, requestContext);
-                emitError(error);
-                return;
-            }
-            const QJsonObject wireItem = doc.object();
-            const QVariantMap canonicalItem = m_authService
-                ? m_authService->mapMediaItem(wireItem, connectionId)
-                : QVariantMap{};
-            emit itemLoaded(itemId, wireItem, requestContext);
-            emit itemLoaded(itemId, wireItem);
-            emit canonicalItemLoaded(itemId, canonicalItem, requestContext);
-            emit canonicalItemLoaded(itemId, canonicalItem);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.useCacheValidation = true;
+    sendCatalogRequest(
+        QStringLiteral("getItem"),
+        ProviderCatalogOperation::Item,
+        query,
+        [this, itemId, requestContext, connectionId](
+            const ProviderCatalogResponse &response) {
+            const QVariantMap item =
+                m_authService->mapMediaItem(response.rawItem, connectionId);
+            emit itemLoaded(itemId, response.rawItem, requestContext);
+            emit itemLoaded(itemId, response.rawItem);
+            emit canonicalItemLoaded(itemId, item, requestContext);
+            emit canonicalItemLoaded(itemId, item);
         },
         [this, itemId, requestContext](const NetworkError &error) {
             emit itemFailed(itemId, error.userMessage, requestContext);
-            emitError(error);
+        },
+        [this, itemId, requestContext]() {
+            emit itemNotModified(itemId, requestContext);
+            emit itemNotModified(itemId);
         });
 }
 
@@ -1007,51 +740,49 @@ void LibraryService::clearItemCacheValidation(const QString &itemId)
     if (!m_authService || !m_authService->isAuthenticated() || itemId.isEmpty()) {
         return;
     }
-
-    const QString endpoint = buildItemEndpoint(m_authService->getUserId(), itemId);
-    m_etags.remove(endpoint);
-    m_lastModified.remove(endpoint);
+    const ICatalogProvider *provider = m_authService->catalogProvider();
+    if (!provider) {
+        return;
+    }
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    const ProviderCatalogRequest request =
+        provider->createRequest(ProviderCatalogOperation::Item, query);
+    if (!request.supported || request.relativeEndpoint.isEmpty()) {
+        return;
+    }
+    m_etags.remove(request.relativeEndpoint);
+    m_lastModified.remove(request.relativeEndpoint);
 }
 
 void LibraryService::getChapters(const QString &itemId)
 {
     const QString connectionId = activeConnectionId(m_authService);
-    if (!m_authService->isAuthenticated()) {
-        emit chaptersFailed(connectionId, itemId, tr("Not authenticated"));
-        return;
-    }
     if (itemId.isEmpty()) {
         emit chaptersFailed(connectionId, itemId, tr("Item ID is empty"));
         return;
     }
-
-    const QString requestKey = connectionId + QLatin1Char('\n') + itemId;
+    const QString requestKey = connectionId + QLatin1Char('\n')
+        + activeProfileId(m_authService) + QLatin1Char('\n') + itemId;
     if (m_inFlightChapterRequests.contains(requestKey)) {
-        qCDebug(lcLibrary) << "LibraryService: Skipping duplicate chapter request for item" << itemId;
         return;
     }
     m_inFlightChapterRequests.insert(requestKey);
 
-    const QString endpoint = buildChaptersEndpoint(m_authService->getUserId(), itemId);
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, itemId, connectionId, requestKey](QNetworkReply *reply) {
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    sendCatalogRequest(
+        QStringLiteral("getChapters"),
+        ProviderCatalogOperation::Chapters,
+        query,
+        [this, itemId, connectionId, requestKey](
+            const ProviderCatalogResponse &response) {
             m_inFlightChapterRequests.remove(requestKey);
-            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (!doc.isObject()) {
-                qCWarning(lcLibrary) << "LibraryService: Invalid chapter response for item" << itemId;
-                emit chaptersFailed(connectionId, itemId, tr("Invalid chapter response"));
-                return;
-            }
-
-            const QVariantList chapters = m_authService->mapChaptersFromItem(
-                doc.object(), connectionId, itemId);
-            qCInfo(lcLibrary) << "LibraryService: Loaded chapter array for item" << itemId
-                              << "count" << chapters.size();
-            emit canonicalChaptersLoaded(connectionId, itemId, chapters);
+            emit canonicalChaptersLoaded(
+                connectionId,
+                itemId,
+                m_authService->mapChaptersFromItem(
+                    response.rawItem, connectionId, itemId));
         },
         [this, itemId, connectionId, requestKey](const NetworkError &error) {
             m_inFlightChapterRequests.remove(requestKey);
@@ -1061,204 +792,86 @@ void LibraryService::getChapters(const QString &itemId)
 
 void LibraryService::resolveLibraryForItem(const QString &itemId)
 {
-    if (!m_authService->isAuthenticated()) {
-        emit itemLibraryResolutionFailed(itemId, tr("Not authenticated"));
-        return;
-    }
-    if (itemId.isEmpty()) {
-        emit itemLibraryResolutionFailed(itemId, tr("Item ID is empty"));
-        return;
-    }
-
-    const QString endpoint = QString("/Items/%1/Ancestors?UserId=%2")
-        .arg(itemId, m_authService->getUserId());
-
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, itemId](QNetworkReply *reply) {
-            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (!doc.isArray()) {
-                emit itemLibraryResolutionFailed(itemId, tr("Invalid ancestors response"));
-                return;
-            }
-
-            const QString libraryId =
-                m_authService->mapLibraryIdFromAncestors(doc.array());
-
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    sendCatalogRequest(
+        QStringLiteral("resolveLibraryForItem"),
+        ProviderCatalogOperation::ResolveLibrary,
+        query,
+        [this, itemId](const ProviderCatalogResponse &response) {
+            QString libraryId =
+                response.snapshot.value(QStringLiteral("libraryId")).toString();
             if (libraryId.isEmpty()) {
-                emit itemLibraryResolutionFailed(itemId, tr("Library ancestor not found"));
+                libraryId =
+                    m_authService->mapLibraryIdFromAncestors(response.rawItems);
+            }
+            if (libraryId.isEmpty()) {
+                emit itemLibraryResolutionFailed(
+                    itemId, tr("Library ancestor not found"));
                 return;
             }
-
             emit itemLibraryResolved(itemId, libraryId);
+        },
+        [this, itemId](const NetworkError &error) {
+            emit itemLibraryResolutionFailed(itemId, error.userMessage);
         });
 }
-
-// ============================================================================
-// Series Details
-/**
- * Loads detailed metadata for the specified series and emits the result or an error.
- *
- * Sends a GET request for the series item fields and, on success, emits the parsed JSON object.
- * If a 304 Not Modified response is returned the method emits seriesDetailsNotModified(seriesId).
- * On authentication failure or invalid server response it emits an error via emitError.
- * When present, the response ETag and Last-Modified headers are stored in the service's cache.
- *
- * @param seriesId The identifier of the series to fetch.
- */
 
 void LibraryService::getSeriesDetails(const QString &seriesId)
 {
     const QString connectionId = activeConnectionId(m_authService);
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getSeriesDetails";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emit canonicalSeriesDetailsFailed(connectionId, seriesId, error.userMessage);
-        emitError(error);
-        return;
-    }
-    
-    const QStringList fields = {
-        "Overview", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
-        "Genres", "Studios", "People", "ChildCount", "ParentId", "UserData",
-        "ProductionYear", "PremiereDate", "EndDate", "ProviderIds",
-        "RecursiveItemCount", "Status"
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = seriesId;
+    query.useCacheValidation = true;
+    query.fields = {
+        QStringLiteral("Overview"), QStringLiteral("ImageTags"),
+        QStringLiteral("BackdropImageTags"),
+        QStringLiteral("ParentBackdropImageTags"), QStringLiteral("Genres"),
+        QStringLiteral("Studios"), QStringLiteral("People"),
+        QStringLiteral("ChildCount"), QStringLiteral("ParentId"),
+        QStringLiteral("UserData"), QStringLiteral("ProductionYear"),
+        QStringLiteral("PremiereDate"), QStringLiteral("EndDate"),
+        QStringLiteral("ProviderIds"), QStringLiteral("RecursiveItemCount"),
+        QStringLiteral("Status")
     };
-    
-    QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
-        .arg(m_authService->getUserId(), seriesId, fields.join(","));
-    
-    sendRequestWithRetry(endpoint,
-        [this, endpoint, seriesId]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            if (m_etags.contains(endpoint)) {
-                request.setRawHeader("If-None-Match", m_etags.value(endpoint).toUtf8());
-            }
-            if (m_lastModified.contains(endpoint)) {
-                request.setRawHeader("If-Modified-Since", m_lastModified.value(endpoint).toUtf8());
-            }
-            return m_authService->networkManager()->get(request);
-        },
-        [this, seriesId, endpoint, connectionId](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            if (httpStatus == 304) {
-                emit seriesDetailsNotModified(seriesId);
-                emit canonicalSeriesDetailsNotModified(connectionId, seriesId);
-                return;
-            }
-
-            QByteArray etag = reply->rawHeader("ETag");
-            if (!etag.isEmpty()) {
-                m_etags[endpoint] = QString::fromUtf8(etag);
-            }
-            QByteArray lastMod = reply->rawHeader("Last-Modified");
-            if (!lastMod.isEmpty()) {
-                m_lastModified[endpoint] = QString::fromUtf8(lastMod);
-            }
-
-            QJsonDocument doc = QJsonDocument::fromJson(data);
-            if (!doc.isObject()) {
-                NetworkError error;
-                error.endpoint = "getSeriesDetails";
-                error.code = -2;
-                error.userMessage = tr("Invalid series details response");
-                emit canonicalSeriesDetailsFailed(connectionId, seriesId, error.userMessage);
-                emitError(error);
-                return;
-            }
-            const QJsonObject wireSeries = doc.object();
-            emit seriesDetailsLoaded(seriesId, wireSeries);
+    sendCatalogRequest(
+        QStringLiteral("getSeriesDetails"),
+        ProviderCatalogOperation::Item,
+        query,
+        [this, connectionId, seriesId](const ProviderCatalogResponse &response) {
+            emit seriesDetailsLoaded(seriesId, response.rawItem);
             emit canonicalSeriesDetailsLoaded(
                 connectionId,
                 seriesId,
-                m_authService->mapMediaItem(wireSeries, connectionId));
+                m_authService->mapMediaItem(response.rawItem, connectionId));
         },
         [this, connectionId, seriesId](const NetworkError &error) {
-            emit canonicalSeriesDetailsFailed(connectionId, seriesId, error.userMessage);
-            emitError(error);
+            emit canonicalSeriesDetailsFailed(
+                connectionId, seriesId, error.userMessage);
+        },
+        [this, connectionId, seriesId]() {
+            emit seriesDetailsNotModified(seriesId);
+            emit canonicalSeriesDetailsNotModified(connectionId, seriesId);
         });
 }
 
 void LibraryService::getSimilarItems(const QString &itemId, int limit)
 {
     const QString connectionId = activeConnectionId(m_authService);
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getSimilarItems";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emit similarItemsFailed(itemId, error.userMessage);
-        emit canonicalSimilarItemsFailedForConnection(
-            connectionId, itemId, error.userMessage);
-        return;
-    }
-
-    if (itemId.isEmpty()) {
-        const QString error = tr("Item ID is empty");
-        emit similarItemsFailed(itemId, error);
-        emit canonicalSimilarItemsFailedForConnection(connectionId, itemId, error);
-        return;
-    }
-
-    const QStringList fields = {
-        "Type",
-        "ImageTags",
-        "PrimaryImageAspectRatio",
-        "ProductionYear",
-        "PremiereDate",
-        "Overview",
-        "UserData",
-        "ChildCount"
-    };
-
-    QString endpoint = QString("/Items/%1/Similar?UserId=%2&Limit=%3&Fields=%4&EnableImageTypes=Primary")
-                           .arg(itemId, m_authService->getUserId())
-                           .arg(qMax(1, limit))
-                           .arg(fields.join(","));
-
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, itemId, connectionId](QNetworkReply *reply) {
-            const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            if (!doc.isObject()) {
-                NetworkError error;
-                error.endpoint = "getSimilarItems";
-                error.code = -2;
-                error.userMessage = tr("Invalid similar items response");
-                emit similarItemsFailed(itemId, error.userMessage);
-                emit canonicalSimilarItemsFailedForConnection(
-                    connectionId, itemId, error.userMessage);
-                return;
-            }
-
-            const QJsonObject root = doc.object();
-            if (!root.contains("Items") || !root.value("Items").isArray()) {
-                NetworkError error;
-                error.endpoint = "getSimilarItems";
-                error.code = -2;
-                error.userMessage = tr("Invalid similar items response");
-                emit similarItemsFailed(itemId, error.userMessage);
-                emit canonicalSimilarItemsFailedForConnection(
-                    connectionId, itemId, error.userMessage);
-                return;
-            }
-
-            const QJsonArray wireItems = root.value("Items").toArray();
-            const QVariantList canonicalItems = m_authService
-                ? m_authService->mapMediaItems(wireItems, connectionId)
-                : QVariantList{};
-            emit similarItemsLoaded(itemId, wireItems);
-            emit canonicalSimilarItemsLoaded(itemId, canonicalItems);
-            emit canonicalSimilarItemsLoadedForConnection(connectionId, itemId, canonicalItems);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.limit = qMax(1, limit);
+    sendCatalogRequest(
+        QStringLiteral("getSimilarItems"),
+        ProviderCatalogOperation::SimilarItems,
+        query,
+        [this, itemId, connectionId](const ProviderCatalogResponse &response) {
+            const QVariantList items =
+                m_authService->mapMediaItems(response.rawItems, connectionId);
+            emit similarItemsLoaded(itemId, response.rawItems);
+            emit canonicalSimilarItemsLoaded(itemId, items);
+            emit canonicalSimilarItemsLoadedForConnection(
+                connectionId, itemId, items);
         },
         [this, itemId, connectionId](const NetworkError &error) {
             emit similarItemsFailed(itemId, error.userMessage);
@@ -1267,192 +880,118 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
         });
 }
 
-/**
- * @brief Resolves the best next episode for a series, optionally skipping a specific episode.
- *
- * Fetches the recursive episode list for the series, resolves a canonical series order locally,
- * and emits the best canonical next episode based on watch state. The episode map is empty when
- * no eligible episode is available.
- *
- * @param seriesId The series identifier to query.
- * @param excludeItemId If non-empty, the returned episode will not have this Id; pass an empty string to allow any episode.
- * @param requestContext Optional internal request ownership tag used by playback-prefetch callers.
- */
 void LibraryService::getNextUnplayedEpisode(const QString &seriesId,
                                             const QString &excludeItemId,
                                             const QString &requestContext)
 {
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getNextUnplayedEpisode";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
-        return;
-    }
-    
-    const QStringList fields = {
-        QStringLiteral("Name"),
-        QStringLiteral("SortName"),
-        QStringLiteral("Overview"),
-        QStringLiteral("UserData"),
-        QStringLiteral("RunTimeTicks"),
-        QStringLiteral("ImageTags"),
-        QStringLiteral("ParentId"),
-        QStringLiteral("SeasonId"),
-        QStringLiteral("SeriesId"),
-        QStringLiteral("SeriesName"),
-        QStringLiteral("IndexNumber"),
-        QStringLiteral("ParentIndexNumber"),
-        QStringLiteral("PremiereDate"),
-        QStringLiteral("LocationType"),
-        QStringLiteral("AirsBeforeSeasonNumber"),
-        QStringLiteral("AirsAfterSeasonNumber"),
-        QStringLiteral("AirsBeforeEpisodeNumber")
-    };
     const QString connectionId = activeConnectionId(m_authService);
-    QString endpoint = QString("/Users/%1/Items?ParentId=%2&Recursive=true&IncludeItemTypes=Episode&Fields=%3&SortBy=ParentIndexNumber,IndexNumber,SortName&EnableImageTypes=Primary,Thumb")
-        .arg(m_authService->getUserId(), seriesId, fields.join(','));
-    
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, seriesId, excludeItemId, requestContext, connectionId](QNetworkReply *reply) {
-            QByteArray data = reply->readAll();
-            QJsonDocument doc = QJsonDocument::fromJson(data);
-            if (!doc.isObject()) {
-                NetworkError error;
-                error.endpoint = "getNextUnplayedEpisode";
-                error.code = -2;
-                error.userMessage = tr("Invalid next unplayed episode response");
-                emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
-                return;
-            }
-            const QJsonObject root = doc.object();
-            if (!root.contains("Items") || !root.value("Items").isArray()) {
-                NetworkError error;
-                error.endpoint = "getNextUnplayedEpisode";
-                error.code = -2;
-                error.userMessage = tr("Invalid next unplayed episode response");
-                emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
-                return;
-            }
-            const QJsonArray wireItems = root.value("Items").toArray();
-            const QVariantMap selectedEpisode = NextEpisodeResolver::resolveBestNextEpisode(
-                m_authService->mapMediaItems(wireItems, connectionId), excludeItemId);
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.seriesId = seriesId;
+    query.excludeItemId = excludeItemId;
+    sendCatalogRequest(
+        QStringLiteral("getNextUnplayedEpisode"),
+        ProviderCatalogOperation::NextUnplayedEpisode,
+        query,
+        [this, connectionId, seriesId, excludeItemId, requestContext](
+            const ProviderCatalogResponse &response) {
+            const QVariantMap episode = NextEpisodeResolver::resolveBestNextEpisode(
+                m_authService->mapMediaItems(response.rawItems, connectionId),
+                excludeItemId);
             emit canonicalNextUnplayedEpisodeLoaded(
-                connectionId, seriesId, selectedEpisode, requestContext);
+                connectionId, seriesId, episode, requestContext);
         },
         [this, seriesId, requestContext](const NetworkError &error) {
-            emit nextUnplayedEpisodeFailed(seriesId, error.userMessage, requestContext);
+            emit nextUnplayedEpisodeFailed(
+                seriesId, error.userMessage, requestContext);
         });
 }
 
 void LibraryService::markSeriesWatched(const QString &seriesId)
 {
-    if (!m_authService->isAuthenticated()) return;
-    
-    QString endpoint = QString("/Users/%1/PlayedItems/%2").arg(m_authService->getUserId(), seriesId);
-    QNetworkRequest request = m_authService->createRequest(endpoint);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    
-    QNetworkReply *reply = m_authService->networkManager()->post(request, QByteArray());
-    connect(reply, &QNetworkReply::finished, this, [this, reply, seriesId]() {
-        reply->deleteLater();
-        if (m_authService->checkForSessionExpiry(reply)) return;
-        if (reply->error() == QNetworkReply::NoError) {
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = seriesId;
+    query.stateValue = true;
+    sendCatalogRequest(
+        QStringLiteral("markSeriesWatched"),
+        ProviderCatalogOperation::SetWatched,
+        query,
+        [this, seriesId](const ProviderCatalogResponse &) {
             emit seriesWatchedStatusChanged(seriesId);
-        }
-    });
+        });
 }
 
 void LibraryService::markSeriesUnwatched(const QString &seriesId)
 {
-    if (!m_authService->isAuthenticated()) return;
-    
-    QString endpoint = QString("/Users/%1/PlayedItems/%2").arg(m_authService->getUserId(), seriesId);
-    QNetworkRequest request = m_authService->createRequest(endpoint);
-    
-    QNetworkReply *reply = m_authService->networkManager()->deleteResource(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, seriesId]() {
-        reply->deleteLater();
-        if (m_authService->checkForSessionExpiry(reply)) return;
-        if (reply->error() == QNetworkReply::NoError) {
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = seriesId;
+    query.stateValue = false;
+    sendCatalogRequest(
+        QStringLiteral("markSeriesUnwatched"),
+        ProviderCatalogOperation::SetWatched,
+        query,
+        [this, seriesId](const ProviderCatalogResponse &) {
             emit seriesWatchedStatusChanged(seriesId);
-        }
-    });
+        });
 }
 
 void LibraryService::markItemPlayed(const QString &itemId)
 {
-    if (!m_authService->isAuthenticated()) return;
-    
-    QString endpoint = QString("/Users/%1/PlayedItems/%2").arg(m_authService->getUserId(), itemId);
-    QNetworkRequest request = m_authService->createRequest(endpoint);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    
-    QNetworkReply *reply = m_authService->networkManager()->post(request, QByteArray());
-    connect(reply, &QNetworkReply::finished, this, [this, reply, itemId]() {
-        reply->deleteLater();
-        if (m_authService->checkForSessionExpiry(reply)) return;
-        if (reply->error() == QNetworkReply::NoError) {
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.stateValue = true;
+    sendCatalogRequest(
+        QStringLiteral("markItemPlayed"),
+        ProviderCatalogOperation::SetWatched,
+        query,
+        [this, itemId](const ProviderCatalogResponse &response) {
+            emitItemStateResponse(itemId, response);
             emit itemPlayedStatusChanged(itemId, true);
-        }
-    });
+        });
 }
 
 void LibraryService::markItemUnplayed(const QString &itemId)
 {
-    if (!m_authService->isAuthenticated()) return;
-    
-    QString endpoint = QString("/Users/%1/PlayedItems/%2").arg(m_authService->getUserId(), itemId);
-    QNetworkRequest request = m_authService->createRequest(endpoint);
-    
-    QNetworkReply *reply = m_authService->networkManager()->deleteResource(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, itemId]() {
-        reply->deleteLater();
-        if (m_authService->checkForSessionExpiry(reply)) return;
-        if (reply->error() == QNetworkReply::NoError) {
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.stateValue = false;
+    sendCatalogRequest(
+        QStringLiteral("markItemUnplayed"),
+        ProviderCatalogOperation::SetWatched,
+        query,
+        [this, itemId](const ProviderCatalogResponse &response) {
+            emitItemStateResponse(itemId, response);
             emit itemPlayedStatusChanged(itemId, false);
-        }
-    });
+        });
 }
 
 void LibraryService::markItemFavorite(const QString &itemId)
 {
-    if (!m_authService->isAuthenticated()) return;
-    
-    QString endpoint = QString("/Users/%1/FavoriteItems/%2").arg(m_authService->getUserId(), itemId);
-    QNetworkRequest request = m_authService->createRequest(endpoint);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    
-    QNetworkReply *reply = m_authService->networkManager()->post(request, QByteArray());
-    connect(reply, &QNetworkReply::finished, this, [this, reply, itemId]() {
-        reply->deleteLater();
-        if (m_authService->checkForSessionExpiry(reply)) return;
-        if (reply->error() == QNetworkReply::NoError) {
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.stateValue = true;
+    sendCatalogRequest(
+        QStringLiteral("markItemFavorite"),
+        ProviderCatalogOperation::SetFavorite,
+        query,
+        [this, itemId](const ProviderCatalogResponse &response) {
+            emitItemStateResponse(itemId, response);
             emit favoriteStatusChanged(itemId, true);
-        }
-    });
+        });
 }
 
 void LibraryService::markItemUnfavorite(const QString &itemId)
 {
-    if (!m_authService->isAuthenticated()) return;
-    
-    QString endpoint = QString("/Users/%1/FavoriteItems/%2").arg(m_authService->getUserId(), itemId);
-    QNetworkRequest request = m_authService->createRequest(endpoint);
-    
-    QNetworkReply *reply = m_authService->networkManager()->deleteResource(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply, itemId]() {
-        reply->deleteLater();
-        if (m_authService->checkForSessionExpiry(reply)) return;
-        if (reply->error() == QNetworkReply::NoError) {
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = itemId;
+    query.stateValue = false;
+    sendCatalogRequest(
+        QStringLiteral("markItemUnfavorite"),
+        ProviderCatalogOperation::SetFavorite,
+        query,
+        [this, itemId](const ProviderCatalogResponse &response) {
+            emitItemStateResponse(itemId, response);
             emit favoriteStatusChanged(itemId, false);
-        }
-    });
+        });
 }
 
 void LibraryService::toggleFavorite(const QString &itemId, bool isFavorite)
@@ -1466,33 +1005,20 @@ void LibraryService::toggleFavorite(const QString &itemId, bool isFavorite)
 
 void LibraryService::getThemeSongs(const QString &seriesId)
 {
-    if (!m_authService->isAuthenticated()) return;
-    
     const QString connectionId = activeConnectionId(m_authService);
-    QString endpoint = QString("/Items/%1/ThemeSongs?UserId=%2").arg(seriesId, m_authService->getUserId());
-    
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, seriesId, connectionId](QNetworkReply *reply) {
-            const ParsedItemsResult response =
-                m_authService->parseItemsResponse(reply->readAll(), QString());
-            if (!response.success) {
-                NetworkError error;
-                error.endpoint = "getThemeSongs";
-                error.code = -2;
-                error.userMessage = tr("Invalid theme songs response");
-                emitError(error);
-                return;
-            }
-            const QVariantList items =
-                m_authService->mapMediaItems(response.items, connectionId);
-
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.itemId = seriesId;
+    sendCatalogRequest(
+        QStringLiteral("getThemeSongs"),
+        ProviderCatalogOperation::ThemeSongs,
+        query,
+        [this, seriesId, connectionId](const ProviderCatalogResponse &response) {
             QStringList urls;
-            for (const QVariant &item : items) {
-                const QString itemId = item.toMap().value(QStringLiteral("itemId")).toString();
+            const QVariantList items =
+                m_authService->mapMediaItems(response.rawItems, connectionId);
+            for (const QVariant &value : items) {
+                const QString itemId =
+                    value.toMap().value(QStringLiteral("itemId")).toString();
                 if (!itemId.isEmpty()) {
                     urls.append(getStreamUrl(itemId));
                 }
@@ -1501,307 +1027,199 @@ void LibraryService::getThemeSongs(const QString &seriesId)
         });
 }
 
-// ============================================================================
-// Search
-// ============================================================================
-
 void LibraryService::search(const QString &searchTerm, int limit)
 {
     const QString connectionId = activeConnectionId(m_authService);
     const QString normalizedSearchTerm = searchTerm.trimmed();
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "search";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emit canonicalSearchResultsFailed(connectionId, normalizedSearchTerm, error.userMessage);
-        emitError(error);
+    if (!m_authService || !m_authService->isAuthenticated()) {
+        emitCatalogError(
+            QStringLiteral("search"),
+            tr("Not authenticated"),
+            [this, connectionId, normalizedSearchTerm](const NetworkError &error) {
+                emit canonicalSearchResultsFailed(
+                    connectionId, normalizedSearchTerm, error.userMessage);
+            });
         return;
     }
-
     if (normalizedSearchTerm.isEmpty()) {
-        emit canonicalSearchResultsLoaded(connectionId, normalizedSearchTerm, {}, {});
+        emit canonicalSearchResultsLoaded(
+            connectionId, normalizedSearchTerm, {}, {});
         return;
     }
-
-    const QStringList fields = {"Path", "Overview", "ImageTags", "BackdropImageTags", "ProductionYear", "CommunityRating", "UserData"};
-
-    QString endpoint = QString("/Users/%1/Items?SearchTerm=%2&IncludeItemTypes=Movie,Series&Recursive=true&Fields=%3&Limit=%4&EnableImageTypes=Primary,Backdrop")
-                           .arg(m_authService->getUserId())
-                           .arg(QString::fromUtf8(QUrl::toPercentEncoding(normalizedSearchTerm)))
-                           .arg(fields.join(","))
-                           .arg(limit);
-
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, connectionId, normalizedSearchTerm](QNetworkReply *reply) {
-            const ParsedItemsResult response =
-                m_authService->parseItemsResponse(reply->readAll(), QString());
-            if (!response.success) {
-                NetworkError error;
-                error.endpoint = "search";
-                error.code = -2;
-                error.userMessage = tr("Invalid search response");
-                emit canonicalSearchResultsFailed(connectionId, normalizedSearchTerm, error.userMessage);
-                emitError(error);
-                return;
-            }
-
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.searchTerm = normalizedSearchTerm;
+    query.limit = limit;
+    query.includeItemTypes = {
+        QStringLiteral("Movie"),
+        QStringLiteral("Series")
+    };
+    sendCatalogRequest(
+        QStringLiteral("search"),
+        ProviderCatalogOperation::Search,
+        query,
+        [this, connectionId, normalizedSearchTerm](
+            const ProviderCatalogResponse &response) {
             QVariantList movies;
             QVariantList series;
             const QVariantList items =
-                m_authService->mapMediaItems(response.items, connectionId);
+                m_authService->mapMediaItems(response.rawItems, connectionId);
             for (const QVariant &value : items) {
                 const QVariantMap item = value.toMap();
-                const QString mediaType = item.value(QStringLiteral("mediaType")).toString();
+                const QString mediaType =
+                    item.value(QStringLiteral("mediaType")).toString();
                 if (mediaType == QStringLiteral("Movie")) {
                     movies.append(item);
                 } else if (mediaType == QStringLiteral("Series")) {
                     series.append(item);
                 }
             }
-
-            emit canonicalSearchResultsLoaded(connectionId, normalizedSearchTerm, movies, series);
+            emit canonicalSearchResultsLoaded(
+                connectionId, normalizedSearchTerm, movies, series);
         },
         [this, connectionId, normalizedSearchTerm](const NetworkError &error) {
-            emit canonicalSearchResultsFailed(connectionId, normalizedSearchTerm, error.userMessage);
-            emitError(error);
+            emit canonicalSearchResultsFailed(
+                connectionId, normalizedSearchTerm, error.userMessage);
         });
 }
 
 void LibraryService::getRandomItems(int limit)
 {
     const QString connectionId = activeConnectionId(m_authService);
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getRandomItems";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emit canonicalRandomItemsFailed(connectionId, error.userMessage);
-        emitError(error);
-        return;
-    }
-
-    const QStringList fields = {"Overview", "ImageTags", "BackdropImageTags", "ProductionYear"};
-
-    QString endpoint = QString("/Users/%1/Items?IncludeItemTypes=Movie,Series&Recursive=true&SortBy=Random&Limit=%2&Fields=%3")
-                           .arg(m_authService->getUserId())
-                           .arg(limit)
-                           .arg(fields.join(","));
-
-    sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
-            QNetworkRequest request = m_authService->createRequest(endpoint);
-            return m_authService->networkManager()->get(request);
-        },
-        [this, connectionId](QNetworkReply *reply) {
-            const ParsedItemsResult response =
-                m_authService->parseItemsResponse(reply->readAll(), QString());
-            if (!response.success) {
-                NetworkError error;
-                error.endpoint = "getRandomItems";
-                error.code = -2;
-                error.userMessage = tr("Invalid random items response");
-                emit canonicalRandomItemsFailed(connectionId, error.userMessage);
-                emitError(error);
-                return;
-            }
+    ProviderCatalogQuery query = baseCatalogQuery();
+    query.limit = limit;
+    sendCatalogRequest(
+        QStringLiteral("getRandomItems"),
+        ProviderCatalogOperation::RandomItems,
+        query,
+        [this, connectionId](const ProviderCatalogResponse &response) {
             emit canonicalRandomItemsLoaded(
                 connectionId,
-                m_authService->mapMediaItems(response.items, connectionId));
+                m_authService->mapMediaItems(response.rawItems, connectionId));
         },
         [this, connectionId](const NetworkError &error) {
             emit canonicalRandomItemsFailed(connectionId, error.userMessage);
-            emitError(error);
         });
 }
 
-// ============================================================================
-// URL Helpers
-// ============================================================================
-
-void LibraryService::getHeroLibraryItems(int limit, const QStringList &parentIds, bool unwatchedOnly)
+void LibraryService::getHeroLibraryItems(int limit,
+                                         const QStringList &parentIds,
+                                         bool unwatchedOnly)
 {
+    const quint64 heroGeneration = ++m_heroRequestGeneration;
     const QString connectionId = activeConnectionId(m_authService);
-    if (!m_authService->isAuthenticated()) {
-        NetworkError error;
-        error.endpoint = "getHeroLibraryItems";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emit canonicalHeroLibraryItemsFailed(connectionId, error.userMessage);
-        emitError(error);
+    if (!m_authService || !m_authService->isAuthenticated()) {
+        emitCatalogError(
+            QStringLiteral("getHeroLibraryItems"),
+            tr("Not authenticated"),
+            [this, connectionId, heroGeneration](const NetworkError &error) {
+                if (heroGeneration == m_heroRequestGeneration) {
+                    emit canonicalHeroLibraryItemsFailed(
+                        connectionId, error.userMessage);
+                }
+            });
         return;
     }
-
-    const quint64 requestGeneration = ++m_heroLibraryRequestGeneration;
+    const quint64 generation = m_requestGeneration;
     const int clampedLimit = qBound(1, limit, 25);
-    const QStringList fields = {
-        "Overview", "SeriesName", "ImageTags", "BackdropImageTags", "ParentBackdropImageTags",
-        "ParentBackdropItemId", "ParentId", "SeriesId", "SeriesPrimaryImageTag",
-        "ParentPrimaryImageTag", "ProductionYear", "PremiereDate", "UserData",
-        "RunTimeTicks", "CommunityRating", "OfficialRating", "Genres", "Studios", "Tags"
-    };
-
-    // Filter out empty parentIds. When none remain, sample across all libraries.
     QStringList ids;
     for (const QString &id : parentIds) {
-        if (!id.trimmed().isEmpty()) ids.append(id.trimmed());
+        const QString trimmed = id.trimmed();
+        if (!trimmed.isEmpty() && !ids.contains(trimmed)) {
+            ids.append(trimmed);
+        }
     }
 
-    auto buildEndpoint = [this, clampedLimit, unwatchedOnly, fields](const QString &parentId) {
-        QString base = QString("/Users/%1/Items?IncludeItemTypes=Movie,Series&Recursive=true"
-                               "&SortBy=Random&Limit=%2&Fields=%3"
-                               "&EnableImageTypes=Primary,Backdrop,Thumb,Logo&ImageTypeLimit=1")
-                           .arg(m_authService->getUserId())
-                           .arg(clampedLimit)
-                           .arg(fields.join(","));
-        if (!parentId.isEmpty()) {
-            base += "&ParentId=" + parentId;
+    if (ids.size() <= 1) {
+        ProviderCatalogQuery query = baseCatalogQuery();
+        query.limit = clampedLimit;
+        query.unwatchedOnly = unwatchedOnly;
+        if (!ids.isEmpty()) {
+            query.parentId = ids.constFirst();
         }
-        if (unwatchedOnly) {
-            base += "&IsPlayed=false";
-        }
-        return base;
-    };
-
-    // No parent filters: single request across all libraries.
-    if (ids.isEmpty()) {
-        const QString endpoint = buildEndpoint(QString());
-        sendRequestWithRetry(endpoint,
-            [this, endpoint]() {
-                QNetworkRequest request = m_authService->createRequest(endpoint);
-                return m_authService->networkManager()->get(request);
-            },
-            [this, connectionId, requestGeneration](QNetworkReply *reply) {
-                if (requestGeneration != m_heroLibraryRequestGeneration) {
+        sendCatalogRequest(
+            QStringLiteral("getHeroLibraryItems"),
+            ProviderCatalogOperation::HeroItems,
+            query,
+            [this, connectionId, heroGeneration](
+                const ProviderCatalogResponse &response) {
+                if (heroGeneration != m_heroRequestGeneration) {
                     return;
                 }
-                QByteArray data = reply->readAll();
-                QJsonDocument doc = QJsonDocument::fromJson(data);
-                if (!doc.isObject()) {
-                    NetworkError error;
-                    error.endpoint = "getHeroLibraryItems";
-                    error.code = -2;
-                    error.userMessage = tr("Invalid hero library items response");
-                    emit canonicalHeroLibraryItemsFailed(connectionId, error.userMessage);
-                    emitError(error);
-                    return;
-                }
-                const QJsonArray items =
-                    m_authService->parseItemsResponse(data, QString()).items;
-                emit heroLibraryItemsLoaded(items);
+                emit heroLibraryItemsLoaded(response.rawItems);
                 emit canonicalHeroLibraryItemsLoaded(
-                    connectionId, m_authService->mapMediaItems(items, connectionId));
+                    connectionId,
+                    m_authService->mapMediaItems(response.rawItems, connectionId));
             },
-            [this, connectionId, requestGeneration](const NetworkError &error) {
-                if (requestGeneration != m_heroLibraryRequestGeneration) {
-                    return;
+            [this, connectionId, heroGeneration](const NetworkError &error) {
+                if (heroGeneration == m_heroRequestGeneration) {
+                    emit canonicalHeroLibraryItemsFailed(
+                        connectionId, error.userMessage);
                 }
-                emit canonicalHeroLibraryItemsFailed(connectionId, error.userMessage);
-                emitError(error);
             });
         return;
     }
 
-    // Single parentId: one request.
-    if (ids.size() == 1) {
-        const QString endpoint = buildEndpoint(ids.first());
-        sendRequestWithRetry(endpoint,
-            [this, endpoint]() {
-                QNetworkRequest request = m_authService->createRequest(endpoint);
-                return m_authService->networkManager()->get(request);
-            },
-            [this, connectionId, requestGeneration](QNetworkReply *reply) {
-                if (requestGeneration != m_heroLibraryRequestGeneration) {
-                    return;
-                }
-                QByteArray data = reply->readAll();
-                QJsonDocument doc = QJsonDocument::fromJson(data);
-                if (!doc.isObject()) {
-                    NetworkError error;
-                    error.endpoint = "getHeroLibraryItems";
-                    error.code = -2;
-                    error.userMessage = tr("Invalid hero library items response");
-                    emit canonicalHeroLibraryItemsFailed(connectionId, error.userMessage);
-                    emitError(error);
-                    return;
-                }
-                const QJsonArray items =
-                    m_authService->parseItemsResponse(data, QString()).items;
-                emit heroLibraryItemsLoaded(items);
-                emit canonicalHeroLibraryItemsLoaded(
-                    connectionId, m_authService->mapMediaItems(items, connectionId));
-            },
-            [this, connectionId, requestGeneration](const NetworkError &error) {
-                if (requestGeneration != m_heroLibraryRequestGeneration) {
-                    return;
-                }
-                emit canonicalHeroLibraryItemsFailed(connectionId, error.userMessage);
-                emitError(error);
-            });
-        return;
-    }
-
-    // Multiple parentIds: fan out concurrently and aggregate. Each request asks
-    // for `clampedLimit` items so the union is a bounded random sample across the
-    // selected libraries; the provider caps the final list client-side.
     auto aggregate = std::make_shared<QJsonArray>();
     auto remaining = std::make_shared<int>(ids.size());
+    auto successful = std::make_shared<int>(0);
+    auto failures = std::make_shared<QStringList>();
+    const auto finish = [this, aggregate, remaining, successful, failures,
+                         clampedLimit, connectionId, generation, heroGeneration]() {
+        if (--(*remaining) > 0
+            || generation != m_requestGeneration
+            || heroGeneration != m_heroRequestGeneration) {
+            return;
+        }
+        if (*successful == 0) {
+            const QString message = failures->isEmpty()
+                ? tr("No hero items were available.")
+                : failures->constFirst();
+            emit canonicalHeroLibraryItemsFailed(connectionId, message);
+            return;
+        }
+        QJsonArray items;
+        const int count = qMin(aggregate->size(), clampedLimit);
+        for (int index = 0; index < count; ++index) {
+            items.append(aggregate->at(index));
+        }
+        emit heroLibraryItemsLoaded(items);
+        emit canonicalHeroLibraryItemsLoaded(
+            connectionId, m_authService->mapMediaItems(items, connectionId));
+    };
     for (const QString &parentId : ids) {
-        const QString endpoint = buildEndpoint(parentId);
-        sendRequestWithRetry(endpoint,
-            [this, endpoint]() {
-                QNetworkRequest request = m_authService->createRequest(endpoint);
-                return m_authService->networkManager()->get(request);
-            },
-            [this, aggregate, remaining, clampedLimit, connectionId, requestGeneration](QNetworkReply *reply) {
-                if (requestGeneration != m_heroLibraryRequestGeneration) {
-                    return;
-                }
-                QByteArray data = reply->readAll();
-                QJsonDocument doc = QJsonDocument::fromJson(data);
-                if (doc.isObject()) {
-                    const QJsonArray items =
-                        m_authService->parseItemsResponse(data, QString()).items;
-                    for (const QJsonValue &v : items) {
-                        if (aggregate->size() >= clampedLimit) break;
-                        aggregate->append(v);
+        ProviderCatalogQuery query = baseCatalogQuery();
+        query.parentId = parentId;
+        query.limit = clampedLimit;
+        query.unwatchedOnly = unwatchedOnly;
+        sendCatalogRequest(
+            QStringLiteral("getHeroLibraryItems"),
+            ProviderCatalogOperation::HeroItems,
+            query,
+            [aggregate, successful, clampedLimit, finish](
+                const ProviderCatalogResponse &response) {
+                ++(*successful);
+                for (const QJsonValue &value : response.rawItems) {
+                    if (aggregate->size() >= clampedLimit) {
+                        break;
                     }
+                    aggregate->append(value);
                 }
-                if (--(*remaining) <= 0) {
-                    // Trim to the requested cap before emitting.
-                    QJsonArray trimmed;
-                    const int total = qMin(aggregate->size(), clampedLimit);
-                    for (int i = 0; i < total; ++i) trimmed.append(aggregate->at(i));
-                    emit heroLibraryItemsLoaded(trimmed);
-                    emit canonicalHeroLibraryItemsLoaded(
-                        connectionId, m_authService->mapMediaItems(trimmed, connectionId));
-                }
+                finish();
             },
-            [this, aggregate, remaining, clampedLimit, connectionId, requestGeneration](const NetworkError &) {
-                if (requestGeneration != m_heroLibraryRequestGeneration) {
-                    return;
+            [failures, finish](const NetworkError &error) {
+                if (!error.userMessage.isEmpty()) {
+                    failures->append(error.userMessage);
                 }
-                if (--(*remaining) <= 0) {
-                    QJsonArray trimmed;
-                    const int total = qMin(aggregate->size(), clampedLimit);
-                    for (int i = 0; i < total; ++i) {
-                        trimmed.append(aggregate->at(i));
-                    }
-                    emit heroLibraryItemsLoaded(trimmed);
-                    emit canonicalHeroLibraryItemsLoaded(
-                        connectionId, m_authService->mapMediaItems(trimmed, connectionId));
-                }
+                finish();
             });
     }
 }
 
 void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
 {
+    const quint64 heroGeneration = ++m_heroRequestGeneration;
     const QString connectionId = activeConnectionId(m_authService);
+    const quint64 generation = m_requestGeneration;
     QStringList ids;
     for (const QString &id : seriesIds) {
         const QString trimmed = id.trimmed();
@@ -1809,63 +1227,59 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
             ids.append(trimmed);
         }
     }
-
     if (ids.isEmpty()) {
-        emit heroSeriesOverviewsLoaded(QJsonObject());
-        emit canonicalHeroSeriesOverviewsLoaded(connectionId, QVariantMap());
+        emit heroSeriesOverviewsLoaded({});
+        emit canonicalHeroSeriesOverviewsLoaded(connectionId, {});
         return;
     }
-
-    if (!m_authService->isAuthenticated()) {
+    if (!m_authService || !m_authService->isAuthenticated()) {
         QJsonObject overviews;
-        for (const QString &id : ids) {
-            overviews.insert(id, QString());
+        for (const QString &seriesId : ids) {
+            overviews.insert(seriesId, QString());
         }
         emit heroSeriesOverviewsLoaded(overviews);
-        emit canonicalHeroSeriesOverviewsLoaded(connectionId, overviews.toVariantMap());
-
-        NetworkError error;
-        error.endpoint = "getHeroSeriesOverviews";
-        error.code = -1;
-        error.userMessage = tr("Not authenticated");
-        emitError(error);
+        emit canonicalHeroSeriesOverviewsLoaded(
+            connectionId, overviews.toVariantMap());
+        emitCatalogError(
+            QStringLiteral("getHeroSeriesOverviews"), tr("Not authenticated"));
         return;
     }
 
     auto overviews = std::make_shared<QJsonObject>();
     auto remaining = std::make_shared<int>(ids.size());
+    const auto finish = [this, overviews, remaining, connectionId, generation,
+                         heroGeneration]() {
+        if (--(*remaining) > 0
+            || generation != m_requestGeneration
+            || heroGeneration != m_heroRequestGeneration) {
+            return;
+        }
+        emit heroSeriesOverviewsLoaded(*overviews);
+        emit canonicalHeroSeriesOverviewsLoaded(
+            connectionId, overviews->toVariantMap());
+    };
     for (const QString &seriesId : ids) {
-        const QString endpoint = QStringLiteral("/Users/%1/Items/%2?Fields=Overview")
-                                     .arg(m_authService->getUserId(), seriesId);
-        sendRequestWithRetry(endpoint,
-            [this, endpoint]() {
-                QNetworkRequest request = m_authService->createRequest(endpoint);
-                return m_authService->networkManager()->get(request);
-            },
-            [this, overviews, remaining, seriesId, connectionId](QNetworkReply *reply) {
-                const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-                const QString overview = doc.isObject()
-                    ? m_authService->mapMediaItem(doc.object(), connectionId)
-                          .value(QStringLiteral("overview")).toString()
-                    : QString();
+        ProviderCatalogQuery query = baseCatalogQuery();
+        query.itemId = seriesId;
+        sendCatalogRequest(
+            QStringLiteral("getHeroSeriesOverviews"),
+            ProviderCatalogOperation::Item,
+            query,
+            [this, overviews, finish, seriesId, connectionId](
+                const ProviderCatalogResponse &response) {
+                const QString overview = m_authService
+                    ->mapMediaItem(response.rawItem, connectionId)
+                    .value(QStringLiteral("overview"))
+                    .toString();
                 overviews->insert(seriesId, overview);
-                if (--(*remaining) <= 0) {
-                    emit heroSeriesOverviewsLoaded(*overviews);
-                    emit canonicalHeroSeriesOverviewsLoaded(connectionId,
-                                                            overviews->toVariantMap());
-                }
+                finish();
             },
-            [this, overviews, remaining, seriesId, connectionId](const NetworkError &) {
+            [overviews, finish, seriesId](const NetworkError &) {
                 overviews->insert(seriesId, QString());
-                if (--(*remaining) <= 0) {
-                    emit heroSeriesOverviewsLoaded(*overviews);
-                    emit canonicalHeroSeriesOverviewsLoaded(connectionId,
-                                                            overviews->toVariantMap());
-                }
+                finish();
             });
     }
 }
-
 QString LibraryService::getActiveConnectionId() const
 {
     return activeConnectionId(m_authService);

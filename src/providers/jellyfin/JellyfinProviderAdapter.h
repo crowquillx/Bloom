@@ -1,6 +1,7 @@
 #pragma once
 
 #include "providers/IProviderAdapter.h"
+#include "providers/jellyfin/JellyfinCatalogProvider.h"
 #include "providers/jellyfin/JellyfinAuthenticator.h"
 #include "providers/jellyfin/JellyfinModelMapper.h"
 #include "providers/jellyfin/JellyfinPlaybackProvider.h"
@@ -9,11 +10,26 @@
 class JellyfinProviderAdapter final : public IProviderAdapter
 {
 public:
+    using IProviderAdapter::endpointFor;
     ProviderKind providerKind() const override { return ProviderKind::Jellyfin; }
     ProtocolMode protocolMode() const override { return ProtocolMode::Native; }
     const IProviderAuthenticator *authenticator() const override { return &m_authenticator; }
     const IProviderRequestFactory *requestFactory() const override { return &m_requestFactory; }
     const IPlaybackProvider *playbackProvider() const override { return &m_playbackProvider; }
+    const ICatalogProvider *catalogProvider() const override { return &m_catalogProvider; }
+    std::optional<QString> endpointFor(
+        ProviderRoute route, const ProviderRouteContext &context) const override
+    {
+        Q_UNUSED(context)
+        switch (route) {
+        case ProviderRoute::Health:
+            return QStringLiteral("/System/Info/Public");
+        case ProviderRoute::CallerLogout:
+            return QStringLiteral("/Sessions/Logout");
+        default:
+            return std::nullopt;
+        }
+    }
     PlaybackInfoResponse mapPlaybackInfo(
         const QJsonObject &wirePlaybackInfo) const override
     {
@@ -72,6 +88,7 @@ public:
     }
 
 private:
+    JellyfinCatalogProvider m_catalogProvider;
     JellyfinAuthenticator m_authenticator;
     JellyfinPlaybackProvider m_playbackProvider;
     JellyfinRequestFactory m_requestFactory;

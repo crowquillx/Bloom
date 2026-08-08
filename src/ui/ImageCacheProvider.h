@@ -59,6 +59,7 @@ private slots:
 private:
     void loadFromCache();
     void fetchFromNetwork();
+    void refreshArtworkRequest(const QString &networkError);
     void saveToCache(const QByteArray &data);
     void finishWithImage(const QImage &image);
     
@@ -70,6 +71,7 @@ private:
     bool m_cancelled = false;
     QNetworkReply *m_reply = nullptr;
     std::optional<QNetworkRequest> m_resolvedRequest;
+    bool m_refreshAttempted = false;
     QMutex m_mutex;
 };
 
@@ -213,12 +215,18 @@ private:
     void evictIfNeeded();
     
     /**
-     * @brief Generate cache file name from URL
+     * @brief Generate a cache filename from a token-free identity.
      */
     QString hashUrl(const QString &url) const;
     QString safeCacheLabel(const QString &cacheKey) const;
+
+    /**
+     * @brief Resolve a transient artwork source without persisting credentials.
+     *
+     * ArtworkRef keeps the signed source URL in a bounded in-process registry;
+     * only the opaque identity key is used by the disk cache.
+     */
     std::optional<QNetworkRequest> resolveRequest(const QString &cacheKey) const;
-    
     /**
      * @brief Construct a stable key for a rounded variant.
      */

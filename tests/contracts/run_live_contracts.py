@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run Bloom's MediaBrowser contract probes against an operator-owned server."""
+"""Run Bloom's opt-in provider contract probes against an operator-owned server."""
 
 from __future__ import annotations
 
@@ -93,6 +93,7 @@ class HttpTransport:
 
 class MediaBrowserV1Probe:
     """The current Bloom wire surface. Other protocol drivers can be added beside it."""
+    requires_credentials = True
 
     def __init__(self, transport: HttpTransport, username: str, password: str, version: str):
         self.transport = transport
@@ -554,14 +555,441 @@ class MediaBrowserV1Probe:
         return results
 
 
-DRIVERS = {"mediabrowser-v1": MediaBrowserV1Probe}
+class SiloNativeV1Probe:
+    """Probe native Silo health, auth, profiles, catalog, and artwork when credentials are supplied."""
 
+    requires_credentials = False
+
+    def __init__(
+        self,
+        transport: HttpTransport,
+        username: str,
+        password: str,
+        version: str,
+        profile_id: str = "",
+        profile_pin: str = "",
+    ):
+        self.transport = transport
+        self.username = username
+        self.password = password
+        self.version = version
+        self.profile_id = profile_id
+        self.profile_pin = profile_pin
+        self.access_token = ""
+        self.refresh_token = ""
+        self.profile_token = ""
+
+    def headers(self, token: str = "", profile_id: str = "", profile_token: str = ""):
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-Silo-Client": "Bloom Contract",
+            "X-Silo-Client-Version": self.version,
+            "X-Silo-Device-Id": "bloom-contract-native",
+            "X-Silo-Device-Name": "Bloom Contract Probe",
+            "X-Silo-Device-Platform": sys.platform,
+        }
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        if profile_id:
+            headers["X-Profile-Id"] = profile_id
+        if profile_token:
+            headers["X-Profile-Token"] = profile_token
+        return headers
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: str = "",
+        profile_id: str = "",
+        profile_token: str = "",
+        json_body: Any = None,
+    ):
+        headers = self.headers(token=token, profile_id=profile_id, profile_token=profile_token)
+        if path.startswith(("http://", "https://")) and not self.transport.is_same_origin(path):
+            headers = {"Accept": "application/json"}
+        return self.transport.request(method, path, headers=headers, json_body=json_body)
+
+    @staticmethod
+    def _object(payload: Any):
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
+    def _array(payload: Any, *keys: str):
+        if isinstance(payload, list):
+            return payload
+        if isinstance(payload, dict):
+            for key in keys:
+                if isinstance(payload.get(key), list):
+                    return payload[key]
+        return []
+
+    @staticmethod
+    def _non_empty_string(value: Any):
+        return isinstance(value, str) and bool(value.strip())
+
+    def _record(self, results: list[ProbeResult], expected: dict[str, str], contract: str, observed: str, evidence: str):
+        wanted = expected.get(contract)
+        if wanted is None:
+            return
+        passed = observed == "inconclusive" or observed == wanted or (wanted == "partial" and observed == "supported")
+        results.append(ProbeResult(contract, wanted, observed, passed, evidence))
+
+    def _health(self, expected: dict[str, str], results: list[ProbeResult]):
+        response = self.request("GET", "/api/v1/health")
+        payload = response.json() if response.status == 200 else None
+        status = payload.get("status") if isinstance(payload, dict) else None
+        server_id_present = isinstance(payload, dict) and "server_id" in payload
+        server_id = payload.get("server_id") if isinstance(payload, dict) else None
+        server_id_valid = not server_id_present or (
+            isinstance(server_id, str) and bool(server_id.strip())
+        )
+        valid = response.status == 200 and status == "ok" and server_id_valid
+        self._record(
+            results,
+            expected,
+            "native.health",
+            expected.get("native.health", "missing") if valid else "missing",
+            f"health returned HTTP {response.status}, status={status!r}, "
+            f"server_id={'present' if server_id_present else 'omitted'}; "
+            "installation uniqueness is intentionally not inferred",
+        )
+    def _cleanup(self):
+        if self.access_token:
+            self.request("POST", "/api/v1/auth/logout", token=self.access_token)
+
+
+    def run(self, expected: dict[str, str], allow_mutations: bool):
+        results: list[ProbeResult] = []
+        self._health(expected, results)
+        if not self.username or not self.password:
+            return results
+
+        providers_response = self.request("GET", "/api/v1/auth/providers")
+        providers = self._array(providers_response.json() if providers_response.status == 200 else None, "providers")
+        providers_ok = providers_response.status == 200 and bool(providers) and all(
+            isinstance(provider, dict)
+            and self._non_empty_string(provider.get("id"))
+            and self._non_empty_string(provider.get("display_name"))
+            and self._non_empty_string(provider.get("mode"))
+            and isinstance(provider.get("default"), bool)
+            for provider in providers
+        )
+        self._record(
+            results,
+            expected,
+            "native.auth.providers",
+            "supported" if providers_ok else "partial" if providers_response.status == 200 else "missing",
+            f"provider discovery returned HTTP {providers_response.status} with {len(providers)} shape-valid providers={providers_ok}",
+        )
+
+        unauthenticated = self.request("GET", "/api/v1/auth/me")
+        unauthenticated_payload = self._object(unauthenticated.json())
+        errors_ok = (
+            unauthenticated.status == 401
+            and self._non_empty_string(unauthenticated_payload.get("error"))
+            and self._non_empty_string(unauthenticated_payload.get("message"))
+        )
+        self._record(
+            results,
+            expected,
+            "native.auth.errors",
+            "supported" if errors_ok else "partial",
+            f"missing-bearer auth/me returned HTTP {unauthenticated.status} with error/message envelope={errors_ok}",
+        )
+
+        login = self.request(
+            "POST",
+            "/api/v1/auth/login",
+            json_body={"username": self.username, "password": self.password},
+        )
+        login_payload = self._object(login.json())
+        user = self._object(login_payload.get("user"))
+        self.access_token = login_payload.get("access_token", "")
+        self.refresh_token = login_payload.get("refresh_token", "")
+        login_ok = (
+            login.status == 200
+            and self._non_empty_string(self.access_token)
+            and self._non_empty_string(self.refresh_token)
+            and isinstance(login_payload.get("expires_in"), int)
+            and login_payload["expires_in"] > 0
+            and isinstance(user.get("id"), int)
+            and not isinstance(user.get("id"), bool)
+            and self._non_empty_string(user.get("username"))
+        )
+        self._record(
+            results,
+            expected,
+            "native.auth.login",
+            "supported" if login_ok else "missing" if login.status in {404, 405, 501} else "partial",
+            f"login returned HTTP {login.status} with access/refresh/user identity shape={login_ok}",
+        )
+        if not login_ok:
+            self._cleanup()
+            return results
+
+        refresh = self.request(
+            "POST",
+            "/api/v1/auth/refresh",
+            json_body={"refresh_token": self.refresh_token},
+        )
+        refresh_payload = self._object(refresh.json())
+        refreshed_access = refresh_payload.get("access_token", "")
+        refreshed_refresh = refresh_payload.get("refresh_token", "")
+        refresh_ok = (
+            refresh.status == 200
+            and self._non_empty_string(refreshed_access)
+            and self._non_empty_string(refreshed_refresh)
+            and isinstance(refresh_payload.get("expires_in"), int)
+            and refresh_payload["expires_in"] > 0
+        )
+        if refresh_ok:
+            self.access_token, self.refresh_token = refreshed_access, refreshed_refresh
+        self._record(
+            results,
+            expected,
+            "native.auth.refresh",
+            "supported" if refresh_ok else "partial" if refresh.status == 200 else "missing",
+            f"refresh returned HTTP {refresh.status} with replacement token pair shape={refresh_ok}",
+        )
+
+        me = self.request("GET", "/api/v1/auth/me", token=self.access_token)
+        me_payload = self._object(me.json())
+        me_ok = (
+            me.status == 200
+            and self._non_empty_string(me_payload.get("username"))
+            and me_payload.get("id") is not None
+            and self._non_empty_string(me_payload.get("role"))
+            and isinstance(me_payload.get("permissions"), list)
+            and isinstance(me_payload.get("download_allowed"), bool)
+        )
+        self._record(
+            results,
+            expected,
+            "native.auth.me",
+            "supported" if me_ok else "partial" if me.status == 200 else "missing",
+            f"auth/me returned HTTP {me.status} with account shape={me_ok}",
+        )
+
+        profiles_response = self.request("GET", "/api/v1/profiles", token=self.access_token)
+        profiles_payload = self._object(profiles_response.json())
+        profiles = self._array(profiles_payload, "profiles")
+        profiles_ok = profiles_response.status == 200 and bool(profiles) and all(
+            isinstance(profile, dict)
+            and self._non_empty_string(profile.get("id"))
+            and self._non_empty_string(profile.get("name"))
+            and all(isinstance(profile.get(field), bool) for field in ("has_pin", "is_child", "is_primary"))
+            for profile in profiles
+        )
+        self._record(
+            results,
+            expected,
+            "native.profiles.list",
+            "supported" if profiles_ok else "partial" if profiles_response.status == 200 else "missing",
+            f"profiles returned HTTP {profiles_response.status} with {len(profiles)} shape-valid profiles={profiles_ok}",
+        )
+        if not profiles_ok:
+            self._cleanup()
+            return results
+
+        selected = next((profile for profile in profiles if str(profile.get("id")) == self.profile_id), None)
+        selected = selected or next((profile for profile in profiles if profile.get("is_primary")), profiles[0])
+        profile_id = str(selected["id"])
+        self.profile_id = profile_id
+        if selected.get("has_pin"):
+            if not self.profile_pin:
+                self._cleanup()
+                return results
+            pin_response = self.request(
+                "POST",
+                f"/api/v1/profiles/{urllib.parse.quote(profile_id, safe='')}/verify-pin",
+                token=self.access_token,
+                json_body={"pin": self.profile_pin},
+            )
+            pin_payload = self._object(pin_response.json())
+            self.profile_token = pin_payload.get("profile_token", "")
+            pin_ok = (
+                pin_response.status == 200
+                and pin_payload.get("valid") is True
+                and self._non_empty_string(self.profile_token)
+                and self._non_empty_string(pin_payload.get("expires_at"))
+            )
+            self._record(
+                results,
+                expected,
+                "native.profiles.pin",
+                "supported" if pin_ok else "partial" if pin_response.status == 200 else "missing",
+                f"profile PIN verification returned HTTP {pin_response.status} with token/expiry shape={pin_ok}",
+            )
+            if not pin_ok:
+                self._cleanup()
+                return results
+        else:
+            self._record(results, expected, "native.profiles.pin", "inconclusive", "selected profile has no PIN; verification route is conditional")
+
+        scoped = {"token": self.access_token, "profile_id": self.profile_id, "profile_token": self.profile_token}
+        libraries_response = self.request("GET", "/api/v1/user/libraries", **scoped)
+        libraries = self._array(libraries_response.json() if libraries_response.status == 200 else None, "libraries")
+        libraries_ok = libraries_response.status == 200 and all(
+            isinstance(library, dict)
+            and self._non_empty_string(library.get("id"))
+            and self._non_empty_string(library.get("name"))
+            for library in libraries
+        )
+        self._record(
+            results,
+            expected,
+            "native.catalog.libraries",
+            "supported" if libraries_ok else "partial" if libraries_response.status == 200 else "missing",
+            f"libraries returned HTTP {libraries_response.status} with {len(libraries)} stable id/name entries={libraries_ok}",
+        )
+
+        catalog_query = urllib.parse.urlencode({"source": "query", "include_technical": "true", "limit": "5", "offset": "0"})
+        page_response = self.request("GET", f"/api/v1/catalog?{catalog_query}", **scoped)
+        page_payload = self._object(page_response.json() if page_response.status == 200 else None)
+        items = page_payload.get("items")
+        content_ids = [
+            item.get("content_id")
+            for item in items
+            if isinstance(item, dict) and self._non_empty_string(item.get("content_id"))
+        ] if isinstance(items, list) else []
+        page_ok = (
+            page_response.status == 200
+            and isinstance(items, list)
+            and isinstance(page_payload.get("total"), int)
+            and isinstance(page_payload.get("total_exact"), bool)
+            and isinstance(page_payload.get("has_more"), bool)
+            and len(content_ids) == len(items) == len(set(content_ids))
+            and all(
+                isinstance(item, dict)
+                and self._non_empty_string(item.get("content_id"))
+                and self._non_empty_string(item.get("title"))
+                and self._non_empty_string(item.get("type"))
+                for item in items
+            )
+        )
+        if page_ok and page_payload.get("has_more"):
+            page_ok = self._non_empty_string(page_payload.get("snapshot"))
+        self._record(
+            results,
+            expected,
+            "native.catalog.page",
+            "supported" if page_ok else "partial" if page_response.status == 200 else "missing",
+            f"catalog page returned HTTP {page_response.status} with {len(items) if isinstance(items, list) else 0} stable canonical items={page_ok}",
+        )
+        query_response = self.request(
+            "POST",
+            "/api/v1/catalog/query",
+            **scoped,
+            json_body={"limit": 5, "offset": 0},
+        )
+        query_payload = self._object(query_response.json() if query_response.status == 200 else None)
+        query_items = query_payload.get("items")
+        query_ok = (
+            query_response.status == 200
+            and isinstance(query_items, list)
+            and isinstance(query_payload.get("total"), int)
+            and isinstance(query_payload.get("total_exact"), bool)
+            and query_payload.get("total_exact") is False
+            and isinstance(query_payload.get("has_more"), bool)
+            and all(isinstance(item, dict) and self._non_empty_string(item.get("content_id")) for item in query_items)
+        )
+        self._record(
+            results,
+            expected,
+            "native.catalog.query",
+            "supported" if query_ok else "partial" if query_response.status == 200 else "missing",
+            f"catalog query returned HTTP {query_response.status} with response capability truthfulness={query_ok}",
+        )
+        if not page_ok or not content_ids:
+            self._cleanup()
+            return results
+
+        detail_id = str(content_ids[0])
+        detail_path = f"/api/v1/catalog/items/{urllib.parse.quote(detail_id, safe='')}"
+        detail_response = self.request("GET", detail_path, **scoped)
+        detail = self._object(detail_response.json() if detail_response.status == 200 else None)
+        versions = detail.get("versions")
+        detail_ok = (
+            detail_response.status == 200
+            and detail.get("content_id") == detail_id
+            and self._non_empty_string(detail.get("title"))
+            and self._non_empty_string(detail.get("type"))
+            and isinstance(detail.get("user_state"), dict)
+            and isinstance(versions, list)
+            and all(isinstance(version, dict) and self._non_empty_string(version.get("file_id")) for version in versions)
+            and isinstance(detail.get("playback_variants", []), list)
+        )
+        self._record(
+            results,
+            expected,
+            "native.catalog.detail",
+            "supported" if detail_ok else "partial" if detail_response.status == 200 else "missing",
+            f"catalog detail returned HTTP {detail_response.status} with canonical content/version shape={detail_ok}",
+        )
+
+        artwork_urls = [
+            detail.get(field)
+            for field in ("poster_url", "still_url", "backdrop_url", "logo_url")
+            if self._non_empty_string(detail.get(field))
+        ]
+        if not artwork_urls:
+            self._record(results, expected, "native.artwork.refetch", "inconclusive", "selected catalog item has no artwork URL to refetch")
+        else:
+            artwork_url = str(artwork_urls[0])
+            artwork_response = self.request("GET", urllib.parse.urljoin(self.transport.base_url + "/", artwork_url), **scoped)
+            content_type = artwork_response.headers.get("Content-Type", "")
+            artwork_ok = artwork_response.status == 200 and content_type.startswith("image/") and bool(artwork_response.body)
+            self._record(
+                results,
+                expected,
+                "native.artwork.refetch",
+                "supported" if artwork_ok else "partial",
+                f"opaque artwork URL returned HTTP {artwork_response.status}, {content_type!r}, {len(artwork_response.body)} bytes",
+            )
+
+        sessions = self.request("GET", "/api/v1/auth/sessions", token=self.access_token)
+        session_items = self._array(sessions.json() if sessions.status == 200 else None, "sessions")
+        sessions_ok = sessions.status == 200 and all(
+            isinstance(session, dict)
+            and self._non_empty_string(session.get("id"))
+            and self._non_empty_string(session.get("device_name"))
+            and self._non_empty_string(session.get("created_at"))
+            and self._non_empty_string(session.get("expires_at"))
+            for session in session_items
+        )
+        self._record(
+            results,
+            expected,
+            "native.auth.sessions",
+            "supported" if sessions_ok else "partial" if sessions.status == 200 else "missing",
+            f"auth session list returned HTTP {sessions.status} with shape-valid sessions={sessions_ok}",
+        )
+        logout = self.request("POST", "/api/v1/auth/logout", token=self.access_token)
+        self._record(
+            results,
+            expected,
+            "native.auth.logout",
+            "supported" if logout.status == 204 else "partial",
+            f"caller logout returned HTTP {logout.status}; credentials are not written to the report",
+        )
+        return results
+
+
+DRIVERS = {
+    "mediabrowser-v1": MediaBrowserV1Probe,
+    "silo-native-v1": SiloNativeV1Probe,
+}
 
 def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--deployment", required=True, help="deployment id from provider-contracts.json")
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--username", default=os.environ.get("BLOOM_CONTRACT_USERNAME", ""))
+    parser.add_argument("--profile-id", default=os.environ.get("BLOOM_CONTRACT_PROFILE_ID", ""))
+    parser.add_argument("--profile-pin-env", default="BLOOM_CONTRACT_PROFILE_PIN", help="environment variable containing an optional native profile PIN")
     parser.add_argument("--password-env", default="BLOOM_CONTRACT_PASSWORD", help="environment variable containing the password")
     parser.add_argument("--version", default="0.0-contract")
     parser.add_argument("--timeout", type=float, default=20.0)
@@ -569,10 +997,14 @@ def main(argv: list[str] | None = None):
     parser.add_argument("--output", type=Path)
     parser.add_argument("--matrix", type=Path, default=Path(__file__).with_name("provider-contracts.json"))
     args = parser.parse_args(argv)
+    parsed_base_url = urllib.parse.urlsplit(args.base_url)
+    if parsed_base_url.scheme not in {"http", "https"} or not parsed_base_url.netloc:
+        parser.error("--base-url must be an HTTP(S) URL")
+    if parsed_base_url.username or parsed_base_url.password:
+        parser.error("--base-url must not contain embedded credentials")
 
     password = os.environ.get(args.password_env, "")
-    if not args.username or not password:
-        parser.error(f"--username/BLOOM_CONTRACT_USERNAME and {args.password_env} are required")
+    profile_pin = os.environ.get(args.profile_pin_env, "")
 
     data = load_and_validate(args.matrix)
     deployment = next((item for item in data["deployments"] if item["id"] == args.deployment), None)
@@ -580,15 +1012,36 @@ def main(argv: list[str] | None = None):
         parser.error(f"unknown deployment {args.deployment!r}")
     surface = deployment["surface"]
     driver_type = DRIVERS.get(surface)
-    if not driver_type:
-        parser.error(f"no live probe driver is registered for surface {surface!r}")
-
-    expected = {
-        contract["id"]: contract["expectations"][args.deployment]["outcome"]
-        for contract in data["contracts"]
-        if args.deployment in contract["expectations"]
-    }
-    driver = driver_type(HttpTransport(args.base_url, args.timeout), args.username, password, args.version)
+    if driver_type is None:
+        parser.error(f"unsupported protocol surface {surface!r}")
+    if surface == "silo-native-v1":
+        if deployment.get("protocolMode") != "native":
+            parser.error(f"deployment {args.deployment!r} is not configured for native Silo mode")
+        expected = {
+            requirement["id"]: requirement["outcome"]
+            for requirement in data["nativeSiloContract"]["requirements"]
+            if requirement.get("liveProbe", False)
+        }
+    else:
+        expected = {
+            contract["id"]: contract["expectations"][args.deployment]["outcome"]
+            for contract in data["contracts"]
+            if args.deployment in contract["expectations"]
+        }
+    if not expected:
+        parser.error(f"deployment {args.deployment!r} has no live probes for selected surface")
+    transport = HttpTransport(args.base_url, args.timeout)
+    if surface == "silo-native-v1":
+        driver = driver_type(
+            transport,
+            args.username,
+            password,
+            args.version,
+            args.profile_id,
+            profile_pin,
+        )
+    else:
+        driver = driver_type(transport, args.username, password, args.version)
     results = driver.run(expected, args.allow_mutations)
 
     for result in results:

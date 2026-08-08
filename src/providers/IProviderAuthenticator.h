@@ -2,20 +2,55 @@
 
 #include <QByteArray>
 #include <QString>
+#include <optional>
 
 struct ProviderAuthenticationRequest {
     QString endpoint;
     QByteArray body;
+    QString refreshToken;
+    QString profileId;
+    QString profileToken;
+
+    [[nodiscard]] bool isValid() const { return !endpoint.trimmed().isEmpty(); }
 };
 
 struct ProviderAuthenticationResult {
     QString accessToken;
+    QString refreshToken;
     QString accountId;
+    QString profileId;
+    QString profileToken;
     QString username;
+    // Relative lifetime reported by the provider. Negative means unspecified.
+    qint64 expiresInSeconds = -1;
 
+    // Full login responses must bind the token to a provider account.
     bool isValid() const
     {
         return !accessToken.isEmpty() && !accountId.isEmpty();
+    }
+
+    // Refresh responses may omit refresh_token when the existing token remains valid.
+    [[nodiscard]] bool isValidRefresh() const
+    {
+        return !accessToken.isEmpty();
+    }
+};
+
+struct ProviderProfileAuthenticationResult {
+    // Parsed distinguishes a completed wrong-PIN response from malformed or unsupported data.
+    bool responseParsed = false;
+    bool valid = false;
+    QString profileToken;
+
+    [[nodiscard]] bool isValid() const
+    {
+        return responseParsed && valid && !profileToken.isEmpty();
+    }
+
+    [[nodiscard]] bool isIncorrectPin() const
+    {
+        return responseParsed && !valid;
     }
 };
 
@@ -32,6 +67,48 @@ public:
 
     virtual ProviderAuthenticationRequest createLoginRequest(const QString &username,
                                                               const QString &password) const = 0;
+    virtual ProviderAuthenticationRequest createLoginRequest(
+        const QString &username,
+        const QString &password,
+        const QString &provider) const
+    {
+        Q_UNUSED(provider)
+        return createLoginRequest(username, password);
+    }
+
+    virtual ProviderAuthenticationResult parseSessionValidationResponse(
+        const QByteArray &response) const
+    {
+        Q_UNUSED(response)
+        return {};
+    }
     virtual QString sessionValidationEndpoint(const QString &accountId) const = 0;
     virtual ProviderAuthenticationResult parseLoginResponse(const QByteArray &response) const = 0;
+
+    // Optional authentication flows return nullopt when the provider does not
+    // implement the operation; an empty request must never mean success.
+    virtual std::optional<ProviderAuthenticationRequest> createRefreshRequest(
+        const QString &refreshToken) const
+    {
+        Q_UNUSED(refreshToken)
+        return std::nullopt;
+    }
+    virtual ProviderAuthenticationResult parseRefreshResponse(const QByteArray &response) const
+    {
+        Q_UNUSED(response)
+        return {};
+    }
+    virtual std::optional<ProviderAuthenticationRequest> createProfileLoginRequest(
+        const QString &profileId, const QString &pin) const
+    {
+        Q_UNUSED(profileId)
+        Q_UNUSED(pin)
+        return std::nullopt;
+    }
+    virtual ProviderProfileAuthenticationResult parseProfileLoginResponse(
+        const QByteArray &response) const
+    {
+        Q_UNUSED(response)
+        return {};
+    }
 };
