@@ -182,6 +182,7 @@ private:
     RetryPolicy m_retryPolicy;
     QHash<QString, int> m_pendingProgressReports;
     QHash<QString, const IPlaybackProvider *> m_pendingStopProviders;
+    QHash<QString, QString> m_pendingStopRequestIdentities;
     QHash<QString, PlaybackReport> m_pendingStopReports;
     
     // Retry mechanism types  
@@ -199,6 +200,10 @@ private:
     quint64 beginRequest(const QString &operation,
                          const QString &itemId,
                          const QString &requestContext);
+    void endRequest(const QString &operation,
+                    const QString &itemId,
+                    const QString &requestContext,
+                    quint64 generation);
     bool isCurrentRequest(const QString &operation,
                           const QString &itemId,
                           const QString &requestContext,

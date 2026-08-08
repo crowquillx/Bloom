@@ -200,6 +200,8 @@ private:
         capabilities |= ProviderCapability::Profiles;
         capabilities |= ProviderCapability::ProfilePin;
         capabilities |= ProviderCapability::AuthSessions;
+        capabilities |= ProviderCapability::Catalog;
+        capabilities |= ProviderCapability::NativeState;
         capabilities |= ProviderCapability::Playback;
         capabilities |= ProviderCapability::PlaybackReporting;
         capabilities |= ProviderCapability::MediaSegments;

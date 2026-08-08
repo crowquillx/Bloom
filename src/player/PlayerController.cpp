@@ -1099,15 +1099,17 @@ void PlayerController::onEnterBufferingState()
     m_playerBackend->sendVariantCommand({"set_property", "mute", m_muted});
 }
 
-void PlayerController::onEnterPlayingState()
+void PlayerController::applyPendingExternalSubtitleTracks()
 {
-    qCInfo(lcPlayback) << "Entering Playing state for item:" << m_currentItemId;
+    if (!(m_playbackState == Playing || m_playbackState == Paused)) {
+        return;
+    }
 
-    // Clear the initial tracks flag - from now on, track changes are user-initiated
-    // and should be saved to preferences
-    m_applyingInitialTracks = false;
-
-    for (const QVariant &pendingVariant : m_pendingExternalSubtitleTracks) {
+    // Add non-selected tracks first so the selected external track is applied after
+    // mpv has seen every active-segment subtitle URL. The pending list is also used
+    // when the segment is activated before playback reaches Playing.
+    const QVariantList pendingTracks = m_pendingExternalSubtitleTracks;
+    for (const QVariant &pendingVariant : pendingTracks) {
         const QVariantMap pending = pendingVariant.toMap();
         if (pending.value(QStringLiteral("select"), false).toBool()) {
             continue;
@@ -1119,7 +1121,7 @@ void PlayerController::onEnterPlayingState()
             pending.value(QStringLiteral("index"), -1).toInt(),
             false);
     }
-    for (const QVariant &pendingVariant : m_pendingExternalSubtitleTracks) {
+    for (const QVariant &pendingVariant : pendingTracks) {
         const QVariantMap pending = pendingVariant.toMap();
         if (!pending.value(QStringLiteral("select"), false).toBool()) {
             continue;
@@ -1132,6 +1134,47 @@ void PlayerController::onEnterPlayingState()
             true);
     }
     m_pendingExternalSubtitleTracks.clear();
+}
+
+void PlayerController::queueActiveSegmentExternalSubtitleTracks()
+{
+    m_pendingExternalSubtitleTracks.clear();
+    const QVariantMap segment = activePlaybackSegment();
+    if (segment.isEmpty()) {
+        return;
+    }
+
+    const int selectedSubtitleIndex =
+        segment.value(QStringLiteral("subtitleIndex"), -1).toInt();
+    for (const QVariant &trackVariant :
+         segment.value(QStringLiteral("availableSubtitleTracks")).toList()) {
+        const QVariantMap track = trackVariant.toMap();
+        const QString externalUrl = track.value(QStringLiteral("externalUrl")).toString().trimmed();
+        if (!track.value(QStringLiteral("isExternal")).toBool() || externalUrl.isEmpty()) {
+            continue;
+        }
+
+        QVariantMap pending = track;
+        pending[QStringLiteral("externalUrl")] = externalUrl;
+        pending[QStringLiteral("select")] =
+            track.value(QStringLiteral("index"), -1).toInt() == selectedSubtitleIndex;
+        m_pendingExternalSubtitleTracks.append(pending);
+    }
+
+    if (m_playbackState == Playing || m_playbackState == Paused) {
+        applyPendingExternalSubtitleTracks();
+    }
+}
+
+void PlayerController::onEnterPlayingState()
+{
+    qCInfo(lcPlayback) << "Entering Playing state for item:" << m_currentItemId;
+
+    // Clear the initial tracks flag - from now on, track changes are user-initiated
+    // and should be saved to preferences
+    m_applyingInitialTracks = false;
+
+    applyPendingExternalSubtitleTracks();
 
 
     // Report playback start if not already done
@@ -2084,6 +2127,11 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
         return;
     }
 
+    // A matching response can be delivered more than once. Once a descriptor
+    // request is in flight, do not replace its context or issue a duplicate.
+    if (!m_pendingAutoplayDescriptorContext.isEmpty()) {
+        return;
+    }
     stopAutoplayPlaybackInfoWait();
 
     const qint64 startPositionMs = resumePositionMs(m_pendingAutoplayEpisodeData);
@@ -2123,6 +2171,7 @@ void PlayerController::onPlaybackInfoLoaded(const QString &itemId, const Playbac
     m_pendingAutoplayDescriptorContext =
         QStringLiteral("autoplay|descriptor|") + itemId + QStringLiteral("|")
         + QString::number(m_playbackAttemptId);
+    armAutoplayPlaybackInfoWait();
     m_playbackService->requestPlaybackDescriptor(
         itemId,
         mediaSource,
@@ -3098,9 +3147,15 @@ void PlayerController::applyPlaybackSegment(int index, bool reportSegmentStart)
     m_availableSubtitleTracks = segment.value(QStringLiteral("availableSubtitleTracks")).toList();
     m_selectedAudioTrack = segment.value(QStringLiteral("audioIndex"), -1).toInt();
     m_selectedSubtitleTrack = segment.value(QStringLiteral("subtitleIndex"), -1).toInt();
+    // A playlist position switch changes the external subtitle namespace as well as
+    // the embedded stream maps. Drop stale mpv ids before queuing this segment's URLs.
+    m_externalSubtitleTrackMap.clear();
+    m_pendingExternalSubtitleIndex = -1;
+    m_mpvSubtitleTrack = -1;
     updateTrackMappings(m_activeMediaSource);
     m_mpvAudioTrack = mpvAudioTrackForSourceIndex(m_selectedAudioTrack);
     m_mpvSubtitleTrack = m_selectedSubtitleTrack >= 0 ? mpvSubtitleTrackForSourceIndex(m_selectedSubtitleTrack) : -1;
+    queueActiveSegmentExternalSubtitleTracks();
 
     emit mediaSourceIdChanged();
     emit playSessionIdChanged();
@@ -3999,6 +4054,7 @@ void PlayerController::setSelectedAudioTrack(int index)
                         << "sourceIndex=" << index
                         << "previousSourceIndex=" << previousAudioTrack;
 
+    bool selectionRolledBackSynchronously = false;
     if (m_playbackState == Playing || m_playbackState == Paused) {
         const auto applyMpvAudioTrack = [this, index]() {
             if (index >= 0) {
@@ -4032,21 +4088,42 @@ void PlayerController::setSelectedAudioTrack(int index)
                     m_pendingAudioSwitchContext);
             if (!nativeSwitchDispatched) {
                 // Providers without a native audio-switch request (notably
-                // Jellyfin) retain the existing mpv aid behavior.
+                // Jellyfin) retain the existing mpv aid behavior. A provider
+                // can emit a synchronous failure before returning false; in
+                // that case the rollback callback has already restored the
+                // selected track and must not be overwritten by mpv.
                 m_pendingAudioSwitchContext.clear();
                 m_pendingAudioSwitchPreviousTrack = -2;
-                applyMpvAudioTrack();
+                if (m_selectedAudioTrack == index) {
+                    applyMpvAudioTrack();
+                }
+            } else {
+                selectionRolledBackSynchronously = m_selectedAudioTrack != index;
             }
         } else {
+            // A non-native selection supersedes any in-flight native switch.
+            // Its eventual response is stale and must not roll back this
+            // newer selection.
+            m_pendingAudioSwitchContext.clear();
+            m_pendingAudioSwitchPreviousTrack = -2;
             applyMpvAudioTrack();
         }
+    } else {
+        // A selection outside active playback is also a new selection path;
+        // never let an old native response roll it back later.
+        m_pendingAudioSwitchContext.clear();
+        m_pendingAudioSwitchPreviousTrack = -2;
     }
 
-    persistAudioPreferenceForCurrentScope(index);
+    const int effectiveAudioTrack = m_selectedAudioTrack;
+    persistAudioPreferenceForCurrentScope(effectiveAudioTrack);
     if (m_activePlaybackSegmentIndex >= 0 && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
-        m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("audioIndex")] = index;
+        m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("audioIndex")] =
+            effectiveAudioTrack;
     }
-    emit selectedAudioTrackChanged();
+    if (!selectionRolledBackSynchronously) {
+        emit selectedAudioTrackChanged();
+    }
 }
 
 void PlayerController::setAudioDelay(int ms)
@@ -4168,7 +4245,8 @@ void PlayerController::addExternalSubtitleTrackInternal(const QString &subtitleU
                                                           return trackVariant.toMap().value(QStringLiteral("index")).toInt() == syntheticIndex;
                                                       });
     if (trackIndexAlreadyPresent
-        && m_externalSubtitleTrackMap.value(syntheticIndex, -2) != -1) {
+        && m_externalSubtitleTrackMap.contains(syntheticIndex)
+        && m_externalSubtitleTrackMap.value(syntheticIndex) != -1) {
         qCDebug(lcPlayback) << "Skipping external subtitle; index already present and resolved:" << syntheticIndex;
         return;
     }
@@ -5614,6 +5692,16 @@ qint64 PlayerController::resumePositionMs(const QVariantMap &item)
 
 void PlayerController::fallbackToPendingAutoplayPlayback()
 {
+    // A fallback descriptor is itself asynchronous. If it has already timed
+    // out, stop here rather than issuing the same request repeatedly.
+    if (m_pendingAutoplayDescriptorContext.endsWith(QStringLiteral("|fallback"))) {
+        stopAutoplayPlaybackInfoWait();
+        clearPendingAutoplayContext();
+        clearNextEpisodePrefetchState();
+        return;
+    }
+    stopAutoplayPlaybackInfoWait();
+
     const QString itemId = m_pendingAutoplayEpisodeData.value(QStringLiteral("itemId")).toString();
     if (itemId.isEmpty()) {
         qCWarning(lcPlayback) << "Cannot fall back to pending autoplay playback without an episode id";
@@ -5647,13 +5735,15 @@ void PlayerController::fallbackToPendingAutoplayPlayback()
     m_pendingAutoplayDescriptorSubtitleTracks.clear();
     m_pendingAutoplayDescriptorContext =
         QStringLiteral("autoplay|descriptor|") + itemId + QStringLiteral("|fallback");
-    m_playbackService->requestPlaybackDescriptor(itemId,
-                                                  {},
-                                                  -1,
-                                                  -1,
-                                                  startPositionMs,
-                                                  QString(),
-                                                  m_pendingAutoplayDescriptorContext);
+    armAutoplayPlaybackInfoWait();
+    m_playbackService->requestPlaybackDescriptor(
+        itemId,
+        {},
+        -1,
+        -1,
+        startPositionMs,
+        QString(),
+        m_pendingAutoplayDescriptorContext);
 }
 
 void PlayerController::stopAutoplayPlaybackInfoWait()
@@ -5661,6 +5751,13 @@ void PlayerController::stopAutoplayPlaybackInfoWait()
     m_waitingForAutoplayPlaybackInfo = false;
     if (m_autoplayPlaybackInfoTimeoutTimer) {
         m_autoplayPlaybackInfoTimeoutTimer->stop();
+    }
+}
+void PlayerController::armAutoplayPlaybackInfoWait()
+{
+    m_waitingForAutoplayPlaybackInfo = true;
+    if (m_autoplayPlaybackInfoTimeoutTimer) {
+        m_autoplayPlaybackInfoTimeoutTimer->start(kAutoplayPlaybackInfoTimeoutMs);
     }
 }
 

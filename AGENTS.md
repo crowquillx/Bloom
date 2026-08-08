@@ -16,7 +16,7 @@ Key files: `src/core/ServiceLocator.h`, `utils/ConfigManager.*`, `src/providers/
 
 Conventions: C++ PascalCase classes, camelCase methods, `m_` prefix; QML PascalCase components, camelCase props; use `FocusScope` for navigable views; keep `Theme.qml` as the single source for tokens.
 
-Playback & API: Key endpoints `/Users/{userId}/Items`, `/Shows/NextUp`, `/PlaybackInfo`, `/Sessions/Playing`. Report start/progress/pause/stop and mark watched via `ConfigManager` thresholds.
+Playback & API: Provider-owned playback lifecycle/report routing serializes each provider's wire contract; key Jellyfin endpoints include `/Users/{userId}/Items`, `/Shows/NextUp`, `/PlaybackInfo`, `/Sessions/Playing`.
 
 Windows embedded playback guardrail (regression prevention):
 - When using `win-libmpv` embedded playback (`--wid` child window), playback controls MUST render in a dedicated transparent top-level overlay `Window` synced to the app window geometry.

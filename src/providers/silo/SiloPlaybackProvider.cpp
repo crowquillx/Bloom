@@ -517,7 +517,7 @@ PlaybackReportRequest SiloPlaybackProvider::createReportRequest(const PlaybackRe
     }
     request.endpoint += QStringLiteral("/progress");
     request.method = QStringLiteral("POST");
-    request.body.insert(QStringLiteral("position"), qMax<qint64>(0, report.positionMs) / 1000.0);
+    request.body.insert(QStringLiteral("seconds"), qMax<qint64>(0, report.positionMs) / 1000.0);
     request.body.insert(QStringLiteral("is_paused"),
                         report.event == PlaybackReportEvent::Pause || report.isPaused);
     return request;

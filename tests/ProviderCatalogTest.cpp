@@ -10,6 +10,7 @@
 #include "providers/ICatalogProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include "providers/silo/SiloModelMapper.h"
+#include "providers/silo/SiloProviderAdapter.h"
 #include "providers/silo/SiloCatalogProvider.h"
 
 class ProviderCatalogTest : public QObject
@@ -20,6 +21,7 @@ private slots:
     void jellyfinItemsRequestRetainsNativeContract();
     void jellyfinReservedIdentifiersAndLimitsRemainOpaque();
     void jellyfinMutationsAndPaginationRemainCompatible();
+    void siloTrackIndicesAndMultipartFallbackStayContiguous();
     void siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds();
     void canonicalArtworkAndPlaybackChapterMetadataRemainProviderNeutral();
     void siloEpisodeParentAndBoundedTimes();
@@ -177,6 +179,72 @@ void ProviderCatalogTest::jellyfinMutationsAndPaginationRemainCompatible()
              QStringLiteral("\"items-v3\""));
     QCOMPARE(response.snapshot.value(QStringLiteral("lastModified")).toString(),
              QStringLiteral("Fri, 07 Aug 2026 11:00:00 GMT"));
+}
+
+void ProviderCatalogTest::siloTrackIndicesAndMultipartFallbackStayContiguous()
+{
+    const QJsonObject version{
+        {QStringLiteral("file_id"), QStringLiteral("file-1")},
+        {QStringLiteral("audio_tracks"), QJsonArray{
+             QJsonValue(QStringLiteral("malformed")),
+             QJsonObject{{QStringLiteral("index"), 7},
+                          {QStringLiteral("language"), QStringLiteral("eng")}},
+             QJsonObject{{QStringLiteral("language"), QStringLiteral("deu")}}
+         }}
+    };
+    const QJsonObject secondVersion{
+        {QStringLiteral("file_id"), QStringLiteral("file-2")}
+    };
+    const QJsonObject item{
+        {QStringLiteral("content_id"), QStringLiteral("content-1")},
+        {QStringLiteral("type"), QStringLiteral("movie")},
+        {QStringLiteral("title"), QStringLiteral("Example")},
+        {QStringLiteral("versions"), QJsonArray{version}},
+        {QStringLiteral("playback_variants"), QJsonArray{
+             QJsonObject{
+                 {QStringLiteral("variant_id"), QStringLiteral("variant-1")},
+                 {QStringLiteral("part_count"), 2},
+                 {QStringLiteral("parts"), QJsonArray{
+                      QJsonValue(QStringLiteral("malformed")),
+                      QJsonObject{
+                          {QStringLiteral("versions"), QJsonArray{version}}
+                      },
+                      QJsonObject{
+                          {QStringLiteral("versions"), QJsonArray{secondVersion}}
+                      }
+                  }}
+             }
+         }}
+    };
+
+    const QVariantMap mapped = SiloModelMapper::mediaItem(
+        item, QStringLiteral("connection-silo"));
+    const QVariantList tracks = mapped.value(QStringLiteral("versions"))
+                                    .toList().constFirst().toMap()
+                                    .value(QStringLiteral("audioTracks")).toList();
+    QCOMPARE(tracks.size(), 2);
+    QCOMPARE(tracks.at(0).toMap().value(QStringLiteral("index")).toInt(), 7);
+    QCOMPARE(tracks.at(1).toMap().value(QStringLiteral("index")).toInt(), 2);
+
+    const QVariantList parts = mapped.value(QStringLiteral("playbackVariants"))
+                                   .toList().constFirst().toMap()
+                                   .value(QStringLiteral("parts")).toList();
+    QCOMPARE(parts.size(), 2);
+    QCOMPARE(parts.at(0).toMap().value(QStringLiteral("partIndex")).toInt(), 1);
+    QCOMPARE(parts.at(1).toMap().value(QStringLiteral("partIndex")).toInt(), 2);
+
+    const PlaybackInfoResponse playback = SiloModelMapper::playbackInfo(item);
+    QCOMPARE(playback.mediaSources.size(), 2);
+    const QList<MediaStreamInfo> streams = playback.mediaSources.first().mediaStreams;
+    QCOMPARE(streams.size(), 2);
+    QCOMPARE(streams.at(0).index, 7);
+    QCOMPARE(streams.at(1).index, 2);
+
+    SiloProviderAdapter adapter;
+    QVERIFY(adapter.supportsCapability(ProviderCapability::Catalog));
+    QVERIFY(adapter.supportsCapability(ProviderCapability::NativeState));
+    QVERIFY(adapter.supportsCapability(ProviderCapability::Playback));
+    QVERIFY(adapter.supportsCapability(ProviderCapability::PlaybackReporting));
 }
 
 void ProviderCatalogTest::siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds()

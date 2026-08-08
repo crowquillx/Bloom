@@ -261,7 +261,8 @@ void SiloPlaybackProviderTest::createsProgressAndStopReports()
     QCOMPARE(progressRequest.method, QStringLiteral("POST"));
     QCOMPARE(progressRequest.endpoint,
              QStringLiteral("/api/v1/playback/session%2Fone%3Fx%3D2/progress"));
-    QCOMPARE(progressRequest.body.value(QStringLiteral("position")).toDouble(), 3.456);
+    QCOMPARE(progressRequest.body.value(QStringLiteral("seconds")).toDouble(), 3.456);
+    QVERIFY(!progressRequest.body.contains(QStringLiteral("position")));
     QCOMPARE(progressRequest.body.value(QStringLiteral("is_paused")).toBool(), false);
     QVERIFY(progressRequest.deferSessionExpiry);
 
@@ -269,6 +270,14 @@ void SiloPlaybackProviderTest::createsProgressAndStopReports()
     progress.isPaused = false;
     const PlaybackReportRequest pauseRequest = provider.createReportRequest(progress);
     QCOMPARE(pauseRequest.body.value(QStringLiteral("is_paused")).toBool(), true);
+    QCOMPARE(pauseRequest.body.value(QStringLiteral("seconds")).toDouble(), 3.456);
+    QVERIFY(!pauseRequest.body.contains(QStringLiteral("position")));
+
+    progress.event = PlaybackReportEvent::Resume;
+    const PlaybackReportRequest resumeRequest = provider.createReportRequest(progress);
+    QCOMPARE(resumeRequest.body.value(QStringLiteral("seconds")).toDouble(), 3.456);
+    QCOMPARE(resumeRequest.body.value(QStringLiteral("is_paused")).toBool(), false);
+    QVERIFY(!resumeRequest.body.contains(QStringLiteral("position")));
 
     progress.event = PlaybackReportEvent::Start;
     QVERIFY(!provider.createReportRequest(progress).isValid());

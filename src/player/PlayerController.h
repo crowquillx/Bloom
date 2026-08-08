@@ -699,6 +699,8 @@ private:
     void appendDescriptorExternalSubtitleTracks(QVariantList &availableSubtitleTracks,
                                                 const Bloom::PlaybackDescriptor &descriptor,
                                                 int *selectedSubtitleIndex) const;
+    void queueActiveSegmentExternalSubtitleTracks();
+    void applyPendingExternalSubtitleTracks();
     void addExternalSubtitleTrackInternal(const QString &subtitleUrl,
                                           const QString &displayTitle,
                                           const QString &language,
@@ -722,6 +724,7 @@ private:
     void fallbackToPendingAutoplayPlayback();
     [[nodiscard]] int pendingAutoplaySubtitleOverrideIndex() const;
     void stopAutoplayPlaybackInfoWait();
+    void armAutoplayPlaybackInfoWait();
     static qint64 resumePositionMs(const QVariantMap &item);
     QVariantMap selectMediaSourceForRequest(const QVariantList &mediaSources,
                                             const QString &forcedMediaSourceId,

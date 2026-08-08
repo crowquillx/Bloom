@@ -220,6 +220,14 @@ double frameRate(const QString &value)
     return denominatorOk && denominator != 0.0 ? numerator / denominator : 0.0;
 }
 
+int trackIndex(const QJsonObject &wireTrack, int fallback)
+{
+    if (!wireTrack.contains(QStringLiteral("index"))) {
+        return fallback;
+    }
+    return wireTrack.value(QStringLiteral("index")).toInt(fallback);
+}
+
 QVariantList tracks(const QJsonArray &wireTracks,
                     const QString &kind,
                     int initialIndex,
@@ -232,9 +240,8 @@ QVariantList tracks(const QJsonArray &wireTracks,
             continue;
         }
         const QJsonObject wire = wireTracks.at(offset).toObject();
-        const int index = wire.contains(QStringLiteral("index"))
-            ? wire.value(QStringLiteral("index")).toInt(initialIndex + static_cast<int>(offset))
-            : initialIndex + static_cast<int>(offset);
+        const int index = trackIndex(
+            wire, initialIndex + static_cast<int>(offset));
         MediaStreamInfo stream = SiloModelMapper::mediaStream(wire, kind, index);
         QVariantMap mapped = stream.toVariantMap();
         if (kind.compare(QStringLiteral("Video"), Qt::CaseInsensitive) == 0) {
@@ -340,7 +347,8 @@ QList<OrderedPlaybackPart> orderedPlaybackParts(const QJsonObject &variant)
             continue;
         }
         parts.append(OrderedPlaybackPart{
-            playbackPartIndex(wireParts.at(i).toObject(), static_cast<int>(i) + 1),
+            playbackPartIndex(wireParts.at(i).toObject(),
+                              static_cast<int>(parts.size()) + 1),
             wireParts.at(i).toObject()
         });
     }
@@ -846,13 +854,15 @@ PlaybackInfoResponse SiloModelMapper::playbackInfoFromVersions(const QJsonArray 
         for (qsizetype i = 0; i < video.size(); ++i) {
             if (video.at(i).isObject()) {
                 source.mediaStreams.append(mediaStream(
-                    video.at(i).toObject(), QStringLiteral("Video"), static_cast<int>(i)));
+                    video.at(i).toObject(), QStringLiteral("Video"),
+                    trackIndex(video.at(i).toObject(), static_cast<int>(i))));
             }
         }
         for (qsizetype i = 0; i < audio.size(); ++i) {
             if (audio.at(i).isObject()) {
                 const MediaStreamInfo stream = mediaStream(
-                    audio.at(i).toObject(), QStringLiteral("Audio"), static_cast<int>(i));
+                    audio.at(i).toObject(), QStringLiteral("Audio"),
+                    trackIndex(audio.at(i).toObject(), static_cast<int>(i)));
                 if (source.defaultAudioStreamIndex < 0 && stream.isDefault) {
                     source.defaultAudioStreamIndex = stream.index;
                 }
@@ -863,7 +873,8 @@ PlaybackInfoResponse SiloModelMapper::playbackInfoFromVersions(const QJsonArray 
             if (subtitles.at(i).isObject()) {
                 const QJsonObject subtitle = subtitles.at(i).toObject();
                 const MediaStreamInfo stream = mediaStream(
-                    subtitle, QStringLiteral("Subtitle"), static_cast<int>(i));
+                    subtitle, QStringLiteral("Subtitle"),
+                    trackIndex(subtitle, static_cast<int>(i)));
                 if (source.defaultSubtitleStreamIndex < 0 && stream.isDefault) {
                     source.defaultSubtitleStreamIndex = stream.index;
                 }
