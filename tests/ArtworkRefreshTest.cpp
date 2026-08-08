@@ -15,7 +15,7 @@
 #include "network/HttpTransport.h"
 #include "models/MediaModels.h"
 #include "providers/IArtworkProvider.h"
-#include "providers/ServerConnection.h"
+#include "providers/silo/SiloArtworkProvider.h"
 #include "providers/jellyfin/JellyfinArtworkProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include "ui/ImageCacheProvider.h"
@@ -174,6 +174,7 @@ private slots:
     void authorizationFailureRefreshesExactlyOnce_data();
     void authorizationFailureRefreshesExactlyOnce();
     void jellyfinRefreshKeepsExistingResolvedRequest();
+    void siloRefreshCompletesAfterAuthenticationServiceDestruction();
 };
 void ArtworkRefreshTest::missingArtworkDegradesWithoutRefresh()
 {
@@ -356,6 +357,25 @@ void ArtworkRefreshTest::jellyfinRefreshKeepsExistingResolvedRequest()
     QCOMPARE(refreshed->url(), directlyResolved->url());
     QCOMPARE(refreshed->rawHeader("Authorization"),
              directlyResolved->rawHeader("Authorization"));
+}
+void ArtworkRefreshTest::siloRefreshCompletesAfterAuthenticationServiceDestruction()
+{
+    auto *auth = new AuthenticationService;
+    SiloArtworkProvider provider(auth);
+
+    int callbacks = 0;
+    bool receivedEmptyRequest = false;
+    provider.refreshArtwork(
+        artworkRef(),
+        [&callbacks, &receivedEmptyRequest](std::optional<QNetworkRequest> request) {
+            ++callbacks;
+            receivedEmptyRequest = !request.has_value();
+        });
+
+    QCOMPARE(callbacks, 0);
+    delete auth;
+    QTRY_COMPARE_WITH_TIMEOUT(callbacks, 1, 1000);
+    QVERIFY(receivedEmptyRequest);
 }
 
 QTEST_MAIN(ArtworkRefreshTest)

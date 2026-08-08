@@ -220,7 +220,8 @@ private:
             || normalized == QStringLiteral("movie")
             || normalized == QStringLiteral("season")
             || normalized == QStringLiteral("series")
-            || normalized == QStringLiteral("show")) {
+            || normalized == QStringLiteral("show")
+            || normalized == QStringLiteral("book")) {
             if (normalized == QStringLiteral("show")) {
                 return QStringLiteral("series");
             }

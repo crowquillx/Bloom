@@ -1,9 +1,11 @@
 #include <QtTest/QtTest>
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QUrl>
 #include <QUrlQuery>
+#include <limits>
 
 #include "providers/ICatalogProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
@@ -20,7 +22,9 @@ private slots:
     void jellyfinMutationsAndPaginationRemainCompatible();
     void siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds();
     void canonicalArtworkAndPlaybackChapterMetadataRemainProviderNeutral();
+    void siloEpisodeParentAndBoundedTimes();
     void siloNumericSeasonRoutesAndEnvelopeOperation();
+
 };
 
 void ProviderCatalogTest::jellyfinItemsRequestRetainsNativeContract()
@@ -366,6 +370,67 @@ void ProviderCatalogTest::canonicalArtworkAndPlaybackChapterMetadataRemainProvid
     QCOMPARE(descriptorMap.value(QStringLiteral("chapters")).toList().first().toMap()
                  .value(QStringLiteral("startMs")).toLongLong(), 1250);
 }
+
+void ProviderCatalogTest::siloEpisodeParentAndBoundedTimes()
+{
+    const QJsonObject episode{
+        {QStringLiteral("content_id"), QStringLiteral("episode-1")},
+        {QStringLiteral("type"), QStringLiteral("episode")},
+        {QStringLiteral("series_id"), QStringLiteral("series-1")},
+        {QStringLiteral("season_id"), QStringLiteral("season-1")}
+    };
+    const QVariantMap mapped = SiloModelMapper::mediaItem(episode, QStringLiteral("silo"));
+    QCOMPARE(mapped.value(QStringLiteral("parentId")).toString(),
+             QStringLiteral("season-1"));
+
+    const QVariantMap seriesFallback = SiloModelMapper::mediaItem(
+        QJsonObject{
+            {QStringLiteral("content_id"), QStringLiteral("episode-2")},
+            {QStringLiteral("type"), QStringLiteral("episode")},
+            {QStringLiteral("series_id"), QStringLiteral("series-1")}
+        },
+        QStringLiteral("silo"));
+    QCOMPARE(seriesFallback.value(QStringLiteral("parentId")).toString(),
+             QStringLiteral("series-1"));
+
+    const QVariantMap zeroChapter = SiloModelMapper::chapter(
+        QJsonObject{
+            {QStringLiteral("start_seconds"), 0.0},
+            {QStringLiteral("end_seconds"), 0.0}
+        },
+        QStringLiteral("silo"), QStringLiteral("episode-1"), QStringLiteral("file-1"), 0);
+    QVERIFY(!zeroChapter.isEmpty());
+    QCOMPARE(zeroChapter.value(QStringLiteral("startMs")).toLongLong(), 0);
+    QCOMPARE(zeroChapter.value(QStringLiteral("endMs")).toLongLong(), 0);
+
+    const QVariantMap oversizedChapter = SiloModelMapper::chapter(
+        QJsonObject{{QStringLiteral("start_seconds"),
+                     std::numeric_limits<double>::max()}},
+        QStringLiteral("silo"), QStringLiteral("episode-1"), QStringLiteral("file-1"), 0);
+    QVERIFY(oversizedChapter.isEmpty());
+
+    const QList<MediaSegmentInfo> validSegments = SiloModelMapper::mediaSegments(
+        QStringLiteral("episode-1"),
+        QJsonObject{
+            {QStringLiteral("file_id"), QStringLiteral("file-1")},
+            {QStringLiteral("intro"), QJsonObject{
+                 {QStringLiteral("start_seconds"), 0.0},
+                 {QStringLiteral("end_seconds"), 1.0}}}
+        });
+    QCOMPARE(validSegments.size(), 1);
+    QCOMPARE(validSegments.first().startMs, 0);
+
+    const QList<MediaSegmentInfo> oversizedSegments = SiloModelMapper::mediaSegments(
+        QStringLiteral("episode-1"),
+        QJsonObject{
+            {QStringLiteral("file_id"), QStringLiteral("file-1")},
+            {QStringLiteral("intro"), QJsonObject{
+                 {QStringLiteral("start_seconds"), 0.0},
+                 {QStringLiteral("end_seconds"), std::numeric_limits<double>::max()}}}
+        });
+    QVERIFY(oversizedSegments.isEmpty());
+}
+
 
 void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
 {

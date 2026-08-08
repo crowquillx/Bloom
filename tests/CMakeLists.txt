@@ -345,6 +345,7 @@ add_executable(ArtworkRefreshTest
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloArtworkProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
     ${TEST_CONFIG_SOURCES}

@@ -370,7 +370,7 @@ void SiloArtworkProvider::refreshArtwork(
     auto completion = std::make_shared<RefreshCompletion>(std::move(callback));
     const QString endpoint = refreshEndpoint(artwork);
     if (!hasMatchingSession(m_authService, artwork) || endpoint.isEmpty()) {
-        finishLater(completion, m_authService.data());
+        finishLater(completion);
         return;
     }
 
@@ -378,7 +378,7 @@ void SiloArtworkProvider::refreshArtwork(
     QPointer<HttpTransport> transport(m_authService->transport());
     QPointer<QNetworkAccessManager> networkManager(m_authService->networkManager());
     if (!transport || !networkManager) {
-        finishLater(completion, authService.data());
+        finishLater(completion);
         return;
     }
 
@@ -421,7 +421,7 @@ void SiloArtworkProvider::refreshArtwork(
         options);
 
     if (!handle) {
-        finishLater(completion, authService.data());
+        finishLater(completion);
         return;
     }
     QObject::connect(handle, &QObject::destroyed, [completion]() {

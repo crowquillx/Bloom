@@ -98,7 +98,6 @@ AuthenticationService::~AuthenticationService()
 {
     if (m_transport) {
         disconnect(m_transport, nullptr, this, nullptr);
-        m_transport->cancelAll();
         m_transport->setUrlRedactor({});
         m_transport->setUnauthorizedRecovery({});
     }

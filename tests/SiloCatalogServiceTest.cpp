@@ -166,6 +166,7 @@ class SiloCatalogServiceTest : public QObject
 private slots:
     void nativeRoutesUseContentIdentityAndCorrectMethods();
     void structuredFiltersUseNativeQueryBody();
+    void bookQueriesUseEbookType();
     void unsupportedFiltersAreExplicit();
     void responsePreservesSnapshotAndPaginationTruth();
     void nativeResponseShapesPreserveHomeLibrarySearchAndDetailData();
@@ -335,6 +336,27 @@ void SiloCatalogServiceTest::structuredFiltersUseNativeQueryBody()
     QCOMPARE(parameters.queryItemValue(QStringLiteral("library_id")), QStringLiteral("17"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("q")), QStringLiteral("Alien & Aliens"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("limit")), QStringLiteral("30"));
+}
+
+void SiloCatalogServiceTest::bookQueriesUseEbookType()
+{
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery query;
+    query.includeItemTypes = {QStringLiteral("Book")};
+
+    const ProviderCatalogRequest request = provider.createRequest(
+        ProviderCatalogOperation::Items, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.method, ProviderHttpMethod::Post);
+    const QJsonObject body = QJsonDocument::fromJson(request.body).object();
+    const QJsonArray groups = body.value(QStringLiteral("groups")).toArray();
+    QVERIFY(!groups.isEmpty());
+    const QJsonArray rules = groups.first().toObject().value(QStringLiteral("rules")).toArray();
+    QVERIFY(!rules.isEmpty());
+    QCOMPARE(rules.first().toObject().value(QStringLiteral("field")).toString(),
+             QStringLiteral("type"));
+    QCOMPARE(rules.first().toObject().value(QStringLiteral("value")).toString(),
+             QStringLiteral("ebook"));
 }
 
 void SiloCatalogServiceTest::unsupportedFiltersAreExplicit()

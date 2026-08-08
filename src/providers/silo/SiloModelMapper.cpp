@@ -69,6 +69,15 @@ qint64 isoDateMilliseconds(const QJsonValue &value)
     return date.isValid() ? date.toMSecsSinceEpoch() : -1;
 }
 
+bool secondsToMillisecondsRepresentable(double seconds)
+{
+    if (!std::isfinite(seconds) || seconds < 0.0) {
+        return false;
+    }
+    const long double milliseconds = static_cast<long double>(seconds) * 1000.0L;
+    return milliseconds <= static_cast<long double>(std::numeric_limits<qint64>::max());
+}
+
 QString canonicalMediaType(const QString &wireType)
 {
     const QString type = wireType.trimmed().toLower();
@@ -340,12 +349,12 @@ QVariantList playbackVariants(const QJsonArray &wireVariants,
 
 qint64 SiloModelMapper::secondsToMilliseconds(double seconds)
 {
-    if (!std::isfinite(seconds) || seconds <= 0.0
-        || seconds >= static_cast<double>(std::numeric_limits<qint64>::max()) / 1000.0) {
+    if (!secondsToMillisecondsRepresentable(seconds) || seconds <= 0.0) {
         return 0;
     }
     return static_cast<qint64>(std::llround(seconds * 1000.0));
 }
+
 
 ParsedItemsResult SiloModelMapper::itemsResponse(const QByteArray &wireResponse,
                                                  const QString &parentId)
@@ -912,8 +921,10 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
             wireItem.value(QStringLiteral("reason_detail")).toString();
     }
     if (result.value(QStringLiteral("parentId")).toString().isEmpty()) {
-        result[QStringLiteral("parentId")] = seriesId;
+        const QString seasonId = result.value(QStringLiteral("seasonId")).toString();
+        result[QStringLiteral("parentId")] = seasonId.isEmpty() ? seriesId : seasonId;
     }
+
     if (wireItem.contains(QStringLiteral("season_count"))) {
         result[QStringLiteral("seasonCount")] = wireItem.value(QStringLiteral("season_count")).toInt();
         result[QStringLiteral("childCount")] = wireItem.value(QStringLiteral("season_count")).toInt();
@@ -1013,14 +1024,15 @@ QVariantMap SiloModelMapper::chapter(const QJsonObject &wireChapter,
 {
     const QJsonValue startValue = wireChapter.value(QStringLiteral("start_seconds"));
     const QJsonValue endValue = wireChapter.value(QStringLiteral("end_seconds"));
-    if (!startValue.isDouble() || !std::isfinite(startValue.toDouble())
-        || startValue.toDouble() < 0.0) {
+    if (!startValue.isDouble() || !secondsToMillisecondsRepresentable(startValue.toDouble())) {
         return {};
     }
     const bool hasEnd = endValue.isDouble() && std::isfinite(endValue.toDouble());
-    if (hasEnd && endValue.toDouble() < startValue.toDouble()) {
+    if (hasEnd && (!secondsToMillisecondsRepresentable(endValue.toDouble())
+                   || endValue.toDouble() < startValue.toDouble())) {
         return {};
     }
+
     const int index = wireChapter.contains(QStringLiteral("index"))
         ? wireChapter.value(QStringLiteral("index")).toInt(fallbackIndex)
         : fallbackIndex;
@@ -1300,8 +1312,9 @@ QList<MediaSegmentInfo> SiloModelMapper::mediaSegments(const QString &itemId,
         const QJsonValue end = wire.contains(QStringLiteral("end_seconds"))
             ? wire.value(QStringLiteral("end_seconds")) : wire.value(QStringLiteral("end"));
         if (!start.isDouble() || !end.isDouble()
-            || !std::isfinite(start.toDouble()) || !std::isfinite(end.toDouble())
-            || start.toDouble() < 0.0 || end.toDouble() <= start.toDouble()) {
+            || !secondsToMillisecondsRepresentable(start.toDouble())
+            || !secondsToMillisecondsRepresentable(end.toDouble())
+            || end.toDouble() <= start.toDouble()) {
             continue;
         }
 
