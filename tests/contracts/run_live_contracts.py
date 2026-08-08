@@ -654,6 +654,17 @@ class SiloNativeV1Probe:
     def _non_empty_string(value: Any):
         return isinstance(value, str) and bool(value.strip())
     @staticmethod
+    def _numeric_file_id(value: Any):
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value >= 0
+        if not isinstance(value, str) or not value.isascii() or not value.isdecimal():
+            return False
+        try:
+            return int(value) >= 0
+        except ValueError:
+            return False
+
+    @staticmethod
     def _playback_version(versions: Any):
         if not isinstance(versions, list):
             return None
@@ -662,18 +673,7 @@ class SiloNativeV1Probe:
             version
             for version in versions
             if isinstance(version, dict)
-            and (
-                (
-                    isinstance(version.get("file_id"), int)
-                    and not isinstance(version.get("file_id"), bool)
-                    and version["file_id"] >= 0
-                )
-                or (
-                    isinstance(version.get("file_id"), str)
-                    and version["file_id"].isascii()
-                    and version["file_id"].isdecimal()
-                )
-            )
+            and SiloNativeV1Probe._numeric_file_id(version.get("file_id"))
         ]
         return next(
             (

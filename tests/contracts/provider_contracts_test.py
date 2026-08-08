@@ -425,6 +425,7 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertIsNone(select_version([{"file_id": True}]))
         self.assertIsNone(select_version([{"file_id": -1}]))
         self.assertIsNone(select_version([{"file_id": "²"}]))
+        self.assertIsNone(select_version([{"file_id": "9" * 5000}]))
         self.assertIsNone(select_version([{"file_id": "not-numeric"}]))
 
 
