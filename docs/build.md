@@ -60,9 +60,13 @@ BLOOM_BUILD_JOBS=2 nix flake check --print-build-logs \
   --option max-jobs 1 --option cores 2
 ```
 
-This builds Bloom and runs unit tests, QML lint, desktop/AppStream validation,
-and release-manifest validation. Tests are currently local-only; CI builds the
-application and runs the non-test validation derivations.
+This builds Bloom and runs the deterministic unit/contract tests, QML lint,
+desktop/AppStream validation, and release-manifest validation. The CI `nix`
+job builds the same `.#checks.x86_64-linux.tests` derivation alongside the
+other checks, so pull requests and dependency updates exercise automated
+tests. Live provider/server, display, GPU, and playback contracts that require
+hosts or runtime hardware remain manual validation; unavailable environments
+are recorded as unavailable rather than treated as automated passes.
 
 The CI `nix` job wraps each `nix build` invocation in a retry loop with
 exponential backoff. `cache.nixos.org` nar downloads occasionally drop
@@ -202,4 +206,5 @@ secret.
 - RPM packaging.
 - Flathub submission and portal-based host power/display integration.
 - Windows ARM64 and macOS.
-- Restore automated tests when the CI strategy is revisited.
+- Live Silo/Jellyfin server, display, GPU, and Windows runtime validation remains
+  manual because those hosts and runtime environments are not available in CI.

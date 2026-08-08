@@ -21,12 +21,18 @@ mpv config directory
 - `~/.config/Bloom/mpv/` is optional and can be used to store `mpv.conf`, `input.conf`, and scripts.
 - Pass `--config-dir` and any extra mpv flags through `PlayerProcessManager` which `ConfigManager` can configure at runtime.
 
-Session management
+## Session management
 - Config v28 stores versioned provider-neutral records under `settings.connections`; see [provider architecture](provider-architecture.md).
 - Config v30 stores Bloom workspaces under `settings.bloom_profiles` schema `1`; see [profiles](profiles.md). `getBloomProfilesConfig` / `setBloomProfilesConfig` are raw accessors — `BloomProfileRepository` owns validation and CRUD.
 - `setJellyfinSession()`, `getJellyfinSession()`, and `clearJellyfinSession()` are temporary compatibility façades over the active connection.
-- Credentials are stored by `CredentialStore`, never in a connection, Bloom profile, or new `app.json` writes. Legacy `settings.jellyfin` metadata remains only until its secure-store migration is verified.
-- Handle 401 errors by emitting `sessionExpired()` and invoking logout/clear sessions.
+- Credentials are stored by `CredentialStore`, never in a connection, Bloom profile, or new `app.json` writes. `app.json` stores provider-neutral connection metadata (`provider`, `protocol_mode`, normalized URL, account/profile IDs, capabilities, and opaque credential reference). Legacy `settings.jellyfin` metadata remains only until its secure-store migration is verified.
+- On restoration, `CredentialStore` prefers provider-neutral credentials, then the legacy Jellyfin key, and may import a legacy plaintext token once when secure entries are absent. It writes and reads back the secure entry before deleting old keychain/config material; failed verification keeps rollback material and retries later.
+- Handle 401 errors by emitting `sessionExpired()` and invoking provider-aware logout/clear-session handling.
+
+### Native Silo connections
+- Choose the native Silo URL only when `GET /api/v1/health` returns JSON with `status: "ok"`; native detection does not use compatibility `/System/Info`.
+- Native connections use `protocol_mode: "native"` and the Silo adapter's bearer/device/profile headers. Compatibility connections use the separate MediaBrowser listener and `protocol_mode: "compatibility"`; a compatibility connection never silently upgrades to native.
+- Bloom's native release label is **experimental native Silo support**, not first-class support. Optional capabilities remain unavailable at the pinned Silo revision; protocol v3 is explicitly unavailable for Bloom/mpv because the advertised `media3_only` capability is not an mpv contract. See [provider compatibility](provider-compatibility.md) for the source-grounded matrix and endpoint setup.
 
 Config API sample (high level)
 - `getMpvConfigArgs()` returns an array of command line args to pass to mpv.

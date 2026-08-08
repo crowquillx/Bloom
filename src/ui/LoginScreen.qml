@@ -25,7 +25,7 @@ FocusScope {
         if (providerSelection === "jellyfin")
             return qsTr("Sign in to Jellyfin")
         if (providerSelection === "silo")
-            return qsTr("Sign in to Silo")
+            return qsTr("Sign in to Silo (Experimental)")
         return qsTr("Connect your media server")
     }
 
@@ -33,8 +33,8 @@ FocusScope {
         if (providerSelection === "jellyfin")
             return qsTr("Connect directly to your Jellyfin server.")
         if (providerSelection === "silo")
-            return qsTr("Sign in to your Silo account, then choose a household profile.")
-        return qsTr("Bloom will detect whether this server uses Jellyfin or Silo.")
+            return qsTr("Sign in to your Silo account, then choose a household profile. Native Silo support is experimental.")
+        return qsTr("Bloom will detect whether this server uses Jellyfin or Silo. Native Silo support is experimental.")
     }
 
     function selectedProviderButton() {
@@ -151,10 +151,10 @@ FocusScope {
         serviceLoginReported = false
         completionEmitted = false
         clearStatus()
-        if (AuthenticationService.authenticated) {
-            AuthenticationService.logout()
-        } else if (authenticationStep === "pin" || authenticationStep === "profiles") {
-            AuthenticationService.clearProfileState()
+        if (AuthenticationService.authenticated
+            || authenticationStep === "pin"
+            || authenticationStep === "profiles") {
+            AuthenticationService.clearAccountState()
         }
         Qt.callLater(restoreStepFocus)
     }
@@ -379,7 +379,7 @@ FocusScope {
 
                         Button {
                             id: siloButton
-                            text: qsTr("Silo")
+                            text: qsTr("Silo (Experimental)")
                             Layout.fillWidth: true
                             Layout.preferredHeight: Theme.buttonHeightMedium
                             focusPolicy: Qt.StrongFocus

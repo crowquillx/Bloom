@@ -123,7 +123,7 @@ Architecture: amd64
 Depends: libc6 (>= 2.39), libgl1, libsecret-1-0
 Maintainer: Bloom Contributors <crowquillx@users.noreply.github.com>
 Homepage: https://github.com/crowquillx/Bloom
-Description: Jellyfin HTPC client with a 10-foot interface
+Description: Media client for Jellyfin and Silo servers; experimental native Silo support
 EOF
 dpkg-deb --build --root-owner-group "$DEBROOT" "/output/bloom_${BLOOM_VERSION}_amd64.deb"
 

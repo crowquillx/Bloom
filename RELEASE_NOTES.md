@@ -1,3 +1,17 @@
+## What's Changed in v0.8.0
+
+### Support
+
+- Preserve Jellyfin as Bloom's existing provider baseline while adding **experimental native Silo support** across authentication, profiles, catalog, artwork, playback, and provider-neutral parity boundaries from the merged #111–#113 graduation work.
+- Native Silo remains pinned to revision `8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6`; optional native gaps and live/platform gates are explicitly unavailable until observed.
+- Compatibility mode remains a separate deployment path. See [manual validation](docs/manual-validation.md) for the reproducible evidence ledger and pass criteria.
+
+### Release labeling
+
+- This release uses only the label **experimental native Silo support**. It does not claim first-class support: live Jellyfin/Silo validation and Windows runtime validation must be completed before that label can change.
+
+**Full changelog:** [v0.7.1...v0.8.0](https://github.com/crowquillx/Bloom/compare/v0.7.1...v0.8.0)
+
 ## What's Changed in v0.7.1
 
 ### New Features

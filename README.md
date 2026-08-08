@@ -7,28 +7,27 @@
 
 **This project is highly opinionated and may not suit everyone's needs, it is made specifically to solve the problems I had with other clients and doesn't really take into consideration what other people may want. For that reason, it's not something I plan on advertising anytime soon, if at all. But, if you happened to stumble across it and find it useful, feel free to let me know if you have any feedback or suggestions.**
 
-A Jellyfin HTPC client for 10-foot TV interfaces, built with Qt 6/QML and mpv/libmpv.
+A media client for Jellyfin and Silo servers, built for 10-foot TV interfaces with Qt 6/QML and mpv/libmpv.
 
 ## What it does
 
-Bloom connects to a Jellyfin server and provides a TV-friendly interface for browsing and playing media. It uses mpv for video playback with `vo=gpu-next` for HDR support.
+Bloom connects to a Jellyfin or Silo server and provides a TV-friendly interface for browsing and playing media. Native Silo support is experimental and has not been validated against a live Silo server. It uses mpv for video playback with `vo=gpu-next` for HDR support.
 
 **Current state:**
 - Trickplay
 - Skip intro/outro (including TheIntroDB and IntroDB support)
 - Sub and Audio selection UI with track selection memory
-- Playback progress reporting to Jellyfin
+- Playback progress reporting to the connected server
 - 10-Foot Keyboard navigation
+- Configurable gamepad navigation (implemented; real-controller validation pending)
+- Search across connected provider libraries
 - On-screen playback controls
 - MDBList ratings
 - Seerr integration
 - Auto HDR and Refresh Rate switching
 
 **Not yet working or incomplete:**
-- Search (barebones implementation exists)
 - Playlists
-- Filtering library/search
-- Gamepad support
 - Many edge cases
 
 ## Requirements
@@ -42,7 +41,7 @@ Bloom connects to a Jellyfin server and provides a TV-friendly interface for bro
 ## Installation
 
 ### Windows
-Download the latest release from the [Releases](https://github.com/yourusername/Bloom/releases) page.
+Download the latest release from the [Releases](https://github.com/crowquillx/Bloom/releases) page.
 Windows release artifacts include `libmpv` runtime DLLs in the package.
 
 ## Building
@@ -81,10 +80,9 @@ Windows CI and `scripts/build.ps1` are pinned to `mpv-dev-x86_64-20260610-git-30
 ## Known Issues
 
 ### Linux
-#### This is mildly outdated already, by default linux will use the embedded player but it is quite experimental and untested so you may want to use external. 
+Linux uses `external-mpv-ipc` automatically on Wayland; embedded libmpv playback (`linux-libmpv-opengl`) remains experimental and validation-only. Unsupported embedded runtime conditions fall back to external mpv IPC.
 
-- Linux embedded libmpv playback (`linux-libmpv-opengl`) is currently less tested and not fully supported across all Wayland compositor/GPU combinations.
-- Recommended stable Linux path today:
+- Recommended stable Linux path:
   - `BLOOM_PLAYER_BACKEND=external-mpv-ipc`
 
 Examples:
@@ -92,7 +90,7 @@ Examples:
 # Stable path (recommended on Linux currently)
 BLOOM_PLAYER_BACKEND=external-mpv-ipc nix run
 
-# Embedded Linux validation path (experimental)
+# Embedded Linux validation-only path (experimental)
 BLOOM_PLAYER_BACKEND=linux-libmpv-opengl BLOOM_ENABLE_WAYLAND_LIBMPV=1 nix run
 ```
 
@@ -124,5 +122,5 @@ See [LICENSE](LICENSE).
 Third-party license and attribution details are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Acknowledgments
-Built with [Qt](https://www.qt.io/), [mpv](https://mpv.io/), for [Jellyfin](https://jellyfin.org/).
+Built with [Qt](https://www.qt.io/), [mpv](https://mpv.io/), for [Jellyfin](https://jellyfin.org/) and Silo servers.
 Playback architecture and embedded mpv design were inspired by [Plezy](https://github.com/edde746/plezy).

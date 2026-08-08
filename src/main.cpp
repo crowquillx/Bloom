@@ -137,7 +137,7 @@ int main(int argc, char *argv[])
 
     // Parse command-line arguments
     QCommandLineParser parser;
-    parser.setApplicationDescription("Bloom - Jellyfin HTPC Client");
+    parser.setApplicationDescription("Bloom - Media Client for Jellyfin and Silo Servers (experimental native Silo support)");
     parser.addHelpOption();
     parser.addVersionOption();
     

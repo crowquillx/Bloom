@@ -6,14 +6,14 @@
 
 !define APPNAME "Bloom"
 !define COMPANYNAME "Bloom"
-!define DESCRIPTION "Jellyfin HTPC Client"
+!define DESCRIPTION "Media Client for Jellyfin and Silo Servers (experimental native Silo support)"
 !define VERSIONMAJOR 0
-!define VERSIONMINOR 7
-!define VERSIONBUILD 1
+!define VERSIONMINOR 8
+!define VERSIONBUILD 0
 
 !define HELPURL "https://github.com/crowquillx/Bloom"
 !define UPDATEURL "https://github.com/crowquillx/Bloom/releases"
-!define ABOUTURL "https://github.com/yourcrowquillx/username/Bloom"
+!define ABOUTURL "https://github.com/crowquillx/Bloom"
 
 ; Installation directory
 InstallDir "$PROGRAMFILES64\${APPNAME}"

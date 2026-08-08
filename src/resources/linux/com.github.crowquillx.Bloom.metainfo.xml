@@ -2,22 +2,23 @@
 <component type="desktop-application">
   <id>com.github.crowquillx.Bloom</id>
   <name>Bloom</name>
-  <summary>Jellyfin HTPC client with 10-foot UI</summary>
+  <summary>Media client for Jellyfin and Silo servers; experimental native Silo support</summary>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
 
   <description>
     <p>
-      Bloom is a dedicated Jellyfin media client built for the living room.
+      Bloom is a media client for Jellyfin and Silo servers built for the living room.
+      Native Silo support is experimental and capability-gated.
       It features a 10-foot interface designed for keyboard, gamepad, and remote
       control navigation, with high-quality mpv-based video playback.
     </p>
     <p>Features:</p>
     <ul>
-      <li>Full keyboard and gamepad navigation — no mouse required</li>
+      <li>Keyboard navigation and configurable gamepad bindings; real-controller validation is pending</li>
       <li>High-quality video playback powered by mpv</li>
       <li>Responsive UI that adapts to any screen size and DPI</li>
-      <li>Wayland-first Linux support</li>
+      <li>Stable Linux playback through external mpv IPC; embedded libmpv is validation-only</li>
       <li>Series, movies, and library browsing with rich metadata</li>
     </ul>
   </description>
@@ -39,6 +40,11 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="0.8.0" date="2026-08-08">
+      <description>
+        <p>Experimental native Silo support with provider-neutral catalog and playback flows.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-02-14">
       <description>
         <p>Development build with responsive layout system and Linux packaging support.</p>
