@@ -13,6 +13,16 @@ From an existing local checkout, pin and start the disposable Silo fixture as fo
 ```fish
 git -C /path/to/silo checkout 8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6
 cd /path/to/silo
+cp .env.example .env
+set fixture_root $PWD/.bloom-fixture
+mkdir -p $fixture_root/media $fixture_root/data
+set fixture_secret (openssl rand -base64 48)
+sed -i \
+  -e "s|^MEDIA_ROOT=.*|MEDIA_ROOT=$fixture_root/media|" \
+  -e "s|^SILO_DATA_ROOT=.*|SILO_DATA_ROOT=$fixture_root/data|" \
+  -e "s|^# SECRET_KEY=.*|SECRET_KEY=$fixture_secret|" \
+  .env
+set -e fixture_secret
 set -x SILO_IMAGE ghcr.io/silo-server/silo-server@sha256:944ee9821de1d6a61876c9b7b06daa358118163d1e5f9b3aa9f5437856fd06e9
 mkdir -p .contract-data
 docker compose up -d
