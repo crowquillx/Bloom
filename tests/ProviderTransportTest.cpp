@@ -2,11 +2,14 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QSignalSpy>
 #include <QTimer>
 #include <cstring>
+#include <functional>
+#include <utility>
 
 #include "network/HttpTransport.h"
 #include "providers/IProviderAuthenticator.h"
@@ -101,6 +104,9 @@ private slots:
     void transportDoesNotRetryClientErrors();
     void transportSuppressesCancellationCallbacks();
     void transportEmitsUnauthorizedPolicy();
+    void transportCoalescesUnauthorizedRecovery();
+    void transportCapsUnauthorizedRetryAtOne();
+    void transportTreatsRefreshFailureAsTerminal();
     void cancellationIsNotClassifiedAsTransient();
 };
 
@@ -298,6 +304,168 @@ void ProviderTransportTest::transportEmitsUnauthorizedPolicy()
     QCOMPARE(unauthorizedSpy.count(), 1);
     QCOMPARE(unauthorizedSpy.first().first().toBool(), true);
 }
+
+void ProviderTransportTest::transportCoalescesUnauthorizedRecovery()
+{
+    HttpTransport transport;
+    int refreshes = 0;
+    int firstAttempts = 0;
+    int secondAttempts = 0;
+    int successes = 0;
+    int failures = 0;
+    QList<QNetworkRequest> requests;
+    QList<QByteArray> bodies;
+    std::function<void(bool)> finishRefresh;
+
+    transport.setUnauthorizedRecovery([&](std::function<void(bool)> completion) {
+        ++refreshes;
+        finishRefresh = std::move(completion);
+    });
+
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    const auto factory = [&](int &attempts, const QString &path) -> QNetworkReply * {
+        ++attempts;
+        QNetworkRequest request = requestFor(path);
+        request.setRawHeader("Authorization", QByteArrayLiteral("Bearer access-token"));
+        request.setRawHeader("X-Test-Method", QByteArrayLiteral("POST"));
+        request.setRawHeader("X-Profile-Id", QByteArrayLiteral("profile-1"));
+        request.setRawHeader("X-Profile-Token", QByteArrayLiteral("profile-token"));
+        const QByteArray body = QByteArrayLiteral(R"({"operation":"replay"})");
+        requests.append(request);
+        bodies.append(body);
+        const bool unauthorized = attempts == 1;
+        return new FakeReply(request,
+                             unauthorized ? QNetworkReply::AuthenticationRequiredError
+                                          : QNetworkReply::NoError,
+                             unauthorized ? 401 : 200,
+                             QByteArray(),
+                             &transport);
+    };
+    const auto success = [&](QNetworkReply *) { ++successes; };
+    const auto failure = [&](const NetworkError &) { ++failures; };
+
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/api/v1/first"),
+        [&]() { return factory(firstAttempts, QStringLiteral("/api/v1/first")); },
+        success,
+        failure,
+        options);
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/api/v1/second"),
+        [&]() { return factory(secondAttempts, QStringLiteral("/api/v1/second")); },
+        success,
+        failure,
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(refreshes, 1, 1000);
+    QVERIFY(finishRefresh);
+    finishRefresh(true);
+    QTRY_COMPARE_WITH_TIMEOUT(successes, 2, 1000);
+    QCOMPARE(failures, 0);
+    QCOMPARE(firstAttempts, 2);
+    QCOMPARE(requests.size(), 4);
+    QCOMPARE(bodies.at(0), bodies.at(2));
+    QCOMPARE(bodies.at(1), bodies.at(3));
+    QCOMPARE(secondAttempts, 2);
+    QCOMPARE(requests.at(0).rawHeader("Authorization"),
+             requests.at(2).rawHeader("Authorization"));
+    QCOMPARE(requests.at(0).rawHeader("X-Test-Method"),
+             requests.at(2).rawHeader("X-Test-Method"));
+    QCOMPARE(requests.at(1).rawHeader("X-Profile-Id"),
+             requests.at(3).rawHeader("X-Profile-Id"));
+    QCOMPARE(requests.at(1).rawHeader("X-Profile-Token"),
+             requests.at(3).rawHeader("X-Profile-Token"));
+}
+
+void ProviderTransportTest::transportCapsUnauthorizedRetryAtOne()
+{
+    HttpTransport transport;
+    int refreshes = 0;
+    int attempts = 0;
+    int failures = 0;
+    std::function<void(bool)> finishRefresh;
+    transport.setUnauthorizedRecovery([&](std::function<void(bool)> completion) {
+        ++refreshes;
+        finishRefresh = std::move(completion);
+    });
+
+    HttpRequestOptions options;
+    options.retryEnabled = true;
+    options.retryPolicy = RetryPolicy{5, 0, true};
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/api/v1/protected"),
+        [&]() -> QNetworkReply * {
+            ++attempts;
+            return new FakeReply(
+                requestFor(QStringLiteral("/api/v1/protected")),
+                QNetworkReply::AuthenticationRequiredError,
+                401,
+                QByteArray(),
+                &transport);
+        },
+        [](QNetworkReply *) {},
+        [&](const NetworkError &error) {
+            QCOMPARE(error.code, 401);
+            ++failures;
+        },
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(refreshes, 1, 1000);
+    QVERIFY(finishRefresh);
+    finishRefresh(true);
+    QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
+    QCOMPARE(attempts, 2);
+    QCOMPARE(refreshes, 1);
+}
+
+void ProviderTransportTest::transportTreatsRefreshFailureAsTerminal()
+{
+    HttpTransport transport;
+    int refreshes = 0;
+    int attempts = 0;
+    int failures = 0;
+    std::function<void(bool)> finishRefresh;
+    transport.setUnauthorizedRecovery([&](std::function<void(bool)> completion) {
+        ++refreshes;
+        finishRefresh = std::move(completion);
+    });
+
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/api/v1/protected"),
+        [&]() -> QNetworkReply * {
+            ++attempts;
+            return new FakeReply(
+                requestFor(QStringLiteral("/api/v1/protected")),
+                QNetworkReply::NoError,
+                401,
+                QByteArray(),
+                &transport);
+        },
+        [](QNetworkReply *) {},
+        [&](const NetworkError &error) {
+            QCOMPARE(error.code, 401);
+            ++failures;
+        },
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(refreshes, 1, 1000);
+    QVERIFY(finishRefresh);
+    finishRefresh(false);
+    QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
+    QCOMPARE(attempts, 1);
+    QCOMPARE(refreshes, 1);
+}
+
 
 void ProviderTransportTest::cancellationIsNotClassifiedAsTransient()
 {

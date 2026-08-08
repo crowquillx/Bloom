@@ -376,7 +376,9 @@ ProviderRequestContext AuthenticationService::requestContext(bool includeAuthent
         context.accessToken = m_accessToken;
         context.profileId = m_pendingProfileId.isEmpty()
             ? m_activeConnection.profileId : m_pendingProfileId;
-        context.profileToken = m_profileToken;
+        if (!context.profileId.isEmpty()) {
+            context.profileToken = m_profileToken;
+        }
     }
     context.clientName = QStringLiteral("Bloom");
     context.clientVersion = QCoreApplication::applicationVersion();
@@ -504,8 +506,8 @@ void AuthenticationService::probeProviderAndLogin(const QString &username,
                 return;
             }
             const QJsonObject payload = QJsonDocument::fromJson(reply->readAll()).object();
-            if (payload.value(QStringLiteral("status")).toString()
-                != QStringLiteral("ok")) {
+            const auto detected = silo->mapDetectionResult(payload);
+            if (!detected.has_value()) {
                 fallback();
                 return;
             }
@@ -513,18 +515,7 @@ void AuthenticationService::probeProviderAndLogin(const QString &username,
                 fallback();
                 return;
             }
-            if (const auto detected = silo->mapDetectionResult(payload);
-                detected.has_value()) {
-                m_detectionResult = *detected;
-            } else {
-                m_detectionResult = {};
-                m_detectionResult.providerKind = ProviderKind::Silo;
-                m_detectionResult.protocolMode = ProtocolMode::Native;
-                m_detectionResult.serverId =
-                    payload.value(QStringLiteral("server_id")).toString();
-                m_detectionResult.serverName =
-                    payload.value(QStringLiteral("server_name")).toString();
-            }
+            m_detectionResult = *detected;
             performLogin(username, password, generation);
         },
         [fallback](const NetworkError &) {
@@ -595,12 +586,8 @@ void AuthenticationService::handleAuthenticationResult(
     }
 
     m_accessToken = authentication.accessToken;
-    if (!authentication.refreshToken.isEmpty()) {
-        m_refreshToken = authentication.refreshToken;
-    }
-    if (!authentication.profileToken.isEmpty()) {
-        m_profileToken = authentication.profileToken;
-    }
+    m_refreshToken = authentication.refreshToken;
+    m_profileToken = authentication.profileToken;
     m_userId = authentication.accountId;
     if (!authentication.username.isEmpty()) {
         m_username = authentication.username;
@@ -760,6 +747,7 @@ void AuthenticationService::loadProfiles(bool finishWhenUnavailable)
             const auto mapped = m_providerAdapter->mapProfiles(
                 responseArray(reply->readAll(), QStringLiteral("profiles")));
             if (!mapped.has_value()) {
+                replaceProfiles({});
                 emit loginError(tr("The provider returned an invalid profile list."));
                 return;
             }
@@ -778,6 +766,7 @@ void AuthenticationService::loadProfiles(bool finishWhenUnavailable)
         },
         [this, generation](const NetworkError &error) {
             if (generation == m_stateGeneration) {
+                replaceProfiles({});
                 emit loginError(tr("Unable to load profiles: %1").arg(error.userMessage));
             }
         },
@@ -814,7 +803,18 @@ void AuthenticationService::selectProfile(const QString &profileId)
         emit loginError(tr("Unknown profile."));
         return;
     }
+    if (m_transport) {
+        m_transport->cancelAll();
+    }
+    ++m_stateGeneration;
 
+    if (!m_profileToken.isEmpty()) {
+        m_profileToken.clear();
+        if (m_secretStore && m_activeConnection.isValid()) {
+            CredentialStore(m_secretStore).remove(
+                m_activeConnection, CredentialKind::ProfileToken);
+        }
+    }
     m_pendingProfileId = profileId;
     if (profile->hasPin) {
         updateAuthenticationStep(QStringLiteral("pin"));
@@ -825,10 +825,31 @@ void AuthenticationService::selectProfile(const QString &profileId)
 
 void AuthenticationService::verifyProfilePin(const QString &profileId, const QString &pin)
 {
-    if (!m_providerAuthenticator || profileId.isEmpty()) {
+    if (!m_providerAuthenticator || profileId.isEmpty() || m_accessToken.isEmpty()) {
         emit loginError(tr("A profile must be selected."));
         return;
     }
+    const auto profile = std::find_if(
+        m_providerProfiles.cbegin(), m_providerProfiles.cend(),
+        [&profileId](const ProviderProfile &candidate) {
+            return candidate.id == profileId;
+        });
+    if (m_transport) {
+        m_transport->cancelAll();
+    }
+    ++m_stateGeneration;
+    if (profile == m_providerProfiles.cend()) {
+        emit loginError(tr("Unknown profile."));
+        return;
+    }
+    if (!m_profileToken.isEmpty()) {
+        m_profileToken.clear();
+        if (m_secretStore && m_activeConnection.isValid()) {
+            CredentialStore(m_secretStore).remove(
+                m_activeConnection, CredentialKind::ProfileToken);
+        }
+    }
+    m_pendingProfileId = profileId;
     const auto request = m_providerAuthenticator->createProfileLoginRequest(profileId, pin);
     if (!request.has_value() || !request->isValid()) {
         const auto profile = std::find_if(
@@ -930,6 +951,7 @@ void AuthenticationService::loadAuthSessions()
             const auto mapped = m_providerAdapter->mapAuthSessions(
                 responseArray(reply->readAll(), QStringLiteral("sessions")));
             if (!mapped.has_value()) {
+                replaceAuthSessions({});
                 emit loginError(tr("The provider returned an invalid session list."));
                 return;
             }
@@ -937,6 +959,7 @@ void AuthenticationService::loadAuthSessions()
         },
         [this, generation](const NetworkError &error) {
             if (generation == m_stateGeneration) {
+                replaceAuthSessions({});
                 emit loginError(tr("Unable to load authentication sessions: %1")
                                     .arg(error.userMessage));
             }
@@ -1011,6 +1034,7 @@ void AuthenticationService::revokeAuthSession(const QString &sessionId)
         },
         [this, generation](const NetworkError &error) {
             if (generation == m_stateGeneration) {
+                replaceAuthSessions({});
                 emit loginError(tr("Unable to revoke authentication session: %1")
                                     .arg(error.userMessage));
             }
@@ -1121,7 +1145,19 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
     m_transport->cancelAll();
     ++m_stateGeneration;
     const quint64 generation = m_stateGeneration;
-    m_serverUrl = normalizeUrl(serverUrl);
+    const QString normalizedServerUrl = normalizeUrl(serverUrl);
+    const bool switchingAccount = m_activeConnection.isValid()
+        && (m_activeConnection.baseUrl != normalizedServerUrl
+            || m_activeConnection.accountId != userId);
+    if (switchingAccount) {
+        m_refreshToken.clear();
+        m_profileToken.clear();
+        m_pendingProfileId.clear();
+        m_activeConnection.profileId.clear();
+        replaceProfiles({});
+        replaceAuthSessions({});
+    }
+    m_serverUrl = normalizedServerUrl;
     m_userId = userId;
     m_accessToken = accessToken;
     m_username = username;
@@ -1135,7 +1171,9 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
         }
         if (m_providerAdapter
             && m_providerAdapter->supportsCapability(ProviderCapability::Profiles)
-            && m_activeConnection.profileId.isEmpty()) {
+            && (m_activeConnection.profileId.isEmpty() || m_profileToken.isEmpty())) {
+            m_activeConnection.profileId.clear();
+            m_profileToken.clear();
             loadProfiles(true);
         } else {
             finishAuthentication();
@@ -1207,6 +1245,10 @@ void AuthenticationService::clearProfileState()
 void AuthenticationService::clearProfileStateInternal(bool persist)
 {
     const bool wasAuthenticated = isAuthenticated();
+    if (m_transport) {
+        m_transport->cancelAll();
+    }
+    ++m_stateGeneration;
     m_pendingProfileId.clear();
     m_profileToken.clear();
     m_activeConnection.profileId.clear();

@@ -85,6 +85,14 @@ struct Chapter {
     QString name;
     qint64 startMs = 0;
     ArtworkRef artwork;
+    // Optional canonical metadata preserved by providers that expose richer
+    // chapter envelopes (for example, file-scoped native chapters).
+    int index = -1;
+    QString fileId;
+    qint64 endMs = 0;
+    QString source;
+    QString thumbnailUrl;
+    QString thumbnailThumbhash;
 
     QVariantMap toVariantMap() const;
 };

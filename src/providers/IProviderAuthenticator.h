@@ -11,7 +11,7 @@ struct ProviderAuthenticationRequest {
     QString profileId;
     QString profileToken;
 
-    [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
+    [[nodiscard]] bool isValid() const { return !endpoint.trimmed().isEmpty(); }
 };
 
 struct ProviderAuthenticationResult {

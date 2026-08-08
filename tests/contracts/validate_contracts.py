@@ -92,11 +92,35 @@ def validate_contract_data(data: dict[str, Any]):
         _require(deployment.get("surface") in surface_ids, f"deployment {deployment['id']} references an unknown surface")
         _require(deployment.get("protocolMode") in {"native", "compatibility"}, f"deployment {deployment['id']} has an invalid protocolMode")
         _require(bool(deployment.get("supportLabel")), f"deployment {deployment['id']} needs a supportLabel")
+        if deployment.get("product") == "Silo Server" and deployment.get("surface") == "silo-native-v1":
+            _require(
+                deployment.get("protocolMode") == "native",
+                f"deployment {deployment['id']} must model native Silo as a native protocol mode",
+            )
+            _require(
+                deployment.get("id") != "silo-8044eb8-compat",
+                "native Silo deployment must remain distinct from its compatibility deployment",
+            )
+            _require(
+                deployment.get("supportLabel") != "silo-compatibility-support",
+                f"deployment {deployment['id']} cannot use the compatibility support label",
+            )
 
     media_browser_deployments = {
         deployment["id"] for deployment in deployments if deployment.get("surface") == "mediabrowser-v1"
     }
     _require(media_browser_deployments, "at least one mediabrowser-v1 deployment is required")
+
+    native_deployments = [
+        deployment
+        for deployment in deployments
+        if deployment.get("product") == "Silo Server" and deployment.get("surface") == "silo-native-v1"
+    ]
+    _require(native_deployments, "a native Silo deployment is required")
+    _require(
+        len(native_deployments) == len({deployment["id"] for deployment in native_deployments}),
+        "native Silo deployments must have unique ids",
+    )
 
     for contract in contracts:
         contract_id = contract["id"]
@@ -152,6 +176,21 @@ def validate_contract_data(data: dict[str, Any]):
     _require(any("Bearer" in header for header in native["requiredHeaders"]), "native requiredHeaders must include bearer authentication")
     _require(any("X-Profile-Id" in header for header in native["requiredHeaders"]), "native requiredHeaders must include profile selection")
     _require(any("X-Profile-Token" in header for header in native["requiredHeaders"]), "native requiredHeaders must include PIN verification")
+    required_header_terms = (
+        "X-Silo-Client",
+        "X-Silo-Client-Version",
+        "X-Silo-Device-Id",
+        "X-Silo-Device-Name",
+        "X-Silo-Device-Platform",
+    )
+    _require(
+        all(any(term in header for header in native["requiredHeaders"]) for term in required_header_terms),
+        "native requiredHeaders must include the complete Silo client/device identity",
+    )
+    identity_text = " ".join(native["identityRules"]).lower().replace("_", " ")
+    _require("content id" in identity_text, "native identityRules must preserve content_id identity")
+    _require("file id" in identity_text, "native identityRules must preserve file_id identity")
+    _require("millisecond" in identity_text, "native identityRules must state canonical millisecond conversion")
 
     detection = native.get("detection")
     _require(isinstance(detection, dict), "nativeSiloContract detection must be an object")
@@ -161,6 +200,42 @@ def validate_contract_data(data: dict[str, Any]):
     _require("server_id" in detection.get("optionalFields", []), "native health detection must describe optional server_id")
     _require(detection.get("requiredValues", {}).get("status") == "ok", "native health detection must require status=ok")
     server_id_policy = detection.get("serverIdPolicy", "").lower()
+    native_route_shapes = {
+        "native.health": ("GET", "/api/v1/health"),
+        "native.auth.providers": ("GET", "/api/v1/auth/providers"),
+        "native.auth.login": ("POST", "/api/v1/auth/login"),
+        "native.auth.errors": ("GET/POST/DELETE", "/api/v1/auth/*"),
+        "native.auth.refresh": ("POST", "/api/v1/auth/refresh"),
+        "native.auth.me": ("GET", "/api/v1/auth/me"),
+        "native.auth.logout": ("POST", "/api/v1/auth/logout"),
+        "native.auth.sessions": ("GET/DELETE", "/api/v1/auth/sessions and /api/v1/auth/sessions/{id}"),
+        "native.profiles.list": ("GET", "/api/v1/profiles"),
+        "native.profiles.pin": ("POST", "/api/v1/profiles/{id}/verify-pin"),
+        "native.catalog.libraries": ("GET", "/api/v1/user/libraries"),
+        "native.catalog.page": ("GET", "/api/v1/catalog"),
+        "native.catalog.query": ("POST", "/api/v1/catalog/query"),
+        "native.catalog.detail": ("GET", "/api/v1/catalog/items/{id} and /api/v1/catalog/items/{id}/versions"),
+        "native.catalog.hierarchy": ("GET", "/api/v1/catalog/items/{id}/episodes and /api/v1/catalog/series/{id}/seasons*"),
+        "native.state.watched": ("POST/DELETE", "/api/v1/watched/{id}"),
+        "native.state.favorite": ("GET/PUT/DELETE", "/api/v1/favorites/{item_id}"),
+        "native.artwork.refetch": ("GET", "opaque URLs from catalog, detail, person, and chapter resources"),
+    }
+    native_shape_terms = {
+        "native.auth.providers": ("id", "display name", "mode", "default"),
+        "native.auth.login": ("access token", "refresh token", "expires in", "user", "username"),
+        "native.auth.errors": ("error", "message", "invalid credentials", "invalid token", "session revoked"),
+        "native.auth.me": ("id", "username", "role", "permissions", "download allowed"),
+        "native.profiles.list": ("profiles", "avatar upload enabled", "has pin", "is child", "is primary"),
+        "native.profiles.pin": ("valid", "profile token", "expires at"),
+        "native.catalog.libraries": ("profile accessible", "library id"),
+        "native.catalog.page": ("items", "total", "total exact", "has more", "snapshot"),
+        "native.catalog.query": ("items", "total", "total exact", "has more", "snapshot"),
+        "native.catalog.detail": ("content id", "provider ids", "user state", "versions", "playback variants"),
+        "native.catalog.hierarchy": ("content id", "ordered seasons", "episodes"),
+        "native.state.watched": ("content id", "affected count", "played"),
+        "native.state.favorite": ("204", "idempotent", "user state"),
+        "native.artwork.refetch": ("artwork urls", "fetch locations", "refetch", "signed query"),
+    }
     _require(
         all(term in server_id_policy for term in ("optional", "deterministic", "unique")),
         "native health detection must document the optional deterministic server_id caveat",
@@ -181,6 +256,12 @@ def validate_contract_data(data: dict[str, Any]):
         _require(requirement.get("issue") in {77, 78, 79, 80}, f"{requirement_id} must reference issue 77, 78, 79, or 80")
         for field in ("method", "path"):
             _require(isinstance(requirement.get(field), str) and requirement[field].strip(), f"{requirement_id} needs {field}")
+        if requirement_id in native_route_shapes:
+            expected_method, expected_path = native_route_shapes[requirement_id]
+            _require(
+                (requirement.get("method"), requirement.get("path")) == (expected_method, expected_path),
+                f"{requirement_id} route shape drifted from the pinned native contract",
+            )
         _require(requirement.get("outcome") in ALLOWED_OUTCOMES, f"{requirement_id} has an invalid outcome")
 
         capability = requirement.get("capability")
@@ -203,6 +284,14 @@ def validate_contract_data(data: dict[str, Any]):
             any(_has_behavior_semantics(rule) for rule in required_semantics),
             f"{requirement_id} must assert payload or behavior semantics, not only an HTTP status",
         )
+        if requirement_id in native_shape_terms:
+            semantic_text = " ".join(request_semantics + required_semantics).lower()
+            semantic_text = re.sub(r"[_-]+", " ", semantic_text)
+            missing_terms = [term for term in native_shape_terms[requirement_id] if term not in semantic_text]
+            _require(
+                not missing_terms,
+                f"{requirement_id} is missing deterministic shape semantics: {', '.join(missing_terms)}",
+            )
 
         evidence_sources = requirement.get("evidenceSources")
         _require(isinstance(evidence_sources, list) and evidence_sources, f"{requirement_id} needs pinned evidenceSources")

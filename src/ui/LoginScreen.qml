@@ -141,9 +141,14 @@ FocusScope {
             if (!root.visible)
                 return
 
+            if (typeof InputModeManager !== "undefined" && !InputModeManager.pointerActive) {
+                InputModeManager.setNavigationMode("keyboard")
+                InputModeManager.hideCursor(true)
+            }
+
             if (authenticationStep === "profiles") {
                 if (availableProfiles.length > 0) {
-                    profileList.currentIndex = Math.max(0, Math.min(profileList.currentIndex,
+                    profileList.currentIndex = Math.max(0, Math.min(profileList.currentIndex >= 0 ? profileList.currentIndex : 0,
                                                                       availableProfiles.length - 1))
                     profileList.forceActiveFocus()
                 } else {
@@ -151,7 +156,7 @@ FocusScope {
                 }
             } else if (authenticationStep === "pin") {
                 pinField.forceActiveFocus()
-            } else if (authenticationStep === "credentials") {
+            } else {
                 selectedProviderButton().forceActiveFocus()
             }
         })
@@ -159,11 +164,23 @@ FocusScope {
 
     function restoreRetryFocus() {
         Qt.callLater(function() {
+            if (!root.visible)
+                return
+
+            if (typeof InputModeManager !== "undefined" && !InputModeManager.pointerActive) {
+                InputModeManager.setNavigationMode("keyboard")
+                InputModeManager.hideCursor(true)
+            }
+
             if (authenticationStep === "pin") {
                 pinField.selectAll()
                 pinField.forceActiveFocus()
             } else if (authenticationStep === "profiles") {
-                profileList.forceActiveFocus()
+                if (profileList.count > 0) {
+                    profileList.forceActiveFocus()
+                } else {
+                    profilesBackButton.forceActiveFocus()
+                }
             } else {
                 passField.selectAll()
                 passField.forceActiveFocus()
@@ -178,6 +195,11 @@ FocusScope {
         loginSuccess()
     }
 
+    onActiveFocusChanged: {
+        if (activeFocus)
+            restoreStepFocus()
+    }
+
     Keys.onEscapePressed: function(event) {
         if (authenticationStep !== "authenticated") {
             cancelAuthentication()
@@ -185,6 +207,12 @@ FocusScope {
         }
     }
 
+    Keys.onBackPressed: function(event) {
+        if (authenticationStep !== "authenticated") {
+            cancelAuthentication()
+            event.accepted = true
+        }
+    }
     Image {
         anchors.fill: parent
         source: "qrc:/images/app/login.jpg"
@@ -375,7 +403,7 @@ FocusScope {
                         KeyNavigation.up: root.selectedProviderButton()
                         KeyNavigation.down: userField
                         KeyNavigation.tab: userField
-                        KeyNavigation.backtab: siloButton
+                        KeyNavigation.backtab: root.selectedProviderButton()
                         onAccepted: userField.forceActiveFocus()
                         background: Rectangle {
                             color: Theme.inputBackground
@@ -449,15 +477,16 @@ FocusScope {
                             Layout.preferredWidth: Math.round(160 * Theme.layoutScale)
                             Layout.preferredHeight: Theme.buttonHeightLarge
                             focusPolicy: Qt.StrongFocus
-                            KeyNavigation.up: connectButton
-                            KeyNavigation.down: autoButton
+                            KeyNavigation.up: passField
+                            KeyNavigation.down: root.selectedProviderButton()
                             KeyNavigation.left: connectButton
                             KeyNavigation.right: connectButton
-                            KeyNavigation.tab: autoButton
-                            KeyNavigation.backtab: connectButton
+                            KeyNavigation.tab: root.selectedProviderButton()
+                            KeyNavigation.backtab: passField
                             onClicked: {
                                 serverField.clear()
                                 userField.clear()
+                                passField.clear()
                                 root.cancelAuthentication()
                             }
                             background: Rectangle {
@@ -484,7 +513,7 @@ FocusScope {
                             Layout.preferredHeight: Theme.buttonHeightLarge
                             focusPolicy: Qt.StrongFocus
                             KeyNavigation.up: passField
-                            KeyNavigation.down: credentialCancelButton
+                            KeyNavigation.down: root.selectedProviderButton()
                             KeyNavigation.left: credentialCancelButton
                             KeyNavigation.right: credentialCancelButton
                             KeyNavigation.tab: credentialCancelButton
@@ -519,7 +548,7 @@ FocusScope {
                         spacing: Theme.spacingSmall
                         model: root.availableProfiles
                         currentIndex: root.availableProfiles.length > 0 ? 0 : -1
-                        focus: false
+                        focus: true
                         activeFocusOnTab: true
                         KeyNavigation.up: profilesBackButton
                         KeyNavigation.down: profilesBackButton
@@ -527,22 +556,36 @@ FocusScope {
                         KeyNavigation.backtab: profilesBackButton
 
                         Keys.onUpPressed: function(event) {
-                            if (count > 0)
-                                currentIndex = (currentIndex - 1 + count) % count
+                            if (count > 0) {
+                                if (currentIndex > 0) {
+                                    currentIndex = currentIndex - 1
+                                } else {
+                                    profilesBackButton.forceActiveFocus()
+                                }
+                            } else {
+                                profilesBackButton.forceActiveFocus()
+                            }
                             event.accepted = true
                         }
                         Keys.onDownPressed: function(event) {
-                            if (count > 0)
-                                currentIndex = (currentIndex + 1) % count
+                            if (count > 0) {
+                                if (currentIndex < count - 1) {
+                                    currentIndex = currentIndex + 1
+                                } else {
+                                    profilesBackButton.forceActiveFocus()
+                                }
+                            } else {
+                                profilesBackButton.forceActiveFocus()
+                            }
                             event.accepted = true
                         }
                         Keys.onReturnPressed: function(event) {
-                            if (!event.isAutoRepeat && currentIndex >= 0)
+                            if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
                                 root.chooseProfile(root.availableProfiles[currentIndex])
                             event.accepted = true
                         }
                         Keys.onEnterPressed: function(event) {
-                            if (!event.isAutoRepeat && currentIndex >= 0)
+                            if (!event.isAutoRepeat && currentIndex >= 0 && currentIndex < count)
                                 root.chooseProfile(root.availableProfiles[currentIndex])
                             event.accepted = true
                         }

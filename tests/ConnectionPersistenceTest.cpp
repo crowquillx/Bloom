@@ -203,6 +203,7 @@ private slots:
     void jellyfinFacadeUpsertsStableConnectionWithoutPersistingToken();
     void pendingLegacyTokenIsNotAttachedToAnotherActiveAccount();
     void loggingOutAnotherAccountRetainsPendingLegacyMigration();
+    void siloLogoutRetainsPendingLegacyJellyfinMigration();
     void loggingOutMatchingAccountClearsPendingLegacyMigration();
     void jellyfinFacadeDoesNotOverwriteAnotherServerOrAccount();
     void connectionPersistenceSupportsMultipleServers();
@@ -432,6 +433,29 @@ void ConnectionPersistenceTest::loggingOutAnotherAccountRetainsPendingLegacyMigr
     QCOMPARE(config.getPendingLegacyJellyfinSession().accessToken,
              QStringLiteral("alice-token"));
 }
+void ConnectionPersistenceTest::siloLogoutRetainsPendingLegacyJellyfinMigration()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation isolation(tempDir.path());
+    writeConfig(legacyV27Config(QStringLiteral("alice-token")));
+
+    ConfigManager config;
+    config.load();
+    ServerConnection silo = siloConnection(QStringLiteral("silo-connection"),
+                                           QStringLiteral("https://silo.example.test"),
+                                           QStringLiteral("account-silo"),
+                                           QStringLiteral("profile-silo"));
+    config.upsertConnection(silo);
+
+    config.clearActiveConnection();
+
+    QVERIFY(!config.getActiveConnection().has_value());
+    QVERIFY(config.hasPendingLegacyJellyfinMigration());
+    QCOMPARE(config.getPendingLegacyJellyfinSession().accessToken,
+             QStringLiteral("alice-token"));
+}
+
 
 void ConnectionPersistenceTest::loggingOutMatchingAccountClearsPendingLegacyMigration()
 {

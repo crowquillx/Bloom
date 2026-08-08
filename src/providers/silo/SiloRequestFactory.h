@@ -21,16 +21,22 @@ public:
         const bool publicAuthenticationRoute =
             path.endsWith(QStringLiteral("/api/v1/auth/login"))
             || path.endsWith(QStringLiteral("/api/v1/auth/refresh"))
-            || path.endsWith(QStringLiteral("/api/v1/auth/providers"));
+            || path.endsWith(QStringLiteral("/api/v1/auth/providers"))
+            || path.endsWith(QStringLiteral("/api/v1/health"));
+        const bool profileVerificationRoute =
+            path.contains(QStringLiteral("/api/v1/profiles/"))
+            && path.endsWith(QStringLiteral("/verify-pin"));
         if (sameOrigin(context.baseUrl, request.url())) {
             if (!publicAuthenticationRoute && !context.accessToken.isEmpty()) {
                 request.setRawHeader("Authorization",
                                      QByteArrayLiteral("Bearer ") + context.accessToken.toUtf8());
             }
-            if (!authenticationRoute && !context.profileId.isEmpty()) {
+            if (!authenticationRoute && !profileVerificationRoute
+                && !publicAuthenticationRoute && !context.profileId.isEmpty()) {
                 request.setRawHeader("X-Profile-Id", context.profileId.toUtf8());
             }
-            if (!authenticationRoute && !context.profileToken.isEmpty()) {
+            if (!authenticationRoute && !profileVerificationRoute
+                && !publicAuthenticationRoute && !context.profileToken.isEmpty()) {
                 request.setRawHeader("X-Profile-Token", context.profileToken.toUtf8());
             }
 

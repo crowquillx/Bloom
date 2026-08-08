@@ -57,15 +57,27 @@ bool hasMatchingSession(AuthenticationService *authService,
 
     ConfigManager *config = authService->configManager();
     const auto connection = config ? config->getActiveConnection() : std::nullopt;
-    return connection.has_value()
-        && connection->connectionId == artwork.connectionId
-        && connection->providerKind == ProviderKind::Silo;
+    if (!connection.has_value()
+        || connection->connectionId != artwork.connectionId
+        || connection->providerKind != ProviderKind::Silo
+        || authService->activeProviderKind() != ProviderKind::Silo) {
+        return false;
+    }
+
+    // The connection id is the cache identity, but it is not sufficient by
+    // itself to authorize a request: a caller can retain an ArtworkRef while
+    // the active connection is replaced in configuration.  Do not let the
+    // current token be sent to a different server in that case.
+    return ServerConnection::normalizeBaseUrl(authService->getServerUrl())
+        == ServerConnection::normalizeBaseUrl(connection->baseUrl);
 }
 
 bool isHttpUrl(const QUrl &url)
 {
     return url.isValid()
         && !url.host().isEmpty()
+        && url.userName().isEmpty()
+        && url.password().isEmpty()
         && (url.scheme().compare(QStringLiteral("http"), Qt::CaseInsensitive) == 0
             || url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0);
 }
@@ -163,6 +175,7 @@ std::optional<QNetworkRequest> requestForSource(
     return request;
 }
 
+
 QString identityString(const QJsonValue &value)
 {
     if (value.isString()) {
@@ -177,8 +190,12 @@ QString identityString(const QJsonValue &value)
 QString sourceForKind(const QJsonObject &object, Bloom::ArtworkKind kind)
 {
     switch (kind) {
-    case Bloom::ArtworkKind::Primary:
-        return object.value(QStringLiteral("poster_url")).toString();
+    case Bloom::ArtworkKind::Primary: {
+        const QString poster = object.value(QStringLiteral("poster_url")).toString();
+        return poster.isEmpty()
+            ? object.value(QStringLiteral("still_url")).toString()
+            : poster;
+    }
     case Bloom::ArtworkKind::Thumb: {
         const QString thumb = object.value(QStringLiteral("thumb_url")).toString();
         return thumb.isEmpty()
@@ -377,8 +394,9 @@ void SiloArtworkProvider::refreshArtwork(
     HttpRequestHandle *handle = transport->sendWithRetry(
         transport.data(),
         endpoint,
-        [authService, networkManager, endpoint]() -> QNetworkReply * {
-            if (!authService || !networkManager) {
+        [authService, artwork, networkManager, endpoint]() -> QNetworkReply * {
+            if (!authService || !networkManager
+                || !hasMatchingSession(authService.data(), artwork)) {
                 return nullptr;
             }
             const QNetworkRequest request = authService->createRequest(endpoint);

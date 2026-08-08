@@ -210,6 +210,7 @@ private slots:
     void structuredFiltersUseNativeQueryBody();
     void unsupportedFiltersAreExplicit();
     void responsePreservesSnapshotAndPaginationTruth();
+    void nativeResponseShapesPreserveHomeLibrarySearchAndDetailData();
     void requestHeadersAndGenerationSuppressStaleReplies();
 };
 
@@ -410,6 +411,13 @@ void SiloCatalogServiceTest::responsePreservesSnapshotAndPaginationTruth()
           QByteArrayLiteral("Fri, 07 Aug 2026 11:22:33 GMT")}});
     QVERIFY(page.valid);
     QCOMPARE(page.rawItems.size(), 2);
+    const QString firstId = page.rawItems.at(0).toObject()
+                                .value(QStringLiteral("content_id")).toString();
+    const QString secondId = page.rawItems.at(1).toObject()
+                                 .value(QStringLiteral("content_id")).toString();
+    QVERIFY(!firstId.isEmpty());
+    QVERIFY(!secondId.isEmpty());
+    QVERIFY(firstId != secondId);
     QCOMPARE(page.total, 912);
     QVERIFY(page.hasMore);
     QCOMPARE(page.capabilityMetadata.value(QStringLiteral("totalPresent")).toBool(), true);
@@ -427,6 +435,12 @@ void SiloCatalogServiceTest::responsePreservesSnapshotAndPaginationTruth()
         QByteArrayLiteral(
             R"({"items":[{"content_id":"content-3"}],"total":1,"total_exact":false,"has_more":false})"));
     QVERIFY(queryWindow.valid);
+    QCOMPARE(queryWindow.rawItems.size(), 1);
+    const QString nextId = queryWindow.rawItems.first().toObject()
+                               .value(QStringLiteral("content_id")).toString();
+    QVERIFY(!nextId.isEmpty());
+    QVERIFY(nextId != firstId);
+    QVERIFY(nextId != secondId);
     QCOMPARE(queryWindow.total, 1);
     QVERIFY(!queryWindow.hasMore);
     QCOMPARE(queryWindow.capabilityMetadata.value(QStringLiteral("totalExact")).toBool(),
@@ -443,6 +457,62 @@ void SiloCatalogServiceTest::responsePreservesSnapshotAndPaginationTruth()
     QCOMPARE(detail.rawItem.value(QStringLiteral("versions")).toArray()
                  .at(0).toObject().value(QStringLiteral("file_id")).toString(),
              QStringLiteral("file-99"));
+}
+
+void SiloCatalogServiceTest::nativeResponseShapesPreserveHomeLibrarySearchAndDetailData()
+{
+    SiloCatalogProvider provider;
+
+    const ProviderCatalogResponse home = provider.parseResponse(
+        ProviderCatalogOperation::Views,
+        QByteArrayLiteral(
+            R"({"sections":[{"id":"system-next-up","title":"Next Up","type":"next_up"},{"id":"library-17","title":"Movies","type":"library"}]})"));
+    QVERIFY(home.valid);
+    QCOMPARE(home.rawItems.size(), 2);
+    QCOMPARE(home.rawItems.at(0).toObject().value(QStringLiteral("id")).toString(),
+             QStringLiteral("system-next-up"));
+    QCOMPARE(home.rawItems.at(1).toObject().value(QStringLiteral("type")).toString(),
+             QStringLiteral("library"));
+
+    const ProviderCatalogResponse library = provider.parseResponse(
+        ProviderCatalogOperation::Items,
+        QByteArrayLiteral(
+            R"({"items":[{"content_id":"content-1","type":"movie","title":"One"},{"content_id":"content-2","type":"movie","title":"Two"}],"total":2,"total_exact":true,"has_more":false})"));
+    QVERIFY(library.valid);
+    QCOMPARE(library.rawItems.size(), 2);
+    QCOMPARE(library.rawItems.at(1).toObject().value(QStringLiteral("content_id")).toString(),
+             QStringLiteral("content-2"));
+    QCOMPARE(library.total, 2);
+    QCOMPARE(library.capabilityMetadata.value(QStringLiteral("totalExact")).toBool(), true);
+    QVERIFY(!library.hasMore);
+
+    const ProviderCatalogResponse search = provider.parseResponse(
+        ProviderCatalogOperation::Search,
+        QByteArrayLiteral("{\"items\":[{\"content_id\":\"content-9\",\"type\":\"series\",\"title\":\"Alien\"}],\"total\":1,\"total_exact\":true,\"has_more\":false,\"search_diagnostics\":{\"term\":\"Alien\"}}"));
+    QVERIFY(search.valid);
+    QCOMPARE(search.rawItems.size(), 1);
+    QCOMPARE(search.rawItems.first().toObject()
+                 .value(QStringLiteral("content_id")).toString(),
+             QStringLiteral("content-9"));
+    QCOMPARE(search.capabilityMetadata.value(QStringLiteral("searchDiagnostics")).toMap()
+                 .value(QStringLiteral("term")).toString(),
+             QStringLiteral("Alien"));
+
+    const ProviderCatalogResponse detailResponse = provider.parseResponse(
+        ProviderCatalogOperation::Item,
+        QByteArrayLiteral(
+            R"JSON({"content_id":"content-42","type":"movie","title":"Example","provider_ids":{"imdb_id":"tt123"},"user_state":{"played":true,"is_favorite":true},"versions":[{"file_id":"file-99","duration":123.456}],"playback_variants":[{"variant_id":"variant-1","part_count":2}],"subtitles":[{"language":"en"}]})JSON"));
+    QVERIFY(detailResponse.valid);
+    QCOMPARE(detailResponse.rawItem.value(QStringLiteral("content_id")).toString(),
+             QStringLiteral("content-42"));
+    QCOMPARE(detailResponse.rawItem.value(QStringLiteral("provider_ids")).toObject()
+                 .value(QStringLiteral("imdb_id")).toString(),
+             QStringLiteral("tt123"));
+    QCOMPARE(detailResponse.rawItem.value(QStringLiteral("versions")).toArray().size(), 1);
+    QCOMPARE(detailResponse.rawItem.value(QStringLiteral("playback_variants")).toArray()
+                 .first().toObject().value(QStringLiteral("part_count")).toInt(),
+             2);
+    QCOMPARE(detailResponse.rawItem.value(QStringLiteral("subtitles")).toArray().size(), 1);
 }
 
 void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()

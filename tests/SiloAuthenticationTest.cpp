@@ -171,6 +171,7 @@ private slots:
     void failedSharedRefreshExpiresSessionOnce();
     void profileTokenIsBoundToSelectionAndClearedOnSwitch();
     void serviceLoadsRevokedSessionsAndCallsRevokeEndpoint();
+    void profileVerificationNeverReceivesStaleProfileHeaders();
 };
 
 void SiloAuthenticationTest::adapterExposesNativeAuthenticationBoundaries()
@@ -267,7 +268,28 @@ void SiloAuthenticationTest::authenticationEndpointsNeverReceiveBearerAuthentica
     QVERIFY(!login.hasRawHeader("Authorization"));
     QVERIFY(!refresh.hasRawHeader("Authorization"));
     QVERIFY(!login.hasRawHeader("X-Profile-Id"));
+    const QNetworkRequest health = factory.createRequest(
+        context, QStringLiteral("/api/v1/health"));
+    QVERIFY(!health.hasRawHeader("Authorization"));
+    QVERIFY(!health.hasRawHeader("X-Profile-Id"));
+    QVERIFY(!health.hasRawHeader("X-Profile-Token"));
     QVERIFY(!refresh.hasRawHeader("X-Profile-Token"));
+}
+
+void SiloAuthenticationTest::profileVerificationNeverReceivesStaleProfileHeaders()
+{
+    SiloRequestFactory factory;
+    ProviderRequestContext context;
+    context.baseUrl = QStringLiteral("https://silo.example.test");
+    context.accessToken = QStringLiteral("access-secret");
+    context.profileId = QStringLiteral("new-profile");
+    context.profileToken = QStringLiteral("stale-profile-token");
+
+    const QNetworkRequest request = factory.createRequest(
+        context, QStringLiteral("/api/v1/profiles/new-profile/verify-pin"));
+    QCOMPARE(request.rawHeader("Authorization"), QByteArrayLiteral("Bearer access-secret"));
+    QVERIFY(!request.hasRawHeader("X-Profile-Id"));
+    QVERIFY(!request.hasRawHeader("X-Profile-Token"));
 }
 
 void SiloAuthenticationTest::authenticatorBuildsAndParsesLoginAndRefreshContracts()
@@ -312,6 +334,9 @@ void SiloAuthenticationTest::authenticatorRejectsMalformedAndIncompleteResponses
                  .isValid());
     QVERIFY(!authenticator.parseLoginResponse(
                  QByteArrayLiteral(R"({"access_token":"access-1","expires_in":900,"user":{"id":42,"username":"Alice"}})"))
+                 .isValid());
+    QVERIFY(!authenticator.parseProfileLoginResponse(
+                 QByteArrayLiteral(R"({"valid":true,"profile_token":"profile-token-1"})"))
                  .isValid());
 
     const ProviderAuthenticationResult incompleteRefresh = authenticator.parseRefreshResponse(

@@ -24,7 +24,7 @@
     },
     {
       "id": "silo-native-v1",
-      "description": "Silo's native /api/v1 surface; documented for later adapters and not consumed in this issue.",
+      "description": "Silo's native /api/v1 surface consumed by the native provider adapter for profile-scoped catalog and state requests.",
       "timeUnit": "milliseconds",
       "authorizationProfile": "Bearer access token plus profile and device headers"
     }
@@ -650,8 +650,8 @@
         "path": "/api/v1/catalog",
         "outcome": "supported",
         "capability": {"state": "available", "discovery": "total_exact, has_more, and snapshot response fields"},
-        "requestSemantics": ["limit is capped at 100", "Clients replay the RFC3339Nano snapshot on later offset pages", "include_total=false permits an inexact or omitted-cost count"],
-        "requiredSemantics": ["Response has items, total, total_exact, and has_more", "A generated snapshot freezes results to items created at or before its timestamp and is reusable on later pages", "total_exact is false for grouped work views and whenever the source did not compute an exact total"],
+        "requestSemantics": ["limit is capped at 100", "Clients replay the RFC3339Nano snapshot on later offset pages", "include_total=false permits an inexact or omitted-cost count", "Home and library section envelopes retain their item arrays and section identity"],
+        "requiredSemantics": ["Response has items, total, total_exact, and has_more", "A generated snapshot freezes results to items created at or before its timestamp and is reusable on later pages", "total_exact is false for grouped work views and whenever the source did not compute an exact total", "Pagination preserves item identity and ordering without duplicate or omitted entries when the same snapshot is replayed"],
         "evidenceSources": [
           "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/catalog.go",
           "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/catalog/catalog_parser.go"
@@ -664,8 +664,8 @@
         "path": "/api/v1/catalog/query",
         "outcome": "partial",
         "capability": {"state": "conditional", "discovery": "/api/v1/catalog/filters plus request validation"},
-        "requestSemantics": ["JSON filter_config, library_id, limit, offset, sort, and order drive a bounded query"],
-        "requiredSemantics": ["Invalid or unsupported filter rules return 400 rather than silently disappearing", "Response carries items, total, and has_more", "The pinned POST response uses total_exact false even though its window count is exact and has no snapshot field, so snapshot-aware pagination must use GET /catalog"],
+        "requestSemantics": ["JSON filter_config, library_id, limit, offset, sort, and order drive a bounded query", "Filter groups preserve explicit any/all semantics for genres, studios, years, item types, watched, and favorited values"],
+        "requiredSemantics": ["Invalid or unsupported filter rules return 400 rather than silently disappearing", "Response carries items, total, and has_more", "The pinned POST response uses total_exact false even though its window count is exact and has no snapshot field, so snapshot-aware pagination must use GET /catalog", "The adapter marks unsupported Bloom filters as unsupported instead of claiming they were applied"],
         "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/catalog.go"]
       },
       {
@@ -675,8 +675,8 @@
         "path": "/api/v1/catalog/items/{id} and /api/v1/catalog/items/{id}/versions",
         "outcome": "supported",
         "capability": {"state": "available", "discovery": "canonical resource routes"},
-        "requestSemantics": ["id is content_id; selected file identity remains file_id inside versions"],
-        "requiredSemantics": ["Detail includes content_id, type, title, provider IDs where known, user state, versions, subtitles, markers, artwork, and multipart playback_variants", "Version entries preserve file_id, technical tracks, duration, edition, ordered multipart indices, chapters, and markers", "Unauthorized file paths are removed without removing playable file identity"],
+        "requestSemantics": ["id is content_id; selected file identity remains file_id inside versions", "Detail responses may omit unauthorized file paths while retaining file_id and playable metadata"],
+        "requiredSemantics": ["Detail includes content_id, type, title, provider IDs where known, profile-scoped user state, versions, subtitles, markers, artwork, and multipart playback_variants", "Version entries preserve file_id, technical tracks, duration, edition, ordered multipart indices, chapters with optional end times and artwork provenance, and markers", "The adapter exposes provider-neutral camelCase identity and milliseconds without replacing content_id with file_id"],
         "evidenceSources": [
           "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/catalog_resources.go",
           "https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/catalog/detail.go"

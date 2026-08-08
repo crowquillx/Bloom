@@ -7,7 +7,7 @@ The machine-readable source is [`tests/contracts/provider-contracts.json`](../te
 ## Support terminology
 
 - **Silo compatibility support**: Bloom connects to Silo's optional Jellyfin compatibility listener. The native API is not used, and household-profile login has compatibility-specific limitations.
-- **Experimental native Silo support**: Bloom connects to `/api/v1`, but the complete release matrix has not passed.
+- **Experimental native Silo support**: Bloom connects to `/api/v1` with Silo's compatibility listener disabled and implements the native authentication, household-profile, catalog, and signed-artwork boundaries from PR #111; native playback remains outside this release gate.
 - **First-class Silo support**: Bloom connects to `/api/v1` without the compatibility listener and passes the authentication, profile, catalog, playback, recovery, and platform gates in issue #73.
 
 These labels describe a connection's protocol mode, not an application-wide provider choice. A future provider can add another protocol surface and deployment to the contract matrix without changing existing Jellyfin or Silo rows.
@@ -51,8 +51,8 @@ Ports are deployment configuration, not protocol identity.
 2. Copy `.env.example` to `.env`. Set `MEDIA_ROOT` to a test library, set a durable `SILO_DATA_ROOT`, and generate the required `SECRET_KEY`.
 3. Pin `SILO_IMAGE` to the digest above.
 4. Start the bundled PostgreSQL, Redis, and Silo services.
-5. Complete onboarding at `http://127.0.0.1:8090`, add a movie and series library, and enable Jellyfin-compatible app support. The setting requires a Silo restart.
-6. Point Bloom at `http://127.0.0.1:8096`, not the native port.
+5. Complete onboarding at `http://127.0.0.1:8090` and add a movie and series library. For compatibility coverage, enable Jellyfin-compatible app support and restart Silo.
+6. Point Bloom at `http://127.0.0.1:8096` for compatibility coverage, or leave the compatibility listener disabled and point Bloom at `http://127.0.0.1:8090` for the native mode implemented by PR #111.
 
 Example Fish session after editing `.env`:
 
@@ -90,7 +90,7 @@ podman run --rm --name bloom-jellyfin-contract \
 
 The live deployments are intentionally not started inside `nix flake check`. They require operator-owned media, credentials, mutable databases, and platform playback checks. The checked-in validator keeps the matrix complete and immutable between live runs.
 
-The native deployment has one deterministic, read-only live probe. It checks only public health shape, accepts an omitted `server_id`, does not require credentials, and never creates or changes server state:
+The native deployment runs without the compatibility listener. Without credentials, the live runner performs only the deterministic public health check and never creates server state. Set `BLOOM_CONTRACT_USERNAME` and `BLOOM_CONTRACT_PASSWORD` (and, for a PIN profile, `BLOOM_CONTRACT_PROFILE_PIN`) to extend the run with provider discovery, login/refresh/error envelopes, account/profile shapes, catalog pagination/query/detail shapes, and one opaque artwork fetch; it logs no token, password, or PIN:
 
 ```fish
 python3 tests/contracts/run_live_contracts.py \
@@ -118,7 +118,7 @@ python3 tests/contracts/run_live_contracts.py \
   --output .contract-data/jellyfin-report.json
 ```
 
-The live driver is selected by protocol surface, while expectations are selected by deployment. Native live coverage is intentionally limited to public health: authentication creates sessions, refresh extends a session, logout/revoke remove sessions, catalog requires fixture-specific profiles, and playback/user-state routes mutate data. Those behaviors remain source-validated until an operator runs them against a dedicated fixture server. MediaBrowser mutating probes are opt-in. Played/favorite probes restore their exact original booleans; playback reporting can change resume state, so run it only with a dedicated fixture account/library. The harness never forwards a MediaBrowser token to a different origin and refuses automatic redirects; opaque cross-origin URLs are fetched without Bloom authorization headers.
+The live driver is selected by protocol surface, while expectations are selected by deployment. Native health is always safe without credentials; credentialed native runs use a dedicated fixture account, perform only the auth/profile/catalog/artwork reads needed for shape checks plus login/refresh/logout lifecycle cleanup, and never enable `--allow-mutations`. MediaBrowser mutating probes remain opt-in. Played/favorite probes restore their exact original booleans; playback reporting can change resume state, so run it only with a dedicated fixture account/library. The harness rejects embedded base-URL credentials, never writes password/PIN/token values to reports, never forwards provider authorization to a different origin, and refuses automatic redirects.
 
 ## Bloom's current MediaBrowser contract
 
@@ -220,7 +220,7 @@ GET    /api/v1/profiles
 POST   /api/v1/profiles/{id}/verify-pin
 ```
 
-Use bearer access tokens and store both token types only in the platform secret store. Send `X-Profile-Id` after selection and `X-Profile-Token` after successful PIN verification. Client/device identity headers are `X-Silo-Client`, `X-Silo-Client-Version`, `X-Silo-Device-Id`, `X-Silo-Device-Name`, and `X-Silo-Device-Platform`; which are mandatory remains an upstream question.
+Use bearer access tokens and store both token types only in the platform secret store. Bloom sends `X-Profile-Id` after selection and `X-Profile-Token` after successful PIN verification, together with the Silo client/device identity headers (`X-Silo-Client`, `X-Silo-Client-Version`, `X-Silo-Device-Id`, `X-Silo-Device-Name`, and `X-Silo-Device-Platform`).
 
 ### Catalog, state, and artwork
 
@@ -244,9 +244,9 @@ GET `/catalog` supports snapshot-aware offset pagination and reports `total_exac
 
 Profile state uses `POST`/`DELETE /api/v1/watched/{content_id}` and `GET`/`PUT`/`DELETE /api/v1/favorites/{content_id}`. Artwork fields are fetch locations, not durable identity. On an expired or missing signed URL, refetch the owning resource and replace the whole URL.
 
-### Legacy native playback, markers, and chapters
+### Native playback, markers, and chapters (future #79/#80 baseline)
 
-Bloom/mpv must use the legacy envelope at this pin. `GET /api/v1/playback/capability` describes protocol v3 only; enabled v3 includes `media3_only`, while disabled v3 returns empty features, deliveries, and transformations with `reason: "disabled"`.
+Native playback is outside PR #111. The matrix records the pinned Silo envelope for later work; Bloom/mpv must not infer support from this documentation. At this pin, `GET /api/v1/playback/capability` describes protocol v3 only; enabled v3 includes `media3_only`, while disabled v3 returns empty features, deliveries, and transformations with `reason: "disabled"`.
 
 The legacy lifecycle is:
 
@@ -260,9 +260,9 @@ GET    /api/v1/markers/items/{content_id}
 GET    /api/v1/markers/files/{file_id}
 ```
 
-Legacy start is selected when `protocol_version: 3` is absent. The request carries `file_id`, optional matching `profile_id`, play method or codec/container/HDR capabilities, start position seconds, and optional audio track. The `201` response carries session/file IDs, effective play method, position, stream URL, selected audio index, duration, subtitle URLs, and playback info. Transcode responses add a replacement manifest and explicit player/origin/timeline offsets. Audio switching returns a replacement stream URL with `switch_mode: "reload"` and may promote direct play to remux or transcode.
+For future implementation, legacy start is selected when `protocol_version: 3` is absent. The request carries `file_id`, optional matching `profile_id`, play method or codec/container/HDR capabilities, start position seconds, and optional audio track. The `201` response carries session/file IDs, effective play method, position, stream URL, selected audio index, duration, subtitle URLs, and playback info. Transcode responses add a replacement manifest and explicit player/origin/timeline offsets. Audio switching returns a replacement stream URL with `switch_mode: "reload"` and may promote direct play to remux or transcode.
 
-Progress accepts `{position, is_paused}` in seconds and persists profile state best-effort. Stop persists final progress and tears down the session and transcode resources. Marker reads expose nullable intro/credits/recap/preview ranges plus provenance. Version chapters expose index, title, start/end seconds, source, optional thumbnail URL, and optional thumbhash. Native trickplay and playable media theme songs are explicitly unavailable at the pinned revision.
+For future implementation, progress accepts `{position, is_paused}` in seconds and persists profile state best-effort. Stop persists final progress and tears down the session and transcode resources. Marker reads expose nullable intro/credits/recap/preview ranges plus provenance. Version chapters expose index, title, start/end seconds, source, optional thumbnail URL, and optional thumbhash. Native trickplay and playable media theme songs are explicitly unavailable at the pinned revision.
 
 ### Current upstream HEAD research
 

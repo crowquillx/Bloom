@@ -96,6 +96,9 @@ QVariantMap providerIds(const QJsonObject &wire)
                                                const QString &shortName) {
         QString value = identityString(wire.value(snakeCase));
         if (value.isEmpty()) {
+            value = identityString(wire.value(shortName));
+        }
+        if (value.isEmpty()) {
             value = identityString(nested.value(snakeCase));
         }
         if (value.isEmpty()) {
@@ -386,7 +389,8 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
     ProviderCatalogResponse result;
     const QByteArray trimmed = wireResponse.trimmed();
     if (trimmed.isEmpty()) {
-        if (operation == ProviderCatalogOperation::SetFavorite) {
+        if (operation == ProviderCatalogOperation::SetWatched
+            || operation == ProviderCatalogOperation::SetFavorite) {
             result.valid = true;
         } else {
             result.error = QStringLiteral("Silo returned an empty catalog response");
@@ -418,11 +422,14 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
         result.snapshot.insert(QStringLiteral("lastModified"),
                                QString::fromUtf8(lastModified));
     }
-
     if (document.isArray()) {
         switch (operation) {
         case ProviderCatalogOperation::Views:
         case ProviderCatalogOperation::Items:
+        case ProviderCatalogOperation::NextUp:
+        case ProviderCatalogOperation::LatestMedia:
+        case ProviderCatalogOperation::SimilarItems:
+        case ProviderCatalogOperation::Search:
             result.rawItems = document.array();
             result.valid = true;
             return result;
@@ -464,10 +471,27 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
     if (object.value(QStringLiteral("has_more")).isBool()) {
         result.hasMore = object.value(QStringLiteral("has_more")).toBool();
         result.capabilityMetadata.insert(QStringLiteral("hasMorePresent"), true);
+    } else if (object.value(QStringLiteral("hasMore")).isBool()) {
+        result.hasMore = object.value(QStringLiteral("hasMore")).toBool();
+        result.capabilityMetadata.insert(QStringLiteral("hasMorePresent"), true);
     }
     if (object.value(QStringLiteral("snapshot")).isString()) {
         result.snapshot.insert(QStringLiteral("snapshot"),
                                object.value(QStringLiteral("snapshot")).toString());
+    } else if (object.value(QStringLiteral("snapshot")).isObject()) {
+        result.snapshot.insert(QStringLiteral("snapshot"),
+                               object.value(QStringLiteral("snapshot")).toObject().toVariantMap());
+    }
+    for (const QString &key : {QStringLiteral("cursor"), QStringLiteral("next_cursor"),
+                               QStringLiteral("nextCursor")}) {
+        if (object.value(key).isString()) {
+            result.snapshot.insert(key, object.value(key).toString());
+        }
+    }
+    for (const QString &key : {QStringLiteral("offset"), QStringLiteral("limit")}) {
+        if (object.value(key).isDouble()) {
+            result.capabilityMetadata.insert(key, jsonInteger(object.value(key)));
+        }
     }
     if (object.value(QStringLiteral("search_diagnostics")).isObject()) {
         result.capabilityMetadata.insert(
@@ -504,9 +528,19 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
     if (operation == ProviderCatalogOperation::FilterOptions) {
         result.rawItem = object;
         result.filterMetadata = filterOptions(object);
-        if (object.value(QStringLiteral("matches")).isArray()) {
+        if (object.value(QStringLiteral("matches")).isArray()
+            || object.value(QStringLiteral("items")).isArray()) {
             result.filterMetadata.insert(QStringLiteral("namedItems"),
                                          namedItems(object));
+        }
+        result.valid = true;
+        return result;
+    }
+    if (operation == ProviderCatalogOperation::Chapters
+        || operation == ProviderCatalogOperation::Versions) {
+        result.rawItem = object;
+        if (object.value(QStringLiteral("versions")).isArray()) {
+            result.rawItems = object.value(QStringLiteral("versions")).toArray();
         }
         result.valid = true;
         return result;
@@ -724,11 +758,12 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         itemId = identityString(wireItem.value(QStringLiteral("media_item_id")));
     }
     if (itemId.isEmpty()
-        && wireItem.value(QStringLiteral("id")).isString()
+        && wireItem.contains(QStringLiteral("id"))
         && wireItem.value(QStringLiteral("section_type")).isString()) {
         const QString sectionId =
             identityString(wireItem.value(QStringLiteral("id")));
-        const QString title = wireItem.value(QStringLiteral("title")).toString();
+        const QString title = wireItem.value(QStringLiteral("title")).toString(
+            wireItem.value(QStringLiteral("name")).toString());
         if (sectionId.isEmpty() || title.isEmpty()) {
             return {};
         }
@@ -794,6 +829,10 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         durationMs = secondsToMilliseconds(
             wireItem.value(QStringLiteral("runtime")).toDouble() * 60.0);
     }
+    QString defaultFileId = identityString(wireItem.value(QStringLiteral("default_file_id")));
+    if (defaultFileId.isEmpty()) {
+        defaultFileId = identityString(wireItem.value(QStringLiteral("file_id")));
+    }
 
     double communityRating = 0.0;
     if (wireItem.value(QStringLiteral("rating_imdb")).isDouble()) {
@@ -807,8 +846,12 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("media"), Bloom::MediaRef{connectionId, itemId}.toVariantMap()},
         {QStringLiteral("connectionId"), connectionId},
         {QStringLiteral("itemId"), itemId},
-        {QStringLiteral("name"), wireItem.value(QStringLiteral("title")).toString()},
-        {QStringLiteral("sortName"), wireItem.value(QStringLiteral("sort_title")).toString()},
+        {QStringLiteral("defaultFileId"), defaultFileId},
+        {QStringLiteral("name"), wireItem.value(QStringLiteral("title")).toString(
+             wireItem.value(QStringLiteral("name")).toString())},
+        {QStringLiteral("sortName"), wireItem.value(QStringLiteral("sort_title")).toString(
+             wireItem.value(QStringLiteral("title")).toString(
+                 wireItem.value(QStringLiteral("name")).toString()))},
         {QStringLiteral("originalTitle"), wireItem.value(QStringLiteral("original_title")).toString()},
         {QStringLiteral("mediaType"), canonicalMediaType(
              wireItem.value(QStringLiteral("type")).toString())},
@@ -844,7 +887,7 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("isInProgress"),
          userData.contains(QStringLiteral("is_in_progress"))
              ? userData.value(QStringLiteral("is_in_progress")).toBool()
-             : wireItem.value(QStringLiteral("position_seconds")).toDouble() > 0.0},
+             : state.positionMs > 0},
         {QStringLiteral("people"), people(wireItem, connectionId)},
         {QStringLiteral("versions"), versions},
         {QStringLiteral("playbackVariants"), playbackVariants(
@@ -961,7 +1004,11 @@ QVariantMap SiloModelMapper::chapter(const QJsonObject &wireChapter,
                                      const QString &fileId,
                                      int fallbackIndex)
 {
-    if (!wireChapter.value(QStringLiteral("start_seconds")).isDouble()) {
+    const QJsonValue startValue = wireChapter.value(QStringLiteral("start_seconds"));
+    const QJsonValue endValue = wireChapter.value(QStringLiteral("end_seconds"));
+    if (!startValue.isDouble() || !endValue.isDouble()
+        || !std::isfinite(startValue.toDouble()) || !std::isfinite(endValue.toDouble())
+        || startValue.toDouble() < 0.0 || endValue.toDouble() <= startValue.toDouble()) {
         return {};
     }
     const int index = wireChapter.contains(QStringLiteral("index"))
@@ -1045,6 +1092,11 @@ QVariantList SiloModelMapper::chaptersFromItem(const QJsonObject &wireItem,
         appendChapters(direct);
     }
     for (const QJsonValue &value : wireItem.value(QStringLiteral("versions")).toArray()) {
+        if (value.isObject()) {
+            appendChapters(value.toObject());
+        }
+    }
+    for (const QJsonValue &value : wireItem.value(QStringLiteral("files")).toArray()) {
         if (value.isObject()) {
             appendChapters(value.toObject());
         }
@@ -1186,12 +1238,19 @@ QVariantMap SiloModelMapper::nativeState(const QJsonObject &wireState,
     userState.unplayedItemCount = state.value(QStringLiteral("unplayed_count")).toInt();
     userState.lastPlayedAt = state.value(QStringLiteral("last_played_at")).toString(
         wireState.value(QStringLiteral("progress_updated_at")).toString());
+    QString contentId = identityString(wireState.value(QStringLiteral("content_id")));
+    if (contentId.isEmpty()) {
+        contentId = identityString(state.value(QStringLiteral("content_id")));
+    }
+    if (contentId.isEmpty()) {
+        contentId = identityString(wireState.value(QStringLiteral("media_item_id")));
+    }
+    if (contentId.isEmpty()) {
+        contentId = identityString(state.value(QStringLiteral("media_item_id")));
+    }
     return {
         {QStringLiteral("connectionId"), connectionId},
-        {QStringLiteral("itemId"), identityString(
-             wireState.value(QStringLiteral("content_id")).isUndefined()
-                 ? state.value(QStringLiteral("content_id"))
-                 : wireState.value(QStringLiteral("content_id")))},
+        {QStringLiteral("itemId"), contentId},
         {QStringLiteral("userState"), userState.toVariantMap()},
         {QStringLiteral("watched"), userState.watched},
         {QStringLiteral("favorite"), userState.favorite},
@@ -1200,10 +1259,11 @@ QVariantMap SiloModelMapper::nativeState(const QJsonObject &wireState,
              (state.value(QStringLiteral("duration_seconds")).isDouble()
                   ? state.value(QStringLiteral("duration_seconds"))
                   : wireState.value(QStringLiteral("duration_seconds"))).toDouble())},
-        {QStringLiteral("isInProgress"), state.value(QStringLiteral("is_in_progress")).toBool()},
         {QStringLiteral("watchedCount"), state.value(QStringLiteral("watched_count")).toInt()},
-        {QStringLiteral("unplayedItemCount"), userState.unplayedItemCount},
-        {QStringLiteral("inProgressCount"), state.value(QStringLiteral("in_progress_count")).toInt()},
+        {QStringLiteral("isInProgress"),
+         state.contains(QStringLiteral("is_in_progress"))
+             ? state.value(QStringLiteral("is_in_progress")).toBool()
+             : userState.positionMs > 0},
         {QStringLiteral("lastFileId"), identityString(state.value(QStringLiteral("last_file_id")))}
     };
 }

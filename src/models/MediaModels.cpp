@@ -180,6 +180,24 @@ QVariantMap Chapter::toVariantMap() const
         {QStringLiteral("name"), name},
         {QStringLiteral("startMs"), startMs}
     };
+    if (index >= 0) {
+        map[QStringLiteral("index")] = index;
+    }
+    if (!fileId.isEmpty()) {
+        map[QStringLiteral("fileId")] = fileId;
+    }
+    if (endMs > 0) {
+        map[QStringLiteral("endMs")] = endMs;
+    }
+    if (!source.isEmpty()) {
+        map[QStringLiteral("source")] = source;
+    }
+    if (!thumbnailUrl.isEmpty()) {
+        map[QStringLiteral("thumbnailUrl")] = thumbnailUrl;
+    }
+    if (!thumbnailThumbhash.isEmpty()) {
+        map[QStringLiteral("thumbnailThumbhash")] = thumbnailThumbhash;
+    }
     if (artwork.isValid()) {
         map[QStringLiteral("artwork")] = artwork.toVariantMap();
     }

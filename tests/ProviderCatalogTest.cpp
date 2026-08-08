@@ -8,6 +8,7 @@
 #include "providers/ICatalogProvider.h"
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include "providers/silo/SiloModelMapper.h"
+#include "providers/silo/SiloCatalogProvider.h"
 
 class ProviderCatalogTest : public QObject
 {
@@ -17,6 +18,8 @@ private slots:
     void jellyfinItemsRequestRetainsNativeContract();
     void jellyfinMutationsAndPaginationRemainCompatible();
     void siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds();
+    void canonicalArtworkAndPlaybackChapterMetadataRemainProviderNeutral();
+    void siloNumericSeasonRoutesAndEnvelopeOperation();
 };
 
 void ProviderCatalogTest::jellyfinItemsRequestRetainsNativeContract()
@@ -243,6 +246,107 @@ void ProviderCatalogTest::siloCanonicalIdentityVersionsMultipartAndStateUseMilli
     QCOMPARE(state.value(QStringLiteral("positionMs")).toLongLong(), 98765);
     QCOMPARE(state.value(QStringLiteral("durationMs")).toLongLong(), 123456);
     QVERIFY(state.value(QStringLiteral("watched")).toBool());
+}
+
+void ProviderCatalogTest::canonicalArtworkAndPlaybackChapterMetadataRemainProviderNeutral()
+{
+    Bloom::ArtworkRef artwork;
+    artwork.connectionId = QStringLiteral("silo-connection");
+    artwork.itemId = QStringLiteral("content-42");
+    artwork.kind = Bloom::ArtworkKind::Chapter;
+    artwork.ownerKind = Bloom::ArtworkOwnerKind::Chapter;
+    artwork.index = 4;
+    artwork.tag = QStringLiteral("file-99");
+    artwork.requestedWidth = 640;
+    artwork.sourceUrl = QStringLiteral(
+        "https://silo.example.test/api/v1/artwork/file-99/4?signature=rotating");
+
+    const QString cacheKey = artwork.cacheKey();
+    const Bloom::ArtworkRef restored = Bloom::ArtworkRef::fromCacheKey(cacheKey);
+    QVERIFY(restored.isValid());
+    QVERIFY(restored == artwork);
+    QCOMPARE(restored.ownerKind, Bloom::ArtworkOwnerKind::Chapter);
+    QVERIFY(restored.sourceUrl.isEmpty());
+    QVERIFY(!cacheKey.contains(QStringLiteral("signature")));
+
+    Bloom::Chapter chapter;
+    chapter.name = QStringLiteral("Arrival");
+    chapter.startMs = 1250;
+    chapter.artwork = artwork;
+    chapter.index = 3;
+    chapter.fileId = QStringLiteral("file-99");
+    chapter.endMs = 4750;
+    chapter.source = QStringLiteral("embedded");
+    chapter.thumbnailThumbhash = QStringLiteral("thumbhash");
+    const QVariantMap chapterMap = chapter.toVariantMap();
+    QCOMPARE(chapterMap.value(QStringLiteral("name")).toString(),
+             QStringLiteral("Arrival"));
+    QCOMPARE(chapterMap.value(QStringLiteral("startMs")).toLongLong(), 1250);
+    QCOMPARE(chapterMap.value(QStringLiteral("index")).toInt(), 3);
+    QCOMPARE(chapterMap.value(QStringLiteral("fileId")).toString(),
+             QStringLiteral("file-99"));
+    QCOMPARE(chapterMap.value(QStringLiteral("endMs")).toLongLong(), 4750);
+    QCOMPARE(chapterMap.value(QStringLiteral("source")).toString(),
+             QStringLiteral("embedded"));
+    QCOMPARE(chapterMap.value(QStringLiteral("thumbnailThumbhash")).toString(),
+             QStringLiteral("thumbhash"));
+    QCOMPARE(chapterMap.value(QStringLiteral("artwork")).toMap()
+                 .value(QStringLiteral("ownerKind")).toString(),
+             QStringLiteral("chapter"));
+
+    Bloom::PlaybackDescriptor descriptor;
+    descriptor.media = {QStringLiteral("silo-connection"), QStringLiteral("content-42")};
+    descriptor.mediaVersionId = QStringLiteral("file-99");
+    descriptor.durationMs = 123456;
+    descriptor.startPositionMs = 98765;
+    descriptor.stream.url = QUrl(QStringLiteral(
+        "https://silo.example.test/api/v1/playback/file-99"));
+    descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
+    descriptor.chapters.append(chapter);
+    QVERIFY(descriptor.isValid());
+    const QVariantMap descriptorMap = descriptor.toVariantMap();
+    QCOMPARE(descriptorMap.value(QStringLiteral("mediaVersionId")).toString(),
+             QStringLiteral("file-99"));
+    QCOMPARE(descriptorMap.value(QStringLiteral("durationMs")).toLongLong(), 123456);
+    QCOMPARE(descriptorMap.value(QStringLiteral("startPositionMs")).toLongLong(), 98765);
+    QCOMPARE(descriptorMap.value(QStringLiteral("chapters")).toList().size(), 1);
+    QCOMPARE(descriptorMap.value(QStringLiteral("chapters")).toList().first().toMap()
+                 .value(QStringLiteral("startMs")).toLongLong(), 1250);
+}
+
+void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
+{
+    SiloCatalogProvider provider;
+    ProviderCatalogQuery query;
+    query.seriesId = QStringLiteral("series/one");
+    query.parentId = QStringLiteral("0");
+
+    ProviderCatalogRequest request =
+        provider.createRequest(ProviderCatalogOperation::Items, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.relativeEndpoint,
+             QStringLiteral("/api/v1/catalog/series/series%2Fone/seasons/0"));
+
+    const ProviderCatalogResponse season = provider.parseResponse(
+        ProviderCatalogOperation::Items,
+        QByteArrayLiteral(
+            R"({"season":{"content_id":"series/one-S00","season_number":0,"title":"Specials"}})"));
+    QVERIFY(season.valid);
+    QCOMPARE(season.rawItem.value(QStringLiteral("content_id")).toString(),
+             QStringLiteral("series/one-S00"));
+    QCOMPARE(season.capabilityMetadata.value(QStringLiteral("envelope")).toString(),
+             QStringLiteral("season"));
+
+    query.includeItemTypes = {QStringLiteral("Episode")};
+    request = provider.createRequest(ProviderCatalogOperation::Items, query);
+    QVERIFY(request.supported);
+    QCOMPARE(request.relativeEndpoint,
+             QStringLiteral("/api/v1/catalog/series/series%2Fone/seasons/0/episodes"));
+
+    query.includeItemTypes = {QStringLiteral("Movie")};
+    request = provider.createRequest(ProviderCatalogOperation::Items, query);
+    QVERIFY(!request.supported);
+    QVERIFY(!request.unsupportedReason.isEmpty());
 }
 
 QTEST_MAIN(ProviderCatalogTest)

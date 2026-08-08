@@ -78,6 +78,7 @@ stdenv.mkDerivation {
   doCheck = true;
   checkPhase = ''
     runHook preCheck
+    python3 "$src/tests/contracts/validate_contracts.py"
     export QT_QPA_PLATFORM=offscreen
     ctest --output-on-failure \
       --exclude-regex '^(VisualRegressionTest|SeriesDetailsCacheTest)$'

@@ -67,6 +67,46 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertNotIn("server_id", detection["requiredFields"])
         self.assertIn("server_id", detection["optionalFields"])
         validate_contract_data(data)
+    def test_rejects_native_route_shape_drift(self):
+        data = copy.deepcopy(self.valid_data)
+        page = next(
+            requirement
+            for requirement in data["nativeSiloContract"]["requirements"]
+            if requirement["id"] == "native.catalog.page"
+        )
+        page["path"] = "/api/v1/catalog/search"
+
+        with self.assertRaisesRegex(ContractValidationError, "route shape drifted"):
+            validate_contract_data(data)
+
+    def test_rejects_native_auth_and_catalog_shape_drift(self):
+        data = copy.deepcopy(self.valid_data)
+        login = next(
+            requirement
+            for requirement in data["nativeSiloContract"]["requirements"]
+            if requirement["id"] == "native.auth.login"
+        )
+        login["requiredSemantics"] = ["HTTP 200"]
+
+        with self.assertRaisesRegex(ContractValidationError, "not only an HTTP status"):
+            validate_contract_data(data)
+
+    def test_native_deployment_is_distinct_from_compatibility_mode(self):
+        native = next(
+            deployment
+            for deployment in self.valid_data["deployments"]
+            if deployment["surface"] == "silo-native-v1"
+        )
+        compatibility = next(
+            deployment
+            for deployment in self.valid_data["deployments"]
+            if deployment["id"] == "silo-8044eb8-compat"
+        )
+        self.assertEqual(native["protocolMode"], "native")
+        self.assertNotEqual(native["id"], compatibility["id"])
+        self.assertNotEqual(native["supportLabel"], compatibility["supportLabel"])
+        validate_contract_data(self.valid_data)
+
 
     def test_rejects_missing_native_requirement(self):
         data = copy.deepcopy(self.valid_data)

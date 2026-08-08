@@ -39,8 +39,11 @@ struct HttpRequestOptions {
 /**
  * @brief Shared HTTP execution, retry, cancellation, and error-policy boundary.
  *
- * Request factories remain provider-owned. HttpTransport owns request execution
- * policy and emits a provider-neutral unauthorized signal for session handling.
+ * Request factories remain provider-owned. The factory is invoked again for
+ * every replay, so each invocation must construct the same logical request
+ * (HTTP operation, URL, body, and headers) from its captured request state.
+ * HttpTransport owns request execution policy and emits a provider-neutral
+ * unauthorized signal for session handling.
  */
 class HttpTransport final : public QObject
 {

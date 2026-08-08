@@ -1,6 +1,7 @@
 #include "HttpTransport.h"
 
 #include <QLoggingCategory>
+#include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QTimer>
 #include <memory>
@@ -46,7 +47,9 @@ void HttpTransport::setUrlRedactor(UrlRedactor redactor)
 
 void HttpTransport::setUnauthorizedRecovery(UnauthorizedRecovery recovery)
 {
-    if (!recovery && m_unauthorizedRecoveryInProgress) {
+    // A provider/session switch must not let an old refresh replay requests
+    // with credentials belonging to the previous provider.
+    if (m_unauthorizedRecoveryInProgress) {
         ++m_unauthorizedRecoveryGeneration;
         m_unauthorizedRecoveryInProgress = false;
         const auto pending = std::exchange(
@@ -156,7 +159,13 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
             return;
         }
 
-        if (reply->error() == QNetworkReply::NoError) {
+        const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const bool isUnauthorized = httpStatus == 401;
+
+        // Some test doubles and custom QNetworkAccessManager implementations
+        // report an HTTP 401 with NoError. Status handling must still take
+        // precedence over the successful-network-error path.
+        if (reply->error() == QNetworkReply::NoError && !isUnauthorized) {
             if (responseHandler) {
                 responseHandler(reply);
             }
@@ -164,10 +173,9 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
             return;
         }
 
-        const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         NetworkError error = ErrorHandler::createError(reply, endpoint);
 
-        if (httpStatus == 401) {
+        if (isUnauthorized) {
             error.code = 401;
             if (options.unauthorizedPolicy != UnauthorizedPolicy::Ignore
                 && !authenticationRetried

@@ -109,6 +109,29 @@ private:
     ScriptedHttpServer *m_server;
 };
 
+class MissingArtworkProvider final : public IArtworkProvider
+{
+public:
+    std::optional<QNetworkRequest> resolveArtwork(
+        const Bloom::ArtworkRef &) const override
+    {
+        ++resolveCount;
+        return std::nullopt;
+    }
+
+    void refreshArtwork(const Bloom::ArtworkRef &,
+                        RefreshCallback callback) const override
+    {
+        ++refreshCount;
+        if (callback) {
+            callback(std::nullopt);
+        }
+    }
+
+    mutable int resolveCount = 0;
+    mutable int refreshCount = 0;
+};
+
 class ScopedConfigIsolation
 {
 public:
@@ -189,11 +212,32 @@ class ArtworkRefreshTest : public QObject
     Q_OBJECT
 
 private slots:
+    void missingArtworkDegradesWithoutRefresh();
     void signedUrlIsNotPartOfCacheIdentity();
     void authorizationFailureRefreshesExactlyOnce_data();
     void authorizationFailureRefreshesExactlyOnce();
     void jellyfinRefreshKeepsExistingResolvedRequest();
 };
+void ArtworkRefreshTest::missingArtworkDegradesWithoutRefresh()
+{
+    MissingArtworkProvider artworkProvider;
+    ImageCacheProvider cache(1, &artworkProvider);
+    cache.setRoundedPreprocessEnabled(false);
+
+    const Bloom::ArtworkRef artwork = artworkRef();
+    QPointer<QQuickImageResponse> response(
+        cache.requestImageResponse(artwork.cacheKey(), QSize()));
+    QVERIFY(response);
+    QSignalSpy finishedSpy(response, &QQuickImageResponse::finished);
+    QVERIFY(finishedSpy.isValid());
+
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
+    QCOMPARE(artworkProvider.resolveCount, 1);
+    QCOMPARE(artworkProvider.refreshCount, 0);
+    QVERIFY(!response->errorString().isEmpty());
+
+    delete response;
+}
 
 void ArtworkRefreshTest::signedUrlIsNotPartOfCacheIdentity()
 {
@@ -252,16 +296,11 @@ void ArtworkRefreshTest::authorizationFailureRefreshesExactlyOnce()
     QCOMPARE(artworkProvider.refreshedArtwork.connectionId, artwork.connectionId);
     QCOMPARE(artworkProvider.refreshedArtwork.itemId, artwork.itemId);
     QCOMPARE(server.requestTargets.size(), 2);
-    QVERIFY(server.requestTargets.at(0).startsWith(
-        QStringLiteral("/old.jpg?X-Amz-Signature=expired")));
-    QVERIFY(server.requestTargets.at(1).startsWith(
-        QStringLiteral("/new.jpg?X-Amz-Signature=fresh")));
     QVERIFY(!response->errorString().isEmpty());
-
-    QTest::qWait(20);
-    QCOMPARE(artworkProvider.refreshCount, 1);
-    QCOMPARE(finishedSpy.count(), 1);
-
+    QCOMPARE(server.requestTargets.at(0),
+             QStringLiteral("/old.jpg?X-Amz-Signature=expired&X-Amz-Expires=1"));
+    QCOMPARE(server.requestTargets.at(1),
+             QStringLiteral("/new.jpg?X-Amz-Signature=fresh&X-Amz-Expires=900"));
     delete response;
 }
 

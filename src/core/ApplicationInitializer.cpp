@@ -358,14 +358,20 @@ void ApplicationInitializer::initializeServices()
     // clearing centralized here so real and mock services share logout behavior.
     connect(auth, &AuthenticationService::loggedOut,
         [config]() {
-            config->clearJellyfinSession();
+            config->clearActiveConnection();
     });
     connect(auth, &AuthenticationService::loggedOut, this, [this]() {
+        if (m_libraryViewModel) {
+            m_libraryViewModel->clear();
+        }
         if (m_seriesDetailsViewModel) {
             m_seriesDetailsViewModel->clear();
         }
         if (m_movieDetailsViewModel) {
             m_movieDetailsViewModel->clear();
+        }
+        if (m_upNextRecommendationsViewModel) {
+            m_upNextRecommendationsViewModel->clear();
         }
     });
 

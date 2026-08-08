@@ -49,7 +49,11 @@ public:
                 || !query.includeItemTypes.isEmpty()
                 || query.watched != ProviderCatalogTriState::Any
                 || query.favorite != ProviderCatalogTriState::Any
-                || query.unwatchedOnly) {
+                || query.unwatchedOnly
+                || query.minPremiereDate.isValid() || query.maxPremiereDate.isValid()
+                || query.minDateLastSaved.isValid() || query.minCommunityRating > 0.0
+                || !query.sortBy.trimmed().isEmpty()
+                || !query.sortOrder.trimmed().isEmpty()) {
                 return unsupported(QStringLiteral(
                     "Silo similar recommendations support only content_id and limit"));
             }
@@ -111,6 +115,23 @@ public:
         if (operation == ProviderCatalogOperation::ThemeSongs) {
             ProviderCatalogResponse response;
             response.error = themeSongsUnsupportedReason();
+            return response;
+        }
+
+        // The native numeric-season detail endpoint returns {"season": {...}},
+        // unlike the Items operation's array/envelope responses. Parse that
+        // envelope as an item even when the request originated as Items.
+        const QJsonDocument document = QJsonDocument::fromJson(body);
+        if (document.isObject()
+            && document.object().value(QStringLiteral("season")).isObject()) {
+            ProviderCatalogResponse response = SiloModelMapper::catalogResponse(
+                ProviderCatalogOperation::Item, body, responseHeaders);
+            if (response.valid) {
+                response.rawItem =
+                    document.object().value(QStringLiteral("season")).toObject();
+                response.capabilityMetadata.insert(
+                    QStringLiteral("envelope"), QStringLiteral("season"));
+            }
             return response;
         }
         return SiloModelMapper::catalogResponse(operation, body, responseHeaders);
@@ -282,9 +303,10 @@ private:
             return QStringLiteral("Silo premiere-date range is reversed");
         }
         if (!std::isfinite(query.minCommunityRating)
-            || query.minCommunityRating < 0.0) {
+            || query.minCommunityRating < 0.0
+            || query.minCommunityRating > 10.0) {
             return QStringLiteral(
-                "Silo minimum community rating must be finite and non-negative");
+                "Silo minimum community rating must be finite and between zero and ten");
         }
         if (query.watched == ProviderCatalogTriState::Yes && query.unwatchedOnly) {
             return QStringLiteral("Conflicting watched and unwatched filters");
@@ -548,19 +570,31 @@ private:
                 return unsupported(QStringLiteral(
                     "Silo hierarchy routes do not support catalog filters or pagination"));
             }
+            const QString parent = query.parentId.trimmed();
             if (!query.includeItemTypes.isEmpty()) {
-                const QString expectedType = query.parentId.trimmed().isEmpty()
-                    ? QStringLiteral("season") : QStringLiteral("episode");
+                const QString expectedType = parent.isEmpty()
+                    ? QStringLiteral("season")
+                    : QStringLiteral("episode");
                 if (query.includeItemTypes.size() != 1
-                    || normalizedItemType(query.includeItemTypes.first())
-                        != expectedType) {
+                    || normalizedItemType(query.includeItemTypes.first()) != expectedType) {
                     return unsupported(QStringLiteral(
                         "Silo hierarchy item type does not match the requested resource"));
                 }
             }
-            if (!query.parentId.trimmed().isEmpty()) {
+            if (!parent.isEmpty()) {
+                bool seasonNumberOk = false;
+                const int seasonNumber = parent.toInt(&seasonNumberOk);
+                if (seasonNumberOk && seasonNumber >= 0) {
+                    const QString route = query.includeItemTypes.isEmpty()
+                        || normalizedItemType(query.includeItemTypes.first())
+                               == QStringLiteral("season")
+                        ? QStringLiteral("/api/v1/catalog/series/%1/seasons/%2")
+                        : QStringLiteral("/api/v1/catalog/series/%1/seasons/%2/episodes");
+                    return get(
+                        route.arg(encodedId(query.seriesId), QString::number(seasonNumber)));
+                }
                 return getWithContentId(QStringLiteral("/api/v1/catalog/items/%1/episodes"),
-                                        query.parentId);
+                                        parent);
             }
             return getWithContentId(QStringLiteral("/api/v1/catalog/series/%1/seasons"),
                                     query.seriesId);
@@ -587,7 +621,6 @@ private:
         }
         return createCatalogRequest(query, true);
     }
-
     static bool hasCatalogModifiers(const ProviderCatalogQuery &query)
     {
         return query.startIndex != 0 || query.limit > 0
@@ -597,6 +630,7 @@ private:
             || query.minPremiereDate.isValid() || query.maxPremiereDate.isValid()
             || query.minDateLastSaved.isValid() || query.minCommunityRating > 0.0
             || !query.years.isEmpty() || !query.sortBy.trimmed().isEmpty()
+            || !query.sortOrder.trimmed().isEmpty() || query.recursive
             || !query.includeItemTypes.isEmpty()
             || !query.seriesId.trimmed().isEmpty()
             || !query.excludeItemId.trimmed().isEmpty()
@@ -615,6 +649,7 @@ private:
             || query.minPremiereDate.isValid() || query.maxPremiereDate.isValid()
             || query.minDateLastSaved.isValid() || query.minCommunityRating > 0.0
             || !query.years.isEmpty() || !query.sortBy.trimmed().isEmpty()
+            || !query.sortOrder.trimmed().isEmpty() || query.recursive
             || query.watched != ProviderCatalogTriState::Any
             || query.favorite != ProviderCatalogTriState::Any || query.unwatchedOnly;
     }
@@ -625,6 +660,10 @@ private:
         const QString error = validationError(query);
         if (!error.isEmpty()) {
             return unsupported(error);
+        }
+        if (query.recursive) {
+            return unsupported(QStringLiteral(
+                "Silo catalog does not expose a recursive-scope switch"));
         }
 
         bool libraryIdOk = true;
