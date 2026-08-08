@@ -24,9 +24,10 @@ sed -i \
   .env
 set -e fixture_secret
 set -x SILO_IMAGE ghcr.io/silo-server/silo-server@sha256:944ee9821de1d6a61876c9b7b06daa358118163d1e5f9b3aa9f5437856fd06e9
-mkdir -p .contract-data
 docker compose up -d
 curl --fail --silent http://127.0.0.1:8090/api/v1/health | jq
+cd /path/to/Bloom
+mkdir -p .contract-data
 ```
 
 The stable Linux policy is unchanged: Wayland defaults to `external-mpv-ipc`; embedded libmpv is validation-only and unsupported embedded conditions must fall back to `external-mpv-ipc`. The offscreen smoke below verifies startup/version reporting, not embedded playback or hardware acceleration.
