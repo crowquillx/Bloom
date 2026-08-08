@@ -162,6 +162,8 @@ private slots:
     void requestFactoryBuildsNativeHeadersAndRedactsSecrets();
     void authenticationEndpointsNeverReceiveBearerAuthentication();
     void authenticatorBuildsAndParsesLoginAndRefreshContracts();
+    void explicitSiloSelectionDoesNotBecomeAuthProvider();
+    void completionPublishesIdentityBeforeAuthenticatedState();
     void authenticatorRejectsMalformedAndIncompleteResponses();
     void adapterMapsProfilesAndRevokedAuthenticationSessions();
     void adapterExposesProfileAndSessionRoutes();
@@ -328,6 +330,65 @@ void SiloAuthenticationTest::authenticatorBuildsAndParsesLoginAndRefreshContract
     QCOMPARE(refreshResult.accessToken, QStringLiteral("access-2"));
     QCOMPARE(refreshResult.refreshToken, QStringLiteral("refresh-2"));
     QCOMPARE(refreshResult.expiresInSeconds, 1800);
+}
+
+void SiloAuthenticationTest::explicitSiloSelectionDoesNotBecomeAuthProvider()
+{
+    FakeNetworkAccessManager manager;
+    manager.responses = {
+        response(200, successfulLogin()),
+        response(200, singleUnlockedProfile())
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+
+    service.setProviderSelection(QStringLiteral("silo"));
+    service.authenticate(QStringLiteral("https://silo.example.test"),
+                         QStringLiteral("Alice"),
+                         QStringLiteral("password"));
+
+    QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
+    QVERIFY(!manager.requests.isEmpty());
+    const QJsonObject body =
+        QJsonDocument::fromJson(manager.requests.constFirst().body).object();
+    QCOMPARE(body.value(QStringLiteral("username")).toString(),
+             QStringLiteral("Alice"));
+    QCOMPARE(body.value(QStringLiteral("password")).toString(),
+             QStringLiteral("password"));
+    QVERIFY(!body.contains(QStringLiteral("provider")));
+}
+
+void SiloAuthenticationTest::completionPublishesIdentityBeforeAuthenticatedState()
+{
+    FakeNetworkAccessManager manager;
+    manager.responses = {
+        response(200, successfulLogin()),
+        response(200, singleUnlockedProfile())
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+
+    bool identityPublished = false;
+    bool authenticatedBeforeIdentity = false;
+    connect(&service, &AuthenticationService::userIdChanged,
+            this, [&identityPublished]() { identityPublished = true; });
+    connect(&service, &AuthenticationService::authenticatedChanged,
+            this, [&]() {
+        if (service.isAuthenticated() && !identityPublished) {
+            authenticatedBeforeIdentity = true;
+        }
+    });
+
+    service.setProviderSelection(QStringLiteral("silo"));
+    service.authenticate(QStringLiteral("https://silo.example.test"),
+                         QStringLiteral("Alice"),
+                         QStringLiteral("password"));
+
+    QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
+    QVERIFY(identityPublished);
+    QVERIFY(!authenticatedBeforeIdentity);
 }
 
 void SiloAuthenticationTest::authenticatorRejectsMalformedAndIncompleteResponses()

@@ -214,7 +214,7 @@ FocusScope {
         Item {
             Layout.fillWidth: !alignRight && !alignCenter
             Layout.alignment: logoSection.layoutAlignment
-            Layout.preferredWidth: alignRight || alignCenter ? Theme.seriesLogoMaxWidth : undefined
+            Layout.preferredWidth: alignRight || alignCenter ? Theme.seriesLogoMaxWidth : -1
             Layout.preferredHeight: heroLogoImage.visible && heroLogoImage.status !== Image.Error
                                     ? heroLogoImage.height
                                     : titleFallback.visible

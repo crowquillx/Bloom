@@ -564,9 +564,7 @@ void AuthenticationService::performLogin(const QString &username,
         return;
     }
     const ProviderAuthenticationRequest authenticationRequest =
-        m_providerAuthenticator->createLoginRequest(
-            username, password,
-            m_providerSelection == QStringLiteral("auto") ? QString() : m_providerSelection);
+        m_providerAuthenticator->createLoginRequest(username, password);
     if (!authenticationRequest.isValid()) {
         emit loginError(tr("The provider cannot create a login request."));
         return;
@@ -743,9 +741,12 @@ void AuthenticationService::finishAuthentication()
     }
     m_sessionExpiredPending = false;
     m_sessionExpiredEmitted = false;
-    updateAuthenticationStep(QStringLiteral("authenticated"));
+    // Publish identity changes before authenticatedChanged. Main.qml navigates
+    // on that transition and may start catalog requests immediately; emitting
+    // userIdChanged afterward would cancel those fresh requests.
     emit serverUrlChanged();
     emit userIdChanged();
+    updateAuthenticationStep(QStringLiteral("authenticated"));
     emit loginSuccess(m_userId, m_accessToken, m_username);
 }
 

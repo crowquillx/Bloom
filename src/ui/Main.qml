@@ -11,7 +11,109 @@ Window {
     visible: false
     title: "Bloom"
     color: Theme.backgroundPrimary
+    property var homeNavigationSource: null
     
+    function handleHomeNavigateToLibrary(libraryId, libraryName) {
+        playPointerSelectSound()
+        stackView.push("LibraryScreen.qml", {
+            currentParentId: libraryId,
+            currentLibraryId: libraryId,
+            currentLibraryName: libraryName
+        })
+    }
+
+    function handleHomeNavigateToMovie(movieData, libraryId, libraryName) {
+        playPointerSelectSound()
+        stackView.push("LibraryScreen.qml", {
+            currentParentId: libraryId,
+            currentLibraryId: libraryId,
+            currentLibraryName: libraryName,
+            directNavigationMode: true,
+            returnToHomeOnDirectBack: true
+        })
+        Qt.callLater(function() {
+            var screen = stackView.currentItem
+            if (screen && typeof screen["showMovieDetailsView"] === "function") {
+                screen["showMovieDetailsView"](movieData)
+            }
+        })
+    }
+
+    function handleHomeNavigateToEpisode(episodeData, seriesId, libraryId, libraryName) {
+        playPointerSelectSound()
+        stackView.push("LibraryScreen.qml", {
+            currentParentId: libraryId,
+            currentLibraryId: libraryId,
+            currentLibraryName: libraryName,
+            currentSeriesId: seriesId,
+            directNavigationMode: true,
+            returnToHomeOnDirectBack: true
+        })
+        LibraryService.getSeriesDetails(seriesId)
+        Qt.callLater(function() {
+            var screen = stackView.currentItem
+            if (screen && typeof screen["showEpisodeDetails"] === "function") {
+                screen["showEpisodeDetails"](episodeData)
+            }
+        })
+    }
+
+    function handleHomeNavigateToSeason(seasonId, seasonNumber, seriesId, libraryId, libraryName) {
+        playPointerSelectSound()
+        stackView.push("LibraryScreen.qml", {
+            currentParentId: libraryId,
+            currentLibraryId: libraryId,
+            currentLibraryName: libraryName,
+            currentSeriesId: seriesId,
+            currentSeasonId: seasonId,
+            currentSeasonNumber: seasonNumber,
+            showSeasonView: true,
+            directNavigationMode: true,
+            returnToHomeOnDirectBack: true
+        })
+        LibraryService.getSeriesDetails(seriesId)
+        SeriesDetailsViewModel.loadSeasonEpisodes(seasonId)
+    }
+
+    function handleHomeNavigateToSeries(seriesId, libraryId, libraryName) {
+        playPointerSelectSound()
+        stackView.push("LibraryScreen.qml", {
+            currentParentId: libraryId,
+            currentLibraryId: libraryId,
+            currentLibraryName: libraryName,
+            currentSeriesId: seriesId,
+            showSeriesDetails: true,
+            directNavigationMode: true,
+            returnToHomeOnDirectBack: true
+        })
+        LibraryService.getSeriesDetails(seriesId)
+        LibraryService.getItems(seriesId, 0, 0)
+        LibraryService.getNextUnplayedEpisode(seriesId)
+    }
+
+    Connections {
+        target: window.homeNavigationSource
+        enabled: target !== null
+
+        function onNavigateToLibrary(libraryId, libraryName) {
+            window.handleHomeNavigateToLibrary(libraryId, libraryName)
+        }
+        function onNavigateToMovie(movieData, libraryId, libraryName) {
+            window.handleHomeNavigateToMovie(movieData, libraryId, libraryName)
+        }
+        function onNavigateToEpisode(episodeData, seriesId, libraryId, libraryName) {
+            window.handleHomeNavigateToEpisode(
+                        episodeData, seriesId, libraryId, libraryName)
+        }
+        function onNavigateToSeason(seasonId, seasonNumber, seriesId, libraryId, libraryName) {
+            window.handleHomeNavigateToSeason(
+                        seasonId, seasonNumber, seriesId, libraryId, libraryName)
+        }
+        function onNavigateToSeries(seriesId, libraryId, libraryName) {
+            window.handleHomeNavigateToSeries(seriesId, libraryId, libraryName)
+        }
+    }
+
     function navigateToAuthenticatedHome(userId, accessToken, username) {
             window.pendingAuthenticatedNavigation = true
             if (AuthenticationService.authenticationStep !== "authenticated"
@@ -29,94 +131,7 @@ Window {
             var homeScreen = stackView.replace("HomeScreen.qml")
             if (homeScreen) {
                 console.log("Main.qml: homeScreen is valid, connecting signals...")
-                // Connect navigateToLibrary signal
-                homeScreen.navigateToLibrary.connect(function(libraryId, libraryName) {
-                    playPointerSelectSound()
-                    stackView.push("LibraryScreen.qml", {
-                        currentParentId: libraryId,
-                        currentLibraryId: libraryId,
-                        currentLibraryName: libraryName
-                    })
-                })
-                
-                // Connect navigateToMovie signal - show movie details view
-                homeScreen.navigateToMovie.connect(function(movieData, libraryId, libraryName) {
-                    playPointerSelectSound()
-                    stackView.push("LibraryScreen.qml", {
-                        currentParentId: libraryId,
-                        currentLibraryId: libraryId,
-                        currentLibraryName: libraryName,
-                        directNavigationMode: true,
-                        returnToHomeOnDirectBack: true
-                    })
-                    // Defer calling showMovieDetailsView until screen is ready
-                    Qt.callLater(function() {
-                        var screen = stackView.currentItem
-                        if (screen && typeof screen["showMovieDetailsView"] === "function") {
-                            screen["showMovieDetailsView"](movieData)
-                        }
-                    })
-                })
-                
-                // Connect navigateToEpisode signal - show episode view
-                homeScreen.navigateToEpisode.connect(function(episodeData, seriesId, libraryId, libraryName) {
-                    playPointerSelectSound()
-                    stackView.push("LibraryScreen.qml", {
-                        currentParentId: libraryId,
-                        currentLibraryId: libraryId,
-                        currentLibraryName: libraryName,
-                        currentSeriesId: seriesId,
-                        directNavigationMode: true,
-                        returnToHomeOnDirectBack: true
-                    })
-                    // Need to load series details first for context, then show episode
-                    LibraryService.getSeriesDetails(seriesId)
-                    // Defer calling showEpisodeDetails until screen is ready
-                    Qt.callLater(function() {
-                        var screen = stackView.currentItem
-                        if (screen && typeof screen["showEpisodeDetails"] === "function") {
-                            screen["showEpisodeDetails"](episodeData)
-                        }
-                    })
-                })
-                
-                // Connect navigateToSeason signal - show season view
-                homeScreen.navigateToSeason.connect(function(seasonId, seasonNumber, seriesId, libraryId, libraryName) {
-                    playPointerSelectSound()
-                    stackView.push("LibraryScreen.qml", {
-                        currentParentId: libraryId,
-                        currentLibraryId: libraryId,
-                        currentLibraryName: libraryName,
-                        currentSeriesId: seriesId,
-                        currentSeasonId: seasonId,
-                        currentSeasonNumber: seasonNumber,
-                        showSeasonView: true,
-                        directNavigationMode: true,
-                        returnToHomeOnDirectBack: true
-                    })
-                    // Load series details for logo/poster context
-                    LibraryService.getSeriesDetails(seriesId)
-                    // Load season episodes
-                    SeriesDetailsViewModel.loadSeasonEpisodes(seasonId)
-                })
-                
-                // Connect navigateToSeries signal - show series details view
-                homeScreen.navigateToSeries.connect(function(seriesId, libraryId, libraryName) {
-                    playPointerSelectSound()
-                    stackView.push("LibraryScreen.qml", {
-                        currentParentId: libraryId,
-                        currentLibraryId: libraryId,
-                        currentLibraryName: libraryName,
-                        currentSeriesId: seriesId,
-                        showSeriesDetails: true,
-                        directNavigationMode: true,
-                        returnToHomeOnDirectBack: true
-                    })
-                    // Load series details, seasons, and next episode
-                    LibraryService.getSeriesDetails(seriesId)
-                    LibraryService.getItems(seriesId, 0, 0)  // Load seasons
-                    LibraryService.getNextUnplayedEpisode(seriesId)
-                })
+                window.homeNavigationSource = homeScreen
             }
             updateSidebarNavigation()
 
@@ -251,6 +266,7 @@ Window {
         pendingAuthenticatedNavigation = false
         sidebarProxy.close()
         isLoggedIn = false
+        homeNavigationSource = null
 
         var current = stackView.currentItem
         if (!current || current.objectName !== "loginScreen") {
