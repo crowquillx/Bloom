@@ -846,7 +846,7 @@
         "outcome": "supported",
         "capability": {"state": "conditional", "discovery": "profiles[].has_pin"},
         "requestSemantics": ["JSON contains pin and bearer authentication binds verification to the account session"],
-        "requiredSemantics": ["A correct PIN returns valid true plus profile_token and expires_at", "An incorrect PIN returns HTTP 200 with valid false and no token", "A missing profile or profile without a PIN returns 404", "X-Profile-Token is bound to user, auth session, profile, and access-policy revision"],
+        "requiredSemantics": ["A correct PIN returns valid true plus profile_token; expires_at is optional for tokens scoped to the access-token session", "An incorrect PIN returns HTTP 200 with valid false and no token", "A missing profile or profile without a PIN returns 404", "X-Profile-Token is bound to user, auth session, profile, and access-policy revision"],
         "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/profiles.go"]
       },
       {

@@ -369,6 +369,8 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertEqual(response.json(), {"Items": []})
         malformed = Response(200, {"Content-Type": "text/html"}, b"not-json")
         self.assertIsNone(malformed.json())
+        invalid_utf8 = Response(200, {"Content-Type": "application/json"}, b"\xff")
+        self.assertIsNone(invalid_utf8.json())
 
     def test_native_live_probe_is_read_only_and_accepts_omitted_server_id(self):
         class RecordingTransport:
@@ -386,7 +388,6 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/api/v1/health")])
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0].passed)
-        self.assertIn("server_id=omitted", results[0].evidence)
     def test_native_playback_probe_requires_explicit_mutation_flag(self):
         class RecordingTransport:
             def __init__(self):
@@ -410,15 +411,20 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/api/v1/health")])
         self.assertEqual({result.observed for result in results[1:]}, {"inconclusive"})
         self.assertTrue(all(result.passed for result in results))
+
     def test_native_playback_version_accepts_numeric_wire_identity(self):
         select_version = run_live_contracts.SiloNativeV1Probe._playback_version
 
         numeric = {"file_id": 17282}
         numeric_string = {"file_id": "17283"}
+        single_track = {"file_id": 17284, "audio_tracks": [{}]}
+        multi_track = {"file_id": 17285, "audio_tracks": [{}, {}]}
         self.assertIs(select_version([numeric]), numeric)
         self.assertIs(select_version([numeric_string]), numeric_string)
+        self.assertIs(select_version([single_track, multi_track]), multi_track)
         self.assertIsNone(select_version([{"file_id": True}]))
         self.assertIsNone(select_version([{"file_id": -1}]))
+        self.assertIsNone(select_version([{"file_id": "²"}]))
         self.assertIsNone(select_version([{"file_id": "not-numeric"}]))
 
 

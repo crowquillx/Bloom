@@ -28,7 +28,7 @@ class Response:
             return None
         try:
             return json.loads(self.body)
-        except json.JSONDecodeError:
+        except (UnicodeDecodeError, json.JSONDecodeError):
             return None
 
 
@@ -657,24 +657,32 @@ class SiloNativeV1Probe:
     def _playback_version(versions: Any):
         if not isinstance(versions, list):
             return None
+
+        candidates = [
+            version
+            for version in versions
+            if isinstance(version, dict)
+            and (
+                (
+                    isinstance(version.get("file_id"), int)
+                    and not isinstance(version.get("file_id"), bool)
+                    and version["file_id"] >= 0
+                )
+                or (
+                    isinstance(version.get("file_id"), str)
+                    and version["file_id"].isascii()
+                    and version["file_id"].isdecimal()
+                )
+            )
+        ]
         return next(
             (
                 version
-                for version in versions
-                if isinstance(version, dict)
-                and (
-                    (
-                        isinstance(version.get("file_id"), int)
-                        and not isinstance(version.get("file_id"), bool)
-                        and version["file_id"] >= 0
-                    )
-                    or (
-                        isinstance(version.get("file_id"), str)
-                        and version["file_id"].isdigit()
-                    )
-                )
+                for version in candidates
+                if isinstance(version.get("audio_tracks"), list)
+                and len(version["audio_tracks"]) > 1
             ),
-            None,
+            candidates[0] if candidates else None,
         )
 
     def _record(self, results: list[ProbeResult], expected: dict[str, str], contract: str, observed: str, evidence: str):
@@ -1070,30 +1078,53 @@ class SiloNativeV1Probe:
                 watched_path = (
                     f"/api/v1/watched/{urllib.parse.quote(detail_id, safe='')}"
                 )
-                watched_mutation = self.request(
-                    watched_method,
-                    watched_path,
-                    **scoped,
-                )
-                watched_payload = self._object(watched_mutation.json())
-                watched_detail = self.request("GET", detail_path, **scoped)
-                watched_detail_state = self._object(
-                    self._object(watched_detail.json()).get("user_state")
-                )
-                watched_restore = self.request(
-                    watched_restore_method,
-                    watched_path,
-                    **scoped,
-                )
-                watched_restored_detail = self.request("GET", detail_path, **scoped)
-                watched_restored_state = self._object(
-                    self._object(watched_restored_detail.json()).get("user_state")
-                )
+                watched_mutation = Response(0, {}, b"")
+                watched_payload: dict[str, Any] = {}
+                watched_detail = Response(0, {}, b"")
+                watched_detail_state: dict[str, Any] = {}
+                watched_restore = Response(0, {}, b"")
+                watched_restored_detail = Response(0, {}, b"")
+                watched_restored_state: dict[str, Any] = {}
+                watched_error = ""
+                try:
+                    watched_mutation = self.request(
+                        watched_method,
+                        watched_path,
+                        **scoped,
+                    )
+                    watched_payload = self._object(watched_mutation.json())
+                    watched_detail = self.request("GET", detail_path, **scoped)
+                    watched_detail_state = self._object(
+                        self._object(watched_detail.json()).get("user_state")
+                    )
+                except Exception as error:
+                    watched_error = type(error).__name__
+                finally:
+                    try:
+                        watched_restore = self.request(
+                            watched_restore_method,
+                            watched_path,
+                            **scoped,
+                        )
+                        watched_restored_detail = self.request(
+                            "GET",
+                            detail_path,
+                            **scoped,
+                        )
+                        watched_restored_state = self._object(
+                            self._object(watched_restored_detail.json()).get("user_state")
+                        )
+                    except Exception as error:
+                        watched_error = watched_error or type(error).__name__
+
+                affected_count = watched_payload.get("affected_count")
                 watched_ok = (
-                    watched_mutation.status == 200
+                    not watched_error
+                    and watched_mutation.status == 200
                     and watched_payload.get("content_id") == detail_id
                     and self._non_empty_string(watched_payload.get("type"))
-                    and isinstance(watched_payload.get("affected_count"), int)
+                    and isinstance(affected_count, int)
+                    and not isinstance(affected_count, bool)
                     and watched_payload.get("played") is target_played
                     and watched_detail.status == 200
                     and watched_detail_state.get("played") is target_played
@@ -1106,10 +1137,12 @@ class SiloNativeV1Probe:
                     expected,
                     "native.state.watched",
                     "supported" if watched_ok else "partial",
-                    "watched mutation/detail/restore statuses="
+                    "watched mutation/detail/reset statuses="
                     f"{watched_mutation.status}/{watched_detail.status}/"
                     f"{watched_restore.status}/{watched_restored_detail.status}; "
-                    f"state round-trip restored={watched_ok}",
+                    "observable played state returned to baseline="
+                    f"{watched_restored_state.get('played') is original_played}; "
+                    f"error={watched_error or 'none'}",
                 )
             else:
                 self._record(
@@ -1128,28 +1161,56 @@ class SiloNativeV1Probe:
                 favorite_path = (
                     f"/api/v1/favorites/{urllib.parse.quote(detail_id, safe='')}"
                 )
-                favorite_mutation = self.request(
-                    favorite_method,
-                    favorite_path,
-                    **scoped,
-                )
-                favorite_probe = self.request("GET", favorite_path, **scoped)
-                favorite_detail = self.request("GET", detail_path, **scoped)
-                favorite_detail_state = self._object(
-                    self._object(favorite_detail.json()).get("user_state")
-                )
-                favorite_restore = self.request(
-                    favorite_restore_method,
-                    favorite_path,
-                    **scoped,
-                )
-                favorite_restored_probe = self.request("GET", favorite_path, **scoped)
-                favorite_restored_detail = self.request("GET", detail_path, **scoped)
-                favorite_restored_state = self._object(
-                    self._object(favorite_restored_detail.json()).get("user_state")
-                )
+                favorite_mutation = Response(0, {}, b"")
+                favorite_probe = Response(0, {}, b"")
+                favorite_detail = Response(0, {}, b"")
+                favorite_detail_state: dict[str, Any] = {}
+                favorite_restore = Response(0, {}, b"")
+                favorite_restored_probe = Response(0, {}, b"")
+                favorite_restored_detail = Response(0, {}, b"")
+                favorite_restored_state: dict[str, Any] = {}
+                favorite_error = ""
+                try:
+                    favorite_mutation = self.request(
+                        favorite_method,
+                        favorite_path,
+                        **scoped,
+                    )
+                    favorite_probe = self.request("GET", favorite_path, **scoped)
+                    favorite_detail = self.request("GET", detail_path, **scoped)
+                    favorite_detail_state = self._object(
+                        self._object(favorite_detail.json()).get("user_state")
+                    )
+                except Exception as error:
+                    favorite_error = type(error).__name__
+                finally:
+                    try:
+                        favorite_restore = self.request(
+                            favorite_restore_method,
+                            favorite_path,
+                            **scoped,
+                        )
+                        favorite_restored_probe = self.request(
+                            "GET",
+                            favorite_path,
+                            **scoped,
+                        )
+                        favorite_restored_detail = self.request(
+                            "GET",
+                            detail_path,
+                            **scoped,
+                        )
+                        favorite_restored_state = self._object(
+                            self._object(favorite_restored_detail.json()).get(
+                                "user_state"
+                            )
+                        )
+                    except Exception as error:
+                        favorite_error = favorite_error or type(error).__name__
+
                 favorite_ok = (
-                    favorite_mutation.status == 204
+                    not favorite_error
+                    and favorite_mutation.status == 204
                     and favorite_probe.status == (204 if target_favorite else 404)
                     and favorite_detail.status == 200
                     and favorite_detail_state.get("is_favorite") is target_favorite
@@ -1164,11 +1225,13 @@ class SiloNativeV1Probe:
                     expected,
                     "native.state.favorite",
                     "supported" if favorite_ok else "partial",
-                    "favorite mutation/probe/detail/restore statuses="
+                    "favorite mutation/probe/detail/reset statuses="
                     f"{favorite_mutation.status}/{favorite_probe.status}/"
                     f"{favorite_detail.status}/{favorite_restore.status}/"
                     f"{favorite_restored_probe.status}/{favorite_restored_detail.status}; "
-                    f"state round-trip restored={favorite_ok}",
+                    "observable favorite state returned to baseline="
+                    f"{favorite_restored_state.get('is_favorite') is original_favorite}; "
+                    f"error={favorite_error or 'none'}",
                 )
             else:
                 self._record(
