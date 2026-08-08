@@ -57,6 +57,105 @@ class ProviderContractValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "missing contracts"):
             validate_contract_data(data)
 
+    def test_issue_80_rows_cover_scope_and_canonical_outcomes(self):
+        expected_ids = {
+            "artwork.standard",
+            "artwork.chapter",
+            "playback.additional-parts",
+            "playback.trickplay",
+            "playback.report",
+            "segments.plugin-intro-skipper",
+            "segments.standard",
+            "sessions.list",
+            "sessions.revoke",
+            "metadata.theme-songs",
+            "catalog.recommendations",
+            "catalog.server-sections",
+            "playback.versions",
+            "playback.multipart-reporting",
+            "sessions.auth-playback-separation",
+            "preferences.profile-track-local",
+            "optional.household-overview",
+            "optional.watchlist",
+            "optional.watch-together",
+            "optional.requests",
+            "optional.notifications",
+            "optional.downloads",
+            "optional.audiobooks",
+            "optional.ebooks",
+        }
+        rows = [contract for contract in self.valid_data["contracts"] if contract.get("issue") == 80]
+        self.assertEqual({row["id"] for row in rows}, expected_ids)
+        self.assertTrue(expected_ids.issubset(set(self.valid_data["coverageRequirements"])))
+
+        deployments = {"jellyfin-supported", "silo-8044eb8-compat"}
+        observed_outcomes = set()
+        for row in rows:
+            self.assertEqual(set(row["expectations"]), deployments, row["id"])
+            self.assertTrue(row["requestSemantics"], row["id"])
+            self.assertTrue(row["requiredSemantics"], row["id"])
+            for expectation in row["expectations"].values():
+                outcome = expectation["outcome"]
+                self.assertIn(outcome, self.valid_data["outcomes"])
+                observed_outcomes.add(outcome)
+        self.assertTrue(
+            {"supported", "partial", "missing", "not-applicable"}.issubset(observed_outcomes)
+        )
+
+        optional_rows = [row for row in rows if row["journey"] == "optional-follow-up"]
+        self.assertEqual(len(optional_rows), 8)
+        for row in optional_rows:
+            self.assertTrue(
+                all(
+                    expectation["outcome"] == "not-applicable"
+                    for expectation in row["expectations"].values()
+                ),
+                row["id"],
+            )
+
+    def test_canonical_unavailable_and_out_of_scope_labels_are_not_supported(self):
+        labels = self.valid_data["outcomes"]
+        self.assertIn("missing", labels)
+        self.assertIn("not-applicable", labels)
+        self.assertIn("unavailable", labels["missing"].lower())
+        self.assertIn("out-of-scope", labels["not-applicable"].lower())
+        rows = {row["id"]: row for row in self.valid_data["contracts"]}
+        compat_missing = {
+            "artwork.chapter",
+            "playback.additional-parts",
+            "playback.trickplay",
+            "segments.plugin-intro-skipper",
+            "sessions.revoke",
+            "catalog.recommendations",
+            "playback.versions",
+            "playback.multipart-reporting",
+            "sessions.auth-playback-separation",
+        }
+        for contract_id in compat_missing:
+            self.assertEqual(
+                rows[contract_id]["expectations"]["silo-8044eb8-compat"]["outcome"],
+                "missing",
+                contract_id,
+            )
+
+        for contract_id in (
+            "optional.household-overview",
+            "optional.watchlist",
+            "optional.watch-together",
+            "optional.requests",
+            "optional.notifications",
+            "optional.downloads",
+            "optional.audiobooks",
+            "optional.ebooks",
+        ):
+            self.assertTrue(
+                all(
+                    expectation["outcome"] == "not-applicable"
+                    for expectation in rows[contract_id]["expectations"].values()
+                ),
+                contract_id,
+            )
+
     def test_rejects_non_object_native_detection(self):
         data = copy.deepcopy(self.valid_data)
         data["nativeSiloContract"]["detection"] = "present-but-invalid"

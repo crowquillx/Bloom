@@ -81,6 +81,7 @@ public:
     
     // Media Segments - Get intro/outro markers for skip functionality
     Q_INVOKABLE void getMediaSegments(const QString &itemId);
+    Q_INVOKABLE void getMediaSegments(const QString &itemId, const QString &fileId);
     
     // Trickplay - Get thumbnail tile information for seek preview
     Q_INVOKABLE void getTrickplayInfo(const QString &itemId);

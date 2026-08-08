@@ -163,7 +163,7 @@ Track Preference Persistence
 - When navigating to a new episode in the same season, explicit preferences and subtitle delay are restored. If track preferences are missing or invalid for the new source, Bloom falls back through the standard resolution order.
 - Use `PlayerController.getLastAudioTrackForSeason(seasonId)` and `getLastSubtitleTrackForSeason(seasonId)` to retrieve.
 - Use `PlayerController.setExplicitSeasonAudioPreference(seasonId, index)` and `setExplicitSeasonSubtitlePreference(seasonId, index)` to save.
-- `SeriesSeasonEpisodeView` preloads Jellyfin chapter metadata for the highlighted episode and keeps a `Chapters` rail between `Episodes` and `Cast & Crew`; missing chapters resolve to a quiet reserved empty state.
+- `SeriesSeasonEpisodeView` preloads provider-neutral chapter metadata for the highlighted episode and keeps a `Chapters` rail between `Episodes` and `Cast & Crew`; missing chapters resolve to a quiet reserved empty state.
 - Activating a chapter card reuses the normal episode playback request, including track preference/version-prompt handling, and sets canonical `startPositionMs` so playback begins at the selected chapter.
 
 ### Movies (Per-Movie)
@@ -246,14 +246,14 @@ UI Components for Track Selection
   - Progress row: clickable seek track, current/total time labels, and keyboard seek via left/right.
   - Escape and controller B first dismiss visible playback chrome (full controls, seek preview, volume OSD, skip-intro popup, or open track/volume panels); a second press stops playback when the overlay is already hidden. The header back control exits playback immediately while controls are visible.
   - Trickplay preview bubble: renders processed Jellyfin trickplay thumbnails from `PlayerController` and is hidden entirely when trickplay images are unavailable.
-  - Chapter mode: `Down` enters a Jellyfin-backed horizontal chapter rail when the active item exposes `Chapters`; `Up` returns to transport controls and `Escape`/`Back` hides the overlay. `Left`/`Right` browse chapter cards, while `Enter`/`Space` seeks to the focused chapter and keeps the rail open until normal inactivity dismissal.
-  - Chapter cards use the item chapter thumbnail when Jellyfin provides usable chapter image metadata. Missing chapter artwork renders a neutral themed placeholder tile instead of reusing episode/poster artwork.
-  - Chapter thumbnail diagnostics are logged during playback chapter normalization: loaded chapter metadata, generated Jellyfin chapter-image URLs, and image-cache transport/decode failures. These logs are intended for server/client compatibility debugging when the rail falls back to placeholders.
+  - Chapter mode: `Down` enters a provider-backed horizontal chapter rail when the active item exposes `Chapters`; `Up` returns to transport controls and `Escape`/`Back` hides the overlay. `Left`/`Right` browse chapter cards, while `Enter`/`Space` seeks to the focused chapter and keeps the rail open until normal inactivity dismissal.
+  - Chapter cards use the active provider's chapter thumbnail when usable chapter image metadata is available. Missing chapter artwork renders a neutral themed placeholder tile instead of reusing episode/poster artwork.
+  - Chapter thumbnail diagnostics are logged during provider-neutral chapter normalization: loaded chapter metadata, generated provider image URLs, and image-cache transport/decode failures. These logs are intended for server/client compatibility debugging when the rail falls back to placeholders.
   - Intro/outro skip UX: transient "Skip Intro"/"Skip Credits" pop-up button auto-focuses when a segment window starts, then a compact persistent skip button remains available until that segment ends.
     - Popup timing is controlled by `ConfigManager.skipButtonAutoHideSeconds` (`settings.playback.skip_button_auto_hide_seconds`, range 0-120; 0 disables popup only). The popup is still dismissed as soon as the active intro/outro segment ends.
     - Optional automatic skip is controlled by `ConfigManager.autoSkipIntro` and `ConfigManager.autoSkipOutro`; each auto-skip applies at most once per playback item even if the user seeks back.
-    - Segment source precedence is Jellyfin server data first, then configured external providers. Server segments win per segment type; external providers may fill missing types such as recap, intro, credits, or preview.
-    - External provider order defaults to TheIntroDB then IntroDB. Reads are anonymous. TheIntroDB requires TMDB metadata; IntroDB requires series IMDb metadata plus season/episode numbers.
+    - Segment source precedence is provider-neutral: native Silo marker responses win per segment type; when Jellyfin is active, the optional Intro Skipper plugin is the server-marker source and wins per type. External providers are queried only after the active server response and may fill missing types such as recap, intro, credits, or preview.
+    - External provider order defaults to TheIntroDB then IntroDB. Reads are anonymous. TheIntroDB requires TMDB metadata; IntroDB requires series IMDb metadata plus season/episode.
 
 Playback overlay metadata
 - `PlayerController` exposes `overlayTitle`, `overlaySubtitle`, `overlayBackdropUrl`, and `overlayLogoUrl` for the native overlay (header, buffering card, and backdrop).

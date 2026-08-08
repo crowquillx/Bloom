@@ -125,8 +125,11 @@ public:
             return endpointWithId(QStringLiteral("/api/v1/watched/%1"),
                                   context.itemId);
         case ProviderRoute::MediaSegments:
-            return endpointWithId(QStringLiteral("/api/v1/markers/items/%1"),
-                                  context.itemId);
+            return context.fileId.isEmpty()
+                ? endpointWithId(QStringLiteral("/api/v1/markers/items/%1"),
+                                 context.itemId)
+                : endpointWithId(QStringLiteral("/api/v1/markers/files/%1"),
+                                 context.fileId);
         case ProviderRoute::PlaybackInfo:
             return endpointWithId(QStringLiteral("/api/v1/catalog/items/%1"),
                                   context.itemId);

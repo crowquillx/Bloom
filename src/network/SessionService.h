@@ -9,13 +9,11 @@ class AuthenticationService;
 class HttpTransport;
 
 /**
- * @brief Wraps Jellyfin /Sessions API for session management.
+ * @brief Presents the active provider's remotely managed sessions.
  *
- * Provides:
- * - Fetch active sessions from Jellyfin server
- * - Revoke specific sessions
- * - Revoke all other sessions (logout everywhere else)
- * - Detect self-session revocation
+ * Jellyfin exposes playback sessions through /Sessions. Providers that expose
+ * authentication sessions (currently Silo) are delegated to
+ * AuthenticationService so this class never probes Jellyfin routes for them.
  */
 class SessionService : public QObject
 {
@@ -24,6 +22,9 @@ class SessionService : public QObject
     Q_PROPERTY(bool isLoading READ isLoading NOTIFY isLoadingChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
     Q_PROPERTY(QString currentSessionId READ currentSessionId NOTIFY currentSessionIdChanged)
+    Q_PROPERTY(bool authenticationSessionMode READ authenticationSessionMode NOTIFY sessionTypeChanged)
+    Q_PROPERTY(QString sessionTypeLabel READ sessionTypeLabel NOTIFY sessionTypeChanged)
+    Q_PROPERTY(QString sessionTypeDescription READ sessionTypeDescription NOTIFY sessionTypeChanged)
 
 public:
     explicit SessionService(AuthenticationService *authService, QObject *parent = nullptr);
@@ -33,14 +34,18 @@ public:
     QString errorString() const { return m_errorString; }
     QString currentSessionId() const { return m_currentSessionId; }
 
+    bool authenticationSessionMode() const;
+    QString sessionTypeLabel() const;
+    QString sessionTypeDescription() const;
+
     /**
-     * @brief Fetch all active sessions from the Jellyfin server
+     * @brief Fetch provider-supported authentication or playback sessions.
      */
     Q_INVOKABLE void fetchActiveSessions();
 
     /**
-     * @brief Revoke a specific session by ID
-     * @param sessionId The session ID to revoke
+     * @brief Revoke a specific session by ID.
+     * @param sessionId The session ID to revoke.
      */
     Q_INVOKABLE void revokeSession(const QString &sessionId);
 
@@ -71,6 +76,7 @@ signals:
     void isLoadingChanged();
     void errorStringChanged();
     void currentSessionIdChanged();
+    void sessionTypeChanged();
     void sessionsLoaded();
     void sessionRevoked(QString sessionId);
     void allOtherSessionsRevoked(int count);
@@ -80,6 +86,7 @@ signals:
 private slots:
     void onFetchSessionsFinished(QNetworkReply *reply);
     void onRevokeSessionFinished(QNetworkReply *reply, QString sessionId);
+    void syncAuthenticationSessions();
 
 private:
     AuthenticationService *m_authService;
@@ -88,6 +95,9 @@ private:
     bool m_isLoading = false;
     QString m_errorString;
     QString m_currentSessionId;
+    bool m_authLoadPending = false;
+    QString m_pendingRevokeSessionId;
+    bool m_pendingRevokeWasCurrent = false;
     QString m_deviceId;
 
     void setIsLoading(bool loading);

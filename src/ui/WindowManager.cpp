@@ -18,10 +18,11 @@
 #include "viewmodels/MovieDetailsViewModel.h"
 #include "viewmodels/UpNextRecommendationsViewModel.h"
 #include "network/AuthenticationService.h"
+#include "network/SessionService.h"
+#include "network/SeerrService.h"
 #include "providers/ActiveArtworkProvider.h"
 #include "network/LibraryService.h"
 #include "network/PlaybackService.h"
-#include "network/SeerrService.h"
 #include "updates/UpdateService.h"
 #include "core/ServiceLocator.h"
 #include "config/version.h"
@@ -166,13 +167,12 @@ void WindowManager::exposeContextProperties(ApplicationInitializer& appInit)
     context->setContextProperty("UiSoundController", ServiceLocator::get<UiSoundController>());
     context->setContextProperty("ScreensaverController", ServiceLocator::get<ScreensaverController>());
     context->setContextProperty("SystemPowerController", ServiceLocator::get<SystemPowerController>());
-
     context->setContextProperty("AuthenticationService", ServiceLocator::get<AuthenticationService>());
+    context->setContextProperty("SessionService", ServiceLocator::get<SessionService>());
     context->setContextProperty("LibraryService", ServiceLocator::get<LibraryService>());
     context->setContextProperty("PlaybackService", ServiceLocator::get<PlaybackService>());
     context->setContextProperty("SeerrService", ServiceLocator::get<SeerrService>());
     context->setContextProperty("UpdateService", ServiceLocator::get<UpdateService>());
-
     // App metadata for QML
     context->setContextProperty("appVersion", QCoreApplication::applicationVersion());
     context->setContextProperty("qtVersion", QString(qVersion()));

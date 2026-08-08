@@ -3197,7 +3197,7 @@ void PlayerController::applyPlaybackSegment(int index, bool reportSegmentStart)
 
     const QString activeItemId = segment.value(QStringLiteral("itemId")).toString();
     if (!activeItemId.isEmpty()) {
-        m_playbackService->getMediaSegments(activeItemId);
+        m_playbackService->getMediaSegments(activeItemId, m_mediaSourceId);
         m_playbackService->getTrickplayInfo(activeItemId);
     }
 
@@ -3712,6 +3712,10 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_hasEvaluatedCompletionForAttempt = false;
         cancelPendingDisplayRestore(true);
         clearPlaybackSegments();
+        if (!m_mediaSourceId.isEmpty()) {
+            m_mediaSourceId.clear();
+            emit mediaSourceIdChanged();
+        }
         for (const QVariant &segment : requestedPlaybackSegments) {
             QVariantMap segmentMap = segment.toMap();
             segmentMap[QStringLiteral("playbackAttemptId")] =
@@ -3773,7 +3777,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         emit trickplayStateChanged();
         if (!itemId.isEmpty()) {
             m_libraryService->getChapters(itemId);
-            m_playbackService->getMediaSegments(itemId);
+            m_playbackService->getMediaSegments(itemId, m_mediaSourceId);
             m_playbackService->getTrickplayInfo(itemId);
         }
 

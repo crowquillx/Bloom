@@ -14,13 +14,13 @@ These labels describe a connection's protocol mode, not an application-wide prov
 
 Contract outcomes are:
 
-| Outcome | Meaning |
+| Matrix label | Meaning |
 |---|---|
 | `supported` | The required payload and observable behavior work. |
 | `partial` | The core journey works, but requested behavior or data is ignored or absent. |
 | `stubbed` | A route returns a success-shaped placeholder without the required behavior. |
-| `missing` | The route is absent or cannot provide fields Bloom needs. |
-| `not-applicable` | A deployment does not expose that protocol surface. |
+| `missing` | **Unavailable**: the route is absent or cannot provide fields Bloom needs. This is never a claim of support. |
+| `not-applicable` | **Intentionally out-of-scope**: Bloom does not claim this optional protocol surface in the pinned baseline. |
 
 ## Reproducible server pins
 
@@ -173,6 +173,17 @@ This is the human-readable summary. Exact call sites, required semantics, and ev
 | External subtitle `DeliveryUrl` | Partial in Bloom | Partial in Bloom | Servers can advertise it; Bloom currently drops the URL before playback. |
 | Conditional JSON `ETag`/`304` | Supported | Missing | Functional refresh, but no efficient not-modified path. |
 | Expired/revoked token returns `401` | Supported | Supported | Bloom centralizes catalog, playback, and remote-session expiry policy through the shared transport/session façade. |
+| Similar recommendations | Supported | Missing | Jellyfin's similar rail is consumed by Bloom; compatibility has no equivalent route and native Silo is a separate surface. |
+| Server home sections | Supported | Partial | Core library/latest/Next Up sections degrade safely; optional hero/backdrop/random/screensaver sections are unavailable on compatibility. |
+| Alternate versions | Supported | Missing | Jellyfin media sources are selectable; compatibility has no equivalent alternate-version contract. |
+| Multipart reporting | Supported | Missing | Jellyfin reports physical parts while preserving logical aggregate progress; compatibility cannot discover parts. |
+| Auth sessions versus playback sessions | Supported | Missing | Bloom keeps remote auth-session list/revoke separate from playback reports; compatibility list/revoke is stubbed or absent. |
+| Client-local profile track preferences | Supported | Partial | Explicit movie/season choices are local and provider-neutral, but compatibility lacks hierarchy and the file is connection-scoped rather than profile-scoped. |
+| Household overview, watchlist, watch together | Intentionally out-of-scope | Intentionally out-of-scope | These optional follow-ups are not claimed by the pinned Bloom contract; favorites and playback reports are not substitutes. |
+| Requests, notifications, downloads | Intentionally out-of-scope | Intentionally out-of-scope | Seerr requests are an external integration; no provider-native request, notification, or offline-download surface is implemented. |
+| Audiobooks and ebooks | Intentionally out-of-scope | Intentionally out-of-scope | Item type mapping is not audiobook/ebook UX or reader support. |
+
+The table uses human words for readability: **Missing** is the matrix's canonical `missing` (**unavailable**) outcome, while **Intentionally out-of-scope** is canonical `not-applicable`. Neither category is supported. A `stubbed` route (such as compatibility `GET /Sessions`) is recorded separately because a success-shaped placeholder is not an unavailable route.
 
 ### Meaningful assertions for live runs
 
@@ -207,7 +218,7 @@ The native baseline is source-grounded in Silo revision `8044eb84dd0cfa512ce8f24
 | Playback capability | Partial | Protocol v3 truthfully reports disabled state and runtime-probed transformations, but advertises `media3_only`; that is not an mpv capability and does not describe the legacy envelope. |
 | Legacy start/progress/stop | Supported | Omit `protocol_version: 3`; preserve session/file identity, seconds, opaque URLs, pause state, and teardown. |
 | Legacy transcode and audio switch | Partial/conditional | Start can return HLS/transcode and audio switch returns replacement URLs when policy/runtime permits; Bloom does not claim a standalone transcode route beyond the implemented native start/audio-switch paths. |
-| Markers and chapters | Supported when media/routes expose them | Markers cover intro, credits, recap, and preview with provenance; chapters are file-version scoped and use seconds plus optional opaque thumbnail URLs. |
+| Markers and chapters | Supported when media/routes expose them | Native markers cover intro, credits, recap, and preview with provenance; native chapters are file-version scoped, use seconds, and carry optional opaque thumbnail URLs. |
 | Native trickplay | Missing | No native metadata/tile route or capability is registered. Hide/degrade seek previews. |
 | Native media theme songs | Missing | `/api/v1/theme/*` is UI branding, not playable item theme media. Hide/degrade theme-song playback. |
 
@@ -247,7 +258,7 @@ GET  /api/v1/catalog/series/{id}/seasons/{number}
 GET  /api/v1/catalog/series/{id}/seasons/{number}/episodes
 ```
 
-Use `content_id` for catalog, detail, hierarchy, watched, and favorite identity. Preserve `file_id` for playback/version selection. Detail/version responses carry provider IDs, technical tracks, alternate editions, multipart `playback_variants`, marker ranges, and per-version chapters when data exists. Silo durations, progress, markers, and chapters use seconds; convert once at Bloom's adapter boundary.
+Use `content_id` for catalog, detail, hierarchy, watched, and favorite identity. Preserve `file_id` for playback/version and chapter selection. Detail/version responses carry provider IDs, technical tracks, alternate editions, multipart `playback_variants`, marker ranges, and per-version chapters when data exists. Silo durations, progress, markers, and chapters use seconds; Jellyfin ticks and chapter-image routes stay inside its adapter. Convert once at Bloom's provider boundary.
 
 GET `/catalog` supports snapshot-aware offset pagination and reports `total_exact`. POST `/catalog/query` is useful for structured filters but is not an equivalent paging capability at the pin: it omits snapshots and conservatively leaves `total_exact` false. The adapter must choose based on those explicit response capabilities rather than silently pretending a filter or count mode is stronger than it is.
 

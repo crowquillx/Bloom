@@ -8,6 +8,7 @@ FocusScope {
 
     signal requestReturnToRail()
     signal signOutRequested()
+    signal sessionsRequested()
 
     readonly property Item preferredEntryItem: autoUpdateCheckToggle
     property Item _lastFocusedItem: null
@@ -649,7 +650,8 @@ FocusScope {
                         }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
-                                signOutBtn.forceActiveFocus()
+                                (activeSessionsBtn.enabled
+                                    ? activeSessionsBtn : signOutBtn).forceActiveFocus()
                                 event.accepted = true
                             }
                         }
@@ -738,8 +740,59 @@ FocusScope {
                     label: qsTr("User")
                     value: ConfigManager.username || qsTr("Unknown")
                 }
+                // Session management is available for both providers, but the
+                // destination labels the provider-supported session type.
+                Button {
+                    id: activeSessionsBtn
+                    focusPolicy: Qt.StrongFocus
+                    enabled: typeof SessionService !== "undefined"
+                        && typeof AuthenticationService !== "undefined"
+                        && AuthenticationService.authenticated
+                    Layout.fillWidth: true
+                    onClicked: root.sessionsRequested()
+                    onActiveFocusChanged: {
+                        if (activeFocus) {
+                            root._lastFocusedItem = this
+                            flickable.ensureFocusVisible(this)
+                        }
+                    }
+                    Keys.onUpPressed: function(event) {
+                        logLevelCombo.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onDownPressed: function(event) {
+                        signOutBtn.forceActiveFocus()
+                        event.accepted = true
+                    }
+                    Keys.onReturnPressed: root.sessionsRequested()
+                    Keys.onEnterPressed: root.sessionsRequested()
+
+                    contentItem: Text {
+                        text: typeof SessionService !== "undefined"
+                            ? qsTr("Manage %1").arg(SessionService.sessionTypeLabel)
+                            : qsTr("Manage Sessions")
+                        font.pixelSize: Theme.fontSizeBody
+                        font.family: Theme.fontPrimary
+                        color: Theme.textPrimary
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+
+                    background: Rectangle {
+                        implicitHeight: Theme.buttonHeightSmall
+                        radius: Theme.radiusSmall
+                        color: activeSessionsBtn.activeFocus || activeSessionsBtn.hovered
+                            ? Theme.buttonSecondaryBackgroundHover
+                            : Theme.buttonSecondaryBackground
+                        border.color: activeSessionsBtn.activeFocus
+                            ? Theme.focusBorder : Theme.buttonSecondaryBorder
+                        border.width: activeSessionsBtn.activeFocus ? 2 : Theme.buttonBorderWidth
+                        opacity: activeSessionsBtn.enabled ? 1.0 : 0.5
+                    }
+                }
 
                 // Sign Out button
+
                 Button {
                     id: signOutBtn
                     focusPolicy: Qt.StrongFocus
@@ -752,7 +805,8 @@ FocusScope {
                         }
                     }
                     Keys.onUpPressed: function(event) {
-                        logLevelCombo.forceActiveFocus()
+                        (activeSessionsBtn.enabled
+                            ? activeSessionsBtn : logLevelCombo).forceActiveFocus()
                         event.accepted = true
                     }
                     Keys.onReturnPressed: root.signOutRequested()

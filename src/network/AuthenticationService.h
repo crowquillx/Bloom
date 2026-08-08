@@ -15,15 +15,15 @@
 #include <functional>
 #include <memory>
 
+#include <optional>
 #include "network/Types.h"
 #include "providers/IProviderAuthenticator.h"
 #include "providers/IProviderRequestFactory.h"
+#include "providers/IProviderAdapter.h"
 #include "providers/ServerConnection.h"
 #include "security/CredentialStore.h"
 
 class ICatalogProvider;
-class IPlaybackProvider;
-class IProviderAdapter;
 class ISecretStore;
 class ConfigManager;
 class HttpTransport;
@@ -93,6 +93,9 @@ public:
     const IPlaybackProvider *playbackProvider() const;
     const ICatalogProvider *catalogProvider() const;
     ProviderKind activeProviderKind() const;
+    bool supportsCapability(ProviderCapability capability) const;
+    std::optional<QString> endpointFor(ProviderRoute route,
+                                       const ProviderRouteContext &context = {}) const;
     PlaybackInfoResponse mapPlaybackInfo(const QJsonObject &wirePlaybackInfo) const;
     ParsedItemsResult parseItemsResponse(const QByteArray &wireResponse,
                                          const QString &parentId) const;
@@ -100,6 +103,8 @@ public:
         itemsResponseParser() const;
     TrickplayTileInfoMap mapTrickplayInfo(const QJsonObject &wireItem) const;
     QList<MediaSegmentInfo> mapIntroSkipperSegments(
+        const QString &itemId, const QJsonObject &wireSegments) const;
+    QList<MediaSegmentInfo> mapMediaSegments(
         const QString &itemId, const QJsonObject &wireSegments) const;
     QVariantList mapRemoteSessions(const QJsonArray &wireSessions,
                                    const QString &connectionId) const;

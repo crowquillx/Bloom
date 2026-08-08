@@ -1,15 +1,17 @@
 Media Segment Providers
 
 Overview
-- `PlaybackService::getMediaSegments()` is the only playback-facing entry point.
-- Jellyfin server segments are loaded first from Intro Skipper when available.
-- `MediaSegmentProviderService` can then query external providers and merge only missing segment types.
+- `PlaybackService::getMediaSegments()` is the provider-neutral playback entry point.
+- The active provider's server segments are loaded before any external lookup.
+- Native Silo markers use `/api/v1/markers/files/{file_id}` for the selected playback version or multipart file, falling back to `/api/v1/markers/items/{content_id}` only when no file identity is available. They remain authoritative for every segment type Silo returns.
+- On Jellyfin, Bloom uses the optional Intro Skipper plugin route (`/Episode/{id}/IntroSkipperSegments`) as the server-marker source. A missing plugin is an expected optional capability, not a playback error.
+- Only after the server response is normalized does `MediaSegmentProviderService` query configured external providers to fill missing types.
 
 Precedence
-- Jellyfin server segments always win for their type.
-- Provider order defaults to TheIntroDB, then IntroDB.
-- If Jellyfin provides an intro and TheIntroDB provides intro plus credits, Bloom keeps Jellyfin's intro and adds TheIntroDB credits.
-
+- Native Silo server segments win per segment type.
+- Jellyfin Intro Skipper server segments win per segment type when the Jellyfin provider is active; the plugin route is the Jellyfin fallback for server markers, not proof that every Jellyfin deployment has markers.
+- External provider order defaults to TheIntroDB, then IntroDB.
+- `mergeSegmentsByType` keeps the first server segment for each type and only adds a later provider's type when no server segment of that type exists. For example, a server intro plus TheIntroDB intro/credits keeps the server intro and adds only credits.
 Provider parsing
 - TheIntroDB v2 uses `GET https://api.theintrodb.org/v2/media?tmdb_id=...`; TV requests also include `season` and `episode`. Reads are anonymous.
 - TheIntroDB segment arrays map `intro` to Intro, `recap` to Recap, `credits` to Outro, and `preview` to Preview. `start_ms: null` means zero; `end_ms: null` uses the item duration if known or the segment is dropped.

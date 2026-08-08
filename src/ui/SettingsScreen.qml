@@ -95,7 +95,19 @@ FocusScope {
     }
 
     signal signOutRequested()
+    property bool activeSessionsVisible: false
 
+    function openActiveSessions() {
+        activeSessionsVisible = true
+        Qt.callLater(function() {
+            if (activeSessionsVisible) activeSessionsScreen.forceActiveFocus()
+        })
+    }
+
+    function closeActiveSessions() {
+        activeSessionsVisible = false
+        Qt.callLater(function() { aboutAccountSection.enterFromRail() })
+    }
     function openNewProfileDialog(returnFocusTarget) {
         newProfileDialog.restoreFocusTarget = returnFocusTarget || null
         newProfileDialog.open()
@@ -417,6 +429,7 @@ FocusScope {
     // ========================================
 
     RowLayout {
+        enabled: !root.activeSessionsVisible
         anchors.fill: parent
         anchors.margins: Theme.paddingLarge
         spacing: Theme.spacingLarge
@@ -485,8 +498,21 @@ FocusScope {
                 qtVersion: typeof qtVersion !== "undefined" ? qtVersion : ""
                 onRequestReturnToRail: root.returnToRail()
                 onSignOutRequested: root.signOutRequested()
+                onSessionsRequested: root.openActiveSessions()
             }
         }
+    }
+
+    ActiveSessionsScreen {
+        id: activeSessionsScreen
+        anchors.fill: parent
+        z: 20
+        visible: root.activeSessionsVisible
+        enabled: visible
+        focus: visible
+        sessionService: typeof SessionService !== "undefined" ? SessionService : null
+        authService: typeof AuthenticationService !== "undefined" ? AuthenticationService : null
+        onBackRequested: root.closeActiveSessions()
     }
 
     ToastNotification {

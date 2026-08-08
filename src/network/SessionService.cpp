@@ -16,7 +16,29 @@ SessionService::SessionService(AuthenticationService *authService, QObject *pare
 {
     if (authService) {
         m_deviceId = getDeviceId();
+        connect(authService, &AuthenticationService::authSessionsChanged,
+                this, &SessionService::syncAuthenticationSessions);
+        connect(authService, &AuthenticationService::providerSelectionChanged,
+                this, &SessionService::sessionTypeChanged);
+        connect(authService, &AuthenticationService::authenticatedChanged,
+                this, &SessionService::sessionTypeChanged);
+        connect(authService, &AuthenticationService::loginError, this,
+                [this](const QString &error) {
+            if (!authenticationSessionMode()
+                || (!m_authLoadPending && m_pendingRevokeSessionId.isEmpty())) {
+                return;
+            }
+            m_authLoadPending = false;
+            m_pendingRevokeSessionId.clear();
+            m_pendingRevokeWasCurrent = false;
+            setIsLoading(false);
+            setErrorString(error);
+        });
         connect(authService, &AuthenticationService::loggedOut, this, [this]() {
+            const bool selfRevoked = m_pendingRevokeWasCurrent;
+            m_authLoadPending = false;
+            m_pendingRevokeSessionId.clear();
+            m_pendingRevokeWasCurrent = false;
             m_sessions.clear();
             m_currentSessionId.clear();
             m_errorString.clear();
@@ -25,7 +47,79 @@ SessionService::SessionService(AuthenticationService *authService, QObject *pare
             emit currentSessionIdChanged();
             emit errorStringChanged();
             emit isLoadingChanged();
+            if (selfRevoked) {
+                emit selfSessionRevoked();
+            }
         });
+    }
+}
+
+bool SessionService::authenticationSessionMode() const
+{
+    return m_authService
+        && m_authService->activeProviderKind() == ProviderKind::Silo;
+}
+
+QString SessionService::sessionTypeLabel() const
+{
+    return authenticationSessionMode()
+        ? tr("Authentication Sessions")
+        : tr("Playback Sessions");
+}
+
+QString SessionService::sessionTypeDescription() const
+{
+    return authenticationSessionMode()
+        ? tr("Devices signed in to this account")
+        : tr("Devices currently connected for playback");
+}
+
+void SessionService::syncAuthenticationSessions()
+{
+    if (!authenticationSessionMode() || !m_authService) {
+        return;
+    }
+
+    const QString previousCurrent = m_currentSessionId;
+    m_sessions = m_authService->authSessions();
+    m_currentSessionId.clear();
+    for (const QVariant &value : m_sessions) {
+        const QVariantMap session = value.toMap();
+        if (session.value(QStringLiteral("isCurrent")).toBool()) {
+            m_currentSessionId = session.value(QStringLiteral("id")).toString();
+            break;
+        }
+    }
+
+    emit sessionsChanged();
+    if (previousCurrent != m_currentSessionId) {
+        emit currentSessionIdChanged();
+    }
+
+    const QString revokedId = m_pendingRevokeSessionId;
+    if (!revokedId.isEmpty()) {
+        bool stillPresent = false;
+        for (const QVariant &value : m_sessions) {
+            if (value.toMap().value(QStringLiteral("id")).toString() == revokedId) {
+                stillPresent = true;
+                break;
+            }
+        }
+        if (!stillPresent) {
+            const bool revokedCurrent = m_pendingRevokeWasCurrent;
+            m_pendingRevokeSessionId.clear();
+            setIsLoading(false);
+            if (!revokedCurrent) {
+                m_pendingRevokeWasCurrent = false;
+                emit sessionRevoked(revokedId);
+            }
+        }
+    }
+
+    if (m_authLoadPending) {
+        m_authLoadPending = false;
+        setIsLoading(false);
+        emit sessionsLoaded();
     }
 }
 
@@ -36,14 +130,35 @@ void SessionService::fetchActiveSessions()
         emit operationFailed(m_errorString);
         return;
     }
-    if (!m_transport) {
-        setErrorString("Network transport unavailable");
-        emit operationFailed(m_errorString);
+
+    if (authenticationSessionMode() && m_isLoading) {
         return;
     }
 
     setIsLoading(true);
     setErrorString(QString());
+
+    if (authenticationSessionMode()) {
+        m_authLoadPending = true;
+        m_authService->loadAuthSessions();
+        return;
+    }
+
+    if (!m_sessions.isEmpty()) {
+        m_sessions.clear();
+        emit sessionsChanged();
+    }
+    if (!m_currentSessionId.isEmpty()) {
+        m_currentSessionId.clear();
+        emit currentSessionIdChanged();
+    }
+
+    if (!m_transport) {
+        setIsLoading(false);
+        setErrorString("Network transport unavailable");
+        emit operationFailed(m_errorString);
+        return;
+    }
 
     const QString endpoint = QStringLiteral("/Sessions");
     HttpRequestOptions options;
@@ -76,17 +191,30 @@ void SessionService::revokeSession(const QString &sessionId)
         emit operationFailed(m_errorString);
         return;
     }
-    if (!m_transport) {
-        setErrorString("Network transport unavailable");
-        emit operationFailed(m_errorString);
+
+    if (authenticationSessionMode() && m_isLoading) {
         return;
     }
 
     setIsLoading(true);
     setErrorString(QString());
 
-    // Jellyfin uses POST /Sessions/{id}/Logout to revoke a session
-    QString endpoint = QString("/Sessions/%1/Logout").arg(sessionId);
+    if (authenticationSessionMode()) {
+        m_pendingRevokeSessionId = sessionId;
+        m_pendingRevokeWasCurrent = isCurrentSession(sessionId);
+        m_authService->revokeAuthSession(sessionId);
+        return;
+    }
+
+    if (!m_transport) {
+        setIsLoading(false);
+        setErrorString("Network transport unavailable");
+        emit operationFailed(m_errorString);
+        return;
+    }
+
+    // Jellyfin uses POST /Sessions/{id}/Logout to revoke a session.
+    const QString endpoint = QString("/Sessions/%1/Logout").arg(sessionId);
     HttpRequestOptions options;
     options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
@@ -107,7 +235,6 @@ void SessionService::revokeSession(const QString &sessionId)
         },
         options);
 }
-
 void SessionService::revokeAllOtherSessions()
 {
     if (!m_authService || !m_authService->isAuthenticated()) {
@@ -116,27 +243,48 @@ void SessionService::revokeAllOtherSessions()
         return;
     }
 
-    // First refresh the session list
-    fetchActiveSessions();
+    if (authenticationSessionMode()) {
+        setErrorString(tr("Bulk authentication-session revocation is not supported."));
+        emit operationFailed(m_errorString);
+        return;
+    }
 
-    // Wait for sessions to load, then revoke all except current
+    // Refresh the Jellyfin playback-session list before revoking every session
+    // except the current device.
     connect(this, &SessionService::sessionsLoaded, this, [this]() {
         int revokedCount = 0;
         for (const QVariant &var : m_sessions) {
-            QVariantMap session = var.toMap();
-            QString sessionId = session["id"].toString();
-            
+            const QVariantMap session = var.toMap();
+            const QString sessionId = session.value(QStringLiteral("id")).toString();
             if (!sessionId.isEmpty() && sessionId != m_currentSessionId) {
                 revokeSession(sessionId);
-                revokedCount++;
+                ++revokedCount;
             }
         }
         emit allOtherSessionsRevoked(revokedCount);
     }, Qt::SingleShotConnection);
+
+    fetchActiveSessions();
 }
 
 void SessionService::identifyCurrentSession()
 {
+    if (authenticationSessionMode()) {
+        const QString previousCurrent = m_currentSessionId;
+        m_currentSessionId.clear();
+        for (const QVariant &value : m_sessions) {
+            const QVariantMap session = value.toMap();
+            if (session.value(QStringLiteral("isCurrent")).toBool()) {
+                m_currentSessionId = session.value(QStringLiteral("id")).toString();
+                break;
+            }
+        }
+        if (previousCurrent != m_currentSessionId) {
+            emit currentSessionIdChanged();
+        }
+        return;
+    }
+
     if (m_deviceId.isEmpty()) {
         m_deviceId = getDeviceId();
     }
@@ -145,13 +293,12 @@ void SessionService::identifyCurrentSession()
         return;
     }
 
-    // Find the session matching our device ID
+    // Find the session matching our device ID.
     for (const QVariant &var : m_sessions) {
-        QVariantMap session = var.toMap();
-        QString sessionDeviceId = session["deviceId"].toString();
-        
+        const QVariantMap session = var.toMap();
+        const QString sessionDeviceId = session.value(QStringLiteral("deviceId")).toString();
         if (sessionDeviceId == m_deviceId) {
-            QString newSessionId = session["id"].toString();
+            const QString newSessionId = session.value(QStringLiteral("id")).toString();
             if (newSessionId != m_currentSessionId) {
                 m_currentSessionId = newSessionId;
                 emit currentSessionIdChanged();
