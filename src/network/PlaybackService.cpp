@@ -861,58 +861,73 @@ void PlaybackService::getAdditionalParts(const QString &itemId,
         });
 }
 
-void PlaybackService::getMediaSegments(const QString &itemId)
+void PlaybackService::getMediaSegments(const QString &itemId, const QString &fileId)
 {
-    if (!m_authService->isAuthenticated()) {
+    if (!m_authService || !m_authService->isAuthenticated()) {
         qCDebug(lcPlayback) << "getMediaSegments: Not authenticated, skipping";
         emit mediaSegmentsLoaded(itemId, QList<MediaSegmentInfo>());
         return;
     }
-    
+
+    const bool nativeProvider = m_authService->activeProviderKind() == ProviderKind::Silo;
+    QString endpoint;
+    if (nativeProvider) {
+        ProviderRouteContext routeContext;
+        routeContext.itemId = itemId;
+        routeContext.fileId = fileId;
+        const auto nativeEndpoint = m_authService->endpointFor(
+            ProviderRoute::MediaSegments, routeContext);
+        if (!m_authService->supportsCapability(ProviderCapability::MediaSegments)
+            || !nativeEndpoint.has_value()) {
+            // Native providers must not fall through to Jellyfin routes when a
+            // capability is absent. External providers may still fill markers.
+            maybeLoadExternalMediaSegments(itemId, {});
+            return;
+        }
+        endpoint = *nativeEndpoint;
+    } else {
+        // GET /Episode/{id}/IntroSkipperSegments
+        // This endpoint is provided by the "Intro Skipper" plugin on Jellyfin.
+        endpoint = QString("/Episode/%1/IntroSkipperSegments").arg(itemId);
+    }
+
     qCDebug(lcPlayback) << "Getting media segments for item:" << itemId;
-    
-    // GET /Episode/{id}/IntroSkipperSegments
-    // This endpoint is provided by the "Intro Skipper" plugin on the Jellyfin server
-    // If not available (404), we silently return empty segments
-    QString endpoint = QString("/Episode/%1/IntroSkipperSegments").arg(itemId);
-    
     QNetworkRequest request = m_authService->createRequest(endpoint);
     QNetworkReply *reply = m_authService->networkManager()->get(request);
-    
-    connect(reply, &QNetworkReply::finished, this, [this, reply, itemId]() {
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, itemId, nativeProvider]() {
         reply->deleteLater();
-        
-        int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        
-        // Check for session expiry (defer during playback)
+        const int httpStatus =
+            reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+
         if (httpStatus == 401) {
             qCWarning(lcPlayback) << "Session expired while fetching media segments for" << itemId;
             m_authService->checkForSessionExpiry(reply, true);
-            finishMediaSegments(itemId, QList<MediaSegmentInfo>());
+            finishMediaSegments(itemId, {});
             return;
         }
-        
-        // 404 is expected if Intro Skipper plugin is not installed
-        // Just emit empty segments silently
+
         if (httpStatus == 404) {
-            qCDebug(lcPlayback) << "Intro Skipper plugin not available for" << itemId;
-            maybeLoadExternalMediaSegments(itemId, QList<MediaSegmentInfo>());
+            if (!nativeProvider) {
+                qCDebug(lcPlayback) << "Intro Skipper plugin not available for" << itemId;
+            }
+            maybeLoadExternalMediaSegments(itemId, {});
             return;
         }
-        
+
         if (reply->error() != QNetworkReply::NoError) {
             qCWarning(lcPlayback) << "Failed to get media segments for" << itemId
-                                       << "Error:" << reply->errorString();
-            maybeLoadExternalMediaSegments(itemId, QList<MediaSegmentInfo>());
+                                   << "Error:" << reply->errorString();
+            maybeLoadExternalMediaSegments(itemId, {});
             return;
         }
-        
-        QByteArray data = reply->readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        QJsonObject obj = doc.object();
-        
-        maybeLoadExternalMediaSegments(
-            itemId, m_authService->mapIntroSkipperSegments(itemId, obj));
+
+        const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
+        const QJsonObject object = document.object();
+        const QList<MediaSegmentInfo> segments = nativeProvider
+            ? m_authService->mapMediaSegments(itemId, object)
+            : m_authService->mapIntroSkipperSegments(itemId, object);
+        maybeLoadExternalMediaSegments(itemId, segments);
     });
 }
 
@@ -934,16 +949,31 @@ void PlaybackService::maybeLoadExternalMediaSegments(const QString &itemId, cons
 
 void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const QList<MediaSegmentInfo> &serverSegments)
 {
-    const QString fields = QStringLiteral("ProviderIds,ParentIndexNumber,IndexNumber,SeriesId,RunTimeTicks,Type");
-    const QString endpoint = QString("/Users/%1/Items/%2?Fields=%3")
-        .arg(m_authService->getUserId(), itemId, fields);
+    const bool nativeProvider = m_authService->activeProviderKind() == ProviderKind::Silo;
+    QString endpoint;
+    if (nativeProvider) {
+        ProviderRouteContext routeContext;
+        routeContext.itemId = itemId;
+        const auto nativeEndpoint = m_authService->endpointFor(
+            ProviderRoute::CatalogItem, routeContext);
+        if (!nativeEndpoint.has_value()) {
+            finishMediaSegments(itemId, serverSegments);
+            return;
+        }
+        endpoint = *nativeEndpoint;
+    } else {
+        const QString fields =
+            QStringLiteral("ProviderIds,ParentIndexNumber,IndexNumber,SeriesId,RunTimeTicks,Type");
+        endpoint = QString("/Users/%1/Items/%2?Fields=%3")
+            .arg(m_authService->getUserId(), itemId, fields);
+    }
 
     sendRequestWithRetry(endpoint,
         [this, endpoint]() {
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
-        [this, itemId, serverSegments](QNetworkReply *reply) {
+        [this, itemId, serverSegments, nativeProvider](QNetworkReply *reply) {
             const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             const QVariantMap item = m_authService->mapMediaItem(doc.object(), QString());
             MediaSegmentLookupContext context;
@@ -972,8 +1002,26 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
                 return;
             }
 
-            const QString seriesEndpoint = QString("/Users/%1/Items/%2?Fields=ProviderIds")
-                .arg(m_authService->getUserId(), context.seriesId);
+            QString seriesEndpoint;
+            if (nativeProvider) {
+                ProviderRouteContext seriesContext;
+                seriesContext.itemId = context.seriesId;
+                const auto nativeSeriesEndpoint = m_authService->endpointFor(
+                    ProviderRoute::CatalogItem, seriesContext);
+                if (!nativeSeriesEndpoint.has_value()) {
+                    QPointer<PlaybackService> self(this);
+                    m_mediaSegmentProviderService->fetchExternalSegments(context, serverSegments,
+                        [self, itemId, serverSegments](const QList<MediaSegmentInfo> &segments) {
+                            if (!self) return;
+                            self->finishExternalMediaSegments(itemId, serverSegments, segments);
+                        });
+                    return;
+                }
+                seriesEndpoint = *nativeSeriesEndpoint;
+            } else {
+                seriesEndpoint = QString("/Users/%1/Items/%2?Fields=ProviderIds")
+                    .arg(m_authService->getUserId(), context.seriesId);
+            }
             sendRequestWithRetry(seriesEndpoint,
                 [this, seriesEndpoint]() {
                     QNetworkRequest request = m_authService->createRequest(seriesEndpoint);
@@ -1009,9 +1057,7 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
         },
         [this, itemId, serverSegments](const NetworkError &error) {
             Q_UNUSED(error);
-            if (serverSegments.isEmpty()) {
-                finishMediaSegments(itemId, serverSegments);
-            }
+            finishMediaSegments(itemId, serverSegments);
         });
 }
 
@@ -1019,10 +1065,15 @@ void PlaybackService::finishExternalMediaSegments(const QString &itemId,
                                                   const QList<MediaSegmentInfo> &serverSegments,
                                                   const QList<MediaSegmentInfo> &mergedSegments)
 {
-    if (mergedSegments.size() > serverSegments.size() || serverSegments.isEmpty()) {
-        finishMediaSegments(itemId, mergedSegments);
-    }
+    // Preserve every server-owned type while filling only types absent from
+    // the server response. The provider service normally already performs
+    // this merge; repeating it here keeps this boundary deterministic.
+    finishMediaSegments(itemId,
+                        MediaSegmentProviderService::mergeSegmentsByType(
+                            serverSegments, mergedSegments));
 }
+
+
 
 void PlaybackService::finishMediaSegments(const QString &itemId, const QList<MediaSegmentInfo> &segments)
 {
@@ -1041,19 +1092,21 @@ void PlaybackService::finishMediaSegments(const QString &itemId, const QList<Med
 
 void PlaybackService::getTrickplayInfo(const QString &itemId)
 {
-    if (!m_authService->isAuthenticated()) {
+    if (!m_authService || !m_authService->isAuthenticated()) {
         qCDebug(lcPlayback) << "getTrickplayInfo: Not authenticated, skipping";
         emit trickplayInfoLoaded(itemId, QMap<int, TrickplayTileInfo>());
         return;
     }
-    
+
+    if (m_authService->activeProviderKind() == ProviderKind::Silo) {
+        // Trickplay is not part of the advertised native contract. Do not
+        // probe Jellyfin metadata routes for native sessions.
+        emit trickplayInfoLoaded(itemId, QMap<int, TrickplayTileInfo>());
+        return;
+    }
+
     qCDebug(lcPlayback) << "Getting trickplay info for item:" << itemId;
-    
-    // GET /Items/{itemId}?Fields=Trickplay
-    // The dedicated /Videos/{itemId}/Trickplay endpoint may not exist on all Jellyfin versions,
-    // but the Trickplay field is available in the Item response
-    QString endpoint = QString("/Items/%1?Fields=Trickplay").arg(itemId);
-    
+    const QString endpoint = QString("/Items/%1?Fields=Trickplay").arg(itemId);
     sendRequestWithRetry(endpoint,
         [this, endpoint]() {
             QNetworkRequest request = m_authService->createRequest(endpoint);

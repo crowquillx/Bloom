@@ -12,8 +12,8 @@
     "supported": "Bloom-required behavior and payload semantics are present.",
     "partial": "The core path is usable, but some requested behavior or data is ignored or absent.",
     "stubbed": "The route returns a success-shaped placeholder without the required behavior.",
-    "missing": "The route is absent or cannot provide fields Bloom requires.",
-    "not-applicable": "The deployment does not expose this protocol surface."
+    "missing": "Unavailable: the route is absent or cannot provide fields Bloom requires; never treat this as supported.",
+    "not-applicable": "Intentionally out-of-scope: the deployment does not expose this protocol surface and Bloom makes no claim."
   },
   "surfaces": [
     {
@@ -81,7 +81,21 @@
     "metadata.theme-songs",
     "subtitles.delivery-url",
     "cache.conditional-refresh",
-    "errors.expired-session"
+    "errors.expired-session",
+    "catalog.recommendations",
+    "catalog.server-sections",
+    "playback.versions",
+    "playback.multipart-reporting",
+    "sessions.auth-playback-separation",
+    "preferences.profile-track-local",
+    "optional.household-overview",
+    "optional.watchlist",
+    "optional.watch-together",
+    "optional.requests",
+    "optional.notifications",
+    "optional.downloads",
+    "optional.audiobooks",
+    "optional.ebooks"
   ],
   "contracts": [
     {
@@ -216,6 +230,7 @@
     },
     {
       "id": "artwork.standard",
+      "issue": 80,
       "journey": "artwork",
       "bloomCaller": "LibraryService::getImageUrl/getCachedImageUrl",
       "method": "GET",
@@ -229,6 +244,7 @@
     },
     {
       "id": "artwork.chapter",
+      "issue": 80,
       "journey": "artwork",
       "bloomCaller": "LibraryService::getCachedChapterThumbnailUrl",
       "method": "GET",
@@ -268,6 +284,7 @@
     },
     {
       "id": "playback.additional-parts",
+      "issue": 80,
       "journey": "playback",
       "bloomCaller": "PlaybackService::getAdditionalParts",
       "method": "GET",
@@ -281,6 +298,7 @@
     },
     {
       "id": "playback.trickplay",
+      "issue": 80,
       "journey": "playback",
       "bloomCaller": "PlaybackService::getTrickplayInfo/TrickplayProcessor",
       "method": "GET",
@@ -294,6 +312,7 @@
     },
     {
       "id": "playback.report",
+      "issue": 80,
       "journey": "playback",
       "bloomCaller": "PlaybackService::reportPlaybackStarted/Progress/Paused/Resumed/Stopped",
       "method": "POST",
@@ -346,6 +365,7 @@
     },
     {
       "id": "segments.plugin-intro-skipper",
+      "issue": 80,
       "journey": "segments",
       "bloomCaller": "PlaybackService::getMediaSegments",
       "method": "GET",
@@ -359,6 +379,7 @@
     },
     {
       "id": "segments.standard",
+      "issue": 80,
       "journey": "segments",
       "bloomCaller": "Not currently called; target for canonical adapter work",
       "method": "GET",
@@ -372,6 +393,7 @@
     },
     {
       "id": "sessions.list",
+      "issue": 80,
       "journey": "sessions",
       "bloomCaller": "SessionService::refreshSessions",
       "method": "GET",
@@ -385,6 +407,7 @@
     },
     {
       "id": "sessions.revoke",
+      "issue": 80,
       "journey": "sessions",
       "bloomCaller": "SessionService::terminateSession",
       "method": "POST",
@@ -411,6 +434,7 @@
     },
     {
       "id": "metadata.theme-songs",
+      "issue": 80,
       "journey": "metadata",
       "bloomCaller": "LibraryService::getThemeSongs",
       "method": "GET",
@@ -459,6 +483,202 @@
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Control for current Jellyfin session expiry behavior."},
         "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat token authentication rejects missing/expired/revoked sessions with 401."}
+      }
+    },
+    {
+      "id": "catalog.recommendations",
+      "issue": 80,
+      "journey": "catalog",
+      "bloomCaller": "LibraryService::getSimilarItems and UpNextRecommendationsViewModel",
+      "method": "GET",
+      "path": "/Items/{itemId}/Similar",
+      "requestSemantics": ["Bloom requests similar titles by the current logical item identity and applies a bounded result limit"],
+      "requiredSemantics": ["Returned items have stable catalog identity and media type", "Recommendation failures degrade to an empty optional rail without breaking playback or navigation"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Jellyfin Similar route and Bloom's similar-item mapper provide the optional recommendation rail."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "The compatibility surface has no usable similar-items route; native Silo recommendations are a separate protocol and are not a compat claim."}
+      }
+    },
+    {
+      "id": "catalog.server-sections",
+      "issue": 80,
+      "journey": "catalog",
+      "bloomCaller": "LibraryService home, hero, backdrop, random and screensaver section loaders",
+      "method": "GET",
+      "path": "provider-specific home section routes",
+      "requestSemantics": ["Bloom requests profile-scoped section items with stable ordering and bounded windows"],
+      "requiredSemantics": ["Each section either returns the requested item shape or explicitly reports unsupported", "An unavailable optional section does not replace the main library and Next Up content"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Jellyfin provider implements the section operations used by Bloom."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "Compat can provide core libraries/latest/Next Up but does not provide all Bloom hero, backdrop, random or screensaver section semantics."}
+      }
+    },
+    {
+      "id": "playback.versions",
+      "issue": 80,
+      "journey": "playback",
+      "bloomCaller": "PlaybackService::getPlaybackInfo and PlayerController version selection",
+      "method": "GET",
+      "path": "/Items/{itemId}?Fields=MediaSources and /Videos/{itemId}/AdditionalParts",
+      "requestSemantics": ["Bloom requests all available media sources and ordered physical parts before user-initiated playback"],
+      "requiredSemantics": ["Versions retain stable source identity and selectable stream metadata", "Missing alternate-version or part data degrades to the available source rather than inventing a URL"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "PlaybackInfo and AdditionalParts are used for the version picker and multipart queue."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Compat does not register AdditionalParts or equivalent alternate-version semantics; native Silo versions are intentionally a different surface."}
+      }
+    },
+    {
+      "id": "playback.multipart-reporting",
+      "issue": 80,
+      "journey": "playback",
+      "bloomCaller": "PlayerController multipart segment handoff and PlaybackService reporting",
+      "method": "POST",
+      "path": "/Sessions/Playing* per physical part",
+      "requestSemantics": ["Bloom keeps logical-item identity separate from the active physical reporting segment", "Each physical part supplies its own media source and play-session identity"],
+      "requiredSemantics": ["Progress is aggregated across ordered parts", "Part handoff does not trigger terminal completion until the final part", "Reports preserve selected source and stream identities"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Current controller queues Jellyfin parts and reports per-part sessions while retaining aggregate progress."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Compat lacks multipart discovery, so there is no supported multipart reporting lifecycle to map."}
+      }
+    },
+    {
+      "id": "sessions.auth-playback-separation",
+      "issue": 80,
+      "journey": "sessions",
+      "bloomCaller": "SessionService remote auth-session list/revoke versus PlaybackService playback reporting",
+      "method": "GET/POST",
+      "path": "/Sessions and /Sessions/Playing*",
+      "requestSemantics": ["Authentication sessions are listed/revoked independently from transient playback sessions", "Playback reports carry play-session and media-source identity"],
+      "requiredSemantics": ["Revoking an auth session does not tear down the caller's local playback state before normal teardown", "Playback stop remains a playback lifecycle operation, not an auth-session revoke"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Bloom uses SessionService for remote session operations and PlaybackService for Playing lifecycle reports."},
+        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Compat session listing is a stub and remote session logout is absent; its playback reports cannot substitute for auth-session management."}
+      }
+    },
+    {
+      "id": "preferences.profile-track-local",
+      "issue": 80,
+      "journey": "client-state",
+      "bloomCaller": "TrackPreferencesManager and PlayerController audio/subtitle selection",
+      "method": "LOCAL",
+      "path": "track_preferences.json",
+      "requestSemantics": ["Explicit audio/subtitle choices are persisted locally by connection and movie/season scope", "Unset choices remain provider/file defaults and are not written"],
+      "requiredSemantics": ["A saved choice is restored only when its stream index is valid for the current source", "Provider playback does not require a server-side preference endpoint"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "supported", "evidence": "Bloom persists explicit per-season/per-movie track choices locally and applies them before playback."},
+        "silo-8044eb8-compat": {"outcome": "partial", "evidence": "The client-local path works with Silo tracks, but the file is connection-scoped rather than provider-profile-scoped and hierarchy lookup is unavailable."}
+      }
+    },
+    {
+      "id": "optional.household-overview",
+      "issue": 80,
+      "journey": "optional-follow-up",
+      "bloomCaller": "Future household overview surface",
+      "method": "N/A",
+      "path": "provider-specific household overview",
+      "requestSemantics": ["No Bloom request is made for this optional follow-up"],
+      "requiredSemantics": ["The matrix must not imply that a deployment supports an unimplemented household overview contract"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "not-applicable", "evidence": "No pinned Bloom protocol contract or current client surface exists for household overview."},
+        "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "No compatibility route or current Bloom surface is claimed for household overview."}
+      }
+    },
+    {
+      "id": "optional.watchlist",
+      "issue": 80,
+      "journey": "optional-follow-up",
+      "bloomCaller": "Future watchlist surface",
+      "method": "N/A",
+      "path": "provider-specific watchlist",
+      "requestSemantics": ["No Bloom request is made for this optional follow-up"],
+      "requiredSemantics": ["Watchlist support is not inferred from favorite or played state"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "not-applicable", "evidence": "Bloom currently has favorite and played state, not a distinct watchlist contract."},
+        "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "No distinct compatibility watchlist route is pinned or consumed."}
+      }
+    },
+    {
+      "id": "optional.watch-together",
+      "issue": 80,
+      "journey": "optional-follow-up",
+      "bloomCaller": "Future synchronized viewing surface",
+      "method": "N/A",
+      "path": "provider-specific watch-together",
+      "requestSemantics": ["No Bloom request is made for this optional follow-up"],
+      "requiredSemantics": ["Playback session reporting must not be presented as synchronized multi-user viewing"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "not-applicable", "evidence": "No watch-together client or server contract is implemented by Bloom."},
+        "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "No compatibility watch-together route is pinned or consumed."}
+      }
+    },
+    {
+      "id": "optional.requests",
+      "issue": 80,
+      "journey": "optional-follow-up",
+      "bloomCaller": "Future media-request surface",
+      "method": "N/A",
+      "path": "external request service",
+      "requestSemantics": ["No provider request route is made by the Bloom catalog contract"],
+      "requiredSemantics": ["Optional external request integration remains distinct from provider catalog and playback support"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "not-applicable", "evidence": "Bloom's Seerr integration is an optional external service, not a Jellyfin provider contract."},
+        "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "No Silo compatibility request route is pinned or consumed by Bloom."}
+      }
+    },
+    {
+      "id": "optional.notifications",
+      "issue": 80,
+      "journey": "optional-follow-up",
+      "bloomCaller": "Future provider notification surface",
+      "method": "N/A",
+      "path": "provider-specific notifications",
+      "requestSemantics": ["No provider notification stream or polling route is made"],
+      "requiredSemantics": ["Authentication expiry and playback errors are not treated as provider notifications"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "not-applicable", "evidence": "No Bloom notification contract is implemented or pinned."},
+        "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "No compatibility notification route is pinned or consumed."}
+      }
+    },
+    {
+      "id": "optional.downloads",
+      "issue": 80,
+      "journey": "optional-follow-up",
+      "bloomCaller": "Future offline-download surface",
+      "method": "N/A",
+      "path": "provider-specific downloads",
+      "requestSemantics": ["No download job or offline media request is made"],
+      "requiredSemantics": ["Direct playback URLs and subtitle delivery are not download support"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "not-applicable", "evidence": "Bloom has no offline-download client contract."},
+        "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "No compatibility download route is pinned or consumed."}
+      }
+    },
+    {
+      "id": "optional.audiobooks",
+      "issue": 80,
+      "journey": "optional-follow-up",
+      "bloomCaller": "Future audiobook catalog and playback surface",
+      "method": "N/A",
+      "path": "provider-specific audiobook catalog",
+      "requestSemantics": ["No audiobook-specific catalog or playback request is made"],
+      "requiredSemantics": ["Mapping an item type to AudioBook does not establish audiobook feature support"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "not-applicable", "evidence": "Bloom's current catalog/playback contract does not implement audiobook UX or semantics."},
+        "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "Silo type mapping alone is not a pinned compatibility audiobook contract."}
+      }
+    },
+    {
+      "id": "optional.ebooks",
+      "issue": 80,
+      "journey": "optional-follow-up",
+      "bloomCaller": "Future ebook catalog and reader surface",
+      "method": "N/A",
+      "path": "provider-specific ebook catalog",
+      "requestSemantics": ["No ebook-specific catalog or reader request is made"],
+      "requiredSemantics": ["Mapping an item type to Book does not establish ebook reader support"],
+      "expectations": {
+        "jellyfin-supported": {"outcome": "not-applicable", "evidence": "Bloom's current client has no ebook reader or provider-neutral ebook contract."},
+        "silo-8044eb8-compat": {"outcome": "not-applicable", "evidence": "Silo type mapping alone is not a pinned compatibility ebook contract."}
       }
     }
   ],

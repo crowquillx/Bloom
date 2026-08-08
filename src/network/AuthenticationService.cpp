@@ -161,6 +161,19 @@ ProviderKind AuthenticationService::activeProviderKind() const
         : m_activeConnection.providerKind;
 }
 
+bool AuthenticationService::supportsCapability(ProviderCapability capability) const
+{
+    return m_providerAdapter && m_providerAdapter->supportsCapability(capability);
+}
+
+std::optional<QString> AuthenticationService::endpointFor(
+    ProviderRoute route, const ProviderRouteContext &context) const
+{
+    return m_providerAdapter
+        ? m_providerAdapter->endpointFor(route, context)
+        : std::nullopt;
+}
+
 PlaybackInfoResponse AuthenticationService::mapPlaybackInfo(
     const QJsonObject &wirePlaybackInfo) const
 {
@@ -190,6 +203,16 @@ TrickplayTileInfoMap AuthenticationService::mapTrickplayInfo(
     return m_providerAdapter
         ? m_providerAdapter->mapTrickplayInfo(wireItem)
         : TrickplayTileInfoMap{};
+}
+
+QList<MediaSegmentInfo> AuthenticationService::mapMediaSegments(
+    const QString &itemId, const QJsonObject &wireSegments) const
+{
+    if (!m_providerAdapter) {
+        return {};
+    }
+    const auto mapped = m_providerAdapter->mapMediaSegments(itemId, wireSegments);
+    return mapped.value_or(QList<MediaSegmentInfo>{});
 }
 
 QList<MediaSegmentInfo> AuthenticationService::mapIntroSkipperSegments(
@@ -427,7 +450,6 @@ void AuthenticationService::setProviderSelection(const QString &selection)
     const bool wasAuthenticated = isAuthenticated();
     clearAccountStateInternal(true, wasAuthenticated);
     m_providerSelection = normalized;
-    emit providerSelectionChanged();
 
     if (normalized != QStringLiteral("auto")) {
         const ProviderKind kind = normalized == QStringLiteral("silo")
@@ -436,6 +458,7 @@ void AuthenticationService::setProviderSelection(const QString &selection)
             activateProvider(adapter);
         }
     }
+    emit providerSelectionChanged();
 }
 
 void AuthenticationService::authenticate(const QString &serverUrl,
@@ -966,7 +989,6 @@ void AuthenticationService::loadAuthSessions()
             const auto mapped = m_providerAdapter->mapAuthSessions(
                 responseArray(reply->readAll(), QStringLiteral("sessions")));
             if (!mapped.has_value()) {
-                replaceAuthSessions({});
                 emit loginError(tr("The provider returned an invalid session list."));
                 return;
             }
@@ -974,7 +996,6 @@ void AuthenticationService::loadAuthSessions()
         },
         [this, generation](const NetworkError &error) {
             if (generation == m_stateGeneration) {
-                replaceAuthSessions({});
                 emit loginError(tr("Unable to load authentication sessions: %1")
                                     .arg(error.userMessage));
             }
@@ -1050,7 +1071,6 @@ void AuthenticationService::revokeAuthSession(const QString &sessionId)
         },
         [this, generation](const NetworkError &error) {
             if (generation == m_stateGeneration) {
-                replaceAuthSessions({});
                 emit loginError(tr("Unable to revoke authentication session: %1")
                                     .arg(error.userMessage));
             }

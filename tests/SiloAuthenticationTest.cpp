@@ -171,6 +171,7 @@ private slots:
     void failedSharedRefreshExpiresSessionOnce();
     void profileTokenIsBoundToSelectionAndClearedOnSwitch();
     void serviceLoadsRevokedSessionsAndCallsRevokeEndpoint();
+    void failedSessionLoadPreservesKnownSessions();
     void profileVerificationNeverReceivesStaleProfileHeaders();
     void nullTransportFailsAuthenticationWithoutCrashing();
     void emptyProfilesAfterSwitchLeaveVisibleErrorAndAuthenticatedStep();
@@ -424,6 +425,12 @@ void SiloAuthenticationTest::adapterExposesProfileAndSessionRoutes()
     ProviderRouteContext context;
     context.profileId = QStringLiteral("profile/with space");
     context.sessionId = QStringLiteral("session/with space");
+    context.itemId = QStringLiteral("content/with space");
+    const auto itemMarkers =
+        adapter.endpointFor(ProviderRoute::MediaSegments, context);
+    context.fileId = QStringLiteral("file/with space");
+    const auto fileMarkers =
+        adapter.endpointFor(ProviderRoute::MediaSegments, context);
 
     const auto profiles = adapter.endpointFor(ProviderRoute::Profiles);
     const auto pin = adapter.endpointFor(ProviderRoute::VerifyProfilePin, context);
@@ -437,12 +444,18 @@ void SiloAuthenticationTest::adapterExposesProfileAndSessionRoutes()
     QVERIFY(revoke.has_value());
     QVERIFY(health.has_value());
     QVERIFY(logout.has_value());
+    QVERIFY(itemMarkers.has_value());
+    QVERIFY(fileMarkers.has_value());
     QCOMPARE(*profiles, QStringLiteral("/api/v1/profiles"));
     QCOMPARE(*pin,
              QStringLiteral("/api/v1/profiles/profile%2Fwith%20space/verify-pin"));
     QCOMPARE(*sessions, QStringLiteral("/api/v1/auth/sessions"));
     QCOMPARE(*revoke,
              QStringLiteral("/api/v1/auth/sessions/session%2Fwith%20space"));
+    QCOMPARE(*itemMarkers,
+             QStringLiteral("/api/v1/markers/items/content%2Fwith%20space"));
+    QCOMPARE(*fileMarkers,
+             QStringLiteral("/api/v1/markers/files/file%2Fwith%20space"));
     QCOMPARE(*health, QStringLiteral("/api/v1/health"));
     QCOMPARE(*logout, QStringLiteral("/api/v1/auth/logout"));
 }
@@ -778,6 +791,41 @@ void SiloAuthenticationTest::serviceLoadsRevokedSessionsAndCallsRevokeEndpoint()
     QCOMPARE(manager.requests.at(initialRequestCount + 1)
                  .request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-1"));
+}
+
+void SiloAuthenticationTest::failedSessionLoadPreservesKnownSessions()
+{
+    FakeNetworkAccessManager manager;
+    manager.responses = {
+        response(200, successfulLogin()),
+        response(200, singleUnlockedProfile())
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    service.setProviderSelection(QStringLiteral("silo"));
+    service.authenticate(QStringLiteral("https://silo.example.test"),
+                         QStringLiteral("Alice"),
+                         QStringLiteral("password"));
+    QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
+
+    manager.responses.append(response(
+        200,
+        QByteArrayLiteral(
+            R"({"sessions":[{"id":"session-current","device_name":"Living Room","is_current":true}]})")));
+    service.loadAuthSessions();
+    QTRY_COMPARE_WITH_TIMEOUT(service.authSessions().size(), 1, 1000);
+
+    QSignalSpy errorSpy(&service, &AuthenticationService::loginError);
+    manager.responses.append(response(
+        400,
+        QByteArrayLiteral(R"({"error":"invalid_request","message":"Request rejected"})")));
+    service.loadAuthSessions();
+    QTRY_COMPARE_WITH_TIMEOUT(errorSpy.size(), 1, 1000);
+    QCOMPARE(service.authSessions().size(), 1);
+    QCOMPARE(service.authSessions().first().toMap()
+                 .value(QStringLiteral("id")).toString(),
+             QStringLiteral("session-current"));
 }
 void SiloAuthenticationTest::refreshWithoutRotationRetainsPreviousToken()
 {

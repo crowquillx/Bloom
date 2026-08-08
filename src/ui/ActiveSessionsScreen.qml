@@ -5,6 +5,7 @@ import BloomUI
 
 FocusScope {
     id: root
+    focus: true
 
     property var sessionService: null
     property var sessionManager: null
@@ -12,18 +13,35 @@ FocusScope {
 
     signal backRequested
 
+    Keys.onEscapePressed: function(event) {
+        root.backRequested()
+        event.accepted = true
+    }
+    Keys.onBackPressed: function(event) {
+        root.backRequested()
+        event.accepted = true
+    }
+
     function refresh() {
         if (sessionService) {
             sessionService.fetchActiveSessions();
         }
     }
 
-    // Auto-refresh when screen becomes visible
+    Component.onCompleted: Qt.callLater(function() {
+        if (root.visible) backButton.forceActiveFocus()
+    })
+
+    // Auto-refresh when screen becomes visible.
     onVisibleChanged: {
         if (visible) {
-            refresh();
+            refresh()
+            Qt.callLater(function() { backButton.forceActiveFocus() })
         }
     }
+
+    readonly property bool authenticationMode: sessionService
+        && sessionService.authenticationSessionMode
 
     // Handle self-session revocation
     Connections {
@@ -54,7 +72,6 @@ FocusScope {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingMedium
-
             A11yButton {
                 id: backButton
                 text: "\ue92f"  // Back arrow icon
@@ -70,7 +87,9 @@ FocusScope {
             }
 
             Label {
-                text: "Active Sessions"
+                text: root.sessionService
+                    ? root.sessionService.sessionTypeLabel
+                    : qsTr("Playback Sessions")
                 font.pixelSize: Theme.fontSizeHeader
                 font.weight: Font.Bold
                 color: Theme.textPrimary
@@ -84,31 +103,43 @@ FocusScope {
                 font.pixelSize: Theme.iconSizeSmall
                 Layout.preferredWidth: Theme.iconSizeMedium
                 Layout.preferredHeight: Theme.iconSizeMedium
-                toolTipText: "Refresh"
+                toolTipText: qsTr("Refresh")
+                enabled: root.sessionService && !root.sessionService.isLoading
 
                 onActivated: refresh()
 
                 KeyNavigation.left: backButton
+                KeyNavigation.right: revokeAllButton.visible ? revokeAllButton : backButton
                 KeyNavigation.down: sessionsList
             }
 
             A11yButton {
                 id: revokeAllButton
-                text: "Revoke All Others"
+                text: root.sessionService
+                    ? qsTr("Revoke All Other %1").arg(root.sessionService.sessionTypeLabel)
+                    : qsTr("Revoke All Other Playback Sessions")
                 font.pixelSize: Theme.fontSizeBody
                 height: Theme.iconSizeMedium
-                enabled: root.sessionService && root.sessionService.sessions.length > 1
+                enabled: root.sessionService && !root.sessionService.isLoading
+                    && root.sessionService.sessions.length > 1
+                visible: !root.authenticationMode
                 opacity: enabled ? 1.0 : 0.5
 
                 onActivated: {
-                    if (root.sessionService) {
-                        root.sessionService.revokeAllOtherSessions();
-                    }
+                    if (root.sessionService) root.sessionService.revokeAllOtherSessions()
                 }
 
                 KeyNavigation.left: refreshButton
                 KeyNavigation.down: sessionsList
             }
+        }
+
+        Label {
+            text: root.sessionService ? root.sessionService.sessionTypeDescription : ""
+            visible: text.length > 0
+            Layout.fillWidth: true
+            color: Theme.textSecondary
+            font.pixelSize: Theme.fontSizeBody
         }
 
         // Loading indicator
@@ -146,28 +177,36 @@ FocusScope {
                 id: sessionDelegate
                 width: sessionsList.width
                 height: 80
-                property bool isCurrent: model.id === (root.sessionService ? root.sessionService.currentSessionId : "")
-
+                property bool isCurrent: root.authenticationMode
+                    ? !!model.isCurrent
+                    : model.id === (root.sessionService ? root.sessionService.currentSessionId : "")
+                property bool highlighted: ListView.isCurrentItem && sessionsList.activeFocus
+                function requestRevoke() {
+                    if (!isCurrent && revokeButton.enabled && root.sessionService) {
+                        root.sessionService.revokeSession(model.id)
+                    }
+                }
                 // Background
                 Rectangle {
                     anchors.fill: parent
-                    color: sessionDelegate.activeFocus ? Theme.accentColor : (isCurrent ? Theme.accentColor + "20" : Theme.backgroundSecondary)
+                    z: -1
+                    color: sessionDelegate.highlighted ? Theme.accentColor : (isCurrent ? Theme.accentColor + "20" : Theme.backgroundSecondary)
                     radius: Theme.radiusMedium
                     border.width: isCurrent ? 2 : 0
                     border.color: Theme.accentColor
                 }
 
                 RowLayout {
+                    z: 1
                     anchors.fill: parent
                     anchors.margins: Theme.spacingMedium
                     spacing: Theme.spacingMedium
-
                     // Device icon
                     Label {
-                        text: getDeviceIcon(model.client)
+                        text: getDeviceIcon(root.authenticationMode ? model.deviceName : model.client)
                         font.family: Icons.materialFamily
                         font.pixelSize: Theme.iconSizeMedium
-                        color: sessionDelegate.activeFocus ? Theme.textPrimary : Theme.textSecondary
+                        color: sessionDelegate.highlighted ? Theme.textPrimary : Theme.textSecondary
                         Layout.alignment: Qt.AlignVCenter
                     }
 
@@ -180,15 +219,14 @@ FocusScope {
                             spacing: Theme.spacingSmall
 
                             Label {
-                                text: model.deviceName || "Unknown Device"
+                                text: model.deviceName || qsTr("Unknown Device")
                                 font.pixelSize: Theme.fontSizeBody
                                 font.weight: Font.Medium
-                                color: sessionDelegate.activeFocus ? Theme.textPrimary : Theme.textPrimary
+                                color: Theme.textPrimary
                                 Layout.fillWidth: true
                                 elide: Text.ElideRight
                             }
 
-                            // Current session badge
                             Rectangle {
                                 visible: sessionDelegate.isCurrent
                                 implicitWidth: currentSessionLabel.implicitWidth + Theme.spacingSmall * 2
@@ -199,7 +237,7 @@ FocusScope {
                                 Label {
                                     id: currentSessionLabel
                                     anchors.centerIn: parent
-                                    text: "This Device"
+                                    text: root.authenticationMode ? qsTr("Current") : qsTr("This Device")
                                     font.pixelSize: Theme.fontSizeCaption
                                     font.weight: Font.Bold
                                     color: Theme.textPrimary
@@ -208,15 +246,19 @@ FocusScope {
                         }
 
                         Label {
-                            text: model.client + (model.clientVersion ? " " + model.clientVersion : "")
+                            text: root.authenticationMode
+                                ? qsTr("IP address: %1").arg(model.ipAddress || qsTr("Unknown"))
+                                : model.client + (model.clientVersion ? " " + model.clientVersion : "")
                             font.pixelSize: Theme.fontSizeCaption
-                            color: sessionDelegate.activeFocus ? Theme.textSecondary : Theme.textMuted
+                            color: sessionDelegate.highlighted ? Theme.textSecondary : Theme.textMuted
                         }
 
                         Label {
-                            text: "Last active: " + formatDate(model.lastActivityDate)
+                            text: root.authenticationMode
+                                ? qsTr("Created: %1").arg(formatDate(model.createdAt))
+                                : qsTr("Last active: %1").arg(formatDate(model.lastActivityDate))
                             font.pixelSize: Theme.fontSizeCaption
-                            color: sessionDelegate.activeFocus ? Theme.textSecondary : Theme.textMuted
+                            color: sessionDelegate.highlighted ? Theme.textSecondary : Theme.textMuted
                         }
                     }
 
@@ -224,33 +266,33 @@ FocusScope {
                     A11yButton {
                         id: revokeButton
                         visible: !sessionDelegate.isCurrent
-                        enabled: visible
+                        enabled: visible && root.sessionService
+                            && !root.sessionService.isLoading
                         text: "\ue14c"  // Close/cancel icon
                         font.family: Icons.materialFamily
                         font.pixelSize: Theme.iconSizeSmall
                         Layout.preferredWidth: Theme.iconSizeMedium
                         Layout.preferredHeight: Theme.iconSizeMedium
-                        toolTipText: "Revoke session"
+                        toolTipText: root.authenticationMode
+                            ? qsTr("Revoke authentication session")
+                            : qsTr("Revoke playback session")
 
-                        onActivated: {
-                            if (root.sessionService) {
-                                root.sessionService.revokeSession(model.id);
-                            }
-                        }
+                        onActivated: sessionDelegate.requestRevoke()
 
                         KeyNavigation.left: sessionDelegate
                     }
                 }
 
-                Keys.onReturnPressed: {
-                    if (!sessionDelegate.isCurrent && revokeButton.visible) {
-                        revokeButton.clicked();
-                    }
-                }
+                Keys.onReturnPressed: sessionDelegate.requestRevoke()
+                Keys.onEnterPressed: sessionDelegate.requestRevoke()
 
                 MouseArea {
+                    z: 0
                     anchors.fill: parent
-                    onClicked: sessionDelegate.forceActiveFocus()
+                    onClicked: {
+                        sessionsList.currentIndex = index
+                        sessionsList.forceActiveFocus()
+                    }
                 }
             }
 
@@ -258,11 +300,20 @@ FocusScope {
             Label {
                 visible: parent.count === 0 && (!root.sessionService || !root.sessionService.isLoading)
                 anchors.centerIn: parent
-                text: "No active sessions found"
+                text: root.sessionService
+                    ? qsTr("No %1 found").arg(root.sessionService.sessionTypeLabel.toLowerCase())
+                    : qsTr("No playback sessions found")
                 font.pixelSize: Theme.fontSizeBody
                 color: Theme.textMuted
             }
+            Keys.onReturnPressed: {
+                if (currentItem) currentItem.requestRevoke()
+            }
+            Keys.onEnterPressed: {
+                if (currentItem) currentItem.requestRevoke()
+            }
         }
+
     }
 
     WheelStepScroller {

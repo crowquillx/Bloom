@@ -44,6 +44,7 @@ struct ProviderRouteContext {
     QString accountId;
     QString profileId;
     QString itemId;
+    QString fileId;
     QString sessionId;
 };
 
