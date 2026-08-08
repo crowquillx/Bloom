@@ -138,6 +138,12 @@ void SessionService::fetchActiveSessions()
     setIsLoading(true);
     setErrorString(QString());
 
+    if (authenticationSessionMode()) {
+        m_authLoadPending = true;
+        m_authService->loadAuthSessions();
+        return;
+    }
+
     if (!m_sessions.isEmpty()) {
         m_sessions.clear();
         emit sessionsChanged();
@@ -145,12 +151,6 @@ void SessionService::fetchActiveSessions()
     if (!m_currentSessionId.isEmpty()) {
         m_currentSessionId.clear();
         emit currentSessionIdChanged();
-    }
-
-    if (authenticationSessionMode()) {
-        m_authLoadPending = true;
-        m_authService->loadAuthSessions();
-        return;
     }
 
     if (!m_transport) {
