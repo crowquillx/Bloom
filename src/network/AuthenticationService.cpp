@@ -106,13 +106,12 @@ AuthenticationService::~AuthenticationService()
 
 void AuthenticationService::configureTransport()
 {
-    Q_ASSERT(m_transport);
-    Q_ASSERT(m_providerAdapter);
-    Q_ASSERT(m_requestFactory);
-    Q_ASSERT(m_providerAuthenticator);
     if (!m_transport) {
         return;
     }
+    Q_ASSERT(m_providerAdapter);
+    Q_ASSERT(m_requestFactory);
+    Q_ASSERT(m_providerAuthenticator);
 
     m_transport->setUrlRedactor([this](const QUrl &url) {
         return m_requestFactory ? m_requestFactory->redactedUrl(url) : url.toString();
@@ -350,8 +349,10 @@ void AuthenticationService::initialize(ConfigManager *configManager)
                            result.username);
         } else if (!result.error.isEmpty()) {
             qCWarning(lcAuth) << "Session restoration failed:" << result.error;
+        } else if (result.success) {
+            qCWarning(lcAuth)
+                << "No provider adapter is registered for the stored connection";
         }
-
         if (!result.cleanupError.isEmpty()) {
             qCWarning(lcAuth) << "Legacy credential cleanup failed:"
                               << result.cleanupError;
@@ -425,7 +426,7 @@ void AuthenticationService::setProviderSelection(const QString &selection)
     }
 
     const bool wasAuthenticated = isAuthenticated();
-    clearAccountStateInternal(false, wasAuthenticated);
+    clearAccountStateInternal(true, wasAuthenticated);
     m_providerSelection = normalized;
     emit providerSelectionChanged();
 
@@ -489,7 +490,15 @@ void AuthenticationService::probeProviderAndLogin(const QString &username,
         return;
     }
 
-    const QString endpoint = QStringLiteral("/api/v1/health");
+    if (!m_transport || !networkManager()) {
+        fallback();
+        return;
+    }
+    const auto endpoint = silo->endpointFor(ProviderRoute::Health);
+    if (!endpoint.has_value()) {
+        fallback();
+        return;
+    }
     ProviderRequestContext context = requestContext(false);
     const IProviderRequestFactory *factory = silo->requestFactory();
     HttpRequestOptions options;
@@ -497,8 +506,8 @@ void AuthenticationService::probeProviderAndLogin(const QString &username,
     options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
     m_transport->sendWithRetry(
         this,
-        endpoint,
-        [this, factory, context, endpoint]() {
+        *endpoint,
+        [this, factory, context, endpoint = *endpoint]() {
             return networkManager()->get(factory->createRequest(context, endpoint));
         },
         [this, silo, username, password, generation, fallback](QNetworkReply *reply) {
@@ -528,12 +537,14 @@ void AuthenticationService::performLogin(const QString &username,
                                           const QString &password,
                                           quint64 generation)
 {
-    if (!m_providerAuthenticator) {
+    if (!m_providerAuthenticator || !m_transport || !networkManager()) {
         emit loginError(tr("Authentication provider is unavailable."));
         return;
     }
     const ProviderAuthenticationRequest authenticationRequest =
-        m_providerAuthenticator->createLoginRequest(username, password);
+        m_providerAuthenticator->createLoginRequest(
+            username, password,
+            m_providerSelection == QStringLiteral("auto") ? QString() : m_providerSelection);
     if (!authenticationRequest.isValid()) {
         emit loginError(tr("The provider cannot create a login request."));
         return;
@@ -718,7 +729,10 @@ void AuthenticationService::finishAuthentication()
 
 void AuthenticationService::loadProfiles(bool finishWhenUnavailable)
 {
-    if (!m_providerAdapter) {
+    if (!m_providerAdapter || !m_transport || !networkManager()) {
+        if (finishWhenUnavailable) {
+            emit loginError(tr("The authentication provider is unavailable."));
+        }
         return;
     }
     const auto endpoint = m_providerAdapter->endpointFor(ProviderRoute::Profiles);
@@ -753,8 +767,9 @@ void AuthenticationService::loadProfiles(bool finishWhenUnavailable)
             }
             replaceProfiles(*mapped);
             if (m_providerProfiles.isEmpty()) {
-                if (finishWhenUnavailable) {
-                    emit loginError(tr("No profiles are available for this account."));
+                emit loginError(tr("No profiles are available for this account."));
+                if (!finishWhenUnavailable) {
+                    updateAuthenticationStep(QStringLiteral("authenticated"));
                 }
                 return;
             }
@@ -825,7 +840,8 @@ void AuthenticationService::selectProfile(const QString &profileId)
 
 void AuthenticationService::verifyProfilePin(const QString &profileId, const QString &pin)
 {
-    if (!m_providerAuthenticator || profileId.isEmpty() || m_accessToken.isEmpty()) {
+    if (!m_providerAuthenticator || profileId.isEmpty() || m_accessToken.isEmpty()
+        || !m_transport || !networkManager()) {
         emit loginError(tr("A profile must be selected."));
         return;
     }
@@ -924,7 +940,7 @@ void AuthenticationService::switchProfile()
 
 void AuthenticationService::loadAuthSessions()
 {
-    if (!isAuthenticated() || !m_providerAdapter) {
+    if (!isAuthenticated() || !m_providerAdapter || !m_transport || !networkManager()) {
         return;
     }
     const auto endpoint = m_providerAdapter->endpointFor(ProviderRoute::AuthSessions);
@@ -989,7 +1005,8 @@ void AuthenticationService::replaceAuthSessions(
 
 void AuthenticationService::revokeAuthSession(const QString &sessionId)
 {
-    if (!isAuthenticated() || !m_providerAdapter || sessionId.isEmpty()) {
+    if (!isAuthenticated() || !m_providerAdapter || !m_transport || !networkManager()
+        || sessionId.isEmpty()) {
         return;
     }
     ProviderRouteContext routeContext;
@@ -1044,21 +1061,24 @@ void AuthenticationService::revokeAuthSession(const QString &sessionId)
 
 void AuthenticationService::remoteLogout()
 {
-    if (m_accessToken.isEmpty() || !m_providerAdapter) {
+    if (m_accessToken.isEmpty() || !m_providerAdapter || !m_transport
+        || !networkManager()) {
         logout();
         return;
     }
-    const QString endpoint = m_providerAdapter->providerKind() == ProviderKind::Silo
-        ? QStringLiteral("/api/v1/auth/logout")
-        : QStringLiteral("/Sessions/Logout");
+    const auto endpoint = m_providerAdapter->endpointFor(ProviderRoute::CallerLogout);
+    if (!endpoint.has_value()) {
+        logout();
+        return;
+    }
     const quint64 generation = m_stateGeneration;
     HttpRequestOptions options;
     options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     m_transport->sendWithRetry(
         this,
-        endpoint,
-        [this, endpoint]() {
+        *endpoint,
+        [this, endpoint = *endpoint]() {
             return networkManager()->post(createRequest(endpoint), QByteArray{});
         },
         [this, generation](QNetworkReply *) {
@@ -1081,7 +1101,8 @@ void AuthenticationService::remoteLogout()
 
 void AuthenticationService::refreshAuthentication(std::function<void(bool)> completion)
 {
-    if (!m_providerAuthenticator || m_refreshToken.isEmpty()) {
+    if (!m_providerAuthenticator || m_refreshToken.isEmpty()
+        || !m_transport || !networkManager()) {
         completion(false);
         return;
     }
@@ -1121,11 +1142,10 @@ void AuthenticationService::refreshAuthentication(std::function<void(bool)> comp
                 complete(false);
                 return;
             }
-
-            QString nextAccessToken = authentication.accessToken;
-            QString nextRefreshToken = authentication.refreshToken;
-            m_accessToken.swap(nextAccessToken);
-            m_refreshToken.swap(nextRefreshToken);
+            m_accessToken = authentication.accessToken;
+            if (!authentication.refreshToken.isEmpty()) {
+                m_refreshToken = authentication.refreshToken;
+            }
             persistCredentials();
             complete(true);
         },
@@ -1142,7 +1162,9 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
                                            const QString &accessToken,
                                            const QString &username)
 {
-    m_transport->cancelAll();
+    if (m_transport) {
+        m_transport->cancelAll();
+    }
     ++m_stateGeneration;
     const quint64 generation = m_stateGeneration;
     const QString normalizedServerUrl = normalizeUrl(serverUrl);
@@ -1272,8 +1294,10 @@ void AuthenticationService::clearProfileStateInternal(bool persist)
 void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
                                                        bool emitLogout)
 {
+    if (m_transport) {
+        m_transport->cancelAll();
+    }
     const bool wasAuthenticated = isAuthenticated();
-    m_transport->cancelAll();
     ++m_stateGeneration;
 
     const ServerConnection connection = m_activeConnection.isValid()
@@ -1365,7 +1389,8 @@ void AuthenticationService::handleUnauthorized(bool deferLogout)
 
 void AuthenticationService::validateAccessToken(std::function<void(bool)> callback)
 {
-    if (!m_providerAuthenticator || m_accessToken.isEmpty() || m_userId.isEmpty()) {
+    if (!m_providerAuthenticator || m_accessToken.isEmpty() || m_userId.isEmpty()
+        || !m_transport || !networkManager()) {
         callback(false);
         return;
     }
@@ -1393,10 +1418,13 @@ void AuthenticationService::validateAccessToken(std::function<void(bool)> callba
         [this, endpoint]() {
             return networkManager()->get(createRequest(endpoint));
         },
-        [complete](QNetworkReply *reply) {
+        [this, complete](QNetworkReply *reply) {
             const int statusCode = reply->attribute(
                 QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            complete(statusCode >= 200 && statusCode < 300);
+            const ProviderAuthenticationResult identity =
+                m_providerAuthenticator->parseSessionValidationResponse(reply->readAll());
+            complete(statusCode >= 200 && statusCode < 300
+                     && identity.accountId == m_userId);
         },
         [complete](const NetworkError &) {
             complete(false);

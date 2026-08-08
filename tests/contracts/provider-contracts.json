@@ -664,7 +664,7 @@
         "path": "/api/v1/catalog/query",
         "outcome": "partial",
         "capability": {"state": "conditional", "discovery": "/api/v1/catalog/filters plus request validation"},
-        "requestSemantics": ["JSON filter_config, library_id, limit, offset, sort, and order drive a bounded query", "Filter groups preserve explicit any/all semantics for genres, studios, years, item types, watched, and favorited values"],
+        "requestSemantics": ["JSON match/groups, library_id, limit, offset, sort, and order drive a bounded query", "Filter groups preserve explicit any/all semantics for genres, studios, years, item types, watched, and favorited values"],
         "requiredSemantics": ["Invalid or unsupported filter rules return 400 rather than silently disappearing", "Response carries items, total, and has_more", "The pinned POST response uses total_exact false even though its window count is exact and has no snapshot field, so snapshot-aware pagination must use GET /catalog", "The adapter marks unsupported Bloom filters as unsupported instead of claiming they were applied"],
         "evidenceSources": ["https://github.com/Silo-Server/silo-server/blob/8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6/internal/api/handlers/catalog.go"]
       },

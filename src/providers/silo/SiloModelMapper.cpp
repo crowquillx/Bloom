@@ -51,7 +51,7 @@ qint64 jsonInteger(const QJsonValue &value, qint64 fallback = 0)
     const double number = value.toDouble();
     if (!std::isfinite(number) || std::trunc(number) != number
         || number < static_cast<double>(std::numeric_limits<qint64>::min())
-        || number > static_cast<double>(std::numeric_limits<qint64>::max())) {
+        || number >= static_cast<double>(std::numeric_limits<qint64>::max())) {
         return fallback;
     }
     return static_cast<qint64>(number);
@@ -361,22 +361,19 @@ ParsedItemsResult SiloModelMapper::itemsResponse(const QByteArray &wireResponse,
     }
     if (document.isArray()) {
         result.items = document.array();
-        result.totalRecordCount = 0;
+        result.totalRecordCount = static_cast<int>(result.items.size());
         result.success = true;
         return result;
     }
     if (!document.isObject()) {
         return result;
     }
-
     const QJsonObject object = document.object();
-    if (!object.value(QStringLiteral("items")).isArray()) {
-        return result;
-    }
+
     result.items = object.value(QStringLiteral("items")).toArray();
     result.totalRecordCount = object.value(QStringLiteral("total")).isDouble()
         ? qMax(0, object.value(QStringLiteral("total")).toInt())
-        : 0;
+        : static_cast<int>(result.items.size());
     result.success = true;
     return result;
 }
@@ -431,6 +428,7 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
         case ProviderCatalogOperation::SimilarItems:
         case ProviderCatalogOperation::Search:
             result.rawItems = document.array();
+            result.total = static_cast<int>(result.rawItems.size());
             result.valid = true;
             return result;
         case ProviderCatalogOperation::Chapters:
@@ -521,6 +519,9 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
                     QStringLiteral("totalPresent"), true);
             }
         }
+        if (!result.capabilityMetadata.value(QStringLiteral("totalPresent")).toBool()) {
+            result.total = static_cast<int>(result.rawItems.size());
+        }
         result.valid = true;
         return result;
     }
@@ -583,6 +584,9 @@ ProviderCatalogResponse SiloModelMapper::catalogResponse(
                     normalizedItems.append(item);
                 }
                 result.rawItems = normalizedItems;
+            }
+            if (!result.capabilityMetadata.value(QStringLiteral("totalPresent")).toBool()) {
+                result.total = static_cast<int>(result.rawItems.size());
             }
             result.capabilityMetadata.insert(QStringLiteral("envelope"), key);
             result.valid = true;
@@ -798,19 +802,24 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
 
     const QJsonObject userData = wireItem.value(QStringLiteral("user_data")).isObject()
         ? wireItem.value(QStringLiteral("user_data")).toObject()
-        : wireItem.value(QStringLiteral("user_state")).toObject();
+        : (wireItem.value(QStringLiteral("user_state")).isObject()
+               ? wireItem.value(QStringLiteral("user_state")).toObject()
+               : (wireItem.value(QStringLiteral("state")).isObject()
+                      ? wireItem.value(QStringLiteral("state")).toObject()
+                      : QJsonObject{}));
+    const auto stateValue = [&userData, &wireItem](const QString &key) {
+        return userData.contains(key) ? userData.value(key) : wireItem.value(key);
+    };
     Bloom::UserMediaState state;
-    state.watched = userData.value(QStringLiteral("played")).toBool();
-    state.favorite = userData.contains(QStringLiteral("is_favorite"))
-        ? userData.value(QStringLiteral("is_favorite")).toBool()
-        : userData.value(QStringLiteral("favorite")).toBool();
-    const QJsonValue positionSeconds = userData.value(QStringLiteral("position_seconds")).isDouble()
-        ? userData.value(QStringLiteral("position_seconds"))
-        : wireItem.value(QStringLiteral("position_seconds"));
-    state.positionMs = secondsToMilliseconds(positionSeconds.toDouble());
-    state.unplayedItemCount = userData.value(QStringLiteral("unplayed_count")).toInt();
-    state.lastPlayedAt = userData.value(QStringLiteral("last_played_at")).toString(
-        wireItem.value(QStringLiteral("progress_updated_at")).toString());
+    state.watched = stateValue(QStringLiteral("played")).toBool();
+    state.favorite = stateValue(QStringLiteral("is_favorite")).isBool()
+        ? stateValue(QStringLiteral("is_favorite")).toBool()
+        : stateValue(QStringLiteral("favorite")).toBool();
+    state.positionMs = secondsToMilliseconds(
+        stateValue(QStringLiteral("position_seconds")).toDouble());
+    state.unplayedItemCount = stateValue(QStringLiteral("unplayed_count")).toInt();
+    state.lastPlayedAt = stateValue(QStringLiteral("last_played_at")).toString(
+        stateValue(QStringLiteral("progress_updated_at")).toString());
 
     const QJsonArray wireVersions = wireItem.value(QStringLiteral("versions")).isArray()
         ? wireItem.value(QStringLiteral("versions")).toArray()
@@ -885,9 +894,8 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("positionMs"), state.positionMs},
         {QStringLiteral("unplayedItemCount"), state.unplayedItemCount},
         {QStringLiteral("isInProgress"),
-         userData.contains(QStringLiteral("is_in_progress"))
-             ? userData.value(QStringLiteral("is_in_progress")).toBool()
-             : state.positionMs > 0},
+         state.positionMs > 0
+             || stateValue(QStringLiteral("is_in_progress")).toBool()},
         {QStringLiteral("people"), people(wireItem, connectionId)},
         {QStringLiteral("versions"), versions},
         {QStringLiteral("playbackVariants"), playbackVariants(
@@ -895,10 +903,6 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
         {QStringLiteral("subtitles"), subtitles(wireItem.value(QStringLiteral("subtitles")).toArray())},
         {QStringLiteral("markers"), markerVariants(wireItem)}
     };
-    if (wireItem.value(QStringLiteral("score")).isDouble()) {
-        result[QStringLiteral("recommendationScore")] =
-            wireItem.value(QStringLiteral("score")).toDouble();
-    }
     if (wireItem.value(QStringLiteral("reason")).isString()) {
         result[QStringLiteral("recommendationReason")] =
             wireItem.value(QStringLiteral("reason")).toString();
@@ -939,12 +943,15 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
             wireItem.value(QStringLiteral("restricted")).toBool();
     }
 
-    const QString primaryArtworkUrl =
-        wireItem.value(QStringLiteral("poster_url")).toString(
-            wireItem.value(QStringLiteral("still_url")).toString());
+    const QString posterUrl = wireItem.value(QStringLiteral("poster_url")).toString();
+    const QString stillUrl = wireItem.value(QStringLiteral("still_url")).toString();
+    const QString primaryArtworkUrl = posterUrl.isEmpty() ? stillUrl : posterUrl;
+    const QString posterThumbhash =
+        wireItem.value(QStringLiteral("poster_thumbhash")).toString();
+    const QString stillThumbhash =
+        wireItem.value(QStringLiteral("still_thumbhash")).toString();
     const QString primaryThumbhash =
-        wireItem.value(QStringLiteral("poster_thumbhash")).toString(
-            wireItem.value(QStringLiteral("still_thumbhash")).toString());
+        posterThumbhash.isEmpty() ? stillThumbhash : posterThumbhash;
     QVariantList artwork;
     appendArtwork(artwork, result, QStringLiteral("primaryArtwork"),
                   QStringLiteral("primaryArtworkUrl"), connectionId, itemId,
@@ -966,7 +973,7 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
     QVariantMap artworkExpiresAt;
     for (const auto &[kind, field] : {
              std::pair{QStringLiteral("primary"),
-                       wireItem.value(QStringLiteral("poster_url")).isString()
+                       !posterUrl.isEmpty()
                            ? QStringLiteral("poster_url_expires_at")
                            : QStringLiteral("still_url_expires_at")},
              std::pair{QStringLiteral("backdrop"), QStringLiteral("backdrop_url_expires_at")},
@@ -1006,9 +1013,12 @@ QVariantMap SiloModelMapper::chapter(const QJsonObject &wireChapter,
 {
     const QJsonValue startValue = wireChapter.value(QStringLiteral("start_seconds"));
     const QJsonValue endValue = wireChapter.value(QStringLiteral("end_seconds"));
-    if (!startValue.isDouble() || !endValue.isDouble()
-        || !std::isfinite(startValue.toDouble()) || !std::isfinite(endValue.toDouble())
-        || startValue.toDouble() < 0.0 || endValue.toDouble() <= startValue.toDouble()) {
+    if (!startValue.isDouble() || !std::isfinite(startValue.toDouble())
+        || startValue.toDouble() < 0.0) {
+        return {};
+    }
+    const bool hasEnd = endValue.isDouble() && std::isfinite(endValue.toDouble());
+    if (hasEnd && endValue.toDouble() < startValue.toDouble()) {
         return {};
     }
     const int index = wireChapter.contains(QStringLiteral("index"))
@@ -1020,8 +1030,9 @@ QVariantMap SiloModelMapper::chapter(const QJsonObject &wireChapter,
         {QStringLiteral("fileId"), fileId},
         {QStringLiteral("startMs"), secondsToMilliseconds(
              wireChapter.value(QStringLiteral("start_seconds")).toDouble())},
-        {QStringLiteral("endMs"), secondsToMilliseconds(
-             wireChapter.value(QStringLiteral("end_seconds")).toDouble())},
+        {QStringLiteral("endMs"), hasEnd
+             ? secondsToMilliseconds(wireChapter.value(QStringLiteral("end_seconds")).toDouble())
+             : -1},
         {QStringLiteral("source"), wireChapter.value(QStringLiteral("source")).toString()},
         {QStringLiteral("thumbnailUrl"), wireChapter.value(QStringLiteral("thumbnail_url")).toString()},
         {QStringLiteral("thumbnailThumbhash"), wireChapter.value(QStringLiteral("thumbnail_thumbhash")).toString()}
@@ -1212,41 +1223,49 @@ QList<ProviderAuthSession> SiloModelMapper::authSessions(const QJsonArray &wireS
 QVariantMap SiloModelMapper::nativeState(const QJsonObject &wireState,
                                          const QString &connectionId)
 {
-    const QJsonObject state = wireState.value(QStringLiteral("user_data")).isObject()
+    QJsonObject state = wireState.value(QStringLiteral("user_data")).isObject()
         ? wireState.value(QStringLiteral("user_data")).toObject()
         : (wireState.value(QStringLiteral("user_state")).isObject()
                ? wireState.value(QStringLiteral("user_state")).toObject()
-               : wireState);
-    const bool recognized = state.contains(QStringLiteral("played"))
-        || state.contains(QStringLiteral("is_favorite"))
-        || state.contains(QStringLiteral("favorite"))
-        || state.contains(QStringLiteral("position_seconds"))
-        || state.contains(QStringLiteral("is_in_progress"));
+               : (wireState.value(QStringLiteral("state")).isObject()
+                      ? wireState.value(QStringLiteral("state")).toObject()
+                      : wireState));
+    if (state.value(QStringLiteral("user_data")).isObject()) {
+        state = state.value(QStringLiteral("user_data")).toObject();
+    } else if (state.value(QStringLiteral("user_state")).isObject()) {
+        state = state.value(QStringLiteral("user_state")).toObject();
+    }
+    const auto value = [&state, &wireState](const QString &key) {
+        return state.contains(key) ? state.value(key) : wireState.value(key);
+    };
+    const bool recognized = value(QStringLiteral("played")).isBool()
+        || value(QStringLiteral("is_favorite")).isBool()
+        || value(QStringLiteral("favorite")).isBool()
+        || value(QStringLiteral("position_seconds")).isDouble()
+        || value(QStringLiteral("is_in_progress")).isBool();
     if (!recognized) {
         return {};
     }
 
     Bloom::UserMediaState userState;
-    userState.watched = state.value(QStringLiteral("played")).toBool();
-    userState.favorite = state.contains(QStringLiteral("is_favorite"))
-        ? state.value(QStringLiteral("is_favorite")).toBool()
-        : state.value(QStringLiteral("favorite")).toBool();
-    const QJsonValue position = state.value(QStringLiteral("position_seconds")).isDouble()
-        ? state.value(QStringLiteral("position_seconds"))
-        : wireState.value(QStringLiteral("position_seconds"));
-    userState.positionMs = secondsToMilliseconds(position.toDouble());
-    userState.unplayedItemCount = state.value(QStringLiteral("unplayed_count")).toInt();
-    userState.lastPlayedAt = state.value(QStringLiteral("last_played_at")).toString(
-        wireState.value(QStringLiteral("progress_updated_at")).toString());
+    userState.watched = value(QStringLiteral("played")).toBool();
+    userState.favorite = value(QStringLiteral("is_favorite")).isBool()
+        ? value(QStringLiteral("is_favorite")).toBool()
+        : value(QStringLiteral("favorite")).toBool();
+    userState.positionMs = secondsToMilliseconds(
+        value(QStringLiteral("position_seconds")).toDouble());
+    userState.unplayedItemCount = value(QStringLiteral("unplayed_count")).toInt();
+    userState.lastPlayedAt = value(QStringLiteral("last_played_at")).toString(
+        value(QStringLiteral("progress_updated_at")).toString());
     QString contentId = identityString(wireState.value(QStringLiteral("content_id")));
     if (contentId.isEmpty()) {
-        contentId = identityString(state.value(QStringLiteral("content_id")));
+        contentId = identityString(value(QStringLiteral("content_id")));
     }
     if (contentId.isEmpty()) {
         contentId = identityString(wireState.value(QStringLiteral("media_item_id")));
     }
     if (contentId.isEmpty()) {
-        contentId = identityString(state.value(QStringLiteral("media_item_id")));
+        contentId = identityString(value(QStringLiteral("media_item_id")));
     }
     return {
         {QStringLiteral("connectionId"), connectionId},
@@ -1256,15 +1275,12 @@ QVariantMap SiloModelMapper::nativeState(const QJsonObject &wireState,
         {QStringLiteral("favorite"), userState.favorite},
         {QStringLiteral("positionMs"), userState.positionMs},
         {QStringLiteral("durationMs"), secondsToMilliseconds(
-             (state.value(QStringLiteral("duration_seconds")).isDouble()
-                  ? state.value(QStringLiteral("duration_seconds"))
-                  : wireState.value(QStringLiteral("duration_seconds"))).toDouble())},
-        {QStringLiteral("watchedCount"), state.value(QStringLiteral("watched_count")).toInt()},
+             value(QStringLiteral("duration_seconds")).toDouble())},
+        {QStringLiteral("watchedCount"), value(QStringLiteral("watched_count")).toInt()},
         {QStringLiteral("isInProgress"),
-         state.contains(QStringLiteral("is_in_progress"))
-             ? state.value(QStringLiteral("is_in_progress")).toBool()
-             : userState.positionMs > 0},
-        {QStringLiteral("lastFileId"), identityString(state.value(QStringLiteral("last_file_id")))}
+         userState.positionMs > 0
+             || value(QStringLiteral("is_in_progress")).toBool()},
+        {QStringLiteral("lastFileId"), identityString(value(QStringLiteral("last_file_id")))}
     };
 }
 

@@ -5,7 +5,6 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QStandardPaths>
 #include <QTemporaryDir>
 
 #include "network/SessionManager.h"
@@ -14,51 +13,9 @@
 #include "security/ISecretStore.h"
 #include "utils/ConfigManager.h"
 
+#include "TestConfigIsolation.h"
+
 namespace {
-
-class ScopedConfigIsolation
-{
-public:
-    explicit ScopedConfigIsolation(const QString &path)
-        : m_previousConfigHome(qgetenv("XDG_CONFIG_HOME"))
-        , m_previousAppData(qgetenv("APPDATA"))
-        , m_previousHome(qgetenv("HOME"))
-        , m_hadPreviousConfigHome(!m_previousConfigHome.isNull())
-        , m_hadPreviousAppData(!m_previousAppData.isNull())
-        , m_hadPreviousHome(!m_previousHome.isNull())
-    {
-        QStandardPaths::setTestModeEnabled(true);
-        qputenv("XDG_CONFIG_HOME", path.toUtf8());
-        qputenv("APPDATA", path.toUtf8());
-        qputenv("HOME", path.toUtf8());
-        QDir().mkpath(path + QStringLiteral("/Library/Preferences"));
-    }
-
-    ~ScopedConfigIsolation()
-    {
-        restore("XDG_CONFIG_HOME", m_previousConfigHome, m_hadPreviousConfigHome);
-        restore("APPDATA", m_previousAppData, m_hadPreviousAppData);
-        restore("HOME", m_previousHome, m_hadPreviousHome);
-        QStandardPaths::setTestModeEnabled(false);
-    }
-
-private:
-    static void restore(const char *name, const QByteArray &value, bool hadPrevious)
-    {
-        if (hadPrevious) {
-            qputenv(name, value);
-        } else {
-            qunsetenv(name);
-        }
-    }
-
-    QByteArray m_previousConfigHome;
-    QByteArray m_previousAppData;
-    QByteArray m_previousHome;
-    bool m_hadPreviousConfigHome;
-    bool m_hadPreviousAppData;
-    bool m_hadPreviousHome;
-};
 
 class FakeSecretStore : public ISecretStore
 {
@@ -318,11 +275,13 @@ void ConnectionPersistenceTest::v27MigrationUsesStableConnectionIdentityBeforeFi
 
     ConfigManager firstLoad;
     firstLoad.load();
+    QVERIFY(firstLoad.getActiveConnection().has_value());
     const QString firstId = firstLoad.getActiveConnection()->connectionId;
 
     writeConfig(legacy);
     ConfigManager secondLoad;
     secondLoad.load();
+    QVERIFY(secondLoad.getActiveConnection().has_value());
     QCOMPARE(secondLoad.getActiveConnection()->connectionId, firstId);
 }
 
@@ -362,6 +321,7 @@ void ConnectionPersistenceTest::jellyfinFacadeUpsertsStableConnectionWithoutPers
                                QStringLiteral("user-1"),
                                QStringLiteral("must-not-be-persisted"),
                                QStringLiteral("Alice"));
+    QVERIFY(config.getActiveConnection().has_value());
     const QString connectionId = config.getActiveConnection()->connectionId;
 
     config.setJellyfinSession(QStringLiteral("https://media.example.test"),
@@ -370,6 +330,7 @@ void ConnectionPersistenceTest::jellyfinFacadeUpsertsStableConnectionWithoutPers
                                QStringLiteral("Alice Updated"));
 
     QCOMPARE(config.getConnections().size(), 1);
+    QVERIFY(config.getActiveConnection().has_value());
     QCOMPARE(config.getActiveConnection()->connectionId, connectionId);
     QCOMPARE(config.getActiveConnection()->accountId, QStringLiteral("user-1"));
     QCOMPARE(config.getActiveConnection()->username, QStringLiteral("Alice Updated"));
@@ -484,6 +445,7 @@ void ConnectionPersistenceTest::jellyfinFacadeDoesNotOverwriteAnotherServerOrAcc
                               QStringLiteral("user-1"),
                               QString(),
                               QStringLiteral("Alice"));
+    QVERIFY(config.getActiveConnection().has_value());
     const QString firstId = config.getActiveConnection()->connectionId;
 
     config.setJellyfinSession(QStringLiteral("https://two.example.test"),
@@ -492,13 +454,15 @@ void ConnectionPersistenceTest::jellyfinFacadeDoesNotOverwriteAnotherServerOrAcc
                               QStringLiteral("Bob"));
     QCOMPARE(config.getConnections().size(), 2);
     QVERIFY(config.getConnection(firstId).has_value());
-    QVERIFY(config.getActiveConnection()->connectionId != firstId);
+    QVERIFY(config.getActiveConnection().has_value());
+    QCOMPARE(config.getActiveConnection()->connectionId != firstId, true);
 
     config.setJellyfinSession(QStringLiteral("https://two.example.test"),
                               QStringLiteral("user-3"),
                               QString(),
                               QStringLiteral("Carol"));
     QCOMPARE(config.getConnections().size(), 3);
+    QVERIFY(config.getConnection(firstId).has_value());
     QCOMPARE(config.getConnection(firstId)->username, QStringLiteral("Alice"));
 }
 
@@ -520,8 +484,10 @@ void ConnectionPersistenceTest::connectionPersistenceSupportsMultipleServers()
     config.upsertConnection(second);
 
     QCOMPARE(config.getConnections().size(), 2);
+    QVERIFY(config.getActiveConnection().has_value());
     QCOMPARE(config.getActiveConnection()->connectionId, QStringLiteral("connection-2"));
     QVERIFY(config.setActiveConnection(first.connectionId));
+    QVERIFY(config.getActiveConnection().has_value());
     QCOMPARE(config.getActiveConnection()->connectionId, first.connectionId);
     config.clearActiveConnection();
     QVERIFY(!config.getActiveConnection().has_value());
@@ -550,6 +516,7 @@ void ConnectionPersistenceTest::connectionScopedSettingsPreventRemoteIdCollision
 
     ConfigManager config;
     config.load();
+    QVERIFY(config.getActiveConnection().has_value());
     const ServerConnection first = *config.getActiveConnection();
     QCOMPARE(config.getLibraryProfile(QStringLiteral("shared-library")),
              QStringLiteral("High Quality"));
@@ -610,10 +577,16 @@ void ConnectionPersistenceTest::siloConnectionsDoNotMergeOnMissingOrDefaultServe
     ConfigManager reloaded;
     reloaded.load();
     QCOMPARE(reloaded.getConnections().size(), 3);
-    QVERIFY(reloaded.getConnection(QStringLiteral("silo-one"))->serverId.isEmpty());
-    QCOMPARE(reloaded.getConnection(QStringLiteral("silo-two"))->serverId,
+    const auto siloOne = reloaded.getConnection(QStringLiteral("silo-one"));
+    const auto siloTwo = reloaded.getConnection(QStringLiteral("silo-two"));
+    const auto siloThree = reloaded.getConnection(QStringLiteral("silo-three"));
+    QVERIFY(siloOne.has_value());
+    QVERIFY(siloTwo.has_value());
+    QVERIFY(siloThree.has_value());
+    QVERIFY(siloOne->serverId.isEmpty());
+    QCOMPARE(siloTwo->serverId,
              QStringLiteral("b2d9e6c9-1237-5add-a687-5dae547ece33"));
-    QCOMPARE(reloaded.getConnection(QStringLiteral("silo-three"))->serverId,
+    QCOMPARE(siloThree->serverId,
              QStringLiteral("b2d9e6c9-1237-5add-a687-5dae547ece33"));
 }
 
@@ -641,10 +614,12 @@ void ConnectionPersistenceTest::siloAccountAndProfileSwitchesKeepStateIsolated()
     config.setLibraryProfile(QStringLiteral("shared-library"), QStringLiteral("Child Quality"));
 
     QVERIFY(config.setActiveConnection(adult.connectionId));
+    QVERIFY(config.getActiveConnection().has_value());
     QCOMPARE(config.getActiveConnection()->profileId, QStringLiteral("profile-adult"));
     QCOMPARE(config.getLibraryProfile(QStringLiteral("shared-library")),
              QStringLiteral("Adult Quality"));
     QVERIFY(config.setActiveConnection(child.connectionId));
+    QVERIFY(config.getActiveConnection().has_value());
     QCOMPARE(config.getActiveConnection()->profileId, QStringLiteral("profile-child"));
     QCOMPARE(config.getLibraryProfile(QStringLiteral("shared-library")),
              QStringLiteral("Child Quality"));
@@ -995,6 +970,7 @@ void ConnectionPersistenceTest::deviceRotationMigratesLegacyConfigFallback()
 
     QVERIFY(sessionManager.rotateDeviceId());
     CredentialStore credentials(&secretStore);
+    QVERIFY(config.getActiveConnection().has_value());
     QCOMPARE(credentials.read(*config.getActiveConnection(), CredentialKind::AccessToken),
              QStringLiteral("legacy-config-token"));
 }

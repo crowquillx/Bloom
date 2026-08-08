@@ -11,6 +11,7 @@
 class SiloProviderAdapter final : public IProviderAdapter
 {
 public:
+    using IProviderAdapter::endpointFor;
     ProviderKind providerKind() const override { return ProviderKind::Silo; }
     ProtocolMode protocolMode() const override { return ProtocolMode::Native; }
     const IProviderAuthenticator *authenticator() const override { return &m_authenticator; }
@@ -92,26 +93,17 @@ public:
 
     bool supportsCapability(ProviderCapability capability) const override
     {
-        switch (capability) {
-        case ProviderCapability::RefreshAuthentication:
-        case ProviderCapability::Profiles:
-        case ProviderCapability::ProfilePin:
-        case ProviderCapability::AuthSessions:
-        case ProviderCapability::Catalog:
-        case ProviderCapability::NativeState:
-        case ProviderCapability::MediaSegments:
-            return true;
-        case ProviderCapability::Playback:
-        case ProviderCapability::PlaybackReporting:
-            return false;
-        }
-        return false;
+        return implementedCapabilities().testFlag(capability);
     }
 
     std::optional<QString> endpointFor(
-        ProviderRoute route, const ProviderRouteContext &context = {}) const override
+        ProviderRoute route, const ProviderRouteContext &context) const override
     {
         switch (route) {
+        case ProviderRoute::Health:
+            return QStringLiteral("/api/v1/health");
+        case ProviderRoute::CallerLogout:
+            return QStringLiteral("/api/v1/auth/logout");
         case ProviderRoute::Profiles:
             return QStringLiteral("/api/v1/profiles");
         case ProviderRoute::VerifyProfilePin:

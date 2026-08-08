@@ -95,6 +95,22 @@ FocusScope {
         return !!(profile && (profile.hasPin || profile.has_pin || profile.pinRequired))
     }
 
+    function syncSelectedProfile() {
+        if (authenticationStep === "pin" && selectedProfileId.length === 0) {
+            var profile = null
+            if (availableProfiles.length === 1) {
+                profile = availableProfiles[0]
+            } else if (profileList.currentIndex >= 0 && profileList.currentIndex < availableProfiles.length) {
+                profile = availableProfiles[profileList.currentIndex]
+            }
+            if (profile) {
+                selectedProfileId = profileId(profile)
+                selectedProfileName = profileName(profile)
+                selectedProfileAvatar = profileAvatar(profile)
+            }
+        }
+    }
+
     function chooseProfile(profile) {
         const id = profileId(profile)
         if (id.length === 0)
@@ -108,6 +124,9 @@ FocusScope {
     }
 
     function submitPin() {
+        if (selectedProfileId.length === 0) {
+            syncSelectedProfile()
+        }
         if (selectedProfileId.length === 0) {
             setStatus(qsTr("Choose a profile before entering a PIN."), true)
             cancelAuthentication()
@@ -132,7 +151,11 @@ FocusScope {
         serviceLoginReported = false
         completionEmitted = false
         clearStatus()
-        AuthenticationService.logout()
+        if (AuthenticationService.authenticated) {
+            AuthenticationService.logout()
+        } else if (authenticationStep === "pin" || authenticationStep === "profiles") {
+            AuthenticationService.clearProfileState()
+        }
         Qt.callLater(restoreStepFocus)
     }
 
@@ -155,12 +178,14 @@ FocusScope {
                     profilesBackButton.forceActiveFocus()
                 }
             } else if (authenticationStep === "pin") {
+                syncSelectedProfile()
                 pinField.forceActiveFocus()
             } else {
                 selectedProviderButton().forceActiveFocus()
             }
         })
     }
+
 
     function restoreRetryFocus() {
         Qt.callLater(function() {
@@ -605,7 +630,11 @@ FocusScope {
                             MouseArea {
                                 anchors.fill: parent
                                 hoverEnabled: true
-                                onEntered: profileList.currentIndex = index
+                                onEntered: {
+                                    if (typeof InputModeManager === "undefined" || InputModeManager.pointerActive) {
+                                        profileList.currentIndex = index
+                                    }
+                                }
                                 onClicked: {
                                     profileList.currentIndex = index
                                     profileList.forceActiveFocus()
@@ -678,6 +707,7 @@ FocusScope {
                         }
 
                         Text {
+                            parent: profileList
                             anchors.centerIn: parent
                             visible: profileList.count === 0
                             text: qsTr("Loading profiles…")
@@ -697,6 +727,20 @@ FocusScope {
                         KeyNavigation.down: profileList
                         KeyNavigation.tab: profileList
                         KeyNavigation.backtab: profileList
+                        Keys.onUpPressed: function(event) {
+                            if (profileList.count > 0) {
+                                profileList.currentIndex = profileList.count - 1
+                                profileList.forceActiveFocus()
+                            }
+                            event.accepted = true
+                        }
+                        Keys.onDownPressed: function(event) {
+                            if (profileList.count > 0) {
+                                profileList.currentIndex = 0
+                                profileList.forceActiveFocus()
+                            }
+                            event.accepted = true
+                        }
                         onClicked: root.cancelAuthentication()
                         background: Rectangle {
                             radius: Theme.radiusSmall
@@ -878,16 +922,20 @@ FocusScope {
 
         function onProfilesChanged() {
             Qt.callLater(function() {
-                if (root.authenticationStep !== "profiles")
+                if (root.authenticationStep !== "profiles" && root.authenticationStep !== "pin")
                     return
                 profileList.currentIndex = root.availableProfiles.length > 0 ? 0 : -1
+                if (root.authenticationStep === "pin")
+                    root.syncSelectedProfile()
                 root.restoreStepFocus()
             })
         }
 
         function onAuthenticationStepChanged() {
-            if (root.authenticationStep === "pin")
+            if (root.authenticationStep === "pin") {
                 pinField.clear()
+                root.syncSelectedProfile()
+            }
             if (root.authenticationStep !== "authenticated")
                 root.clearStatus()
             root.restoreStepFocus()

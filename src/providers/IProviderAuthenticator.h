@@ -30,10 +30,10 @@ struct ProviderAuthenticationResult {
         return !accessToken.isEmpty() && !accountId.isEmpty();
     }
 
-    // Refresh responses rotate both credentials and do not need to repeat the account ID.
+    // Refresh responses may omit refresh_token when the existing token remains valid.
     [[nodiscard]] bool isValidRefresh() const
     {
-        return !accessToken.isEmpty() && !refreshToken.isEmpty();
+        return !accessToken.isEmpty();
     }
 };
 
@@ -67,6 +67,21 @@ public:
 
     virtual ProviderAuthenticationRequest createLoginRequest(const QString &username,
                                                               const QString &password) const = 0;
+    virtual ProviderAuthenticationRequest createLoginRequest(
+        const QString &username,
+        const QString &password,
+        const QString &provider) const
+    {
+        Q_UNUSED(provider)
+        return createLoginRequest(username, password);
+    }
+
+    virtual ProviderAuthenticationResult parseSessionValidationResponse(
+        const QByteArray &response) const
+    {
+        Q_UNUSED(response)
+        return {};
+    }
     virtual QString sessionValidationEndpoint(const QString &accountId) const = 0;
     virtual ProviderAuthenticationResult parseLoginResponse(const QByteArray &response) const = 0;
 

@@ -172,6 +172,10 @@ private slots:
     void profileTokenIsBoundToSelectionAndClearedOnSwitch();
     void serviceLoadsRevokedSessionsAndCallsRevokeEndpoint();
     void profileVerificationNeverReceivesStaleProfileHeaders();
+    void nullTransportFailsAuthenticationWithoutCrashing();
+    void emptyProfilesAfterSwitchLeaveVisibleErrorAndAuthenticatedStep();
+    void restoreRejectsValidationForAnotherAccount();
+    void refreshWithoutRotationRetainsPreviousToken();
 };
 
 void SiloAuthenticationTest::adapterExposesNativeAuthenticationBoundaries()
@@ -339,10 +343,11 @@ void SiloAuthenticationTest::authenticatorRejectsMalformedAndIncompleteResponses
                  QByteArrayLiteral(R"({"valid":true,"profile_token":"profile-token-1"})"))
                  .isValid());
 
-    const ProviderAuthenticationResult incompleteRefresh = authenticator.parseRefreshResponse(
+    const ProviderAuthenticationResult retainedRefresh = authenticator.parseRefreshResponse(
         QByteArrayLiteral(R"({"access_token":"access-2","expires_in":1800})"));
-    QVERIFY(incompleteRefresh.accessToken.isEmpty());
-    QVERIFY(incompleteRefresh.refreshToken.isEmpty());
+    QCOMPARE(retainedRefresh.accessToken, QStringLiteral("access-2"));
+    QVERIFY(retainedRefresh.refreshToken.isEmpty());
+    QVERIFY(retainedRefresh.isValidRefresh());
     QVERIFY(!authenticator.createRefreshRequest(QString()).has_value());
 
     const SiloAuthenticationError invalidCredentials =
@@ -424,16 +429,22 @@ void SiloAuthenticationTest::adapterExposesProfileAndSessionRoutes()
     const auto pin = adapter.endpointFor(ProviderRoute::VerifyProfilePin, context);
     const auto sessions = adapter.endpointFor(ProviderRoute::AuthSessions);
     const auto revoke = adapter.endpointFor(ProviderRoute::RevokeAuthSession, context);
+    const auto health = adapter.endpointFor(ProviderRoute::Health);
+    const auto logout = adapter.endpointFor(ProviderRoute::CallerLogout);
     QVERIFY(profiles.has_value());
     QVERIFY(pin.has_value());
     QVERIFY(sessions.has_value());
     QVERIFY(revoke.has_value());
+    QVERIFY(health.has_value());
+    QVERIFY(logout.has_value());
     QCOMPARE(*profiles, QStringLiteral("/api/v1/profiles"));
     QCOMPARE(*pin,
              QStringLiteral("/api/v1/profiles/profile%2Fwith%20space/verify-pin"));
     QCOMPARE(*sessions, QStringLiteral("/api/v1/auth/sessions"));
     QCOMPARE(*revoke,
              QStringLiteral("/api/v1/auth/sessions/session%2Fwith%20space"));
+    QCOMPARE(*health, QStringLiteral("/api/v1/health"));
+    QCOMPARE(*logout, QStringLiteral("/api/v1/auth/logout"));
 }
 
 void SiloAuthenticationTest::authenticatorDistinguishesIncorrectAndValidProfilePins()
@@ -768,6 +779,131 @@ void SiloAuthenticationTest::serviceLoadsRevokedSessionsAndCallsRevokeEndpoint()
                  .request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-1"));
 }
+void SiloAuthenticationTest::refreshWithoutRotationRetainsPreviousToken()
+{
+    FakeNetworkAccessManager manager;
+    manager.responses = {
+        response(200, successfulLogin()),
+        response(200, singleUnlockedProfile())
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    service.setProviderSelection(QStringLiteral("silo"));
+    service.authenticate(QStringLiteral("https://silo.example.test"),
+                         QStringLiteral("Alice"),
+                         QStringLiteral("password"));
+    QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
+
+    manager.responses.append(response(
+        401, QByteArrayLiteral(R"({"error":"invalid_token","message":"Expired"})")));
+    manager.responses.append(response(
+        200, QByteArrayLiteral(R"({"access_token":"access-2","expires_in":1800})")));
+    manager.responses.append(response(200, QByteArrayLiteral(R"({"ok":true})")));
+    HttpRequestOptions options;
+    options.retryEnabled = false;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    int successes = 0;
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/api/v1/protected"),
+        [&]() { return manager.get(service.createRequest(QStringLiteral("/api/v1/protected"))); },
+        [&](QNetworkReply *) { ++successes; },
+        [](const NetworkError &) {},
+        options);
+    QTRY_COMPARE_WITH_TIMEOUT(successes, 1, 1000);
+
+    manager.responses.append(response(
+        401, QByteArrayLiteral(R"({"error":"invalid_token","message":"Expired"})")));
+    manager.responses.append(response(
+        200, QByteArrayLiteral(R"({"access_token":"access-3","expires_in":1800})")));
+    manager.responses.append(response(200, QByteArrayLiteral(R"({"ok":true})")));
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/api/v1/protected-again"),
+        [&]() {
+            return manager.get(service.createRequest(
+                QStringLiteral("/api/v1/protected-again")));
+        },
+        [&](QNetworkReply *) { ++successes; },
+        [](const NetworkError &) {},
+        options);
+    QTRY_COMPARE_WITH_TIMEOUT(successes, 2, 1000);
+
+    int refreshRequests = 0;
+    for (const RecordedRequest &request : manager.requests) {
+        if (request.request.url().path() == QStringLiteral("/api/v1/auth/refresh")) {
+            ++refreshRequests;
+            if (refreshRequests == 2) {
+                QCOMPARE(QJsonDocument::fromJson(request.body).object()
+                             .value(QStringLiteral("refresh_token")).toString(),
+                         QStringLiteral("refresh-1"));
+            }
+        }
+    }
+    QCOMPARE(refreshRequests, 2);
+}
+
+void SiloAuthenticationTest::nullTransportFailsAuthenticationWithoutCrashing()
+{
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, nullptr, &adapter);
+    QSignalSpy errorSpy(&service, &AuthenticationService::loginError);
+
+    service.setProviderSelection(QStringLiteral("silo"));
+    service.authenticate(QStringLiteral("https://silo.example.test"),
+                         QStringLiteral("Alice"),
+                         QStringLiteral("password"));
+
+    QCOMPARE(errorSpy.count(), 1);
+    QVERIFY(!service.isAuthenticated());
+}
+
+void SiloAuthenticationTest::emptyProfilesAfterSwitchLeaveVisibleErrorAndAuthenticatedStep()
+{
+    FakeNetworkAccessManager manager;
+    manager.responses = {
+        response(200, successfulLogin()),
+        response(200, singleUnlockedProfile())
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+    QSignalSpy errorSpy(&service, &AuthenticationService::loginError);
+
+    service.setProviderSelection(QStringLiteral("silo"));
+    service.authenticate(QStringLiteral("https://silo.example.test"),
+                         QStringLiteral("Alice"),
+                         QStringLiteral("password"));
+    QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
+
+    manager.responses.append(response(200, QByteArrayLiteral(R"({"profiles": []})")));
+    service.switchProfile();
+    QTRY_COMPARE_WITH_TIMEOUT(errorSpy.count(), 1, 1000);
+    QCOMPARE(service.authenticationStep(), QStringLiteral("authenticated"));
+}
+
+void SiloAuthenticationTest::restoreRejectsValidationForAnotherAccount()
+{
+    FakeNetworkAccessManager manager;
+    manager.responses = {
+        response(200, QByteArrayLiteral(
+            R"({"id":43,"username":"Bob","role":"user"})"))
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    AuthenticationService service(nullptr, &transport, &adapter);
+
+    service.restoreSession(QStringLiteral("https://silo.example.test"),
+                           QStringLiteral("42"),
+                           QStringLiteral("stale-access"),
+                           QStringLiteral("Alice"));
+    QTRY_COMPARE_WITH_TIMEOUT(service.getUserId(), QString(), 1000);
+    QCOMPARE(manager.requests.size(), 1);
+    QCOMPARE(manager.requests.constFirst().request.url().path(),
+             QStringLiteral("/api/v1/auth/me"));
+}
+
 
 QTEST_MAIN(SiloAuthenticationTest)
 #include "SiloAuthenticationTest.moc"

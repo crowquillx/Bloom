@@ -32,7 +32,7 @@ void ActiveArtworkProvider::refreshArtwork(
 
     IArtworkProvider *provider = activeProvider();
     if (!provider) {
-        completion(std::nullopt);
+        deferRefresh(std::move(completion));
         return;
     }
     provider->refreshArtwork(artwork, std::move(completion));

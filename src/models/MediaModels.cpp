@@ -1,8 +1,34 @@
 #include "MediaModels.h"
 
+#include <QCache>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMutex>
+#include <QMutexLocker>
 #include <string>
+
+namespace {
+
+QMutex transientArtworkSourceMutex;
+QCache<QString, QString> transientArtworkSources(512);
+
+void rememberTransientArtworkSource(const QString &cacheKey, const QString &sourceUrl)
+{
+    if (cacheKey.isEmpty() || sourceUrl.isEmpty()) {
+        return;
+    }
+    QMutexLocker locker(&transientArtworkSourceMutex);
+    transientArtworkSources.insert(cacheKey, new QString(sourceUrl));
+}
+
+QString transientArtworkSource(const QString &cacheKey)
+{
+    QMutexLocker locker(&transientArtworkSourceMutex);
+    const QString *source = transientArtworkSources.object(cacheKey);
+    return source ? *source : QString();
+}
+
+} // namespace
 
 namespace Bloom {
 
@@ -46,10 +72,16 @@ QString artworkOwnerKindName(ArtworkOwnerKind kind)
 ArtworkOwnerKind artworkOwnerKindFromName(const QString &name)
 {
     const QString normalized = name.trimmed().toLower();
+    if (normalized == QStringLiteral("mediaitem")) return ArtworkOwnerKind::MediaItem;
     if (normalized == QStringLiteral("library")) return ArtworkOwnerKind::Library;
     if (normalized == QStringLiteral("person")) return ArtworkOwnerKind::Person;
     if (normalized == QStringLiteral("chapter")) return ArtworkOwnerKind::Chapter;
     return ArtworkOwnerKind::MediaItem;
+}
+
+QString ArtworkRef::transientSourceUrlForCacheKey(const QString &key)
+{
+    return transientArtworkSource(key);
 }
 
 bool MediaRef::isValid() const
@@ -99,11 +131,14 @@ QString ArtworkRef::cacheKey() const
     const QByteArray payload = QJsonDocument(object).toJson(QJsonDocument::Compact)
                                    .toBase64(QByteArray::Base64UrlEncoding
                                              | QByteArray::OmitTrailingEquals);
-    return QStringLiteral("artwork:") + QString::fromLatin1(payload);
+    const QString key = QStringLiteral("artwork:") + QString::fromLatin1(payload);
+    rememberTransientArtworkSource(key, sourceUrl);
+    return key;
 }
 
 QVariantMap ArtworkRef::toVariantMap() const
 {
+    const QString key = cacheKey();
     return {
         {QStringLiteral("connectionId"), connectionId},
         {QStringLiteral("itemId"), itemId},
@@ -112,8 +147,7 @@ QVariantMap ArtworkRef::toVariantMap() const
         {QStringLiteral("index"), index},
         {QStringLiteral("tag"), tag},
         {QStringLiteral("requestedWidth"), requestedWidth},
-        {QStringLiteral("sourceUrl"), sourceUrl},
-        {QStringLiteral("cacheKey"), cacheKey()}
+        {QStringLiteral("cacheKey"), key}
     };
 }
 
@@ -132,6 +166,9 @@ ArtworkRef ArtworkRef::fromCacheKey(const QString &key)
     }
     return fromVariantMap(document.object().toVariantMap());
 }
+
+// Cache keys never restore sourceUrl. Persistent model metadata does not
+// contain it; in-memory callers may provide it through a QVariantMap.
 
 ArtworkRef ArtworkRef::fromVariantMap(const QVariantMap &map)
 {

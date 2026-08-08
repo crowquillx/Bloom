@@ -198,6 +198,7 @@ add_test(NAME ConfigManagerThemeTest COMMAND ConfigManagerThemeTest)
 
 add_executable(ConnectionPersistenceTest
     ConnectionPersistenceTest.cpp
+    TestConfigIsolation.h
     ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
     ${TEST_CONFIG_SOURCES}
     ${CMAKE_SOURCE_DIR}/src/resources/mpv-shaders.qrc
@@ -312,6 +313,7 @@ add_test(NAME ProviderCatalogTest COMMAND ProviderCatalogTest)
 
 add_executable(SiloCatalogServiceTest
     SiloCatalogServiceTest.cpp
+    TestConfigIsolation.h
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
@@ -339,6 +341,7 @@ add_test(NAME SiloCatalogServiceTest COMMAND SiloCatalogServiceTest)
 
 add_executable(ArtworkRefreshTest
     ArtworkRefreshTest.cpp
+    TestConfigIsolation.h
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp

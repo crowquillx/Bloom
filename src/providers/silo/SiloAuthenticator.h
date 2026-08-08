@@ -65,7 +65,7 @@ public:
 
     ProviderAuthenticationRequest createLoginRequest(const QString &username,
                                                       const QString &password,
-                                                      const QString &provider) const
+                                                      const QString &provider) const override
     {
         QJsonObject body{
             {QStringLiteral("username"), username},
@@ -143,15 +143,17 @@ public:
         const QJsonValue refreshToken = object->value(QStringLiteral("refresh_token"));
         const qint64 expiresIn = positiveInteger(object->value(QStringLiteral("expires_in")));
         if (!accessToken.isString() || accessToken.toString().isEmpty()
-            || !refreshToken.isString() || refreshToken.toString().isEmpty()
-            || expiresIn <= 0) {
+            || expiresIn <= 0
+            || (!refreshToken.isUndefined()
+                && (!refreshToken.isString() || refreshToken.toString().isEmpty()))) {
             return {};
         }
 
         ProviderAuthenticationResult result;
         result.accessToken = accessToken.toString();
-        // Silo returns a replacement refresh token. Callers must persist this value.
-        result.refreshToken = refreshToken.toString();
+        if (!refreshToken.isUndefined()) {
+            result.refreshToken = refreshToken.toString();
+        }
         result.expiresInSeconds = expiresIn;
         return result;
     }
@@ -206,10 +208,23 @@ public:
         return result;
     }
 
-    SiloAccountIdentity parseSessionValidationResponse(const QByteArray &response) const
+    ProviderAuthenticationResult parseSessionValidationResponse(
+        const QByteArray &response) const override
     {
         const auto object = parseObject(response);
-        return object ? accountIdentity(*object, true) : SiloAccountIdentity{};
+        if (!object) {
+            return {};
+        }
+
+        const SiloAccountIdentity identity = accountIdentity(*object, true);
+        if (!identity.isValid()) {
+            return {};
+        }
+
+        ProviderAuthenticationResult result;
+        result.accountId = identity.accountId;
+        result.username = identity.username;
+        return result;
     }
 
     SiloAuthenticationError parseErrorResponse(const QByteArray &response) const

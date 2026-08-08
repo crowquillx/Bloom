@@ -18,8 +18,9 @@ public:
         const QString path = request.url().path();
         const bool authenticationRoute =
             path.contains(QStringLiteral("/api/v1/auth/"));
+        const bool loginRoute = path.endsWith(QStringLiteral("/api/v1/auth/login"));
         const bool publicAuthenticationRoute =
-            path.endsWith(QStringLiteral("/api/v1/auth/login"))
+            loginRoute
             || path.endsWith(QStringLiteral("/api/v1/auth/refresh"))
             || path.endsWith(QStringLiteral("/api/v1/auth/providers"))
             || path.endsWith(QStringLiteral("/api/v1/health"));
@@ -47,7 +48,7 @@ public:
             setHeaderIfPresent(request, "X-Silo-Device-Platform", context.devicePlatform);
 
             // Silo records the login request's User-Agent as the auth-session device name.
-            if (!context.deviceName.isEmpty()) {
+            if (loginRoute && !context.deviceName.isEmpty()) {
                 request.setRawHeader("User-Agent", context.deviceName.toUtf8());
             }
         }
@@ -98,12 +99,12 @@ public:
 private:
     static QUrl resolveEndpoint(const QString &baseUrl, const QString &endpoint)
     {
-        const QUrl direct(endpoint);
+        const QUrl direct = QUrl::fromEncoded(endpoint.toUtf8(), QUrl::StrictMode);
         if (!direct.isRelative() && !direct.scheme().isEmpty()) {
             return direct;
         }
 
-        QUrl base(baseUrl.trimmed());
+        QUrl base(baseUrl.trimmed(), QUrl::StrictMode);
         QString path = base.path();
         while (path.endsWith(QLatin1Char('/'))) {
             path.chop(1);
@@ -115,7 +116,7 @@ private:
         while (relative.startsWith(QLatin1Char('/'))) {
             relative.remove(0, 1);
         }
-        return base.resolved(QUrl(relative));
+        return base.resolved(QUrl::fromEncoded(relative.toUtf8(), QUrl::StrictMode));
     }
 
     static bool sameOrigin(const QString &baseUrl, const QUrl &resolved)
@@ -153,6 +154,11 @@ private:
             || normalized == QStringLiteral("signature")
             || normalized == QStringLiteral("x-amz-signature")
             || normalized == QStringLiteral("x-goog-signature")
+            || normalized == QStringLiteral("key")
+            || normalized == QStringLiteral("api_key")
+            || normalized == QStringLiteral("secret")
+            || normalized == QStringLiteral("password")
+            || normalized.contains(QStringLiteral("session"))
             || normalized.contains(QStringLiteral("token"));
     }
 };

@@ -306,6 +306,10 @@ def validate_contract_data(data: dict[str, Any]):
                 f"{requirement_id} liveProbe must be deterministic and read-only",
             )
 
+    _require(
+        any(requirement.get("liveProbe", False) for requirement in native_requirements),
+        "native requirements must include at least one liveProbe",
+    )
     _require(native_ids.issuperset({"native.trickplay", "native.theme-songs"}), "native baseline must name unsupported optional capabilities")
     by_native_id = {requirement["id"]: requirement for requirement in native_requirements}
     for unsupported_id in ("native.trickplay", "native.theme-songs"):

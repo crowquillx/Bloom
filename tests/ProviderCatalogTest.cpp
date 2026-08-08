@@ -16,6 +16,7 @@ class ProviderCatalogTest : public QObject
 
 private slots:
     void jellyfinItemsRequestRetainsNativeContract();
+    void jellyfinReservedIdentifiersAndLimitsRemainOpaque();
     void jellyfinMutationsAndPaginationRemainCompatible();
     void siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds();
     void canonicalArtworkAndPlaybackChapterMetadataRemainProviderNeutral();
@@ -81,6 +82,52 @@ void ProviderCatalogTest::jellyfinItemsRequestRetainsNativeContract()
                 .contains(QStringLiteral("MediaSources")));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableImageTypes")),
              QStringLiteral("Primary,Backdrop,Thumb,Logo"));
+}
+
+void ProviderCatalogTest::jellyfinReservedIdentifiersAndLimitsRemainOpaque()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user/&?=");
+    query.parentId = QStringLiteral("parent&next=bad");
+    query.itemId = QStringLiteral("item/child?x=1");
+    query.seriesId = QStringLiteral("series#fragment");
+
+    const ProviderCatalogRequest items = catalog->createRequest(
+        ProviderCatalogOperation::Items, query);
+    QVERIFY(items.supported);
+    QVERIFY(items.relativeEndpoint.contains(QStringLiteral("user%2F%26%3F%3D")));
+    const QUrl itemsUrl(items.relativeEndpoint);
+    QCOMPARE(itemsUrl.path(QUrl::FullyEncoded),
+             QStringLiteral("/Users/user%2F%26%3F%3D/Items"));
+    QCOMPARE(QUrlQuery(itemsUrl).queryItemValue(QStringLiteral("ParentId")),
+             query.parentId);
+
+    const ProviderCatalogRequest item = catalog->createRequest(
+        ProviderCatalogOperation::Item, query);
+    QVERIFY(item.supported);
+    QVERIFY(item.relativeEndpoint.contains(QStringLiteral("item%2Fchild%3Fx%3D1")));
+    QCOMPARE(QUrl(item.relativeEndpoint).path(QUrl::FullyEncoded),
+             QStringLiteral("/Users/user%2F%26%3F%3D/Items/item%2Fchild%3Fx%3D1"));
+
+    query.limit = 0;
+    const ProviderCatalogRequest searchDefault = catalog->createRequest(
+        ProviderCatalogOperation::Search, query);
+    QVERIFY(searchDefault.supported);
+    QCOMPARE(QUrlQuery(QUrl(searchDefault.relativeEndpoint))
+                 .queryItemValue(QStringLiteral("Limit")),
+             QStringLiteral("50"));
+
+    query.limit = -7;
+    const ProviderCatalogRequest randomDefault = catalog->createRequest(
+        ProviderCatalogOperation::RandomItems, query);
+    QVERIFY(randomDefault.supported);
+    QCOMPARE(QUrlQuery(QUrl(randomDefault.relativeEndpoint))
+                 .queryItemValue(QStringLiteral("Limit")),
+             QStringLiteral("50"));
 }
 
 void ProviderCatalogTest::jellyfinMutationsAndPaginationRemainCompatible()
@@ -198,34 +245,40 @@ void ProviderCatalogTest::siloCanonicalIdentityVersionsMultipartAndStateUseMilli
     QVERIFY(mapped.value(QStringLiteral("favorite")).toBool());
     QVERIFY(mapped.value(QStringLiteral("isInProgress")).toBool());
 
-    const QVariantMap mappedVersion = mapped.value(QStringLiteral("versions"))
-                                          .toList().constFirst().toMap();
+    const QVariantList mappedVersions = mapped.value(QStringLiteral("versions")).toList();
+    QCOMPARE(mappedVersions.size(), 1);
+    const QVariantMap mappedVersion = mappedVersions.constFirst().toMap();
     QCOMPARE(mappedVersion.value(QStringLiteral("fileId")).toString(),
              QStringLiteral("file-99"));
     QCOMPARE(mappedVersion.value(QStringLiteral("durationMs")).toLongLong(), 123456);
     QCOMPARE(mappedVersion.value(QStringLiteral("presentationPartIndex")).toInt(), 1);
     QCOMPARE(mappedVersion.value(QStringLiteral("presentationPartTotal")).toInt(), 2);
-    const QVariantMap chapter = mappedVersion.value(QStringLiteral("chapters"))
-                                    .toList().constFirst().toMap();
+    const QVariantList mappedChapters = mappedVersion.value(QStringLiteral("chapters")).toList();
+    QCOMPARE(mappedChapters.size(), 1);
+    const QVariantMap chapter = mappedChapters.constFirst().toMap();
     QCOMPARE(chapter.value(QStringLiteral("fileId")).toString(),
              QStringLiteral("file-99"));
     QCOMPARE(chapter.value(QStringLiteral("startMs")).toLongLong(), 1250);
     QCOMPARE(chapter.value(QStringLiteral("endMs")).toLongLong(), 4750);
 
-    const QVariantMap playbackVariant = mapped.value(QStringLiteral("playbackVariants"))
-                                            .toList().constFirst().toMap();
+    const QVariantList playbackVariants = mapped.value(QStringLiteral("playbackVariants"))
+                                              .toList();
+    QCOMPARE(playbackVariants.size(), 1);
+    const QVariantMap playbackVariant = playbackVariants.constFirst().toMap();
     QCOMPARE(playbackVariant.value(QStringLiteral("defaultFileId")).toString(),
              QStringLiteral("file-99"));
     QCOMPARE(playbackVariant.value(QStringLiteral("partCount")).toInt(), 2);
     QCOMPARE(playbackVariant.value(QStringLiteral("totalDurationMs")).toLongLong(),
              246912);
-    const QVariantMap part = playbackVariant.value(QStringLiteral("parts"))
-                                 .toList().constFirst().toMap();
+    const QVariantList parts = playbackVariant.value(QStringLiteral("parts")).toList();
+    QCOMPARE(parts.size(), 1);
+    const QVariantMap part = parts.constFirst().toMap();
     QCOMPARE(part.value(QStringLiteral("partIndex")).toInt(), 1);
     QCOMPARE(part.value(QStringLiteral("defaultFileId")).toString(),
              QStringLiteral("file-99"));
-    QCOMPARE(part.value(QStringLiteral("versions")).toList()
-                 .constFirst().toMap().value(QStringLiteral("fileId")).toString(),
+    const QVariantList partVersions = part.value(QStringLiteral("versions")).toList();
+    QCOMPARE(partVersions.size(), 1);
+    QCOMPARE(partVersions.constFirst().toMap().value(QStringLiteral("fileId")).toString(),
              QStringLiteral("file-99"));
 
     const QVariantMap state = SiloModelMapper::nativeState(

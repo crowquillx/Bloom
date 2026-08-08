@@ -643,7 +643,9 @@ class SiloNativeV1Probe:
         status = payload.get("status") if isinstance(payload, dict) else None
         server_id_present = isinstance(payload, dict) and "server_id" in payload
         server_id = payload.get("server_id") if isinstance(payload, dict) else None
-        server_id_valid = not server_id_present or self._non_empty_string(server_id)
+        server_id_valid = not server_id_present or (
+            isinstance(server_id, str) and bool(server_id.strip())
+        )
         valid = response.status == 200 and status == "ok" and server_id_valid
         self._record(
             results,
@@ -988,6 +990,7 @@ def main(argv: list[str] | None = None):
     parser.add_argument("--username", default=os.environ.get("BLOOM_CONTRACT_USERNAME", ""))
     parser.add_argument("--profile-id", default=os.environ.get("BLOOM_CONTRACT_PROFILE_ID", ""))
     parser.add_argument("--profile-pin-env", default="BLOOM_CONTRACT_PROFILE_PIN", help="environment variable containing an optional native profile PIN")
+    parser.add_argument("--password-env", default="BLOOM_CONTRACT_PASSWORD", help="environment variable containing the password")
     parser.add_argument("--version", default="0.0-contract")
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--allow-mutations", action="store_true")
@@ -1008,12 +1011,16 @@ def main(argv: list[str] | None = None):
     if not deployment:
         parser.error(f"unknown deployment {args.deployment!r}")
     surface = deployment["surface"]
+    driver_type = DRIVERS.get(surface)
+    if driver_type is None:
+        parser.error(f"unsupported protocol surface {surface!r}")
     if surface == "silo-native-v1":
         if deployment.get("protocolMode") != "native":
             parser.error(f"deployment {args.deployment!r} is not configured for native Silo mode")
         expected = {
             requirement["id"]: requirement["outcome"]
             for requirement in data["nativeSiloContract"]["requirements"]
+            if requirement.get("liveProbe", False)
         }
     else:
         expected = {
@@ -1021,6 +1028,8 @@ def main(argv: list[str] | None = None):
             for contract in data["contracts"]
             if args.deployment in contract["expectations"]
         }
+    if not expected:
+        parser.error(f"deployment {args.deployment!r} has no live probes for selected surface")
     transport = HttpTransport(args.base_url, args.timeout)
     if surface == "silo-native-v1":
         driver = driver_type(

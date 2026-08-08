@@ -2,6 +2,8 @@
 
 #include "providers/IArtworkProvider.h"
 
+#include <QPointer>
+
 class AuthenticationService;
 
 class SiloArtworkProvider final : public IArtworkProvider
@@ -15,5 +17,5 @@ public:
                         RefreshCallback callback) const override;
 
 private:
-    AuthenticationService *m_authService = nullptr;
+    QPointer<AuthenticationService> m_authService;
 };

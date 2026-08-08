@@ -1,6 +1,7 @@
+#include <QCoreApplication>
+#include <QEventLoop>
 #include <QtTest/QtTest>
 
-#include <QDir>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -9,7 +10,6 @@
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QSignalSpy>
-#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QUrl>
@@ -23,6 +23,8 @@
 #include "providers/silo/SiloCatalogProvider.h"
 #include "providers/silo/SiloProviderAdapter.h"
 #include "utils/ConfigManager.h"
+
+#include "TestConfigIsolation.h"
 
 namespace {
 
@@ -137,50 +139,6 @@ protected:
     }
 };
 
-class ScopedConfigIsolation
-{
-public:
-    explicit ScopedConfigIsolation(const QString &path)
-        : m_previousConfigHome(qgetenv("XDG_CONFIG_HOME"))
-        , m_previousAppData(qgetenv("APPDATA"))
-        , m_previousHome(qgetenv("HOME"))
-        , m_hadPreviousConfigHome(!m_previousConfigHome.isNull())
-        , m_hadPreviousAppData(!m_previousAppData.isNull())
-        , m_hadPreviousHome(!m_previousHome.isNull())
-    {
-        QStandardPaths::setTestModeEnabled(true);
-        qputenv("XDG_CONFIG_HOME", path.toUtf8());
-        qputenv("APPDATA", path.toUtf8());
-        qputenv("HOME", path.toUtf8());
-        QDir().mkpath(path + QStringLiteral("/Library/Preferences"));
-    }
-
-    ~ScopedConfigIsolation()
-    {
-        restore("XDG_CONFIG_HOME", m_previousConfigHome, m_hadPreviousConfigHome);
-        restore("APPDATA", m_previousAppData, m_hadPreviousAppData);
-        restore("HOME", m_previousHome, m_hadPreviousHome);
-        QStandardPaths::setTestModeEnabled(false);
-    }
-
-private:
-    static void restore(const char *name, const QByteArray &value, bool hadPrevious)
-    {
-        if (hadPrevious) {
-            qputenv(name, value);
-        } else {
-            qunsetenv(name);
-        }
-    }
-
-    QByteArray m_previousConfigHome;
-    QByteArray m_previousAppData;
-    QByteArray m_previousHome;
-    bool m_hadPreviousConfigHome;
-    bool m_hadPreviousAppData;
-    bool m_hadPreviousHome;
-};
-
 class ExposedAuthenticationService final : public AuthenticationService
 {
 public:
@@ -211,6 +169,7 @@ private slots:
     void unsupportedFiltersAreExplicit();
     void responsePreservesSnapshotAndPaginationTruth();
     void nativeResponseShapesPreserveHomeLibrarySearchAndDetailData();
+    void sparseNativeMappingsPreserveFallbacksAndState();
     void requestHeadersAndGenerationSuppressStaleReplies();
 };
 
@@ -231,6 +190,14 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     QCOMPARE(request.method, ProviderHttpMethod::Get);
     QCOMPARE(request.relativeEndpoint,
              QStringLiteral("/api/v1/catalog?source=query&include_technical=true"));
+
+    ProviderCatalogQuery paged;
+    paged.snapshot = QStringLiteral("opaque/snapshot + token");
+    request = provider.createRequest(ProviderCatalogOperation::Items, paged);
+    QVERIFY(request.supported);
+    const QUrlQuery pagedParameters(QUrl(request.relativeEndpoint));
+    QCOMPARE(pagedParameters.queryItemValue(QStringLiteral("snapshot")),
+             QStringLiteral("opaque/snapshot + token"));
 
     query.itemId = QStringLiteral("content/with space");
     request = provider.createRequest(ProviderCatalogOperation::Item, query);
@@ -260,6 +227,13 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     ProviderCatalogQuery state;
     state.itemId = QStringLiteral("content-42");
     state.stateValue = true;
+    ProviderCatalogQuery season;
+    season.parentId = QStringLiteral("series/one");
+    season.includeItemTypes = {QStringLiteral("Season")};
+    request = provider.createRequest(ProviderCatalogOperation::Items, season);
+    QVERIFY(request.supported);
+    QCOMPARE(request.relativeEndpoint,
+             QStringLiteral("/api/v1/catalog/series/series%2Fone/seasons"));
     request = provider.createRequest(ProviderCatalogOperation::SetWatched, state);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Post);
@@ -276,6 +250,8 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     request = provider.createRequest(ProviderCatalogOperation::SetFavorite, state);
     QCOMPARE(request.method, ProviderHttpMethod::Delete);
     QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v1/favorites/content-42"));
+    QVERIFY(provider.parseResponse(ProviderCatalogOperation::SetWatched, {}).valid);
+    QVERIFY(provider.parseResponse(ProviderCatalogOperation::SetFavorite, {}).valid);
 }
 
 void SiloCatalogServiceTest::structuredFiltersUseNativeQueryBody()
@@ -336,6 +312,12 @@ void SiloCatalogServiceTest::structuredFiltersUseNativeQueryBody()
     QCOMPARE(groups.at(2).toObject().value(QStringLiteral("match")).toString(),
              QStringLiteral("any"));
     QCOMPARE(groups.at(2).toObject().value(QStringLiteral("rules")).toArray().size(), 2);
+    query.parentId.clear();
+    const ProviderCatalogRequest unscopedRequest = provider.createRequest(
+        ProviderCatalogOperation::Items, query);
+    QVERIFY(unscopedRequest.supported);
+    const QJsonObject unscopedBody = QJsonDocument::fromJson(unscopedRequest.body).object();
+    QVERIFY(!unscopedBody.contains(QStringLiteral("library_id")));
 
     ProviderCatalogQuery search;
     search.parentId = QStringLiteral("17");
@@ -397,6 +379,47 @@ void SiloCatalogServiceTest::unsupportedFiltersAreExplicit()
              QStringLiteral("/api/v1/home/sections/system-next-up/items"));
     verifyUnsupported(ProviderCatalogOperation::RandomItems, query);
     verifyUnsupported(ProviderCatalogOperation::ResolveLibrary, query);
+}
+
+void SiloCatalogServiceTest::sparseNativeMappingsPreserveFallbacksAndState()
+{
+    const QJsonObject item{
+        {QStringLiteral("content_id"), QStringLiteral("content-1")},
+        {QStringLiteral("title"), QStringLiteral("Sparse")},
+        {QStringLiteral("poster_url"), QString()},
+        {QStringLiteral("still_url"), QStringLiteral("still-url")},
+        {QStringLiteral("poster_thumbhash"), QString()},
+        {QStringLiteral("still_thumbhash"), QStringLiteral("still-hash")},
+        {QStringLiteral("user_state"), QJsonObject{
+             {QStringLiteral("position_seconds"), 12.5},
+             {QStringLiteral("is_in_progress"), false}}},
+        {QStringLiteral("versions"), QJsonArray{
+             QJsonObject{{QStringLiteral("file_id"), QStringLiteral("file-1")},
+                         {QStringLiteral("chapters"), QJsonArray{
+                              QJsonObject{{QStringLiteral("start_seconds"), 0.0}}}}}}}};
+    const QVariantMap mapped = SiloModelMapper::mediaItem(item, QStringLiteral("silo"));
+    QCOMPARE(mapped.value(QStringLiteral("primaryArtworkUrl")).toString(),
+             QStringLiteral("still-url"));
+    QCOMPARE(mapped.value(QStringLiteral("artworkThumbhashes")).toMap()
+                 .value(QStringLiteral("poster")).toString(),
+             QStringLiteral("still-hash"));
+    QVERIFY(mapped.value(QStringLiteral("isInProgress")).toBool());
+    const QVariantList versions = mapped.value(QStringLiteral("versions")).toList();
+    QCOMPARE(versions.size(), 1);
+    const QVariantList chapters = versions.constFirst().toMap()
+                                      .value(QStringLiteral("chapters")).toList();
+    QCOMPARE(chapters.size(), 1);
+    QCOMPARE(chapters.constFirst().toMap().value(QStringLiteral("endMs")).toLongLong(), -1);
+
+    const QVariantMap native = SiloModelMapper::nativeState(
+        QJsonObject{
+            {QStringLiteral("content_id"), QStringLiteral("content-1")},
+            {QStringLiteral("state"), QJsonObject{
+                 {QStringLiteral("position_seconds"), 4.0},
+                 {QStringLiteral("played"), false}}}},
+        QStringLiteral("silo"));
+    QCOMPARE(native.value(QStringLiteral("itemId")).toString(), QStringLiteral("content-1"));
+    QVERIFY(native.value(QStringLiteral("isInProgress")).toBool());
 }
 
 void SiloCatalogServiceTest::responsePreservesSnapshotAndPaginationTruth()
@@ -573,7 +596,8 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     auth.replaceAccount(QStringLiteral("account-2"), QStringLiteral("access-2"));
     QTRY_VERIFY_WITH_TIMEOUT(staleAccountReply->wasAborted(), 1000);
     staleAccountReply->complete();
-    QTest::qWait(20);
+    QCoreApplication::sendPostedEvents();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
     QCOMPARE(viewsSpy.count(), 0);
 
     manager.responses.append(
@@ -611,7 +635,8 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
              QStringLiteral("profile-2"));
     QTRY_VERIFY_WITH_TIMEOUT(staleProfileReply->wasAborted(), 1000);
     staleProfileReply->complete();
-    QTest::qWait(20);
+    QCoreApplication::sendPostedEvents();
+    QCoreApplication::processEvents(QEventLoop::AllEvents);
     QCOMPARE(viewsSpy.count(), 1);
 
     manager.responses.append(

@@ -12,6 +12,7 @@
 class SiloCatalogProvider final : public ICatalogProvider
 {
 public:
+    using ICatalogProvider::parseResponse;
     ProviderCatalogRequest createRequest(
         ProviderCatalogOperation operation,
         const ProviderCatalogQuery &query) const override
@@ -110,7 +111,7 @@ public:
     ProviderCatalogResponse parseResponse(
         ProviderCatalogOperation operation,
         const QByteArray &body,
-        const QHash<QByteArray, QByteArray> &responseHeaders = {}) const override
+        const QHash<QByteArray, QByteArray> &responseHeaders) const override
     {
         if (operation == ProviderCatalogOperation::ThemeSongs) {
             ProviderCatalogResponse response;
@@ -214,12 +215,10 @@ private:
         if (normalized == QStringLiteral("audio") || normalized == QStringLiteral("music")) {
             return {};
         }
-        if (normalized == QStringLiteral("audiobook")
-            || normalized == QStringLiteral("book")
-            || normalized == QStringLiteral("ebook")
-            || normalized == QStringLiteral("episode")
+        if (normalized == QStringLiteral("episode")
             || normalized == QStringLiteral("manga")
             || normalized == QStringLiteral("movie")
+            || normalized == QStringLiteral("season")
             || normalized == QStringLiteral("series")
             || normalized == QStringLiteral("show")) {
             if (normalized == QStringLiteral("show")) {
@@ -600,9 +599,10 @@ private:
                                     query.seriesId);
         }
 
+        const QString trimmedParentId = query.parentId.trimmed();
         bool libraryIdOk = true;
-        if (!query.parentId.trimmed().isEmpty()) {
-            query.parentId.trimmed().toInt(&libraryIdOk);
+        if (!trimmedParentId.isEmpty()) {
+            static_cast<void>(trimmedParentId.toInt(&libraryIdOk));
         }
         if (!libraryIdOk && query.includeItemTypes.size() == 1) {
             if (hasHierarchyModifiers(query)) {
@@ -666,19 +666,22 @@ private:
                 "Silo catalog does not expose a recursive-scope switch"));
         }
 
+        const QString trimmedParentId = query.parentId.trimmed();
         bool libraryIdOk = true;
-        const int libraryId = query.parentId.trimmed().isEmpty()
-            ? 0 : query.parentId.trimmed().toInt(&libraryIdOk);
+        const int libraryId = trimmedParentId.isEmpty()
+            ? 0 : trimmedParentId.toInt(&libraryIdOk);
         if (!libraryIdOk
-            || (!query.parentId.trimmed().isEmpty() && libraryId <= 0)) {
+            || (!trimmedParentId.isEmpty() && libraryId <= 0)) {
             return unsupported(QStringLiteral(
                 "Silo library catalog scope requires a positive numeric library ID"));
         }
 
         const QJsonArray groups = groupsForPost(query);
         const bool hasStructuredFilters = !groups.isEmpty();
+        const bool hasSnapshot = query.snapshot.has_value() && !query.snapshot->isEmpty();
         const bool usePost = allowPost && hasStructuredFilters
-            && query.searchTerm.trimmed().isEmpty() && query.includeHeavyFields;
+            && query.searchTerm.trimmed().isEmpty() && query.includeHeavyFields
+            && !hasSnapshot;
         const std::optional<QString> sort = normalizedSort(query.sortBy);
         QString order = query.sortOrder.trimmed().toLower();
         if (order == QStringLiteral("ascending")) order = QStringLiteral("asc");
@@ -687,8 +690,10 @@ private:
         if (usePost) {
             QJsonObject body{{QStringLiteral("match"), QStringLiteral("all")},
                              {QStringLiteral("groups"), groups},
-                             {QStringLiteral("library_id"), libraryId},
                              {QStringLiteral("offset"), query.startIndex}};
+            if (libraryId > 0) {
+                body.insert(QStringLiteral("library_id"), libraryId);
+            }
             if (query.limit > 0) {
                 body.insert(QStringLiteral("limit"), qMin(query.limit, 100));
             }
@@ -715,6 +720,9 @@ private:
             query.includeHeavyFields ? QStringLiteral("true") : QStringLiteral("false"));
         if (libraryId > 0) {
             parameters.addQueryItem(QStringLiteral("library_id"), QString::number(libraryId));
+        }
+        if (query.snapshot.has_value() && !query.snapshot->isEmpty()) {
+            parameters.addQueryItem(QStringLiteral("snapshot"), *query.snapshot);
         }
         if (query.startIndex > 0) {
             parameters.addQueryItem(QStringLiteral("offset"), QString::number(query.startIndex));

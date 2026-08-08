@@ -4,6 +4,7 @@
 #include "network/HttpTransport.h"
 #include "utils/ConfigManager.h"
 
+#include <QCoreApplication>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -41,9 +42,17 @@ private:
     IArtworkProvider::RefreshCallback m_callback;
 };
 
-void finishLater(const std::shared_ptr<RefreshCompletion> &completion)
+void finishLater(const std::shared_ptr<RefreshCompletion> &completion,
+                 QObject *context = nullptr)
 {
-    QTimer::singleShot(0, [completion]() {
+    if (!context) {
+        context = QCoreApplication::instance();
+    }
+    if (!context) {
+        completion->finish(std::nullopt);
+        return;
+    }
+    QTimer::singleShot(0, context, [completion]() {
         completion->finish(std::nullopt);
     });
 }
@@ -135,22 +144,7 @@ std::optional<QUrl> resolveOpaqueUrl(const QString &baseUrl,
     return isHttpUrl(resolved) ? std::optional<QUrl>(resolved) : std::nullopt;
 }
 
-int effectivePort(const QUrl &url)
-{
-    if (url.port() >= 0) {
-        return url.port();
-    }
-    return url.scheme().compare(QStringLiteral("https"), Qt::CaseInsensitive) == 0
-        ? 443 : 80;
-}
-
-bool isSameOrigin(const QUrl &base, const QUrl &resolved)
-{
-    return isHttpUrl(base)
-        && base.scheme().compare(resolved.scheme(), Qt::CaseInsensitive) == 0
-        && base.host().compare(resolved.host(), Qt::CaseInsensitive) == 0
-        && effectivePort(base) == effectivePort(resolved);
-}
+constexpr int kArtworkTransferTimeoutMs = 30000;
 
 std::optional<QNetworkRequest> requestForSource(
     AuthenticationService *authService,
@@ -164,13 +158,10 @@ std::optional<QNetworkRequest> requestForSource(
     if (!url.has_value()) {
         return std::nullopt;
     }
-
-    const QUrl base(authService->getServerUrl().trimmed(), QUrl::StrictMode);
-    QNetworkRequest request;
-    if (isSameOrigin(base, *url)) {
-        request = authService->createRequest(QStringLiteral("/api/v1/catalog"));
-    }
+    QNetworkRequest request = authService->createRequest(
+        QString::fromUtf8(url->toEncoded(QUrl::FullyEncoded)));
     request.setUrl(*url);
+    request.setTransferTimeout(kArtworkTransferTimeoutMs);
     request.setRawHeader("Accept", "image/*");
     return request;
 }
@@ -236,8 +227,12 @@ QString chapterSource(const QJsonArray &chapters, int requestedIndex)
 QString chapterSource(const QJsonObject &item,
                       const Bloom::ArtworkRef &artwork)
 {
-    QString source = chapterSource(
-        item.value(QStringLiteral("chapters")).toArray(), artwork.index);
+    QString source;
+    if (artwork.tag.isEmpty()
+        || identityString(item.value(QStringLiteral("file_id"))) == artwork.tag) {
+        source = chapterSource(
+            item.value(QStringLiteral("chapters")).toArray(), artwork.index);
+    }
     if (!source.isEmpty()) {
         return source;
     }
@@ -375,7 +370,7 @@ void SiloArtworkProvider::refreshArtwork(
     auto completion = std::make_shared<RefreshCompletion>(std::move(callback));
     const QString endpoint = refreshEndpoint(artwork);
     if (!hasMatchingSession(m_authService, artwork) || endpoint.isEmpty()) {
-        finishLater(completion);
+        finishLater(completion, m_authService.data());
         return;
     }
 
@@ -383,7 +378,7 @@ void SiloArtworkProvider::refreshArtwork(
     QPointer<HttpTransport> transport(m_authService->transport());
     QPointer<QNetworkAccessManager> networkManager(m_authService->networkManager());
     if (!transport || !networkManager) {
-        finishLater(completion);
+        finishLater(completion, authService.data());
         return;
     }
 
@@ -399,10 +394,11 @@ void SiloArtworkProvider::refreshArtwork(
                 || !hasMatchingSession(authService.data(), artwork)) {
                 return nullptr;
             }
-            const QNetworkRequest request = authService->createRequest(endpoint);
+            QNetworkRequest request = authService->createRequest(endpoint);
             if (!request.url().isValid() || request.url().isEmpty()) {
                 return nullptr;
             }
+            request.setTransferTimeout(kArtworkTransferTimeoutMs);
             return networkManager->get(request);
         },
         [authService, artwork, completion](QNetworkReply *reply) {
@@ -425,10 +421,17 @@ void SiloArtworkProvider::refreshArtwork(
         options);
 
     if (!handle) {
-        finishLater(completion);
+        finishLater(completion, authService.data());
         return;
     }
     QObject::connect(handle, &QObject::destroyed, [completion]() {
+        completion->finish(std::nullopt);
+    });
+    const QPointer<HttpRequestHandle> guardedHandle(handle);
+    QTimer::singleShot(kArtworkTransferTimeoutMs, authService.data(), [completion, guardedHandle]() {
+        if (guardedHandle) {
+            guardedHandle->cancel();
+        }
         completion->finish(std::nullopt);
     });
 }

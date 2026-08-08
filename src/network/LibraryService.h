@@ -318,6 +318,7 @@ private:
     QSet<QString> m_inFlightChapterRequests;
     QList<QPointer<HttpRequestHandle>> m_catalogRequests;
     quint64 m_requestGeneration = 0;
+    quint64 m_heroRequestGeneration = 0;
 
     // Cache validation state (per provider-owned endpoint).
     QHash<QString, QString> m_etags;

@@ -10,6 +10,7 @@ private slots:
     void cacheKeySeparatesSearchFilterAndSort();
     void cacheKeySeparatesPaginationAndHeavyFields();
     void artworkSourcePreservesConnectionIdentity();
+    void providerSnapshotCarriesAcrossPages();
 };
 
 void LibraryItemQueryTest::cacheKeySeparatesSearchFilterAndSort()
@@ -58,6 +59,20 @@ void LibraryItemQueryTest::cacheKeySeparatesPaginationAndHeavyFields()
     QVERIFY(firstPage.cacheKey() != unpaged.cacheKey());
     QVERIFY(firstPage.cacheKey() != differentLimit.cacheKey());
     QVERIFY(firstPage.cacheKey() != lightFields.cacheKey());
+}
+
+void LibraryItemQueryTest::providerSnapshotCarriesAcrossPages()
+{
+    ProviderCatalogQuery firstPage;
+    firstPage.startIndex = 0;
+    firstPage.limit = 250;
+    firstPage.snapshot = QStringLiteral("catalog-snapshot-1");
+
+    ProviderCatalogQuery nextPage = firstPage;
+    nextPage.startIndex = 250;
+
+    QVERIFY(nextPage.snapshot.has_value());
+    QCOMPARE(*nextPage.snapshot, QStringLiteral("catalog-snapshot-1"));
 }
 
 void LibraryItemQueryTest::artworkSourcePreservesConnectionIdentity()

@@ -220,7 +220,7 @@ GET    /api/v1/profiles
 POST   /api/v1/profiles/{id}/verify-pin
 ```
 
-Use bearer access tokens and store both token types only in the platform secret store. Bloom sends `X-Profile-Id` after selection and `X-Profile-Token` after successful PIN verification, together with the Silo client/device identity headers (`X-Silo-Client`, `X-Silo-Client-Version`, `X-Silo-Device-Id`, `X-Silo-Device-Name`, and `X-Silo-Device-Platform`).
+Use bearer access tokens and store access, refresh, and profile tokens only in the platform secret store. Bloom's native client contract requires all five Silo client/device headers on its requests: `X-Silo-Client`, `X-Silo-Client-Version`, `X-Silo-Device-Id`, `X-Silo-Device-Name`, and `X-Silo-Device-Platform`. At the pinned server revision, the login handler consumes `User-Agent` as the auth-session device name, but the source does not establish that every `X-Silo-*` header is server-mandated or rejected when absent; treat the five-header set as Bloom's required request contract, not as a claim of universal upstream enforcement. Bloom sends `X-Profile-Id` after selection and `X-Profile-Token` after successful PIN verification.
 
 ### Catalog, state, and artwork
 

@@ -35,7 +35,9 @@ enum class ProviderRoute {
     UpdateNativeState,
     MediaSegments,
     PlaybackInfo,
-    PlaybackCapability
+    PlaybackCapability,
+    Health,
+    CallerLogout
 };
 
 struct ProviderRouteContext {
@@ -85,11 +87,16 @@ public:
         return false;
     }
     virtual std::optional<QString> endpointFor(
-        ProviderRoute route, const ProviderRouteContext &context = {}) const
+        ProviderRoute route, const ProviderRouteContext &context) const
     {
         Q_UNUSED(route)
         Q_UNUSED(context)
         return std::nullopt;
+    }
+
+    std::optional<QString> endpointFor(ProviderRoute route) const
+    {
+        return endpointFor(route, ProviderRouteContext{});
     }
 
     virtual std::optional<ProviderDetectionResult> mapDetectionResult(

@@ -2,6 +2,7 @@
 
 #include "models/MediaModels.h"
 
+#include <QCoreApplication>
 #include <QNetworkRequest>
 #include <QTimer>
 #include <functional>
@@ -30,9 +31,24 @@ public:
         if (!callback) {
             return;
         }
-        auto resolved = resolveArtwork(artwork);
+        deferRefresh(std::move(callback), resolveArtwork(artwork));
+    }
+
+protected:
+    static void deferRefresh(RefreshCallback callback,
+                              std::optional<QNetworkRequest> resolved = std::nullopt)
+    {
+        if (!callback) {
+            return;
+        }
+        auto *context = QCoreApplication::instance();
+        if (!context) {
+            callback(std::move(resolved));
+            return;
+        }
         QTimer::singleShot(
             0,
+            context,
             [callback = std::move(callback),
              resolved = std::move(resolved)]() mutable {
                 callback(std::move(resolved));

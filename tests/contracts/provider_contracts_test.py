@@ -4,11 +4,14 @@ import sys
 import unittest
 import urllib.error
 from pathlib import Path
+from unittest import mock
+
 
 CONTRACT_DIR = Path(__file__).resolve().parent
 if str(CONTRACT_DIR) not in sys.path:
     sys.path.insert(0, str(CONTRACT_DIR))
 
+import run_live_contracts
 from run_live_contracts import DRIVERS, HttpTransport, Response
 from validate_contracts import ContractValidationError, load_and_validate, validate_contract_data
 
@@ -106,6 +109,33 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertNotEqual(native["id"], compatibility["id"])
         self.assertNotEqual(native["supportLabel"], compatibility["supportLabel"])
         validate_contract_data(self.valid_data)
+
+    def test_rejects_native_contract_without_live_probe(self):
+        data = copy.deepcopy(self.valid_data)
+        for requirement in data["nativeSiloContract"]["requirements"]:
+            requirement.pop("liveProbe", None)
+
+        with self.assertRaisesRegex(ContractValidationError, "at least one liveProbe"):
+            validate_contract_data(data)
+
+    def test_live_runner_rejects_empty_selected_surface(self):
+        data = copy.deepcopy(self.valid_data)
+        for requirement in data["nativeSiloContract"]["requirements"]:
+            requirement["liveProbe"] = False
+
+        with mock.patch.object(run_live_contracts, "load_and_validate", return_value=data):
+            with self.assertRaises(SystemExit) as raised:
+                run_live_contracts.main(
+                    [
+                        "--deployment",
+                        "silo-8044eb8-native",
+                        "--base-url",
+                        "https://silo.example",
+                    ]
+                )
+
+        self.assertEqual(raised.exception.code, 2)
+
 
 
     def test_rejects_missing_native_requirement(self):

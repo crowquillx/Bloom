@@ -1,12 +1,10 @@
 #include <QtTest/QtTest>
 
-#include <QDir>
 #include <QHostAddress>
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QQuickImageResponse>
 #include <QSignalSpy>
-#include <QStandardPaths>
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
@@ -22,6 +20,8 @@
 #include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include "ui/ImageCacheProvider.h"
 #include "utils/ConfigManager.h"
+
+#include "TestConfigIsolation.h"
 
 namespace {
 
@@ -132,50 +132,6 @@ public:
     mutable int refreshCount = 0;
 };
 
-class ScopedConfigIsolation
-{
-public:
-    explicit ScopedConfigIsolation(const QString &path)
-        : m_previousConfigHome(qgetenv("XDG_CONFIG_HOME"))
-        , m_previousAppData(qgetenv("APPDATA"))
-        , m_previousHome(qgetenv("HOME"))
-        , m_hadConfigHome(!m_previousConfigHome.isNull())
-        , m_hadAppData(!m_previousAppData.isNull())
-        , m_hadHome(!m_previousHome.isNull())
-    {
-        QStandardPaths::setTestModeEnabled(true);
-        qputenv("XDG_CONFIG_HOME", path.toUtf8());
-        qputenv("APPDATA", path.toUtf8());
-        qputenv("HOME", path.toUtf8());
-        QDir().mkpath(path + QStringLiteral("/Library/Preferences"));
-    }
-
-    ~ScopedConfigIsolation()
-    {
-        restore("XDG_CONFIG_HOME", m_previousConfigHome, m_hadConfigHome);
-        restore("APPDATA", m_previousAppData, m_hadAppData);
-        restore("HOME", m_previousHome, m_hadHome);
-        QStandardPaths::setTestModeEnabled(false);
-    }
-
-private:
-    static void restore(const char *name, const QByteArray &value, bool existed)
-    {
-        if (existed) {
-            qputenv(name, value);
-        } else {
-            qunsetenv(name);
-        }
-    }
-
-    QByteArray m_previousConfigHome;
-    QByteArray m_previousAppData;
-    QByteArray m_previousHome;
-    bool m_hadConfigHome;
-    bool m_hadAppData;
-    bool m_hadHome;
-};
-
 class ExposedJellyfinAuthenticationService final : public AuthenticationService
 {
 public:
@@ -213,6 +169,7 @@ class ArtworkRefreshTest : public QObject
 
 private slots:
     void missingArtworkDegradesWithoutRefresh();
+    void tokenFreeCacheMissRetainsTransientSourceUrl();
     void signedUrlIsNotPartOfCacheIdentity();
     void authorizationFailureRefreshesExactlyOnce_data();
     void authorizationFailureRefreshesExactlyOnce();
@@ -239,6 +196,35 @@ void ArtworkRefreshTest::missingArtworkDegradesWithoutRefresh()
     delete response;
 }
 
+void ArtworkRefreshTest::tokenFreeCacheMissRetainsTransientSourceUrl()
+{
+    ScriptedHttpServer server;
+    server.statuses = {500};
+    QVERIFY(server.start());
+
+    RefreshingArtworkProvider artworkProvider(&server);
+    ImageCacheProvider cache(1, &artworkProvider);
+    cache.setRoundedPreprocessEnabled(false);
+
+    Bloom::ArtworkRef artwork = artworkRef();
+    artwork.sourceUrl = server.url(
+        QStringLiteral("/artwork/poster.jpg?X-Amz-Signature=transient")).toString();
+    const QVariantMap emitted = artwork.toVariantMap();
+    QVERIFY(!emitted.contains(QStringLiteral("sourceUrl")));
+    QVERIFY(!artwork.cacheKey().contains(QStringLiteral("X-Amz-Signature")));
+
+    QPointer<QQuickImageResponse> response(
+        cache.requestImageResponse(artwork.cacheKey(), QSize()));
+    QVERIFY(response);
+    QCOMPARE(artworkProvider.resolvedArtwork.sourceUrl, artwork.sourceUrl);
+
+    QSignalSpy finishedSpy(response, &QQuickImageResponse::finished);
+    QVERIFY(finishedSpy.isValid());
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 3000);
+    QVERIFY(!response->errorString().isEmpty());
+    delete response;
+}
+
 void ArtworkRefreshTest::signedUrlIsNotPartOfCacheIdentity()
 {
     Bloom::ArtworkRef first = artworkRef();
@@ -261,6 +247,10 @@ void ArtworkRefreshTest::signedUrlIsNotPartOfCacheIdentity()
     QCOMPARE(decoded.ownerKind, first.ownerKind);
     QCOMPARE(decoded.requestedWidth, first.requestedWidth);
     QVERIFY(decoded.sourceUrl.isEmpty());
+    QCOMPARE(Bloom::artworkOwnerKindFromName(QStringLiteral("mediaItem")),
+             Bloom::ArtworkOwnerKind::MediaItem);
+    QCOMPARE(Bloom::artworkOwnerKindFromName(QStringLiteral("unknown-owner")),
+             Bloom::ArtworkOwnerKind::MediaItem);
 }
 
 void ArtworkRefreshTest::authorizationFailureRefreshesExactlyOnce_data()

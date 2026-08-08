@@ -215,12 +215,18 @@ private:
     void evictIfNeeded();
     
     /**
-     * @brief Generate cache file name from URL
+     * @brief Generate a cache filename from a token-free identity.
      */
     QString hashUrl(const QString &url) const;
     QString safeCacheLabel(const QString &cacheKey) const;
+
+    /**
+     * @brief Resolve a transient artwork source without persisting credentials.
+     *
+     * ArtworkRef keeps the signed source URL in a bounded in-process registry;
+     * only the opaque identity key is used by the disk cache.
+     */
     std::optional<QNetworkRequest> resolveRequest(const QString &cacheKey) const;
-    
     /**
      * @brief Construct a stable key for a rounded variant.
      */

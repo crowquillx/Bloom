@@ -49,7 +49,8 @@ struct ArtworkRef {
     int index = 0;
     QString tag;
     int requestedWidth = 0;
-    // Opaque, transient fetch location; excluded from equality and cache identity.
+    // Opaque, transient fetch location. It is retained only in memory and is
+    // excluded from equality, cache identity, and serialized model metadata.
     QString sourceUrl;
 
     bool isValid() const;
@@ -57,6 +58,9 @@ struct ArtworkRef {
     QString cacheKey() const;
     QVariantMap toVariantMap() const;
 
+    // Resolves the in-process source associated with a token-free cache key.
+    // The value is intentionally unavailable after process restart.
+    static QString transientSourceUrlForCacheKey(const QString &key);
     static ArtworkRef fromCacheKey(const QString &key);
     static ArtworkRef fromVariantMap(const QVariantMap &map);
 };

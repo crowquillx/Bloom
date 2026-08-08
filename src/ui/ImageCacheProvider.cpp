@@ -276,7 +276,8 @@ void CachedImageResponse::onNetworkReplyFinished()
 
 void CachedImageResponse::refreshArtworkRequest(const QString &networkError)
 {
-    const Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromCacheKey(m_url);
+    Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromCacheKey(m_url);
+    artwork.sourceUrl = Bloom::ArtworkRef::transientSourceUrlForCacheKey(m_url);
     IArtworkProvider *artworkProvider = m_provider->m_artworkProvider;
     if (!artwork.isValid() || !artworkProvider) {
         finishWithError(networkError);
@@ -722,12 +723,12 @@ std::optional<QNetworkRequest> ImageCacheProvider::resolveRequest(const QString 
                                   Qt::BlockingQueuedConnection);
         return resolved;
     }
-
     if (cacheKey.startsWith(QStringLiteral("artwork:"))) {
         if (!m_artworkProvider) {
             return std::nullopt;
         }
-        const Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromCacheKey(cacheKey);
+        Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromCacheKey(cacheKey);
+        artwork.sourceUrl = Bloom::ArtworkRef::transientSourceUrlForCacheKey(cacheKey);
         if (!artwork.isValid()) {
             return std::nullopt;
         }

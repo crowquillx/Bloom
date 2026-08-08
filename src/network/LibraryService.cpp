@@ -5,14 +5,16 @@
 #include "models/MediaModels.h"
 #include "providers/IPlaybackProvider.h"
 #include "utils/ConfigManager.h"
+#include <QFutureWatcher>
 #include <QJsonObject>
 #include <QTimer>
 #include <QUrl>
+#include <QtConcurrent>
 #include <algorithm>
-#include <QLoggingCategory>
 #include <memory>
 #include <optional>
 #include <utility>
+#include <QLoggingCategory>
 #include "../utils/BloomLogging.h"
 
 namespace {
@@ -299,31 +301,49 @@ void LibraryService::sendCatalogRequest(
                 return;
             }
 
-            ProviderCatalogResponse response = identity.provider->parseResponse(
-                operation, reply->readAll(), responseHeaders(reply));
-            if (!response.valid) {
-                emitCatalogError(
-                    operationName,
-                    response.error.isEmpty()
-                        ? tr("Invalid provider response.") : response.error,
-                    failureHandler,
-                    -2);
-                return;
-            }
+            const QByteArray body = reply->readAll();
+            const QHash<QByteArray, QByteArray> headers = responseHeaders(reply);
+            emit parsingStarted(operationName);
 
-            const QString etag =
-                response.snapshot.value(QStringLiteral("etag")).toString();
-            const QString lastModified =
-                response.snapshot.value(QStringLiteral("lastModified")).toString();
-            if (!etag.isEmpty()) {
-                m_etags.insert(providerRequest.relativeEndpoint, etag);
-            }
-            if (!lastModified.isEmpty()) {
-                m_lastModified.insert(providerRequest.relativeEndpoint, lastModified);
-            }
-            if (responseHandler) {
-                responseHandler(response);
-            }
+            auto *watcher = new QFutureWatcher<ProviderCatalogResponse>(this);
+            connect(watcher, &QFutureWatcher<ProviderCatalogResponse>::finished,
+                    this,
+                    [this, watcher, identity, operationName, operation, providerRequest,
+                     responseHandler = std::move(responseHandler), failureHandler]() mutable {
+                const ProviderCatalogResponse response = watcher->result();
+                watcher->deleteLater();
+                emit parsingFinished(operationName);
+                if (!isCurrent(identity)) {
+                    return;
+                }
+                if (!response.valid) {
+                    emitCatalogError(
+                        operationName,
+                        response.error.isEmpty()
+                            ? tr("Invalid provider response.") : response.error,
+                        failureHandler,
+                        -2);
+                    return;
+                }
+
+                const QString etag =
+                    response.snapshot.value(QStringLiteral("etag")).toString();
+                const QString lastModified =
+                    response.snapshot.value(QStringLiteral("lastModified")).toString();
+                if (!etag.isEmpty()) {
+                    m_etags.insert(providerRequest.relativeEndpoint, etag);
+                }
+                if (!lastModified.isEmpty()) {
+                    m_lastModified.insert(providerRequest.relativeEndpoint, lastModified);
+                }
+                if (responseHandler) {
+                    responseHandler(response);
+                }
+            });
+            watcher->setFuture(QtConcurrent::run(
+                [provider = identity.provider, operation, body, headers]() {
+                    return provider->parseResponse(operation, body, headers);
+                }));
         },
         [this, identity, operationName,
          failureHandler](const NetworkError &transportError) {
@@ -608,18 +628,21 @@ void LibraryService::getHomeBackdropItems(int limit)
         return;
     }
 
-    auto fetchPage = std::make_shared<std::function<void(int)>>();
-    *fetchPage = [this, connectionId, generation, fetchPage](int startIndex) {
+    auto fetchPage =
+        std::make_shared<std::function<void(int, std::optional<QString>)>>();
+    *fetchPage = [this, connectionId, generation, fetchPage](
+                     int startIndex, std::optional<QString> snapshot) {
         if (generation != m_requestGeneration) {
             return;
         }
         ProviderCatalogQuery query = baseCatalogQuery();
         query.startIndex = startIndex;
+        query.snapshot = snapshot;
         sendCatalogRequest(
             QStringLiteral("getHomeBackdropItems"),
             ProviderCatalogOperation::HomeBackdrops,
             query,
-            [this, connectionId, generation, fetchPage, startIndex](
+            [this, connectionId, generation, fetchPage, startIndex, snapshot](
                 const ProviderCatalogResponse &response) {
                 if (!response.rawItems.isEmpty()) {
                     emit homeBackdropItemsLoaded(response.rawItems);
@@ -634,8 +657,14 @@ void LibraryService::getHomeBackdropItems(int limit)
                     && hasMore
                     && !response.rawItems.isEmpty()) {
                     const int nextStart = startIndex + response.rawItems.size();
-                    QTimer::singleShot(250, this, [fetchPage, nextStart]() {
-                        (*fetchPage)(nextStart);
+                    std::optional<QString> nextSnapshot = snapshot;
+                    const QString responseSnapshot =
+                        response.snapshot.value(QStringLiteral("snapshot")).toString();
+                    if (!responseSnapshot.isEmpty()) {
+                        nextSnapshot = responseSnapshot;
+                    }
+                    QTimer::singleShot(250, this, [fetchPage, nextStart, nextSnapshot]() {
+                        (*fetchPage)(nextStart, nextSnapshot);
                     });
                 }
             },
@@ -644,7 +673,7 @@ void LibraryService::getHomeBackdropItems(int limit)
                     connectionId, error.userMessage);
             });
     };
-    (*fetchPage)(0);
+    (*fetchPage)(0, std::nullopt);
 }
 
 void LibraryService::getScreensaverItems(int limit)
@@ -1076,14 +1105,17 @@ void LibraryService::getHeroLibraryItems(int limit,
                                          const QStringList &parentIds,
                                          bool unwatchedOnly)
 {
+    const quint64 heroGeneration = ++m_heroRequestGeneration;
     const QString connectionId = activeConnectionId(m_authService);
     if (!m_authService || !m_authService->isAuthenticated()) {
         emitCatalogError(
             QStringLiteral("getHeroLibraryItems"),
             tr("Not authenticated"),
-            [this, connectionId](const NetworkError &error) {
-                emit canonicalHeroLibraryItemsFailed(
-                    connectionId, error.userMessage);
+            [this, connectionId, heroGeneration](const NetworkError &error) {
+                if (heroGeneration == m_heroRequestGeneration) {
+                    emit canonicalHeroLibraryItemsFailed(
+                        connectionId, error.userMessage);
+                }
             });
         return;
     }
@@ -1108,24 +1140,41 @@ void LibraryService::getHeroLibraryItems(int limit,
             QStringLiteral("getHeroLibraryItems"),
             ProviderCatalogOperation::HeroItems,
             query,
-            [this, connectionId](const ProviderCatalogResponse &response) {
+            [this, connectionId, heroGeneration](
+                const ProviderCatalogResponse &response) {
+                if (heroGeneration != m_heroRequestGeneration) {
+                    return;
+                }
                 emit heroLibraryItemsLoaded(response.rawItems);
                 emit canonicalHeroLibraryItemsLoaded(
                     connectionId,
                     m_authService->mapMediaItems(response.rawItems, connectionId));
             },
-            [this, connectionId](const NetworkError &error) {
-                emit canonicalHeroLibraryItemsFailed(
-                    connectionId, error.userMessage);
+            [this, connectionId, heroGeneration](const NetworkError &error) {
+                if (heroGeneration == m_heroRequestGeneration) {
+                    emit canonicalHeroLibraryItemsFailed(
+                        connectionId, error.userMessage);
+                }
             });
         return;
     }
 
     auto aggregate = std::make_shared<QJsonArray>();
     auto remaining = std::make_shared<int>(ids.size());
-    const auto finish = [this, aggregate, remaining, clampedLimit,
-                         connectionId, generation]() {
-        if (--(*remaining) > 0 || generation != m_requestGeneration) {
+    auto successful = std::make_shared<int>(0);
+    auto failures = std::make_shared<QStringList>();
+    const auto finish = [this, aggregate, remaining, successful, failures,
+                         clampedLimit, connectionId, generation, heroGeneration]() {
+        if (--(*remaining) > 0
+            || generation != m_requestGeneration
+            || heroGeneration != m_heroRequestGeneration) {
+            return;
+        }
+        if (*successful == 0) {
+            const QString message = failures->isEmpty()
+                ? tr("No hero items were available.")
+                : failures->constFirst();
+            emit canonicalHeroLibraryItemsFailed(connectionId, message);
             return;
         }
         QJsonArray items;
@@ -1146,8 +1195,9 @@ void LibraryService::getHeroLibraryItems(int limit,
             QStringLiteral("getHeroLibraryItems"),
             ProviderCatalogOperation::HeroItems,
             query,
-            [aggregate, clampedLimit, finish](
+            [aggregate, successful, clampedLimit, finish](
                 const ProviderCatalogResponse &response) {
+                ++(*successful);
                 for (const QJsonValue &value : response.rawItems) {
                     if (aggregate->size() >= clampedLimit) {
                         break;
@@ -1156,9 +1206,10 @@ void LibraryService::getHeroLibraryItems(int limit,
                 }
                 finish();
             },
-            [this, connectionId, finish](const NetworkError &error) {
-                emit canonicalHeroLibraryItemsFailed(
-                    connectionId, error.userMessage);
+            [failures, finish](const NetworkError &error) {
+                if (!error.userMessage.isEmpty()) {
+                    failures->append(error.userMessage);
+                }
                 finish();
             });
     }
@@ -1166,6 +1217,7 @@ void LibraryService::getHeroLibraryItems(int limit,
 
 void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
 {
+    const quint64 heroGeneration = ++m_heroRequestGeneration;
     const QString connectionId = activeConnectionId(m_authService);
     const quint64 generation = m_requestGeneration;
     QStringList ids;
@@ -1195,8 +1247,11 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
 
     auto overviews = std::make_shared<QJsonObject>();
     auto remaining = std::make_shared<int>(ids.size());
-    const auto finish = [this, overviews, remaining, connectionId, generation]() {
-        if (--(*remaining) > 0 || generation != m_requestGeneration) {
+    const auto finish = [this, overviews, remaining, connectionId, generation,
+                         heroGeneration]() {
+        if (--(*remaining) > 0
+            || generation != m_requestGeneration
+            || heroGeneration != m_heroRequestGeneration) {
             return;
         }
         emit heroSeriesOverviewsLoaded(*overviews);
@@ -1205,11 +1260,10 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
     };
     for (const QString &seriesId : ids) {
         ProviderCatalogQuery query = baseCatalogQuery();
-        query.seriesId = seriesId;
         query.itemId = seriesId;
         sendCatalogRequest(
             QStringLiteral("getHeroSeriesOverviews"),
-            ProviderCatalogOperation::HeroOverviews,
+            ProviderCatalogOperation::Item,
             query,
             [this, overviews, finish, seriesId, connectionId](
                 const ProviderCatalogResponse &response) {
@@ -1226,7 +1280,6 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
             });
     }
 }
-
 QString LibraryService::getActiveConnectionId() const
 {
     return activeConnectionId(m_authService);

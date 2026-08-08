@@ -1,6 +1,6 @@
 #pragma once
 
-#include <QByteArray>
+#include <optional>
 #include <QDate>
 #include <QHash>
 #include <QJsonArray>
@@ -58,6 +58,7 @@ struct ProviderCatalogQuery {
 
     int startIndex = 0;
     int limit = 0;
+    std::optional<QString> snapshot;
     QString searchTerm;
     QStringList genres;
     QStringList tags;
@@ -117,5 +118,11 @@ public:
     virtual ProviderCatalogResponse parseResponse(
         ProviderCatalogOperation operation,
         const QByteArray &body,
-        const QHash<QByteArray, QByteArray> &responseHeaders = {}) const = 0;
+        const QHash<QByteArray, QByteArray> &responseHeaders) const = 0;
+
+    ProviderCatalogResponse parseResponse(
+        ProviderCatalogOperation operation, const QByteArray &body) const
+    {
+        return parseResponse(operation, body, {});
+    }
 };
