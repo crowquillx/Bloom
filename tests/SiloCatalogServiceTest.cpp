@@ -588,15 +588,18 @@ void SiloCatalogServiceTest::immediateCatalogRequestSurvivesAuthenticationComple
     auth.initialize(&config);
     QTRY_VERIFY_WITH_TIMEOUT(!auth.isRestoringSession(), 1000);
 
-    LibraryService service(&auth);
-    QSignalSpy viewsSpy(&service, &LibraryService::canonicalViewsLoadedForConnection);
-    QVERIFY(viewsSpy.isValid());
-    connect(&auth, &AuthenticationService::authenticatedChanged,
-            &service, [&]() {
-        if (auth.isAuthenticated()) {
-            service.getViews();
+    LibraryService *servicePtr = nullptr;
+    connect(&auth, &AuthenticationService::authenticationStepChanged,
+            &auth, [&]() {
+        if (auth.isAuthenticated() && servicePtr) {
+            servicePtr->getViews();
         }
     });
+
+    LibraryService service(&auth);
+    servicePtr = &service;
+    QSignalSpy viewsSpy(&service, &LibraryService::canonicalViewsLoadedForConnection);
+    QVERIFY(viewsSpy.isValid());
 
     auth.setProviderSelection(QStringLiteral("silo"));
     auth.authenticate(QStringLiteral("https://silo.example.test"),
