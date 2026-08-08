@@ -8,7 +8,7 @@ The release label is **experimental native Silo support**. This page records evi
 
 Use the exact Silo source revision and immutable image documented in [provider compatibility](provider-compatibility.md): `8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6`. For live checks, use a disposable fixture account and media library. Keep the native listener on `8090` and the Jellyfin-compatibility listener on `8096`; never infer native behavior from the compatibility listener. Set `BLOOM_CONTRACT_USERNAME` and `BLOOM_CONTRACT_PASSWORD` in the environment (and `BLOOM_CONTRACT_PROFILE_PIN` only for a PIN profile); never include their values in a command or evidence artifact.
 
-From an existing local checkout, pin and start the disposable Silo fixture as follows (the compose file supplies PostgreSQL/Redis and the two listeners):
+From an existing local checkout, pin and start the disposable Silo fixture as follows (the compose file supplies PostgreSQL, Redis, and the native listener; enable the compatibility listener during onboarding only for compatibility checks):
 
 ```fish
 git -C /path/to/silo checkout 8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6
