@@ -1,7 +1,9 @@
 #include <QtTest/QtTest>
 #include <QtGlobal>
+#include <array>
 #include <memory>
 
+#include <QByteArray>
 #include <QDir>
 
 #include "player/backend/IPlayerBackend.h"
@@ -14,8 +16,23 @@
 class PlayerBackendFactoryTest : public QObject
 {
     Q_OBJECT
+    struct EnvironmentSnapshot
+    {
+        const char *name;
+        bool existed = false;
+        QByteArray value;
+    };
+
+    std::array<EnvironmentSnapshot, 4> m_environment{{
+        {"XDG_SESSION_TYPE"},
+        {"WAYLAND_DISPLAY"},
+        {"BLOOM_PLAYER_BACKEND"},
+        {"BLOOM_ENABLE_WAYLAND_LIBMPV"},
+    }};
 
 private slots:
+    void init();
+    void cleanup();
     void createsPlatformDefaultBackend();
     void waylandDefaultsToExternalBackend();
     void waylandLibmpvOptInUsesEmbeddedBackendWhenSupported();
@@ -34,6 +51,25 @@ private slots:
     void windowsEmbeddedRenderApiProfilesApplyExpectedOptions();
     void windowsEmbeddedShaderListUsesResolvedGlslShadersOption();
 };
+
+void PlayerBackendFactoryTest::init()
+{
+    for (EnvironmentSnapshot &snapshot : m_environment) {
+        snapshot.existed = qEnvironmentVariableIsSet(snapshot.name);
+        snapshot.value = qgetenv(snapshot.name);
+    }
+}
+
+void PlayerBackendFactoryTest::cleanup()
+{
+    for (const EnvironmentSnapshot &snapshot : m_environment) {
+        if (snapshot.existed) {
+            qputenv(snapshot.name, snapshot.value);
+        } else {
+            qunsetenv(snapshot.name);
+        }
+    }
+}
 
 void PlayerBackendFactoryTest::createsPlatformDefaultBackend()
 {

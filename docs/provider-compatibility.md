@@ -147,7 +147,7 @@ python3 tests/contracts/run_live_contracts.py \
   --output .contract-data/jellyfin-report.json
 ```
 
-The live driver is selected by protocol surface, while expectations are selected by deployment. Native health is safe without credentials; credentialed native runs use a dedicated fixture account and perform auth/profile/catalog/artwork reads plus login/refresh/logout cleanup. Native playback start/progress/audio-switch/stop probes remain skipped unless `--allow-mutations` is explicitly supplied with fixture credentials. MediaBrowser mutating probes are also opt-in, and reports never contain password, PIN, or token values.
+The live driver is selected by protocol surface, while expectations are selected by deployment. Native health is safe without credentials; credentialed native runs use a dedicated fixture account and perform auth/profile/catalog/artwork reads plus login/refresh/logout cleanup. Native playback start/progress/audio-switch/stop probes remain skipped unless `--allow-mutations` is explicitly supplied with fixture credentials. MediaBrowser mutating probes are also opt-in: run them only with a dedicated fixture account because progress and stop events overwrite that account's resume state and the harness does not restore its prior position. Reports never contain password, PIN, or token values.
 
 ## Bloom's current MediaBrowser contract
 

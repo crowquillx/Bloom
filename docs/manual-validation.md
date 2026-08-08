@@ -14,6 +14,7 @@ From an existing local checkout, pin and start the disposable Silo fixture as fo
 git -C /path/to/silo checkout 8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6
 cd /path/to/silo
 set -x SILO_IMAGE ghcr.io/silo-server/silo-server@sha256:944ee9821de1d6a61876c9b7b06daa358118163d1e5f9b3aa9f5437856fd06e9
+mkdir -p .contract-data
 docker compose up -d
 curl --fail --silent http://127.0.0.1:8090/api/v1/health | jq
 ```
