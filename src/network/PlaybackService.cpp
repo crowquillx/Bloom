@@ -861,6 +861,11 @@ void PlaybackService::getAdditionalParts(const QString &itemId,
         });
 }
 
+void PlaybackService::getMediaSegments(const QString &itemId)
+{
+    getMediaSegments(itemId, QString());
+}
+
 void PlaybackService::getMediaSegments(const QString &itemId, const QString &fileId)
 {
     if (!m_authService || !m_authService->isAuthenticated()) {

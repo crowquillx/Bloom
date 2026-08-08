@@ -650,7 +650,8 @@ FocusScope {
                         }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
-                                activeSessionsBtn.forceActiveFocus()
+                                (activeSessionsBtn.enabled
+                                    ? activeSessionsBtn : signOutBtn).forceActiveFocus()
                                 event.accepted = true
                             }
                         }
@@ -804,7 +805,8 @@ FocusScope {
                         }
                     }
                     Keys.onUpPressed: function(event) {
-                        activeSessionsBtn.forceActiveFocus()
+                        (activeSessionsBtn.enabled
+                            ? activeSessionsBtn : logLevelCombo).forceActiveFocus()
                         event.accepted = true
                     }
                     Keys.onReturnPressed: root.signOutRequested()

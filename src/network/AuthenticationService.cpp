@@ -1059,13 +1059,20 @@ void AuthenticationService::revokeAuthSession(const QString &sessionId)
         [this, endpoint = *endpoint]() {
             return networkManager()->deleteResource(createRequest(endpoint));
         },
-        [this, generation, revokingCurrent](QNetworkReply *) {
+        [this, generation, revokingCurrent, sessionId](QNetworkReply *) {
             if (generation != m_stateGeneration) {
                 return;
             }
             if (revokingCurrent) {
                 logout();
             } else {
+                for (qsizetype i = m_authSessions.size() - 1; i >= 0; --i) {
+                    if (m_authSessions.at(i).toMap().value(
+                            QStringLiteral("id")).toString() == sessionId) {
+                        m_authSessions.removeAt(i);
+                    }
+                }
+                emit authSessionsChanged();
                 loadAuthSessions();
             }
         },

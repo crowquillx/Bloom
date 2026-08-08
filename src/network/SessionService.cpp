@@ -63,15 +63,15 @@ bool SessionService::authenticationSessionMode() const
 QString SessionService::sessionTypeLabel() const
 {
     return authenticationSessionMode()
-        ? QStringLiteral("Authentication Sessions")
-        : QStringLiteral("Playback Sessions");
+        ? tr("Authentication Sessions")
+        : tr("Playback Sessions");
 }
 
 QString SessionService::sessionTypeDescription() const
 {
     return authenticationSessionMode()
-        ? QStringLiteral("Devices signed in to this account")
-        : QStringLiteral("Devices currently connected for playback");
+        ? tr("Devices signed in to this account")
+        : tr("Devices currently connected for playback");
 }
 
 void SessionService::syncAuthenticationSessions()
@@ -243,19 +243,22 @@ void SessionService::revokeAllOtherSessions()
         return;
     }
 
-    // Install the one-shot handler before refreshing. Unsupported providers
-    // may publish an empty auth-session list synchronously.
+    if (authenticationSessionMode()) {
+        setErrorString(tr("Bulk authentication-session revocation is not supported."));
+        emit operationFailed(m_errorString);
+        return;
+    }
+
+    // Refresh the Jellyfin playback-session list before revoking every session
+    // except the current device.
     connect(this, &SessionService::sessionsLoaded, this, [this]() {
         int revokedCount = 0;
-        // Never turn an unknown native current session into "revoke everyone".
-        if (!authenticationSessionMode() || !m_currentSessionId.isEmpty()) {
-            for (const QVariant &var : m_sessions) {
-                const QVariantMap session = var.toMap();
-                const QString sessionId = session.value(QStringLiteral("id")).toString();
-                if (!sessionId.isEmpty() && sessionId != m_currentSessionId) {
-                    revokeSession(sessionId);
-                    ++revokedCount;
-                }
+        for (const QVariant &var : m_sessions) {
+            const QVariantMap session = var.toMap();
+            const QString sessionId = session.value(QStringLiteral("id")).toString();
+            if (!sessionId.isEmpty() && sessionId != m_currentSessionId) {
+                revokeSession(sessionId);
+                ++revokedCount;
             }
         }
         emit allOtherSessionsRevoked(revokedCount);

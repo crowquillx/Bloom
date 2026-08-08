@@ -429,6 +429,7 @@ FocusScope {
     // ========================================
 
     RowLayout {
+        enabled: !root.activeSessionsVisible
         anchors.fill: parent
         anchors.margins: Theme.paddingLarge
         spacing: Theme.spacingLarge

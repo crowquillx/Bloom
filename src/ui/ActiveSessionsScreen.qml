@@ -182,7 +182,8 @@ FocusScope {
                     : model.id === (root.sessionService ? root.sessionService.currentSessionId : "")
                 property bool highlighted: ListView.isCurrentItem && sessionsList.activeFocus
                 function requestRevoke() {
-                    if (!isCurrent && revokeButton.enabled && root.sessionService) {
+                    if ((!isCurrent || root.authenticationMode)
+                        && revokeButton.enabled && root.sessionService) {
                         root.sessionService.revokeSession(model.id)
                     }
                 }
@@ -190,7 +191,12 @@ FocusScope {
                 Rectangle {
                     anchors.fill: parent
                     z: -1
-                    color: sessionDelegate.highlighted ? Theme.accentColor : (isCurrent ? Theme.accentColor + "20" : Theme.backgroundSecondary)
+                    color: sessionDelegate.highlighted
+                        ? Theme.accentColor
+                        : (isCurrent
+                            ? Qt.rgba(Theme.accentColor.r, Theme.accentColor.g,
+                                      Theme.accentColor.b, 0.12)
+                            : Theme.backgroundSecondary)
                     radius: Theme.radiusMedium
                     border.width: isCurrent ? 2 : 0
                     border.color: Theme.accentColor
@@ -265,7 +271,7 @@ FocusScope {
                     // Revoke button (only for other sessions)
                     A11yButton {
                         id: revokeButton
-                        visible: !sessionDelegate.isCurrent
+                        visible: !sessionDelegate.isCurrent || root.authenticationMode
                         enabled: visible && root.sessionService
                             && !root.sessionService.isLoading
                         text: "\ue14c"  // Close/cancel icon
@@ -283,13 +289,15 @@ FocusScope {
                     }
                 }
 
-                Keys.onReturnPressed: sessionDelegate.requestRevoke()
-                Keys.onEnterPressed: sessionDelegate.requestRevoke()
 
                 MouseArea {
                     z: 0
                     anchors.fill: parent
+                    cursorShape: InputModeManager.pointerActive
+                        ? Qt.PointingHandCursor : Qt.BlankCursor
                     onClicked: {
+                        InputModeManager.setNavigationMode("pointer")
+                        InputModeManager.hideCursor(false)
                         sessionsList.currentIndex = index
                         sessionsList.forceActiveFocus()
                     }

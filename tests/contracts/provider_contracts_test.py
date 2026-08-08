@@ -119,10 +119,42 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertIn("not-applicable", labels)
         self.assertIn("unavailable", labels["missing"].lower())
         self.assertIn("out-of-scope", labels["not-applicable"].lower())
-        for contract in self.valid_data["contracts"]:
-            for expectation in contract["expectations"].values():
-                if expectation["outcome"] in {"missing", "not-applicable"}:
-                    self.assertNotEqual(expectation["outcome"], "supported")
+        rows = {row["id"]: row for row in self.valid_data["contracts"]}
+        compat_missing = {
+            "artwork.chapter",
+            "playback.additional-parts",
+            "playback.trickplay",
+            "segments.plugin-intro-skipper",
+            "sessions.revoke",
+            "catalog.recommendations",
+            "playback.versions",
+            "playback.multipart-reporting",
+            "sessions.auth-playback-separation",
+        }
+        for contract_id in compat_missing:
+            self.assertEqual(
+                rows[contract_id]["expectations"]["silo-8044eb8-compat"]["outcome"],
+                "missing",
+                contract_id,
+            )
+
+        for contract_id in (
+            "optional.household-overview",
+            "optional.watchlist",
+            "optional.watch-together",
+            "optional.requests",
+            "optional.notifications",
+            "optional.downloads",
+            "optional.audiobooks",
+            "optional.ebooks",
+        ):
+            self.assertTrue(
+                all(
+                    expectation["outcome"] == "not-applicable"
+                    for expectation in rows[contract_id]["expectations"].values()
+                ),
+                contract_id,
+            )
 
     def test_rejects_non_object_native_detection(self):
         data = copy.deepcopy(self.valid_data)

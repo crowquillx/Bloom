@@ -3712,6 +3712,10 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_hasEvaluatedCompletionForAttempt = false;
         cancelPendingDisplayRestore(true);
         clearPlaybackSegments();
+        if (!m_mediaSourceId.isEmpty()) {
+            m_mediaSourceId.clear();
+            emit mediaSourceIdChanged();
+        }
         for (const QVariant &segment : requestedPlaybackSegments) {
             QVariantMap segmentMap = segment.toMap();
             segmentMap[QStringLiteral("playbackAttemptId")] =
