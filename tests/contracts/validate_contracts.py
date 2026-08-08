@@ -329,7 +329,14 @@ def validate_contract_data(data: dict[str, Any]):
         if requires_mutation_flag:
             _require(requirement.get("liveProbe", False), f"{requirement_id} mutation probes must set liveProbe")
             _require(
-                requirement_id in {"native.playback.start-legacy", "native.playback.progress", "native.playback.stop", "native.playback.track"},
+                requirement_id in {
+                    "native.state.watched",
+                    "native.state.favorite",
+                    "native.playback.start-legacy",
+                    "native.playback.progress",
+                    "native.playback.stop",
+                    "native.playback.track",
+                },
                 f"{requirement_id} is not an approved mutation probe",
             )
         if requirement.get("liveProbe", False) and not requires_mutation_flag:

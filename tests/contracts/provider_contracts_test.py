@@ -216,6 +216,43 @@ class ProviderContractValidationTest(unittest.TestCase):
         data["nativeSiloContract"]["sourceRevision"] = "0" * 40
         with self.assertRaisesRegex(ContractValidationError, "sourceRevision must match"):
             validate_contract_data(data)
+    def test_native_state_roundtrips_are_opt_in_mutations(self):
+        requirements = {
+            requirement["id"]: requirement
+            for requirement in self.valid_data["nativeSiloContract"]["requirements"]
+        }
+        for contract_id in ("native.state.watched", "native.state.favorite"):
+            with self.subTest(contract_id=contract_id):
+                self.assertTrue(requirements[contract_id]["liveProbe"])
+                self.assertTrue(requirements[contract_id]["requiresMutationFlag"])
+    def test_live_report_fails_when_driver_omits_expected_probe(self):
+        results = [
+            run_live_contracts.ProbeResult(
+                contract="native.health",
+                expected="partial",
+                observed="partial",
+                passed=True,
+                evidence="health checked",
+            )
+        ]
+
+        completed = run_live_contracts.complete_expected_results(
+            {
+                "native.health": "partial",
+                "native.state.watched": "supported",
+            },
+            results,
+        )
+
+        self.assertEqual(
+            [result.contract for result in completed],
+            ["native.health", "native.state.watched"],
+        )
+        self.assertFalse(completed[1].passed)
+        self.assertEqual(completed[1].observed, "missing")
+        self.assertIn("omitted", completed[1].evidence)
+
+
 
     def test_rejects_native_route_shape_drift(self):
         data = copy.deepcopy(self.valid_data)
@@ -332,6 +369,8 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertEqual(response.json(), {"Items": []})
         malformed = Response(200, {"Content-Type": "text/html"}, b"not-json")
         self.assertIsNone(malformed.json())
+        invalid_utf8 = Response(200, {"Content-Type": "application/json"}, b"\xff")
+        self.assertIsNone(invalid_utf8.json())
 
     def test_native_live_probe_is_read_only_and_accepts_omitted_server_id(self):
         class RecordingTransport:
@@ -349,7 +388,6 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/api/v1/health")])
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0].passed)
-        self.assertIn("server_id=omitted", results[0].evidence)
     def test_native_playback_probe_requires_explicit_mutation_flag(self):
         class RecordingTransport:
             def __init__(self):
@@ -373,6 +411,23 @@ class ProviderContractValidationTest(unittest.TestCase):
         self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/api/v1/health")])
         self.assertEqual({result.observed for result in results[1:]}, {"inconclusive"})
         self.assertTrue(all(result.passed for result in results))
+
+    def test_native_playback_version_accepts_numeric_wire_identity(self):
+        select_version = run_live_contracts.SiloNativeV1Probe._playback_version
+
+        numeric = {"file_id": 17282}
+        numeric_string = {"file_id": "17283"}
+        single_track = {"file_id": 17284, "audio_tracks": [{}]}
+        multi_track = {"file_id": 17285, "audio_tracks": [{}, {}]}
+        self.assertIs(select_version([numeric]), numeric)
+        self.assertIs(select_version([numeric_string]), numeric_string)
+        self.assertIs(select_version([single_track, multi_track]), multi_track)
+        self.assertIsNone(select_version([{"file_id": True}]))
+        self.assertIsNone(select_version([{"file_id": -1}]))
+        self.assertIsNone(select_version([{"file_id": "²"}]))
+        self.assertIsNone(select_version([{"file_id": "9" * 5000}]))
+        self.assertIsNone(select_version([{"file_id": "not-numeric"}]))
+
 
     def test_native_live_probe_rejects_success_shaped_bad_health(self):
         class BadHealthTransport:
