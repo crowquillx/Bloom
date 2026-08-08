@@ -198,9 +198,7 @@ public:
         }
 
         const QJsonValue profileToken = object->value(QStringLiteral("profile_token"));
-        const QJsonValue expiresAt = object->value(QStringLiteral("expires_at"));
-        if (!profileToken.isString() || profileToken.toString().isEmpty()
-            || !expiresAt.isString() || expiresAt.toString().trimmed().isEmpty()) {
+        if (!profileToken.isString() || profileToken.toString().isEmpty()) {
             return {};
         }
 

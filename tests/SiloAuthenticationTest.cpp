@@ -402,7 +402,7 @@ void SiloAuthenticationTest::authenticatorRejectsMalformedAndIncompleteResponses
                  QByteArrayLiteral(R"({"access_token":"access-1","expires_in":900,"user":{"id":42,"username":"Alice"}})"))
                  .isValid());
     QVERIFY(!authenticator.parseProfileLoginResponse(
-                 QByteArrayLiteral(R"({"valid":true,"profile_token":"profile-token-1"})"))
+                 QByteArrayLiteral(R"({"valid":true})"))
                  .isValid());
 
     const ProviderAuthenticationResult retainedRefresh = authenticator.parseRefreshResponse(
@@ -542,7 +542,7 @@ void SiloAuthenticationTest::authenticatorDistinguishesIncorrectAndValidProfileP
 
     const ProviderProfileAuthenticationResult valid =
         authenticator.parseProfileLoginResponse(QByteArrayLiteral(
-            R"({"valid":true,"profile_token":"profile-token-1","expires_at":"2026-08-08T10:00:00Z"})"));
+            R"({"valid":true,"profile_token":"profile-token-1"})"));
     QVERIFY(valid.responseParsed);
     QVERIFY(valid.valid);
     QVERIFY(valid.isValid());
@@ -781,7 +781,7 @@ void SiloAuthenticationTest::profileTokenIsBoundToSelectionAndClearedOnSwitch()
     manager.responses.append(response(
         200,
         QByteArrayLiteral(
-            R"({"valid":true,"profile_token":"profile-token-1","expires_at":"2026-08-08T10:00:00Z"})")));
+            R"({"valid":true,"profile_token":"profile-token-1"})")));
     service.verifyProfilePin(QStringLiteral("profile-1"), QStringLiteral("1234"));
     QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
 
