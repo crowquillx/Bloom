@@ -102,6 +102,13 @@ QVariantList mediaStreams(const QVariantMap &mediaSource)
     return mediaSource.value(QStringLiteral("mediaStreams")).toList();
 }
 
+int parsePinnedTrackId(const QString &rawTrackId)
+{
+    bool ok = false;
+    const int trackId = rawTrackId.trimmed().toInt(&ok);
+    return ok ? trackId : -1;
+}
+
 QVariantList mediaStreamsForType(const QVariantMap &mediaSource, const QString &streamType)
 {
     QVariantList result;
@@ -2246,6 +2253,13 @@ void PlayerController::onPlaybackAudioSwitchedForRequest(const QString &sessionI
         m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("audioIndex")] =
             m_selectedAudioTrack;
     }
+    // Native audio switching reloads the media URL. Rebuild the source-to-mpv
+    // maps from the active source while retaining them when no source metadata
+    // is available, so the post-reload aid notification still resolves.
+    if (!m_activeMediaSource.isEmpty()) {
+        updateTrackMappings(m_activeMediaSource);
+        m_mpvAudioTrack = mpvAudioTrackForSourceIndex(m_selectedAudioTrack);
+    }
     // mpv's replacement URL starts at the current physical-file timeline. The
     // aggregate position includes preceding multipart files and would seek past
     // the end of the active file.
@@ -2672,8 +2686,10 @@ void PlayerController::applyPlaybackDescriptorToSegment(
     segment[QStringLiteral("playMethod")] = Bloom::playbackMethodName(descriptor.stream.method);
     segment[QStringLiteral("pinsAudioTrack")] = descriptor.stream.pinsAudioTrack;
     segment[QStringLiteral("pinsSubtitleTrack")] = descriptor.stream.pinsSubtitleTrack;
-    segment[QStringLiteral("pinnedAudioTrack")] = descriptor.stream.pinnedAudioTrackId.toInt();
-    segment[QStringLiteral("pinnedSubtitleTrack")] = descriptor.stream.pinnedSubtitleTrackId.toInt();
+    segment[QStringLiteral("pinnedAudioTrack")] =
+        parsePinnedTrackId(descriptor.stream.pinnedAudioTrackId);
+    segment[QStringLiteral("pinnedSubtitleTrack")] =
+        parsePinnedTrackId(descriptor.stream.pinnedSubtitleTrackId);
     segment[QStringLiteral("durationMs")] = descriptor.durationMs;
     if (!descriptor.playbackSessionId.isEmpty()) {
         segment[QStringLiteral("playSessionId")] = descriptor.playbackSessionId;
@@ -2779,8 +2795,8 @@ void PlayerController::onPlaybackDescriptorLoadedForRequest(
         m_nextPlaybackMethod = Bloom::playbackMethodName(descriptor.stream.method);
         m_nextStreamPinsAudioTrack = descriptor.stream.pinsAudioTrack;
         m_nextStreamPinsSubtitleTrack = descriptor.stream.pinsSubtitleTrack;
-        m_nextPinnedAudioTrack = descriptor.stream.pinnedAudioTrackId.toInt();
-        m_nextPinnedSubtitleTrack = descriptor.stream.pinnedSubtitleTrackId.toInt();
+        m_nextPinnedAudioTrack = parsePinnedTrackId(descriptor.stream.pinnedAudioTrackId);
+        m_nextPinnedSubtitleTrack = parsePinnedTrackId(descriptor.stream.pinnedSubtitleTrackId);
         playUrlWithTracks(url,
                           itemId,
                           m_pendingAutoplayDescriptorStartPositionMs,
@@ -4180,15 +4196,38 @@ void PlayerController::setSelectedSubtitleTrack(int index)
 
     if (m_playbackState == Playing || m_playbackState == Paused) {
         if (index >= 0 || m_externalSubtitleTrackMap.contains(index)) {
-            const int mpvTrackId = m_externalSubtitleTrackMap.value(index, mpvSubtitleTrackForSourceIndex(index));
-            if (mpvTrackId > 0) {
+            const bool isExternal = m_externalSubtitleTrackMap.contains(index);
+            const int mpvTrackId =
+                m_externalSubtitleTrackMap.value(index, mpvSubtitleTrackForSourceIndex(index));
+            if (isExternal && mpvTrackId <= 0) {
+                QVariantMap externalTrack;
+                for (const QVariant &trackVariant : m_availableSubtitleTracks) {
+                    const QVariantMap candidate = trackVariant.toMap();
+                    if (candidate.value(QStringLiteral("index"), -1).toInt() == index) {
+                        externalTrack = candidate;
+                        break;
+                    }
+                }
+                const QString externalUrl =
+                    externalTrack.value(QStringLiteral("externalUrl")).toString().trimmed();
+                if (!externalUrl.isEmpty()) {
+                    // Non-selected multipart subtitles may not receive an mpv sid
+                    // until explicitly added with select semantics.
+                    m_pendingExternalSubtitleIndex = index;
+                    addExternalSubtitleTrackInternal(
+                        externalUrl,
+                        externalTrack.value(QStringLiteral("displayTitle")).toString(),
+                        externalTrack.value(QStringLiteral("language")).toString(),
+                        index,
+                        true);
+                } else {
+                    qCWarning(lcPlayback) << "External subtitle has no usable URL:" << index;
+                }
+            } else if (mpvTrackId > 0) {
                 m_mpvSubtitleTrack = mpvTrackId;
                 qCDebug(lcPlayback) << "Applying subtitle track switch via sid:" << mpvTrackId;
                 m_playerBackend->sendVariantCommand({"set_property", "sid", mpvTrackId});
                 m_pendingExternalSubtitleIndex = -1;
-            } else if (m_externalSubtitleTrackMap.contains(index) && mpvTrackId < 0) {
-                m_pendingExternalSubtitleIndex = index;
-                qCDebug(lcPlayback) << "Deferring sid application for pending external subtitle:" << index;
             } else {
                 qCWarning(lcPlayback) << "No mapped mpv subtitle track for provider source index" << index
                                       << "- skipping runtime sid command";
@@ -5048,6 +5087,13 @@ void PlayerController::applyAudioOutputDevice()
     // Point mpv at the desired device (a no-op if it already matches), then force
     // the audio output to reinitialize. For "auto" this re-selects the current
     // system default; for an explicit device it (re)opens that endpoint.
+    // ao-reload can cause mpv to publish a fresh aid value. Rebuild the
+    // canonical maps before that notification arrives so reverse lookup stays
+    // aligned with the active source.
+    if (!m_activeMediaSource.isEmpty()) {
+        updateTrackMappings(m_activeMediaSource);
+        m_mpvAudioTrack = mpvAudioTrackForSourceIndex(m_selectedAudioTrack);
+    }
     m_playerBackend->sendVariantCommand({"set_property", "audio-device", desired});
     m_playerBackend->sendVariantCommand({"ao-reload"});
 }

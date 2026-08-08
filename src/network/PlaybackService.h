@@ -10,6 +10,7 @@
 #include <functional>
 #include "Types.h"
 #include "models/MediaModels.h"  // For data structs (PlaybackInfoResponse, MediaSegmentInfo, TrickplayTileInfo, etc.)
+#include "providers/IPlaybackProvider.h"
 struct PlaybackProviderContext;
 struct PlaybackReportRequest;
 class IPlaybackProvider;
@@ -68,6 +69,7 @@ public:
     Q_INVOKABLE virtual void requestPlaybackRecovery(
         const QString &itemId,
         const QVariantMap &providerSource,
+        int selectedAudioTrack = -1,
         qint64 startPositionMs = 0,
         const QString &requestContext = QString());
 
@@ -214,6 +216,8 @@ private:
     void emitDescriptorFailure(const QString &itemId,
                                const QString &requestContext,
                                const QString &error);
+    QHash<QString, QString> m_requestIdentities;
+    quint64 m_nextRequestGeneration = 0;
     QHash<QString, quint64> m_requestGenerations;
     
     void emitError(const NetworkError &error);

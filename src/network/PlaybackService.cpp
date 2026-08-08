@@ -2,7 +2,7 @@
 #include "AuthenticationService.h"
 #include "HttpTransport.h"
 #include "MediaSegmentProviderService.h"
-#include "providers/IPlaybackProvider.h"
+#include "providers/ICatalogProvider.h"
 #include "../utils/ConfigManager.h"
 #include "../utils/BloomLogging.h"
 #include <QJsonDocument>
@@ -28,7 +28,8 @@ QString activeConnectionId(AuthenticationService *authService, ConfigManager *co
 }
 QString playbackRequestIdentity(AuthenticationService *authService,
                                 ConfigManager *configManager,
-                                const PlaybackProviderContext &context)
+                                const PlaybackProviderContext &context,
+                                const IPlaybackProvider *provider)
 {
     const QStringList fields{
         context.serverUrl.toString(QUrl::FullyEncoded),
@@ -37,7 +38,10 @@ QString playbackRequestIdentity(AuthenticationService *authService,
         context.profileToken,
         context.deviceId,
         activeConnectionId(authService, configManager),
-        authService ? authService->getUserId() : QString()
+        authService ? authService->getUserId() : QString(),
+        QString::number(static_cast<int>(
+            authService ? authService->activeProviderKind() : ProviderKind::Jellyfin)),
+        QString::number(reinterpret_cast<quintptr>(provider), 16)
     };
     return fields.join(QChar(0x1f));
 }
@@ -182,8 +186,14 @@ quint64 PlaybackService::beginRequest(const QString &operation,
                                       const QString &requestContext)
 {
     const QString key = operation + QChar(0x1f) + requestContext + QChar(0x1f) + itemId;
-    const quint64 generation = m_requestGenerations.value(key, 0) + 1;
+    const quint64 generation = ++m_nextRequestGeneration;
     m_requestGenerations.insert(key, generation);
+    const IPlaybackProvider *provider =
+        m_authService ? m_authService->playbackProvider() : nullptr;
+    m_requestIdentities.insert(
+        key,
+        playbackRequestIdentity(m_authService, m_configManager,
+                                 providerContext(), provider));
     return generation;
 }
 
@@ -195,6 +205,7 @@ void PlaybackService::endRequest(const QString &operation,
     const QString key = operation + QChar(0x1f) + requestContext + QChar(0x1f) + itemId;
     if (m_requestGenerations.value(key, 0) == generation) {
         m_requestGenerations.remove(key);
+        m_requestIdentities.remove(key);
     }
 }
 
@@ -204,7 +215,14 @@ bool PlaybackService::isCurrentRequest(const QString &operation,
                                        quint64 generation) const
 {
     const QString key = operation + QChar(0x1f) + requestContext + QChar(0x1f) + itemId;
-    return m_requestGenerations.value(key, 0) == generation;
+    if (m_requestGenerations.value(key, 0) != generation) {
+        return false;
+    }
+    const IPlaybackProvider *provider =
+        m_authService ? m_authService->playbackProvider() : nullptr;
+    return m_requestIdentities.value(key)
+        == playbackRequestIdentity(m_authService, m_configManager,
+                                    providerContext(), provider);
 }
 
 QNetworkReply *PlaybackService::sendProviderRequest(const QString &endpoint,
@@ -283,6 +301,7 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                                      requestContext, generation, context, media]() {
             if (!isCurrentRequest(QStringLiteral("descriptor"), itemId,
                                   requestContext, generation)) {
+                endRequest(QStringLiteral("descriptor"), itemId, requestContext, generation);
                 return;
             }
             const Bloom::PlaybackDescriptor descriptor = provider->createDescriptor(
@@ -301,12 +320,21 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
 
     sendRequestWithRetry(
         startRequest.endpoint,
-        [this, startRequest]() {
+        [this, startRequest, itemId, requestContext, generation]() -> QNetworkReply * {
+            if (!isCurrentRequest(QStringLiteral("descriptor"), itemId,
+                                  requestContext, generation)) {
+                return nullptr;
+            }
             return sendProviderRequest(startRequest.endpoint, startRequest.method,
                                        startRequest.body);
         },
         [this, provider, itemId, providerSource, requestContext, generation, context, media]
         (QNetworkReply *reply) {
+            if (!isCurrentRequest(QStringLiteral("descriptor"), itemId,
+                                  requestContext, generation)) {
+                endRequest(QStringLiteral("descriptor"), itemId, requestContext, generation);
+                return;
+            }
             const PlaybackStartParseResult parsed = provider->parsePlaybackStartResponse(
                 context, media,
                 QJsonDocument::fromJson(reply->readAll()).object(), providerSource);
@@ -320,6 +348,9 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                         parsed.error.isEmpty()
                             ? tr("The playback provider returned an invalid stream request.")
                             : parsed.error);
+                } else {
+                    endRequest(QStringLiteral("descriptor"), itemId,
+                               requestContext, generation);
                 }
                 return;
             }
@@ -331,6 +362,8 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                 endRequest(QStringLiteral("descriptor"), itemId,
                            requestContext, generation);
                 emit playbackDescriptorLoadedForRequest(itemId, descriptor, requestContext);
+            } else {
+                endRequest(QStringLiteral("descriptor"), itemId, requestContext, generation);
             }
         },
         [this, itemId, requestContext, generation](const NetworkError &error) {
@@ -339,6 +372,8 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                 endRequest(QStringLiteral("descriptor"), itemId,
                            requestContext, generation);
                 emitDescriptorFailure(itemId, requestContext, error.userMessage);
+            } else {
+                endRequest(QStringLiteral("descriptor"), itemId, requestContext, generation);
             }
         },
         0, true, false);
@@ -377,12 +412,21 @@ bool PlaybackService::switchPlaybackAudio(const QString &playbackSessionId,
     }
     sendRequestWithRetry(
         switchRequest.endpoint,
-        [this, switchRequest]() {
+        [this, switchRequest, playbackSessionId, requestContext, generation]() -> QNetworkReply * {
+            if (!isCurrentRequest(QStringLiteral("audio"), playbackSessionId,
+                                  requestContext, generation)) {
+                return nullptr;
+            }
             return sendProviderRequest(switchRequest.endpoint, switchRequest.method,
                                        switchRequest.body);
         },
         [this, provider, playbackSessionId, requestContext, generation, context]
         (QNetworkReply *reply) {
+            if (!isCurrentRequest(QStringLiteral("audio"), playbackSessionId,
+                                  requestContext, generation)) {
+                endRequest(QStringLiteral("audio"), playbackSessionId, requestContext, generation);
+                return;
+            }
             const PlaybackAudioSwitchParseResult parsed =
                 provider->parseAudioSwitchResponse(
                     context, QJsonDocument::fromJson(reply->readAll()).object());
@@ -397,6 +441,9 @@ bool PlaybackService::switchPlaybackAudio(const QString &playbackSessionId,
                             parsed.error.isEmpty() ? tr("Audio switching failed.") : parsed.error,
                             requestContext);
                     }
+                } else {
+                    endRequest(QStringLiteral("audio"), playbackSessionId,
+                               requestContext, generation);
                 }
                 return;
             }
@@ -407,6 +454,9 @@ bool PlaybackService::switchPlaybackAudio(const QString &playbackSessionId,
                            requestContext, generation);
                 emit playbackAudioSwitchedForRequest(playbackSessionId,
                                                      reloadUrl, requestContext);
+            } else {
+                endRequest(QStringLiteral("audio"), playbackSessionId,
+                           requestContext, generation);
             }
         },
         [this, playbackSessionId, requestContext, generation](const NetworkError &error) {
@@ -419,6 +469,9 @@ bool PlaybackService::switchPlaybackAudio(const QString &playbackSessionId,
                                                              error.userMessage,
                                                              requestContext);
                 }
+            } else {
+                endRequest(QStringLiteral("audio"), playbackSessionId,
+                           requestContext, generation);
             }
         });
     return true;
@@ -426,6 +479,7 @@ bool PlaybackService::switchPlaybackAudio(const QString &playbackSessionId,
 
 void PlaybackService::requestPlaybackRecovery(const QString &itemId,
                                               const QVariantMap &providerSource,
+                                              int selectedAudioTrack,
                                               qint64 startPositionMs,
                                               const QString &requestContext)
 {
@@ -443,10 +497,15 @@ void PlaybackService::requestPlaybackRecovery(const QString &itemId,
     }
     Bloom::MediaRef media;
     media.itemId = itemId;
+    ConfigManager *config = m_configManager ? m_configManager : m_authService->configManager();
+    if (const auto connection = config ? config->getActiveConnection() : std::nullopt;
+        connection.has_value()) {
+        media.connectionId = connection->connectionId;
+    }
     const PlaybackProviderContext context = providerContext();
     const PlaybackRecoveryRequest recoveryRequest =
         provider->createPlaybackRecoveryRequest(
-            context, media, providerSource, startPositionMs);
+            context, media, providerSource, selectedAudioTrack, startPositionMs);
     if (!recoveryRequest.isValid()) {
         endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
         if (!requestContext.isEmpty()) {
@@ -458,13 +517,22 @@ void PlaybackService::requestPlaybackRecovery(const QString &itemId,
     }
     sendRequestWithRetry(
         recoveryRequest.endpoint,
-        [this, recoveryRequest]() {
+        [this, recoveryRequest, itemId, requestContext, generation]() -> QNetworkReply * {
+            if (!isCurrentRequest(QStringLiteral("recovery"), itemId,
+                                  requestContext, generation)) {
+                return nullptr;
+            }
             return sendProviderRequest(recoveryRequest.endpoint,
                                        recoveryRequest.method,
                                        recoveryRequest.body);
         },
         [this, provider, itemId, providerSource, requestContext, generation, context, media]
         (QNetworkReply *reply) {
+            if (!isCurrentRequest(QStringLiteral("recovery"), itemId,
+                                  requestContext, generation)) {
+                endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
+                return;
+            }
             const PlaybackStartParseResult parsed =
                 provider->parsePlaybackRecoveryResponse(
                     context, media,
@@ -482,6 +550,9 @@ void PlaybackService::requestPlaybackRecovery(const QString &itemId,
                                                    : parsed.error,
                             requestContext);
                     }
+                } else {
+                    endRequest(QStringLiteral("recovery"), itemId,
+                               requestContext, generation);
                 }
                 return;
             }
@@ -494,6 +565,8 @@ void PlaybackService::requestPlaybackRecovery(const QString &itemId,
                            requestContext, generation);
                 emit playbackRecoveryLoadedForRequest(itemId, descriptor,
                                                       requestContext);
+            } else {
+                endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
             }
         },
         [this, itemId, requestContext, generation](const NetworkError &error) {
@@ -505,6 +578,8 @@ void PlaybackService::requestPlaybackRecovery(const QString &itemId,
                     emit playbackRecoveryFailedForRequest(itemId, error.userMessage,
                                                           requestContext);
                 }
+            } else {
+                endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
             }
         });
 }
@@ -609,18 +684,28 @@ void PlaybackService::getPlaybackInfo(const QString &itemId, const QString &requ
             .arg(itemId, m_authService->getUserId());
         sendRequestWithRetry(
             endpoint,
-            [this, endpoint]() {
+            [this, endpoint, itemId, requestContext, generation]() -> QNetworkReply * {
+                if (!isCurrentRequest(QStringLiteral("info"), itemId,
+                                      requestContext, generation)) {
+                    return nullptr;
+                }
                 QNetworkRequest request = m_authService->createRequest(endpoint);
                 request.setHeader(QNetworkRequest::ContentTypeHeader,
                                   QStringLiteral("application/json"));
                 return m_authService->networkManager()->post(request, QByteArray("{}"));
             },
             [this, itemId, requestContext, generation](QNetworkReply *reply) {
+                if (!isCurrentRequest(QStringLiteral("info"), itemId,
+                                      requestContext, generation)) {
+                    endRequest(QStringLiteral("info"), itemId, requestContext, generation);
+                    return;
+                }
                 const PlaybackInfoResponse info =
                     m_authService->mapPlaybackInfo(
                         QJsonDocument::fromJson(reply->readAll()).object());
                 if (!isCurrentRequest(QStringLiteral("info"), itemId,
                                       requestContext, generation)) {
+                    endRequest(QStringLiteral("info"), itemId, requestContext, generation);
                     return;
                 }
                 endRequest(QStringLiteral("info"), itemId, requestContext, generation);
@@ -645,12 +730,21 @@ void PlaybackService::getPlaybackInfo(const QString &itemId, const QString &requ
 
     sendRequestWithRetry(
         providerRequest.endpoint,
-        [this, providerRequest]() {
+        [this, providerRequest, itemId, requestContext, generation]() -> QNetworkReply * {
+            if (!isCurrentRequest(QStringLiteral("info"), itemId,
+                                  requestContext, generation)) {
+                return nullptr;
+            }
             return sendProviderRequest(providerRequest.endpoint, providerRequest.method,
                                        providerRequest.body);
         },
         [this, provider, itemId, requestContext, generation, context, media]
         (QNetworkReply *reply) {
+            if (!isCurrentRequest(QStringLiteral("info"), itemId,
+                                  requestContext, generation)) {
+                endRequest(QStringLiteral("info"), itemId, requestContext, generation);
+                return;
+            }
             const PlaybackInfoParseResult parsed = provider->parsePlaybackInfoResponse(
                 context, media,
                 QJsonDocument::fromJson(reply->readAll()).object());
@@ -671,6 +765,7 @@ void PlaybackService::getPlaybackInfo(const QString &itemId, const QString &requ
             }
             if (!isCurrentRequest(QStringLiteral("info"), itemId,
                                   requestContext, generation)) {
+                endRequest(QStringLiteral("info"), itemId, requestContext, generation);
                 return;
             }
             endRequest(QStringLiteral("info"), itemId, requestContext, generation);
@@ -728,13 +823,18 @@ void PlaybackService::getAdditionalParts(const QString &itemId,
         .arg(itemId, m_authService->getUserId());
 
     sendRequestWithRetry(endpoint,
-        [this, endpoint]() {
+        [this, endpoint, itemId, requestContext, generation]() -> QNetworkReply * {
+            if (!isCurrentRequest(QStringLiteral("parts"), itemId,
+                                  requestContext, generation)) {
+                return nullptr;
+            }
             QNetworkRequest request = m_authService->createRequest(endpoint);
             return m_authService->networkManager()->get(request);
         },
         [this, itemId, requestContext, connectionId, generation](QNetworkReply *reply) {
             if (!isCurrentRequest(QStringLiteral("parts"), itemId,
                                   requestContext, generation)) {
+                endRequest(QStringLiteral("parts"), itemId, requestContext, generation);
                 return;
             }
             const ParsedItemsResult response =
@@ -1089,7 +1189,7 @@ void PlaybackService::sendPlaybackReport(const PlaybackReport &report,
         m_pendingStopProviders.insert(sessionId, provider);
         m_pendingStopRequestIdentities.insert(
             sessionId,
-            playbackRequestIdentity(m_authService, m_configManager, providerContext()));
+            playbackRequestIdentity(m_authService, m_configManager, providerContext(), provider));
         return;
     }
 
@@ -1119,7 +1219,7 @@ void PlaybackService::sendPlaybackReport(const PlaybackReport &report,
                 && stopProvider == (m_authService ? m_authService->playbackProvider() : nullptr)
                 && stopIdentity
                     == playbackRequestIdentity(m_authService, m_configManager,
-                                                providerContext())) {
+                                                providerContext(), stopProvider)) {
                 sendPlaybackReport(stop, {}, stopProvider);
             }
         };
@@ -1177,7 +1277,51 @@ void PlaybackService::sendPlaybackReport(const PlaybackReport &report,
 
 void PlaybackService::markItemPlayed(const QString &itemId)
 {
-    if (!m_authService->isAuthenticated()) return;
+    if (!m_authService || !m_authService->isAuthenticated()) {
+        return;
+    }
+
+    if (m_authService->activeProviderKind() == ProviderKind::Silo) {
+        const ICatalogProvider *catalogProvider = m_authService->catalogProvider();
+        ProviderCatalogQuery query;
+        query.userId = m_authService->getUserId();
+        query.itemId = itemId;
+        query.stateValue = true;
+        const ProviderCatalogRequest providerRequest =
+            catalogProvider
+                ? catalogProvider->createRequest(ProviderCatalogOperation::SetWatched, query)
+                : ProviderCatalogRequest{};
+        if (!providerRequest.supported || providerRequest.relativeEndpoint.isEmpty()) {
+            qCWarning(lcPlayback) << "Silo watched-state request unavailable for" << itemId;
+            return;
+        }
+        QString method;
+        switch (providerRequest.method) {
+        case ProviderHttpMethod::Get: method = QStringLiteral("GET"); break;
+        case ProviderHttpMethod::Post: method = QStringLiteral("POST"); break;
+        case ProviderHttpMethod::Put: method = QStringLiteral("PUT"); break;
+        case ProviderHttpMethod::Delete: method = QStringLiteral("DELETE"); break;
+        }
+        const QString endpoint = providerRequest.relativeEndpoint;
+        sendRequestWithRetry(
+            endpoint,
+            [this, endpoint, method, body = providerRequest.body]() {
+                return sendProviderRequest(endpoint, method,
+                                           QJsonDocument::fromJson(body).object());
+            },
+            [this, itemId](QNetworkReply *reply) {
+                if (reply->error() != QNetworkReply::NoError) {
+                    qCWarning(lcPlayback) << "Failed to mark Silo item as played:" << itemId
+                                          << ":" << reply->errorString();
+                } else {
+                    emit itemMarkedPlayed(itemId);
+                }
+            },
+            FailureHandler(),
+            0,
+            false);
+        return;
+    }
 
     const QString endpoint = QString("/Users/%1/PlayedItems/%2")
         .arg(m_authService->getUserId(), itemId);

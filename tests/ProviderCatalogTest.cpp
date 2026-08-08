@@ -23,6 +23,7 @@ private slots:
     void jellyfinMutationsAndPaginationRemainCompatible();
     void siloTrackIndicesAndMultipartFallbackStayContiguous();
     void siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds();
+    void siloPlaybackFallbacksAndExternalSubtitleMetadata();
     void canonicalArtworkAndPlaybackChapterMetadataRemainProviderNeutral();
     void siloEpisodeParentAndBoundedTimes();
     void siloNumericSeasonRoutesAndEnvelopeOperation();
@@ -372,6 +373,98 @@ void ProviderCatalogTest::siloCanonicalIdentityVersionsMultipartAndStateUseMilli
     QCOMPARE(state.value(QStringLiteral("durationMs")).toLongLong(), 123456);
     QVERIFY(state.value(QStringLiteral("watched")).toBool());
 }
+
+void ProviderCatalogTest::siloPlaybackFallbacksAndExternalSubtitleMetadata()
+{
+    const QJsonObject version{
+        {QStringLiteral("file_id"), QStringLiteral("file-subtitles")},
+        {QStringLiteral("audio_tracks"), QJsonArray{
+             QJsonObject{{QStringLiteral("url"), QStringLiteral("https://audio.invalid")}}
+         }},
+        {QStringLiteral("subtitle_tracks"), QJsonArray{}},
+        {QStringLiteral("subtitles"), QJsonArray{
+             QJsonObject{
+                 {QStringLiteral("language"), QStringLiteral("eng")},
+                 {QStringLiteral("downloaded_url"),
+                  QStringLiteral("https://subtitles.invalid/downloaded.vtt")}
+             },
+             QJsonObject{
+                 {QStringLiteral("language"), QStringLiteral("deu")},
+                 {QStringLiteral("external_url"),
+                  QStringLiteral("https://subtitles.invalid/external.vtt")}
+             }
+         }},
+        {QStringLiteral("stream_url"), QString()},
+        {QStringLiteral("download_url"), QStringLiteral("https://media.invalid/download")}
+    };
+
+    const QVariantMap mappedVersion = SiloModelMapper::mediaVersion(
+        version, QStringLiteral("silo"), QStringLiteral("item"));
+    const QVariantList audioTracks = mappedVersion.value(QStringLiteral("audioTracks")).toList();
+    QVERIFY(!audioTracks.constFirst().toMap().contains(QStringLiteral("externalUrl")));
+    const QVariantList subtitleTracks =
+        mappedVersion.value(QStringLiteral("subtitleTracks")).toList();
+    QCOMPARE(subtitleTracks.size(), 2);
+    QCOMPARE(subtitleTracks.at(0).toMap().value(QStringLiteral("externalUrl")).toString(),
+             QStringLiteral("https://subtitles.invalid/downloaded.vtt"));
+    QCOMPARE(subtitleTracks.at(1).toMap().value(QStringLiteral("externalUrl")).toString(),
+             QStringLiteral("https://subtitles.invalid/external.vtt"));
+
+    const PlaybackInfoResponse nestedVersions = SiloModelMapper::playbackInfo(
+        QJsonObject{
+            {QStringLiteral("media_sources"), QJsonArray{}},
+            {QStringLiteral("playback_info"), QJsonObject{
+                 {QStringLiteral("versions"), QJsonArray{version}}
+             }}
+        });
+    QCOMPARE(nestedVersions.mediaSources.size(), 1);
+    QCOMPARE(nestedVersions.mediaSources.first().id, QStringLiteral("file-subtitles"));
+    QCOMPARE(nestedVersions.mediaSources.first().directStreamUrl,
+             QStringLiteral("https://media.invalid/download"));
+
+    const QJsonObject variantVersion{
+        {QStringLiteral("file_id"), QStringLiteral("file-variant")}
+    };
+    const QJsonArray variants{
+        QJsonObject{
+            {QStringLiteral("variant_id"), QStringLiteral("variant")},
+            {QStringLiteral("parts"), QJsonArray{
+                 QJsonObject{
+                     {QStringLiteral("versions"), QJsonArray{variantVersion}}
+                 }
+             }}
+        }
+    };
+    const PlaybackInfoResponse rootVariants = SiloModelMapper::playbackInfo(
+        QJsonObject{
+            {QStringLiteral("media_sources"), QJsonArray{}},
+            {QStringLiteral("playback_variants"), variants}
+        });
+    QCOMPARE(rootVariants.mediaSources.size(), 1);
+    QCOMPARE(rootVariants.mediaSources.first().id, QStringLiteral("file-variant"));
+
+    const PlaybackInfoResponse nestedVariants = SiloModelMapper::playbackInfo(
+        QJsonObject{
+            {QStringLiteral("media_sources"), QJsonArray{}},
+            {QStringLiteral("playback_info"), QJsonObject{
+                 {QStringLiteral("playback_variants"), variants}
+             }}
+        });
+    QCOMPARE(nestedVariants.mediaSources.size(), 1);
+    QCOMPARE(nestedVariants.mediaSources.first().id, QStringLiteral("file-variant"));
+
+    const QJsonObject fileVersion{
+        {QStringLiteral("file_id"), QStringLiteral("file-fallback")}
+    };
+    const PlaybackInfoResponse files = SiloModelMapper::playbackInfo(
+        QJsonObject{
+            {QStringLiteral("media_sources"), QJsonArray{}},
+            {QStringLiteral("files"), QJsonArray{fileVersion}}
+        });
+    QCOMPARE(files.mediaSources.size(), 1);
+    QCOMPARE(files.mediaSources.first().id, QStringLiteral("file-fallback"));
+}
+
 
 void ProviderCatalogTest::canonicalArtworkAndPlaybackChapterMetadataRemainProviderNeutral()
 {

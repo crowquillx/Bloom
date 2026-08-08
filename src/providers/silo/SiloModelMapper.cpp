@@ -254,10 +254,14 @@ QVariantList tracks(const QJsonArray &wireTracks,
             mapped[QStringLiteral("sampleRate")] = wire.value(QStringLiteral("sample_rate")).toInt();
             mapped[QStringLiteral("bitDepth")] = wire.value(QStringLiteral("bit_depth")).toInt();
             mapped[QStringLiteral("resolution")] = wire.value(QStringLiteral("resolution")).toString();
+        } else if (kind.compare(QStringLiteral("Subtitle"), Qt::CaseInsensitive) == 0) {
             mapped[QStringLiteral("fileName")] = wire.value(QStringLiteral("file_name")).toString();
-            mapped[QStringLiteral("subtitleUrl")] = wire.value(QStringLiteral("url")).toString(
-                wire.value(QStringLiteral("downloaded_url")).toString(
-                    wire.value(QStringLiteral("external_url")).toString()));
+            const QString url = wire.value(QStringLiteral("url")).toString();
+            const QString downloadedUrl = wire.value(QStringLiteral("downloaded_url")).toString();
+            const QString externalUrl = wire.value(QStringLiteral("external_url")).toString();
+            mapped[QStringLiteral("externalUrl")] = !url.isEmpty()
+                ? url
+                : (!downloadedUrl.isEmpty() ? downloadedUrl : externalUrl);
             mapped[QStringLiteral("downloaded")] = wire.value(QStringLiteral("downloaded")).toBool();
             mapped[QStringLiteral("source")] = wire.value(QStringLiteral("source")).toString();
             mapped[QStringLiteral("path")] = wire.value(QStringLiteral("path")).toString();
@@ -799,6 +803,8 @@ MediaStreamInfo SiloModelMapper::mediaStream(const QJsonObject &wireTrack,
     result.isExternal = wireTrack.value(QStringLiteral("external")).toBool()
         || wireTrack.value(QStringLiteral("downloaded")).toBool()
         || !wireTrack.value(QStringLiteral("url")).toString().isEmpty()
+        || !wireTrack.value(QStringLiteral("downloaded_url")).toString().isEmpty()
+        || !wireTrack.value(QStringLiteral("external_url")).toString().isEmpty()
         || !wireTrack.value(QStringLiteral("path")).toString().isEmpty();
     result.isHearingImpaired = wireTrack.value(QStringLiteral("hearing_impaired")).toBool();
     result.channels = wireTrack.value(QStringLiteral("channels")).toInt();
@@ -848,9 +854,10 @@ PlaybackInfoResponse SiloModelMapper::playbackInfoFromVersions(const QJsonArray 
 
         const QJsonArray video = wire.value(QStringLiteral("video_tracks")).toArray();
         const QJsonArray audio = wire.value(QStringLiteral("audio_tracks")).toArray();
-        const QJsonArray subtitles = wire.value(QStringLiteral("subtitle_tracks")).isArray()
-            ? wire.value(QStringLiteral("subtitle_tracks")).toArray()
-            : wire.value(QStringLiteral("subtitles")).toArray();
+        QJsonArray subtitles = wire.value(QStringLiteral("subtitle_tracks")).toArray();
+        if (subtitles.isEmpty()) {
+            subtitles = wire.value(QStringLiteral("subtitles")).toArray();
+        }
         for (qsizetype i = 0; i < video.size(); ++i) {
             if (video.at(i).isObject()) {
                 source.mediaStreams.append(mediaStream(
@@ -887,8 +894,10 @@ PlaybackInfoResponse SiloModelMapper::playbackInfoFromVersions(const QJsonArray 
         if (source.defaultSubtitleStreamIndex < 0 && !subtitles.isEmpty()) {
             source.defaultSubtitleStreamIndex = 0;
         }
-        source.directStreamUrl = wire.value(QStringLiteral("stream_url")).toString(
-            wire.value(QStringLiteral("download_url")).toString());
+        const QString streamUrl = wire.value(QStringLiteral("stream_url")).toString();
+        source.directStreamUrl = streamUrl.isEmpty()
+            ? wire.value(QStringLiteral("download_url")).toString()
+            : streamUrl;
         source.transcodingUrl = wire.value(QStringLiteral("hls_url")).toString();
         response.mediaSources.append(source);
     }
@@ -897,23 +906,44 @@ PlaybackInfoResponse SiloModelMapper::playbackInfoFromVersions(const QJsonArray 
 
 PlaybackInfoResponse SiloModelMapper::playbackInfo(const QJsonObject &wireItem)
 {
-    if (wireItem.value(QStringLiteral("media_sources")).isArray()) {
-        return playbackInfoFromVersions(wireItem.value(QStringLiteral("media_sources")).toArray());
+    const QJsonObject nested = wireItem.value(QStringLiteral("playback_info")).isObject()
+        ? wireItem.value(QStringLiteral("playback_info")).toObject()
+        : QJsonObject{};
+    const auto mediaSourcesFrom = [](const QJsonObject &object) {
+        const QJsonArray mediaSources = object.value(QStringLiteral("media_sources")).toArray();
+        return mediaSources.isEmpty() ? QJsonArray{} : mediaSources;
+    };
+    QJsonArray versions = mediaSourcesFrom(wireItem);
+    if (!versions.isEmpty()) {
+        return playbackInfoFromVersions(versions);
     }
-    if (wireItem.value(QStringLiteral("playback_info")).isObject()) {
-        const QJsonObject info = wireItem.value(QStringLiteral("playback_info")).toObject();
-        if (info.value(QStringLiteral("media_sources")).isArray()) {
-            return playbackInfoFromVersions(info.value(QStringLiteral("media_sources")).toArray());
-        }
+    versions = mediaSourcesFrom(nested);
+    if (!versions.isEmpty()) {
+        return playbackInfoFromVersions(versions);
     }
-    const QJsonArray variants = wireItem.value(QStringLiteral("playback_variants")).toArray();
-    const QJsonArray variantVersions = flattenedPlaybackVersions(variants);
-    if (!variantVersions.isEmpty()) {
-        return playbackInfoFromVersions(variantVersions);
-    }
-    QJsonArray versions = wireItem.value(QStringLiteral("versions")).toArray();
+
+    const auto variantsFrom = [](const QJsonObject &object) {
+        return flattenedPlaybackVersions(
+            object.value(QStringLiteral("playback_variants")).toArray());
+    };
+    versions = variantsFrom(wireItem);
     if (versions.isEmpty()) {
-        versions = wireItem.value(QStringLiteral("files")).toArray();
+        versions = variantsFrom(nested);
+    }
+    if (!versions.isEmpty()) {
+        return playbackInfoFromVersions(versions);
+    }
+
+    const auto versionsOrFilesFrom = [](const QJsonObject &object) {
+        QJsonArray result = object.value(QStringLiteral("versions")).toArray();
+        if (result.isEmpty()) {
+            result = object.value(QStringLiteral("files")).toArray();
+        }
+        return result;
+    };
+    versions = versionsOrFilesFrom(wireItem);
+    if (versions.isEmpty()) {
+        versions = versionsOrFilesFrom(nested);
     }
     return playbackInfoFromVersions(versions);
 }
@@ -932,9 +962,13 @@ QVariantMap SiloModelMapper::mediaVersion(const QJsonObject &wireVersion,
                                             QStringLiteral("Video"), 0, &mediaStreams);
     const QVariantList audioTracks = tracks(wireVersion.value(QStringLiteral("audio_tracks")).toArray(),
                                             QStringLiteral("Audio"), 0, &mediaStreams);
+    QJsonArray subtitleWireTracks =
+        wireVersion.value(QStringLiteral("subtitle_tracks")).toArray();
+    if (subtitleWireTracks.isEmpty()) {
+        subtitleWireTracks = wireVersion.value(QStringLiteral("subtitles")).toArray();
+    }
     const QVariantList subtitleTracks = tracks(
-        wireVersion.value(QStringLiteral("subtitle_tracks")).toArray(),
-        QStringLiteral("Subtitle"), 0, &mediaStreams);
+        subtitleWireTracks, QStringLiteral("Subtitle"), 0, &mediaStreams);
 
     QVariantMap result{
         {QStringLiteral("id"), fileId},
@@ -1065,13 +1099,30 @@ QVariantMap SiloModelMapper::mediaItem(const QJsonObject &wireItem,
     state.lastPlayedAt = stateValue(QStringLiteral("last_played_at")).toString(
         stateValue(QStringLiteral("progress_updated_at")).toString());
 
-    const QJsonArray wirePlaybackVariants =
+    QJsonObject nestedPlaybackInfo;
+    if (wireItem.value(QStringLiteral("playback_info")).isObject()) {
+        nestedPlaybackInfo = wireItem.value(QStringLiteral("playback_info")).toObject();
+    }
+    QJsonArray wirePlaybackVariants =
         wireItem.value(QStringLiteral("playback_variants")).toArray();
-    QJsonArray wireVersions = wireItem.value(QStringLiteral("versions")).isArray()
-        ? wireItem.value(QStringLiteral("versions")).toArray()
-        : wireItem.value(QStringLiteral("files")).toArray();
-    if (wireVersions.isEmpty()) {
-        wireVersions = flattenedPlaybackVersions(wirePlaybackVariants);
+    if (wirePlaybackVariants.isEmpty()) {
+        wirePlaybackVariants = nestedPlaybackInfo.value(
+            QStringLiteral("playback_variants")).toArray();
+    }
+    const auto versionsFrom = [](const QJsonObject &object) {
+        QJsonArray versions = object.value(QStringLiteral("versions")).toArray();
+        if (versions.isEmpty()) {
+            versions = object.value(QStringLiteral("files")).toArray();
+        }
+        if (versions.isEmpty()) {
+            versions = flattenedPlaybackVersions(
+                object.value(QStringLiteral("playback_variants")).toArray());
+        }
+        return versions;
+    };
+    QJsonArray wireVersions = versionsFrom(wireItem);
+    if (wireVersions.isEmpty() && !nestedPlaybackInfo.isEmpty()) {
+        wireVersions = versionsFrom(nestedPlaybackInfo);
     }
     const QVariantList versions = mediaVersions(wireVersions, connectionId, itemId);
     const QVariantList mappedPlaybackVariants = playbackVariants(

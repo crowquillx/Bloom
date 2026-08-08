@@ -3,6 +3,8 @@
 #include "providers/silo/SiloModelMapper.h"
 
 #include <QJsonArray>
+#include <QSet>
+
 #include <QJsonValue>
 #include <QUrlQuery>
 
@@ -28,24 +30,40 @@ QString identity(const QJsonValue &value)
     return QString::number(static_cast<qint64>(number));
 }
 
+bool isHttpUrl(const QUrl &url)
+{
+    if (!url.isValid() || url.isEmpty()) {
+        return false;
+    }
+    const QString scheme = url.scheme().toLower();
+    return (scheme == QStringLiteral("http") || scheme == QStringLiteral("https"))
+        && !url.host().isEmpty();
+}
+
 QString relativeOrAbsoluteUrl(const QUrl &serverUrl, const QString &wireUrl)
 {
     const QString trimmed = wireUrl.trimmed();
     if (trimmed.isEmpty()) {
         return {};
     }
-    QUrl url(trimmed);
-    if (!url.isRelative()) {
-        return trimmed;
+    const QUrl url(trimmed);
+    QUrl resolved;
+    if (url.isRelative()) {
+        if (!isHttpUrl(serverUrl)) {
+            return {};
+        }
+        QUrl origin = serverUrl;
+        origin.setPath(QStringLiteral("/"));
+        origin.setQuery(QString());
+        origin.setFragment(QString());
+        resolved = origin.resolved(url);
+    } else {
+        resolved = url;
     }
-    if (!serverUrl.isValid()) {
+    if (!isHttpUrl(resolved)) {
         return {};
     }
-    QUrl origin = serverUrl;
-    origin.setPath(QStringLiteral("/"));
-    origin.setQuery(QString());
-    origin.setFragment(QString());
-    return origin.resolved(url).toString(QUrl::FullyEncoded);
+    return resolved.toString(QUrl::FullyEncoded);
 }
 
 Bloom::PlaybackMethod methodFor(const QString &wireMethod, QString *canonical = nullptr)
@@ -118,8 +136,9 @@ Bloom::PlaybackTrack trackFromJson(const QJsonObject &wire, const QString &kind,
     result.isHearingImpaired = wire.value(QStringLiteral("hearing_impaired")).toBool();
     if (result.kind == QStringLiteral("subtitle") && !wireUrl.isEmpty()) {
         result.externalUrl = QUrl(relativeOrAbsoluteUrl(serverUrl, wireUrl));
-        if (!result.externalUrl.isValid() || result.externalUrl.isEmpty()) {
+        if (!isHttpUrl(result.externalUrl)) {
             result.externalUrl = QUrl();
+            result.isExternal = false;
         }
     }
     return result;
@@ -139,40 +158,46 @@ void appendTracks(const QJsonValue &value, const QString &kind, QList<Bloom::Pla
     }
 }
 
-void appendSubtitleUrls(const QJsonValue &value, Bloom::PlaybackDescriptor &descriptor,
-                        const QUrl &serverUrl)
+bool subtitleIndex(const QJsonValue &value, QString *result)
 {
-    if (!value.isArray()) {
+    if (result == nullptr) {
+        return false;
+    }
+    const QString wireIndex = identity(value);
+    if (wireIndex.isEmpty()) {
+        return false;
+    }
+    bool ok = false;
+    const qlonglong parsed = wireIndex.toLongLong(&ok);
+    if (!ok || parsed < 0 || parsed > std::numeric_limits<int>::max()) {
+        return false;
+    }
+    *result = QString::number(parsed);
+    return true;
+}
+
+void appendSubtitleUrl(const QString &url, const QString &language,
+                       const QString &explicitTrackId, Bloom::PlaybackDescriptor &descriptor,
+                       const QUrl &serverUrl, QSet<QString> &usedTrackIds, int *nextSyntheticId)
+{
+    const QUrl resolvedUrl(relativeOrAbsoluteUrl(serverUrl, url));
+    if (!isHttpUrl(resolvedUrl)) {
         return;
     }
-    const QJsonArray urls = value.toArray();
-    for (qsizetype i = 0; i < urls.size(); ++i) {
-        QString url;
-        int index = static_cast<int>(i);
-        QString language;
-        if (urls.at(i).isString()) {
-            url = urls.at(i).toString();
-        } else if (urls.at(i).isObject()) {
-            const QJsonObject object = urls.at(i).toObject();
-            url = object.value(QStringLiteral("url")).toString(
-                object.value(QStringLiteral("stream_url")).toString(
-                    object.value(QStringLiteral("subtitle_url")).toString()));
-            const QString wireIndex = identity(object.value(QStringLiteral("index")));
-            if (!wireIndex.isEmpty()) {
-                bool ok = false;
-                const int parsedIndex = wireIndex.toInt(&ok);
-                if (ok && parsedIndex >= 0) {
-                    index = parsedIndex;
-                }
-            }
-            language = object.value(QStringLiteral("language")).toString();
-        }
-        const QUrl resolvedUrl(relativeOrAbsoluteUrl(serverUrl, url));
-        if (!resolvedUrl.isValid() || resolvedUrl.isEmpty()) {
-            continue;
-        }
 
-        const QString trackId = QString::number(index);
+    QString trackId = explicitTrackId;
+    if (trackId.isEmpty()) {
+        if (nextSyntheticId == nullptr) {
+            return;
+        }
+        while (usedTrackIds.contains(QString::number(*nextSyntheticId))) {
+            --*nextSyntheticId;
+        }
+        trackId = QString::number(*nextSyntheticId);
+        --*nextSyntheticId;
+    }
+
+    if (!explicitTrackId.isEmpty()) {
         auto existing = std::find_if(
             descriptor.subtitleTracks.begin(), descriptor.subtitleTracks.end(),
             [&trackId](const Bloom::PlaybackTrack &track) {
@@ -187,17 +212,76 @@ void appendSubtitleUrls(const QJsonValue &value, Bloom::PlaybackDescriptor &desc
             if (existing->displayTitle.isEmpty()) {
                 existing->displayTitle = language;
             }
-            continue;
+            usedTrackIds.insert(trackId);
+            return;
         }
+    }
 
-        Bloom::PlaybackTrack track;
-        track.trackId = trackId;
-        track.kind = QStringLiteral("subtitle");
-        track.language = language;
-        track.isExternal = true;
-        track.externalUrl = resolvedUrl;
-        track.displayTitle = language;
-        descriptor.subtitleTracks.append(track);
+    Bloom::PlaybackTrack track;
+    track.trackId = trackId;
+    track.kind = QStringLiteral("subtitle");
+    track.language = language;
+    track.isExternal = true;
+    track.externalUrl = resolvedUrl;
+    track.displayTitle = language;
+    descriptor.subtitleTracks.append(track);
+    usedTrackIds.insert(trackId);
+}
+
+void appendSubtitleUrls(const QJsonValue &value, Bloom::PlaybackDescriptor &descriptor,
+                        const QUrl &serverUrl)
+{
+    if (!value.isArray() && !value.isObject()) {
+        return;
+    }
+
+    QSet<QString> usedTrackIds;
+    for (const Bloom::PlaybackTrack &track : descriptor.subtitleTracks) {
+        usedTrackIds.insert(track.trackId);
+    }
+    int nextSyntheticId = -1000;
+
+    const auto appendValue = [&descriptor, &serverUrl, &usedTrackIds, &nextSyntheticId](
+                                 const QJsonValue &entry,
+                                                const QString &fallbackIndex) {
+        QString explicitTrackId;
+        QString url;
+        QString language;
+        if (entry.isString()) {
+            url = entry.toString();
+        } else if (entry.isObject()) {
+            const QJsonObject object = entry.toObject();
+            url = object.value(QStringLiteral("url")).toString(
+                object.value(QStringLiteral("stream_url")).toString(
+                    object.value(QStringLiteral("subtitle_url")).toString()));
+            subtitleIndex(object.value(QStringLiteral("index")), &explicitTrackId);
+            language = object.value(QStringLiteral("language")).toString();
+        } else {
+            return;
+        }
+        if (explicitTrackId.isEmpty() && !fallbackIndex.isEmpty()) {
+            subtitleIndex(QJsonValue(fallbackIndex), &explicitTrackId);
+        }
+        appendSubtitleUrl(url, language, explicitTrackId, descriptor, serverUrl,
+                          usedTrackIds, &nextSyntheticId);
+    };
+
+    if (value.isArray()) {
+        const QJsonArray urls = value.toArray();
+        for (const QJsonValue &entry : urls) {
+            appendValue(entry, {});
+        }
+    } else {
+        const QJsonObject urls = value.toObject();
+        if (urls.contains(QStringLiteral("url"))
+            || urls.contains(QStringLiteral("stream_url"))
+            || urls.contains(QStringLiteral("subtitle_url"))) {
+            appendValue(urls, {});
+            return;
+        }
+        for (auto it = urls.constBegin(); it != urls.constEnd(); ++it) {
+            appendValue(it.value(), it.key());
+        }
     }
 }
 QJsonObject capabilities()
@@ -261,13 +345,17 @@ Bloom::PlaybackDescriptor descriptorFromResponse(const PlaybackProviderContext &
     descriptor.mediaVersionId = fileId;
     descriptor.stream.method = method;
     descriptor.stream.url = QUrl(relativeOrAbsoluteUrl(context.serverUrl, streamUrl));
-    if (!descriptor.stream.url.isValid()) {
+    if (!isHttpUrl(descriptor.stream.url)) {
         return {};
     }
-    descriptor.stream.pinsAudioTrack = wire.value(QStringLiteral("audio_track_index")).isDouble();
-    descriptor.stream.pinsSubtitleTrack = wire.value(QStringLiteral("subtitle_track_index")).isDouble();
-    descriptor.stream.pinnedAudioTrackId = identity(wire.value(QStringLiteral("audio_track_index")));
-    descriptor.stream.pinnedSubtitleTrackId = identity(wire.value(QStringLiteral("subtitle_track_index")));
+    QString pinnedAudioTrackId;
+    QString pinnedSubtitleTrackId;
+    descriptor.stream.pinsAudioTrack = subtitleIndex(
+        wire.value(QStringLiteral("audio_track_index")), &pinnedAudioTrackId);
+    descriptor.stream.pinsSubtitleTrack = subtitleIndex(
+        wire.value(QStringLiteral("subtitle_track_index")), &pinnedSubtitleTrackId);
+    descriptor.stream.pinnedAudioTrackId = pinnedAudioTrackId;
+    descriptor.stream.pinnedSubtitleTrackId = pinnedSubtitleTrackId;
 
     const QJsonObject info = wire.value(QStringLiteral("playback_info")).toObject();
     QJsonValue duration = info.value(QStringLiteral("duration"));
@@ -312,15 +400,21 @@ Bloom::PlaybackDescriptor descriptorFromResponse(const PlaybackProviderContext &
             descriptor.audioTracks.append(mapped);
         }
     }
-    appendSubtitleUrls(wire.value(QStringLiteral("subtitle_urls")).isArray()
-                           ? wire.value(QStringLiteral("subtitle_urls"))
+    const QJsonValue subtitleUrls = wire.value(QStringLiteral("subtitle_urls"));
+    appendSubtitleUrls((subtitleUrls.isArray() || subtitleUrls.isObject())
+                           ? subtitleUrls
                            : wire.value(QStringLiteral("subtitles")),
                        descriptor, context.serverUrl);
     descriptor.reporting = {false, true, true, true};
-    if (!descriptor.audioTracks.isEmpty() && descriptor.stream.pinnedAudioTrackId.isEmpty()) {
-        descriptor.selectedAudioTrackId = descriptor.audioTracks.first().trackId;
-    } else {
+    if (!descriptor.stream.pinnedAudioTrackId.isEmpty()) {
         descriptor.selectedAudioTrackId = descriptor.stream.pinnedAudioTrackId;
+    } else {
+        const auto defaultAudio = std::find_if(
+            descriptor.audioTracks.cbegin(), descriptor.audioTracks.cend(),
+            [](const Bloom::PlaybackTrack &track) { return track.isDefault; });
+        descriptor.selectedAudioTrackId = defaultAudio != descriptor.audioTracks.cend()
+            ? defaultAudio->trackId
+            : (descriptor.audioTracks.isEmpty() ? QString() : descriptor.audioTracks.first().trackId);
     }
     descriptor.selectedSubtitleTrackId = descriptor.stream.pinnedSubtitleTrackId;
     return descriptor;
@@ -349,8 +443,14 @@ Bloom::PlaybackDescriptor SiloPlaybackProvider::createDescriptor(
     const QString url = providerSource.value(QStringLiteral("streamUrl"),
                                               providerSource.value(QStringLiteral("directStreamUrl"),
                                               providerSource.value(QStringLiteral("transcodingUrl")))).toString();
-    descriptor.selectedAudioTrackId = selectedAudioTrack >= 0 ? QString::number(selectedAudioTrack) : QString();
-    descriptor.selectedSubtitleTrackId = selectedSubtitleTrack >= 0 ? QString::number(selectedSubtitleTrack) : QString();
+    descriptor.stream.url = QUrl(relativeOrAbsoluteUrl(context.serverUrl, url));
+    if (!isHttpUrl(descriptor.stream.url)) {
+        return descriptor;
+    }
+    descriptor.selectedAudioTrackId = selectedAudioTrack >= 0
+        ? QString::number(selectedAudioTrack) : QString();
+    descriptor.selectedSubtitleTrackId = selectedSubtitleTrack >= 0
+        ? QString::number(selectedSubtitleTrack) : QString();
     for (const QVariant &entry : providerSource.value(QStringLiteral("mediaStreams")).toList()) {
         const QVariantMap stream = entry.toMap();
         Bloom::PlaybackTrack track;
@@ -366,8 +466,9 @@ Bloom::PlaybackDescriptor SiloPlaybackProvider::createDescriptor(
             || !wireTrackUrl.isEmpty();
         if (track.kind == QStringLiteral("subtitle") && !wireTrackUrl.isEmpty()) {
             track.externalUrl = QUrl(relativeOrAbsoluteUrl(context.serverUrl, wireTrackUrl));
-            if (!track.externalUrl.isValid() || track.externalUrl.isEmpty()) {
+            if (!isHttpUrl(track.externalUrl)) {
                 track.externalUrl = QUrl();
+                track.isExternal = false;
             }
         }
         if (track.kind == QStringLiteral("audio")) {
@@ -376,10 +477,20 @@ Bloom::PlaybackDescriptor SiloPlaybackProvider::createDescriptor(
             descriptor.subtitleTracks.append(track);
         }
     }
+    if (descriptor.selectedAudioTrackId.isEmpty()) {
+        const auto defaultAudio = std::find_if(
+            descriptor.audioTracks.cbegin(), descriptor.audioTracks.cend(),
+            [](const Bloom::PlaybackTrack &track) { return track.isDefault; });
+        descriptor.selectedAudioTrackId = defaultAudio != descriptor.audioTracks.cend()
+            ? defaultAudio->trackId
+            : (descriptor.audioTracks.isEmpty() ? QString() : descriptor.audioTracks.first().trackId);
+    }
     descriptor.stream.pinsAudioTrack = selectedAudioTrack >= 0;
     descriptor.stream.pinsSubtitleTrack = selectedSubtitleTrack >= 0;
-    descriptor.stream.pinnedAudioTrackId = descriptor.selectedAudioTrackId;
-    descriptor.stream.pinnedSubtitleTrackId = descriptor.selectedSubtitleTrackId;
+    descriptor.stream.pinnedAudioTrackId = selectedAudioTrack >= 0
+        ? descriptor.selectedAudioTrackId : QString();
+    descriptor.stream.pinnedSubtitleTrackId = selectedSubtitleTrack >= 0
+        ? descriptor.selectedSubtitleTrackId : QString();
     descriptor.reporting = {false, true, true, true};
     return descriptor;
 }
@@ -426,13 +537,14 @@ PlaybackStartRequest SiloPlaybackProvider::createPlaybackStartRequest(
         request.endpoint.clear();
         return request;
     }
-    request.body.insert(QStringLiteral("profile_id"), context.profileId);
     request.body.insert(QStringLiteral("start_position"),
                         qMax<qint64>(0, startPositionMs) / 1000.0);
     if (selectedAudioTrack >= 0) {
         request.body.insert(QStringLiteral("audio_track_index"), selectedAudioTrack);
     }
-    Q_UNUSED(selectedSubtitleTrack)
+    if (!context.profileId.isEmpty()) {
+        request.body.insert(QStringLiteral("profile_id"), context.profileId);
+    }
     const QJsonObject caps = capabilities();
     for (auto it = caps.constBegin(); it != caps.constEnd(); ++it) {
         request.body.insert(it.key(), it.value());
@@ -486,9 +598,10 @@ PlaybackAudioSwitchParseResult SiloPlaybackProvider::parseAudioSwitchResponse(
 
 PlaybackRecoveryRequest SiloPlaybackProvider::createPlaybackRecoveryRequest(
     const PlaybackProviderContext &context, const Bloom::MediaRef &media,
-    const QVariantMap &source, qint64 startPositionMs) const
+    const QVariantMap &source, int selectedAudioTrack, qint64 startPositionMs) const
 {
-    const PlaybackStartRequest start = createPlaybackStartRequest(context, media, source, -1, -1, startPositionMs);
+    const PlaybackStartRequest start = createPlaybackStartRequest(
+        context, media, source, selectedAudioTrack, -1, startPositionMs);
     PlaybackRecoveryRequest request;
     request.endpoint = start.endpoint;
     request.body = start.body;

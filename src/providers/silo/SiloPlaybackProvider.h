@@ -61,6 +61,7 @@ public:
         const PlaybackProviderContext &context,
         const Bloom::MediaRef &media,
         const QVariantMap &providerSource,
+        int selectedAudioTrack,
         qint64 startPositionMs) const override;
 
     PlaybackStartParseResult parsePlaybackRecoveryResponse(

@@ -218,11 +218,13 @@ public:
         const PlaybackProviderContext &context,
         const Bloom::MediaRef &media,
         const QVariantMap &providerSource,
+        int selectedAudioTrack,
         qint64 startPositionMs) const
     {
         Q_UNUSED(context)
         Q_UNUSED(media)
         Q_UNUSED(providerSource)
+        Q_UNUSED(selectedAudioTrack)
         Q_UNUSED(startPositionMs)
         return {};
     }

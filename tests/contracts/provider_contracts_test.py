@@ -82,9 +82,11 @@ class ProviderContractValidationTest(unittest.TestCase):
             "native.playback.stop": ("DELETE", "/api/v1/playback/{session_id}"),
             "native.playback.track": ("PATCH", "/api/v1/playback/{session_id}/audio"),
         }
-        for contract_id, route in expected_routes.items():
+        for contract_id, (expected_method, expected_path) in expected_routes.items():
             with self.subTest(contract_id=contract_id):
                 requirement = requirements[contract_id]
+                self.assertEqual(requirement["method"], expected_method)
+                self.assertEqual(requirement["path"], expected_path)
                 semantics = " ".join(requirement["requestSemantics"] + requirement["requiredSemantics"]).lower()
                 expected_term = {
                     "native.playback.capability": "protocol v3",

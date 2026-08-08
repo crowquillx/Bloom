@@ -18,6 +18,9 @@ private slots:
     void resolvesAudioSwitchUrlsAndRejectsMalformedResponses();
     void createsAudioSwitchRequestWithNativeRouteAndBody();
     void createsProgressAndStopReports();
+    void supportsSubtitleUrlObjectsAndSyntheticIndices();
+    void validatesHttpPlaybackUrlsAndDescriptorConstruction();
+    void omitsEmptyProfileAndPreservesRecoveryAudio();
 };
 
 namespace {
@@ -140,6 +143,8 @@ void SiloPlaybackProviderTest::parsesDirectRemuxAndHlsResponses()
     QCOMPARE(direct.descriptor.audioTracks.size(), 1);
     QCOMPARE(direct.descriptor.audioTracks.first().trackId, QStringLiteral("2"));
     QCOMPARE(direct.descriptor.selectedAudioTrackId, QStringLiteral("2"));
+    QVERIFY(!direct.descriptor.stream.pinsAudioTrack);
+    QVERIFY(direct.descriptor.stream.pinnedAudioTrackId.isEmpty());
     QCOMPARE(direct.descriptor.subtitleTracks.size(), 1);
     QCOMPARE(direct.descriptor.subtitleTracks.first().displayTitle, QStringLiteral("English CC"));
     QVERIFY(direct.descriptor.reporting.progress);
@@ -180,7 +185,7 @@ void SiloPlaybackProviderTest::parsesDirectRemuxAndHlsResponses()
     QCOMPARE(externalObject.language, QStringLiteral("fra"));
     const Bloom::PlaybackTrack &externalString = withExternal.descriptor.subtitleTracks.at(2);
     QVERIFY(externalString.isExternal);
-    QCOMPARE(externalString.trackId, QStringLiteral("1"));
+    QCOMPARE(externalString.trackId, QStringLiteral("-1000"));
 }
 
 void SiloPlaybackProviderTest::rejectsMalformedStartResponses()
@@ -225,7 +230,10 @@ void SiloPlaybackProviderTest::resolvesAudioSwitchUrlsAndRejectsMalformedRespons
         context(), QJsonObject{{QStringLiteral("stream_url"), signedAbsolute}});
     QVERIFY(absolute.valid);
     QCOMPARE(absolute.reloadUrl.toString(QUrl::FullyEncoded), signedAbsolute);
-
+    QVERIFY(!provider.parseAudioSwitchResponse(
+                  context(), QJsonObject{{QStringLiteral("reload_url"),
+                                          QStringLiteral("file:///tmp/reload.m3u8")}})
+                  .valid);
     QVERIFY(!provider.parseAudioSwitchResponse(context(), {}).valid);
     PlaybackProviderContext invalidContext = context();
     invalidContext.serverUrl = QUrl();
@@ -289,8 +297,94 @@ void SiloPlaybackProviderTest::createsProgressAndStopReports()
     QCOMPARE(stopRequest.endpoint, QStringLiteral("/api/v1/playback/session%2Fone%3Fx%3D2"));
     QVERIFY(stopRequest.body.isEmpty());
     QVERIFY(!stopRequest.deferSessionExpiry);
-
     QVERIFY(!provider.createReportRequest({}).isValid());
+}
+
+void SiloPlaybackProviderTest::supportsSubtitleUrlObjectsAndSyntheticIndices()
+{
+    SiloPlaybackProvider provider;
+    QJsonObject arrayResponse = playbackResponse(QStringLiteral("direct"),
+                                                 QStringLiteral("/stream.mkv"));
+    arrayResponse.insert(QStringLiteral("subtitle_urls"), QJsonArray{
+        QStringLiteral("/subs/without-index.vtt"),
+        QJsonObject{{QStringLiteral("index"), 3},
+                     {QStringLiteral("url"), QStringLiteral("/subs/explicit.vtt")}}});
+    const auto arrayResult = provider.parsePlaybackStartResponse(context(), media(), arrayResponse);
+    QVERIFY(arrayResult.valid);
+    QCOMPARE(arrayResult.descriptor.subtitleTracks.size(), 2);
+    QCOMPARE(arrayResult.descriptor.subtitleTracks.at(0).trackId, QStringLiteral("3"));
+    QCOMPARE(arrayResult.descriptor.subtitleTracks.at(0).externalUrl.toString(),
+             QStringLiteral("https://silo.example.test:8443/subs/explicit.vtt"));
+    QCOMPARE(arrayResult.descriptor.subtitleTracks.at(1).trackId, QStringLiteral("-1000"));
+
+    QJsonObject objectResponse = playbackResponse(QStringLiteral("direct"),
+                                                   QStringLiteral("/stream.mkv"));
+    objectResponse.insert(QStringLiteral("subtitle_urls"),
+                          QJsonObject{{QStringLiteral("8"),
+                                       QStringLiteral("/subs/object.vtt")}});
+    const auto objectResult = provider.parsePlaybackStartResponse(context(), media(), objectResponse);
+    QVERIFY(objectResult.valid);
+    QCOMPARE(objectResult.descriptor.subtitleTracks.size(), 2);
+    QCOMPARE(objectResult.descriptor.subtitleTracks.at(1).trackId, QStringLiteral("8"));
+    QVERIFY(objectResult.descriptor.subtitleTracks.at(1).isExternal);
+}
+
+void SiloPlaybackProviderTest::validatesHttpPlaybackUrlsAndDescriptorConstruction()
+{
+    SiloPlaybackProvider provider;
+    QJsonObject malicious = playbackResponse(QStringLiteral("direct"),
+                                             QStringLiteral("file:///tmp/movie.mkv"));
+    QVERIFY(!provider.parsePlaybackStartResponse(context(), media(), malicious).valid);
+
+    QJsonObject maliciousSubtitle = playbackResponse(QStringLiteral("direct"),
+                                                     QStringLiteral("/stream.mkv"));
+    maliciousSubtitle.insert(QStringLiteral("subtitle_urls"),
+                             QJsonArray{QStringLiteral("file:///tmp/subtitle.vtt")});
+    const auto subtitleResult =
+        provider.parsePlaybackStartResponse(context(), media(), maliciousSubtitle);
+    QVERIFY(subtitleResult.valid);
+    QCOMPARE(subtitleResult.descriptor.subtitleTracks.size(), 1);
+
+    const QVariantList streams{
+        QVariantMap{{QStringLiteral("index"), 2},
+                     {QStringLiteral("type"), QStringLiteral("Audio")},
+                     {QStringLiteral("language"), QStringLiteral("fra")}},
+        QVariantMap{{QStringLiteral("index"), 1},
+                     {QStringLiteral("type"), QStringLiteral("Audio")},
+                     {QStringLiteral("language"), QStringLiteral("eng")},
+                     {QStringLiteral("isDefault"), true}}};
+    const QVariantMap source{{QStringLiteral("fileId"), QStringLiteral("99")},
+                             {QStringLiteral("streamUrl"), QStringLiteral("/native.mkv")},
+                             {QStringLiteral("mediaStreams"), streams}};
+    const auto descriptor = provider.createDescriptor(context(), media(), source, -1, -1, 0);
+    QVERIFY(descriptor.isValid());
+    QCOMPARE(descriptor.stream.url.toString(QUrl::FullyEncoded),
+             QStringLiteral("https://silo.example.test:8443/native.mkv"));
+    QCOMPARE(descriptor.selectedAudioTrackId, QStringLiteral("1"));
+    QVERIFY(!descriptor.stream.pinsAudioTrack);
+    QVERIFY(descriptor.stream.pinnedAudioTrackId.isEmpty());
+
+    const QVariantMap invalidSource{{QStringLiteral("fileId"), QStringLiteral("99")},
+                                    {QStringLiteral("streamUrl"), QStringLiteral("javascript:alert(1)")}};
+    QVERIFY(!provider.createDescriptor(context(), media(), invalidSource, -1, -1, 0).isValid());
+}
+
+void SiloPlaybackProviderTest::omitsEmptyProfileAndPreservesRecoveryAudio()
+{
+    SiloPlaybackProvider provider;
+    PlaybackProviderContext noProfile = context();
+    noProfile.profileId.clear();
+    const QVariantMap source{{QStringLiteral("fileId"), QStringLiteral("99")}};
+    const PlaybackStartRequest start =
+        provider.createPlaybackStartRequest(noProfile, media(), source, -1, -1, 0);
+    QVERIFY(start.isValid());
+    QVERIFY(!start.body.contains(QStringLiteral("profile_id")));
+
+    const PlaybackRecoveryRequest recovery =
+        provider.createPlaybackRecoveryRequest(context(), media(), source, 7, 2501);
+    QVERIFY(recovery.isValid());
+    QCOMPARE(recovery.body.value(QStringLiteral("audio_track_index")).toInteger(), qint64(7));
+    QCOMPARE(recovery.body.value(QStringLiteral("start_position")).toDouble(), 2.501);
 }
 
 QTEST_MAIN(SiloPlaybackProviderTest)
