@@ -10,7 +10,7 @@ The machine-readable source is [`tests/contracts/provider-contracts.json`](../te
 - **Experimental native Silo support**: Bloom connects to `/api/v1` with Silo's compatibility listener disabled and implements native authentication, household-profile, catalog, signed-artwork, and legacy mpv playback boundaries from the pinned revision; optional v3/media3-only features remain unavailable. This is the release label for the current native path.
 - **First-class Silo support**: A future claim requiring authentication, profile, catalog, playback, recovery, and platform gates in issue #73. Bloom does **not** make this claim for the current release.
 
-These labels describe a connection's protocol mode, not an application-wide provider choice. A future provider can add another protocol surface and deployment to the contract matrix without changing existing Jellyfin or Silo rows. The machine contract currently records the native deployment as `research-only` because live native Silo/Jellyfin hosts and platform runtime hardware are unavailable; that evidence state does not convert unavailable capabilities into support.
+These labels describe a connection's protocol mode, not an application-wide provider choice. A future provider can add another protocol surface and deployment to the contract matrix without changing existing Jellyfin or Silo rows. The machine contract records the native deployment as `research-only` because release graduation still lacks complete live Jellyfin/compatibility and Windows runtime evidence; the partial native fixture evidence recorded on 2026-08-08 in [the manual validation ledger](manual-validation.md) does not convert unavailable capabilities into support.
 
 Contract outcomes are:
 
