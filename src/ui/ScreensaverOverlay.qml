@@ -118,7 +118,8 @@ Item {
         if (!kind) {
             return ""
         }
-        return LibraryService.getCachedArtworkUrlFromRef(artwork, width)
+        const resolvedArtwork = Object.assign({}, artwork, { kind: kind })
+        return LibraryService.getCachedArtworkUrlFromRef(resolvedArtwork, width)
     }
 
     function backdropUrlFor(item) {

@@ -1,5 +1,6 @@
 #include "AuthenticationService.h"
 #include "HttpTransport.h"
+#include "models/MediaModels.h"
 #include "../security/ISecretStore.h"
 #include "../utils/ConfigManager.h"
 #include "providers/IProviderAdapter.h"
@@ -1199,6 +1200,7 @@ void AuthenticationService::restoreSession(const QString &serverUrl,
         && (m_activeConnection.baseUrl != normalizedServerUrl
             || m_activeConnection.accountId != userId);
     if (switchingAccount) {
+        Bloom::ArtworkRef::clearTransientSourceUrls();
         m_refreshToken.clear();
         m_profileToken.clear();
         m_pendingProfileId.clear();
@@ -1324,6 +1326,7 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
     if (m_transport) {
         m_transport->cancelAll();
     }
+    Bloom::ArtworkRef::clearTransientSourceUrls();
     const bool wasAuthenticated = isAuthenticated();
     ++m_stateGeneration;
 

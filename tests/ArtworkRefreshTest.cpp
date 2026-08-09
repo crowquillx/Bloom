@@ -174,6 +174,7 @@ private slots:
     void initTestCase();
     void webpDecoderIsAvailable();
     void widthAdjustedReferenceRetainsTransientSource();
+    void transientSourcesSurviveLargeCatalogAndClearExplicitly();
     void missingArtworkDegradesWithoutRefresh();
     void tokenFreeCacheMissRetainsTransientSourceUrl();
     void signedUrlIsNotPartOfCacheIdentity();
@@ -223,6 +224,27 @@ void ArtworkRefreshTest::widthAdjustedReferenceRetainsTransientSource()
     QCOMPARE(adjusted.requestedWidth, 640);
     QCOMPARE(Bloom::ArtworkRef::transientSourceUrlForCacheKey(adjustedKey),
              original.sourceUrl);
+}
+
+void ArtworkRefreshTest::transientSourcesSurviveLargeCatalogAndClearExplicitly()
+{
+    Bloom::ArtworkRef first = artworkRef();
+    first.itemId = QStringLiteral("item-0");
+    first.sourceUrl = QStringLiteral("https://images.example.test/item-0.webp");
+    const QString firstKey = first.cacheKey();
+
+    for (int index = 1; index < 1024; ++index) {
+        Bloom::ArtworkRef artwork = first;
+        artwork.itemId = QStringLiteral("item-%1").arg(index);
+        artwork.sourceUrl = QStringLiteral("https://images.example.test/item-%1.webp")
+                                .arg(index);
+        artwork.cacheKey();
+    }
+
+    QCOMPARE(Bloom::ArtworkRef::transientSourceUrlForCacheKey(firstKey),
+             first.sourceUrl);
+    Bloom::ArtworkRef::clearTransientSourceUrls();
+    QVERIFY(Bloom::ArtworkRef::transientSourceUrlForCacheKey(firstKey).isEmpty());
 }
 
 void ArtworkRefreshTest::missingArtworkDegradesWithoutRefresh()

@@ -2541,7 +2541,8 @@ FocusScope {
             const kind = artwork.kind || fallbackKind
             if (!kind)
                 return
-            const url = LibraryService.getCachedArtworkUrlFromRef(artwork, width)
+            const resolvedArtwork = Object.assign({}, artwork, { kind: kind })
+            const url = LibraryService.getCachedArtworkUrlFromRef(resolvedArtwork, width)
             if (url && candidates.indexOf(url) === -1)
                 candidates.push(url)
         }

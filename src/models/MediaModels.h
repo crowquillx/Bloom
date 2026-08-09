@@ -61,6 +61,8 @@ struct ArtworkRef {
     // Resolves the in-process source associated with a token-free cache key.
     // The value is intentionally unavailable after process restart.
     static QString transientSourceUrlForCacheKey(const QString &key);
+    // Discards opaque sources when the authenticated account context resets.
+    static void clearTransientSourceUrls();
     static ArtworkRef fromCacheKey(const QString &key);
     static ArtworkRef fromVariantMap(const QVariantMap &map);
 };
