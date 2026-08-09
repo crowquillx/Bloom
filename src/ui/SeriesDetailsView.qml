@@ -74,13 +74,7 @@ FocusScope {
             }
             const artwork = itemData.primaryArtwork
             if (artwork && artwork.itemId) {
-                return LibraryService.getCachedArtworkUrlForConnection(
-                            artwork.connectionId || "",
-                            artwork.itemId,
-                            artwork.kind || "primary",
-                            artwork.index || 0,
-                            artwork.tag || "",
-                            420)
+                return LibraryService.getCachedArtworkUrlFromRef(artwork, 420)
             }
             return ""
         }

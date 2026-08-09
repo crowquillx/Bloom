@@ -118,13 +118,7 @@ Item {
         if (!kind) {
             return ""
         }
-        return LibraryService.getCachedArtworkUrlForConnection(
-                    artwork.connectionId || "",
-                    artwork.itemId,
-                    kind,
-                    artwork.index || 0,
-                    artwork.tag || "",
-                    width)
+        return LibraryService.getCachedArtworkUrlFromRef(artwork, width)
     }
 
     function backdropUrlFor(item) {

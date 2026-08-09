@@ -33,6 +33,7 @@ stdenv.mkDerivation {
     qt6.qt5compat
     qt6.qtbase
     qt6.qtdeclarative
+    qt6.qtimageformats
     qt6.qtmultimedia
     qt6.qtshadertools
     qt6.qtsvg
@@ -81,6 +82,12 @@ stdenv.mkDerivation {
     runHook preCheck
     python3 "$src/tests/contracts/provider_contracts_test.py"
     export QT_QPA_PLATFORM=offscreen
+    export QT_PLUGIN_PATH="${
+      lib.makeSearchPath "lib/qt-6/plugins" [
+        qt6.qtbase
+        qt6.qtimageformats
+      ]
+    }''${QT_PLUGIN_PATH:+:$QT_PLUGIN_PATH}"
     ctest --output-on-failure \
       --exclude-regex '^(VisualRegressionTest|SeriesDetailsCacheTest)$'
     runHook postCheck

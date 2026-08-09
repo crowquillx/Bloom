@@ -51,13 +51,7 @@ FocusScope {
     function artworkUrlFromRef(artwork, width) {
         if (!artwork || !artwork.itemId)
             return ""
-        return LibraryService.getCachedArtworkUrlForConnection(
-                    artwork.connectionId || "",
-                    artwork.itemId,
-                    artwork.kind || "primary",
-                    artwork.index || 0,
-                    artwork.tag || "",
-                    width || 0)
+        return LibraryService.getCachedArtworkUrlFromRef(artwork, width || 0)
     }
 
     function imageUrl(item, type, width) {

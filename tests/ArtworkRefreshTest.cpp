@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <QHostAddress>
+#include <QImageReader>
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QQuickImageResponse>
@@ -14,6 +15,7 @@
 
 #include "network/AuthenticationService.h"
 #include "network/HttpTransport.h"
+#include "network/LibraryService.h"
 #include "models/MediaModels.h"
 #include "providers/IArtworkProvider.h"
 #include "providers/silo/SiloArtworkProvider.h"
@@ -170,6 +172,8 @@ class ArtworkRefreshTest : public QObject
 
 private slots:
     void initTestCase();
+    void webpDecoderIsAvailable();
+    void widthAdjustedReferenceRetainsTransientSource();
     void missingArtworkDegradesWithoutRefresh();
     void tokenFreeCacheMissRetainsTransientSourceUrl();
     void signedUrlIsNotPartOfCacheIdentity();
@@ -188,6 +192,37 @@ void ArtworkRefreshTest::initTestCase()
     QVERIFY(m_temporaryDirectory.isValid());
     m_configIsolation = std::make_unique<ScopedConfigIsolation>(
         m_temporaryDirectory.path());
+}
+
+void ArtworkRefreshTest::webpDecoderIsAvailable()
+{
+    const QList<QByteArray> formats = QImageReader::supportedImageFormats();
+    QVERIFY2(formats.contains(QByteArrayLiteral("webp")),
+             "Bloom's runtime must ship Qt's WebP image-format plugin");
+}
+
+void ArtworkRefreshTest::widthAdjustedReferenceRetainsTransientSource()
+{
+    Bloom::ArtworkRef original = artworkRef();
+    original.ownerKind = Bloom::ArtworkOwnerKind::Person;
+    original.requestedWidth = 0;
+    original.sourceUrl = QStringLiteral(
+        "https://images.example.test/person.webp?X-Amz-Signature=transient");
+    const QVariantMap emitted = original.toVariantMap();
+
+    LibraryService service(nullptr);
+    const QString cachedUrl = service.getCachedArtworkUrlFromRef(emitted, 640);
+    const QString prefix = QStringLiteral("image://cached/");
+    QVERIFY(cachedUrl.startsWith(prefix));
+    const QString adjustedKey = QUrl::fromPercentEncoding(
+        cachedUrl.mid(prefix.size()).toUtf8());
+    const Bloom::ArtworkRef adjusted = Bloom::ArtworkRef::fromCacheKey(adjustedKey);
+
+    QVERIFY(adjusted.isValid());
+    QCOMPARE(adjusted.ownerKind, Bloom::ArtworkOwnerKind::Person);
+    QCOMPARE(adjusted.requestedWidth, 640);
+    QCOMPARE(Bloom::ArtworkRef::transientSourceUrlForCacheKey(adjustedKey),
+             original.sourceUrl);
 }
 
 void ArtworkRefreshTest::missingArtworkDegradesWithoutRefresh()

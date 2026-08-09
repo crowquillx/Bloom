@@ -53,8 +53,7 @@
                   python3
                   skopeo
                 ];
-                runtimeEnv.GDK_PIXBUF_MODULE_FILE =
-                  "${pkgs.librsvg}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache";
+                runtimeEnv.GDK_PIXBUF_MODULE_FILE = "${pkgs.librsvg}/lib/gdk-pixbuf-2.0/2.10.0/loaders.cache";
                 inherit text;
               }
             }/bin/${name}";
@@ -152,6 +151,7 @@
                 pkgs.lib.makeSearchPath "lib/qt-6/plugins" [
                   pkgs.qt6.qtbase
                   pkgs.qt6.qtdeclarative
+                  pkgs.qt6.qtimageformats
                   pkgs.qt6.qtmultimedia
                   pkgs.qt6.qtsvg
                   pkgs.qt6.qtwayland

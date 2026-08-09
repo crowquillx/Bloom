@@ -35,6 +35,7 @@ stdenv.mkDerivation (finalAttrs: {
     qt6.qt5compat
     qt6.qtbase
     qt6.qtdeclarative
+    qt6.qtimageformats
     qt6.qtmultimedia
     qt6.qtshadertools
     qt6.qtsvg
@@ -77,6 +78,10 @@ stdenv.mkDerivation (finalAttrs: {
     "--set-default"
     "QT_MEDIA_BACKEND"
     "ffmpeg"
+    "--prefix"
+    "QT_PLUGIN_PATH"
+    ":"
+    "${qt6.qtimageformats}/lib/qt-6/plugins"
     "--prefix"
     "PATH"
     ":"

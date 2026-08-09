@@ -258,13 +258,7 @@ FocusScope {
             var season = SeriesDetailsViewModel.seasonsModel.getItem(SeriesDetailsViewModel.selectedSeasonIndex)
             const artwork = season ? season.logoArtwork : null
             if (artwork && artwork.itemId) {
-                return LibraryService.getCachedArtworkUrlForConnection(
-                            artwork.connectionId || "",
-                            artwork.itemId,
-                            artwork.kind || "logo",
-                            artwork.index || 0,
-                            artwork.tag || "",
-                            600)
+                return LibraryService.getCachedArtworkUrlFromRef(artwork, 600)
             }
         }
         // Fallback to series logo

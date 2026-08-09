@@ -652,6 +652,18 @@ QString MockLibraryService::getCachedArtworkUrlForConnection(const QString &conn
     return getCachedArtworkUrl(itemId, imageType, imageIndex, imageTag, width);
 }
 
+QString MockLibraryService::getCachedArtworkUrlFromRef(const QVariantMap &artwork,
+                                                       int width)
+{
+    return getCachedArtworkUrlForConnection(
+        artwork.value(QStringLiteral("connectionId")).toString(),
+        artwork.value(QStringLiteral("itemId")).toString(),
+        artwork.value(QStringLiteral("kind")).toString(),
+        artwork.value(QStringLiteral("index")).toInt(),
+        artwork.value(QStringLiteral("tag")).toString(),
+        width);
+}
+
 QJsonObject MockLibraryService::findItemById(const QString &itemId) const
 {
     // Search in all collections

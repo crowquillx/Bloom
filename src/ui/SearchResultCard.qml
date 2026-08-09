@@ -49,13 +49,7 @@ Item {
         if (!artwork || !artwork.itemId) {
             return ""
         }
-        return LibraryService.getCachedArtworkUrlForConnection(
-                    artwork.connectionId || "",
-                    artwork.itemId,
-                    artwork.kind || "primary",
-                    artwork.index || 0,
-                    artwork.tag || "",
-                    300)
+        return LibraryService.getCachedArtworkUrlFromRef(artwork, 300)
     }
     
     // ========================================

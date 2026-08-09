@@ -93,13 +93,7 @@ FocusScope {
     function artworkUrlFromRef(artwork, width) {
         if (!artwork || !artwork.itemId)
             return ""
-        return LibraryService.getCachedArtworkUrlForConnection(
-                    artwork.connectionId || "",
-                    artwork.itemId,
-                    artwork.kind || "primary",
-                    artwork.index || 0,
-                    artwork.tag || "",
-                    width || 0)
+        return LibraryService.getCachedArtworkUrlFromRef(artwork, width || 0)
     }
 
     function acceptsConnectionResponse(connectionId) {
@@ -494,13 +488,7 @@ FocusScope {
         var candidate = backdropCandidates[candidateIndex]
         
         // Construct backdrop URL from canonical ArtworkRef fields
-        var url = LibraryService.getCachedArtworkUrlForConnection(
-                    candidate.connectionId || "",
-                    candidate.itemId,
-                    candidate.kind || "backdrop",
-                    candidate.index || 0,
-                    candidate.tag || "",
-                    1920)
+        var url = LibraryService.getCachedArtworkUrlFromRef(candidate, 1920)
         
         currentBackdropUrl = url
     }

@@ -37,13 +37,7 @@ FocusScope {
                 source: {
                     const artwork = personCard.itemData.artwork
                     if (artwork && artwork.itemId) {
-                        return LibraryService.getCachedArtworkUrlForConnection(
-                                    artwork.connectionId || "",
-                                    artwork.itemId,
-                                    artwork.kind || "primary",
-                                    artwork.index || 0,
-                                    artwork.tag || "",
-                                    360)
+                        return LibraryService.getCachedArtworkUrlFromRef(artwork, 360)
                     }
                     return ""
                 }

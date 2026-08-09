@@ -1374,6 +1374,27 @@ QString LibraryService::getCachedArtworkUrlForConnection(const QString &connecti
     return cachedArtworkSource(artwork);
 }
 
+QString LibraryService::getCachedArtworkUrlFromRef(const QVariantMap &artworkMap,
+                                                    int width)
+{
+    Bloom::ArtworkRef artwork = Bloom::ArtworkRef::fromVariantMap(artworkMap);
+    if (!artwork.isValid()) {
+        return {};
+    }
+
+    // Native Silo's fetch location is intentionally absent from the QVariantMap.
+    // Recover it from the mapper-created, token-free cache key before changing
+    // the requested width, then let cacheKey() register the width-specific key.
+    const QString sourceCacheKey = artworkMap.value(QStringLiteral("cacheKey")).toString();
+    const Bloom::ArtworkRef sourceIdentity = Bloom::ArtworkRef::fromCacheKey(sourceCacheKey);
+    if (sourceIdentity.isValid() && sourceIdentity == artwork) {
+        artwork.sourceUrl = Bloom::ArtworkRef::transientSourceUrlForCacheKey(sourceCacheKey);
+    }
+
+    artwork.requestedWidth = width > 0 ? width : 1920;
+    return cachedArtworkSource(artwork);
+}
+
 QString LibraryService::getCachedChapterThumbnailUrl(const QString &itemId, int chapterIndex, const QString &imageTag, const QString &imagePath, int width)
 {
     if (itemId.isEmpty() || chapterIndex < 0) {
@@ -1390,11 +1411,16 @@ QString LibraryService::getCachedChapterThumbnailUrl(const QString &itemId, int 
         width = 480;
     }
 
-    const QString cachedUrl = getCachedArtworkUrl(itemId,
-                                                   QStringLiteral("chapter"),
-                                                   chapterIndex,
-                                                   imageTag,
-                                                   width);
+    Bloom::ArtworkRef artwork;
+    artwork.connectionId = activeConnectionId(m_authService);
+    artwork.itemId = itemId;
+    artwork.kind = Bloom::ArtworkKind::Chapter;
+    artwork.ownerKind = Bloom::ArtworkOwnerKind::Chapter;
+    artwork.index = chapterIndex;
+    artwork.tag = imageTag.trimmed();
+    artwork.requestedWidth = width;
+    artwork.sourceUrl = imagePath.trimmed();
+    const QString cachedUrl = cachedArtworkSource(artwork);
     qCInfo(lcLibrary) << "LibraryService: Chapter thumbnail request"
             << "item" << itemId
             << "index" << chapterIndex
