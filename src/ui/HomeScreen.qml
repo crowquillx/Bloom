@@ -448,13 +448,10 @@ FocusScope {
             if (!art || !art.itemId)
                 continue
 
-            const candidate = {
+            const candidate = Object.assign({}, art, {
                 connectionId: art.connectionId || item.connectionId || "",
-                itemId: art.itemId,
-                kind: art.kind || "backdrop",
-                index: art.index || 0,
-                tag: art.tag || ""
-            }
+                kind: art.kind || "backdrop"
+            })
             const key = backdropCandidateKey(candidate)
             if (!seen[key]) {
                 seen[key] = true
