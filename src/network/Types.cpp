@@ -307,8 +307,13 @@ int ErrorHandler::retryAfterDelayMs(const QNetworkReply *reply, int maxDelayMs)
             ? maximum
             : seconds * 1000;
     } else {
+        QString httpDate = QString::fromLatin1(value);
+        if (httpDate.endsWith(QStringLiteral(" GMT"), Qt::CaseInsensitive)) {
+            httpDate.chop(4);
+            httpDate.append(QStringLiteral(" +0000"));
+        }
         const QDateTime retryAt =
-            QDateTime::fromString(QString::fromLatin1(value), Qt::RFC2822Date);
+            QDateTime::fromString(httpDate, Qt::RFC2822Date);
         if (retryAt.isValid()) {
             delayMs = qMax<qint64>(
                 0, QDateTime::currentDateTimeUtc().msecsTo(retryAt.toUTC()));

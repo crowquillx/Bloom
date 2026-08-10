@@ -2,6 +2,7 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
@@ -92,11 +93,16 @@ private:
 class HangingReply final : public QNetworkReply
 {
 public:
-    explicit HangingReply(const QNetworkRequest &request, QObject *parent)
+    explicit HangingReply(const QNetworkRequest &request,
+                          QObject *parent,
+                          int statusCode = 0)
         : QNetworkReply(parent)
     {
         setRequest(request);
         setUrl(request.url());
+        if (statusCode > 0) {
+            setAttribute(QNetworkRequest::HttpStatusCodeAttribute, statusCode);
+        }
         open(QIODevice::ReadOnly);
     }
 
@@ -141,6 +147,7 @@ private slots:
     void transportSuppressesCancellationCallbacks();
     void transportEnforcesAttemptDeadline();
     void transportRetriesExpiredIdempotentAttempt();
+    void transportTreatsTimedOut401AsTimeout();
     void transportEmitsUnauthorizedPolicy();
     void transportCoalescesUnauthorizedRecovery();
     void transportCapsUnauthorizedRetryAtOne();
@@ -469,6 +476,46 @@ void ProviderTransportTest::transportRetriesExpiredIdempotentAttempt()
     QCOMPARE(failures, 0);
 }
 
+void ProviderTransportTest::transportTreatsTimedOut401AsTimeout()
+{
+    HttpTransport transport;
+    QSignalSpy unauthorizedSpy(&transport, &HttpTransport::unauthorized);
+    int refreshes = 0;
+    int failures = 0;
+    NetworkError received;
+    transport.setUnauthorizedRecovery(
+        [&](std::function<void(bool)>) { ++refreshes; });
+
+    HttpRequestOptions options;
+    options.retryPolicy = RetryPolicy{1, 0, true, 0, 0.0};
+    options.retrySafety = RetrySafety::Idempotent;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    options.attemptTimeoutMs = 20;
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/stalled-unauthorized"),
+        [&]() -> QNetworkReply * {
+            return new HangingReply(
+                requestFor(QStringLiteral("/stalled-unauthorized")),
+                &transport,
+                401);
+        },
+        [](QNetworkReply *) {},
+        [&](const NetworkError &error) {
+            received = error;
+            ++failures;
+        },
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
+    QCOMPARE(refreshes, 0);
+    QCOMPARE(unauthorizedSpy.count(), 0);
+    QCOMPARE(received.code, static_cast<int>(QNetworkReply::TimeoutError));
+    QCOMPARE(received.networkErrorCode,
+             static_cast<int>(QNetworkReply::TimeoutError));
+    QCOMPARE(received.httpStatus, 401);
+}
+
 void ProviderTransportTest::transportEmitsUnauthorizedPolicy()
 {
     HttpTransport transport;
@@ -756,6 +803,13 @@ void ProviderTransportTest::retryAfterIsBounded()
     reply->setResponseHeader(
         QByteArrayLiteral("Retry-After"), QByteArrayLiteral("7"));
 
+    QCOMPARE(ErrorHandler::retryAfterDelayMs(reply, 250), 250);
+    const QByteArray futureHttpDate = QLocale::c()
+        .toString(QDateTime::currentDateTimeUtc().addSecs(60),
+                  QStringLiteral("ddd, dd MMM yyyy HH:mm:ss 'GMT'"))
+        .toLatin1();
+    reply->setResponseHeader(
+        QByteArrayLiteral("Retry-After"), futureHttpDate);
     QCOMPARE(ErrorHandler::retryAfterDelayMs(reply, 250), 250);
     reply->setResponseHeader(
         QByteArrayLiteral("Retry-After"), QByteArrayLiteral("invalid"));

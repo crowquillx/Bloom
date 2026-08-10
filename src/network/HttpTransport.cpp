@@ -208,16 +208,15 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
         if (*attemptTimedOut) {
             error.networkErrorCode =
                 static_cast<int>(QNetworkReply::TimeoutError);
-            if (error.httpStatus <= 0) {
-                error.code = error.networkErrorCode;
-            }
+            error.code = error.networkErrorCode;
             error.userMessage = tr("Request timed out. Please try again.");
             error.technicalDetails =
                 QStringLiteral("Per-attempt deadline exceeded (%1 ms)")
                     .arg(options.attemptTimeoutMs);
         }
 
-        if (isUnauthorized) {
+        const bool treatAsUnauthorized = isUnauthorized && !*attemptTimedOut;
+        if (treatAsUnauthorized) {
             if (options.unauthorizedPolicy != UnauthorizedPolicy::Ignore
                 && !authenticationRetried
                 && authenticationEpoch < m_authenticationEpoch) {
@@ -301,7 +300,7 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
         const bool shouldRetry = !handle->isCanceled()
             && retryIsSafe
             && options.retryPolicy.retryOnRetryableFailure
-            && (!isUnauthorized)
+            && !treatAsUnauthorized
             && retryableFailure
             && attemptNumber + 1 < maxAttempts;
 

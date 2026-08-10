@@ -163,6 +163,9 @@ private:
     {
         ProviderCatalogRequest request;
         request.method = method;
+        request.retrySafety = method == ProviderHttpMethod::Get
+            ? ProviderCatalogRetrySafety::Idempotent
+            : ProviderCatalogRetrySafety::Never;
         request.relativeEndpoint = endpoint;
         request.supported = true;
         return request;
