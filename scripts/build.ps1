@@ -271,29 +271,36 @@ function Fetch-MpvSdk {
     $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
     $downloadUrl = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$mpvReleaseTag/$mpvSdkFile"
 
-    Write-Host "Attempting to fetch pinned mpv-dev SDK: $mpvSdkFile" -ForegroundColor Cyan
-
     $downloadPath = Join-Path $DestinationRoot $mpvSdkFile
-    & curl.exe -fL --retry 3 --retry-all-errors --output $downloadPath $downloadUrl
-    if ($LASTEXITCODE -ne 0) {
-        throw "Failed to download $mpvSdkFile from $downloadUrl"
+    if (Test-Path $downloadPath) {
+        Write-Host "Using cached pinned mpv-dev SDK archive: $mpvSdkFile" -ForegroundColor Cyan
+    } else {
+        Write-Host "Attempting to fetch pinned mpv-dev SDK: $mpvSdkFile" -ForegroundColor Cyan
+        & curl.exe -fL --retry 3 --retry-all-errors --output $downloadPath $downloadUrl
+        if ($LASTEXITCODE -ne 0) {
+            Remove-Item -Force $downloadPath -ErrorAction SilentlyContinue
+            throw "Failed to download $mpvSdkFile from $downloadUrl"
+        }
     }
+
     $downloadedFile = Get-Item $downloadPath -ErrorAction Stop
     if ($downloadedFile.Length -lt 1048576) {
+        Remove-Item -Force $downloadPath -ErrorAction SilentlyContinue
         throw "Downloaded file is unexpectedly small ($($downloadedFile.Length) bytes): $downloadPath"
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($mpvSdkSha256)) {
-        Write-Host "Verifying mpv-dev SDK SHA256 checksum..." -ForegroundColor Cyan
-        $actualHash = (Get-FileHash -Algorithm SHA256 -Path $downloadPath).Hash
-        $expectedHash = $mpvSdkSha256.ToUpperInvariant()
-        if ($actualHash -ne $expectedHash) {
-            throw "mpv-dev SDK SHA256 mismatch: expected $expectedHash, got $actualHash. Downloaded file: $downloadPath"
-        }
-        Write-Host "Checksum verified: $actualHash" -ForegroundColor Gray
-    } else {
-        Write-Warning "No windows_sdk_sha256 pin found in dependency manifest; skipping checksum verification."
+    if ([string]::IsNullOrWhiteSpace($mpvSdkSha256)) {
+        throw "Dependency manifest is missing the required windows_sdk_sha256 pin."
     }
+
+    Write-Host "Verifying mpv-dev SDK SHA256 checksum..." -ForegroundColor Cyan
+    $actualHash = (Get-FileHash -Algorithm SHA256 -Path $downloadPath).Hash
+    $expectedHash = $mpvSdkSha256.ToUpperInvariant()
+    if ($actualHash -ne $expectedHash) {
+        Remove-Item -Force $downloadPath -ErrorAction SilentlyContinue
+        throw "mpv-dev SDK SHA256 mismatch: expected $expectedHash, got $actualHash. Archive removed: $downloadPath"
+    }
+    Write-Host "Checksum verified: $actualHash" -ForegroundColor Gray
 
     $extractRoot = Join-Path $DestinationRoot "mpv-sdk"
     if (Test-Path $extractRoot) {

@@ -198,8 +198,10 @@ jobs:
       - name: Cache mpv SDK
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: third_party\mpv\mpv-sdk
-          key: mpv-sdk-${{ runner.os }}-${{ hashFiles('packaging/dependencies.json') }}
+          # Cache only the pinned archive. build.ps1 verifies its SHA-256 before
+          # extracting it, so restored cache contents never bypass validation.
+          path: third_party\mpv\*.7z
+          key: mpv-sdk-archive-${{ runner.os }}-${{ hashFiles('packaging/dependencies.json') }}
       - name: Install Qt
         if: steps.cache-qt.outputs.cache-hit != 'true'
         shell: pwsh

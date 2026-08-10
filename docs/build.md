@@ -161,7 +161,7 @@ something to run. Environment-sensitive visual tests remain opt-in through
 `-BuildVisualTests`:
 
 ```powershell
-.\scripts\build.ps1 -Clean -BuildTests
+.\scripts\build.ps1 -Clean -BuildTests -BuildVisualTests
 .\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure
 ```
 
