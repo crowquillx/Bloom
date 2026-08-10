@@ -143,10 +143,11 @@ private slots:
     void connectionMismatchCannotCompleteRequest();
     void supersededPaginationCannotAppendToNewQuery();
     void backgroundRefreshFailurePreservesCachedContent();
-    void backgroundRefreshPreservesLaterPages();
+    void backgroundRefreshInvalidatesUnverifiedLaterPages();
     void filterFailureClearsLoadingState();
     void validEmptySnapshotIsReused();
     void paginationUsesOneDatasetCache();
+    void isolatedOffsetPageIsNotCachedAsDatasetStart();
     void memoryCacheIsBounded();
 
 private:
@@ -384,7 +385,7 @@ void LibraryViewModelCanonicalTest::backgroundRefreshFailurePreservesCachedConte
              QStringLiteral("cached"));
 }
 
-void LibraryViewModelCanonicalTest::backgroundRefreshPreservesLaterPages()
+void LibraryViewModelCanonicalTest::backgroundRefreshInvalidatesUnverifiedLaterPages()
 {
     LibraryViewModel viewModel;
     viewModel.loadLibrary("library", "movies", 0, 2);
@@ -404,17 +405,16 @@ void LibraryViewModelCanonicalTest::backgroundRefreshPreservesLaterPages()
     m_libraryService->succeedItem(
         2, canonicalItems({"new-one", "new-two"}), 4);
     QVERIFY(!viewModel.m_isBackgroundRefresh);
-    QCOMPARE(viewModel.rowCount(), 4);
+    QCOMPARE(viewModel.rowCount(), 2);
+    QVERIFY(viewModel.canLoadMore());
     QCOMPARE(viewModel.getItem(0).value(QStringLiteral("itemId")).toString(),
              QStringLiteral("new-one"));
-    QCOMPARE(viewModel.getItem(2).value(QStringLiteral("itemId")).toString(),
-             QStringLiteral("three"));
 
     const LibraryCacheEntry cached = viewModel.getCachedData(datasetKey);
-    QCOMPARE(cached.items.size(), 4);
-    QCOMPARE(cached.items.at(3).toObject()
+    QCOMPARE(cached.items.size(), 2);
+    QCOMPARE(cached.items.at(1).toObject()
                  .value(QStringLiteral("itemId")).toString(),
-             QStringLiteral("four"));
+             QStringLiteral("new-two"));
 }
 
 void LibraryViewModelCanonicalTest::filterFailureClearsLoadingState()
@@ -469,6 +469,24 @@ void LibraryViewModelCanonicalTest::paginationUsesOneDatasetCache()
     QVERIFY(persisted.hasSnapshot());
     QCOMPARE(persisted.items.size(), 4);
     QCOMPARE(persisted.totalCount, 4);
+}
+
+void LibraryViewModelCanonicalTest::isolatedOffsetPageIsNotCachedAsDatasetStart()
+{
+    LibraryViewModel viewModel;
+    viewModel.loadLibrary("library", "movies", 100, 2);
+    m_libraryService->succeedItem(
+        0, canonicalItems({"middle-one", "middle-two"}), 200);
+    QCOMPARE(viewModel.rowCount(), 2);
+
+    const QString datasetKey =
+        m_libraryService->itemRequests.constFirst().datasetKey();
+    QVERIFY(!viewModel.getCachedData(datasetKey).hasSnapshot());
+    QVERIFY(!viewModel.m_cacheStore->read(datasetKey).hasSnapshot());
+
+    viewModel.loadLibrary("library", "movies", 0, 2);
+    QCOMPARE(m_libraryService->itemRequests.size(), 2);
+    QVERIFY(viewModel.isLoading());
 }
 
 void LibraryViewModelCanonicalTest::memoryCacheIsBounded()

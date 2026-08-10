@@ -14,8 +14,10 @@ private slots:
     void emptySnapshotPersists();
     void canonicalRowsPersistAndUpsert();
     void upsertWithOffsets();
+    void rejectsNonContiguousOffset();
     void upsertReplacesPageRange();
     void upsertWithPrune();
+    void malformedRowsInvalidateSnapshot();
     void freshnessDetection();
 };
 
@@ -111,6 +113,20 @@ void LibraryCacheStoreTest::upsertWithOffsets()
     QCOMPARE(slice.totalCount, 2);
 }
 
+void LibraryCacheStoreTest::rejectsNonContiguousOffset()
+{
+    QTemporaryDir dir;
+    LibraryCacheStore store(tempDbPath(dir), 600000);
+    QVERIFY(store.open());
+
+    const QJsonArray middlePage{
+        QJsonObject{{QStringLiteral("itemId"), QStringLiteral("middle")}}
+    };
+    QVERIFY(!store.upsertItems(
+        QStringLiteral("parent"), middlePage, 101, false, 100));
+    QVERIFY(!store.read(QStringLiteral("parent")).hasSnapshot());
+}
+
 void LibraryCacheStoreTest::upsertReplacesPageRange()
 {
     QTemporaryDir dir;
@@ -164,6 +180,40 @@ void LibraryCacheStoreTest::upsertWithPrune()
     QCOMPARE(slice.totalCount, 1);
 }
 
+void LibraryCacheStoreTest::malformedRowsInvalidateSnapshot()
+{
+    QTemporaryDir dir;
+    const QString dbPath = tempDbPath(dir);
+    LibraryCacheStore store(dbPath, 600000);
+    QVERIFY(store.open());
+
+    const QJsonArray items{
+        QJsonObject{{QStringLiteral("itemId"), QStringLiteral("one")}}
+    };
+    QVERIFY(store.replaceAll(QStringLiteral("parent"), items, 1));
+
+    const QString connectionName = QStringLiteral("library_cache_corruption_test");
+    {
+        QSqlDatabase database =
+            QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setDatabaseName(dbPath);
+        QVERIFY(database.open());
+        QSqlQuery query(database);
+        QVERIFY(query.exec(QStringLiteral(
+            "UPDATE library_cache SET json = '{broken' "
+            "WHERE parent_id = 'parent'")));
+        database.close();
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+
+    const auto slice = store.read(QStringLiteral("parent"));
+    QVERIFY(slice.hasSnapshot());
+    QVERIFY(slice.decodeError);
+    QVERIFY(!slice.hasData());
+    QVERIFY(!slice.isFresh(600000));
+    QVERIFY(slice.items.isEmpty());
+}
+
 void LibraryCacheStoreTest::freshnessDetection()
 {
     QTemporaryDir dir;
@@ -190,8 +240,6 @@ void LibraryCacheStoreTest::freshnessDetection()
 
 QTEST_MAIN(LibraryCacheStoreTest)
 #include "LibraryCacheStoreTest.moc"
-
-
 
 
 

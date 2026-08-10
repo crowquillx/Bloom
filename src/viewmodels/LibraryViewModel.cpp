@@ -415,23 +415,25 @@ void LibraryViewModel::onItemsLoaded(const QString &connectionId,
         m_isBackgroundRefresh = false;
         qCDebug(lcViewModels) << "LibraryViewModel: background refresh completed in" << m_loadTimer.elapsed() << "ms";
 
-        const LibraryCacheEntry cached =
-            getCachedData(request->datasetKey);
-        const QJsonArray merged = mergePage(
-            cached, items, request->offset, totalRecordCount);
+        const LibraryCacheEntry cached = getCachedData(request->datasetKey);
+        // A successful first-page revalidation cannot prove that cached later
+        // pages still occupy the same positions. Insertions, deletions, or
+        // reordering can shift the page boundary, so retain the old full
+        // snapshot only for a provider-level not-modified response.
+        const QJsonArray refreshed = items;
 
         // Check if data actually changed
-        if (hasDataChanged(merged, totalRecordCount, cached)) {
+        if (hasDataChanged(refreshed, totalRecordCount, cached)) {
             qCDebug(lcViewModels) << "LibraryViewModel: SWR detected changes, updating model";
             setTotalRecordCount(totalRecordCount);
-            updateItemsFromBackground(merged);
+            updateItemsFromBackground(refreshed);
             emit canLoadMoreChanged();
         } else {
             qCDebug(lcViewModels) << "LibraryViewModel: SWR no changes detected, updating timestamp only";
         }
         
         // Always update cache with fresh data and timestamp
-        updateCache(request->datasetKey, merged, totalRecordCount);
+        updateCache(request->datasetKey, refreshed, totalRecordCount);
     } else if (request->kind == LoadKind::Initial
                && requestKey == m_activeInitialRequestKey) {
         m_activeInitialRequestKey.clear();
@@ -1041,15 +1043,24 @@ void LibraryViewModel::updateCachePage(const QString &datasetKey,
     }
 
     const LibraryCacheEntry cached = getCachedData(datasetKey);
+    const int normalizedOffset = qMax(0, offset);
+    if (normalizedOffset > cached.items.size()) {
+        qCWarning(lcViewModels)
+            << "LibraryViewModel: refusing non-contiguous cache page for"
+            << datasetKey << "at offset" << normalizedOffset
+            << "with cached prefix size" << cached.items.size();
+        return;
+    }
+
     LibraryCacheEntry entry;
-    entry.items = mergePage(cached, page, offset, totalRecordCount);
+    entry.items = mergePage(cached, page, normalizedOffset, totalRecordCount);
     entry.totalRecordCount = totalRecordCount;
     entry.timestamp = QDateTime::currentMSecsSinceEpoch();
     storeMemoryCache(scopedCacheKey(datasetKey), entry);
 
     if (m_cacheStore && m_cacheStore->isOpen()
         && !m_cacheStore->upsertItems(
-            datasetKey, page, totalRecordCount, false, offset)) {
+            datasetKey, page, totalRecordCount, false, normalizedOffset)) {
         qCWarning(lcViewModels)
             << "LibraryViewModel: failed to upsert paginated cache for"
             << datasetKey;
@@ -1196,9 +1207,10 @@ bool LibraryViewModel::hasCachedData(const QString &parentId) const
 
     if (m_cacheStore && m_cacheStore->isOpen()) {
         auto slice = m_cacheStore->read(parentId);
-        if (slice.hasSnapshot() && !isCanonicalCachePayload(slice.items)) {
+        if (slice.hasSnapshot()
+            && (!slice.hasData() || !isCanonicalCachePayload(slice.items))) {
             m_cacheStore->clearParent(parentId);
-        } else if (slice.hasSnapshot() && slice.isFresh(kDiskCacheTtlMs)) {
+        } else if (slice.hasData() && slice.isFresh(kDiskCacheTtlMs)) {
             LibraryCacheEntry entry;
             entry.items = slice.items;
             entry.totalRecordCount = slice.totalCount;
@@ -1226,9 +1238,10 @@ bool LibraryViewModel::hasAnyCachedData(const QString &parentId) const
 
     if (m_cacheStore && m_cacheStore->isOpen()) {
         auto slice = m_cacheStore->read(parentId);
-        if (slice.hasSnapshot() && !isCanonicalCachePayload(slice.items)) {
+        if (slice.hasSnapshot()
+            && (!slice.hasData() || !isCanonicalCachePayload(slice.items))) {
             m_cacheStore->clearParent(parentId);
-        } else if (slice.hasSnapshot()) {
+        } else if (slice.hasData()) {
             LibraryCacheEntry entry;
             entry.items = slice.items;
             entry.totalRecordCount = slice.totalCount;
@@ -1250,7 +1263,7 @@ LibraryCacheEntry LibraryViewModel::getCachedData(const QString &parentId) const
     }
     if (m_cacheStore && m_cacheStore->isOpen()) {
         const auto slice = m_cacheStore->read(parentId);
-        if (slice.hasSnapshot() && isCanonicalCachePayload(slice.items)) {
+        if (slice.hasData() && isCanonicalCachePayload(slice.items)) {
             LibraryCacheEntry entry;
             entry.items = slice.items;
             entry.totalRecordCount = slice.totalCount;

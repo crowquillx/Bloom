@@ -158,6 +158,7 @@ LibraryCacheStore::CachedSlice LibraryCacheStore::read(const QString &parentId, 
 
     if (!query.exec()) {
         qCWarning(lcLibraryCache) << "Failed to read library cache" << parentId << query.lastError().text();
+        slice.decodeError = true;
         return slice;
     }
 
@@ -166,6 +167,7 @@ LibraryCacheStore::CachedSlice LibraryCacheStore::read(const QString &parentId, 
         QJsonParseError err;
         auto doc = QJsonDocument::fromJson(raw, &err);
         if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+            slice.decodeError = true;
             continue;
         }
         slice.items.append(doc.object());
@@ -245,7 +247,7 @@ bool LibraryCacheStore::replaceAll(const QString &parentId, const QJsonArray &it
 
 bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &items, int totalCount, bool removeMissing, int startPosition)
 {
-    if (parentId.isEmpty()) {
+    if (parentId.isEmpty() || startPosition < 0) {
         return false;
     }
 
@@ -259,6 +261,27 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
     }
 
     const qint64 now = nowMs();
+
+    if (startPosition > 0) {
+        QSqlQuery prefix(m_db);
+        prefix.prepare(R"(
+            SELECT COUNT(*), MIN(position), MAX(position)
+            FROM library_cache
+            WHERE parent_id = ? AND position < ?
+        )");
+        prefix.addBindValue(parentId);
+        prefix.addBindValue(startPosition);
+        if (!prefix.exec() || !prefix.next()
+            || prefix.value(0).toInt() != startPosition
+            || prefix.value(1).toInt() != 0
+            || prefix.value(2).toInt() != startPosition - 1) {
+            qCWarning(lcLibraryCache)
+                << "Refusing non-contiguous cache page for" << parentId
+                << "at position" << startPosition;
+            rollbackTransaction();
+            return false;
+        }
+    }
 
     if (!items.isEmpty()) {
         QSqlQuery clearRange(m_db);
@@ -397,7 +420,7 @@ void LibraryCacheStore::clearAll()
 
 bool LibraryCacheStore::CachedSlice::isFresh(qint64 ttlMs) const
 {
-    if (updatedAtMs <= 0) {
+    if (!hasData()) {
         return false;
     }
     return (QDateTime::currentMSecsSinceEpoch() - updatedAtMs) < ttlMs;
@@ -425,8 +448,6 @@ qint64 LibraryCacheStore::nowMs() const
 {
     return QDateTime::currentMSecsSinceEpoch();
 }
-
-
 
 
 
