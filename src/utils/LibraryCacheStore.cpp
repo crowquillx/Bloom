@@ -191,7 +191,12 @@ bool LibraryCacheStore::replaceAll(const QString &parentId, const QJsonArray &it
     QSqlQuery deleteQuery(m_db);
     deleteQuery.prepare("DELETE FROM library_cache WHERE parent_id = ?");
     deleteQuery.addBindValue(parentId);
-    deleteQuery.exec();
+    if (!deleteQuery.exec()) {
+        qCWarning(lcLibraryCache) << "Failed to replace cached rows"
+                                  << deleteQuery.lastError().text();
+        rollbackTransaction();
+        return false;
+    }
 
     const qint64 now = nowMs();
 
@@ -254,6 +259,24 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
     }
 
     const qint64 now = nowMs();
+
+    if (!items.isEmpty()) {
+        QSqlQuery clearRange(m_db);
+        clearRange.prepare(R"(
+            DELETE FROM library_cache
+            WHERE parent_id = ? AND position >= ? AND position < ?
+        )");
+        clearRange.addBindValue(parentId);
+        clearRange.addBindValue(startPosition);
+        clearRange.addBindValue(startPosition + items.size());
+        if (!clearRange.exec()) {
+            qCWarning(lcLibraryCache) << "Failed to clear replaced cache page"
+                                      << clearRange.lastError().text();
+            rollbackTransaction();
+            return false;
+        }
+    }
+
     QSqlQuery upsert(m_db);
     upsert.prepare(R"(
         INSERT OR REPLACE INTO library_cache
@@ -293,7 +316,24 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
         for (const auto &id : incomingIds) {
             prune.addBindValue(id);
         }
-        prune.exec();
+        if (!prune.exec()) {
+            qCWarning(lcLibraryCache) << "Failed to prune cached rows"
+                                      << prune.lastError().text();
+            rollbackTransaction();
+            return false;
+        }
+    } else if (totalCount >= 0) {
+        QSqlQuery trim(m_db);
+        trim.prepare(
+            "DELETE FROM library_cache WHERE parent_id = ? AND position >= ?");
+        trim.addBindValue(parentId);
+        trim.addBindValue(totalCount);
+        if (!trim.exec()) {
+            qCWarning(lcLibraryCache) << "Failed to trim cached rows"
+                                      << trim.lastError().text();
+            rollbackTransaction();
+            return false;
+        }
     }
 
     QSqlQuery meta(m_db);
@@ -329,12 +369,18 @@ bool LibraryCacheStore::clearParent(const QString &parentId)
     QSqlQuery del(m_db);
     del.prepare("DELETE FROM library_cache WHERE parent_id = ?");
     del.addBindValue(parentId);
-    del.exec();
+    if (!del.exec()) {
+        rollbackTransaction();
+        return false;
+    }
 
     QSqlQuery meta(m_db);
     meta.prepare("DELETE FROM library_meta WHERE parent_id = ?");
     meta.addBindValue(parentId);
-    meta.exec();
+    if (!meta.exec()) {
+        rollbackTransaction();
+        return false;
+    }
     return commitTransaction();
 }
 
@@ -379,7 +425,6 @@ qint64 LibraryCacheStore::nowMs() const
 {
     return QDateTime::currentMSecsSinceEpoch();
 }
-
 
 
 

@@ -25,6 +25,7 @@ public:
     
     // Library views - returns data from fixture["libraries"]
     Q_INVOKABLE void getViews() override;
+    void getViewsForRequest(const QString &requestKey) override;
     
     // Items with pagination and filtering - returns data from fixture["movies"] or fixture["series"]
     Q_INVOKABLE void getItems(const QString &parentId, int startIndex = 0, int limit = 0,
@@ -38,6 +39,10 @@ public:
     Q_INVOKABLE void getFilterOptions(const QString &parentId,
                                       const QStringList &includeItemTypes = QStringList(),
                                       bool recursive = true) override;
+    void getFilterOptionsForRequest(const QString &parentId,
+                                    const QStringList &includeItemTypes,
+                                    bool recursive,
+                                    const QString &requestKey) override;
     
     // Next up episodes - returns data from fixture["nextUp"]
     Q_INVOKABLE void getNextUp() override;

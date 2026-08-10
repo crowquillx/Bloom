@@ -50,6 +50,7 @@ struct LibraryItemQuery {
     QString requestKey;
 
     QString normalizedSortBy() const;
+    QString datasetKey() const;
     QString cacheKey() const;
 };
 
@@ -76,6 +77,7 @@ public:
     
     // Library views
     Q_INVOKABLE virtual void getViews();
+    virtual void getViewsForRequest(const QString &requestKey);
     
     // Items with pagination and filtering
     Q_INVOKABLE virtual void getItems(const QString &parentId, int startIndex = 0, int limit = 0,
@@ -89,6 +91,11 @@ public:
     Q_INVOKABLE virtual void getFilterOptions(const QString &parentId,
                                               const QStringList &includeItemTypes = QStringList(),
                                               bool recursive = true);
+    virtual void getFilterOptionsForRequest(
+        const QString &parentId,
+        const QStringList &includeItemTypes,
+        bool recursive,
+        const QString &requestKey);
     
     // Next up episodes
     Q_INVOKABLE virtual void getNextUp();
@@ -165,6 +172,12 @@ signals:
     void canonicalViewsLoaded(const QVariantList &views);
     void canonicalViewsLoadedForConnection(const QString &connectionId,
                                            const QVariantList &views);
+    void canonicalViewsLoadedForRequest(const QString &connectionId,
+                                        const QString &requestKey,
+                                        const QVariantList &views);
+    void canonicalViewsFailedForRequest(const QString &connectionId,
+                                        const QString &requestKey,
+                                        const QString &error);
     void itemsLoaded(const QString &parentId, const QJsonArray &items);
     void itemsLoadedWithTotal(const QString &parentId, const QJsonArray &items, int totalRecordCount);
     void itemsLoadedWithTotalForQuery(const QString &parentId, const QString &queryKey, const QJsonArray &items, int totalRecordCount);
@@ -177,6 +190,10 @@ signals:
                                            const QString &queryKey,
                                            const QVariantList &items,
                                            int totalRecordCount);
+    void canonicalItemsFailedForConnection(const QString &connectionId,
+                                           const QString &parentId,
+                                           const QString &requestKey,
+                                           const QString &error);
     void itemsNotModified(const QString &parentId);
     void itemsNotModifiedForQuery(const QString &parentId, const QString &queryKey);
     void canonicalItemsNotModifiedForConnection(const QString &connectionId,
@@ -186,6 +203,16 @@ signals:
                              const QStringList &genres,
                              const QStringList &tags,
                              const QStringList &studios);
+    void filterOptionsLoadedForRequest(const QString &connectionId,
+                                       const QString &parentId,
+                                       const QString &requestKey,
+                                       const QStringList &genres,
+                                       const QStringList &tags,
+                                       const QStringList &studios);
+    void filterOptionsFailedForRequest(const QString &connectionId,
+                                       const QString &parentId,
+                                       const QString &requestKey,
+                                       const QString &error);
     
     // Generic Item Signals
     void itemLoaded(const QString &itemId, const QJsonObject &data);

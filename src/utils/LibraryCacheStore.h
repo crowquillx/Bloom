@@ -14,7 +14,8 @@ public:
         QJsonArray items;
         int totalCount = 0;
         qint64 updatedAtMs = 0;
-        bool hasData() const { return !items.isEmpty(); }
+        bool hasSnapshot() const { return updatedAtMs > 0; }
+        bool hasData() const { return hasSnapshot(); }
         bool isFresh(qint64 ttlMs) const;
     };
 
@@ -46,7 +47,6 @@ private:
     mutable QMutex m_mutex;
     qint64 m_ttlMs;
 };
-
 
 
 

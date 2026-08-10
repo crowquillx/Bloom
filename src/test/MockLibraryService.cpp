@@ -32,6 +32,11 @@ void MockLibraryService::loadFixture(const QJsonObject &fixture)
 
 void MockLibraryService::getViews()
 {
+    getViewsForRequest(QString());
+}
+
+void MockLibraryService::getViewsForRequest(const QString &requestKey)
+{
     QJsonArray views = m_libraries["Items"].toArray();
     qCDebug(lcTest) << "MockLibraryService::getViews() ->" << views.size() << "views";
     emit viewsLoaded(views);
@@ -39,6 +44,8 @@ void MockLibraryService::getViews()
         JellyfinModelMapper::mediaItems(views, QStringLiteral("mock-connection"));
     emit canonicalViewsLoaded(canonicalViews);
     emit canonicalViewsLoadedForConnection(QStringLiteral("mock-connection"), canonicalViews);
+    emit canonicalViewsLoadedForRequest(
+        QStringLiteral("mock-connection"), requestKey, canonicalViews);
 }
 
 void MockLibraryService::getItems(const QString &parentId, int startIndex, int limit, 
@@ -204,11 +211,28 @@ void MockLibraryService::getItems(const LibraryItemQuery &query)
         queryKey,
         JellyfinModelMapper::mediaItems(paged, QStringLiteral("mock-connection")),
         totalCount);
+    emit canonicalItemsLoadedForConnection(
+        QStringLiteral("mock-connection"),
+        query.parentId,
+        queryKey,
+        JellyfinModelMapper::mediaItems(
+            paged, QStringLiteral("mock-connection")),
+        totalCount);
 }
 
 void MockLibraryService::getFilterOptions(const QString &parentId,
                                           const QStringList &includeItemTypes,
                                           bool recursive)
+{
+    getFilterOptionsForRequest(
+        parentId, includeItemTypes, recursive, QString());
+}
+
+void MockLibraryService::getFilterOptionsForRequest(
+    const QString &parentId,
+    const QStringList &includeItemTypes,
+    bool recursive,
+    const QString &requestKey)
 {
     Q_UNUSED(recursive)
     LibraryItemQuery query;
@@ -247,7 +271,18 @@ void MockLibraryService::getFilterOptions(const QString &parentId,
         });
         return list;
     };
-    emit filterOptionsLoaded(parentId, normalize(genres), normalize(tags), normalize(studios));
+    const QStringList normalizedGenres = normalize(genres);
+    const QStringList normalizedTags = normalize(tags);
+    const QStringList normalizedStudios = normalize(studios);
+    emit filterOptionsLoaded(
+        parentId, normalizedGenres, normalizedTags, normalizedStudios);
+    emit filterOptionsLoadedForRequest(
+        QStringLiteral("mock-connection"),
+        parentId,
+        requestKey,
+        normalizedGenres,
+        normalizedTags,
+        normalizedStudios);
 }
 
 void MockLibraryService::getNextUp()

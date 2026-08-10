@@ -11,8 +11,10 @@ class LibraryCacheStoreTest : public QObject
 
 private slots:
     void replaceAllAndRead();
+    void emptySnapshotPersists();
     void canonicalRowsPersistAndUpsert();
     void upsertWithOffsets();
+    void upsertReplacesPageRange();
     void upsertWithPrune();
     void freshnessDetection();
 };
@@ -43,6 +45,22 @@ void LibraryCacheStoreTest::replaceAllAndRead()
     QCOMPARE(slice.totalCount, 1);
     QVERIFY(slice.isFresh(600000));
     QCOMPARE(slice.items.first().toObject().value("itemId").toString(), QStringLiteral("one"));
+}
+
+void LibraryCacheStoreTest::emptySnapshotPersists()
+{
+    QTemporaryDir dir;
+    LibraryCacheStore store(tempDbPath(dir), 600000);
+    QVERIFY(store.open());
+
+    QVERIFY(store.replaceAll("empty-parent", QJsonArray(), 0));
+
+    const auto slice = store.read("empty-parent");
+    QVERIFY(slice.hasSnapshot());
+    QVERIFY(slice.hasData());
+    QVERIFY(slice.items.isEmpty());
+    QCOMPARE(slice.totalCount, 0);
+    QVERIFY(slice.isFresh(600000));
 }
 
 void LibraryCacheStoreTest::canonicalRowsPersistAndUpsert()
@@ -93,6 +111,38 @@ void LibraryCacheStoreTest::upsertWithOffsets()
     QCOMPARE(slice.totalCount, 2);
 }
 
+void LibraryCacheStoreTest::upsertReplacesPageRange()
+{
+    QTemporaryDir dir;
+    LibraryCacheStore store(tempDbPath(dir), 600000);
+    QVERIFY(store.open());
+
+    const QJsonArray initial{
+        QJsonObject{{"itemId", "one"}},
+        QJsonObject{{"itemId", "two"}},
+        QJsonObject{{"itemId", "three"}},
+        QJsonObject{{"itemId", "four"}},
+    };
+    QVERIFY(store.replaceAll("parent", initial, 4));
+
+    const QJsonArray replacement{
+        QJsonObject{{"itemId", "new-two"}},
+        QJsonObject{{"itemId", "new-three"}},
+    };
+    QVERIFY(store.upsertItems("parent", replacement, 4, false, 1));
+
+    const auto slice = store.read("parent");
+    QCOMPARE(slice.items.size(), 4);
+    QCOMPARE(slice.items.at(0).toObject().value("itemId").toString(),
+             QStringLiteral("one"));
+    QCOMPARE(slice.items.at(1).toObject().value("itemId").toString(),
+             QStringLiteral("new-two"));
+    QCOMPARE(slice.items.at(2).toObject().value("itemId").toString(),
+             QStringLiteral("new-three"));
+    QCOMPARE(slice.items.at(3).toObject().value("itemId").toString(),
+             QStringLiteral("four"));
+}
+
 void LibraryCacheStoreTest::upsertWithPrune()
 {
     QTemporaryDir dir;
@@ -140,7 +190,6 @@ void LibraryCacheStoreTest::freshnessDetection()
 
 QTEST_MAIN(LibraryCacheStoreTest)
 #include "LibraryCacheStoreTest.moc"
-
 
 
 
