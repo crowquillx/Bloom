@@ -107,5 +107,33 @@ Write-Host "Running ctest $($ctestArgs -join ' ')" -ForegroundColor Cyan
 $exitCode = $LASTEXITCODE
 
 if ($exitCode -ne 0) {
+    $failedTestsPath = Join-Path $testsDir "Testing\Temporary\LastTestsFailed.log"
+    if (Test-Path $failedTestsPath) {
+        Write-Host "Re-running failed test executables with verbose QtTest output" -ForegroundColor Yellow
+        foreach ($failedTest in (Get-Content $failedTestsPath)) {
+            $testName = ($failedTest -split ":", 2)[-1].Trim()
+            $testExecutable = @(
+                (Join-Path $testsDir "$Config\$testName.exe"),
+                (Join-Path $testsDir "$testName.exe")
+            ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+            if (-not $testExecutable) {
+                Write-Warning "Could not locate failed test executable: $testName"
+                continue
+            }
+
+            Write-Host "=== $testName ===" -ForegroundColor Yellow
+            $diagnosticPath = Join-Path $testsDir "$testName-diagnostic.txt"
+            & $testExecutable -v2 -o "$diagnosticPath,txt"
+            $diagnosticExitCode = $LASTEXITCODE
+            if (Test-Path $diagnosticPath) {
+                Get-Content $diagnosticPath
+                Remove-Item $diagnosticPath -Force
+            } else {
+                Write-Warning "QtTest did not create diagnostic output for $testName"
+            }
+            Write-Host "$testName diagnostic exit code: $diagnosticExitCode" -ForegroundColor Yellow
+        }
+    }
     exit $exitCode
 }

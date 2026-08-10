@@ -189,6 +189,7 @@ void LibraryViewModelCanonicalTest::init()
     m_cacheDir = std::make_unique<QTemporaryDir>();
     QVERIFY(m_cacheDir->isValid());
     qputenv("XDG_CACHE_HOME", m_cacheDir->path().toUtf8());
+    qputenv("APPDATA", m_cacheDir->path().toUtf8());
     m_libraryService = new ControlledLibraryService(this);
     ServiceLocator::registerService<LibraryService>(m_libraryService);
 }

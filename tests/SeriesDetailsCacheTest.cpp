@@ -4,12 +4,7 @@
 #include <QJsonDocument>
 #include <QFile>
 #include <QDateTime>
-// Expose cache helpers for white-box tests
-#define private public
-#define protected public
 #include "../src/viewmodels/SeriesDetailsViewModel.h"
-#undef private
-#undef protected
 
 class SeriesDetailsCacheTest : public QObject
 {

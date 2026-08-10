@@ -43,6 +43,52 @@ set(TEST_CONFIG_SOURCES
     ${TEST_LOGGING_SOURCES}
 )
 
+# Production sources historically listed on individual tests. They are removed
+# from each target after declaration so both compiled objects and Qt metaobjects
+# come exclusively from the reusable libraries in src/cmake/BloomLibraries.cmake.
+set(BLOOM_LINKED_PRODUCTION_SOURCES
+    ${TEST_LOGGING_SOURCES}
+    ${TEST_PROVIDER_BOUNDARY_SOURCES}
+    ${TEST_CONFIG_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/HttpTransport.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/MediaSegmentProviderService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/PlaybackService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/SeerrService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/SessionManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/SessionService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
+    ${CMAKE_SOURCE_DIR}/src/profiles/BloomProfile.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/ActiveArtworkProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/ServerConnection.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinAuthenticator.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinArtworkProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinPlaybackProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/jellyfin/JellyfinRequestFactory.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloArtworkProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
+    ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloPlaybackProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/security/CredentialStore.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigStorage.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/LoggingConfig.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/MpvArgFilter.cpp
+)
+list(REMOVE_DUPLICATES BLOOM_LINKED_PRODUCTION_SOURCES)
+
+function(bloom_use_production_libraries test_target)
+    get_target_property(test_sources ${test_target} SOURCES)
+    list(REMOVE_ITEM test_sources ${BLOOM_LINKED_PRODUCTION_SOURCES})
+    set_property(TARGET ${test_target} PROPERTY SOURCES "${test_sources}")
+    target_link_libraries(${test_target} PRIVATE Bloom::Network)
+endfunction()
+
 add_executable(BaseViewModelTest
     BaseViewModelTest.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/BaseViewModel.cpp
@@ -696,6 +742,38 @@ endif()
 
 add_test(NAME UpdateServiceTest COMMAND UpdateServiceTest)
 
+set(BLOOM_UNIT_TEST_TARGETS
+    BaseViewModelTest
+    SeriesDetailsCacheTest
+    LibraryCacheStoreTest
+    LibraryItemQueryTest
+    LibraryViewModelCanonicalTest
+    LoggingConfigTest
+    ConfigManagerThemeTest
+    ConnectionPersistenceTest
+    BloomProfileRepositoryTest
+    ProviderTransportTest
+    SiloAuthenticationTest
+    SiloPlaybackProviderTest
+    ProviderCatalogTest
+    SiloCatalogServiceTest
+    ArtworkRefreshTest
+    CanonicalModelsTest
+    InputBindingManagerTest
+    PlayerBackendFactoryTest
+    PlayerControllerAutoplayContextTest
+    MediaSegmentProviderServiceTest
+    NextEpisodeResolverTest
+    EpisodeSelectionScriptTest
+    TrackPreferencesManagerTest
+    SimilarItemsRetryTest
+    UpNextRecommendationsViewModelTest
+    UpdateServiceTest
+)
+foreach(test_target IN LISTS BLOOM_UNIT_TEST_TARGETS)
+    bloom_use_production_libraries(${test_target})
+endforeach()
+
 if(BLOOM_BUILD_VISUAL_TESTS)
 # ============================================================================
 # Visual Regression Test Fixtures
@@ -915,6 +993,7 @@ target_include_directories(VisualRegressionTest PRIVATE
 )
 
 target_link_libraries(VisualRegressionTest PRIVATE
+    Bloom::Network
     Qt6::Core
     Qt6::Test
     Qt6::Quick
@@ -956,6 +1035,7 @@ target_compile_definitions(VisualRegressionTest PRIVATE
     TEST_FIXTURES_PATH="${TEST_FIXTURES_PATH}"
 )
 
+bloom_use_production_libraries(VisualRegressionTest)
 add_test(NAME VisualRegressionTest COMMAND VisualRegressionTest)
 
 # Copy golden directory to build directory for runtime access

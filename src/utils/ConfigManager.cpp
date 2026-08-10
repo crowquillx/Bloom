@@ -540,6 +540,13 @@ QString preferredConfigDir()
 {
 #ifdef Q_OS_WIN
     // Keep Windows config rooted at %APPDATA%/Bloom (no nested org/app suffix).
+    // Read APPDATA directly when available so callers can explicitly isolate
+    // configuration storage (including tests) without depending on the
+    // process-wide QStandardPaths cache.
+    const QString appData = qEnvironmentVariable("APPDATA").trimmed();
+    if (!appData.isEmpty()) {
+        return QDir::cleanPath(appData) + "/Bloom";
+    }
     return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/Bloom";
 #else
     return QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/Bloom";

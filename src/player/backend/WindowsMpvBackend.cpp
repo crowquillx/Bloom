@@ -1751,6 +1751,12 @@ QStringList WindowsMpvBackend::sanitizeStartupArgs(const QStringList &args) cons
             continue;
         }
 
+        if (name.compare(QStringLiteral("profile"), Qt::CaseInsensitive) == 0
+            && MpvArgFilter::isSafeBuiltinProfileArg(arg)) {
+            finalArgs.append(arg);
+            continue;
+        }
+
         if (MpvArgFilter::isBloomManagedOptionName(name)) {
             if (equalsIndex < 0) {
                 skipNextValue = true;

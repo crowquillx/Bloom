@@ -42,6 +42,12 @@ Use `nix build` and `nix flake check` for clean final verification. Portable
 Linux artifacts are orchestrated by Nix through a pinned Ubuntu compatibility
 container; Windows remains a native MSVC build.
 
+CMake production code is organized into reusable `Bloom::*` libraries. Tests
+must link production targets instead of compiling shared `.cpp` files
+independently and should prefer the narrowest practical target; keep dependency
+direction acyclic from models through configuration/transport, providers, and
+network services.
+
 When to update: Only edit this file for architecture, conventions, or global policy changes. Implementation details live in `docs/*` and should be updated there.
 
 Documentation & update policy:
