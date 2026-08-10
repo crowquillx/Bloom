@@ -5,12 +5,14 @@
 #include <QJsonArray>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 #include <QVariantList>
 #include <QVariantMap>
 
 #include <optional>
 
 #include "providers/ServerConnection.h"
+#include "utils/ConfigStorage.h"
 
 /**
  * @brief MPV Profile data structure
@@ -171,9 +173,11 @@ class ConfigManager : public QObject
     Q_PROPERTY(QString logLevel READ getLogLevel WRITE setLogLevel NOTIFY logLevelChanged)
     Q_PROPERTY(QVariantList supportedTrackLanguages READ getSupportedTrackLanguages CONSTANT)
     Q_PROPERTY(QVariantMap inputBindings READ getInputBindings WRITE setInputBindings NOTIFY inputBindingsChanged)
+    Q_PROPERTY(QString lastPersistenceError READ getLastPersistenceError NOTIFY persistenceErrorChanged)
     
 public:
     explicit ConfigManager(QObject *parent = nullptr);
+    ~ConfigManager() override;
     
     // Device ID - unique per installation, includes hostname
     // Generated on first launch and stored in settings
@@ -184,7 +188,9 @@ public:
     QString getUserDeviceId(const QString &userId) const;
 
     void load();
-    void save();
+    bool save();
+    bool flushPendingSave();
+    QString getLastPersistenceError() const;
     
     // Application exit - saves config and quits
     Q_INVOKABLE void exitApplication();
@@ -598,6 +604,9 @@ signals:
     void skippedUpdateVersionChanged();
     void logLevelChanged();
     void inputBindingsChanged();
+    void configurationPersisted();
+    void persistenceErrorChanged();
+    void persistenceFailed(const QString &message);
 
     void heroBannerEnabledChanged();
     void heroBannerSourceChanged();
@@ -631,9 +640,17 @@ private:
     QJsonObject readHeroBannerObject() const;
     void writeHeroBannerObject(const QJsonObject &heroBanner);
     bool envOverridesRoundedPreprocess(bool current) const;
+    void scheduleSave();
+    bool persistConfig();
+    void setPersistenceError(const QString &message);
 
     QJsonObject m_config;
+    ConfigStorage m_storage;
+    QTimer m_saveTimer;
+    QString m_lastPersistenceError;
+    bool m_persistenceDirty = false;
 
     static constexpr int kCurrentConfigVersion = 30;
+    static constexpr int kSaveDebounceMs = 350;
     QJsonObject defaultConfig() const;
 };

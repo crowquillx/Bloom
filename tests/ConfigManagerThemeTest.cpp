@@ -20,6 +20,12 @@ private slots:
     void screensaverDefaultsAndSettersPersist();
     void heroBannerEpisodeSynopsisDefaultsAndSettersPersist();
     void themeVariantSettersPersistAndEmit();
+    void rapidSettingsCoalescePersistence();
+    void immediateSettingsFlushPendingPersistence();
+    void destructorFlushesPendingPersistence();
+    void persistenceFailuresAreReportedAndRetryable();
+    void corruptBackupFilenameIsPortable();
+    void saveDoesNotRunLoadTimeMigrations();
     void v19MigrationAddsThemeVariantSettings();
     void v20MigrationRenamesDefaultProfileAssignments();
     void v21MigrationAddsArtProfilesWithoutChangingAssignments();
@@ -389,6 +395,148 @@ void ConfigManagerThemeTest::themeVariantSettersPersistAndEmit()
     reloaded.load();
     QCOMPARE(reloaded.getThemeFlavor(), QStringLiteral("mocha"));
     QCOMPARE(reloaded.getThemeColorScheme(), QStringLiteral("mauve"));
+}
+
+void ConfigManagerThemeTest::rapidSettingsCoalescePersistence()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    QSignalSpy persistedSpy(&config, &ConfigManager::configurationPersisted);
+
+    config.setPlaybackVolume(101);
+    config.setPlaybackVolume(102);
+    config.setPlaybackVolume(103);
+
+    QCOMPARE(config.getPlaybackVolume(), 103);
+    QCOMPARE(persistedSpy.count(), 0);
+    QTRY_COMPARE_WITH_TIMEOUT(persistedSpy.count(), 1, 1000);
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getPlaybackVolume(), 103);
+}
+
+void ConfigManagerThemeTest::immediateSettingsFlushPendingPersistence()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    QSignalSpy persistedSpy(&config, &ConfigManager::configurationPersisted);
+
+    config.setPlaybackVolume(117);
+    QCOMPARE(persistedSpy.count(), 0);
+    config.setTheme(QStringLiteral("Catppuccin"));
+    QCOMPARE(persistedSpy.count(), 1);
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getPlaybackVolume(), 117);
+    QCOMPARE(reloaded.getTheme(), QStringLiteral("Catppuccin"));
+}
+
+void ConfigManagerThemeTest::destructorFlushesPendingPersistence()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    {
+        ConfigManager config;
+        config.load();
+        config.setAudioDelay(275);
+    }
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getAudioDelay(), 275);
+}
+
+void ConfigManagerThemeTest::persistenceFailuresAreReportedAndRetryable()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    config.setPlaybackVolume(125);
+
+    const QString configPath = ConfigManager::getConfigPath();
+    QVERIFY(QFile::remove(configPath));
+    QVERIFY(QDir().mkpath(configPath));
+
+    QSignalSpy failureSpy(&config, &ConfigManager::persistenceFailed);
+    QVERIFY(!config.flushPendingSave());
+    QCOMPARE(failureSpy.count(), 1);
+    QVERIFY(!config.getLastPersistenceError().isEmpty());
+
+    QDir configDir(ConfigManager::getConfigDir());
+    QVERIFY(configDir.rmdir(QStringLiteral("app.json")));
+    QVERIFY(config.flushPendingSave());
+    QVERIFY(config.getLastPersistenceError().isEmpty());
+
+    QFile persisted(configPath);
+    QVERIFY(persisted.open(QIODevice::ReadOnly));
+    const QJsonDocument document = QJsonDocument::fromJson(persisted.readAll());
+    QVERIFY(document.isObject());
+    QCOMPARE(document.object().value(QStringLiteral("settings")).toObject()
+                 .value(QStringLiteral("playback")).toObject()
+                 .value(QStringLiteral("playback_volume")).toInt(),
+             125);
+}
+
+void ConfigManagerThemeTest::corruptBackupFilenameIsPortable()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    QVERIFY(QDir().mkpath(ConfigManager::getConfigDir()));
+    QFile corrupt(ConfigManager::getConfigPath());
+    QVERIFY(corrupt.open(QIODevice::WriteOnly));
+    QCOMPARE(corrupt.write("{ definitely not JSON"), qint64(21));
+    corrupt.close();
+
+    ConfigManager config;
+    config.load();
+
+    const QStringList backups = QDir(ConfigManager::getConfigDir()).entryList(
+        {QStringLiteral("app.json.corrupt-*")}, QDir::Files);
+    QCOMPARE(backups.size(), 1);
+    QVERIFY(!backups.constFirst().contains(QLatin1Char(':')));
+
+    QFile replacement(ConfigManager::getConfigPath());
+    QVERIFY(replacement.open(QIODevice::ReadOnly));
+    QVERIFY(QJsonDocument::fromJson(replacement.readAll()).isObject());
+}
+
+void ConfigManagerThemeTest::saveDoesNotRunLoadTimeMigrations()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    QVERIFY(config.save());
+
+    QFile file(ConfigManager::getConfigPath());
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    QCOMPARE(root.value(QStringLiteral("version")).toInt(), 30);
+    const QJsonObject settings = root.value(QStringLiteral("settings")).toObject();
+    QCOMPARE(settings.value(QStringLiteral("playback")).toObject()
+                 .value(QStringLiteral("completion_threshold")).toInt(),
+             90);
+    QCOMPARE(settings.value(QStringLiteral("connections")).toObject()
+                 .value(QStringLiteral("version")).toInt(),
+             1);
 }
 
 void ConfigManagerThemeTest::v19MigrationAddsThemeVariantSettings()

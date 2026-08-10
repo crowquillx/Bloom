@@ -100,6 +100,8 @@ qt_add_executable(Bloom
     updates/UpdateService.cpp
     utils/ConfigManager.cpp
     utils/ConfigManager.h
+    utils/ConfigStorage.cpp
+    utils/ConfigStorage.h
     utils/AudioOutputRouter.cpp
     utils/AudioOutputRouter.h
     utils/MpvArgFilter.cpp

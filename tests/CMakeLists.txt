@@ -36,6 +36,7 @@ set(TEST_CONFIG_SOURCES
     ${CMAKE_SOURCE_DIR}/src/profiles/BloomProfile.cpp
     ${CMAKE_SOURCE_DIR}/src/security/CredentialStore.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/ConfigStorage.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/MpvArgFilter.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/LoggingConfig.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp

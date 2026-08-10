@@ -10,7 +10,8 @@ import "settings"
  *
  * Layout: narrow left rail (section list) + wide right content panel.
  * Each section is a standalone FocusScope inside a StackLayout.
- * All settings are persisted immediately via ConfigManager.
+ * Settings update immediately in memory. ConfigManager atomically persists
+ * ordinary changes and coalesces high-frequency slider/session values.
  */
 FocusScope {
     id: root
