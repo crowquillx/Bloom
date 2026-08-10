@@ -123,7 +123,7 @@ if ($exitCode -ne 0) {
             }
 
             Write-Host "=== $testName ===" -ForegroundColor Yellow
-            & $testExecutable -v1
+            & $testExecutable -v1 -o "-,txt"
             Write-Host "$testName diagnostic exit code: $LASTEXITCODE" -ForegroundColor Yellow
         }
     }
