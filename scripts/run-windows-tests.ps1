@@ -123,8 +123,16 @@ if ($exitCode -ne 0) {
             }
 
             Write-Host "=== $testName ===" -ForegroundColor Yellow
-            & $testExecutable -v1 -o "-,txt"
-            Write-Host "$testName diagnostic exit code: $LASTEXITCODE" -ForegroundColor Yellow
+            $diagnosticPath = Join-Path $testsDir "$testName-diagnostic.txt"
+            & $testExecutable -v2 -o "$diagnosticPath,txt"
+            $diagnosticExitCode = $LASTEXITCODE
+            if (Test-Path $diagnosticPath) {
+                Get-Content $diagnosticPath
+                Remove-Item $diagnosticPath -Force
+            } else {
+                Write-Warning "QtTest did not create diagnostic output for $testName"
+            }
+            Write-Host "$testName diagnostic exit code: $diagnosticExitCode" -ForegroundColor Yellow
         }
     }
     exit $exitCode

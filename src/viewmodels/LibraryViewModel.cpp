@@ -1491,7 +1491,13 @@ QString LibraryViewModel::cacheDir() const
     if (m_configManager) {
         baseDir = m_configManager->getConfigDir();
     } else {
+#ifdef Q_OS_WIN
+        // Match the normal application layout even when a lightweight consumer
+        // (such as a unit test) has no ConfigManager registered.
+        baseDir = ConfigManager::getConfigDir();
+#else
         baseDir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation) + "/Bloom";
+#endif
     }
     const QString scope = DetailViewCache::connectionScopeCacheKey(connectionScopeId());
     return baseDir + QStringLiteral("/cache/connections/") + scope + QStringLiteral("/library");
