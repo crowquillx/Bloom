@@ -139,6 +139,7 @@ class SeriesDetailsViewModel : public BaseViewModel
 {
     Q_OBJECT
 
+    friend class SeriesDetailsCacheTest;
     friend class SimilarItemsRetryTest;
 
     // Series metadata properties
