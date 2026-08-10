@@ -173,6 +173,7 @@ private slots:
     void paginationUsesOneDatasetCache();
     void prefixOverlappingPageInvalidatesDatasetCache();
     void suffixOverlapInvalidatesUnverifiedCachePositions();
+    void duplicatePageDoesNotEnterMemoryCache();
     void isolatedOffsetPageIsNotCachedAsDatasetStart();
     void memoryCacheIsBounded();
 
@@ -630,6 +631,29 @@ void LibraryViewModelCanonicalTest::suffixOverlapInvalidatesUnverifiedCachePosit
     const auto persisted = viewModel.m_cacheStore->read(datasetKey);
     QCOMPARE(persisted.items, cached.items);
     QCOMPARE(persisted.totalCount, 5);
+}
+
+void LibraryViewModelCanonicalTest::duplicatePageDoesNotEnterMemoryCache()
+{
+    LibraryViewModel viewModel;
+    const QString datasetKey = QStringLiteral("duplicate-page");
+    const QJsonArray initial =
+        QJsonArray::fromVariantList(canonicalItems({"one", "two"}));
+    viewModel.updateCache(datasetKey, initial, 4);
+
+    viewModel.updateCachePage(
+        datasetKey,
+        QJsonArray::fromVariantList(canonicalItems({"three", "three"})),
+        4,
+        2);
+
+    const LibraryCacheEntry cached = viewModel.getCachedData(datasetKey);
+    QCOMPARE(cached.items, initial);
+    QCOMPARE(cached.totalRecordCount, 4);
+
+    const auto persisted = viewModel.m_cacheStore->read(datasetKey);
+    QCOMPARE(persisted.items, initial);
+    QCOMPARE(persisted.totalCount, 4);
 }
 
 void LibraryViewModelCanonicalTest::isolatedOffsetPageIsNotCachedAsDatasetStart()

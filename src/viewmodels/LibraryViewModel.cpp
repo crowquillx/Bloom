@@ -1060,8 +1060,15 @@ void LibraryViewModel::updateCachePage(const QString &datasetKey,
     QSet<QString> incomingIds;
     incomingIds.reserve(page.size());
     for (const QJsonValue &value : page) {
-        incomingIds.insert(
-            value.toObject().value(QStringLiteral("itemId")).toString());
+        const QString incomingId =
+            value.toObject().value(QStringLiteral("itemId")).toString();
+        if (incomingIds.contains(incomingId)) {
+            qCWarning(lcViewModels)
+                << "LibraryViewModel: refusing cache page with duplicate itemId for"
+                << datasetKey << "id:" << incomingId;
+            return;
+        }
+        incomingIds.insert(incomingId);
     }
     for (int index = 0;
          index < normalizedOffset && index < cached.items.size();
