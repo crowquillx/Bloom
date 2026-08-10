@@ -43,10 +43,9 @@ set(TEST_CONFIG_SOURCES
     ${TEST_LOGGING_SOURCES}
 )
 
-# These sources remain listed on individual tests for IDE/source ownership,
-# but their compiled objects come from the reusable production libraries in
-# src/cmake/BloomLibraries.cmake. This prevents every test executable from
-# independently compiling the same provider, network, config, and model code.
+# Production sources historically listed on individual tests. They are removed
+# from each target after declaration so both compiled objects and Qt metaobjects
+# come exclusively from the reusable libraries in src/cmake/BloomLibraries.cmake.
 set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${TEST_LOGGING_SOURCES}
     ${TEST_PROVIDER_BOUNDARY_SOURCES}
@@ -82,9 +81,13 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/utils/MpvArgFilter.cpp
 )
 list(REMOVE_DUPLICATES BLOOM_LINKED_PRODUCTION_SOURCES)
-set_source_files_properties(${BLOOM_LINKED_PRODUCTION_SOURCES}
-    PROPERTIES HEADER_FILE_ONLY TRUE
-)
+
+function(bloom_use_production_libraries test_target)
+    get_target_property(test_sources ${test_target} SOURCES)
+    list(REMOVE_ITEM test_sources ${BLOOM_LINKED_PRODUCTION_SOURCES})
+    set_property(TARGET ${test_target} PROPERTY SOURCES "${test_sources}")
+    target_link_libraries(${test_target} PRIVATE Bloom::Network)
+endfunction()
 
 add_executable(BaseViewModelTest
     BaseViewModelTest.cpp
@@ -768,7 +771,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     UpdateServiceTest
 )
 foreach(test_target IN LISTS BLOOM_UNIT_TEST_TARGETS)
-    target_link_libraries(${test_target} PRIVATE Bloom::Network)
+    bloom_use_production_libraries(${test_target})
 endforeach()
 
 if(BLOOM_BUILD_VISUAL_TESTS)
@@ -1032,6 +1035,7 @@ target_compile_definitions(VisualRegressionTest PRIVATE
     TEST_FIXTURES_PATH="${TEST_FIXTURES_PATH}"
 )
 
+bloom_use_production_libraries(VisualRegressionTest)
 add_test(NAME VisualRegressionTest COMMAND VisualRegressionTest)
 
 # Copy golden directory to build directory for runtime access
