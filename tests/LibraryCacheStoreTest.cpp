@@ -17,6 +17,7 @@ private slots:
     void rejectsNonContiguousOffset();
     void upsertReplacesPageRange();
     void movingExistingItemKeepsPositionsContiguous();
+    void prefixOverlapIsRejectedWithoutMutation();
     void upsertWithPrune();
     void malformedRowsInvalidateSnapshot();
     void freshnessDetection();
@@ -204,6 +205,32 @@ void LibraryCacheStoreTest::movingExistingItemKeepsPositionsContiguous()
              QStringLiteral("new-five"));
 }
 
+void LibraryCacheStoreTest::prefixOverlapIsRejectedWithoutMutation()
+{
+    QTemporaryDir dir;
+    LibraryCacheStore store(tempDbPath(dir), 600000);
+    QVERIFY(store.open());
+
+    const QJsonArray initial{
+        QJsonObject{{"itemId", "one"}},
+        QJsonObject{{"itemId", "two"}},
+        QJsonObject{{"itemId", "three"}},
+        QJsonObject{{"itemId", "four"}},
+    };
+    QVERIFY(store.replaceAll("parent", initial, 4));
+
+    const QJsonArray overlappingPage{
+        QJsonObject{{"itemId", "one"}},
+        QJsonObject{{"itemId", "four"}},
+    };
+    QVERIFY(!store.upsertItems(
+        "parent", overlappingPage, 4, false, 2));
+
+    const auto unchanged = store.read("parent");
+    QCOMPARE(unchanged.items, initial);
+    QCOMPARE(unchanged.totalCount, 4);
+}
+
 void LibraryCacheStoreTest::upsertWithPrune()
 {
     QTemporaryDir dir;
@@ -285,5 +312,4 @@ void LibraryCacheStoreTest::freshnessDetection()
 
 QTEST_MAIN(LibraryCacheStoreTest)
 #include "LibraryCacheStoreTest.moc"
-
 

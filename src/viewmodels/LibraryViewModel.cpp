@@ -8,6 +8,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QJsonDocument>
+#include <QSet>
 #include <QStandardPaths>
 #include <algorithm>
 #include "../utils/BloomLogging.h"
@@ -1056,6 +1057,27 @@ void LibraryViewModel::updateCachePage(const QString &datasetKey,
         return;
     }
 
+    QSet<QString> incomingIds;
+    incomingIds.reserve(page.size());
+    for (const QJsonValue &value : page) {
+        incomingIds.insert(
+            value.toObject().value(QStringLiteral("itemId")).toString());
+    }
+    for (int index = 0;
+         index < normalizedOffset && index < cached.items.size();
+         ++index) {
+        const QString cachedId = cached.items.at(index).toObject()
+                                     .value(QStringLiteral("itemId"))
+                                     .toString();
+        if (incomingIds.contains(cachedId)) {
+            qCWarning(lcViewModels)
+                << "LibraryViewModel: paginated cache page overlaps its prefix for"
+                << datasetKey << "- invalidating the snapshot";
+            clearCacheEntry(datasetKey);
+            return;
+        }
+    }
+
     LibraryCacheEntry entry;
     entry.items = mergePage(cached, page, normalizedOffset, totalRecordCount);
     entry.totalRecordCount = totalRecordCount;
@@ -1067,7 +1089,8 @@ void LibraryViewModel::updateCachePage(const QString &datasetKey,
             datasetKey, page, totalRecordCount, false, normalizedOffset)) {
         qCWarning(lcViewModels)
             << "LibraryViewModel: failed to upsert paginated cache for"
-            << datasetKey;
+            << datasetKey << "- invalidating the persisted snapshot";
+        m_cacheStore->clearParent(datasetKey);
     }
 }
 

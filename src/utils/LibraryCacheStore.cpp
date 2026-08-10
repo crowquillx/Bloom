@@ -300,6 +300,37 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
             rollbackTransaction();
             return false;
         }
+
+        if (!incomingIds.isEmpty()) {
+            QStringList placeholders;
+            placeholders.fill(QStringLiteral("?"), incomingIds.size());
+            QSqlQuery prefixOverlap(m_db);
+            prefixOverlap.prepare(
+                QStringLiteral(
+                    "SELECT 1 FROM library_cache "
+                    "WHERE parent_id = ? AND position < ? "
+                    "AND item_id IN (%1) LIMIT 1")
+                    .arg(placeholders.join(QLatin1Char(','))));
+            prefixOverlap.addBindValue(parentId);
+            prefixOverlap.addBindValue(startPosition);
+            for (const QString &itemId : incomingIds) {
+                prefixOverlap.addBindValue(itemId);
+            }
+            if (!prefixOverlap.exec()) {
+                qCWarning(lcLibraryCache)
+                    << "Failed to check cache page prefix overlap"
+                    << prefixOverlap.lastError().text();
+                rollbackTransaction();
+                return false;
+            }
+            if (prefixOverlap.next()) {
+                qCWarning(lcLibraryCache)
+                    << "Refusing cache page that overlaps its retained prefix for"
+                    << parentId << "at position" << startPosition;
+                rollbackTransaction();
+                return false;
+            }
+        }
     }
 
     if (!items.isEmpty()) {

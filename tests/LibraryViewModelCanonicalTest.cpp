@@ -171,6 +171,7 @@ private slots:
     void unchangedCacheScopePreservesDisplayedState();
     void validEmptySnapshotIsReused();
     void paginationUsesOneDatasetCache();
+    void prefixOverlappingPageInvalidatesDatasetCache();
     void isolatedOffsetPageIsNotCachedAsDatasetStart();
     void memoryCacheIsBounded();
 
@@ -581,6 +582,23 @@ void LibraryViewModelCanonicalTest::paginationUsesOneDatasetCache()
     QVERIFY(persisted.hasSnapshot());
     QCOMPARE(persisted.items.size(), 4);
     QCOMPARE(persisted.totalCount, 4);
+}
+
+void LibraryViewModelCanonicalTest::prefixOverlappingPageInvalidatesDatasetCache()
+{
+    LibraryViewModel viewModel;
+    viewModel.loadLibrary("library", "movies", 0, 2);
+    m_libraryService->succeedItem(0, canonicalItems({"one", "two"}), 4);
+    const QString datasetKey =
+        m_libraryService->itemRequests.constFirst().datasetKey();
+    QVERIFY(viewModel.getCachedData(datasetKey).hasSnapshot());
+
+    viewModel.loadMore(2);
+    m_libraryService->succeedItem(
+        1, canonicalItems({"one", "four"}), 4);
+
+    QVERIFY(!viewModel.getCachedData(datasetKey).hasSnapshot());
+    QVERIFY(!viewModel.m_cacheStore->read(datasetKey).hasSnapshot());
 }
 
 void LibraryViewModelCanonicalTest::isolatedOffsetPageIsNotCachedAsDatasetStart()
