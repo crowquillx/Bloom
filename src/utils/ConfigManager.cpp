@@ -614,7 +614,29 @@ bool migrateLegacyWindowsConfigDirIfNeeded(const QString &targetDirPath)
 
 ConfigManager::ConfigManager(QObject *parent)
     : QObject(parent)
+    , m_storage(getConfigPath())
 {
+    // Keep the in-memory façade valid even for isolated consumers that set a
+    // value before calling load(). load() replaces this snapshot when a
+    // persisted document exists.
+    m_config = defaultConfig();
+
+    m_saveTimer.setSingleShot(true);
+    m_saveTimer.setInterval(kSaveDebounceMs);
+    connect(&m_saveTimer, &QTimer::timeout, this, [this]() {
+        persistConfig();
+    });
+
+    if (QCoreApplication *app = QCoreApplication::instance()) {
+        connect(app, &QCoreApplication::aboutToQuit, this, [this]() {
+            flushPendingSave();
+        });
+    }
+}
+
+ConfigManager::~ConfigManager()
+{
+    flushPendingSave();
 }
 
 QString ConfigManager::getConfigDir()
@@ -790,38 +812,44 @@ bool ConfigManager::ensureConfigDirExists()
 
 void ConfigManager::load()
 {
+    m_saveTimer.stop();
+    m_persistenceDirty = false;
+
     // Ensure config directory exists
     ensureConfigDirExists();
     
     QString path = getConfigPath();
-    QFile file(path);
-    if (!file.exists()) {
+    if (!QFileInfo::exists(path)) {
         qWarning() << "Config file not found, creating default:" << path;
         m_config = defaultConfig();
         save();
         return;
     }
 
-    if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "Could not open config file for reading:" << path << ", using defaults";
+    QByteArray data;
+    QString storageError;
+    if (!m_storage.read(&data, &storageError)) {
+        qWarning().noquote() << storageError << "- using defaults";
+        setPersistenceError(storageError);
+        emit persistenceFailed(storageError);
         m_config = defaultConfig();
         return;
     }
+    setPersistenceError(QString());
 
-    QByteArray data = file.readAll();
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
         qWarning() << "Invalid config file (JSON parse error):" << parseError.errorString();
-        // Backup the bad file
-        QString backup = path + ".corrupt-" + QDateTime::currentDateTime().toString(Qt::ISODate);
-        if (QFile::exists(backup)) {
-            QFile::remove(backup);
-        }
-        if (!QFile::rename(path, backup)) {
-            qWarning() << "Could not rename corrupt config file to backup:" << backup;
+        QString backupPath;
+        if (!m_storage.backup(QStringLiteral("corrupt"), &backupPath, &storageError)) {
+            qWarning().noquote() << storageError;
+            setPersistenceError(storageError);
+            emit persistenceFailed(storageError);
+            m_config = defaultConfig();
+            return;
         } else {
-            qWarning() << "Backed up corrupt config to" << backup;
+            qWarning() << "Backed up corrupt config to" << backupPath;
         }
         m_config = defaultConfig();
         save();
@@ -834,9 +862,14 @@ void ConfigManager::load()
     // Run migrations, ensure config is at the current version
     if (!migrateConfig()) {
         qWarning() << "Config migration failed -- resetting config to defaults";
-        QString backup = path + ".migratefail-" + QDateTime::currentDateTime().toString(Qt::ISODate);
-        if (QFile::exists(backup)) QFile::remove(backup);
-        QFile::rename(path, backup);
+        QString backupPath;
+        if (!m_storage.backup(QStringLiteral("migratefail"), &backupPath, &storageError)) {
+            qWarning().noquote() << storageError;
+            setPersistenceError(storageError);
+            emit persistenceFailed(storageError);
+            m_config = defaultConfig();
+            return;
+        }
         m_config = defaultConfig();
         save();
         return;
@@ -844,9 +877,14 @@ void ConfigManager::load()
 
     if (!validateConfig(m_config)) {
         qWarning() << "Config failed schema validation -- resetting to defaults";
-        QString backup = path + ".badschema-" + QDateTime::currentDateTime().toString(Qt::ISODate);
-        if (QFile::exists(backup)) QFile::remove(backup);
-        QFile::rename(path, backup);
+        QString backupPath;
+        if (!m_storage.backup(QStringLiteral("badschema"), &backupPath, &storageError)) {
+            qWarning().noquote() << storageError;
+            setPersistenceError(storageError);
+            emit persistenceFailed(storageError);
+            m_config = defaultConfig();
+            return;
+        }
         m_config = defaultConfig();
         save();
         return;
@@ -858,43 +896,78 @@ void ConfigManager::load()
     qDebug() << "Loaded config from" << path;
 }
 
-void ConfigManager::save()
+bool ConfigManager::save()
 {
-    QString path = getConfigPath();
-    QFile file(path);
-    
-    // Ensure directory exists
-    QFileInfo info(path);
-    QDir dir = info.absoluteDir();
-    if (!dir.exists()) {
-        dir.mkpath(".");
+    m_saveTimer.stop();
+    m_persistenceDirty = true;
+    return persistConfig();
+}
+
+bool ConfigManager::flushPendingSave()
+{
+    m_saveTimer.stop();
+    if (!m_persistenceDirty) {
+        return true;
+    }
+    return persistConfig();
+}
+
+QString ConfigManager::getLastPersistenceError() const
+{
+    return m_lastPersistenceError;
+}
+
+void ConfigManager::scheduleSave()
+{
+    m_persistenceDirty = true;
+    m_saveTimer.start();
+}
+
+bool ConfigManager::persistConfig()
+{
+    // Schema migrations and repair are exclusively load-time operations.
+    // Refuse to replace the last known-good file if an internal mutation ever
+    // leaves an invalid document.
+    if (!validateConfig(m_config)) {
+        const QString error = QStringLiteral(
+            "Refusing to persist an invalid configuration document");
+        m_persistenceDirty = true;
+        setPersistenceError(error);
+        qCWarning(lcConfig).noquote() << "ConfigManager:" << error;
+        emit persistenceFailed(error);
+        return false;
     }
 
-    if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "Could not open config file for writing:" << path;
+    const QByteArray data = QJsonDocument(m_config).toJson(QJsonDocument::Indented);
+    QString error;
+    if (!m_storage.writeAtomically(data, &error)) {
+        m_persistenceDirty = true;
+        setPersistenceError(error);
+        qCWarning(lcConfig).noquote() << "ConfigManager:" << error;
+        emit persistenceFailed(error);
+        return false;
+    }
+
+    m_persistenceDirty = false;
+    setPersistenceError(QString());
+    qCDebug(lcConfig) << "ConfigManager: Saved config atomically to" << m_storage.path();
+    emit configurationPersisted();
+    return true;
+}
+
+void ConfigManager::setPersistenceError(const QString &message)
+{
+    if (m_lastPersistenceError == message) {
         return;
     }
-    // Ensure current version and settings exist before saving
-    if (!m_config.contains("version")) {
-        m_config["version"] = kCurrentConfigVersion;
-    }
-    if (!m_config.contains("settings") || !m_config["settings"].isObject()) {
-        // If the config is in legacy format (top-level keys), migrate/move to settings
-        migrateConfig();
-        if (!m_config.contains("settings") || !m_config["settings"].isObject()) {
-            m_config["settings"] = QJsonObject();
-        }
-    }
-
-    QJsonDocument doc(m_config);
-    file.write(doc.toJson(QJsonDocument::Indented));
-    qDebug() << "Saved config to" << path;
+    m_lastPersistenceError = message;
+    emit persistenceErrorChanged();
 }
 
 void ConfigManager::exitApplication()
 {
     // Save configuration before exiting
-    save();
+    flushPendingSave();
     
     // Exit the application
     QCoreApplication::quit();
@@ -1626,7 +1699,7 @@ void ConfigManager::setPlaybackCompletionThreshold(int percent)
     playback["completion_threshold"] = percent;
     settings["playback"] = playback;
     m_config["settings"] = settings;
-    save();
+    scheduleSave();
     emit playbackCompletionThresholdChanged();
 }
 
@@ -1694,7 +1767,7 @@ void ConfigManager::setAudioDelay(int ms)
     playback["audio_delay"] = ms;
     settings["playback"] = playback;
     m_config["settings"] = settings;
-    save();
+    scheduleSave();
     emit audioDelayChanged();
 }
 
@@ -1776,7 +1849,7 @@ void ConfigManager::setPlaybackVolume(int volume)
     playback["playback_volume"] = clamped;
     settings["playback"] = playback;
     m_config["settings"] = settings;
-    save();
+    scheduleSave();
     emit playbackVolumeChanged();
 }
 
@@ -2133,7 +2206,7 @@ void ConfigManager::setThemeSongVolume(int level)
     playback["theme_song_volume"] = clamped;
     settings["playback"] = playback;
     m_config["settings"] = settings;
-    save();
+    scheduleSave();
     emit themeSongVolumeChanged();
 }
 
@@ -2406,7 +2479,7 @@ void ConfigManager::setManualDpiScaleOverride(qreal scale)
     }
     settings["manualDpiScaleOverride"] = clamped;
     m_config["settings"] = settings;
-    save();
+    scheduleSave();
     qDebug() << "ConfigManager: Emitting manualDpiScaleOverrideChanged() signal";
     emit manualDpiScaleOverrideChanged();
 }
@@ -2962,7 +3035,7 @@ void ConfigManager::setUiSoundsVolume(int level)
     playback["ui_sounds_volume"] = clamped;
     settings["playback"] = playback;
     m_config["settings"] = settings;
-    save();
+    scheduleSave();
     emit uiSoundsVolumeChanged();
 }
 
@@ -2995,7 +3068,7 @@ void ConfigManager::setBackdropRotationInterval(int ms)
     ui["backdrop_rotation_interval"] = ms;
     settings["ui"] = ui;
     m_config["settings"] = settings;
-    save();
+    scheduleSave();
     emit backdropRotationIntervalChanged();
 }
 

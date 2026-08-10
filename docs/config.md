@@ -12,6 +12,16 @@ Responsibilities
 - Persist app-specific settings: `playbackCompletionThreshold`, `autoplayNextEpisode`, `backdropRotationInterval`, `screensaver*`, mpv extra flags.
 - Emit change signals to allow QML to react to setting updates.
 
+Persistence lifecycle
+- `ConfigStorage` owns checked filesystem reads, recovery backups, and atomic `QSaveFile` replacement. It has no schema or migration policy.
+- `ConfigManager` remains the stable QML-facing façade. Setters update the in-memory document and emit their change signal synchronously.
+- High-frequency values such as playback volume, audio delay, UI/theme-song volume, backdrop interval, and manual DPI scale use a 350 ms trailing debounce before writing the full document. A later immediate save also flushes those in-memory changes.
+- Connection/credential-reference changes, active-connection changes, legacy-credential cleanup, and logout/session cleanup persist immediately.
+- Pending changes flush on `QCoreApplication::aboutToQuit`, `ConfigManager` destruction, explicit `save()`, and `flushPendingSave()`.
+- Write/open/commit failures keep the document dirty for a later retry, populate `lastPersistenceError`, and emit `persistenceFailed(message)`. Successful persistence clears the error and emits `configurationPersisted()`.
+- ConfigManager starts with a valid current default document so isolated consumers remain safe before `load()`. Schema migrations and repair run only from `load()`; persistence never invokes migration code and refuses to overwrite the last known-good file with an invalid in-memory document.
+- Invalid JSON and failed-schema/migration input is moved to a recovery filename using a Windows-safe UTC timestamp such as `app.json.corrupt-20260810T142233123Z` before defaults are atomically written. If the backup cannot be created, Bloom uses defaults in memory without overwriting the original.
+
 Best practices
 - Add Q_PROPERTY for each new setting to enable reactive QML bindings.
 - Read settings at point-of-use in C++ to avoid stale cache; if you must cache, connect to change signals to refresh the cache.
@@ -76,7 +86,8 @@ MPV profile management
 
 When adding settings
 - Update `ConfigManager.h` (Q_PROPERTY & signals).
-- Implement getters/setters in `ConfigManager.cpp` that persist to `app.json` and emit signals on change.
+- Implement getters/setters in `ConfigManager.cpp` that update the in-memory document and emit signals on change.
+- Use immediate `save()` for identity, credentials/credential references, logout cleanup, or other state that must survive the next process boundary. Use `scheduleSave()` only for high-frequency UI/session values; destruction and application shutdown are guaranteed flush boundaries.
 - Update docs (this file) and add UI controls in `SettingsScreen.qml` where appropriate.
 
 Logging settings
