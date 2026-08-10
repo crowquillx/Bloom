@@ -376,7 +376,7 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                 endRequest(QStringLiteral("descriptor"), itemId, requestContext, generation);
             }
         },
-        0, true, false);
+        0, true, RetrySafety::Never);
 }
 
 bool PlaybackService::switchPlaybackAudio(const QString &playbackSessionId,
@@ -594,7 +594,7 @@ void PlaybackService::sendRequestWithRetry(const QString &endpoint,
                                             FailureHandler failureHandler,
                                             int attemptNumber,
                                             bool deferSessionExpiry,
-                                            bool enableTransientRetry)
+                                            RetrySafety retrySafety)
 {
     Q_UNUSED(attemptNumber)
     if (!m_transport) {
@@ -611,7 +611,7 @@ void PlaybackService::sendRequestWithRetry(const QString &endpoint,
 
     HttpRequestOptions options;
     options.retryPolicy = m_retryPolicy;
-    options.retryEnabled = enableTransientRetry;
+    options.retrySafety = retrySafety;
     options.unauthorizedPolicy = deferSessionExpiry
         ? UnauthorizedPolicy::DeferSessionExpiry
         : UnauthorizedPolicy::ExpireSession;
@@ -724,7 +724,10 @@ void PlaybackService::getPlaybackInfo(const QString &itemId, const QString &requ
                                                           requestContext);
                     }
                 }
-            });
+            },
+            0,
+            true,
+            RetrySafety::Idempotent);
         return;
     }
 
@@ -784,7 +787,10 @@ void PlaybackService::getPlaybackInfo(const QString &itemId, const QString &requ
                                                       requestContext);
                 }
             }
-        });
+        },
+        0,
+        true,
+        RetrySafety::Idempotent);
 }
 
 void PlaybackService::getAdditionalParts(const QString &itemId)
@@ -858,7 +864,10 @@ void PlaybackService::getAdditionalParts(const QString &itemId,
                                                          requestContext);
                 }
             }
-        });
+        },
+        0,
+        true,
+        RetrySafety::Idempotent);
 }
 
 void PlaybackService::getMediaSegments(const QString &itemId)
@@ -1058,12 +1067,18 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
                             if (!self) return;
                             self->finishExternalMediaSegments(itemId, serverSegments, segments);
                         });
-                });
+                },
+                0,
+                true,
+                RetrySafety::Idempotent);
         },
         [this, itemId, serverSegments](const NetworkError &error) {
             Q_UNUSED(error);
             finishMediaSegments(itemId, serverSegments);
-        });
+        },
+        0,
+        true,
+        RetrySafety::Idempotent);
 }
 
 void PlaybackService::finishExternalMediaSegments(const QString &itemId,
@@ -1128,7 +1143,11 @@ void PlaybackService::getTrickplayInfo(const QString &itemId)
                                     << "- Resolutions:" << trickplayInfo.keys();
             }
             emit trickplayInfoLoaded(itemId, trickplayInfo);
-        });
+        },
+        FailureHandler(),
+        0,
+        true,
+        RetrySafety::Idempotent);
 }
 
 QString PlaybackService::getTrickplayTileUrl(const QString &itemId, int width, int tileIndex)

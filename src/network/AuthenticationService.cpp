@@ -525,7 +525,6 @@ void AuthenticationService::probeProviderAndLogin(const QString &username,
     ProviderRequestContext context = requestContext(false);
     const IProviderRequestFactory *factory = silo->requestFactory();
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
     m_transport->sendWithRetry(
         this,
@@ -572,7 +571,6 @@ void AuthenticationService::performLogin(const QString &username,
     }
 
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
     m_transport->sendWithRetry(
         this,
@@ -770,7 +768,6 @@ void AuthenticationService::loadProfiles(bool finishWhenUnavailable)
 
     const quint64 generation = m_stateGeneration;
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     m_transport->sendWithRetry(
         this,
@@ -912,7 +909,6 @@ void AuthenticationService::verifyProfilePin(const QString &profileId, const QSt
     m_pendingProfileId = profileId;
     const quint64 generation = m_stateGeneration;
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     m_transport->sendWithRetry(
         this,
@@ -976,7 +972,6 @@ void AuthenticationService::loadAuthSessions()
 
     const quint64 generation = m_stateGeneration;
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     m_transport->sendWithRetry(
         this,
@@ -1053,7 +1048,6 @@ void AuthenticationService::revokeAuthSession(const QString &sessionId)
 
     const quint64 generation = m_stateGeneration;
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     m_transport->sendWithRetry(
         this,
@@ -1101,7 +1095,6 @@ void AuthenticationService::remoteLogout()
     }
     const quint64 generation = m_stateGeneration;
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     m_transport->sendWithRetry(
         this,
@@ -1151,7 +1144,6 @@ void AuthenticationService::refreshAuthentication(std::function<void(bool)> comp
         callback(success);
     };
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
     m_transport->sendWithRetry(
         this,
@@ -1440,7 +1432,6 @@ void AuthenticationService::validateAccessToken(std::function<void(bool)> callba
         resultCallback(valid);
     };
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::Ignore;
     m_transport->sendWithRetry(
         this,

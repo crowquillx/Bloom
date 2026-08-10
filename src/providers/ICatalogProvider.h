@@ -40,6 +40,11 @@ enum class ProviderHttpMethod {
     Delete
 };
 
+enum class ProviderCatalogRetrySafety {
+    Never,
+    Idempotent
+};
+
 enum class ProviderCatalogTriState {
     Any,
     Yes,
@@ -88,6 +93,7 @@ struct ProviderCatalogQuery {
 
 struct ProviderCatalogRequest {
     ProviderHttpMethod method = ProviderHttpMethod::Get;
+    ProviderCatalogRetrySafety retrySafety = ProviderCatalogRetrySafety::Never;
     QString relativeEndpoint;
     QByteArray body;
     QHash<QByteArray, QByteArray> extraHeaders;

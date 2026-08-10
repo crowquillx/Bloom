@@ -239,6 +239,7 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     request = provider.createRequest(ProviderCatalogOperation::SetWatched, state);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Post);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
     QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v1/watched/content-42"));
     request = provider.createRequest(ProviderCatalogOperation::SetFavorite, state);
     QVERIFY(request.supported);
@@ -276,6 +277,7 @@ void SiloCatalogServiceTest::structuredFiltersUseNativeQueryBody()
         ProviderCatalogOperation::Items, query);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Post);
+    QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
     QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v1/catalog/query"));
     QCOMPARE(request.extraHeaders.value(QByteArrayLiteral("Content-Type")),
              QByteArrayLiteral("application/json"));

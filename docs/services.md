@@ -14,7 +14,7 @@ Key services
 - `IPlayerBackend` — Playback backend abstraction registered in `ServiceLocator`.
 - `ExternalMpvBackend` — External mpv process/IPC backend adapter (primary rollback path on Linux/non-Windows).
 - `PlayerProcessManager` — Manages external mpv process & IPC (used by `ExternalMpvBackend`).
-- `HttpTransport` — Owns the shared `QNetworkAccessManager` and central retry, cancellation, error, redaction, and unauthorized-response policy.
+- `HttpTransport` — Owns the shared `QNetworkAccessManager`, bounded request/auth-recovery deadlines, explicit retry-safety policy, cancellation, separated transport/HTTP errors, redaction, and unauthorized-response handling.
 - `IProviderAdapter` — Selected provider bundle consumed by stable application façades; detection keeps native Silo and MediaBrowser compatibility connections distinct.
 - `JellyfinProviderAdapter` — Jellyfin authenticator, request factory, catalog, artwork, and playback boundaries for the MediaBrowser surface.
 - `SiloProviderAdapter` — Native Silo `/api/v1` bundle; composes `SiloAuthenticator`, `SiloRequestFactory`, `SiloCatalogProvider`, `SiloArtworkProvider`, and `SiloPlaybackProvider`.

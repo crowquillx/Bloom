@@ -156,6 +156,7 @@ private:
     {
         ProviderCatalogRequest request;
         request.method = ProviderHttpMethod::Get;
+        request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
         request.relativeEndpoint = endpoint;
         request.supported = true;
         return request;
@@ -190,6 +191,7 @@ private:
         ProviderCatalogRequest request = getWithContentId(format, contentId);
         if (request.supported) {
             request.method = method;
+            request.retrySafety = ProviderCatalogRetrySafety::Never;
         }
         return request;
     }
@@ -711,6 +713,7 @@ private:
             }
             ProviderCatalogRequest request;
             request.method = ProviderHttpMethod::Post;
+            request.retrySafety = ProviderCatalogRetrySafety::Idempotent;
             request.relativeEndpoint = QStringLiteral("/api/v1/catalog/query");
             request.body = QJsonDocument(body).toJson(QJsonDocument::Compact);
             request.extraHeaders.insert(QByteArrayLiteral("Content-Type"),

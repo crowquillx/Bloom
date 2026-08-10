@@ -2,6 +2,7 @@
 
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPointer>
@@ -39,6 +40,11 @@ public:
         }
         open(QIODevice::ReadOnly);
         QTimer::singleShot(0, this, [this]() { finish(); });
+    }
+
+    void setResponseHeader(const QByteArray &name, const QByteArray &value)
+    {
+        setRawHeader(name, value);
     }
 
     void abort() override
@@ -84,6 +90,39 @@ private:
     qint64 m_offset = 0;
 };
 
+class HangingReply final : public QNetworkReply
+{
+public:
+    explicit HangingReply(const QNetworkRequest &request,
+                          QObject *parent,
+                          int statusCode = 0)
+        : QNetworkReply(parent)
+    {
+        setRequest(request);
+        setUrl(request.url());
+        if (statusCode > 0) {
+            setAttribute(QNetworkRequest::HttpStatusCodeAttribute, statusCode);
+        }
+        open(QIODevice::ReadOnly);
+    }
+
+    void abort() override
+    {
+        if (isFinished()) {
+            return;
+        }
+        setError(OperationCanceledError, QStringLiteral("canceled"));
+        setFinished(true);
+        emit finished();
+    }
+
+protected:
+    qint64 readData(char *, qint64) override
+    {
+        return -1;
+    }
+};
+
 QNetworkRequest requestFor(const QString &path)
 {
     return QNetworkRequest(QUrl(QStringLiteral("https://media.example.test") + path));
@@ -101,12 +140,21 @@ private slots:
     void jellyfinRequestFactoryNormalizesUrlAndRedactsSecrets();
     void jellyfinAuthenticatorOwnsLoginAndValidationWireContract();
     void transportRetriesTransientFailures();
+    void transportRetriesRetryableHttpStatuses_data();
+    void transportRetriesRetryableHttpStatuses();
     void transportDoesNotRetryClientErrors();
+    void transportDoesNotReplayUnsafeMutation();
     void transportSuppressesCancellationCallbacks();
+    void transportEnforcesAttemptDeadline();
+    void transportRetriesExpiredIdempotentAttempt();
+    void transportTreatsTimedOut401AsTimeout();
     void transportEmitsUnauthorizedPolicy();
     void transportCoalescesUnauthorizedRecovery();
     void transportCapsUnauthorizedRetryAtOne();
+    void transportBoundsUnauthorizedRecovery();
     void transportTreatsRefreshFailureAsTerminal();
+    void transportSeparatesNetworkAndHttpErrors();
+    void retryAfterIsBounded();
     void cancellationIsNotClassifiedAsTransient();
 };
 
@@ -197,6 +245,7 @@ void ProviderTransportTest::transportRetriesTransientFailures()
     int failures = 0;
     HttpRequestOptions options;
     options.retryPolicy = RetryPolicy{3, 0, true};
+    options.retrySafety = RetrySafety::Idempotent;
 
     transport.sendWithRetry(
         this,
@@ -218,6 +267,50 @@ void ProviderTransportTest::transportRetriesTransientFailures()
     QCOMPARE(failures, 0);
 }
 
+void ProviderTransportTest::transportRetriesRetryableHttpStatuses_data()
+{
+    QTest::addColumn<int>("status");
+    QTest::newRow("request-timeout") << 408;
+    QTest::newRow("too-many-requests") << 429;
+    QTest::newRow("internal-server-error") << 500;
+    QTest::newRow("bad-gateway") << 502;
+    QTest::newRow("service-unavailable") << 503;
+    QTest::newRow("gateway-timeout") << 504;
+}
+
+void ProviderTransportTest::transportRetriesRetryableHttpStatuses()
+{
+    QFETCH(int, status);
+
+    HttpTransport transport;
+    int attempts = 0;
+    int successes = 0;
+    int failures = 0;
+    HttpRequestOptions options;
+    options.retryPolicy = RetryPolicy{2, 0, true, 0, 0.0};
+    options.retrySafety = RetrySafety::Idempotent;
+
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/retryable-status"),
+        [&]() -> QNetworkReply * {
+            ++attempts;
+            return new FakeReply(
+                requestFor(QStringLiteral("/retryable-status")),
+                QNetworkReply::NoError,
+                attempts == 1 ? status : 200,
+                QByteArray(),
+                &transport);
+        },
+        [&](QNetworkReply *) { ++successes; },
+        [&](const NetworkError &) { ++failures; },
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(successes, 1, 1000);
+    QCOMPARE(attempts, 2);
+    QCOMPARE(failures, 0);
+}
+
 void ProviderTransportTest::transportDoesNotRetryClientErrors()
 {
     HttpTransport transport;
@@ -225,6 +318,7 @@ void ProviderTransportTest::transportDoesNotRetryClientErrors()
     int failures = 0;
     HttpRequestOptions options;
     options.retryPolicy = RetryPolicy{3, 0, true};
+    options.retrySafety = RetrySafety::Idempotent;
 
     transport.sendWithRetry(
         this,
@@ -245,6 +339,40 @@ void ProviderTransportTest::transportDoesNotRetryClientErrors()
     QCOMPARE(attempts, 1);
 }
 
+void ProviderTransportTest::transportDoesNotReplayUnsafeMutation()
+{
+    HttpTransport transport;
+    int attempts = 0;
+    int failures = 0;
+    NetworkError received;
+    HttpRequestOptions options;
+    options.retryPolicy = RetryPolicy{3, 0, true, 0, 0.0};
+    options.retrySafety = RetrySafety::Never;
+
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/mutation"),
+        [&]() -> QNetworkReply * {
+            ++attempts;
+            return new FakeReply(
+                requestFor(QStringLiteral("/mutation")),
+                QNetworkReply::NoError,
+                503,
+                QByteArray(),
+                &transport);
+        },
+        [](QNetworkReply *) {},
+        [&](const NetworkError &error) {
+            received = error;
+            ++failures;
+        },
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
+    QCOMPARE(attempts, 1);
+    QCOMPARE(received.httpStatus, 503);
+}
+
 void ProviderTransportTest::transportSuppressesCancellationCallbacks()
 {
     HttpTransport transport;
@@ -252,6 +380,7 @@ void ProviderTransportTest::transportSuppressesCancellationCallbacks()
     int failures = 0;
     HttpRequestOptions options;
     options.retryPolicy = RetryPolicy{3, 0, true};
+    options.retrySafety = RetrySafety::Idempotent;
 
     QPointer<HttpRequestHandle> handle = transport.sendWithRetry(
         this,
@@ -274,13 +403,125 @@ void ProviderTransportTest::transportSuppressesCancellationCallbacks()
     QCOMPARE(attempts, 1);
 }
 
+void ProviderTransportTest::transportEnforcesAttemptDeadline()
+{
+    HttpTransport transport;
+    int attempts = 0;
+    int failures = 0;
+    NetworkError received;
+    HttpRequestOptions options;
+    options.retryPolicy = RetryPolicy{1, 0, true, 0, 0.0};
+    options.retrySafety = RetrySafety::Idempotent;
+    options.attemptTimeoutMs = 20;
+
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/hang"),
+        [&]() -> QNetworkReply * {
+            ++attempts;
+            return new HangingReply(
+                requestFor(QStringLiteral("/hang")), &transport);
+        },
+        [](QNetworkReply *) {},
+        [&](const NetworkError &error) {
+            received = error;
+            ++failures;
+        },
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
+    QCOMPARE(attempts, 1);
+    QCOMPARE(received.networkErrorCode,
+             static_cast<int>(QNetworkReply::TimeoutError));
+    QCOMPARE(received.httpStatus, 0);
+    QCOMPARE(received.code,
+             static_cast<int>(QNetworkReply::TimeoutError));
+    QVERIFY(received.userMessage.contains(
+        QStringLiteral("timed out"), Qt::CaseInsensitive));
+}
+
+void ProviderTransportTest::transportRetriesExpiredIdempotentAttempt()
+{
+    HttpTransport transport;
+    int attempts = 0;
+    int successes = 0;
+    int failures = 0;
+    HttpRequestOptions options;
+    options.retryPolicy = RetryPolicy{2, 0, true, 0, 0.0};
+    options.retrySafety = RetrySafety::Idempotent;
+    options.attemptTimeoutMs = 20;
+
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/retry-timeout"),
+        [&]() -> QNetworkReply * {
+            ++attempts;
+            if (attempts == 1) {
+                return new HangingReply(
+                    requestFor(QStringLiteral("/retry-timeout")), &transport);
+            }
+            return new FakeReply(
+                requestFor(QStringLiteral("/retry-timeout")),
+                QNetworkReply::NoError,
+                200,
+                QByteArray(),
+                &transport);
+        },
+        [&](QNetworkReply *) { ++successes; },
+        [&](const NetworkError &) { ++failures; },
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(successes, 1, 1000);
+    QCOMPARE(attempts, 2);
+    QCOMPARE(failures, 0);
+}
+
+void ProviderTransportTest::transportTreatsTimedOut401AsTimeout()
+{
+    HttpTransport transport;
+    QSignalSpy unauthorizedSpy(&transport, &HttpTransport::unauthorized);
+    int refreshes = 0;
+    int failures = 0;
+    NetworkError received;
+    transport.setUnauthorizedRecovery(
+        [&](std::function<void(bool)>) { ++refreshes; });
+
+    HttpRequestOptions options;
+    options.retryPolicy = RetryPolicy{1, 0, true, 0, 0.0};
+    options.retrySafety = RetrySafety::Idempotent;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    options.attemptTimeoutMs = 20;
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/stalled-unauthorized"),
+        [&]() -> QNetworkReply * {
+            return new HangingReply(
+                requestFor(QStringLiteral("/stalled-unauthorized")),
+                &transport,
+                401);
+        },
+        [](QNetworkReply *) {},
+        [&](const NetworkError &error) {
+            received = error;
+            ++failures;
+        },
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
+    QCOMPARE(refreshes, 0);
+    QCOMPARE(unauthorizedSpy.count(), 0);
+    QCOMPARE(received.code, static_cast<int>(QNetworkReply::TimeoutError));
+    QCOMPARE(received.networkErrorCode,
+             static_cast<int>(QNetworkReply::TimeoutError));
+    QCOMPARE(received.httpStatus, 401);
+}
+
 void ProviderTransportTest::transportEmitsUnauthorizedPolicy()
 {
     HttpTransport transport;
     QSignalSpy unauthorizedSpy(&transport, &HttpTransport::unauthorized);
     int failures = 0;
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::DeferSessionExpiry;
 
     transport.sendWithRetry(
@@ -323,7 +564,6 @@ void ProviderTransportTest::transportCoalescesUnauthorizedRecovery()
     });
 
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     const auto factory = [&](int &attempts, const QString &path) -> QNetworkReply * {
         ++attempts;
@@ -394,7 +634,7 @@ void ProviderTransportTest::transportCapsUnauthorizedRetryAtOne()
     });
 
     HttpRequestOptions options;
-    options.retryEnabled = true;
+    options.retrySafety = RetrySafety::Idempotent;
     options.retryPolicy = RetryPolicy{5, 0, true};
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     transport.sendWithRetry(
@@ -424,6 +664,58 @@ void ProviderTransportTest::transportCapsUnauthorizedRetryAtOne()
     QCOMPARE(refreshes, 1);
 }
 
+void ProviderTransportTest::transportBoundsUnauthorizedRecovery()
+{
+    HttpTransport transport;
+    QSignalSpy unauthorizedSpy(&transport, &HttpTransport::unauthorized);
+    int refreshes = 0;
+    int failures = 0;
+    int successes = 0;
+    NetworkError received;
+    std::function<void(bool)> finishRefresh;
+    transport.setUnauthorizedRecovery(
+        [&](std::function<void(bool)> completion) {
+            ++refreshes;
+            finishRefresh = std::move(completion);
+        });
+
+    HttpRequestOptions options;
+    options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
+    options.unauthorizedRecoveryTimeoutMs = 20;
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/api/v1/recovery-timeout"),
+        [&]() -> QNetworkReply * {
+            return new FakeReply(
+                requestFor(QStringLiteral("/api/v1/recovery-timeout")),
+                QNetworkReply::AuthenticationRequiredError,
+                401,
+                QByteArray(),
+                &transport);
+        },
+        [&](QNetworkReply *) { ++successes; },
+        [&](const NetworkError &error) {
+            received = error;
+            ++failures;
+        },
+        options);
+
+    QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
+    QCOMPARE(refreshes, 1);
+    QCOMPARE(successes, 0);
+    QCOMPARE(unauthorizedSpy.count(), 1);
+    QCOMPARE(received.networkErrorCode,
+             static_cast<int>(QNetworkReply::TimeoutError));
+    QVERIFY(received.userMessage.contains(
+        QStringLiteral("recovery timed out"), Qt::CaseInsensitive));
+
+    QVERIFY(finishRefresh);
+    finishRefresh(true);
+    QTest::qWait(30);
+    QCOMPARE(failures, 1);
+    QCOMPARE(successes, 0);
+}
+
 void ProviderTransportTest::transportTreatsRefreshFailureAsTerminal()
 {
     HttpTransport transport;
@@ -437,7 +729,6 @@ void ProviderTransportTest::transportTreatsRefreshFailureAsTerminal()
     });
 
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     transport.sendWithRetry(
         this,
@@ -464,6 +755,65 @@ void ProviderTransportTest::transportTreatsRefreshFailureAsTerminal()
     QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
     QCOMPARE(attempts, 1);
     QCOMPARE(refreshes, 1);
+}
+
+void ProviderTransportTest::transportSeparatesNetworkAndHttpErrors()
+{
+    HttpTransport transport;
+    int failures = 0;
+    NetworkError received;
+
+    transport.sendWithRetry(
+        this,
+        QStringLiteral("/provider-error"),
+        [&]() -> QNetworkReply * {
+            return new FakeReply(
+                requestFor(QStringLiteral("/provider-error")),
+                QNetworkReply::UnknownServerError,
+                503,
+                QByteArrayLiteral(
+                    R"({"Message":"Provider failure","ErrorCode":"ProviderBusy"})"),
+                &transport);
+        },
+        [](QNetworkReply *) {},
+        [&](const NetworkError &error) {
+            received = error;
+            ++failures;
+        });
+
+    QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
+    QCOMPARE(received.code, 503);
+    QCOMPARE(received.httpStatus, 503);
+    QCOMPARE(received.networkErrorCode,
+             static_cast<int>(QNetworkReply::UnknownServerError));
+    QCOMPARE(received.providerErrorCode, QStringLiteral("ProviderBusy"));
+    QCOMPARE(received.userMessage, QStringLiteral("Provider failure"));
+    QVERIFY(!received.responseBody.isEmpty());
+}
+
+void ProviderTransportTest::retryAfterIsBounded()
+{
+    HttpTransport transport;
+    auto *reply = new FakeReply(
+        requestFor(QStringLiteral("/retry-after")),
+        QNetworkReply::NoError,
+        429,
+        QByteArray(),
+        &transport);
+    reply->setResponseHeader(
+        QByteArrayLiteral("Retry-After"), QByteArrayLiteral("7"));
+
+    QCOMPARE(ErrorHandler::retryAfterDelayMs(reply, 250), 250);
+    const QByteArray futureHttpDate = QLocale::c()
+        .toString(QDateTime::currentDateTimeUtc().addSecs(60),
+                  QStringLiteral("ddd, dd MMM yyyy HH:mm:ss 'GMT'"))
+        .toLatin1();
+    reply->setResponseHeader(
+        QByteArrayLiteral("Retry-After"), futureHttpDate);
+    QCOMPARE(ErrorHandler::retryAfterDelayMs(reply, 250), 250);
+    reply->setResponseHeader(
+        QByteArrayLiteral("Retry-After"), QByteArrayLiteral("invalid"));
+    QCOMPARE(ErrorHandler::retryAfterDelayMs(reply, 250), -1);
 }
 
 

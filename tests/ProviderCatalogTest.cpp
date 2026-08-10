@@ -152,6 +152,7 @@ void ProviderCatalogTest::jellyfinMutationsAndPaginationRemainCompatible()
         ProviderCatalogOperation::SetWatched, query);
     QVERIFY(markWatched.supported);
     QCOMPARE(markWatched.method, ProviderHttpMethod::Post);
+    QCOMPARE(markWatched.retrySafety, ProviderCatalogRetrySafety::Never);
     QCOMPARE(markWatched.relativeEndpoint,
              QStringLiteral("/Users/user-1/PlayedItems/item-9"));
     QCOMPARE(markWatched.extraHeaders.value(QByteArrayLiteral("Content-Type")),
@@ -162,6 +163,7 @@ void ProviderCatalogTest::jellyfinMutationsAndPaginationRemainCompatible()
         ProviderCatalogOperation::SetFavorite, query);
     QVERIFY(clearFavorite.supported);
     QCOMPARE(clearFavorite.method, ProviderHttpMethod::Delete);
+    QCOMPARE(clearFavorite.retrySafety, ProviderCatalogRetrySafety::Never);
     QCOMPARE(clearFavorite.relativeEndpoint,
              QStringLiteral("/Users/user-1/FavoriteItems/item-9"));
 

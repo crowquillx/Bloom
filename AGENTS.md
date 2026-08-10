@@ -18,6 +18,8 @@ Conventions: C++ PascalCase classes, camelCase methods, `m_` prefix; QML PascalC
 
 Playback & API: Provider-owned playback lifecycle/report routing serializes each provider's wire contract; key Jellyfin endpoints include `/Users/{userId}/Items`, `/Shows/NextUp`, `/PlaybackInfo`, `/Sessions/Playing`.
 
+Network policy: `HttpTransport` requests have bounded attempt and unauthorized-recovery deadlines. Retries are opt-in by operation semantics, not inferred from HTTP methods: safe reads (including read-only `POST` queries) use `Idempotent`, mutations default to `Never`, and replayable mutations require a stable idempotency mechanism. `RetryPolicy::maxAttempts` includes the initial attempt; keep provider parsing outside the transport and preserve separated network, HTTP, and provider error fields.
+
 Windows embedded playback guardrail (regression prevention):
 - When using `win-libmpv` embedded playback (`--wid` child window), playback controls MUST render in a dedicated transparent top-level overlay `Window` synced to the app window geometry.
 - Any app-level overlay that must be visible during Windows embedded playback (for example the screensaver while paused) MUST also render in a synced top-level overlay `Window`.
