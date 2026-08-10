@@ -172,6 +172,7 @@ private slots:
     void validEmptySnapshotIsReused();
     void paginationUsesOneDatasetCache();
     void prefixOverlappingPageInvalidatesDatasetCache();
+    void suffixOverlapInvalidatesUnverifiedCachePositions();
     void isolatedOffsetPageIsNotCachedAsDatasetStart();
     void memoryCacheIsBounded();
 
@@ -599,6 +600,36 @@ void LibraryViewModelCanonicalTest::prefixOverlappingPageInvalidatesDatasetCache
 
     QVERIFY(!viewModel.getCachedData(datasetKey).hasSnapshot());
     QVERIFY(!viewModel.m_cacheStore->read(datasetKey).hasSnapshot());
+}
+
+void LibraryViewModelCanonicalTest::suffixOverlapInvalidatesUnverifiedCachePositions()
+{
+    LibraryViewModel viewModel;
+    const QString datasetKey = QStringLiteral("suffix-reorder");
+    viewModel.updateCache(
+        datasetKey,
+        QJsonArray::fromVariantList(
+            canonicalItems({"one", "two", "three", "four", "five"})),
+        5);
+
+    viewModel.updateCachePage(
+        datasetKey,
+        QJsonArray::fromVariantList(canonicalItems({"one", "four"})),
+        5,
+        0);
+
+    const LibraryCacheEntry cached = viewModel.getCachedData(datasetKey);
+    QCOMPARE(cached.items.size(), 2);
+    QCOMPARE(cached.items.at(0).toObject()
+                 .value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("one"));
+    QCOMPARE(cached.items.at(1).toObject()
+                 .value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("four"));
+
+    const auto persisted = viewModel.m_cacheStore->read(datasetKey);
+    QCOMPARE(persisted.items, cached.items);
+    QCOMPARE(persisted.totalCount, 5);
 }
 
 void LibraryViewModelCanonicalTest::isolatedOffsetPageIsNotCachedAsDatasetStart()

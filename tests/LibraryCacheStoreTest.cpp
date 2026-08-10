@@ -16,7 +16,7 @@ private slots:
     void upsertWithOffsets();
     void rejectsNonContiguousOffset();
     void upsertReplacesPageRange();
-    void movingExistingItemKeepsPositionsContiguous();
+    void movingExistingItemInvalidatesUnverifiedSuffix();
     void prefixOverlapIsRejectedWithoutMutation();
     void upsertWithPrune();
     void malformedRowsInvalidateSnapshot();
@@ -161,7 +161,7 @@ void LibraryCacheStoreTest::upsertReplacesPageRange()
              QStringLiteral("four"));
 }
 
-void LibraryCacheStoreTest::movingExistingItemKeepsPositionsContiguous()
+void LibraryCacheStoreTest::movingExistingItemInvalidatesUnverifiedSuffix()
 {
     QTemporaryDir dir;
     LibraryCacheStore store(tempDbPath(dir), 600000);
@@ -177,32 +177,35 @@ void LibraryCacheStoreTest::movingExistingItemKeepsPositionsContiguous()
     QVERIFY(store.replaceAll("parent", initial, 5));
 
     const QJsonArray replacement{
+        QJsonObject{{"itemId", "one"}},
         QJsonObject{{"itemId", "four"}},
-        QJsonObject{{"itemId", "new-three"}},
     };
-    QVERIFY(store.upsertItems("parent", replacement, 5, false, 1));
+    QVERIFY(store.upsertItems("parent", replacement, 5, false, 0));
 
     const auto moved = store.read("parent");
-    QCOMPARE(moved.items.size(), 4);
+    QCOMPARE(moved.items.size(), 2);
     QCOMPARE(moved.items.at(0).toObject().value("itemId").toString(),
              QStringLiteral("one"));
     QCOMPARE(moved.items.at(1).toObject().value("itemId").toString(),
              QStringLiteral("four"));
-    QCOMPARE(moved.items.at(2).toObject().value("itemId").toString(),
-             QStringLiteral("new-three"));
-    QCOMPARE(moved.items.at(3).toObject().value("itemId").toString(),
-             QStringLiteral("five"));
 
-    // A later page can extend the compacted prefix; the moved row did not
-    // leave a hidden gap that poisons subsequent pagination.
+    // Resume at the first unknown server offset. The reordered item formerly
+    // at position one is fetched instead of being skipped by compaction.
+    const QJsonArray nextPage{
+        QJsonObject{{"itemId", "two"}},
+        QJsonObject{{"itemId", "three"}},
+    };
+    QVERIFY(store.upsertItems("parent", nextPage, 5, false, 2));
     const QJsonArray finalPage{
-        QJsonObject{{"itemId", "new-five"}},
+        QJsonObject{{"itemId", "five"}},
     };
     QVERIFY(store.upsertItems("parent", finalPage, 5, false, 4));
     const auto completed = store.read("parent");
     QCOMPARE(completed.items.size(), 5);
+    QCOMPARE(completed.items.at(2).toObject().value("itemId").toString(),
+             QStringLiteral("two"));
     QCOMPARE(completed.items.at(4).toObject().value("itemId").toString(),
-             QStringLiteral("new-five"));
+             QStringLiteral("five"));
 }
 
 void LibraryCacheStoreTest::prefixOverlapIsRejectedWithoutMutation()
@@ -312,4 +315,3 @@ void LibraryCacheStoreTest::freshnessDetection()
 
 QTEST_MAIN(LibraryCacheStoreTest)
 #include "LibraryCacheStoreTest.moc"
-

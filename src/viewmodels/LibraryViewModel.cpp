@@ -1078,8 +1078,28 @@ void LibraryViewModel::updateCachePage(const QString &datasetKey,
         }
     }
 
+    const int pageEnd = normalizedOffset + page.size();
+    bool overlapsRetainedSuffix = false;
+    for (int index = pageEnd; index < cached.items.size(); ++index) {
+        const QString cachedId = cached.items.at(index).toObject()
+                                     .value(QStringLiteral("itemId"))
+                                     .toString();
+        if (incomingIds.contains(cachedId)) {
+            overlapsRetainedSuffix = true;
+            break;
+        }
+    }
+
     LibraryCacheEntry entry;
     entry.items = mergePage(cached, page, normalizedOffset, totalRecordCount);
+    if (overlapsRetainedSuffix) {
+        // A moved suffix item proves that every later cached position may have
+        // shifted. Keep only the verified prefix and incoming page so the next
+        // load resumes at the first unknown server offset.
+        while (entry.items.size() > pageEnd) {
+            entry.items.removeLast();
+        }
+    }
     entry.totalRecordCount = totalRecordCount;
     entry.timestamp = QDateTime::currentMSecsSinceEpoch();
     storeMemoryCache(scopedCacheKey(datasetKey), entry);

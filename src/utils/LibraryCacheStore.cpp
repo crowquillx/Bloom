@@ -279,7 +279,7 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
     }
 
     const qint64 now = nowMs();
-    bool requiresPositionNormalization = false;
+    bool truncateRetainedSuffix = false;
 
     if (startPosition > 0) {
         QSqlQuery prefix(m_db);
@@ -368,8 +368,24 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
             rollbackTransaction();
             return false;
         }
-        requiresPositionNormalization =
+        truncateRetainedSuffix =
             clearPreviousPositions.numRowsAffected() > 0;
+
+        if (truncateRetainedSuffix) {
+            QSqlQuery truncateSuffix(m_db);
+            truncateSuffix.prepare(
+                "DELETE FROM library_cache "
+                "WHERE parent_id = ? AND position >= ?");
+            truncateSuffix.addBindValue(parentId);
+            truncateSuffix.addBindValue(startPosition + items.size());
+            if (!truncateSuffix.exec()) {
+                qCWarning(lcLibraryCache)
+                    << "Failed to invalidate unverified cache suffix"
+                    << truncateSuffix.lastError().text();
+                rollbackTransaction();
+                return false;
+            }
+        }
     }
 
     QSqlQuery upsert(m_db);
@@ -410,44 +426,6 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
                                       << prune.lastError().text();
             rollbackTransaction();
             return false;
-        }
-    }
-
-    // Moving an item from a retained prefix or suffix into this page leaves a
-    // positional hole after its old row is removed. Re-number the remaining
-    // snapshot in one transaction so future page-contiguity checks and reads
-    // observe one coherent sequence.
-    if (requiresPositionNormalization) {
-        QList<qint64> orderedRowIds;
-        QSqlQuery orderedRows(m_db);
-        orderedRows.prepare(
-            "SELECT rowid FROM library_cache "
-            "WHERE parent_id = ? ORDER BY position ASC, rowid ASC");
-        orderedRows.addBindValue(parentId);
-        if (!orderedRows.exec()) {
-            qCWarning(lcLibraryCache)
-                << "Failed to enumerate cache positions"
-                << orderedRows.lastError().text();
-            rollbackTransaction();
-            return false;
-        }
-        while (orderedRows.next()) {
-            orderedRowIds.append(orderedRows.value(0).toLongLong());
-        }
-
-        QSqlQuery reposition(m_db);
-        reposition.prepare(
-            "UPDATE library_cache SET position = ? WHERE rowid = ?");
-        for (qsizetype index = 0; index < orderedRowIds.size(); ++index) {
-            reposition.addBindValue(index);
-            reposition.addBindValue(orderedRowIds.at(index));
-            if (!reposition.exec()) {
-                qCWarning(lcLibraryCache)
-                    << "Failed to normalize cache positions"
-                    << reposition.lastError().text();
-                rollbackTransaction();
-                return false;
-            }
         }
     }
 
