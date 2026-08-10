@@ -5,6 +5,7 @@
 #include <QList>
 #include <QNetworkAccessManager>
 #include <QPointer>
+#include <QTimer>
 #include <functional>
 
 class HttpRequestHandle final : public QObject
@@ -32,8 +33,10 @@ enum class UnauthorizedPolicy {
 
 struct HttpRequestOptions {
     RetryPolicy retryPolicy;
-    bool retryEnabled = true;
+    RetrySafety retrySafety = RetrySafety::Never;
     UnauthorizedPolicy unauthorizedPolicy = UnauthorizedPolicy::Ignore;
+    int attemptTimeoutMs = 30000;
+    int unauthorizedRecoveryTimeoutMs = 15000;
 };
 
 /**
@@ -42,8 +45,9 @@ struct HttpRequestOptions {
  * Request factories remain provider-owned. The factory is invoked again for
  * every replay, so each invocation must construct the same logical request
  * (HTTP operation, URL, body, and headers) from its captured request state.
- * HttpTransport owns request execution policy and emits a provider-neutral
- * unauthorized signal for session handling.
+ * Callers must opt into transient replay with RetrySafety; maxAttempts includes
+ * the initial request. HttpTransport owns request execution policy and emits a
+ * provider-neutral unauthorized signal for session handling.
  */
 class HttpTransport final : public QObject
 {
@@ -81,8 +85,10 @@ private:
     bool m_unauthorizedRecoveryInProgress = false;
     quint64 m_unauthorizedRecoveryGeneration = 0;
     quint64 m_authenticationEpoch = 0;
-    QList<std::function<void(bool)>> m_pendingUnauthorizedRecoveries;
+    QTimer m_unauthorizedRecoveryTimer;
+    QList<std::function<void(bool, bool)>> m_pendingUnauthorizedRecoveries;
 
+    void initializeRecoveryTimer();
     void startAttempt(const QPointer<HttpRequestHandle> &handle,
                       const QPointer<QObject> &context,
                       const QString &endpoint,
@@ -93,6 +99,10 @@ private:
                       int attemptNumber,
                       bool authenticationRetried,
                       quint64 authenticationEpoch);
-    void recoverUnauthorized(std::function<void(bool)> completion);
+    void recoverUnauthorized(std::function<void(bool, bool)> completion,
+                             int timeoutMs);
+    void finishUnauthorizedRecovery(quint64 generation,
+                                    bool recovered,
+                                    bool timedOut);
     QString redactedEndpoint(const QString &endpoint, const QNetworkReply *reply = nullptr) const;
 };

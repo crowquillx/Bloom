@@ -221,30 +221,55 @@ struct NetworkError
 {
     Q_GADGET
     Q_PROPERTY(int code MEMBER code)
+    Q_PROPERTY(int networkErrorCode MEMBER networkErrorCode)
+    Q_PROPERTY(int httpStatus MEMBER httpStatus)
     Q_PROPERTY(QString userMessage MEMBER userMessage)
     Q_PROPERTY(QString technicalDetails MEMBER technicalDetails)
+    Q_PROPERTY(QString providerErrorCode MEMBER providerErrorCode)
     Q_PROPERTY(QString endpoint MEMBER endpoint)
 public:
+    // Compatibility code used by existing consumers: HTTP status when one was
+    // received, otherwise the Qt network error value.
     int code = 0;
+    int networkErrorCode = static_cast<int>(QNetworkReply::NoError);
+    int httpStatus = 0;
     QString userMessage;
     QString technicalDetails;
+    QString providerErrorCode;
     QString endpoint;
+    // Bounded raw response data lets provider boundaries progressively own
+    // their error envelopes without conflating them with transport status.
+    QByteArray responseBody;
+};
+
+enum class RetrySafety {
+    // Never replay after a transient transport or HTTP failure.
+    Never,
+    // Repeating the operation has the same externally visible effect.
+    Idempotent,
+    // The request factory supplies a stable provider-supported idempotency
+    // mechanism for every attempt.
+    ReplayableWithIdempotencyMechanism
 };
 
 struct RetryPolicy
 {
-    int maxRetries = 3;
+    // Total attempts, including the first request.
+    int maxAttempts = 3;
     int baseDelayMs = 1000;
-    bool retryOnTransient = true;
+    bool retryOnRetryableFailure = true;
+    int maxDelayMs = 30000;
+    double jitterRatio = 0.2;
 };
 
 class ErrorHandler
 {
 public:
     static bool isTransientError(QNetworkReply::NetworkError error);
-    static bool isClientError(int statusCode);
+    static bool isRetryableHttpStatus(int statusCode);
     static QString mapErrorToUserMessage(QNetworkReply::NetworkError error, int httpStatusCode = 0);
     static int calculateBackoffDelay(int attemptNumber, const RetryPolicy &policy);
+    static int retryAfterDelayMs(const QNetworkReply *reply, int maxDelayMs);
     static NetworkError createError(QNetworkReply *reply, const QString &endpoint);
 };
 

@@ -162,6 +162,7 @@ void SessionService::fetchActiveSessions()
 
     const QString endpoint = QStringLiteral("/Sessions");
     HttpRequestOptions options;
+    options.retrySafety = RetrySafety::Idempotent;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     m_transport->sendWithRetry(
         this,
@@ -216,7 +217,6 @@ void SessionService::revokeSession(const QString &sessionId)
     // Jellyfin uses POST /Sessions/{id}/Logout to revoke a session.
     const QString endpoint = QString("/Sessions/%1/Logout").arg(sessionId);
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     m_transport->sendWithRetry(
         this,

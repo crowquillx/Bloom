@@ -32,12 +32,23 @@ HttpTransport::HttpTransport(QObject *parent)
     : QObject(parent)
     , m_networkManager(new QNetworkAccessManager(this))
 {
+    initializeRecoveryTimer();
 }
 
 HttpTransport::HttpTransport(QNetworkAccessManager *networkManager, QObject *parent)
     : QObject(parent)
     , m_networkManager(networkManager ? networkManager : new QNetworkAccessManager(this))
 {
+    initializeRecoveryTimer();
+}
+
+void HttpTransport::initializeRecoveryTimer()
+{
+    m_unauthorizedRecoveryTimer.setSingleShot(true);
+    connect(&m_unauthorizedRecoveryTimer, &QTimer::timeout, this, [this]() {
+        finishUnauthorizedRecovery(
+            m_unauthorizedRecoveryGeneration, false, true);
+    });
 }
 
 void HttpTransport::setUrlRedactor(UrlRedactor redactor)
@@ -50,13 +61,14 @@ void HttpTransport::setUnauthorizedRecovery(UnauthorizedRecovery recovery)
     // A provider/session switch must not let an old refresh replay requests
     // with credentials belonging to the previous provider.
     if (m_unauthorizedRecoveryInProgress) {
+        m_unauthorizedRecoveryTimer.stop();
         ++m_unauthorizedRecoveryGeneration;
         m_unauthorizedRecoveryInProgress = false;
         const auto pending = std::exchange(
             m_pendingUnauthorizedRecoveries,
-            QList<std::function<void(bool)>>{});
+            QList<std::function<void(bool, bool)>>{});
         for (const auto &callback : pending) {
-            callback(false);
+            callback(false, false);
         }
     }
     m_unauthorizedRecovery = std::move(recovery);
@@ -68,13 +80,14 @@ void HttpTransport::cancelAll()
     for (HttpRequestHandle *handle : handles) {
         handle->cancel();
     }
+    m_unauthorizedRecoveryTimer.stop();
     ++m_unauthorizedRecoveryGeneration;
     m_unauthorizedRecoveryInProgress = false;
     const auto pending = std::exchange(
         m_pendingUnauthorizedRecoveries,
-        QList<std::function<void(bool)>>{});
+        QList<std::function<void(bool, bool)>>{});
     for (const auto &callback : pending) {
-        callback(false);
+        callback(false, false);
     }
 }
 
@@ -126,6 +139,7 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
     if (!reply) {
         NetworkError error;
         error.code = -1;
+        error.networkErrorCode = -1;
         error.endpoint = endpoint;
         error.userMessage = tr("Unable to create network request.");
         error.technicalDetails = QStringLiteral("Request factory returned no reply");
@@ -137,16 +151,32 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
     }
 
     handle->m_reply = reply;
+    const auto attemptTimedOut = std::make_shared<bool>(false);
+    auto *attemptTimer = new QTimer(reply);
+    attemptTimer->setSingleShot(true);
+    if (options.attemptTimeoutMs > 0) {
+        attemptTimer->start(options.attemptTimeoutMs);
+        connect(attemptTimer, &QTimer::timeout, reply,
+                [attemptTimedOut, reply]() {
+            if (reply->isFinished()) {
+                return;
+            }
+            *attemptTimedOut = true;
+            reply->abort();
+        });
+    }
+    connect(reply, &QNetworkReply::finished, attemptTimer, &QTimer::stop);
     connect(reply, &QNetworkReply::finished, reply, &QObject::deleteLater);
+    const int maxAttempts = qMax(1, options.retryPolicy.maxAttempts);
     qCDebug(lcHttpTransport) << "Sending request"
                              << redactedEndpoint(endpoint, reply)
                              << "attempt" << (attemptNumber + 1)
-                             << "of" << options.retryPolicy.maxRetries;
+                             << "of" << maxAttempts;
 
     connect(reply, &QNetworkReply::finished, context,
             [this, handle, context, endpoint, requestFactory, responseHandler,
              failureHandler, options, attemptNumber, authenticationRetried,
-             authenticationEpoch, reply]() {
+             authenticationEpoch, reply, attemptTimedOut, maxAttempts]() {
         if (!handle || !context) {
             return;
         }
@@ -154,18 +184,19 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
         handle->m_reply.clear();
 
         if (handle->isCanceled()
-            || reply->error() == QNetworkReply::OperationCanceledError) {
+            || (reply->error() == QNetworkReply::OperationCanceledError
+                && !*attemptTimedOut)) {
             handle->deleteLater();
             return;
         }
 
         const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
         const bool isUnauthorized = httpStatus == 401;
+        const bool isHttpFailure = httpStatus >= 400;
 
-        // Some test doubles and custom QNetworkAccessManager implementations
-        // report an HTTP 401 with NoError. Status handling must still take
-        // precedence over the successful-network-error path.
-        if (reply->error() == QNetworkReply::NoError && !isUnauthorized) {
+        // HTTP failures take precedence even when a custom network manager or
+        // test double reports QNetworkReply::NoError.
+        if (reply->error() == QNetworkReply::NoError && !isHttpFailure) {
             if (responseHandler) {
                 responseHandler(reply);
             }
@@ -174,9 +205,19 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
         }
 
         NetworkError error = ErrorHandler::createError(reply, endpoint);
+        if (*attemptTimedOut) {
+            error.networkErrorCode =
+                static_cast<int>(QNetworkReply::TimeoutError);
+            if (error.httpStatus <= 0) {
+                error.code = error.networkErrorCode;
+            }
+            error.userMessage = tr("Request timed out. Please try again.");
+            error.technicalDetails =
+                QStringLiteral("Per-attempt deadline exceeded (%1 ms)")
+                    .arg(options.attemptTimeoutMs);
+        }
 
         if (isUnauthorized) {
-            error.code = 401;
             if (options.unauthorizedPolicy != UnauthorizedPolicy::Ignore
                 && !authenticationRetried
                 && authenticationEpoch < m_authenticationEpoch) {
@@ -196,7 +237,8 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
                 && !authenticationRetried && m_unauthorizedRecovery) {
                 recoverUnauthorized(
                     [this, handle, context, endpoint, requestFactory, responseHandler,
-                     failureHandler, options, attemptNumber, error](bool recovered) {
+                     failureHandler, options, attemptNumber, error](
+                        bool recovered, bool recoveryTimedOut) {
                     if (!handle || !context || handle->isCanceled()) {
                         return;
                     }
@@ -218,13 +260,24 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
                         options.unauthorizedPolicy == UnauthorizedPolicy::DeferSessionExpiry;
                     emit unauthorized(defer);
                     NetworkError sessionError = error;
-                    sessionError.userMessage =
-                        tr("Session expired. Please log in again.");
+                    if (recoveryTimedOut) {
+                        sessionError.networkErrorCode =
+                            static_cast<int>(QNetworkReply::TimeoutError);
+                        sessionError.userMessage =
+                            tr("Session recovery timed out. Please log in again.");
+                        sessionError.technicalDetails =
+                            QStringLiteral(
+                                "Unauthorized recovery deadline exceeded");
+                    } else {
+                        sessionError.userMessage =
+                            tr("Session expired. Please log in again.");
+                    }
                     if (failureHandler) {
                         failureHandler(sessionError);
                     }
                     handle->deleteLater();
-                });
+                },
+                options.unauthorizedRecoveryTimeoutMs);
                 return;
             }
 
@@ -236,17 +289,30 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
             }
         }
 
+        const bool retryIsSafe =
+            options.retrySafety == RetrySafety::Idempotent
+            || options.retrySafety
+                == RetrySafety::ReplayableWithIdempotencyMechanism;
+        const bool retryableFailure =
+            ErrorHandler::isRetryableHttpStatus(httpStatus)
+            || ErrorHandler::isTransientError(
+                static_cast<QNetworkReply::NetworkError>(
+                    error.networkErrorCode));
         const bool shouldRetry = !handle->isCanceled()
-            && options.retryEnabled
-            && options.retryPolicy.retryOnTransient
-            && reply->error() != QNetworkReply::OperationCanceledError
-            && ErrorHandler::isTransientError(reply->error())
-            && !ErrorHandler::isClientError(httpStatus)
-            && attemptNumber < options.retryPolicy.maxRetries - 1;
+            && retryIsSafe
+            && options.retryPolicy.retryOnRetryableFailure
+            && (!isUnauthorized)
+            && retryableFailure
+            && attemptNumber + 1 < maxAttempts;
 
         if (shouldRetry) {
-            const int delayMs = ErrorHandler::calculateBackoffDelay(
+            int delayMs = ErrorHandler::calculateBackoffDelay(
                 attemptNumber, options.retryPolicy);
+            const int retryAfterMs = ErrorHandler::retryAfterDelayMs(
+                reply, options.retryPolicy.maxDelayMs);
+            if (retryAfterMs >= 0) {
+                delayMs = qMax(delayMs, retryAfterMs);
+            }
             qCInfo(lcHttpTransport) << "Retrying request"
                                     << redactedEndpoint(endpoint, reply)
                                     << "in" << delayMs << "ms";
@@ -275,45 +341,66 @@ void HttpTransport::startAttempt(const QPointer<HttpRequestHandle> &handle,
     });
 }
 
-void HttpTransport::recoverUnauthorized(std::function<void(bool)> completion)
+void HttpTransport::recoverUnauthorized(
+    std::function<void(bool, bool)> completion,
+    int timeoutMs)
 {
     m_pendingUnauthorizedRecoveries.append(std::move(completion));
     if (m_unauthorizedRecoveryInProgress) {
+        const int remainingMs = m_unauthorizedRecoveryTimer.remainingTime();
+        if (timeoutMs > 0
+            && (remainingMs < 0 || timeoutMs < remainingMs)) {
+            m_unauthorizedRecoveryTimer.start(timeoutMs);
+        }
         return;
     }
 
     if (!m_unauthorizedRecovery) {
         const auto pending = std::exchange(
             m_pendingUnauthorizedRecoveries,
-            QList<std::function<void(bool)>>{});
+            QList<std::function<void(bool, bool)>>{});
         for (const auto &callback : pending) {
-            callback(false);
+            callback(false, false);
         }
         return;
     }
 
     m_unauthorizedRecoveryInProgress = true;
     const quint64 recoveryGeneration = ++m_unauthorizedRecoveryGeneration;
-    const auto completed = std::make_shared<bool>(false);
+    if (timeoutMs > 0) {
+        m_unauthorizedRecoveryTimer.start(timeoutMs);
+    }
     const QPointer<HttpTransport> guardedThis(this);
     m_unauthorizedRecovery(
-        [guardedThis, completed, recoveryGeneration](bool recovered) {
-        if (!guardedThis || std::exchange(*completed, true)
-            || recoveryGeneration != guardedThis->m_unauthorizedRecoveryGeneration) {
+        [guardedThis, recoveryGeneration](bool recovered) {
+        if (!guardedThis) {
             return;
         }
-
-        guardedThis->m_unauthorizedRecoveryInProgress = false;
-        if (recovered) {
-            ++guardedThis->m_authenticationEpoch;
-        }
-        const auto pending = std::exchange(
-            guardedThis->m_pendingUnauthorizedRecoveries,
-            QList<std::function<void(bool)>>{});
-        for (const auto &callback : pending) {
-            callback(recovered);
-        }
+        guardedThis->finishUnauthorizedRecovery(
+            recoveryGeneration, recovered, false);
     });
+}
+
+void HttpTransport::finishUnauthorizedRecovery(quint64 generation,
+                                               bool recovered,
+                                               bool timedOut)
+{
+    if (!m_unauthorizedRecoveryInProgress
+        || generation != m_unauthorizedRecoveryGeneration) {
+        return;
+    }
+
+    m_unauthorizedRecoveryTimer.stop();
+    m_unauthorizedRecoveryInProgress = false;
+    if (recovered) {
+        ++m_authenticationEpoch;
+    }
+    const auto pending = std::exchange(
+        m_pendingUnauthorizedRecoveries,
+        QList<std::function<void(bool, bool)>>{});
+    for (const auto &callback : pending) {
+        callback(recovered, timedOut);
+    }
 }
 
 QString HttpTransport::redactedEndpoint(const QString &endpoint, const QNetworkReply *reply) const

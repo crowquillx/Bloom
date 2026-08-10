@@ -1,6 +1,10 @@
 #include "Types.h"
+#include <QDateTime>
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QRandomGenerator>
+#include <QtMath>
+#include <mutex>
 #include "../utils/BloomLogging.h"
 
 /**
@@ -11,20 +15,20 @@
  * - Queued connections across threads
  * - QVariant conversions for QML exposure
  * 
- * Called once during application initialization. Thread-safe via static flag.
+ * Safe to call from multiple initialization paths and threads.
  */
 void registerNetworkMetaTypes()
 {
-    static bool registered = false;
-    if (registered) return;
-    registered = true;
-    qRegisterMetaType<MediaStreamInfo>("MediaStreamInfo");
-    qRegisterMetaType<MediaSourceInfo>("MediaSourceInfo");
-    qRegisterMetaType<PlaybackInfoResponse>("PlaybackInfoResponse");
-    qRegisterMetaType<MediaSegmentInfo>("MediaSegmentInfo");
-    qRegisterMetaType<TrickplayTileInfo>("TrickplayTileInfo");
-    qRegisterMetaType<QList<MediaSegmentInfo>>("QList<MediaSegmentInfo>");
-    qRegisterMetaType<TrickplayTileInfoMap>("QMap<int,TrickplayTileInfo>");
+    static std::once_flag registrationFlag;
+    std::call_once(registrationFlag, [] {
+        qRegisterMetaType<MediaStreamInfo>("MediaStreamInfo");
+        qRegisterMetaType<MediaSourceInfo>("MediaSourceInfo");
+        qRegisterMetaType<PlaybackInfoResponse>("PlaybackInfoResponse");
+        qRegisterMetaType<MediaSegmentInfo>("MediaSegmentInfo");
+        qRegisterMetaType<TrickplayTileInfo>("TrickplayTileInfo");
+        qRegisterMetaType<QList<MediaSegmentInfo>>("QList<MediaSegmentInfo>");
+        qRegisterMetaType<TrickplayTileInfoMap>("QMap<int,TrickplayTileInfo>");
+    });
 }
 
 // ============================================================================
@@ -204,17 +208,19 @@ bool ErrorHandler::isTransientError(QNetworkReply::NetworkError error)
     }
 }
 
-/**
- * @brief Check if HTTP status code is a client error (4xx)
- * 
- * Client errors (400-499) indicate invalid requests that should not be retried.
- * 
- * @param statusCode HTTP status code
- * @return true if status is in 400-499 range
- */
-bool ErrorHandler::isClientError(int statusCode)
+bool ErrorHandler::isRetryableHttpStatus(int statusCode)
 {
-    return statusCode >= 400 && statusCode < 500;
+    switch (statusCode) {
+    case 408:
+    case 429:
+    case 500:
+    case 502:
+    case 503:
+    case 504:
+        return true;
+    default:
+        return false;
+    }
 }
 
 /**
@@ -224,12 +230,20 @@ bool ErrorHandler::isClientError(int statusCode)
  * for display in error dialogs.
  * 
  * @param error QNetworkReply error code
- * @param httpStatusCode HTTP status code (currently unused, reserved for future)
+ * @param httpStatusCode HTTP status code reported by the server
  * @return Localized error message suitable for UI display
  */
 QString ErrorHandler::mapErrorToUserMessage(QNetworkReply::NetworkError error, int httpStatusCode)
 {
-    Q_UNUSED(httpStatusCode);
+    if (httpStatusCode == 408 || httpStatusCode == 504) {
+        return QObject::tr("Request timed out. Please try again.");
+    }
+    if (httpStatusCode == 429) {
+        return QObject::tr("The server is busy. Please try again shortly.");
+    }
+    if (httpStatusCode >= 500) {
+        return QObject::tr("The server is temporarily unavailable. Please try again.");
+    }
     switch (error) {
         case QNetworkReply::AuthenticationRequiredError:
             return QObject::tr("Authentication failed. Please check your credentials.");
@@ -256,7 +270,56 @@ QString ErrorHandler::mapErrorToUserMessage(QNetworkReply::NetworkError error, i
  */
 int ErrorHandler::calculateBackoffDelay(int attemptNumber, const RetryPolicy &policy)
 {
-    return policy.baseDelayMs * static_cast<int>(qPow(2, attemptNumber));
+    const qint64 maximum = qMax(0, policy.maxDelayMs);
+    qint64 delay = qBound<qint64>(
+        qint64{0}, static_cast<qint64>(policy.baseDelayMs), maximum);
+    for (int exponent = 0; exponent < qMax(0, attemptNumber); ++exponent) {
+        delay = qMin(maximum, delay * 2);
+    }
+
+    const double jitterRatio = qBound(0.0, policy.jitterRatio, 1.0);
+    if (delay > 0 && jitterRatio > 0.0) {
+        const double centered =
+            (QRandomGenerator::global()->generateDouble() * 2.0) - 1.0;
+        delay = qRound64(static_cast<double>(delay)
+                         * (1.0 + centered * jitterRatio));
+    }
+    return static_cast<int>(
+        qBound<qint64>(qint64{0}, delay, maximum));
+}
+
+int ErrorHandler::retryAfterDelayMs(const QNetworkReply *reply, int maxDelayMs)
+{
+    if (!reply) {
+        return -1;
+    }
+    const QByteArray value = reply->rawHeader("Retry-After").trimmed();
+    if (value.isEmpty()) {
+        return -1;
+    }
+
+    bool secondsOk = false;
+    const qint64 seconds = value.toLongLong(&secondsOk);
+    const qint64 maximum = qMax(0, maxDelayMs);
+    qint64 delayMs = -1;
+    if (secondsOk && seconds >= 0) {
+        delayMs = seconds > maximum / 1000
+            ? maximum
+            : seconds * 1000;
+    } else {
+        const QDateTime retryAt =
+            QDateTime::fromString(QString::fromLatin1(value), Qt::RFC2822Date);
+        if (retryAt.isValid()) {
+            delayMs = qMax<qint64>(
+                0, QDateTime::currentDateTimeUtc().msecsTo(retryAt.toUTC()));
+        }
+    }
+
+    if (delayMs < 0) {
+        return -1;
+    }
+    return static_cast<int>(
+        qMin<qint64>(delayMs, maximum));
 }
 
 /**
@@ -280,22 +343,32 @@ NetworkError ErrorHandler::createError(QNetworkReply *reply, const QString &endp
     NetworkError error;
     if (!reply) return error;
     
-    error.code = static_cast<int>(reply->error());
+    error.networkErrorCode = static_cast<int>(reply->error());
+    error.httpStatus =
+        reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    error.code = error.httpStatus > 0
+        ? error.httpStatus
+        : error.networkErrorCode;
     error.endpoint = endpoint;
     
-    // Try to parse error response for more details
-    QByteArray data = reply->readAll();
+    // Preserve a bounded envelope for provider-owned parsing. The legacy
+    // Message/ErrorCode extraction remains for current Jellyfin-facing error
+    // text while providers migrate that policy to their adapters.
+    constexpr qsizetype kMaxErrorResponseBytes = 64 * 1024;
+    error.responseBody = reply->read(kMaxErrorResponseBytes);
     QJsonParseError parseError;
-    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    QJsonDocument doc = QJsonDocument::fromJson(error.responseBody, &parseError);
     
     if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
         QJsonObject obj = doc.object();
         error.userMessage = obj["Message"].toString();
-        error.technicalDetails = obj["ErrorCode"].toString();
+        error.providerErrorCode = obj["ErrorCode"].toString();
+        error.technicalDetails = error.providerErrorCode;
     }
     
     if (error.userMessage.isEmpty()) {
-        error.userMessage = mapErrorToUserMessage(reply->error(), reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
+        error.userMessage =
+            mapErrorToUserMessage(reply->error(), error.httpStatus);
     }
     
     return error;

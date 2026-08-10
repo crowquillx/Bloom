@@ -383,7 +383,6 @@ void SiloArtworkProvider::refreshArtwork(
     }
 
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
 
     HttpRequestHandle *handle = transport->sendWithRetry(

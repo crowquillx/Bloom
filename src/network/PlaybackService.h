@@ -198,7 +198,7 @@ private:
                                FailureHandler failureHandler = FailureHandler(),
                                int attemptNumber = 0,
                                bool deferSessionExpiry = true,
-                               bool enableTransientRetry = true);
+                               RetrySafety retrySafety = RetrySafety::Never);
     PlaybackProviderContext providerContext() const;
     quint64 beginRequest(const QString &operation,
                          const QString &itemId,

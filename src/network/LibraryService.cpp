@@ -267,6 +267,9 @@ void LibraryService::sendCatalogRequest(
 
     HttpRequestOptions options;
     options.retryPolicy = m_retryPolicy;
+    options.retrySafety = providerRequest.method == ProviderHttpMethod::Get
+        ? RetrySafety::Idempotent
+        : RetrySafety::Never;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     HttpRequestHandle *handle = m_transport->sendWithRetry(
         this,

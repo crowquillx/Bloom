@@ -582,7 +582,6 @@ void SiloAuthenticationTest::unauthorizedRequestRefreshesAndRetriesExactlyOnce()
     int failures = 0;
     QSignalSpy expiredSpy(&service, &AuthenticationService::sessionExpired);
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     transport.sendWithRetry(
         this,
@@ -648,7 +647,6 @@ void SiloAuthenticationTest::concurrentUnauthorizedRequestsShareOneRefresh()
     int successes = 0;
     int failures = 0;
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     const auto success = [&](QNetworkReply *) { ++successes; };
     const auto failure = [&](const NetworkError &) { ++failures; };
@@ -722,7 +720,6 @@ void SiloAuthenticationTest::failedSharedRefreshExpiresSessionOnce()
     int failures = 0;
     QSignalSpy expiredSpy(&service, &AuthenticationService::sessionExpired);
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     const auto failure = [&](const NetworkError &) { ++failures; };
 
@@ -910,7 +907,6 @@ void SiloAuthenticationTest::refreshWithoutRotationRetainsPreviousToken()
         200, QByteArrayLiteral(R"({"access_token":"access-2","expires_in":1800})")));
     manager.responses.append(response(200, QByteArrayLiteral(R"({"ok":true})")));
     HttpRequestOptions options;
-    options.retryEnabled = false;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     int successes = 0;
     transport.sendWithRetry(
