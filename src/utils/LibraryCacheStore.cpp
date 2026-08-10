@@ -10,6 +10,7 @@
 #include <QLoggingCategory>
 #include <QFileInfo>
 #include <QMutexLocker>
+#include <QSet>
 #include <QStringList>
 #include "BloomLogging.h"
 
@@ -251,6 +252,23 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
         return false;
     }
 
+    QStringList incomingIds;
+    incomingIds.reserve(items.size());
+    QSet<QString> uniqueIncomingIds;
+    uniqueIncomingIds.reserve(items.size());
+    for (const auto &value : items) {
+        const QString itemId =
+            value.toObject().value(QStringLiteral("itemId")).toString();
+        if (itemId.isEmpty() || uniqueIncomingIds.contains(itemId)) {
+            qCWarning(lcLibraryCache)
+                << "Refusing cache page with missing or duplicate item ID for"
+                << parentId;
+            return false;
+        }
+        uniqueIncomingIds.insert(itemId);
+        incomingIds.append(itemId);
+    }
+
     QMutexLocker locker(&m_mutex);
     if (!m_db.isOpen()) {
         return false;
@@ -261,6 +279,7 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
     }
 
     const qint64 now = nowMs();
+    bool requiresPositionNormalization = false;
 
     if (startPosition > 0) {
         QSqlQuery prefix(m_db);
@@ -298,6 +317,28 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
             rollbackTransaction();
             return false;
         }
+
+        QStringList placeholders;
+        placeholders.fill(QStringLiteral("?"), incomingIds.size());
+        QSqlQuery clearPreviousPositions(m_db);
+        clearPreviousPositions.prepare(
+            QStringLiteral(
+                "DELETE FROM library_cache "
+                "WHERE parent_id = ? AND item_id IN (%1)")
+                .arg(placeholders.join(QLatin1Char(','))));
+        clearPreviousPositions.addBindValue(parentId);
+        for (const QString &itemId : incomingIds) {
+            clearPreviousPositions.addBindValue(itemId);
+        }
+        if (!clearPreviousPositions.exec()) {
+            qCWarning(lcLibraryCache)
+                << "Failed to clear previous cache positions"
+                << clearPreviousPositions.lastError().text();
+            rollbackTransaction();
+            return false;
+        }
+        requiresPositionNormalization =
+            clearPreviousPositions.numRowsAffected() > 0;
     }
 
     QSqlQuery upsert(m_db);
@@ -308,15 +349,9 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
     )");
 
     int pos = startPosition;
-    QStringList incomingIds;
-    incomingIds.reserve(items.size());
     for (const auto &val : items) {
         const QJsonObject obj = val.toObject();
         const QString itemId = obj.value(QStringLiteral("itemId")).toString();
-        if (itemId.isEmpty()) {
-            continue;
-        }
-        incomingIds.append(itemId);
         upsert.addBindValue(parentId);
         upsert.addBindValue(itemId);
         upsert.addBindValue(pos++);
@@ -331,10 +366,10 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
 
     if (removeMissing && !incomingIds.isEmpty()) {
         QStringList placeholders;
-        placeholders.fill("?", incomingIds.size());
+        placeholders.fill(QStringLiteral("?"), incomingIds.size());
         QSqlQuery prune(m_db);
         prune.prepare(QStringLiteral("DELETE FROM library_cache WHERE parent_id = ? AND item_id NOT IN (%1)")
-                      .arg(placeholders.join(",")));
+                      .arg(placeholders.join(QLatin1Char(','))));
         prune.addBindValue(parentId);
         for (const auto &id : incomingIds) {
             prune.addBindValue(id);
@@ -345,7 +380,47 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
             rollbackTransaction();
             return false;
         }
-    } else if (totalCount >= 0) {
+    }
+
+    // Moving an item from a retained prefix or suffix into this page leaves a
+    // positional hole after its old row is removed. Re-number the remaining
+    // snapshot in one transaction so future page-contiguity checks and reads
+    // observe one coherent sequence.
+    if (requiresPositionNormalization) {
+        QList<qint64> orderedRowIds;
+        QSqlQuery orderedRows(m_db);
+        orderedRows.prepare(
+            "SELECT rowid FROM library_cache "
+            "WHERE parent_id = ? ORDER BY position ASC, rowid ASC");
+        orderedRows.addBindValue(parentId);
+        if (!orderedRows.exec()) {
+            qCWarning(lcLibraryCache)
+                << "Failed to enumerate cache positions"
+                << orderedRows.lastError().text();
+            rollbackTransaction();
+            return false;
+        }
+        while (orderedRows.next()) {
+            orderedRowIds.append(orderedRows.value(0).toLongLong());
+        }
+
+        QSqlQuery reposition(m_db);
+        reposition.prepare(
+            "UPDATE library_cache SET position = ? WHERE rowid = ?");
+        for (qsizetype index = 0; index < orderedRowIds.size(); ++index) {
+            reposition.addBindValue(index);
+            reposition.addBindValue(orderedRowIds.at(index));
+            if (!reposition.exec()) {
+                qCWarning(lcLibraryCache)
+                    << "Failed to normalize cache positions"
+                    << reposition.lastError().text();
+                rollbackTransaction();
+                return false;
+            }
+        }
+    }
+
+    if (!removeMissing && totalCount >= 0) {
         QSqlQuery trim(m_db);
         trim.prepare(
             "DELETE FROM library_cache WHERE parent_id = ? AND position >= ?");
@@ -448,6 +523,3 @@ qint64 LibraryCacheStore::nowMs() const
 {
     return QDateTime::currentMSecsSinceEpoch();
 }
-
-
-

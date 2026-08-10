@@ -112,6 +112,21 @@ public:
             error);
     }
 
+    void succeedFilter(int requestIndex,
+                       const QStringList &genres,
+                       const QStringList &tags,
+                       const QStringList &studios)
+    {
+        const FilterRequest request = filterRequests.at(requestIndex);
+        emit filterOptionsLoadedForRequest(
+            getActiveConnectionId(),
+            request.parentId,
+            request.requestKey,
+            genres,
+            tags,
+            studios);
+    }
+
     void failView(int requestIndex, const QString &error)
     {
         emit canonicalViewsFailedForRequest(
@@ -145,6 +160,8 @@ private slots:
     void backgroundRefreshFailurePreservesCachedContent();
     void backgroundRefreshInvalidatesUnverifiedLaterPages();
     void filterFailureClearsLoadingState();
+    void filterOptionsAreIndependentOfItemDataset();
+    void unchangedCacheScopePreservesDisplayedState();
     void validEmptySnapshotIsReused();
     void paginationUsesOneDatasetCache();
     void isolatedOffsetPageIsNotCachedAsDatasetStart();
@@ -430,6 +447,44 @@ void LibraryViewModelCanonicalTest::filterFailureClearsLoadingState()
     m_libraryService->failFilter(0, QStringLiteral("filter failure"));
     QVERIFY(!viewModel.filterOptionsLoading());
     QCOMPARE(viewModel.rowCount(), 1);
+}
+
+void LibraryViewModelCanonicalTest::filterOptionsAreIndependentOfItemDataset()
+{
+    LibraryViewModel viewModel;
+    viewModel.loadLibrary("library", "movies", 0, 2);
+    m_libraryService->succeedItem(0, canonicalItems({"one"}), 1);
+
+    viewModel.loadFilterOptions("library", "movies");
+    QVERIFY(viewModel.filterOptionsLoading());
+    viewModel.m_activeDatasetKey = QStringLiteral("changed-item-dataset");
+
+    m_libraryService->succeedFilter(
+        0,
+        {QStringLiteral("Drama")},
+        {QStringLiteral("Favorite")},
+        {QStringLiteral("Studio")});
+    QVERIFY(!viewModel.filterOptionsLoading());
+    QCOMPARE(viewModel.availableGenres(), QStringList{QStringLiteral("Drama")});
+    QCOMPARE(viewModel.availableTags(), QStringList{QStringLiteral("Favorite")});
+    QCOMPARE(viewModel.availableStudios(), QStringList{QStringLiteral("Studio")});
+}
+
+void LibraryViewModelCanonicalTest::unchangedCacheScopePreservesDisplayedState()
+{
+    LibraryViewModel viewModel;
+    viewModel.loadLibrary("library", "movies", 0, 2);
+    m_libraryService->succeedItem(0, canonicalItems({"one"}), 1);
+    QCOMPARE(viewModel.rowCount(), 1);
+
+    const quint64 generation = viewModel.m_requestGeneration;
+    viewModel.reopenCacheStore();
+
+    QCOMPARE(viewModel.m_requestGeneration, generation);
+    QCOMPARE(viewModel.currentParentId(), QStringLiteral("library"));
+    QCOMPARE(viewModel.rowCount(), 1);
+    QCOMPARE(viewModel.getItem(0).value(QStringLiteral("itemId")).toString(),
+             QStringLiteral("one"));
 }
 
 void LibraryViewModelCanonicalTest::validEmptySnapshotIsReused()

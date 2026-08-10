@@ -784,7 +784,7 @@ void LibraryViewModel::loadFilterOptions(const QString &parentId, const QString 
     m_activeFilterRequestKey = registerRequest(
         LoadKind::FilterOptions,
         parentId,
-        m_activeDatasetKey,
+        QString(),
         0,
         0,
         false);
@@ -1404,20 +1404,12 @@ QString LibraryViewModel::scopedCacheKey(const QString &remoteKey) const
 void LibraryViewModel::reopenCacheStore()
 {
     const QString scopeId = connectionScopeId();
-    beginGeneration();
-    m_activeConnectionId = requestConnectionId();
     if (m_cacheStore && m_cacheScopeId == scopeId) {
-        setItems(QJsonArray());
-        setTotalRecordCount(0);
-        m_views.clear();
-        emit viewsChanged();
-        if (!m_currentParentId.isEmpty()) {
-            m_currentParentId.clear();
-            emit currentParentIdChanged();
-        }
-        m_activeDatasetKey.clear();
         return;
     }
+
+    beginGeneration();
+    m_activeConnectionId = requestConnectionId();
 
     m_cacheScopeId = scopeId;
     const QString dbPath = cacheDbPath();
