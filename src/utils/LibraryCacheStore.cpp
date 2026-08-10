@@ -10,6 +10,7 @@
 #include <QLoggingCategory>
 #include <QFileInfo>
 #include <QMutexLocker>
+#include <QSet>
 #include <QStringList>
 #include "BloomLogging.h"
 
@@ -158,6 +159,7 @@ LibraryCacheStore::CachedSlice LibraryCacheStore::read(const QString &parentId, 
 
     if (!query.exec()) {
         qCWarning(lcLibraryCache) << "Failed to read library cache" << parentId << query.lastError().text();
+        slice.decodeError = true;
         return slice;
     }
 
@@ -166,6 +168,7 @@ LibraryCacheStore::CachedSlice LibraryCacheStore::read(const QString &parentId, 
         QJsonParseError err;
         auto doc = QJsonDocument::fromJson(raw, &err);
         if (err.error != QJsonParseError::NoError || !doc.isObject()) {
+            slice.decodeError = true;
             continue;
         }
         slice.items.append(doc.object());
@@ -191,7 +194,12 @@ bool LibraryCacheStore::replaceAll(const QString &parentId, const QJsonArray &it
     QSqlQuery deleteQuery(m_db);
     deleteQuery.prepare("DELETE FROM library_cache WHERE parent_id = ?");
     deleteQuery.addBindValue(parentId);
-    deleteQuery.exec();
+    if (!deleteQuery.exec()) {
+        qCWarning(lcLibraryCache) << "Failed to replace cached rows"
+                                  << deleteQuery.lastError().text();
+        rollbackTransaction();
+        return false;
+    }
 
     const qint64 now = nowMs();
 
@@ -240,8 +248,25 @@ bool LibraryCacheStore::replaceAll(const QString &parentId, const QJsonArray &it
 
 bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &items, int totalCount, bool removeMissing, int startPosition)
 {
-    if (parentId.isEmpty()) {
+    if (parentId.isEmpty() || startPosition < 0) {
         return false;
+    }
+
+    QStringList incomingIds;
+    incomingIds.reserve(items.size());
+    QSet<QString> uniqueIncomingIds;
+    uniqueIncomingIds.reserve(items.size());
+    for (const auto &value : items) {
+        const QString itemId =
+            value.toObject().value(QStringLiteral("itemId")).toString();
+        if (itemId.isEmpty() || uniqueIncomingIds.contains(itemId)) {
+            qCWarning(lcLibraryCache)
+                << "Refusing cache page with missing or duplicate item ID for"
+                << parentId;
+            return false;
+        }
+        uniqueIncomingIds.insert(itemId);
+        incomingIds.append(itemId);
     }
 
     QMutexLocker locker(&m_mutex);
@@ -254,6 +279,115 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
     }
 
     const qint64 now = nowMs();
+    bool truncateRetainedSuffix = false;
+
+    if (startPosition > 0) {
+        QSqlQuery prefix(m_db);
+        prefix.prepare(R"(
+            SELECT COUNT(*), MIN(position), MAX(position)
+            FROM library_cache
+            WHERE parent_id = ? AND position < ?
+        )");
+        prefix.addBindValue(parentId);
+        prefix.addBindValue(startPosition);
+        if (!prefix.exec() || !prefix.next()
+            || prefix.value(0).toInt() != startPosition
+            || prefix.value(1).toInt() != 0
+            || prefix.value(2).toInt() != startPosition - 1) {
+            qCWarning(lcLibraryCache)
+                << "Refusing non-contiguous cache page for" << parentId
+                << "at position" << startPosition;
+            rollbackTransaction();
+            return false;
+        }
+
+        if (!incomingIds.isEmpty()) {
+            QStringList placeholders;
+            placeholders.fill(QStringLiteral("?"), incomingIds.size());
+            QSqlQuery prefixOverlap(m_db);
+            prefixOverlap.prepare(
+                QStringLiteral(
+                    "SELECT 1 FROM library_cache "
+                    "WHERE parent_id = ? AND position < ? "
+                    "AND item_id IN (%1) LIMIT 1")
+                    .arg(placeholders.join(QLatin1Char(','))));
+            prefixOverlap.addBindValue(parentId);
+            prefixOverlap.addBindValue(startPosition);
+            for (const QString &itemId : incomingIds) {
+                prefixOverlap.addBindValue(itemId);
+            }
+            if (!prefixOverlap.exec()) {
+                qCWarning(lcLibraryCache)
+                    << "Failed to check cache page prefix overlap"
+                    << prefixOverlap.lastError().text();
+                rollbackTransaction();
+                return false;
+            }
+            if (prefixOverlap.next()) {
+                qCWarning(lcLibraryCache)
+                    << "Refusing cache page that overlaps its retained prefix for"
+                    << parentId << "at position" << startPosition;
+                rollbackTransaction();
+                return false;
+            }
+        }
+    }
+
+    if (!items.isEmpty()) {
+        QSqlQuery clearRange(m_db);
+        clearRange.prepare(R"(
+            DELETE FROM library_cache
+            WHERE parent_id = ? AND position >= ? AND position < ?
+        )");
+        clearRange.addBindValue(parentId);
+        clearRange.addBindValue(startPosition);
+        clearRange.addBindValue(startPosition + items.size());
+        if (!clearRange.exec()) {
+            qCWarning(lcLibraryCache) << "Failed to clear replaced cache page"
+                                      << clearRange.lastError().text();
+            rollbackTransaction();
+            return false;
+        }
+
+        QStringList placeholders;
+        placeholders.fill(QStringLiteral("?"), incomingIds.size());
+        QSqlQuery clearPreviousPositions(m_db);
+        clearPreviousPositions.prepare(
+            QStringLiteral(
+                "DELETE FROM library_cache "
+                "WHERE parent_id = ? AND item_id IN (%1)")
+                .arg(placeholders.join(QLatin1Char(','))));
+        clearPreviousPositions.addBindValue(parentId);
+        for (const QString &itemId : incomingIds) {
+            clearPreviousPositions.addBindValue(itemId);
+        }
+        if (!clearPreviousPositions.exec()) {
+            qCWarning(lcLibraryCache)
+                << "Failed to clear previous cache positions"
+                << clearPreviousPositions.lastError().text();
+            rollbackTransaction();
+            return false;
+        }
+        truncateRetainedSuffix =
+            clearPreviousPositions.numRowsAffected() > 0;
+
+        if (truncateRetainedSuffix) {
+            QSqlQuery truncateSuffix(m_db);
+            truncateSuffix.prepare(
+                "DELETE FROM library_cache "
+                "WHERE parent_id = ? AND position >= ?");
+            truncateSuffix.addBindValue(parentId);
+            truncateSuffix.addBindValue(startPosition + items.size());
+            if (!truncateSuffix.exec()) {
+                qCWarning(lcLibraryCache)
+                    << "Failed to invalidate unverified cache suffix"
+                    << truncateSuffix.lastError().text();
+                rollbackTransaction();
+                return false;
+            }
+        }
+    }
+
     QSqlQuery upsert(m_db);
     upsert.prepare(R"(
         INSERT OR REPLACE INTO library_cache
@@ -262,15 +396,9 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
     )");
 
     int pos = startPosition;
-    QStringList incomingIds;
-    incomingIds.reserve(items.size());
     for (const auto &val : items) {
         const QJsonObject obj = val.toObject();
         const QString itemId = obj.value(QStringLiteral("itemId")).toString();
-        if (itemId.isEmpty()) {
-            continue;
-        }
-        incomingIds.append(itemId);
         upsert.addBindValue(parentId);
         upsert.addBindValue(itemId);
         upsert.addBindValue(pos++);
@@ -285,15 +413,34 @@ bool LibraryCacheStore::upsertItems(const QString &parentId, const QJsonArray &i
 
     if (removeMissing && !incomingIds.isEmpty()) {
         QStringList placeholders;
-        placeholders.fill("?", incomingIds.size());
+        placeholders.fill(QStringLiteral("?"), incomingIds.size());
         QSqlQuery prune(m_db);
         prune.prepare(QStringLiteral("DELETE FROM library_cache WHERE parent_id = ? AND item_id NOT IN (%1)")
-                      .arg(placeholders.join(",")));
+                      .arg(placeholders.join(QLatin1Char(','))));
         prune.addBindValue(parentId);
         for (const auto &id : incomingIds) {
             prune.addBindValue(id);
         }
-        prune.exec();
+        if (!prune.exec()) {
+            qCWarning(lcLibraryCache) << "Failed to prune cached rows"
+                                      << prune.lastError().text();
+            rollbackTransaction();
+            return false;
+        }
+    }
+
+    if (!removeMissing && totalCount >= 0) {
+        QSqlQuery trim(m_db);
+        trim.prepare(
+            "DELETE FROM library_cache WHERE parent_id = ? AND position >= ?");
+        trim.addBindValue(parentId);
+        trim.addBindValue(totalCount);
+        if (!trim.exec()) {
+            qCWarning(lcLibraryCache) << "Failed to trim cached rows"
+                                      << trim.lastError().text();
+            rollbackTransaction();
+            return false;
+        }
     }
 
     QSqlQuery meta(m_db);
@@ -329,12 +476,18 @@ bool LibraryCacheStore::clearParent(const QString &parentId)
     QSqlQuery del(m_db);
     del.prepare("DELETE FROM library_cache WHERE parent_id = ?");
     del.addBindValue(parentId);
-    del.exec();
+    if (!del.exec()) {
+        rollbackTransaction();
+        return false;
+    }
 
     QSqlQuery meta(m_db);
     meta.prepare("DELETE FROM library_meta WHERE parent_id = ?");
     meta.addBindValue(parentId);
-    meta.exec();
+    if (!meta.exec()) {
+        rollbackTransaction();
+        return false;
+    }
     return commitTransaction();
 }
 
@@ -351,7 +504,7 @@ void LibraryCacheStore::clearAll()
 
 bool LibraryCacheStore::CachedSlice::isFresh(qint64 ttlMs) const
 {
-    if (updatedAtMs <= 0) {
+    if (!hasData()) {
         return false;
     }
     return (QDateTime::currentMSecsSinceEpoch() - updatedAtMs) < ttlMs;
@@ -379,9 +532,3 @@ qint64 LibraryCacheStore::nowMs() const
 {
     return QDateTime::currentMSecsSinceEpoch();
 }
-
-
-
-
-
-

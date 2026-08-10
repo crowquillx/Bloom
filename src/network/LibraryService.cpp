@@ -115,7 +115,7 @@ QString LibraryItemQuery::normalizedSortBy() const
     return sortBy.isEmpty() ? QStringLiteral("ParentIndexNumber,IndexNumber,SortName") : sortBy;
 }
 
-QString LibraryItemQuery::cacheKey() const
+QString LibraryItemQuery::datasetKey() const
 {
     QStringList parts;
     parts << "parent=" + parentId;
@@ -140,10 +140,12 @@ QString LibraryItemQuery::cacheKey() const
     parts << "order=" + sortOrder;
     parts << "types=" + sortedList(includeItemTypes).join("|");
     parts << QStringLiteral("recursive=%1").arg(recursive ? "1" : "0");
-    parts << QStringLiteral("start=%1").arg(startIndex);
-    parts << QStringLiteral("limit=%1").arg(limit);
-    parts << QStringLiteral("heavy=%1").arg(includeHeavyFields ? "1" : "0");
     return parts.join(";");
+}
+
+QString LibraryItemQuery::cacheKey() const
+{
+    return datasetKey();
 }
 
 LibraryService::LibraryService(AuthenticationService *authService, QObject *parent)
@@ -421,18 +423,28 @@ void LibraryService::emitError(const NetworkError &error)
 
 void LibraryService::getViews()
 {
+    getViewsForRequest(QString());
+}
+
+void LibraryService::getViewsForRequest(const QString &requestKey)
+{
     const QString connectionId = activeConnectionId(m_authService);
     ProviderCatalogQuery query = baseCatalogQuery();
     sendCatalogRequest(
         QStringLiteral("getViews"),
         ProviderCatalogOperation::Views,
         query,
-        [this, connectionId](const ProviderCatalogResponse &response) {
+        [this, connectionId, requestKey](const ProviderCatalogResponse &response) {
             emit viewsLoaded(response.rawItems);
             const QVariantList items =
                 m_authService->mapMediaItems(response.rawItems, connectionId);
             emit canonicalViewsLoaded(items);
             emit canonicalViewsLoadedForConnection(connectionId, items);
+            emit canonicalViewsLoadedForRequest(connectionId, requestKey, items);
+        },
+        [this, connectionId, requestKey](const NetworkError &error) {
+            emit canonicalViewsFailedForRequest(
+                connectionId, requestKey, error.userMessage);
         });
 }
 
@@ -499,7 +511,10 @@ void LibraryService::getItems(const LibraryItemQuery &query)
             emit canonicalItemsLoadedForConnection(
                 connectionId, parentId, queryKey, items, response.total);
         },
-        FailureHandler(),
+        [this, connectionId, parentId, queryKey](const NetworkError &error) {
+            emit canonicalItemsFailedForConnection(
+                connectionId, parentId, queryKey, error.userMessage);
+        },
         [this, parentId, queryKey, connectionId]() {
             emit itemsNotModified(parentId);
             emit itemsNotModifiedForQuery(parentId, queryKey);
@@ -512,9 +527,22 @@ void LibraryService::getFilterOptions(const QString &parentId,
                                       const QStringList &includeItemTypes,
                                       bool recursive)
 {
+    getFilterOptionsForRequest(
+        parentId, includeItemTypes, recursive, QString());
+}
+
+void LibraryService::getFilterOptionsForRequest(
+    const QString &parentId,
+    const QStringList &includeItemTypes,
+    bool recursive,
+    const QString &requestKey)
+{
+    const QString connectionId = activeConnectionId(m_authService);
     if (!m_authService || !m_authService->isAuthenticated()) {
-        emitCatalogError(
-            QStringLiteral("getFilterOptions"), tr("Not authenticated"));
+        const QString error = tr("Not authenticated");
+        emit filterOptionsFailedForRequest(
+            connectionId, parentId, requestKey, error);
+        emitCatalogError(QStringLiteral("getFilterOptions"), error);
         return;
     }
     const QStringList facets = {
@@ -524,17 +552,45 @@ void LibraryService::getFilterOptions(const QString &parentId,
     };
     auto state = std::make_shared<QHash<QString, QStringList>>();
     auto remaining = std::make_shared<int>(facets.size());
-    const auto finish = [this, parentId, state, remaining]() {
+    auto successes = std::make_shared<int>(0);
+    auto lastError = std::make_shared<QString>();
+    const auto finish = [this, connectionId, parentId, requestKey, state,
+                         remaining, successes, lastError](bool succeeded,
+                                                         const QString &error) {
+        if (succeeded) {
+            ++(*successes);
+        } else if (!error.isEmpty()) {
+            *lastError = error;
+        }
         if (--(*remaining) > 0) {
+            return;
+        }
+        if (*successes == 0) {
+            emit filterOptionsFailedForRequest(
+                connectionId, parentId, requestKey,
+                lastError->isEmpty()
+                    ? tr("Unable to load filter options.") : *lastError);
             return;
         }
         QStringList genres = state->value(QStringLiteral("genres"));
         genres.append(state->value(QStringLiteral("filterGenres")));
+        const QStringList normalizedGenres = sortedList(genres);
+        const QStringList normalizedTags =
+            sortedList(state->value(QStringLiteral("tags")));
+        const QStringList normalizedStudios =
+            sortedList(state->value(QStringLiteral("studios")));
         emit filterOptionsLoaded(
             parentId,
-            sortedList(genres),
-            sortedList(state->value(QStringLiteral("tags"))),
-            sortedList(state->value(QStringLiteral("studios"))));
+            normalizedGenres,
+            normalizedTags,
+            normalizedStudios);
+        emit filterOptionsLoadedForRequest(
+            connectionId,
+            parentId,
+            requestKey,
+            normalizedGenres,
+            normalizedTags,
+            normalizedStudios);
     };
 
     for (const QString &facet : facets) {
@@ -568,10 +624,10 @@ void LibraryService::getFilterOptions(const QString &parentId,
                         metadataStrings(response.filterMetadata.value(
                             QStringLiteral("namedItems"))));
                 }
-                finish();
+                finish(true, QString());
             },
-            [finish](const NetworkError &) {
-                finish();
+            [finish](const NetworkError &error) {
+                finish(false, error.userMessage);
             });
     }
 }

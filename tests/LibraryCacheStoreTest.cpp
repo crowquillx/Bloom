@@ -11,9 +11,15 @@ class LibraryCacheStoreTest : public QObject
 
 private slots:
     void replaceAllAndRead();
+    void emptySnapshotPersists();
     void canonicalRowsPersistAndUpsert();
     void upsertWithOffsets();
+    void rejectsNonContiguousOffset();
+    void upsertReplacesPageRange();
+    void movingExistingItemInvalidatesUnverifiedSuffix();
+    void prefixOverlapIsRejectedWithoutMutation();
     void upsertWithPrune();
+    void malformedRowsInvalidateSnapshot();
     void freshnessDetection();
 };
 
@@ -43,6 +49,22 @@ void LibraryCacheStoreTest::replaceAllAndRead()
     QCOMPARE(slice.totalCount, 1);
     QVERIFY(slice.isFresh(600000));
     QCOMPARE(slice.items.first().toObject().value("itemId").toString(), QStringLiteral("one"));
+}
+
+void LibraryCacheStoreTest::emptySnapshotPersists()
+{
+    QTemporaryDir dir;
+    LibraryCacheStore store(tempDbPath(dir), 600000);
+    QVERIFY(store.open());
+
+    QVERIFY(store.replaceAll("empty-parent", QJsonArray(), 0));
+
+    const auto slice = store.read("empty-parent");
+    QVERIFY(slice.hasSnapshot());
+    QVERIFY(slice.hasData());
+    QVERIFY(slice.items.isEmpty());
+    QCOMPARE(slice.totalCount, 0);
+    QVERIFY(slice.isFresh(600000));
 }
 
 void LibraryCacheStoreTest::canonicalRowsPersistAndUpsert()
@@ -93,6 +115,125 @@ void LibraryCacheStoreTest::upsertWithOffsets()
     QCOMPARE(slice.totalCount, 2);
 }
 
+void LibraryCacheStoreTest::rejectsNonContiguousOffset()
+{
+    QTemporaryDir dir;
+    LibraryCacheStore store(tempDbPath(dir), 600000);
+    QVERIFY(store.open());
+
+    const QJsonArray middlePage{
+        QJsonObject{{QStringLiteral("itemId"), QStringLiteral("middle")}}
+    };
+    QVERIFY(!store.upsertItems(
+        QStringLiteral("parent"), middlePage, 101, false, 100));
+    QVERIFY(!store.read(QStringLiteral("parent")).hasSnapshot());
+}
+
+void LibraryCacheStoreTest::upsertReplacesPageRange()
+{
+    QTemporaryDir dir;
+    LibraryCacheStore store(tempDbPath(dir), 600000);
+    QVERIFY(store.open());
+
+    const QJsonArray initial{
+        QJsonObject{{"itemId", "one"}},
+        QJsonObject{{"itemId", "two"}},
+        QJsonObject{{"itemId", "three"}},
+        QJsonObject{{"itemId", "four"}},
+    };
+    QVERIFY(store.replaceAll("parent", initial, 4));
+
+    const QJsonArray replacement{
+        QJsonObject{{"itemId", "new-two"}},
+        QJsonObject{{"itemId", "new-three"}},
+    };
+    QVERIFY(store.upsertItems("parent", replacement, 4, false, 1));
+
+    const auto slice = store.read("parent");
+    QCOMPARE(slice.items.size(), 4);
+    QCOMPARE(slice.items.at(0).toObject().value("itemId").toString(),
+             QStringLiteral("one"));
+    QCOMPARE(slice.items.at(1).toObject().value("itemId").toString(),
+             QStringLiteral("new-two"));
+    QCOMPARE(slice.items.at(2).toObject().value("itemId").toString(),
+             QStringLiteral("new-three"));
+    QCOMPARE(slice.items.at(3).toObject().value("itemId").toString(),
+             QStringLiteral("four"));
+}
+
+void LibraryCacheStoreTest::movingExistingItemInvalidatesUnverifiedSuffix()
+{
+    QTemporaryDir dir;
+    LibraryCacheStore store(tempDbPath(dir), 600000);
+    QVERIFY(store.open());
+
+    const QJsonArray initial{
+        QJsonObject{{"itemId", "one"}},
+        QJsonObject{{"itemId", "two"}},
+        QJsonObject{{"itemId", "three"}},
+        QJsonObject{{"itemId", "four"}},
+        QJsonObject{{"itemId", "five"}},
+    };
+    QVERIFY(store.replaceAll("parent", initial, 5));
+
+    const QJsonArray replacement{
+        QJsonObject{{"itemId", "one"}},
+        QJsonObject{{"itemId", "four"}},
+    };
+    QVERIFY(store.upsertItems("parent", replacement, 5, false, 0));
+
+    const auto moved = store.read("parent");
+    QCOMPARE(moved.items.size(), 2);
+    QCOMPARE(moved.items.at(0).toObject().value("itemId").toString(),
+             QStringLiteral("one"));
+    QCOMPARE(moved.items.at(1).toObject().value("itemId").toString(),
+             QStringLiteral("four"));
+
+    // Resume at the first unknown server offset. The reordered item formerly
+    // at position one is fetched instead of being skipped by compaction.
+    const QJsonArray nextPage{
+        QJsonObject{{"itemId", "two"}},
+        QJsonObject{{"itemId", "three"}},
+    };
+    QVERIFY(store.upsertItems("parent", nextPage, 5, false, 2));
+    const QJsonArray finalPage{
+        QJsonObject{{"itemId", "five"}},
+    };
+    QVERIFY(store.upsertItems("parent", finalPage, 5, false, 4));
+    const auto completed = store.read("parent");
+    QCOMPARE(completed.items.size(), 5);
+    QCOMPARE(completed.items.at(2).toObject().value("itemId").toString(),
+             QStringLiteral("two"));
+    QCOMPARE(completed.items.at(4).toObject().value("itemId").toString(),
+             QStringLiteral("five"));
+}
+
+void LibraryCacheStoreTest::prefixOverlapIsRejectedWithoutMutation()
+{
+    QTemporaryDir dir;
+    LibraryCacheStore store(tempDbPath(dir), 600000);
+    QVERIFY(store.open());
+
+    const QJsonArray initial{
+        QJsonObject{{"itemId", "one"}},
+        QJsonObject{{"itemId", "two"}},
+        QJsonObject{{"itemId", "three"}},
+        QJsonObject{{"itemId", "four"}},
+    };
+    QVERIFY(store.replaceAll("parent", initial, 4));
+
+    const QJsonArray overlappingPage{
+        QJsonObject{{"itemId", "one"}},
+        QJsonObject{{"itemId", "four"}},
+    };
+    QVERIFY(!store.upsertItems(
+        "parent", overlappingPage, 4, false, 2));
+
+    const auto unchanged = store.read("parent");
+    QCOMPARE(unchanged.items, initial);
+    QCOMPARE(unchanged.totalCount, 4);
+}
+
 void LibraryCacheStoreTest::upsertWithPrune()
 {
     QTemporaryDir dir;
@@ -112,6 +253,40 @@ void LibraryCacheStoreTest::upsertWithPrune()
     QCOMPARE(slice.items.size(), 1);
     QCOMPARE(slice.items.first().toObject().value("itemId").toString(), QStringLiteral("two"));
     QCOMPARE(slice.totalCount, 1);
+}
+
+void LibraryCacheStoreTest::malformedRowsInvalidateSnapshot()
+{
+    QTemporaryDir dir;
+    const QString dbPath = tempDbPath(dir);
+    LibraryCacheStore store(dbPath, 600000);
+    QVERIFY(store.open());
+
+    const QJsonArray items{
+        QJsonObject{{QStringLiteral("itemId"), QStringLiteral("one")}}
+    };
+    QVERIFY(store.replaceAll(QStringLiteral("parent"), items, 1));
+
+    const QString connectionName = QStringLiteral("library_cache_corruption_test");
+    {
+        QSqlDatabase database =
+            QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setDatabaseName(dbPath);
+        QVERIFY(database.open());
+        QSqlQuery query(database);
+        QVERIFY(query.exec(QStringLiteral(
+            "UPDATE library_cache SET json = '{broken' "
+            "WHERE parent_id = 'parent'")));
+        database.close();
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+
+    const auto slice = store.read(QStringLiteral("parent"));
+    QVERIFY(slice.hasSnapshot());
+    QVERIFY(slice.decodeError);
+    QVERIFY(!slice.hasData());
+    QVERIFY(!slice.isFresh(600000));
+    QVERIFY(slice.items.isEmpty());
 }
 
 void LibraryCacheStoreTest::freshnessDetection()
@@ -140,9 +315,3 @@ void LibraryCacheStoreTest::freshnessDetection()
 
 QTEST_MAIN(LibraryCacheStoreTest)
 #include "LibraryCacheStoreTest.moc"
-
-
-
-
-
-

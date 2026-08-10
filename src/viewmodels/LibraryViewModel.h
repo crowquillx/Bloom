@@ -11,12 +11,15 @@
 #include <QElapsedTimer>
 #include <QVariantList>
 #include <QStringList>
+#include <QList>
 #include <memory>
+#include <optional>
 #include "../utils/LibraryCacheStore.h"
 #include "../network/LibraryService.h"
 
 class LibraryService;
 class ConfigManager;
+class LibraryViewModelCanonicalTest;
 
 /**
  * @brief Cache entry for library data with TTL support
@@ -25,16 +28,14 @@ struct LibraryCacheEntry {
     QJsonArray items;
     int totalRecordCount = 0;
     qint64 timestamp = 0;  // ms since epoch
+    qint64 byteSize = 0;
     
     bool isValid(qint64 ttlMs = 60000) const {  // Default 60 second TTL
         return timestamp > 0 && 
                (QDateTime::currentMSecsSinceEpoch() - timestamp) < ttlMs;
     }
     
-    // Check if cache has any data (regardless of TTL - for SWR pattern)
-    bool hasData() const {
-        return timestamp > 0 && !items.isEmpty();
-    }
+    bool hasSnapshot() const { return timestamp > 0; }
 };
 
 /**
@@ -92,6 +93,15 @@ class LibraryViewModel : public BaseViewModel
     Q_PROPERTY(int activeFilterCount READ activeFilterCount NOTIFY activeFilterCountChanged)
 
 public:
+    enum class LoadKind {
+        Views,
+        Initial,
+        LoadMore,
+        BackgroundRefresh,
+        FilterOptions
+    };
+    Q_ENUM(LoadKind)
+
     enum Roles {
         NameRole = Qt::UserRole + 1,
         ImageUrlRole,
@@ -228,22 +238,54 @@ signals:
     void activeFilterCountChanged();
 
 private slots:
-    void onViewsLoaded(const QVariantList &views);
-    void onItemsLoadedWithTotalForQuery(const QString &parentId,
-                                        const QString &queryKey,
-                                        const QVariantList &items,
-                                        int totalRecordCount);
-    void onFilterOptionsLoaded(const QString &parentId,
+    void onViewsLoaded(const QString &connectionId,
+                       const QString &requestKey,
+                       const QVariantList &views);
+    void onViewsFailed(const QString &connectionId,
+                       const QString &requestKey,
+                       const QString &error);
+    void onItemsLoaded(const QString &connectionId,
+                       const QString &parentId,
+                       const QString &requestKey,
+                       const QVariantList &items,
+                       int totalRecordCount);
+    void onItemsNotModified(const QString &connectionId,
+                            const QString &parentId,
+                            const QString &requestKey);
+    void onItemsFailed(const QString &connectionId,
+                       const QString &parentId,
+                       const QString &requestKey,
+                       const QString &error);
+    void onFilterOptionsLoaded(const QString &connectionId,
+                               const QString &parentId,
+                               const QString &requestKey,
                                const QStringList &genres,
                                const QStringList &tags,
                                const QStringList &studios);
-    void onErrorOccurred(const QString &endpoint, const QString &error);
+    void onFilterOptionsFailed(const QString &connectionId,
+                               const QString &parentId,
+                               const QString &requestKey,
+                               const QString &error);
 
 private:
+    friend class LibraryViewModelCanonicalTest;
+
+    struct RequestIdentity {
+        quint64 generation = 0;
+        LoadKind kind = LoadKind::Initial;
+        QString connectionId;
+        QString parentId;
+        QString datasetKey;
+        int offset = 0;
+        int limit = 0;
+        bool includeHeavyFields = false;
+    };
+
     void setIsLoadingMore(bool loading);
     void setTotalRecordCount(int count);
     void setItems(const QJsonArray &items);
     void appendItems(const QJsonArray &items);
+    void updateViews(const QVariantList &views);
     QString getImageUrl(const QJsonObject &item) const;
     bool isEmptyFolder(const QJsonObject &item) const;
     LibraryItemQuery buildCurrentQuery(int startIndex, int limit, bool includeHeavyFields) const;
@@ -253,16 +295,37 @@ private:
     void emitActiveFilterCountChanged();
     void setFilterOptionsLoading(bool loading);
     void toggleString(QStringList &list, const QString &value, void (LibraryViewModel::*signal)());
+    void beginGeneration();
+    QString registerRequest(LoadKind kind,
+                            const QString &parentId,
+                            const QString &datasetKey,
+                            int offset,
+                            int limit,
+                            bool includeHeavyFields);
+    std::optional<RequestIdentity> takeCurrentRequest(
+        const QString &connectionId,
+        const QString &parentId,
+        const QString &requestKey);
+    QString requestConnectionId() const;
+    void rejectStaleRequest(const QString &requestKey,
+                            const QString &reason) const;
+    QJsonArray mergePage(const LibraryCacheEntry &cached,
+                         const QJsonArray &page,
+                         int offset,
+                         int totalRecordCount) const;
+    void updateCachePage(const QString &datasetKey,
+                         const QJsonArray &page,
+                         int totalRecordCount,
+                         int offset);
 
     LibraryService *m_libraryService = nullptr;
     ConfigManager *m_configManager = nullptr;
     QVector<QJsonObject> m_items;
     QString m_currentParentId;
-    int m_lastStartIndex = 0;
-    int m_lastLimit = 0;
-    bool m_lastIncludeHeavyFields = true;
+    int m_pageLimit = 0;
     QString m_currentCollectionType;
-    QString m_activeQueryKey;
+    QString m_activeDatasetKey;
+    QString m_activeConnectionId;
     bool m_isLoadingMore = false;
     bool m_isBackgroundRefresh = false;  // SWR: true when revalidating in background
     int m_totalRecordCount = 0;
@@ -286,12 +349,25 @@ private:
     QStringList m_availableTags;
     QStringList m_availableStudios;
     bool m_filterOptionsLoading = false;
+    quint64 m_requestGeneration = 0;
+    quint64 m_requestSerial = 0;
+    QHash<QString, RequestIdentity> m_pendingRequests;
+    QString m_activeViewsRequestKey;
+    QString m_activeInitialRequestKey;
+    QString m_activeLoadMoreRequestKey;
+    QString m_activeBackgroundRequestKey;
+    QString m_activeFilterRequestKey;
+    mutable quint64 m_staleRequestRejections = 0;
     
     // In-memory cache for library data to speed up back navigation
-    // Key: parentId, Value: cached items and metadata
+    // Key: connection-scoped dataset identity, value: cached snapshot.
     static QHash<QString, LibraryCacheEntry> s_libraryCache;
+    static QList<QString> s_libraryCacheLru;
+    static qint64 s_libraryCacheBytes;
     static constexpr qint64 kCacheTtlMs = 120000;  // 2 minute TTL for library cache
     static constexpr qint64 kDiskCacheTtlMs = 600000; // 10 minute TTL for disk cache
+    static constexpr qsizetype kMemoryCacheMaxEntries = 48;
+    static constexpr qint64 kMemoryCacheMaxBytes = 32 * 1024 * 1024;
     
     // Check if we have valid cached data for a parent ID (respects TTL)
     bool hasCachedData(const QString &parentId) const;
@@ -299,6 +375,13 @@ private:
     bool hasAnyCachedData(const QString &parentId) const;
     // Get cached data (returns empty entry if not cached)
     LibraryCacheEntry getCachedData(const QString &parentId) const;
+    void storeMemoryCache(const QString &memoryKey,
+                          const LibraryCacheEntry &entry) const;
+    void removeMemoryCache(const QString &memoryKey) const;
+    void touchMemoryCache(const QString &memoryKey) const;
+    void evictMemoryCache() const;
+    qint64 cacheEntrySize(const QString &memoryKey,
+                          const LibraryCacheEntry &entry) const;
     // Update cache with new data
     void updateCache(const QString &parentId, const QJsonArray &items, int totalRecordCount);
     // Clear specific cache entry

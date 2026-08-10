@@ -8,7 +8,7 @@ class LibraryItemQueryTest : public QObject
 
 private slots:
     void cacheKeySeparatesSearchFilterAndSort();
-    void cacheKeySeparatesPaginationAndHeavyFields();
+    void datasetKeyIgnoresPaginationAndHeavyFields();
     void artworkSourcePreservesConnectionIdentity();
     void providerSnapshotCarriesAcrossPages();
 };
@@ -36,7 +36,7 @@ void LibraryItemQueryTest::cacheKeySeparatesSearchFilterAndSort()
     QVERIFY(filtered.cacheKey() != sorted.cacheKey());
 }
 
-void LibraryItemQueryTest::cacheKeySeparatesPaginationAndHeavyFields()
+void LibraryItemQueryTest::datasetKeyIgnoresPaginationAndHeavyFields()
 {
     LibraryItemQuery firstPage;
     firstPage.parentId = "library";
@@ -55,10 +55,11 @@ void LibraryItemQueryTest::cacheKeySeparatesPaginationAndHeavyFields()
     LibraryItemQuery lightFields = firstPage;
     lightFields.includeHeavyFields = false;
 
-    QVERIFY(firstPage.cacheKey() != nextPage.cacheKey());
-    QVERIFY(firstPage.cacheKey() != unpaged.cacheKey());
-    QVERIFY(firstPage.cacheKey() != differentLimit.cacheKey());
-    QVERIFY(firstPage.cacheKey() != lightFields.cacheKey());
+    QCOMPARE(firstPage.datasetKey(), nextPage.datasetKey());
+    QCOMPARE(firstPage.datasetKey(), unpaged.datasetKey());
+    QCOMPARE(firstPage.datasetKey(), differentLimit.datasetKey());
+    QCOMPARE(firstPage.datasetKey(), lightFields.datasetKey());
+    QCOMPARE(firstPage.cacheKey(), firstPage.datasetKey());
 }
 
 void LibraryItemQueryTest::providerSnapshotCarriesAcrossPages()

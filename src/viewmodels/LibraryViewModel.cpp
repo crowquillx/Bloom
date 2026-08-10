@@ -7,12 +7,16 @@
 #include <QDebug>
 #include <QDateTime>
 #include <QDir>
+#include <QJsonDocument>
+#include <QSet>
 #include <QStandardPaths>
 #include <algorithm>
 #include "../utils/BloomLogging.h"
 
 // Static cache initialization
 QHash<QString, LibraryCacheEntry> LibraryViewModel::s_libraryCache;
+QList<QString> LibraryViewModel::s_libraryCacheLru;
+qint64 LibraryViewModel::s_libraryCacheBytes = 0;
 
 LibraryViewModel::LibraryViewModel(QObject *parent)
     : BaseViewModel(parent)
@@ -26,14 +30,20 @@ LibraryViewModel::LibraryViewModel(QObject *parent)
     }
 
     if (m_libraryService) {
-        connect(m_libraryService, &LibraryService::canonicalViewsLoaded,
+        connect(m_libraryService, &LibraryService::canonicalViewsLoadedForRequest,
                 this, &LibraryViewModel::onViewsLoaded);
-        connect(m_libraryService, &LibraryService::canonicalItemsLoadedWithTotalForQuery,
-                this, &LibraryViewModel::onItemsLoadedWithTotalForQuery);
-        connect(m_libraryService, &LibraryService::filterOptionsLoaded,
+        connect(m_libraryService, &LibraryService::canonicalViewsFailedForRequest,
+                this, &LibraryViewModel::onViewsFailed);
+        connect(m_libraryService, &LibraryService::canonicalItemsLoadedForConnection,
+                this, &LibraryViewModel::onItemsLoaded);
+        connect(m_libraryService, &LibraryService::canonicalItemsNotModifiedForConnection,
+                this, &LibraryViewModel::onItemsNotModified);
+        connect(m_libraryService, &LibraryService::canonicalItemsFailedForConnection,
+                this, &LibraryViewModel::onItemsFailed);
+        connect(m_libraryService, &LibraryService::filterOptionsLoadedForRequest,
                 this, &LibraryViewModel::onFilterOptionsLoaded);
-        connect(m_libraryService, &LibraryService::errorOccurred,
-                this, &LibraryViewModel::onErrorOccurred);
+        connect(m_libraryService, &LibraryService::filterOptionsFailedForRequest,
+                this, &LibraryViewModel::onFilterOptionsFailed);
     } else {
         qCWarning(lcViewModels) << "LibraryViewModel: LibraryService not available in ServiceLocator";
     }
@@ -105,28 +115,29 @@ void LibraryViewModel::loadLibrary(const QString &parentId, const QString &colle
         return;
     }
 
+    beginGeneration();
+    const bool parentChanged = m_currentParentId != parentId;
     m_currentParentId = parentId;
     m_currentCollectionType = collectionType;
-    m_lastStartIndex = startIndex;
-    m_lastLimit = limit;
-    // Use lightweight fields for paginated (library) loads; heavy fields for full detail (limit==0)
-    m_lastIncludeHeavyFields = (limit == 0);
+    m_pageLimit = limit;
     m_loadingViews = false;
-    m_isBackgroundRefresh = false;
-    
-    emit currentParentIdChanged();
+    m_activeConnectionId = requestConnectionId();
+    if (parentChanged) {
+        emit currentParentIdChanged();
+    }
     
     // SWR Pattern: Check for any cached data (even stale) for initial loads
-    LibraryItemQuery query = buildCurrentQuery(startIndex, limit, m_lastIncludeHeavyFields);
-    m_activeQueryKey = query.cacheKey();
-    query.requestKey = m_activeQueryKey;
+    const bool includeHeavyFields = limit == 0;
+    LibraryItemQuery query =
+        buildCurrentQuery(startIndex, limit, includeHeavyFields);
+    m_activeDatasetKey = query.datasetKey();
 
-    if (startIndex == 0 && hasAnyCachedData(m_activeQueryKey)) {
-        LibraryCacheEntry cached = getCachedData(m_activeQueryKey);
+    if (startIndex == 0 && hasAnyCachedData(m_activeDatasetKey)) {
+        LibraryCacheEntry cached = getCachedData(m_activeDatasetKey);
         bool isStale = !cached.isValid(kCacheTtlMs);
         
         qCDebug(lcViewModels) << "LibraryViewModel::loadLibrary SWR" << (isStale ? "STALE" : "FRESH") 
-                 << "cache for" << m_activeQueryKey
+                 << "cache for" << m_activeDatasetKey
                  << "items:" << cached.items.size() << "total:" << cached.totalRecordCount;
         
         // Always serve cached data immediately (instant UI)
@@ -142,20 +153,41 @@ void LibraryViewModel::loadLibrary(const QString &parentId, const QString &colle
         
         // SWR: Cache is stale - trigger background refresh
         // This won't show loading spinner, data is already displayed
-        qCDebug(lcViewModels) << "LibraryViewModel: SWR background refresh for" << m_activeQueryKey;
+        qCDebug(lcViewModels) << "LibraryViewModel: SWR background refresh for" << m_activeDatasetKey;
         m_isBackgroundRefresh = true;
         m_loadTimer.restart();
         clearError();
+        query.requestKey = registerRequest(
+            LoadKind::BackgroundRefresh,
+            parentId,
+            m_activeDatasetKey,
+            startIndex,
+            limit,
+            includeHeavyFields);
+        m_activeBackgroundRequestKey = query.requestKey;
         m_libraryService->getItems(query);
         return;
     }
     
     // No cached data - do a normal blocking load with spinner
     setLoading(true);
+    emit canLoadMoreChanged();
     m_loadTimer.restart();
     clearError();
+    query.requestKey = registerRequest(
+        LoadKind::Initial,
+        parentId,
+        m_activeDatasetKey,
+        startIndex,
+        limit,
+        includeHeavyFields);
+    m_activeInitialRequestKey = query.requestKey;
 
-    qCDebug(lcViewModels) << "LibraryViewModel::loadLibrary" << parentId << "queryKey:" << m_activeQueryKey << "startIndex:" << startIndex << "limit:" << limit << "heavyFields:" << m_lastIncludeHeavyFields;
+    qCDebug(lcViewModels) << "LibraryViewModel::loadLibrary" << parentId
+                          << "datasetKey:" << m_activeDatasetKey
+                          << "requestKey:" << query.requestKey
+                          << "startIndex:" << startIndex << "limit:" << limit
+                          << "heavyFields:" << includeHeavyFields;
     m_libraryService->getItems(query);
 }
 
@@ -167,19 +199,26 @@ void LibraryViewModel::loadViews()
         return;
     }
 
+    beginGeneration();
+    const bool parentChanged = !m_currentParentId.isEmpty();
     m_currentParentId.clear();
     m_currentCollectionType.clear();
-    m_activeQueryKey.clear();
-    m_lastStartIndex = 0;
-    m_lastLimit = 0;
+    m_activeDatasetKey.clear();
+    m_activeConnectionId = requestConnectionId();
+    m_pageLimit = 0;
     m_loadingViews = true;
     
-    emit currentParentIdChanged();
+    if (parentChanged) {
+        emit currentParentIdChanged();
+    }
     setLoading(true);
+    emit canLoadMoreChanged();
     clearError();
 
     qCDebug(lcViewModels) << "LibraryViewModel::loadViews";
-    m_libraryService->getViews();
+    m_activeViewsRequestKey = registerRequest(
+        LoadKind::Views, QString(), QString(), 0, 0, false);
+    m_libraryService->getViewsForRequest(m_activeViewsRequestKey);
 }
 
 void LibraryViewModel::refresh()
@@ -187,7 +226,8 @@ void LibraryViewModel::refresh()
     if (m_loadingViews || m_currentParentId.isEmpty()) {
         loadViews();
     } else {
-        loadLibrary(m_currentParentId, m_lastStartIndex, m_lastLimit);
+        loadLibrary(
+            m_currentParentId, m_currentCollectionType, 0, m_pageLimit);
     }
 }
 
@@ -198,12 +238,12 @@ void LibraryViewModel::reload()
 
 void LibraryViewModel::clear()
 {
-    if (m_items.isEmpty())
-        return;
-
-    beginResetModel();
-    m_items.clear();
-    endResetModel();
+    beginGeneration();
+    if (!m_items.isEmpty()) {
+        beginResetModel();
+        m_items.clear();
+        endResetModel();
+    }
 
     setTotalRecordCount(0);
     clearError();
@@ -235,14 +275,24 @@ void LibraryViewModel::loadMore(int limit)
     int startIndex = m_items.size();
     qCDebug(lcViewModels) << "LibraryViewModel::loadMore from index" << startIndex << "limit:" << limit;
     
-    // Store the start index for the incremental load handler
-    m_lastStartIndex = startIndex;
-    m_lastLimit = limit;
-    m_lastIncludeHeavyFields = false; // loadMore is always for paginated library loads
-
-    LibraryItemQuery query = buildCurrentQuery(startIndex, limit, m_lastIncludeHeavyFields);
-    m_activeQueryKey = query.cacheKey();
-    query.requestKey = m_activeQueryKey;
+    LibraryItemQuery query = buildCurrentQuery(startIndex, limit, false);
+    const QString datasetKey = query.datasetKey();
+    if (datasetKey != m_activeDatasetKey) {
+        qCDebug(lcViewModels)
+            << "LibraryViewModel: query changed before pagination; starting a new dataset";
+        loadLibrary(
+            m_currentParentId, m_currentCollectionType, 0,
+            m_pageLimit > 0 ? m_pageLimit : limit);
+        return;
+    }
+    query.requestKey = registerRequest(
+        LoadKind::LoadMore,
+        m_currentParentId,
+        datasetKey,
+        startIndex,
+        limit,
+        false);
+    m_activeLoadMoreRequestKey = query.requestKey;
     m_libraryService->getItems(query);
 }
 
@@ -262,11 +312,8 @@ QString LibraryViewModel::buildImageUrl(const QVariantMap &item) const
     return getImageUrl(QJsonObject::fromVariantMap(item));
 }
 
-void LibraryViewModel::onViewsLoaded(const QVariantList &views)
+void LibraryViewModel::updateViews(const QVariantList &views)
 {
-    qCDebug(lcViewModels) << "LibraryViewModel::onViewsLoaded" << views.size()
-                          << "items, loadingViews:" << m_loadingViews;
-
     QVariantList viewsList;
     for (const QVariant &view : views) {
         const QVariantMap viewMap = view.toMap();
@@ -280,129 +327,252 @@ void LibraryViewModel::onViewsLoaded(const QVariantList &views)
         m_views = viewsList;
         emit viewsChanged();
     }
+}
 
-    // Only update the list model if we were the ones loading views.
-    if (!m_loadingViews)
+void LibraryViewModel::onViewsLoaded(const QString &connectionId,
+                                     const QString &requestKey,
+                                     const QVariantList &views)
+{
+    if (requestKey.isEmpty()) {
+        if (connectionId.isEmpty()
+            || connectionId == requestConnectionId()) {
+            updateViews(views);
+        }
         return;
+    }
 
+    const auto request =
+        takeCurrentRequest(connectionId, QString(), requestKey);
+    if (!request || request->kind != LoadKind::Views
+        || requestKey != m_activeViewsRequestKey) {
+        return;
+    }
+
+    updateViews(views);
+
+    m_activeViewsRequestKey.clear();
+    m_loadingViews = false;
     setLoading(false);
-    setTotalRecordCount(viewsList.size());
-    setItems(QJsonArray::fromVariantList(viewsList));
+    setTotalRecordCount(m_views.size());
+    setItems(QJsonArray::fromVariantList(m_views));
 
     emit loadComplete();
 }
 
-void LibraryViewModel::onItemsLoadedWithTotalForQuery(const QString &parentId,
-                                                       const QString &queryKey,
-                                                       const QVariantList &canonicalItems,
-                                                       int totalRecordCount)
+void LibraryViewModel::onViewsFailed(const QString &connectionId,
+                                     const QString &requestKey,
+                                     const QString &error)
 {
-    const QJsonArray items = QJsonArray::fromVariantList(canonicalItems);
-    if (parentId != m_currentParentId)
-        return;
-    if (!queryKey.isEmpty() && queryKey != m_activeQueryKey) {
-        qCDebug(lcViewModels) << "LibraryViewModel: ignoring stale query result" << queryKey << "active:" << m_activeQueryKey;
+    const auto request =
+        takeCurrentRequest(connectionId, QString(), requestKey);
+    if (!request || request->kind != LoadKind::Views
+        || requestKey != m_activeViewsRequestKey) {
         return;
     }
 
-    const QString cacheKey = queryKey.isEmpty() ? parentId : queryKey;
+    m_activeViewsRequestKey.clear();
+    m_loadingViews = false;
+    setLoading(false);
+    setError(mapNetworkError(QStringLiteral("getViews"), error));
+    emit loadError(error);
+}
 
-    qCDebug(lcViewModels) << "LibraryViewModel::onItemsLoadedWithTotalForQuery" << parentId << items.size()
+void LibraryViewModel::onItemsLoaded(const QString &connectionId,
+                                     const QString &parentId,
+                                     const QString &requestKey,
+                                     const QVariantList &canonicalItems,
+                                     int totalRecordCount)
+{
+    const auto request =
+        takeCurrentRequest(connectionId, parentId, requestKey);
+    if (!request) {
+        return;
+    }
+    const QJsonArray items = QJsonArray::fromVariantList(canonicalItems);
+
+    qCDebug(lcViewModels) << "LibraryViewModel::onItemsLoaded" << parentId
+             << items.size()
              << "items, total:" << totalRecordCount 
-             << "backgroundRefresh:" << m_isBackgroundRefresh
-             << "queryKey:" << cacheKey;
+             << "loadKind:" << static_cast<int>(request->kind)
+             << "datasetKey:" << request->datasetKey
+             << "requestKey:" << requestKey;
     
-    // Check if this is an incremental load (loadMore) or initial load
-    if (m_isLoadingMore) {
+    if (request->kind == LoadKind::LoadMore
+        && requestKey == m_activeLoadMoreRequestKey) {
+        m_activeLoadMoreRequestKey.clear();
         setIsLoadingMore(false);
         setTotalRecordCount(totalRecordCount);
         appendItems(items);
         qCDebug(lcViewModels) << "LibraryViewModel: loadMore completed in" << m_loadMoreTimer.elapsed() << "ms";
-        
-        // Cache incremental items without rewriting the whole dataset
-        QJsonArray filteredItems;
-        for (int i = m_lastStartIndex; i < m_items.size(); ++i) {
-            filteredItems.append(m_items.at(i));
-        }
-
-        LibraryCacheEntry entry = getCachedData(cacheKey);
-        if (!entry.hasData()) {
-            entry.items = QJsonArray();
-        }
-        for (const auto &val : filteredItems) {
-            entry.items.append(val);
-        }
-        entry.totalRecordCount = totalRecordCount;
-        entry.timestamp = QDateTime::currentMSecsSinceEpoch();
-        s_libraryCache[scopedCacheKey(cacheKey)] = entry;
-
-        if (m_cacheStore && m_cacheStore->isOpen()) {
-            if (!m_cacheStore->upsertItems(cacheKey, filteredItems, totalRecordCount, false, m_lastStartIndex)) {
-                qCWarning(lcViewModels) << "LibraryViewModel: failed to upsert paginated cache for" << cacheKey;
-            }
-        }
+        updateCachePage(
+            request->datasetKey, items, totalRecordCount, request->offset);
         
         emit loadMoreComplete();
         emit canLoadMoreChanged();
-    } else if (m_isBackgroundRefresh) {
+    } else if (request->kind == LoadKind::BackgroundRefresh
+               && requestKey == m_activeBackgroundRequestKey) {
+        m_activeBackgroundRequestKey.clear();
         // SWR: Background refresh completed
         m_isBackgroundRefresh = false;
         qCDebug(lcViewModels) << "LibraryViewModel: background refresh completed in" << m_loadTimer.elapsed() << "ms";
-        
+
+        const LibraryCacheEntry cached = getCachedData(request->datasetKey);
+        // A successful first-page revalidation cannot prove that cached later
+        // pages still occupy the same positions. Insertions, deletions, or
+        // reordering can shift the page boundary, so retain the old full
+        // snapshot only for a provider-level not-modified response.
+        const QJsonArray refreshed = items;
+
         // Check if data actually changed
-        LibraryCacheEntry cached = getCachedData(cacheKey);
-        if (hasDataChanged(items, totalRecordCount, cached)) {
+        if (hasDataChanged(refreshed, totalRecordCount, cached)) {
             qCDebug(lcViewModels) << "LibraryViewModel: SWR detected changes, updating model";
             setTotalRecordCount(totalRecordCount);
-            updateItemsFromBackground(items);
+            updateItemsFromBackground(refreshed);
             emit canLoadMoreChanged();
         } else {
             qCDebug(lcViewModels) << "LibraryViewModel: SWR no changes detected, updating timestamp only";
         }
         
         // Always update cache with fresh data and timestamp
-        updateCache(cacheKey, items, totalRecordCount);
-    } else {
+        updateCache(request->datasetKey, refreshed, totalRecordCount);
+    } else if (request->kind == LoadKind::Initial
+               && requestKey == m_activeInitialRequestKey) {
+        m_activeInitialRequestKey.clear();
         setLoading(false);
         setTotalRecordCount(totalRecordCount);
         setItems(items);
         qCDebug(lcViewModels) << "LibraryViewModel: initial load completed in" << m_loadTimer.elapsed() << "ms";
         
         // Cache the data for faster back navigation (only for initial loads)
-        if (m_lastStartIndex == 0) {
-            updateCache(cacheKey, items, totalRecordCount);
+        if (request->offset == 0) {
+            updateCache(request->datasetKey, items, totalRecordCount);
+        } else {
+            updateCachePage(
+                request->datasetKey, items, totalRecordCount, request->offset);
         }
         
         emit loadComplete();
         emit canLoadMoreChanged();
+    } else {
+        rejectStaleRequest(
+            requestKey, QStringLiteral("active load kind changed"));
     }
 }
 
-void LibraryViewModel::onErrorOccurred(const QString &endpoint, const QString &error)
+void LibraryViewModel::onItemsNotModified(const QString &connectionId,
+                                          const QString &parentId,
+                                          const QString &requestKey)
 {
-    // Only handle errors for our current requests
-    if (endpoint != "getViews" && endpoint != "getItems")
+    const auto request =
+        takeCurrentRequest(connectionId, parentId, requestKey);
+    if (!request) {
         return;
+    }
 
-    qCWarning(lcViewModels) << "LibraryViewModel error:" << endpoint << error;
-    setLoading(false);
-    setError(mapNetworkError(endpoint, error));
-    emit loadError(error);
+    if (request->kind == LoadKind::BackgroundRefresh
+        && requestKey == m_activeBackgroundRequestKey) {
+        m_activeBackgroundRequestKey.clear();
+        m_isBackgroundRefresh = false;
+        const LibraryCacheEntry cached = getCachedData(request->datasetKey);
+        if (cached.hasSnapshot()) {
+            updateCache(
+                request->datasetKey, cached.items, cached.totalRecordCount);
+        }
+    } else if (request->kind == LoadKind::Initial
+               && requestKey == m_activeInitialRequestKey) {
+        m_activeInitialRequestKey.clear();
+        setLoading(false);
+        emit loadComplete();
+    } else if (request->kind == LoadKind::LoadMore
+               && requestKey == m_activeLoadMoreRequestKey) {
+        m_activeLoadMoreRequestKey.clear();
+        setIsLoadingMore(false);
+        emit loadMoreComplete();
+    } else {
+        rejectStaleRequest(
+            requestKey,
+            QStringLiteral("not-modified no longer owns active state"));
+    }
 }
 
-void LibraryViewModel::onFilterOptionsLoaded(const QString &parentId,
+void LibraryViewModel::onItemsFailed(const QString &connectionId,
+                                     const QString &parentId,
+                                     const QString &requestKey,
+                                     const QString &error)
+{
+    const auto request =
+        takeCurrentRequest(connectionId, parentId, requestKey);
+    if (!request) {
+        return;
+    }
+
+    qCWarning(lcViewModels) << "LibraryViewModel request failed"
+                            << requestKey << error;
+    if (request->kind == LoadKind::BackgroundRefresh
+        && requestKey == m_activeBackgroundRequestKey) {
+        m_activeBackgroundRequestKey.clear();
+        m_isBackgroundRefresh = false;
+        qCDebug(lcViewModels)
+            << "LibraryViewModel: preserving cached content after SWR failure";
+        return;
+    }
+    if (request->kind == LoadKind::LoadMore
+        && requestKey == m_activeLoadMoreRequestKey) {
+        m_activeLoadMoreRequestKey.clear();
+        setIsLoadingMore(false);
+    } else if (request->kind == LoadKind::Initial
+               && requestKey == m_activeInitialRequestKey) {
+        m_activeInitialRequestKey.clear();
+        setLoading(false);
+    } else {
+        rejectStaleRequest(
+            requestKey, QStringLiteral("failure no longer owns active state"));
+        return;
+    }
+
+    setError(mapNetworkError(QStringLiteral("getItems"), error));
+    emit loadError(error);
+    emit canLoadMoreChanged();
+}
+
+void LibraryViewModel::onFilterOptionsLoaded(const QString &connectionId,
+                                             const QString &parentId,
+                                             const QString &requestKey,
                                              const QStringList &genres,
                                              const QStringList &tags,
                                              const QStringList &studios)
 {
-    if (parentId != m_currentParentId)
+    const auto request =
+        takeCurrentRequest(connectionId, parentId, requestKey);
+    if (!request || request->kind != LoadKind::FilterOptions
+        || requestKey != m_activeFilterRequestKey) {
         return;
+    }
 
+    m_activeFilterRequestKey.clear();
     m_availableGenres = genres;
     m_availableTags = tags;
     m_availableStudios = studios;
     setFilterOptionsLoading(false);
     emit filterOptionsChanged();
+}
+
+void LibraryViewModel::onFilterOptionsFailed(const QString &connectionId,
+                                             const QString &parentId,
+                                             const QString &requestKey,
+                                             const QString &error)
+{
+    const auto request =
+        takeCurrentRequest(connectionId, parentId, requestKey);
+    if (!request || request->kind != LoadKind::FilterOptions
+        || requestKey != m_activeFilterRequestKey) {
+        return;
+    }
+
+    m_activeFilterRequestKey.clear();
+    setFilterOptionsLoading(false);
+    qCWarning(lcViewModels) << "LibraryViewModel: filter options failed"
+                            << error;
 }
 
 int LibraryViewModel::activeFilterCount() const
@@ -602,16 +772,32 @@ void LibraryViewModel::clearFilters()
 void LibraryViewModel::reloadWithCurrentQuery()
 {
     if (!m_currentParentId.isEmpty()) {
-        loadLibrary(m_currentParentId, m_currentCollectionType, 0, m_lastLimit);
+        loadLibrary(m_currentParentId, m_currentCollectionType, 0, m_pageLimit);
     }
 }
 
 void LibraryViewModel::loadFilterOptions(const QString &parentId, const QString &collectionType)
 {
-    if (!m_libraryService || parentId.isEmpty())
+    if (!m_libraryService || parentId.isEmpty()
+        || parentId != m_currentParentId) {
         return;
+    }
+    if (!m_activeFilterRequestKey.isEmpty()) {
+        m_pendingRequests.remove(m_activeFilterRequestKey);
+    }
     setFilterOptionsLoading(true);
-    m_libraryService->getFilterOptions(parentId, includeItemTypesForCollection(collectionType), true);
+    m_activeFilterRequestKey = registerRequest(
+        LoadKind::FilterOptions,
+        parentId,
+        QString(),
+        0,
+        0,
+        false);
+    m_libraryService->getFilterOptionsForRequest(
+        parentId,
+        includeItemTypesForCollection(collectionType),
+        true,
+        m_activeFilterRequestKey);
 }
 
 LibraryItemQuery LibraryViewModel::buildCurrentQuery(int startIndex, int limit, bool includeHeavyFields) const
@@ -723,12 +909,225 @@ void LibraryViewModel::toggleString(QStringList &list, const QString &value, voi
     emitActiveFilterCountChanged();
 }
 
+void LibraryViewModel::beginGeneration()
+{
+    ++m_requestGeneration;
+    m_pendingRequests.clear();
+    m_activeViewsRequestKey.clear();
+    m_activeInitialRequestKey.clear();
+    m_activeLoadMoreRequestKey.clear();
+    m_activeBackgroundRequestKey.clear();
+    m_activeFilterRequestKey.clear();
+    m_isBackgroundRefresh = false;
+    m_loadingViews = false;
+    setLoading(false);
+    setIsLoadingMore(false);
+    setFilterOptionsLoading(false);
+}
+
+QString LibraryViewModel::registerRequest(LoadKind kind,
+                                          const QString &parentId,
+                                          const QString &datasetKey,
+                                          int offset,
+                                          int limit,
+                                          bool includeHeavyFields)
+{
+    const QString requestKey =
+        QStringLiteral("library:%1:%2:%3")
+            .arg(m_requestGeneration)
+            .arg(++m_requestSerial)
+            .arg(static_cast<int>(kind));
+    RequestIdentity request;
+    request.generation = m_requestGeneration;
+    request.kind = kind;
+    request.connectionId = requestConnectionId();
+    request.parentId = parentId;
+    request.datasetKey = datasetKey;
+    request.offset = offset;
+    request.limit = limit;
+    request.includeHeavyFields = includeHeavyFields;
+    m_pendingRequests.insert(requestKey, request);
+    return requestKey;
+}
+
+std::optional<LibraryViewModel::RequestIdentity>
+LibraryViewModel::takeCurrentRequest(const QString &connectionId,
+                                     const QString &parentId,
+                                     const QString &requestKey)
+{
+    const auto it = m_pendingRequests.find(requestKey);
+    if (it == m_pendingRequests.end()) {
+        rejectStaleRequest(requestKey, QStringLiteral("request is no longer pending"));
+        return std::nullopt;
+    }
+
+    const RequestIdentity request = it.value();
+    if (request.generation != m_requestGeneration) {
+        rejectStaleRequest(requestKey, QStringLiteral("generation changed"));
+        return std::nullopt;
+    }
+    if (!connectionId.isEmpty() && connectionId != request.connectionId) {
+        rejectStaleRequest(requestKey, QStringLiteral("connection changed"));
+        return std::nullopt;
+    }
+    if (request.connectionId != m_activeConnectionId) {
+        rejectStaleRequest(
+            requestKey, QStringLiteral("active connection changed"));
+        return std::nullopt;
+    }
+    if (request.parentId != parentId
+        || request.parentId != m_currentParentId) {
+        rejectStaleRequest(requestKey, QStringLiteral("parent changed"));
+        return std::nullopt;
+    }
+    if (!request.datasetKey.isEmpty()
+        && request.datasetKey != m_activeDatasetKey) {
+        rejectStaleRequest(requestKey, QStringLiteral("dataset changed"));
+        return std::nullopt;
+    }
+    m_pendingRequests.erase(it);
+    return request;
+}
+
+QString LibraryViewModel::requestConnectionId() const
+{
+    const QString cacheScope = connectionScopeId();
+    if (cacheScope != QStringLiteral("_local")) {
+        return cacheScope;
+    }
+    if (m_libraryService) {
+        const QString serviceConnectionId =
+            m_libraryService->getActiveConnectionId();
+        if (!serviceConnectionId.isEmpty()) {
+            return serviceConnectionId;
+        }
+    }
+    return cacheScope;
+}
+
+void LibraryViewModel::rejectStaleRequest(const QString &requestKey,
+                                          const QString &reason) const
+{
+    ++m_staleRequestRejections;
+    qCDebug(lcViewModels) << "LibraryViewModel: rejected stale request"
+                          << requestKey << reason
+                          << "count:" << m_staleRequestRejections;
+}
+
+QJsonArray LibraryViewModel::mergePage(const LibraryCacheEntry &cached,
+                                       const QJsonArray &page,
+                                       int offset,
+                                       int totalRecordCount) const
+{
+    QJsonArray merged = cached.hasSnapshot() ? cached.items : QJsonArray();
+    const int normalizedOffset = qMax(0, offset);
+    for (int i = 0; i < page.size(); ++i) {
+        const int position = normalizedOffset + i;
+        if (position < merged.size()) {
+            merged.replace(position, page.at(i));
+        } else {
+            merged.append(page.at(i));
+        }
+    }
+    while (totalRecordCount >= 0 && merged.size() > totalRecordCount) {
+        merged.removeLast();
+    }
+    return merged;
+}
+
+void LibraryViewModel::updateCachePage(const QString &datasetKey,
+                                       const QJsonArray &page,
+                                       int totalRecordCount,
+                                       int offset)
+{
+    if (!page.isEmpty() && !isCanonicalCachePayload(page)) {
+        qCWarning(lcViewModels)
+            << "LibraryViewModel: refusing non-canonical cache page for"
+            << datasetKey;
+        return;
+    }
+
+    const LibraryCacheEntry cached = getCachedData(datasetKey);
+    const int normalizedOffset = qMax(0, offset);
+    if (normalizedOffset > cached.items.size()) {
+        qCWarning(lcViewModels)
+            << "LibraryViewModel: refusing non-contiguous cache page for"
+            << datasetKey << "at offset" << normalizedOffset
+            << "with cached prefix size" << cached.items.size();
+        return;
+    }
+
+    QSet<QString> incomingIds;
+    incomingIds.reserve(page.size());
+    for (const QJsonValue &value : page) {
+        const QString incomingId =
+            value.toObject().value(QStringLiteral("itemId")).toString();
+        if (incomingIds.contains(incomingId)) {
+            qCWarning(lcViewModels)
+                << "LibraryViewModel: refusing cache page with duplicate itemId for"
+                << datasetKey << "id:" << incomingId;
+            return;
+        }
+        incomingIds.insert(incomingId);
+    }
+    for (int index = 0;
+         index < normalizedOffset && index < cached.items.size();
+         ++index) {
+        const QString cachedId = cached.items.at(index).toObject()
+                                     .value(QStringLiteral("itemId"))
+                                     .toString();
+        if (incomingIds.contains(cachedId)) {
+            qCWarning(lcViewModels)
+                << "LibraryViewModel: paginated cache page overlaps its prefix for"
+                << datasetKey << "- invalidating the snapshot";
+            clearCacheEntry(datasetKey);
+            return;
+        }
+    }
+
+    const int pageEnd = normalizedOffset + page.size();
+    bool overlapsRetainedSuffix = false;
+    for (int index = pageEnd; index < cached.items.size(); ++index) {
+        const QString cachedId = cached.items.at(index).toObject()
+                                     .value(QStringLiteral("itemId"))
+                                     .toString();
+        if (incomingIds.contains(cachedId)) {
+            overlapsRetainedSuffix = true;
+            break;
+        }
+    }
+
+    LibraryCacheEntry entry;
+    entry.items = mergePage(cached, page, normalizedOffset, totalRecordCount);
+    if (overlapsRetainedSuffix) {
+        // A moved suffix item proves that every later cached position may have
+        // shifted. Keep only the verified prefix and incoming page so the next
+        // load resumes at the first unknown server offset.
+        while (entry.items.size() > pageEnd) {
+            entry.items.removeLast();
+        }
+    }
+    entry.totalRecordCount = totalRecordCount;
+    entry.timestamp = QDateTime::currentMSecsSinceEpoch();
+    storeMemoryCache(scopedCacheKey(datasetKey), entry);
+
+    if (m_cacheStore && m_cacheStore->isOpen()
+        && !m_cacheStore->upsertItems(
+            datasetKey, page, totalRecordCount, false, normalizedOffset)) {
+        qCWarning(lcViewModels)
+            << "LibraryViewModel: failed to upsert paginated cache for"
+            << datasetKey << "- invalidating the persisted snapshot";
+        m_cacheStore->clearParent(datasetKey);
+    }
+}
+
 void LibraryViewModel::setIsLoadingMore(bool loading)
 {
     if (m_isLoadingMore == loading)
         return;
     m_isLoadingMore = loading;
     emit isLoadingMoreChanged();
+    emit canLoadMoreChanged();
 }
 
 void LibraryViewModel::setTotalRecordCount(int count)
@@ -853,22 +1252,24 @@ bool LibraryViewModel::hasCachedData(const QString &parentId) const
     if (s_libraryCache.contains(memoryKey)) {
         const LibraryCacheEntry entry = s_libraryCache.value(memoryKey);
         if (!isCanonicalCachePayload(entry.items)) {
-            s_libraryCache.remove(memoryKey);
+            removeMemoryCache(memoryKey);
         } else if (entry.isValid(kCacheTtlMs)) {
+            touchMemoryCache(memoryKey);
             return true;
         }
     }
 
     if (m_cacheStore && m_cacheStore->isOpen()) {
         auto slice = m_cacheStore->read(parentId);
-        if (slice.hasData() && !isCanonicalCachePayload(slice.items)) {
+        if (slice.hasSnapshot()
+            && (!slice.hasData() || !isCanonicalCachePayload(slice.items))) {
             m_cacheStore->clearParent(parentId);
         } else if (slice.hasData() && slice.isFresh(kDiskCacheTtlMs)) {
             LibraryCacheEntry entry;
             entry.items = slice.items;
             entry.totalRecordCount = slice.totalCount;
             entry.timestamp = slice.updatedAtMs;
-            s_libraryCache[memoryKey] = entry;
+            storeMemoryCache(memoryKey, entry);
             return true;
         }
     }
@@ -882,22 +1283,24 @@ bool LibraryViewModel::hasAnyCachedData(const QString &parentId) const
     if (s_libraryCache.contains(memoryKey)) {
         const LibraryCacheEntry entry = s_libraryCache.value(memoryKey);
         if (!isCanonicalCachePayload(entry.items)) {
-            s_libraryCache.remove(memoryKey);
-        } else if (entry.hasData()) {
+            removeMemoryCache(memoryKey);
+        } else if (entry.hasSnapshot()) {
+            touchMemoryCache(memoryKey);
             return true;
         }
     }
 
     if (m_cacheStore && m_cacheStore->isOpen()) {
         auto slice = m_cacheStore->read(parentId);
-        if (slice.hasData() && !isCanonicalCachePayload(slice.items)) {
+        if (slice.hasSnapshot()
+            && (!slice.hasData() || !isCanonicalCachePayload(slice.items))) {
             m_cacheStore->clearParent(parentId);
         } else if (slice.hasData()) {
             LibraryCacheEntry entry;
             entry.items = slice.items;
             entry.totalRecordCount = slice.totalCount;
             entry.timestamp = slice.updatedAtMs;
-            s_libraryCache[memoryKey] = entry;
+            storeMemoryCache(memoryKey, entry);
             return true;
         }
     }
@@ -907,7 +1310,80 @@ bool LibraryViewModel::hasAnyCachedData(const QString &parentId) const
 
 LibraryCacheEntry LibraryViewModel::getCachedData(const QString &parentId) const
 {
-    return s_libraryCache.value(scopedCacheKey(parentId));
+    const QString memoryKey = scopedCacheKey(parentId);
+    if (s_libraryCache.contains(memoryKey)) {
+        touchMemoryCache(memoryKey);
+        return s_libraryCache.value(memoryKey);
+    }
+    if (m_cacheStore && m_cacheStore->isOpen()) {
+        const auto slice = m_cacheStore->read(parentId);
+        if (slice.hasData() && isCanonicalCachePayload(slice.items)) {
+            LibraryCacheEntry entry;
+            entry.items = slice.items;
+            entry.totalRecordCount = slice.totalCount;
+            entry.timestamp = slice.updatedAtMs;
+            storeMemoryCache(memoryKey, entry);
+            return entry;
+        }
+    }
+    return {};
+}
+
+void LibraryViewModel::storeMemoryCache(
+    const QString &memoryKey,
+    const LibraryCacheEntry &entry) const
+{
+    removeMemoryCache(memoryKey);
+    LibraryCacheEntry stored = entry;
+    stored.byteSize = cacheEntrySize(memoryKey, stored);
+    s_libraryCache.insert(memoryKey, stored);
+    s_libraryCacheLru.append(memoryKey);
+    s_libraryCacheBytes += stored.byteSize;
+    evictMemoryCache();
+}
+
+void LibraryViewModel::removeMemoryCache(const QString &memoryKey) const
+{
+    const auto it = s_libraryCache.find(memoryKey);
+    if (it != s_libraryCache.end()) {
+        s_libraryCacheBytes -= it.value().byteSize;
+        s_libraryCache.erase(it);
+    }
+    s_libraryCacheLru.removeAll(memoryKey);
+    s_libraryCacheBytes = qMax<qint64>(0, s_libraryCacheBytes);
+}
+
+void LibraryViewModel::touchMemoryCache(const QString &memoryKey) const
+{
+    s_libraryCacheLru.removeAll(memoryKey);
+    if (s_libraryCache.contains(memoryKey)) {
+        s_libraryCacheLru.append(memoryKey);
+    }
+}
+
+void LibraryViewModel::evictMemoryCache() const
+{
+    while ((!s_libraryCacheLru.isEmpty())
+           && (s_libraryCache.size() > kMemoryCacheMaxEntries
+               || s_libraryCacheBytes > kMemoryCacheMaxBytes)) {
+        const QString oldestKey = s_libraryCacheLru.takeFirst();
+        const auto it = s_libraryCache.find(oldestKey);
+        if (it == s_libraryCache.end()) {
+            continue;
+        }
+        s_libraryCacheBytes -= it.value().byteSize;
+        s_libraryCache.erase(it);
+    }
+    s_libraryCacheBytes = qMax<qint64>(0, s_libraryCacheBytes);
+}
+
+qint64 LibraryViewModel::cacheEntrySize(
+    const QString &memoryKey,
+    const LibraryCacheEntry &entry) const
+{
+    return memoryKey.toUtf8().size()
+        + QJsonDocument(entry.items).toJson(QJsonDocument::Compact).size()
+        + static_cast<qint64>(sizeof(LibraryCacheEntry));
 }
 
 void LibraryViewModel::updateCache(const QString &parentId, const QJsonArray &items, int totalRecordCount)
@@ -923,7 +1399,7 @@ void LibraryViewModel::updateCache(const QString &parentId, const QJsonArray &it
     entry.totalRecordCount = totalRecordCount;
     entry.timestamp = QDateTime::currentMSecsSinceEpoch();
 
-    s_libraryCache[scopedCacheKey(parentId)] = entry;
+    storeMemoryCache(scopedCacheKey(parentId), entry);
 
     if (m_cacheStore && m_cacheStore->isOpen()) {
         if (!m_cacheStore->replaceAll(parentId, items, totalRecordCount)) {
@@ -934,7 +1410,7 @@ void LibraryViewModel::updateCache(const QString &parentId, const QJsonArray &it
 
 void LibraryViewModel::clearCacheEntry(const QString &parentId)
 {
-    s_libraryCache.remove(scopedCacheKey(parentId));
+    removeMemoryCache(scopedCacheKey(parentId));
     if (m_cacheStore && m_cacheStore->isOpen()) {
         m_cacheStore->clearParent(parentId);
     }
@@ -943,6 +1419,8 @@ void LibraryViewModel::clearCacheEntry(const QString &parentId)
 void LibraryViewModel::clearAllCache()
 {
     s_libraryCache.clear();
+    s_libraryCacheLru.clear();
+    s_libraryCacheBytes = 0;
     if (auto *vm = ServiceLocator::tryGet<LibraryViewModel>()) {
         if (vm->m_cacheStore && vm->m_cacheStore->isOpen()) {
             vm->m_cacheStore->clearAll();
@@ -954,7 +1432,8 @@ void LibraryViewModel::clearAllCache()
 void LibraryViewModel::invalidateCache(const QString &parentId)
 {
     const QString memoryKey = scopedCacheKey(parentId);
-    if (s_libraryCache.remove(memoryKey) > 0) {
+    if (s_libraryCache.contains(memoryKey)) {
+        removeMemoryCache(memoryKey);
         qCDebug(lcViewModels) << "LibraryViewModel: Invalidated cache for" << parentId;
     }
     if (m_cacheStore && m_cacheStore->isOpen()) {
@@ -985,9 +1464,9 @@ void LibraryViewModel::reopenCacheStore()
         return;
     }
 
-    if (!m_cacheScopeId.isEmpty() && m_cacheScopeId != scopeId) {
-        s_libraryCache.clear();
-    }
+    beginGeneration();
+    m_activeConnectionId = requestConnectionId();
+
     m_cacheScopeId = scopeId;
     const QString dbPath = cacheDbPath();
     m_cacheStore = std::make_unique<LibraryCacheStore>(dbPath, kDiskCacheTtlMs);
@@ -1003,6 +1482,7 @@ void LibraryViewModel::reopenCacheStore()
         m_currentParentId.clear();
         emit currentParentIdChanged();
     }
+    m_activeDatasetKey.clear();
 }
 
 QString LibraryViewModel::cacheDir() const
