@@ -15,7 +15,10 @@
 stdenv.mkDerivation {
   pname = "bloom-tests";
   version = lib.strings.removeSuffix "\n" (builtins.readFile ../VERSION);
-  src = lib.cleanSource ../.;
+  src = import ./source.nix {
+    inherit lib;
+    includeTests = true;
+  };
 
   nativeBuildInputs = [
     cmake
@@ -42,6 +45,7 @@ stdenv.mkDerivation {
   ];
 
   cmakeFlags = [
+    "-GNinja"
     (lib.cmakeBool "BUILD_TESTING" true)
     (lib.cmakeBool "BLOOM_BUNDLE_LIBMPV" false)
     (lib.cmakeBool "BLOOM_BUILD_VISUAL_TESTS" false)
@@ -49,7 +53,7 @@ stdenv.mkDerivation {
   enableParallelBuilding = false;
   buildPhase = ''
     runHook preBuild
-    cmake --build . --parallel "''${BLOOM_BUILD_JOBS:-2}" --target \
+    cmake --build . --parallel "$NIX_BUILD_CORES" --target \
       BaseViewModelTest \
       LibraryCacheStoreTest \
       LibraryItemQueryTest \

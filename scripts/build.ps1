@@ -32,6 +32,13 @@
 .PARAMETER GitSha
     Git commit SHA embedded in the application.
 
+.PARAMETER BuildTests
+    Configure and build deterministic unit and contract test targets.
+
+.PARAMETER BuildVisualTests
+    Build the environment-sensitive visual regression target. Implies only the
+    CMake option; use together with BuildTests.
+
 .PARAMETER Clean
     If set, removes the build directory before building.
 
@@ -55,6 +62,7 @@ param (
     [string]$GitSha = "",
     [bool]$AutoFetchMpvSdk = $true,
     [switch]$BuildTests,
+    [switch]$BuildVisualTests,
     [switch]$Clean
 )
 
@@ -62,6 +70,9 @@ $ErrorActionPreference = "Stop"
 
 if ($BuildChannel -notin @("stable", "dev")) {
     throw "BuildChannel must be 'stable' or 'dev' (got '$BuildChannel')."
+}
+if ($BuildVisualTests -and -not $BuildTests) {
+    throw "BuildVisualTests requires BuildTests."
 }
 
 if ([string]::IsNullOrWhiteSpace($BuildId)) {
@@ -454,6 +465,7 @@ $CMakeArgs = @(
     "-DCMAKE_BUILD_TYPE=$Config",
     "-DCMAKE_INSTALL_PREFIX=$InstallDir",
     "-DBUILD_TESTING=$($BuildTests.ToString())",
+    "-DBLOOM_BUILD_VISUAL_TESTS=$($BuildVisualTests.ToString())",
     "-DBLOOM_BUILD_CHANNEL=$BuildChannel",
     "-DBLOOM_BUILD_ID=$BuildId",
     "-DBLOOM_GIT_SHA=$GitSha"

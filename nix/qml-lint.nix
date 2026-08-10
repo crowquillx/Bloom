@@ -13,7 +13,7 @@
 stdenv.mkDerivation {
   pname = "bloom-qml-lint";
   version = lib.strings.removeSuffix "\n" (builtins.readFile ../VERSION);
-  src = lib.cleanSource ../.;
+  src = import ./source.nix { inherit lib; };
 
   nativeBuildInputs = [
     cmake
@@ -35,13 +35,14 @@ stdenv.mkDerivation {
     qt6.qtwayland
   ];
   cmakeFlags = [
+    "-GNinja"
     (lib.cmakeBool "BUILD_TESTING" false)
     (lib.cmakeBool "BLOOM_BUNDLE_LIBMPV" false)
   ];
   enableParallelBuilding = false;
   buildPhase = ''
     runHook preBuild
-    cmake --build . --parallel "''${BLOOM_BUILD_JOBS:-2}" --target \
+    cmake --build . --parallel "$NIX_BUILD_CORES" --target \
       Bloom_copy_qml Bloom_copy_res Bloom_qmltyperegistration
     mapfile -t qml_files < <(find src/BloomUI/ui -type f -name '*.qml' | sort)
     qmllint -I src -I ${qt6.qtdeclarative}/lib/qt-6/qml "''${qml_files[@]}"

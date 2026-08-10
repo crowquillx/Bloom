@@ -2,6 +2,8 @@ configure_file(config/version.h.in ${CMAKE_CURRENT_BINARY_DIR}/config/version.h)
 
 include(GNUInstallDirs)
 
+include(cmake/BloomLibraries.cmake)
+
 qt_add_executable(Bloom
     core/ApplicationInitializer.cpp
     ui/WindowManager.cpp
@@ -11,41 +13,19 @@ qt_add_executable(Bloom
     main.cpp
     core/ServiceLocator.h
     core/ServiceLocator.cpp
-    providers/ServerConnection.h
-    providers/ServerConnection.cpp
-    profiles/BloomProfile.h
-    profiles/BloomProfile.cpp
     profiles/BloomProfileRepository.h
     profiles/BloomProfileRepository.cpp
     providers/IProviderAdapter.h
     providers/ICatalogProvider.h
     providers/IArtworkProvider.h
-    providers/ActiveArtworkProvider.h
-    providers/ActiveArtworkProvider.cpp
     providers/IProviderAuthenticator.h
     providers/IProviderRequestFactory.h
-    providers/jellyfin/JellyfinAuthenticator.h
-    providers/jellyfin/JellyfinAuthenticator.cpp
-    providers/jellyfin/JellyfinArtworkProvider.h
-    providers/jellyfin/JellyfinArtworkProvider.cpp
     providers/jellyfin/JellyfinCatalogProvider.h
-    providers/jellyfin/JellyfinRequestFactory.h
-    providers/jellyfin/JellyfinRequestFactory.cpp
-    providers/jellyfin/JellyfinModelMapper.h
-    providers/jellyfin/JellyfinModelMapper.cpp
     providers/IPlaybackProvider.h
-    providers/jellyfin/JellyfinPlaybackProvider.h
-    providers/jellyfin/JellyfinPlaybackProvider.cpp
     providers/jellyfin/JellyfinProviderAdapter.h
     providers/silo/SiloAuthenticator.h
-    providers/silo/SiloArtworkProvider.h
-    providers/silo/SiloArtworkProvider.cpp
     providers/silo/SiloCatalogProvider.h
     providers/silo/SiloRequestFactory.h
-    providers/silo/SiloModelMapper.h
-    providers/silo/SiloPlaybackProvider.h
-    providers/silo/SiloPlaybackProvider.cpp
-    providers/silo/SiloModelMapper.cpp
     providers/silo/SiloProviderAdapter.h
     resources/fonts.qrc
     resources/sounds.qrc
@@ -65,28 +45,6 @@ qt_add_executable(Bloom
     player/backend/PlayerBackendFactory.cpp
     player/backend/MpvEmbeddedShaderUtils.h
     player/backend/MpvEmbeddedShaderUtils.cpp
-    network/AuthenticationService.h
-    network/AuthenticationService.cpp
-    network/HttpTransport.h
-    network/HttpTransport.cpp
-    network/LibraryService.h
-    network/LibraryService.cpp
-    network/NextEpisodeResolver.h
-    network/NextEpisodeResolver.cpp
-    network/PlaybackService.h
-    network/PlaybackService.cpp
-    network/MediaSegmentProviderService.h
-    network/MediaSegmentProviderService.cpp
-    network/SeerrService.h
-    network/SeerrService.cpp
-    network/Types.h
-    network/Types.cpp
-    models/MediaModels.h
-    models/MediaModels.cpp
-    network/SessionManager.h
-    network/SessionManager.cpp
-    network/SessionService.h
-    network/SessionService.cpp
     updates/UpdateTypes.h
     updates/IUpdateProvider.h
     updates/IUpdateProvider.cpp
@@ -98,14 +56,8 @@ qt_add_executable(Bloom
     updates/WindowsNsisUpdateApplier.cpp
     updates/UpdateService.h
     updates/UpdateService.cpp
-    utils/ConfigManager.cpp
-    utils/ConfigManager.h
-    utils/ConfigStorage.cpp
-    utils/ConfigStorage.h
     utils/AudioOutputRouter.cpp
     utils/AudioOutputRouter.h
-    utils/MpvArgFilter.cpp
-    utils/MpvArgFilter.h
     utils/DetailViewCache.h
     utils/TrackPreferencesManager.cpp
     utils/TrackPreferencesManager.h
@@ -123,12 +75,6 @@ qt_add_executable(Bloom
     utils/SystemPowerController.cpp
     utils/GpuMemoryTrimmer.h
     utils/GpuMemoryTrimmer.cpp
-    utils/Logger.h
-    utils/Logger.cpp
-    utils/LoggingConfig.h
-    utils/LoggingConfig.cpp
-    utils/BloomLogging.h
-    utils/BloomLogging.cpp
     viewmodels/BaseViewModel.h
     viewmodels/BaseViewModel.cpp
     viewmodels/LibraryViewModel.h
@@ -148,8 +94,6 @@ qt_add_executable(Bloom
     ui/ResponsiveLayoutManager.h
     ui/ResponsiveLayoutManager.cpp
     security/ISecretStore.h
-    security/CredentialStore.h
-    security/CredentialStore.cpp
     security/SecretStoreFactory.h
     security/SecretStoreFactory.cpp
     security/SecretStoreLinux.h
@@ -470,6 +414,7 @@ endif()
 
 target_link_libraries(Bloom
     PRIVATE
+    Bloom::Network
     Qt6::Core
     Qt6::Gui
     Qt6::Quick

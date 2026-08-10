@@ -56,7 +56,7 @@ verification.
 ## Local checks
 
 ```bash
-BLOOM_BUILD_JOBS=2 nix flake check --print-build-logs \
+nix flake check --print-build-logs \
   --option max-jobs 1 --option cores 2
 ```
 
@@ -68,6 +68,20 @@ tests. Live provider/server, display, GPU, and playback contracts that require
 hosts or runtime hardware remain manual validation; unavailable environments
 are recorded as unavailable rather than treated as automated passes.
 
+Production models, configuration, transport, provider, and network code is
+compiled through reusable `Bloom::*` CMake libraries. Tests link those targets
+instead of recompiling the same `.cpp` files into every executable. Keep new
+production sources in the narrowest reusable layer and link tests to production
+targets; do not add a second test-only compilation of shared implementation
+files. Clean Nix builds use Ninja, matching the incremental development path.
+The Nix source sets contain only build inputs, so documentation and workflow
+changes do not invalidate unrelated C++ derivations.
+
+Measured on the pinned Release toolchain on August 10, 2026, the test build
+phase fell from 13m24s at the former two-core baseline to 4m47s with reusable
+targets and two-core Ninja, then to 2m46s with the four-core CI setting. All 26
+Nix-selected tests passed in each optimized run.
+
 The CI `nix` job wraps each `nix build` invocation in a retry loop with
 exponential backoff. `cache.nixos.org` nar downloads occasionally drop
 mid-transfer on GitHub-hosted runners (broken pipe or `HTTP 416` on a resumed
@@ -76,11 +90,11 @@ otherwise-unrelated derivations such as `qml-lint`. The retry recovers from
 these transient substituter failures without code changes; a genuinely missing
 path still fails after three attempts.
 
-Each Nix derivation caps C++ compilation at two concurrent jobs by default.
-The command above also serializes derivations, preventing concurrent flake
-checks from saturating interactive workstations.
-Set `BLOOM_BUILD_JOBS` only when a controlled builder needs a different
-per-derivation limit.
+Each Nix derivation honors Nix's standard `cores` setting. The command above
+uses two compile jobs and serializes derivations, preventing concurrent flake
+checks from saturating interactive workstations. CI uses four compile jobs to
+match the hosted runner; controlled builders can choose another value with
+`--option cores`.
 
 ## Portable Linux artifacts
 
@@ -136,21 +150,24 @@ Windows remains a native MSVC build because Qt and embedded libmpv are runtime
 validated in that environment:
 
 ```powershell
-.\scripts\build.ps1 -Clean
+.\scripts\build.ps1 -Clean -BuildTests
 .\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure
 .\scripts\package-windows.ps1 -InstallDir install-windows -OutputDir Bloom-Windows
 ```
 
-`build.ps1` defaults to `-DBUILD_TESTING=OFF` on Windows (CI builds the
-application only). Pass `-BuildTests` to configure and build the test
-targets so `run-windows-tests.ps1` has something to run:
+`build.ps1` defaults to `-DBUILD_TESTING=OFF`. Pass `-BuildTests` to configure
+and build the deterministic test targets so `run-windows-tests.ps1` has
+something to run. Environment-sensitive visual tests remain opt-in through
+`-BuildVisualTests`:
 
 ```powershell
 .\scripts\build.ps1 -Clean -BuildTests
 .\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure
 ```
 
-The Windows scripts and GitHub workflow read Qt and libmpv pins from
+Windows CI builds the application and deterministic tests in one CMake graph,
+runs CTest with failure output, and caches the checksum-pinned Qt and mpv SDKs.
+The Windows scripts and workflow read those pins from
 `packaging/dependencies.json`.
 
 Windows CI installs NSIS through `.github/actions/setup-nsis`. The action first
