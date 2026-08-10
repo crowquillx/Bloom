@@ -154,6 +154,8 @@ public:
                                                                   int imageIndex,
                                                                   const QString &imageTag,
                                                                   int width);
+    Q_INVOKABLE virtual QString getCachedArtworkUrlFromRef(const QVariantMap &artwork,
+                                                           int width);
     Q_INVOKABLE virtual QString getCachedChapterThumbnailUrl(const QString &itemId, int chapterIndex, const QString &imageTag, const QString &imagePath = QString(), int width = 480);
 
     QNetworkReply* pingServer();

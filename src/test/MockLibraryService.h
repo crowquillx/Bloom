@@ -94,6 +94,8 @@ public:
                                                           int imageIndex,
                                                           const QString &imageTag,
                                                           int width) override;
+    Q_INVOKABLE QString getCachedArtworkUrlFromRef(const QVariantMap &artwork,
+                                                   int width) override;
 
 private:
     QJsonObject m_fixture;

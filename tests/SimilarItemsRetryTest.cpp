@@ -58,6 +58,17 @@ public:
             .arg(width);
     }
 
+    QString getCachedArtworkUrlFromRef(const QVariantMap &artwork, int width) override
+    {
+        return getCachedArtworkUrlForConnection(
+            artwork.value(QStringLiteral("connectionId")).toString(),
+            artwork.value(QStringLiteral("itemId")).toString(),
+            artwork.value(QStringLiteral("kind")).toString(),
+            artwork.value(QStringLiteral("index")).toInt(),
+            artwork.value(QStringLiteral("tag")).toString(),
+            width);
+    }
+
     QStringList requestedIds;
 };
 
@@ -133,6 +144,17 @@ public:
         Q_UNUSED(imageType)
         Q_UNUSED(imageTag)
         return QStringLiteral("chapter://%1/%2/%3").arg(itemId).arg(imageIndex).arg(width);
+    }
+
+    QString getCachedArtworkUrlFromRef(const QVariantMap &artwork, int width) override
+    {
+        return getCachedArtworkUrlForConnection(
+            artwork.value(QStringLiteral("connectionId")).toString(),
+            artwork.value(QStringLiteral("itemId")).toString(),
+            artwork.value(QStringLiteral("kind")).toString(),
+            artwork.value(QStringLiteral("index")).toInt(),
+            artwork.value(QStringLiteral("tag")).toString(),
+            width);
     }
 
     QStringList requests;

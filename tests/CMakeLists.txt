@@ -367,6 +367,8 @@ add_executable(ArtworkRefreshTest
     ArtworkRefreshTest.cpp
     TestConfigIsolation.h
     ${CMAKE_SOURCE_DIR}/src/network/AuthenticationService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/LibraryService.cpp
+    ${CMAKE_SOURCE_DIR}/src/network/NextEpisodeResolver.cpp
     ${CMAKE_SOURCE_DIR}/src/network/Types.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloArtworkProvider.cpp

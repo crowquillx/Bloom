@@ -572,12 +572,7 @@ QString MovieDetailsViewModel::cachedArtworkUrl(const QVariantMap &artwork, int 
     if (!ref.isValid()) {
         return {};
     }
-    return m_libraryService->getCachedArtworkUrlForConnection(ref.connectionId,
-                                                               ref.itemId,
-                                                               Bloom::artworkKindName(ref.kind),
-                                                  ref.index,
-                                                  ref.tag,
-                                                  width);
+    return m_libraryService->getCachedArtworkUrlFromRef(artwork, width);
 }
 
 QVariantList MovieDetailsViewModel::mapCanonicalPeople(const QVariantList &people) const

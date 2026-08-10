@@ -26,7 +26,7 @@ QT_PLUGIN_SHA="$(jq_read "['portable']['linuxdeploy_qt_sha256']")"
 python3 -m venv /opt/aqt
 /opt/aqt/bin/pip install --no-cache-dir 'aqtinstall==3.3.*'
 /opt/aqt/bin/aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
-    -O /opt/Qt -m qtmultimedia qtshadertools qt5compat \
+    -O /opt/Qt -m qtimageformats qtmultimedia qtshadertools qt5compat \
     qtwaylandcompositor
 
 QT_ROOT="/opt/Qt/$QT_VERSION/gcc_64"
@@ -85,6 +85,11 @@ for platform_plugin in libqoffscreen.so libqwayland.so libqxcb.so; do
         exit 1
     }
 done
+
+test -f "$APPDIR/usr/plugins/imageformats/libqwebp.so" || {
+    echo "Missing deployed Qt WebP image plugin: libqwebp.so" >&2
+    exit 1
+}
 
 while IFS= read -r -d '' elf; do
     if unresolved="$(ldd "$elf" 2>/dev/null | grep 'not found' || true)" && [[ -n "$unresolved" ]]; then

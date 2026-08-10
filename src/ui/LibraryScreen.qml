@@ -687,13 +687,7 @@ FocusScope {
                     overlayLogoUrl = SeriesDetailsViewModel.logoUrl
                 } else if (root.currentSeriesData && root.currentSeriesData.logoArtwork) {
                     const artwork = root.currentSeriesData.logoArtwork
-                    overlayLogoUrl = LibraryService.getCachedArtworkUrlForConnection(
-                                artwork.connectionId || "",
-                                artwork.itemId || "",
-                                artwork.kind || "logo",
-                                artwork.index || 0,
-                                artwork.tag || "",
-                                600)
+                    overlayLogoUrl = LibraryService.getCachedArtworkUrlFromRef(artwork, 600)
                 }
                 root.requestPlaybackWithResolvedLibrary({
                     itemId: episodeId,
@@ -2547,13 +2541,8 @@ FocusScope {
             const kind = artwork.kind || fallbackKind
             if (!kind)
                 return
-            const url = LibraryService.getCachedArtworkUrlForConnection(
-                        artwork.connectionId || "",
-                        artwork.itemId,
-                        kind,
-                        artwork.index || 0,
-                        artwork.tag || "",
-                        width)
+            const resolvedArtwork = Object.assign({}, artwork, { kind: kind })
+            const url = LibraryService.getCachedArtworkUrlFromRef(resolvedArtwork, width)
             if (url && candidates.indexOf(url) === -1)
                 candidates.push(url)
         }

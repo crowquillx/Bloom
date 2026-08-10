@@ -441,13 +441,7 @@ QString SeasonsModel::getImageUrl(const QVariantMap &item) const
     if (artwork.isEmpty()) {
         return {};
     }
-    return m_libraryService->getCachedArtworkUrlForConnection(
-        artwork.value(QStringLiteral("connectionId")).toString(),
-        artwork.value(QStringLiteral("itemId")).toString(),
-        artwork.value(QStringLiteral("kind")).toString(),
-        artwork.value(QStringLiteral("index")).toInt(),
-        artwork.value(QStringLiteral("tag")).toString(),
-        400);
+    return m_libraryService->getCachedArtworkUrlFromRef(artwork, 400);
 }
 
 
@@ -587,13 +581,7 @@ QString EpisodesModel::getImageUrl(const QVariantMap &item) const
         if (artwork.isEmpty()) {
             continue;
         }
-        return m_libraryService->getCachedArtworkUrlForConnection(
-            artwork.value(QStringLiteral("connectionId")).toString(),
-            artwork.value(QStringLiteral("itemId")).toString(),
-            artwork.value(QStringLiteral("kind")).toString(),
-            artwork.value(QStringLiteral("index")).toInt(),
-            artwork.value(QStringLiteral("tag")).toString(),
-            640);
+        return m_libraryService->getCachedArtworkUrlFromRef(artwork, 640);
     }
     return {};
 }
@@ -1926,11 +1914,5 @@ QString SeriesDetailsViewModel::buildArtworkUrl(const QVariantMap &artwork, int 
     if (!m_libraryService || artwork.isEmpty()) {
         return {};
     }
-    return m_libraryService->getCachedArtworkUrlForConnection(
-        artwork.value(QStringLiteral("connectionId")).toString(),
-        artwork.value(QStringLiteral("itemId")).toString(),
-        artwork.value(QStringLiteral("kind")).toString(),
-        artwork.value(QStringLiteral("index")).toInt(),
-        artwork.value(QStringLiteral("tag")).toString(),
-        width);
+    return m_libraryService->getCachedArtworkUrlFromRef(artwork, width);
 }

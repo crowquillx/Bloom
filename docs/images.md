@@ -8,7 +8,8 @@ Hybrid mode prefers cached pre-rounded PNGs, falls back to the shader path, and 
 - Env overrides: `BLOOM_ROUNDED_IMAGE_MODE`, `BLOOM_ROUNDED_PREPROCESS` / `BLOOM_ROUNDED_IMAGE_PREPROCESS` (`0/1` or `true/false`).
 
 ## Pre-rounded path (ImageCacheProvider)
-- Provider artwork is identified by a token-free `ArtworkRef` cache key (`connectionId`, item, kind/index/tag, and requested width). Authenticated URLs and headers are resolved only on a cache miss and are never persisted or logged.
+- Provider artwork is identified by a token-free `ArtworkRef` cache key (`connectionId`, item, owner kind, kind/index/tag, and requested width). Authenticated URLs and headers are resolved only on a cache miss and are never persisted or logged. UI code passes the complete reference to `LibraryService.getCachedArtworkUrlFromRef(...)`; this preserves native Silo's in-memory opaque source while deriving width-specific cache identities. Transient sources remain available for the authenticated session regardless of catalog size and are cleared when account state resets.
+- Linux builds and portable artifacts ship Qt Image Formats so Silo's native S3 artwork and Jellyfin-compat image redirects can decode WebP responses. `ArtworkRefreshTest` guards the runtime decoder, and portable packaging rejects an artifact missing `libqwebp.so`.
 - Rounded variants are stored beside originals and keyed by the `ArtworkRef` identity + radius + size.
 - Generation triggers after cache hits/misses when preprocessing is enabled; emits `roundedImageReady(url, fileUrl)` once written.
 - Defaults: radius `Theme.imageRadius`, size `640x960` (poster). Callers may pass custom radius/size to `requestRoundedImage(url, radius, w, h)`.

@@ -82,13 +82,7 @@ FocusScope {
         if (!artwork || !artwork.itemId || typeof LibraryService === "undefined") {
             return ""
         }
-        return LibraryService.getCachedArtworkUrlForConnection(
-                    artwork.connectionId || "",
-                    artwork.itemId,
-                    artwork.kind || "primary",
-                    artwork.index || 0,
-                    artwork.tag || "",
-                    width || 960)
+        return LibraryService.getCachedArtworkUrlFromRef(artwork, width || 960)
     }
 
     function formatRuntime(milliseconds) {

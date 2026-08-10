@@ -1,6 +1,6 @@
 #include "MediaModels.h"
 
-#include <QCache>
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMutex>
@@ -10,7 +10,7 @@
 namespace {
 
 QMutex transientArtworkSourceMutex;
-QCache<QString, QString> transientArtworkSources(512);
+QHash<QString, QString> transientArtworkSources;
 
 void rememberTransientArtworkSource(const QString &cacheKey, const QString &sourceUrl)
 {
@@ -18,14 +18,13 @@ void rememberTransientArtworkSource(const QString &cacheKey, const QString &sour
         return;
     }
     QMutexLocker locker(&transientArtworkSourceMutex);
-    transientArtworkSources.insert(cacheKey, new QString(sourceUrl));
+    transientArtworkSources.insert(cacheKey, sourceUrl);
 }
 
 QString transientArtworkSource(const QString &cacheKey)
 {
     QMutexLocker locker(&transientArtworkSourceMutex);
-    const QString *source = transientArtworkSources.object(cacheKey);
-    return source ? *source : QString();
+    return transientArtworkSources.value(cacheKey);
 }
 
 } // namespace
@@ -82,6 +81,12 @@ ArtworkOwnerKind artworkOwnerKindFromName(const QString &name)
 QString ArtworkRef::transientSourceUrlForCacheKey(const QString &key)
 {
     return transientArtworkSource(key);
+}
+
+void ArtworkRef::clearTransientSourceUrls()
+{
+    QMutexLocker locker(&transientArtworkSourceMutex);
+    transientArtworkSources.clear();
 }
 
 bool MediaRef::isValid() const

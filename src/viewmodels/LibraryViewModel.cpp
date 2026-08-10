@@ -835,13 +835,8 @@ QString LibraryViewModel::getImageUrl(const QJsonObject &item) const
         const QString kind = artwork.value(QStringLiteral("kind")).toString();
         const QString tag = artwork.value(QStringLiteral("tag")).toString();
         if (!connectionId.isEmpty() && !itemId.isEmpty() && !kind.isEmpty() && !tag.isEmpty()) {
-            return m_libraryService->getCachedArtworkUrlForConnection(
-                connectionId,
-                itemId,
-                kind,
-                artwork.value(QStringLiteral("index")).toInt(),
-                tag,
-                640);
+            return m_libraryService->getCachedArtworkUrlFromRef(
+                artwork.toVariantMap(), 640);
         }
     }
 

@@ -253,13 +253,7 @@ FocusScope {
         if (backdropCandidates.length === 0) { currentBackdropUrl = ""; return }
         const randomIndex = Math.floor(Math.random() * backdropCandidates.length)
         const artwork = backdropCandidates[randomIndex]
-        currentBackdropUrl = LibraryService.getCachedArtworkUrlForConnection(
-                    artwork.connectionId || "",
-                    artwork.itemId,
-                    artwork.kind || "backdrop",
-                    artwork.index || 0,
-                    artwork.tag || "",
-                    1920)
+        currentBackdropUrl = LibraryService.getCachedArtworkUrlFromRef(artwork, 1920)
     }
 
     Connections {

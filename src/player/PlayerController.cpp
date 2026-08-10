@@ -6363,13 +6363,7 @@ void PlayerController::onChaptersLoaded(const QString &connectionId,
         const QVariantMap artwork = chapter.value(QStringLiteral("artwork")).toMap();
         const QString thumbnailUrl = artwork.isEmpty()
             ? QString()
-            : m_libraryService->getCachedArtworkUrlForConnection(
-                  artwork.value(QStringLiteral("connectionId")).toString(),
-                  artwork.value(QStringLiteral("itemId")).toString(),
-                  artwork.value(QStringLiteral("kind")).toString(),
-                  artwork.value(QStringLiteral("index")).toInt(),
-                  artwork.value(QStringLiteral("tag")).toString(),
-                  640);
+            : m_libraryService->getCachedArtworkUrlFromRef(artwork, 640);
         chapter.insert(QStringLiteral("index"), index);
         chapter.insert(QStringLiteral("thumbnailUrl"), thumbnailUrl);
         chapterModels.append(chapter);
