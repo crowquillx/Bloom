@@ -206,17 +206,19 @@ void MockLibraryService::getItems(const LibraryItemQuery &query)
     qCDebug(lcTest) << "MockLibraryService::getItems(" << query.parentId << ") ->" << paged.size() << "items";
     emit itemsLoadedWithTotal(query.parentId, paged, totalCount);
     emit itemsLoadedWithTotalForQuery(query.parentId, queryKey, paged, totalCount);
+    const QVariantList canonicalPaged =
+        JellyfinModelMapper::mediaItems(
+            paged, QStringLiteral("mock-connection"));
     emit canonicalItemsLoadedWithTotalForQuery(
         query.parentId,
         queryKey,
-        JellyfinModelMapper::mediaItems(paged, QStringLiteral("mock-connection")),
+        canonicalPaged,
         totalCount);
     emit canonicalItemsLoadedForConnection(
         QStringLiteral("mock-connection"),
         query.parentId,
         queryKey,
-        JellyfinModelMapper::mediaItems(
-            paged, QStringLiteral("mock-connection")),
+        canonicalPaged,
         totalCount);
 }
 

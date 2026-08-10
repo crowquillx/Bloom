@@ -19,6 +19,7 @@
 
 class LibraryService;
 class ConfigManager;
+class LibraryViewModelCanonicalTest;
 
 /**
  * @brief Cache entry for library data with TTL support
@@ -27,6 +28,7 @@ struct LibraryCacheEntry {
     QJsonArray items;
     int totalRecordCount = 0;
     qint64 timestamp = 0;  // ms since epoch
+    qint64 byteSize = 0;
     
     bool isValid(qint64 ttlMs = 60000) const {  // Default 60 second TTL
         return timestamp > 0 && 
@@ -266,6 +268,8 @@ private slots:
                                const QString &error);
 
 private:
+    friend class LibraryViewModelCanonicalTest;
+
     struct RequestIdentity {
         quint64 generation = 0;
         LoadKind kind = LoadKind::Initial;

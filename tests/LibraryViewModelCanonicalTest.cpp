@@ -5,10 +5,7 @@
 #include <QTemporaryDir>
 
 #include "core/ServiceLocator.h"
-
-#define private public
 #include "viewmodels/LibraryViewModel.h"
-#undef private
 
 namespace {
 
@@ -102,6 +99,15 @@ public:
             error);
     }
 
+    void notModifiedItem(int requestIndex)
+    {
+        const LibraryItemQuery request = itemRequests.at(requestIndex);
+        emit canonicalItemsNotModifiedForConnection(
+            getActiveConnectionId(),
+            request.parentId,
+            request.requestKey);
+    }
+
     void failFilter(int requestIndex, const QString &error)
     {
         const FilterRequest request = filterRequests.at(requestIndex);
@@ -159,6 +165,7 @@ private slots:
     void supersededPaginationCannotAppendToNewQuery();
     void backgroundRefreshFailurePreservesCachedContent();
     void backgroundRefreshInvalidatesUnverifiedLaterPages();
+    void notModifiedCompletesEveryLoadKind();
     void filterFailureClearsLoadingState();
     void filterOptionsAreIndependentOfItemDataset();
     void unchangedCacheScopePreservesDisplayedState();
@@ -432,6 +439,56 @@ void LibraryViewModelCanonicalTest::backgroundRefreshInvalidatesUnverifiedLaterP
     QCOMPARE(cached.items.at(1).toObject()
                  .value(QStringLiteral("itemId")).toString(),
              QStringLiteral("new-two"));
+}
+
+void LibraryViewModelCanonicalTest::notModifiedCompletesEveryLoadKind()
+{
+    {
+        LibraryViewModel viewModel;
+        QSignalSpy completedSpy(&viewModel, &LibraryViewModel::loadComplete);
+        viewModel.loadLibrary("initial", "movies", 0, 2);
+        QVERIFY(viewModel.isLoading());
+        m_libraryService->notModifiedItem(0);
+        QVERIFY(!viewModel.isLoading());
+        QCOMPARE(completedSpy.count(), 1);
+    }
+
+    {
+        LibraryViewModel viewModel;
+        viewModel.loadLibrary("refresh", "movies", 0, 2);
+        m_libraryService->succeedItem(1, canonicalItems({"cached"}), 1);
+        const QString datasetKey =
+            m_libraryService->itemRequests.at(1).datasetKey();
+        const QString memoryKey = viewModel.scopedCacheKey(datasetKey);
+        viewModel.s_libraryCache[memoryKey].timestamp = 1;
+
+        viewModel.loadLibrary("refresh", "movies", 0, 2);
+        QVERIFY(viewModel.m_isBackgroundRefresh);
+        const qint64 staleTimestamp =
+            viewModel.s_libraryCache.value(memoryKey).timestamp;
+        m_libraryService->notModifiedItem(2);
+
+        QVERIFY(!viewModel.m_isBackgroundRefresh);
+        QCOMPARE(viewModel.rowCount(), 1);
+        QVERIFY(viewModel.s_libraryCache.value(memoryKey).timestamp
+                > staleTimestamp);
+    }
+
+    {
+        LibraryViewModel viewModel;
+        QSignalSpy completedSpy(
+            &viewModel, &LibraryViewModel::loadMoreComplete);
+        viewModel.loadLibrary("pagination", "movies", 0, 2);
+        m_libraryService->succeedItem(
+            3, canonicalItems({"one", "two"}), 4);
+        viewModel.loadMore(2);
+        QVERIFY(viewModel.isLoadingMore());
+        m_libraryService->notModifiedItem(4);
+
+        QVERIFY(!viewModel.isLoadingMore());
+        QVERIFY(viewModel.canLoadMore());
+        QCOMPARE(completedSpy.count(), 1);
+    }
 }
 
 void LibraryViewModelCanonicalTest::filterFailureClearsLoadingState()

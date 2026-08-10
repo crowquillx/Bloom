@@ -487,6 +487,10 @@ void LibraryViewModel::onItemsNotModified(const QString &connectionId,
         m_activeLoadMoreRequestKey.clear();
         setIsLoadingMore(false);
         emit loadMoreComplete();
+    } else {
+        rejectStaleRequest(
+            requestKey,
+            QStringLiteral("not-modified no longer owns active state"));
     }
 }
 
@@ -1280,9 +1284,11 @@ void LibraryViewModel::storeMemoryCache(
     const LibraryCacheEntry &entry) const
 {
     removeMemoryCache(memoryKey);
-    s_libraryCache.insert(memoryKey, entry);
+    LibraryCacheEntry stored = entry;
+    stored.byteSize = cacheEntrySize(memoryKey, stored);
+    s_libraryCache.insert(memoryKey, stored);
     s_libraryCacheLru.append(memoryKey);
-    s_libraryCacheBytes += cacheEntrySize(memoryKey, entry);
+    s_libraryCacheBytes += stored.byteSize;
     evictMemoryCache();
 }
 
@@ -1290,7 +1296,7 @@ void LibraryViewModel::removeMemoryCache(const QString &memoryKey) const
 {
     const auto it = s_libraryCache.find(memoryKey);
     if (it != s_libraryCache.end()) {
-        s_libraryCacheBytes -= cacheEntrySize(memoryKey, it.value());
+        s_libraryCacheBytes -= it.value().byteSize;
         s_libraryCache.erase(it);
     }
     s_libraryCacheLru.removeAll(memoryKey);
@@ -1315,7 +1321,7 @@ void LibraryViewModel::evictMemoryCache() const
         if (it == s_libraryCache.end()) {
             continue;
         }
-        s_libraryCacheBytes -= cacheEntrySize(oldestKey, it.value());
+        s_libraryCacheBytes -= it.value().byteSize;
         s_libraryCache.erase(it);
     }
     s_libraryCacheBytes = qMax<qint64>(0, s_libraryCacheBytes);
