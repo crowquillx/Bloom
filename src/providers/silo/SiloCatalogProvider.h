@@ -299,8 +299,8 @@ private:
             return QStringLiteral("Silo does not support the requested catalog sort");
         }
         const QString order = query.sortOrder.trimmed().toLower();
-        if (!order.isEmpty() && order != QStringLiteral("asc") && order != QStringLiteral("desc")
-            && order != QStringLiteral("ascending") && order != QStringLiteral("descending")) {
+        if (!order.isEmpty() && order != QStringLiteral("ascending")
+            && order != QStringLiteral("descending")) {
             return QStringLiteral("Silo catalog sort order must be ascending or descending");
         }
         for (int year : query.years) {

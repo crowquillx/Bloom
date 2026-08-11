@@ -400,6 +400,18 @@ void SiloCatalogServiceTest::unsupportedFiltersAreExplicit()
     verifyUnsupported(ProviderCatalogOperation::Items, query);
 
     query = {};
+    query.sortBy = QStringLiteral("PremiereDate");
+    verifyUnsupported(ProviderCatalogOperation::Items, query);
+
+    query = {};
+    query.sortOrder = QStringLiteral("desc");
+    verifyUnsupported(ProviderCatalogOperation::Items, query);
+
+    query = {};
+    query.sortOrder = QStringLiteral("sideways");
+    verifyUnsupported(ProviderCatalogOperation::Items, query);
+
+    query = {};
     query.itemIds = {QStringLiteral("content-1")};
     verifyUnsupported(ProviderCatalogOperation::Items, query);
 

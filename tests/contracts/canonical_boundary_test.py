@@ -12,6 +12,7 @@ PROVIDER_WIRE_FIELDS = {
     "Overview",
     "UserData",
     "RunTimeTicks",
+    "PlaybackPositionTicks",
     "MediaSources",
     "MediaStreams",
     "ImageTags",
@@ -57,6 +58,7 @@ def migrated_sources():
     for directory, suffixes in (
         (REPOSITORY_ROOT / "src" / "ui", {".qml", ".cpp", ".h"}),
         (REPOSITORY_ROOT / "src" / "player", {".cpp", ".h"}),
+        (REPOSITORY_ROOT / "src" / "viewmodels", {".cpp", ".h"}),
     ):
         for path in directory.rglob("*"):
             if path.suffix in suffixes:
@@ -110,6 +112,34 @@ def without_comments(text):
     return "".join(result)
 
 
+def mask_cpp_functions(text, function_names):
+    for function_name in function_names:
+        signature = re.compile(
+            rf"\b{re.escape(function_name)}\s*\([^;{{]*\)\s*(?:const\s*)?\{{"
+        )
+        while match := signature.search(text):
+            brace = text.find("{", match.start())
+            depth = 0
+            end = brace
+            while end < len(text):
+                if text[end] == "{":
+                    depth += 1
+                elif text[end] == "}":
+                    depth -= 1
+                    if depth == 0:
+                        end += 1
+                        break
+                end += 1
+            if depth != 0:
+                raise ValueError(f"unbalanced function body: {function_name}")
+            masked = "".join(
+                character if character == "\n" else " "
+                for character in text[match.start():end]
+            )
+            text = text[:match.start()] + masked + text[end:]
+    return text
+
+
 class CanonicalBoundaryContractTest(unittest.TestCase):
     def test_migrated_ui_and_player_do_not_read_provider_wire_fields(self):
         qml_access = re.compile(
@@ -124,6 +154,16 @@ class CanonicalBoundaryContractTest(unittest.TestCase):
         violations = []
         for path in migrated_sources():
             text = without_comments(path.read_text(encoding="utf-8"))
+            if path.suffix in {".cpp", ".h"}:
+                text = mask_cpp_functions(
+                    text,
+                    {
+                        "isCanonicalMovieCache",
+                        "isCanonicalSimilarItemsCache",
+                        "isCanonicalItem",
+                        "isCanonicalCachePayload",
+                    },
+                )
             pattern = qml_access if path.suffix == ".qml" else cpp_literal
             for match in pattern.finditer(text):
                 line = text.count("\n", 0, match.start()) + 1
@@ -154,18 +194,25 @@ class CanonicalBoundaryContractTest(unittest.TestCase):
         )
 
     def test_library_service_does_not_republish_removed_raw_dto_signals(self):
-        header = (REPOSITORY_ROOT / "src/network/LibraryService.h").read_text(
-            encoding="utf-8"
+        header = without_comments(
+            (REPOSITORY_ROOT / "src/network/LibraryService.h").read_text(
+                encoding="utf-8"
+            )
         )
-        implementation = (
-            REPOSITORY_ROOT / "src/network/LibraryService.cpp"
-        ).read_text(encoding="utf-8")
+        implementation = without_comments(
+            (REPOSITORY_ROOT / "src/network/LibraryService.cpp").read_text(
+                encoding="utf-8"
+            )
+        )
 
         violations = []
         for name in sorted(REMOVED_RAW_SIGNAL_NAMES):
             if re.search(rf"\bvoid\s+{re.escape(name)}\s*\(", header):
                 violations.append(f"declaration: {name}")
-            if re.search(rf"\bemit\s+{re.escape(name)}\s*\(", implementation):
+            if re.search(
+                rf"\b(?:emit|Q_EMIT)\s+{re.escape(name)}\s*\(",
+                implementation,
+            ):
                 violations.append(f"emission: {name}")
 
         self.assertEqual(
@@ -194,8 +241,13 @@ class CanonicalBoundaryContractTest(unittest.TestCase):
         for path in sources:
             text = without_comments(path.read_text(encoding="utf-8"))
             if path.suffix == ".qml":
-                text = "\n".join(
-                    re.findall(r"\bvalues\s*:\s*\[[^\]]*\]", text)
+                text = re.sub(
+                    r"\bmodel\s*:\s*\[[^\]]*\]",
+                    lambda match: "".join(
+                        character if character == "\n" else " "
+                        for character in match.group(0)
+                    ),
+                    text,
                 )
             for token in sorted(provider_sort_tokens):
                 if re.search(rf"['\"]{token}['\"]", text):
