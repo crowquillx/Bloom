@@ -137,8 +137,9 @@ PlayerProcessManager::PlayerProcessManager(const PlayerProcessOptions &options,
     m_options.maximumPendingCommands = std::max(1, m_options.maximumPendingCommands);
     m_options.maximumIpcMessageBytes = std::max<qint64>(128,
                                                         m_options.maximumIpcMessageBytes);
-    m_options.maximumBufferedWriteBytes = std::max<qint64>(128,
-                                                           m_options.maximumBufferedWriteBytes);
+    m_options.maximumBufferedWriteBytes = std::max(
+        m_options.maximumIpcMessageBytes,
+        m_options.maximumBufferedWriteBytes);
 
     const QString uniquePart = QUuid::createUuid().toString(QUuid::WithoutBraces).left(12);
     m_instanceToken = QStringLiteral("%1-%2-%3")
@@ -179,6 +180,11 @@ PlayerProcessManager::PlayerProcessManager(const PlayerProcessOptions &options,
             this, &PlayerProcessManager::onSocketDisconnected);
     connect(m_ipcSocket, &QLocalSocket::readyRead,
             this, &PlayerProcessManager::onSocketReadyRead);
+    connect(m_ipcSocket, &QLocalSocket::bytesWritten, this, [this](qint64) {
+        if (m_isConnected && !m_pendingCommands.isEmpty()) {
+            flushPendingCommands();
+        }
+    });
     connect(m_ipcSocket, &QLocalSocket::errorOccurred, this,
             [this](QLocalSocket::LocalSocketError) {
                 if (m_stopStage == StopStage::None && isRunning()
@@ -717,8 +723,10 @@ void PlayerProcessManager::sendVariantCommand(const QVariantList &command)
 
     if (m_ipcSocket->state() == QLocalSocket::ConnectedState) {
         if (!writeCommand(command)) {
-            qCWarning(lcPlaybackIpc) << "Unable to write mpv IPC command"
-                                     << "command=" << commandName;
+            qCWarning(lcPlaybackIpc)
+                << "Deferring mpv IPC command until write capacity is available"
+                << "command=" << commandName;
+            enqueueCommand(command);
         }
         return;
     }
@@ -751,39 +759,51 @@ void PlayerProcessManager::flushPendingCommands()
 
 void PlayerProcessManager::onSocketReadyRead()
 {
-    const qint64 remainingCapacity = m_options.maximumIpcMessageBytes + 1
-        - m_ipcReadBuffer.size();
-    if (remainingCapacity > 0) {
-        m_ipcReadBuffer.append(m_ipcSocket->read(remainingCapacity));
-    }
-    while (true) {
-        const qsizetype newline = m_ipcReadBuffer.indexOf('\n');
-        if (newline < 0) {
+    while (m_ipcSocket->bytesAvailable() > 0) {
+        const qint64 remainingCapacity = m_options.maximumIpcMessageBytes + 1
+            - m_ipcReadBuffer.size();
+        if (remainingCapacity <= 0) {
+            m_ipcReadBuffer.clear();
+            recordInvalidIpcMessage(QStringLiteral("unterminated message exceeds size limit"));
+            failIpcConnection(QStringLiteral("received oversized IPC message"));
+            return;
+        }
+        const QByteArray chunk = m_ipcSocket->read(remainingCapacity);
+        if (chunk.isEmpty()) {
             break;
         }
-        QByteArray line = m_ipcReadBuffer.left(newline).trimmed();
-        m_ipcReadBuffer.remove(0, newline + 1);
-        if (line.isEmpty()) {
-            continue;
-        }
-        if (line.size() > m_options.maximumIpcMessageBytes) {
-            recordInvalidIpcMessage(QStringLiteral("message exceeds size limit"));
-            continue;
+        m_ipcReadBuffer.append(chunk);
+
+        while (true) {
+            const qsizetype newline = m_ipcReadBuffer.indexOf('\n');
+            if (newline < 0) {
+                break;
+            }
+            QByteArray line = m_ipcReadBuffer.left(newline).trimmed();
+            m_ipcReadBuffer.remove(0, newline + 1);
+            if (line.isEmpty()) {
+                continue;
+            }
+            if (line.size() > m_options.maximumIpcMessageBytes) {
+                recordInvalidIpcMessage(QStringLiteral("message exceeds size limit"));
+                continue;
+            }
+
+            QJsonParseError parseError;
+            const QJsonDocument document = QJsonDocument::fromJson(line, &parseError);
+            if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+                recordInvalidIpcMessage(QStringLiteral("malformed JSON object"));
+                continue;
+            }
+            handleIpcObject(document.object());
         }
 
-        QJsonParseError parseError;
-        const QJsonDocument document = QJsonDocument::fromJson(line, &parseError);
-        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-            recordInvalidIpcMessage(QStringLiteral("malformed JSON object"));
-            continue;
+        if (m_ipcReadBuffer.size() > m_options.maximumIpcMessageBytes) {
+            m_ipcReadBuffer.clear();
+            recordInvalidIpcMessage(QStringLiteral("unterminated message exceeds size limit"));
+            failIpcConnection(QStringLiteral("received oversized IPC message"));
+            return;
         }
-        handleIpcObject(document.object());
-    }
-
-    if (m_ipcReadBuffer.size() > m_options.maximumIpcMessageBytes) {
-        m_ipcReadBuffer.clear();
-        recordInvalidIpcMessage(QStringLiteral("unterminated message exceeds size limit"));
-        failIpcConnection(QStringLiteral("received oversized IPC message"));
     }
 }
 

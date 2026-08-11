@@ -21,7 +21,7 @@ struct PlayerProcessOptions {
     int maximumIpcAttempts = 50;
     int maximumPendingCommands = 256;
     qint64 maximumIpcMessageBytes = 1024 * 1024;
-    qint64 maximumBufferedWriteBytes = 256 * 1024;
+    qint64 maximumBufferedWriteBytes = 1024 * 1024;
 };
 
 class PlayerProcessManager : public QObject

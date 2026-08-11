@@ -84,6 +84,9 @@ int runFakeMpv(const QStringList &arguments)
 
     const bool ignoreQuit = arguments.contains(QStringLiteral("--fake-ignore-quit"));
     const bool sendEvents = arguments.contains(QStringLiteral("--fake-send-events"));
+    const bool sendBurst = arguments.contains(QStringLiteral("--fake-send-burst"));
+    const bool acknowledgeCommands = arguments.contains(
+        QStringLiteral("--fake-ack-commands"));
     const bool disconnectOnce = arguments.contains(QStringLiteral("--fake-disconnect-once"));
     int connectionCount = 0;
     QObject::connect(&server, &QLocalServer::newConnection, &server, [&]() {
@@ -91,7 +94,7 @@ int runFakeMpv(const QStringList &arguments)
             QLocalSocket *socket = server.nextPendingConnection();
             ++connectionCount;
             QObject::connect(socket, &QLocalSocket::readyRead, socket,
-                             [socket, ignoreQuit]() {
+                             [socket, ignoreQuit, acknowledgeCommands]() {
                 QByteArray buffer = socket->property("buffer").toByteArray();
                 buffer.append(socket->readAll());
                 while (true) {
@@ -113,6 +116,16 @@ int runFakeMpv(const QStringList &arguments)
                         QCoreApplication::quit();
                         return;
                     }
+                    if (acknowledgeCommands && !command.isEmpty()
+                        && command.first().toString() == QStringLiteral("script-message")) {
+                        const QJsonObject event{
+                            {QStringLiteral("event"), QStringLiteral("client-message")},
+                            {QStringLiteral("args"),
+                             QJsonArray{QStringLiteral("command-ack")}},
+                        };
+                        socket->write(QJsonDocument(event).toJson(QJsonDocument::Compact));
+                        socket->write("\n");
+                    }
                 }
                 socket->setProperty("buffer", buffer);
             });
@@ -127,6 +140,18 @@ int runFakeMpv(const QStringList &arguments)
                 };
                 socket->write(QJsonDocument(propertyEvent).toJson(QJsonDocument::Compact));
                 socket->write("\n");
+                socket->flush();
+            }
+            if (sendBurst) {
+                for (int index = 0; index < 100; ++index) {
+                    const QJsonObject event{
+                        {QStringLiteral("event"), QStringLiteral("property-change")},
+                        {QStringLiteral("name"), QStringLiteral("time-pos")},
+                        {QStringLiteral("data"), index},
+                    };
+                    socket->write(QJsonDocument(event).toJson(QJsonDocument::Compact));
+                    socket->write("\n");
+                }
                 socket->flush();
             }
             if (disconnectOnce && connectionCount == 1) {
@@ -193,6 +218,8 @@ private slots:
     void ipcConnectionDeadlineIsBounded();
     void ipcReconnectAttemptsAreBounded();
     void pendingCommandsAreBounded();
+    void validCommandLargerThanInitialWriteLimitIsDelivered();
+    void batchedIpcMessagesAreFullyDrained();
     void disconnectedIpcReconnectsWithinDeadline();
     void malformedIpcIsIgnoredBeforeValidEvent();
     void startupFailureIsClear();
@@ -359,6 +386,46 @@ void PlayerProcessManagerTest::pendingCommandsAreBounded()
     QCOMPARE(diagnostics.value(QStringLiteral("pendingCommands")).toInt(), 3);
     QCOMPARE(diagnostics.value(QStringLiteral("droppedPendingCommands")).toULongLong(),
              quint64(7));
+    manager.stopMpv();
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+}
+
+void PlayerProcessManagerTest::validCommandLargerThanInitialWriteLimitIsDelivered()
+{
+    PlayerProcessOptions options = fastOptions();
+    options.maximumIpcMessageBytes = 4096;
+    options.maximumBufferedWriteBytes = 128;
+    options.maximumPendingCommands = 16;
+    PlayerProcessManager manager(options);
+    QSignalSpy ipcSpy(&manager, &PlayerProcessManager::ipcConnectionLatencyMeasured);
+    QSignalSpy messageSpy(&manager, &PlayerProcessManager::scriptMessage);
+    manager.startMpv(QCoreApplication::applicationFilePath(),
+                     fakeArguments({}, {QStringLiteral("--fake-ack-commands")}),
+                     QStringLiteral("large-command-media"));
+    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 1, 2000);
+
+    for (int index = 0; index < 6; ++index) {
+        manager.sendVariantCommand(QVariantList{QStringLiteral("script-message"),
+                                                QString(1024, QLatin1Char('x'))});
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(messageSpy.count(), 6, 2000);
+    QCOMPARE(messageSpy.first().first().toString(), QStringLiteral("command-ack"));
+    manager.stopMpv();
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+}
+
+void PlayerProcessManagerTest::batchedIpcMessagesAreFullyDrained()
+{
+    PlayerProcessOptions options = fastOptions();
+    options.maximumIpcMessageBytes = 512;
+    PlayerProcessManager manager(options);
+    QSignalSpy positionSpy(&manager, &PlayerProcessManager::positionChanged);
+    manager.startMpv(QCoreApplication::applicationFilePath(),
+                     fakeArguments({}, {QStringLiteral("--fake-send-burst")}),
+                     QStringLiteral("burst-media"));
+
+    QTRY_COMPARE_WITH_TIMEOUT(positionSpy.count(), 100, 2000);
+    QCOMPARE(positionSpy.last().first().toDouble(), 99.0);
     manager.stopMpv();
     QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
 }

@@ -131,10 +131,10 @@ processes from colliding.
 IPC connection and reconnection are asynchronous. The default connection
 window is 5 seconds with 100 ms per-attempt retry pacing and at most 50
 attempts. A disconnect queues reconnection after the socket notification has
-unwound. Pending commands are capped at 256 (oldest dropped), outgoing socket
-buffering at 256 KiB, and each incoming/outgoing JSON message at 1 MiB. Incoming
-documents must be JSON objects with a valid event shape; property values and
-client-message arguments are type-checked before signals are emitted. Logs
+unwound. Pending commands are capped at 256 (oldest dropped), while outgoing
+socket buffering and each incoming/outgoing JSON message are capped at 1 MiB.
+Incoming documents must be JSON objects with a valid event shape; property
+values and client-message arguments are type-checked before signals are emitted. Logs
 record command names and lifecycle timing but never command payloads, media
 URLs, or signed credentials.
 
