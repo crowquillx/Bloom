@@ -39,6 +39,11 @@ and restoration asynchronous and generation-safe; external display commands
 must retain deadlines and bounded output, and `PlayerController` must preserve
 HDR-before-refresh startup plus HDR-before-refresh restoration ordering.
 
+Pure playback decisions are owned by the Qt-Core-only `Bloom::PlayerPolicy`
+target. Keep language, track, HDR, version, completion, and autoplay policy free
+of I/O and `QObject`; `PlayerController` remains the stable QML-facing facade
+and state coordinator documented in `docs/playback.md`.
+
 Build & run (blessed path):
 ```
 nix build

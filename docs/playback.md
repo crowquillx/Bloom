@@ -27,6 +27,23 @@ Backend architecture
   - Non-Windows: `BLOOM_PLAYER_BACKEND` env override -> config `player_backend` -> platform default.
 - Unknown backend names safely resolve to `external-mpv-ipc`.
 
+Playback policy boundary
+- `PlayerController` remains the stable QML-facing playback facade and owns
+  state-machine coordination, service calls, backend commands, and reporting.
+- Deterministic decisions that do not require controller state mutation live in
+  `Bloom::PlaybackPolicy` and are built through the reusable
+  `Bloom::PlayerPolicy` target. This includes common language normalization,
+  stream scoring and initial track selection, HDR/Dolby Vision classification
+  and output policy, alternate-version affinity, multipart primary-source
+  filtering, completion thresholds, and next-episode prefetch validation.
+- Keep this policy layer Qt-Core-only and free of `QObject`, timers, networking,
+  configuration reads, backend calls, and other I/O. Callers pass settings and
+  playback snapshots explicitly, which makes policy behavior directly testable
+  without a media server, mpv, display hardware, or a QML engine.
+- This extraction is behavior-preserving: track precedence, Dolby Vision
+  fallback, version affinity, completion thresholds, autoplay/Up Next, and
+  multipart behavior retain the contracts documented below.
+
 Windows embedded backend details
 - Added `WindowsMpvBackend` scaffold under `src/player/backend/`.
 - Selector token: `win-libmpv`.

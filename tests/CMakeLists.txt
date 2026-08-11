@@ -75,6 +75,7 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/security/CredentialStore.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/PlaybackPolicy.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
@@ -97,6 +98,12 @@ function(bloom_use_production_libraries test_target)
     set(player_process_source ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp)
     if(player_process_source IN_LIST test_sources)
         target_link_libraries(${test_target} PRIVATE Bloom::PlayerProcess)
+    endif()
+    set(player_controller_source ${CMAKE_SOURCE_DIR}/src/player/PlayerController.cpp)
+    set(player_policy_source ${CMAKE_SOURCE_DIR}/src/player/PlaybackPolicy.cpp)
+    if(player_controller_source IN_LIST test_sources
+       OR player_policy_source IN_LIST test_sources)
+        target_link_libraries(${test_target} PRIVATE Bloom::PlayerPolicy)
     endif()
     set(display_manager_source ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp)
     if(display_manager_source IN_LIST test_sources)
@@ -626,6 +633,24 @@ target_link_libraries(PlayerProcessManagerTest
 )
 
 add_test(NAME PlayerProcessManagerTest COMMAND PlayerProcessManagerTest)
+
+add_executable(PlaybackPolicyTest
+    PlaybackPolicyTest.cpp
+)
+
+target_include_directories(PlaybackPolicyTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(PlaybackPolicyTest
+    PRIVATE
+        Bloom::PlayerPolicy
+        Qt6::Core
+        Qt6::Test
+)
+
+add_test(NAME PlaybackPolicyTest COMMAND PlaybackPolicyTest)
 
 add_executable(DisplayManagerTest
     DisplayManagerTest.cpp

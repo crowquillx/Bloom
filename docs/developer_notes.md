@@ -46,6 +46,9 @@ Useful utilities
 - `DisplayManager` for HDR and refresh-rate lifecycle. Link `Bloom::Display` in
   tests; never wait for an external display command on the GUI thread, and keep
   playback preparation/restoration generation-safe.
+- `PlaybackPolicy` for pure language, track, HDR, version, completion, and
+  next-episode decisions. Link `Bloom::PlayerPolicy` in focused tests and keep
+  the target Qt-Core-only with all inputs supplied explicitly.
 - `HttpTransport` for shared HTTP execution/retry/cancellation policy.
 - `IProviderRequestFactory` implementations for provider URL/header construction.
 - `ConfigManager` for settings and QML exposures.
