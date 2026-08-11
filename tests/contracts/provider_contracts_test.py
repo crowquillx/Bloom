@@ -13,7 +13,12 @@ if str(CONTRACT_DIR) not in sys.path:
 
 import run_live_contracts
 from run_live_contracts import DRIVERS, HttpTransport, Response
-from validate_contracts import ContractValidationError, load_and_validate, validate_contract_data
+from validate_contracts import (
+    ContractValidationError,
+    load_and_validate,
+    load_jellyfin_openapi_manifest,
+    validate_contract_data,
+)
 
 
 class ProviderContractValidationTest(unittest.TestCase):
@@ -162,7 +167,20 @@ class ProviderContractValidationTest(unittest.TestCase):
         )
         self.assertEqual(
             snapshot["jellyfinOpenApiSource"],
-            "https://github.com/jellyfin/jellyfin-sdk-typescript/blob/592747ce7add446b9a14ad56aba8a7441a2e2618/openapi.json",
+            "https://raw.githubusercontent.com/jellyfin/jellyfin-sdk-typescript/592747ce7add446b9a14ad56aba8a7441a2e2618/openapi.json",
+        )
+        manifest = load_jellyfin_openapi_manifest()
+        self.assertEqual(manifest["source"], snapshot["jellyfinOpenApiSource"])
+        self.assertEqual(manifest["sourceSha256"], snapshot["jellyfinOpenApiSha256"])
+        self.assertEqual(manifest["apiVersion"], "12.0.0")
+        operations = {
+            (operation["method"], operation["path"]): operation
+            for operation in manifest["operations"]
+        }
+        self.assertIn(("POST", "/Items/{itemId}/PlaybackInfo"), operations)
+        self.assertIn(("DELETE", "/Devices"), operations)
+        self.assertFalse(
+            operations[("POST", "/Items/{itemId}/PlaybackInfo")]["deprecated"]
         )
         self.assertEqual(snapshot["jellyfin12SmokeVersion"], "12.0.0")
         self.assertEqual(

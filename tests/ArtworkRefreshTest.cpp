@@ -255,6 +255,7 @@ private slots:
     void existingRoundedVariantIsDiscoveredAsynchronously();
     void roundedRequestDoesNotWaitForBusyCacheWorker();
     void revisionRaceRetriesRoundedLookup();
+    void failedRoundedRenderReleasesPendingRequest();
     void destroyingSubscriberKeepsSharedJobAlive();
     void concurrentRequestRegistrationCoalesces();
     void terminalSignalAllowsImmediateResubscribe();
@@ -510,14 +511,14 @@ void ArtworkRefreshTest::existingRoundedVariantIsDiscoveredAsynchronously()
 void ArtworkRefreshTest::roundedRequestDoesNotWaitForBusyCacheWorker()
 {
     ImageCacheProvider cache(1);
-    QSemaphore workerEntered;
-    QSemaphore releaseWorker;
-    cache.blockCacheWorkerForTest(&workerEntered, &releaseWorker);
-    QVERIFY(workerEntered.tryAcquire(1, 1000));
+    const auto workerEntered = QSharedPointer<QSemaphore>::create();
+    const auto releaseWorker = QSharedPointer<QSemaphore>::create();
+    cache.blockCacheWorkerForTest(workerEntered, releaseWorker);
+    QVERIFY(workerEntered->tryAcquire(1, 1000));
 
-    auto delayedRelease = QtConcurrent::run([&releaseWorker]() {
+    auto delayedRelease = QtConcurrent::run([releaseWorker]() {
         QThread::msleep(300);
-        releaseWorker.release();
+        releaseWorker->release();
     });
 
     QElapsedTimer timer;
@@ -577,6 +578,34 @@ void ArtworkRefreshTest::revisionRaceRetriesRoundedLookup()
     QVERIFY(!roundedUrl.isEmpty());
     QCOMPARE(cache.requestRoundedImage(identity, 16, 32, 32), roundedUrl);
     delete base;
+}
+
+void ArtworkRefreshTest::failedRoundedRenderReleasesPendingRequest()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString invalidImagePath = directory.filePath(QStringLiteral("invalid.png"));
+    QFile invalidImage(invalidImagePath);
+    QVERIFY(invalidImage.open(QIODevice::WriteOnly));
+    QCOMPARE(invalidImage.write("not an image"), qint64(12));
+    invalidImage.close();
+
+    ImageCacheProvider cache(1);
+    const QString identity = QStringLiteral("https://images.example.test/invalid.png");
+    QSignalSpy roundedSpy(&cache, &ImageCacheProvider::roundedImageReady);
+    QCOMPARE(cache.requestRoundedImage(identity, 16, 32, 32), QString());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        cache.cacheStats().value(QStringLiteral("inFlightRoundedJobs")).toInt(),
+        0, 3000);
+    QCOMPARE(cache.cacheStats()
+                 .value(QStringLiteral("pendingRoundedRequests")).toInt(),
+             1);
+
+    cache.processPendingRoundedForTest(identity, invalidImagePath);
+    QTRY_COMPARE_WITH_TIMEOUT(
+        cache.cacheStats().value(QStringLiteral("pendingRoundedRequests")).toInt(),
+        0, 3000);
+    QCOMPARE(roundedSpy.count(), 0);
 }
 
 void ArtworkRefreshTest::destroyingSubscriberKeepsSharedJobAlive()

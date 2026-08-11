@@ -1688,6 +1688,7 @@ FocusScope {
                     required property string imageUrl
                     required property int index
                     property string roundedImageSource: ""
+                    property bool baseImageFailed: false
 
                     // Poster dimensions — fill nearly the full cell with minimal spacing
                     property real posterWidth: grid.cellWidth - Theme.spacingSmall
@@ -1698,10 +1699,14 @@ FocusScope {
                         // Reset state when item goes to pool
                         coverArt.source = ""
                         roundedImageSource = ""
+                        baseImageFailed = false
                     }
                     GridView.onReused: {
                         // Rebind image source when item is reused
-                        coverArt.source = Qt.binding(function() { return getImageSource() })
+                        baseImageFailed = false
+                        coverArt.source = Qt.binding(function() {
+                            return baseImageFailed ? "" : getImageSource()
+                        })
                         refreshRoundedImageSource()
                     }
 
@@ -1724,7 +1729,10 @@ FocusScope {
                         roundedImageSource = getRoundedImageSource()
                     }
 
-                    onImageUrlChanged: refreshRoundedImageSource()
+                    onImageUrlChanged: {
+                        baseImageFailed = false
+                        refreshRoundedImageSource()
+                    }
                     Component.onCompleted: refreshRoundedImageSource()
 
                     Connections {
@@ -1786,10 +1794,11 @@ FocusScope {
                                 mipmap: true
                                 smooth: true
                                 visible: true
-                                source: delegateItem.getImageSource()
+                                source: delegateItem.baseImageFailed
+                                    ? "" : delegateItem.getImageSource()
                                 onStatusChanged: {
                                     if (status === Image.Error) {
-                                        source = ""
+                                        delegateItem.baseImageFailed = true
                                     }
                                 }
                             }

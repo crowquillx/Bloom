@@ -40,10 +40,27 @@ Container digests are immutable. Short-SHA tags are included only for operator r
 ### Jellyfin 12 API policy
 
 Bloom's Jellyfin production requests are audited against the pinned official
-OpenAPI document above. Client code must use only listed operations and must
-not use operations or parameters marked obsolete. The same replacements are present in Jellyfin
-10.11, so Bloom does not branch the core catalog/playback contract by server
-version. In particular:
+OpenAPI document above. The checked-in
+`tests/contracts/jellyfin-12-openapi-manifest.json` is generated from that
+exact artifact and is what offline contract tests consume. To reproduce it:
+
+```bash
+curl --fail --location \
+  https://raw.githubusercontent.com/jellyfin/jellyfin-sdk-typescript/592747ce7add446b9a14ad56aba8a7441a2e2618/openapi.json \
+  --output /tmp/jellyfin-12-openapi.json
+printf '%s  %s\n' \
+  f073a3e661f1c7249c8dc7df257b31f290c8931950f8563e9df537a46717f700 \
+  /tmp/jellyfin-12-openapi.json | sha256sum --check
+python3 tests/contracts/generate_jellyfin_openapi_manifest.py \
+  /tmp/jellyfin-12-openapi.json
+```
+
+The generator rejects a digest or API-version mismatch before writing the
+manifest. The validator derives route, parameter, deprecation, request-schema,
+and `ItemFields` assertions from the generated surface. Client code must use
+only listed operations and must not use operations or parameters marked
+obsolete. The same replacements are present in Jellyfin 10.11, so Bloom does
+not branch the core catalog/playback contract by server version. In particular:
 
 - user-scoped catalog operations use `/UserViews`, `/Items`, `/Items/Latest`,
   `/Items?Ids={id}`, `/UserPlayedItems/{id}`, and `/UserFavoriteItems/{id}` with

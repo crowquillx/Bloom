@@ -28,6 +28,9 @@ public:
     Q_INVOKABLE void requestRefresh();
     void paint(QPainter *painter) override;
 
+protected:
+    void itemChange(ItemChange change, const ItemChangeData &value) override;
+
 signals:
     void sourceItemChanged();
     void radiusChanged();

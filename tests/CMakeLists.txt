@@ -413,6 +413,10 @@ target_include_directories(ProviderCatalogTest PRIVATE
     ${CMAKE_BINARY_DIR}/src
 )
 
+target_compile_definitions(ProviderCatalogTest PRIVATE
+    BLOOM_JELLYFIN_OPENAPI_MANIFEST="${CMAKE_CURRENT_SOURCE_DIR}/contracts/jellyfin-12-openapi-manifest.json"
+)
+
 target_link_libraries(ProviderCatalogTest
     PRIVATE
         Qt6::Core

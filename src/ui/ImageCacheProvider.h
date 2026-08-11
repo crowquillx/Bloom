@@ -17,6 +17,7 @@
 #include <QPointer>
 #ifdef BLOOM_TESTING
 #include <QSemaphore>
+#include <QSharedPointer>
 #endif
 #include <atomic>
 #include <memory>
@@ -177,9 +178,12 @@ public:
     void setDefaultRoundedParams(int radiusPx, const QSize &targetSize);
 
 #ifdef BLOOM_TESTING
-    void blockCacheWorkerForTest(QSemaphore *entered, QSemaphore *release);
+    void blockCacheWorkerForTest(const QSharedPointer<QSemaphore> &entered,
+                                 const QSharedPointer<QSemaphore> &release);
     void blockNextRoundedLookupForTest(QSemaphore *entered, QSemaphore *release);
     void advanceCacheContentRevisionForTest();
+    void processPendingRoundedForTest(const QString &url,
+                                      const QString &sourcePath);
 #endif
 
 signals:

@@ -46,6 +46,7 @@ SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 DIGEST_IMAGE_RE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 HTTP_STATUS_RE = re.compile(r"\bHTTP\s+\d{3}\b", re.IGNORECASE)
+OPENAPI_MANIFEST_PATH = Path(__file__).with_name("jellyfin-12-openapi-manifest.json")
 
 
 class ContractValidationError(ValueError):
@@ -68,6 +69,116 @@ def _unique_ids(values: list[dict[str, Any]], section: str):
     _require(all(isinstance(value, str) and value for value in ids), f"{section} entries need non-empty ids")
     _require(len(ids) == len(set(ids)), f"{section} ids must be unique")
     return set(ids)
+
+
+def load_jellyfin_openapi_manifest():
+    try:
+        manifest = json.loads(OPENAPI_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ContractValidationError(
+            f"could not read Jellyfin OpenAPI manifest: {error}"
+        ) from error
+    _require(isinstance(manifest, dict), "Jellyfin OpenAPI manifest must be an object")
+    return manifest
+
+
+def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
+    manifest = load_jellyfin_openapi_manifest()
+    _require(manifest.get("schemaVersion") == 1, "Jellyfin OpenAPI manifest schema must be 1")
+    _require(
+        manifest.get("source") == snapshot.get("jellyfinOpenApiSource"),
+        "Jellyfin OpenAPI manifest source must match the snapshot",
+    )
+    _require(
+        manifest.get("sourceSha256") == snapshot.get("jellyfinOpenApiSha256"),
+        "Jellyfin OpenAPI manifest digest must match the snapshot",
+    )
+    _require(
+        manifest.get("apiVersion") == snapshot.get("jellyfinOpenApiVersion"),
+        "Jellyfin OpenAPI manifest API version must match the snapshot",
+    )
+
+    operations = {
+        (operation.get("method"), operation.get("path")): operation
+        for operation in manifest.get("operations", [])
+        if isinstance(operation, dict)
+    }
+    required_operations = {
+        ("GET", "/UserViews"): {"userId"},
+        ("GET", "/Items"): {"userId", "fields", "ids"},
+        ("GET", "/Items/Latest"): {"userId", "fields"},
+        ("GET", "/Items/Filters2"): {"userId"},
+        ("GET", "/Genres"): {"userId"},
+        ("GET", "/Studios"): {"userId"},
+        ("POST", "/UserPlayedItems/{itemId}"): {"userId"},
+        ("DELETE", "/UserPlayedItems/{itemId}"): {"userId"},
+        ("POST", "/UserFavoriteItems/{itemId}"): {"userId"},
+        ("DELETE", "/UserFavoriteItems/{itemId}"): {"userId"},
+        ("POST", "/Items/{itemId}/PlaybackInfo"): {"itemId"},
+        ("GET", "/Videos/{itemId}/AdditionalParts"): {"itemId", "userId"},
+        ("GET", "/MediaSegments/{itemId}"): {"itemId"},
+        ("GET", "/Sessions"): set(),
+        ("DELETE", "/Devices"): {"id"},
+        ("POST", "/Sessions/Playing"): set(),
+        ("POST", "/Sessions/Playing/Progress"): set(),
+        ("POST", "/Sessions/Playing/Stopped"): set(),
+    }
+    for operation_key, required_parameters in required_operations.items():
+        operation = operations.get(operation_key)
+        _require(operation is not None, f"Jellyfin OpenAPI is missing {operation_key}")
+        _require(
+            not operation.get("deprecated", False),
+            f"Jellyfin OpenAPI operation is obsolete: {operation_key}",
+        )
+        parameters = {
+            parameter.get("name"): parameter
+            for parameter in operation.get("parameters", [])
+            if isinstance(parameter, dict)
+        }
+        _require(
+            required_parameters.issubset(parameters),
+            f"Jellyfin OpenAPI parameters changed for {operation_key}",
+        )
+        _require(
+            all(not parameters[name].get("deprecated", False) for name in required_parameters),
+            f"Bloom uses an obsolete Jellyfin parameter for {operation_key}",
+        )
+
+    for excluded_operation in (
+        ("GET", "/Users/{userId}/Items"),
+        ("GET", "/Episode/{itemId}/IntroSkipperSegments"),
+        ("POST", "/Sessions/{sessionId}/Logout"),
+    ):
+        _require(
+            excluded_operation not in operations,
+            f"excluded legacy Jellyfin operation is still in OpenAPI: {excluded_operation}",
+        )
+
+    schemas = manifest.get("schemas", {})
+    item_fields = schemas.get("ItemFields", {}).get("enum", [])
+    _require(
+        "SpecialEpisodeNumbers" in item_fields,
+        "Jellyfin ItemFields must include SpecialEpisodeNumbers",
+    )
+    playback_info_properties = schemas.get("PlaybackInfoDto", {}).get("properties", {})
+    _require(
+        "UserId" in playback_info_properties
+        and not playback_info_properties["UserId"].get("deprecated", False),
+        "PlaybackInfoDto.UserId must remain supported",
+    )
+    progress_properties = schemas.get("PlaybackProgressInfo", {}).get("properties", {})
+    _require(
+        "EventName" not in progress_properties,
+        "PlaybackProgressInfo must not restore the removed EventName field",
+    )
+    stream = operations[("GET", "/Videos/{itemId}/stream")]
+    stream_parameters = {
+        parameter.get("name"): parameter for parameter in stream.get("parameters", [])
+    }
+    _require(
+        stream_parameters.get("deviceProfileId", {}).get("deprecated", False),
+        "the audited stream manifest must retain obsolete deviceProfileId evidence",
+    )
 
 
 def validate_contract_data(data: dict[str, Any]):
@@ -164,9 +275,10 @@ def validate_contract_data(data: dict[str, Any]):
     _require(SHA256_RE.fullmatch(snapshot.get("jellyfinOpenApiSha256", "")) is not None, "snapshot Jellyfin OpenAPI must use a full sha256 digest")
     _require(
         snapshot.get("jellyfinOpenApiSource")
-        == "https://github.com/jellyfin/jellyfin-sdk-typescript/blob/592747ce7add446b9a14ad56aba8a7441a2e2618/openapi.json",
+        == "https://raw.githubusercontent.com/jellyfin/jellyfin-sdk-typescript/592747ce7add446b9a14ad56aba8a7441a2e2618/openapi.json",
         "snapshot Jellyfin OpenAPI must reference the official SDK specification",
     )
+    _validate_jellyfin_openapi(snapshot)
     _require(snapshot.get("jellyfin12SmokeVersion") == "12.0.0", "snapshot Jellyfin 12 smoke must report 12.0.0")
     _require(DIGEST_IMAGE_RE.fullmatch(snapshot.get("jellyfin12SmokeImage", "")) is not None, "snapshot Jellyfin 12 smoke image must use an immutable sha256 digest")
     _require(SHA_RE.fullmatch(snapshot.get("siloRevision", "")) is not None, "snapshot siloRevision must be a full Git SHA")

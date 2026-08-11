@@ -75,6 +75,15 @@ void SoftwareRoundedImage::requestRefresh()
     m_retryTimer.start(0);
 }
 
+void SoftwareRoundedImage::itemChange(ItemChange change,
+                                      const ItemChangeData &value)
+{
+    QQuickPaintedItem::itemChange(change, value);
+    if (change == ItemDevicePixelRatioHasChanged) {
+        requestRefresh();
+    }
+}
+
 void SoftwareRoundedImage::attemptGrab()
 {
     if (!m_sourceItem) {
@@ -89,9 +98,11 @@ void SoftwareRoundedImage::attemptGrab()
         return;
     }
 
+    const qreal devicePixelRatio = std::max<qreal>(
+        1.0, m_sourceItem->window()->effectiveDevicePixelRatio());
     const QSize targetSize(
-        std::max(1, int(std::ceil(width()))),
-        std::max(1, int(std::ceil(height()))));
+        std::max(1, int(std::ceil(width() * devicePixelRatio))),
+        std::max(1, int(std::ceil(height() * devicePixelRatio))));
     const quint64 generation = m_generation;
     const QSharedPointer<QQuickItemGrabResult> result =
         m_sourceItem->grabToImage(targetSize);

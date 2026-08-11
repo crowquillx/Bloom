@@ -1,6 +1,7 @@
 #include <QtTest/QtTest>
 
 #include <QDate>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -287,33 +288,22 @@ void ProviderCatalogTest::jellyfinRequestsUseOpenApiRoutesAndFields()
         }
     }
 
-    const QSet<QString> openApiItemFields{
-        QStringLiteral("AirTime"), QStringLiteral("CanDelete"),
-        QStringLiteral("CanDownload"), QStringLiteral("ChannelInfo"),
-        QStringLiteral("Chapters"), QStringLiteral("Trickplay"),
-        QStringLiteral("ChildCount"), QStringLiteral("CumulativeRunTimeTicks"),
-        QStringLiteral("CustomRating"), QStringLiteral("DateCreated"),
-        QStringLiteral("DateLastMediaAdded"), QStringLiteral("DisplayPreferencesId"),
-        QStringLiteral("Etag"), QStringLiteral("ExternalUrls"),
-        QStringLiteral("Genres"), QStringLiteral("ItemCounts"),
-        QStringLiteral("MediaSourceCount"), QStringLiteral("MediaSources"),
-        QStringLiteral("OriginalTitle"), QStringLiteral("Overview"),
-        QStringLiteral("ParentId"), QStringLiteral("Path"),
-        QStringLiteral("People"), QStringLiteral("PlayAccess"),
-        QStringLiteral("ProductionLocations"), QStringLiteral("ProviderIds"),
-        QStringLiteral("PrimaryImageAspectRatio"), QStringLiteral("RecursiveItemCount"),
-        QStringLiteral("Settings"), QStringLiteral("SeriesStudio"),
-        QStringLiteral("SortName"), QStringLiteral("SpecialEpisodeNumbers"),
-        QStringLiteral("Studios"), QStringLiteral("Taglines"),
-        QStringLiteral("Tags"), QStringLiteral("RemoteTrailers"),
-        QStringLiteral("MediaStreams"), QStringLiteral("SeasonUserData"),
-        QStringLiteral("DateLastRefreshed"), QStringLiteral("DateLastSaved"),
-        QStringLiteral("RefreshState"), QStringLiteral("ChannelImage"),
-        QStringLiteral("EnableMediaSourceDisplay"), QStringLiteral("Width"),
-        QStringLiteral("Height"), QStringLiteral("ExtraIds"),
-        QStringLiteral("LocalTrailerCount"), QStringLiteral("IsHD"),
-        QStringLiteral("SpecialFeatureCount")
-    };
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY2(openApiManifest.open(QIODevice::ReadOnly),
+             qPrintable(openApiManifest.errorString()));
+    const QJsonObject manifest = QJsonDocument::fromJson(
+        openApiManifest.readAll()).object();
+    const QJsonArray itemFieldValues = manifest.value(QStringLiteral("schemas"))
+                                               .toObject()
+                                               .value(QStringLiteral("ItemFields"))
+                                               .toObject()
+                                               .value(QStringLiteral("enum"))
+                                               .toArray();
+    QVERIFY(!itemFieldValues.isEmpty());
+    QSet<QString> openApiItemFields;
+    for (const QJsonValue &field : itemFieldValues) {
+        openApiItemFields.insert(field.toString());
+    }
     for (ProviderCatalogOperation operation : {
              ProviderCatalogOperation::Items, ProviderCatalogOperation::NextUp,
              ProviderCatalogOperation::LatestMedia, ProviderCatalogOperation::HomeBackdrops,

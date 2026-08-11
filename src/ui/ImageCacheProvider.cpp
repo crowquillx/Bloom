@@ -1003,6 +1003,7 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
     struct RoundedTaskResult {
         QString path;
         bool retryLookup = false;
+        bool terminalFailure = false;
     };
 
     const QString key = roundedKey(url, radiusPx, targetSize);
@@ -1089,6 +1090,8 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
                 ++m_roundedGenerations;
             }
         }
+        result.terminalFailure = result.path.isEmpty()
+            && m_cacheGeneration.load() == generation;
         --m_activeRoundedTasks;
         return result;
     });
@@ -1133,6 +1136,16 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
                 }
             } else if (result.retryLookup && pendingIt != m_pendingRounded.end()) {
                 retryLookup = true;
+            } else if (result.terminalFailure
+                       && pendingIt != m_pendingRounded.end()) {
+                pendingIt->removeIf(
+                    [radiusPx, targetSize](const RoundedVariantRequest &request) {
+                        return request.radiusPx == radiusPx
+                            && request.size == targetSize;
+                    });
+                if (pendingIt->isEmpty()) {
+                    m_pendingRounded.erase(pendingIt);
+                }
             } else if (sourcePath.isEmpty() && pendingIt != m_pendingRounded.end()) {
                 const KnownBaseImage known = m_knownBaseImages.value(url);
                 if (!known.path.isEmpty()
@@ -1261,8 +1274,12 @@ void ImageCacheProvider::touchRoundedVariantAsync(const QString &key,
     }
 
     auto future = QtConcurrent::run(&m_threadPool, [this, key, generation]() {
-        QMutexLocker mutationLock(&m_cacheMutationMutex);
-        if (m_cacheGeneration.load() == generation && m_store) {
+        bool shouldTouch = false;
+        {
+            QMutexLocker mutationLock(&m_cacheMutationMutex);
+            shouldTouch = m_cacheGeneration.load() == generation && m_store;
+        }
+        if (shouldTouch) {
             m_store->touch(key);
         }
         QMetaObject::invokeMethod(
@@ -1391,8 +1408,9 @@ void ImageCacheProvider::setMaxCacheSize(qint64 bytes)
 }
 
 #ifdef BLOOM_TESTING
-void ImageCacheProvider::blockCacheWorkerForTest(QSemaphore *entered,
-                                                 QSemaphore *release)
+void ImageCacheProvider::blockCacheWorkerForTest(
+    const QSharedPointer<QSemaphore> &entered,
+    const QSharedPointer<QSemaphore> &release)
 {
     if (m_store) {
         m_store->blockWorkerForTest(entered, release);
@@ -1402,6 +1420,12 @@ void ImageCacheProvider::blockCacheWorkerForTest(QSemaphore *entered,
 void ImageCacheProvider::advanceCacheContentRevisionForTest()
 {
     advanceCacheContentRevision();
+}
+
+void ImageCacheProvider::processPendingRoundedForTest(
+    const QString &url, const QString &sourcePath)
+{
+    processPendingRounded(url, sourcePath);
 }
 
 void ImageCacheProvider::blockNextRoundedLookupForTest(QSemaphore *entered,

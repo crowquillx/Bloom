@@ -5,6 +5,7 @@
 #include <QString>
 #ifdef BLOOM_TESTING
 #include <QSemaphore>
+#include <QSharedPointer>
 #endif
 
 #include <memory>
@@ -66,7 +67,12 @@ public:
     static QString filenameForKey(const QString &cacheKey);
 
 #ifdef BLOOM_TESTING
-    void blockWorkerForTest(QSemaphore *entered, QSemaphore *release);
+    /**
+     * Queue a bounded worker pause. Shared ownership keeps both semaphores
+     * alive until the worker either receives the release or times out.
+     */
+    void blockWorkerForTest(const QSharedPointer<QSemaphore> &entered,
+                            const QSharedPointer<QSemaphore> &release);
 #endif
 
 private:
