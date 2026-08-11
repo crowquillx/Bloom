@@ -38,7 +38,7 @@ std::optional<QByteArray> strictBase64(const QString &text)
 
 QList<TrustedUpdateManifestKey> UpdateManifestVerifier::embeddedKeys()
 {
-    return {{QString::fromLatin1(activeKeyId), QByteArray::fromHex(QByteArrayLiteral(activePublicKeyHex))}};
+    return {{QString::fromLatin1(activeKeyId), QByteArray::fromHex(QByteArray(activePublicKeyHex))}};
 }
 
 bool UpdateManifestVerifier::verify(const QByteArray &envelope, QByteArray *payload, QString *errorMessage)

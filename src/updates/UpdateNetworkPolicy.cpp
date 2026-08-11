@@ -1,5 +1,6 @@
 #include "UpdateNetworkPolicy.h"
 
+#include <QDir>
 #include <QSet>
 
 namespace
@@ -15,6 +16,12 @@ const QSet<QString> &assetRedirectHosts()
     return hosts;
 }
 
+bool hasCanonicalPath(const QUrl &url)
+{
+    const QString path = url.path(QUrl::FullyDecoded);
+    return !path.contains(QLatin1Char('\\')) && path == QDir::cleanPath(path);
+}
+
 } // namespace
 
 bool UpdateNetworkPolicy::isStrictHttpsUrl(const QUrl &url)
@@ -26,7 +33,7 @@ bool UpdateNetworkPolicy::isStrictHttpsUrl(const QUrl &url)
 
 bool UpdateNetworkPolicy::isAllowedManifestUrl(const QUrl &url)
 {
-    return isStrictHttpsUrl(url) &&
+    return isStrictHttpsUrl(url) && hasCanonicalPath(url) &&
            url.host().compare(QStringLiteral("raw.githubusercontent.com"), Qt::CaseInsensitive) == 0 &&
            url.path().startsWith(QStringLiteral("/crowquillx/Bloom/"));
 }
@@ -41,7 +48,8 @@ bool UpdateNetworkPolicy::isAllowedAssetUrl(const QUrl &url, bool initialRequest
     const QString host = url.host().toLower();
     if (host == QStringLiteral("github.com"))
     {
-        return url.path().startsWith(QStringLiteral("/crowquillx/Bloom/releases/download/"));
+        return hasCanonicalPath(url) &&
+               url.path().startsWith(QStringLiteral("/crowquillx/Bloom/releases/download/"));
     }
     return !initialRequest && assetRedirectHosts().contains(host);
 }

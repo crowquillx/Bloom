@@ -417,8 +417,8 @@ jobs:
           fi
           SIGNING_KEY_FILE="$RUNNER_TEMP/bloom-update-signing-key.pem"
           trap 'shred -u "$SIGNING_KEY_FILE" 2>/dev/null || rm -f "$SIGNING_KEY_FILE"' EXIT
+          install -m 600 /dev/null "$SIGNING_KEY_FILE"
           printf '%s' "$MANIFEST_SIGNING_KEY_B64" | base64 --decode > "$SIGNING_KEY_FILE"
-          chmod 600 "$SIGNING_KEY_FILE"
           PORTABLE="Bloom-Windows.zip"
           INSTALLER_HASH="$(sha256sum "release-assets/$INSTALLER" | cut -d' ' -f1)"
           PORTABLE_HASH="$(sha256sum "release-assets/$PORTABLE" | cut -d' ' -f1)"

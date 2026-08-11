@@ -558,6 +558,7 @@ void WindowsNsisUpdateApplier::discardPartialDownload()
     if (m_outputFile.isOpen())
     {
         m_outputFile.cancelWriting();
+        (void)m_outputFile.commit();
     }
     m_hash.reset();
 }

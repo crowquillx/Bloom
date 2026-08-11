@@ -265,6 +265,7 @@ class UpdateServiceTest : public QObject
   private slots:
     void init();
     void parseManifestBytes_acceptsValidSignature();
+    void embeddedManifestKey_hasExpectedShape();
     void ed25519Verifier_matchesRfc8032Vector();
     void parseManifestBytes_rejectsInvalidSignature();
     void parseManifestBytes_rejectsUntrustedAssetOrigin();
@@ -277,6 +278,7 @@ class UpdateServiceTest : public QObject
     void installerDownload_rejectsRedirectAndCleansPartial();
     void installerDownload_rejectsOversizeAndTruncation();
     void installerDownload_timesOutAndCleansPartial();
+    void installerDownload_canRetryAfterFailure();
     void installerDownload_finalizesAtomicallyAndCleansObsolete();
     void autoUpdateCheckDefaultsOff();
     void startupCheck_skipsWhenAutoCheckDefaultOff();
@@ -323,6 +325,15 @@ void UpdateServiceTest::parseManifestBytes_acceptsValidSignature()
     QCOMPARE(manifest->version, QStringLiteral("99.99.99"));
     QCOMPARE(manifest->buildId, QStringLiteral("99.99.99"));
     QCOMPARE(manifest->installer.filename, QStringLiteral("Bloom-Setup-99.99.99.exe"));
+}
+
+void UpdateServiceTest::embeddedManifestKey_hasExpectedShape()
+{
+    const QList<TrustedUpdateManifestKey> keys = UpdateManifestVerifier::embeddedKeys();
+    QCOMPARE(keys.size(), 1);
+    QCOMPARE(keys.first().keyId, QStringLiteral("bloom-update-2026-08"));
+    QCOMPARE(keys.first().publicKey.toHex(),
+             QByteArrayLiteral("debd4cc08648f5f53490d8e0bf285bd7aa9285f69aa405317b9aa6ef97c11696"));
 }
 
 void UpdateServiceTest::ed25519Verifier_matchesRfc8032Vector()
@@ -391,12 +402,18 @@ void UpdateServiceTest::networkPolicy_rejectsInsecureAndForeignOrigins()
         QUrl(QStringLiteral("http://raw.githubusercontent.com/crowquillx/Bloom/"
                             "update-manifests/stable.json"))));
     QVERIFY(!UpdateNetworkPolicy::isAllowedManifestUrl(QUrl(QStringLiteral("https://evil.example/stable.json"))));
+    QVERIFY(!UpdateNetworkPolicy::isAllowedManifestUrl(
+        QUrl(QStringLiteral("https://raw.githubusercontent.com/crowquillx/Bloom/"
+                            "update-manifests/%2e%2e/main/stable.json"))));
 
     QVERIFY(UpdateNetworkPolicy::isAllowedAssetUrl(QUrl(QStringLiteral("https://github.com/crowquillx/Bloom/releases/"
                                                                        "download/v1/Bloom.exe")),
                                                    true));
     QVERIFY(!UpdateNetworkPolicy::isAllowedAssetUrl(
         QUrl(QStringLiteral("https://github.com/another/repo/releases/download/v1/Bloom.exe")), true));
+    QVERIFY(!UpdateNetworkPolicy::isAllowedAssetUrl(
+        QUrl(QStringLiteral("https://github.com/crowquillx/Bloom/releases/download/v1/%2e%2e/%2e%2e/other.exe")),
+        true));
     QVERIFY(UpdateNetworkPolicy::isAllowedAssetUrl(QUrl(QStringLiteral("https://release-assets.githubusercontent.com/"
                                                                        "object?token=redacted")),
                                                    false));
@@ -592,6 +609,35 @@ void UpdateServiceTest::installerDownload_timesOutAndCleansPartial()
     QCOMPARE(directory.entryList(QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot).size(), 0);
 }
 
+void UpdateServiceTest::installerDownload_canRetryAfterFailure()
+{
+    const QByteArray installerBytes = QByteArrayLiteral("retry-installer");
+    QNetworkAccessManager network;
+    UpdateDownloadOptions options;
+    options.urlValidator = [](const QUrl &url, bool) { return url.host() == QStringLiteral("127.0.0.1"); };
+    WindowsNsisUpdateApplier applier(&network, options);
+    QSignalSpy finishedSpy(&applier, &IUpdateApplier::installFinished);
+    UpdateManifest manifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
+
+    ScriptedHttpServer firstServer(ScriptedHttpServer::Behavior::Response, installerBytes);
+    QVERIFY(firstServer.start());
+    manifest.installer.url = firstServer.baseUrl() + QStringLiteral("/installer.exe");
+    manifest.installer.sha256 = QString(64, QLatin1Char('0'));
+    applier.downloadAndInstall(manifest, QStringLiteral("stable"));
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 2000);
+    QVERIFY(finishedSpy.first().at(1).toString().contains(QStringLiteral("checksum"), Qt::CaseInsensitive));
+
+    finishedSpy.clear();
+    ScriptedHttpServer retryServer(ScriptedHttpServer::Behavior::Response, installerBytes);
+    QVERIFY(retryServer.start());
+    manifest.installer.url = retryServer.baseUrl() + QStringLiteral("/installer.exe");
+    manifest.installer.sha256 =
+        QString::fromLatin1(QCryptographicHash::hash(installerBytes, QCryptographicHash::Sha256).toHex());
+    applier.downloadAndInstall(manifest, QStringLiteral("stable"));
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 2000);
+    QVERIFY(!finishedSpy.first().at(1).toString().contains(QStringLiteral("open"), Qt::CaseInsensitive));
+}
+
 void UpdateServiceTest::installerDownload_finalizesAtomicallyAndCleansObsolete()
 {
     const QByteArray installerBytes = QByteArrayLiteral("verified-installer");
@@ -760,6 +806,19 @@ void UpdateServiceTest::dismissStartupPopup_persistsMarker()
 
 int main(int argc, char *argv[])
 {
+    if (argc == 5 && QByteArray(argv[1]) == QByteArrayLiteral("--verify-update-envelope"))
+    {
+        QFile envelopeFile(QString::fromLocal8Bit(argv[2]));
+        if (!envelopeFile.open(QIODevice::ReadOnly))
+        {
+            return 2;
+        }
+        const QList<TrustedUpdateManifestKey> keys{
+            {QString::fromUtf8(argv[3]), QByteArray::fromHex(QByteArray(argv[4]))}};
+        QByteArray payload;
+        return UpdateManifestVerifier::verify(envelopeFile.readAll(), keys, &payload) ? 0 : 3;
+    }
+
     QTemporaryDir dataRoot;
     if (!dataRoot.isValid())
     {
@@ -777,6 +836,10 @@ int main(int argc, char *argv[])
 #ifdef Q_OS_WIN
     QStandardPaths::setTestModeEnabled(true);
 #endif
+    if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+    {
+        qputenv("QT_QPA_PLATFORM", "offscreen");
+    }
 
     QGuiApplication application(argc, argv);
     UpdateServiceTest test;

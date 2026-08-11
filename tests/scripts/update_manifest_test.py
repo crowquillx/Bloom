@@ -11,6 +11,7 @@ import unittest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 GENERATOR = REPOSITORY_ROOT / "scripts" / "generate-update-manifest.py"
+VERIFIER = Path(sys.argv.pop(1)) if len(sys.argv) > 1 else None
 
 
 class UpdateManifestGeneratorTest(unittest.TestCase):
@@ -112,6 +113,35 @@ class UpdateManifestGeneratorTest(unittest.TestCase):
         parsed_payload = json.loads(payload)
         self.assertEqual(parsed_payload["channel"], "stable")
         self.assertEqual(parsed_payload["installer"]["sha256"], "a" * 64)
+
+        if VERIFIER is not None:
+            public_der = subprocess.run(
+                [
+                    "openssl",
+                    "pkey",
+                    "-pubin",
+                    "-in",
+                    self.public_key,
+                    "-outform",
+                    "DER",
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+            ).stdout
+            ed25519_spki_prefix = bytes.fromhex("302a300506032b6570032100")
+            self.assertTrue(public_der.startswith(ed25519_spki_prefix))
+            public_key = public_der[len(ed25519_spki_prefix) :]
+            self.assertEqual(len(public_key), 32)
+            subprocess.run(
+                [
+                    VERIFIER,
+                    "--verify-update-envelope",
+                    output,
+                    "test-key",
+                    public_key.hex(),
+                ],
+                check=True,
+            )
 
     def test_rejects_insecure_or_foreign_asset_origins(self) -> None:
         for replacement in (

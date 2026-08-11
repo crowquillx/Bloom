@@ -13,14 +13,6 @@ add_test(
         ${CMAKE_CURRENT_SOURCE_DIR}/contracts/canonical_boundary_test.py
 )
 
-if(NOT WIN32)
-    add_test(
-        NAME UpdateManifestGeneratorTest
-        COMMAND ${Python3_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/update_manifest_test.py
-    )
-endif()
-
 set(TEST_LOGGING_SOURCES
     ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
 )
@@ -880,6 +872,15 @@ target_link_libraries(UpdateServiceTest
 )
 
 add_test(NAME UpdateServiceTest COMMAND UpdateServiceTest)
+
+if(NOT WIN32)
+    add_test(
+        NAME UpdateManifestGeneratorTest
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/update_manifest_test.py
+            $<TARGET_FILE:UpdateServiceTest>
+    )
+endif()
 
 set(BLOOM_UNIT_TEST_TARGETS
     BaseViewModelTest
