@@ -183,6 +183,8 @@ private:
     void compileRatings();
     void applyMovieChapters(const QString &movieId, const QVariantList &chapters);
     void setMovieChaptersLoading(bool loading);
+    void requestSimilarItems(const QString &itemId);
+    void resetSimilarItemsRequest();
 
     LibraryService *m_libraryService = nullptr;
     QNetworkAccessManager *m_networkManager = nullptr;
@@ -208,6 +210,7 @@ private:
     QVariantList m_similarItems;
     bool m_similarItemsAttempted = false;
     bool m_similarItemsLoading = false;
+    QString m_similarItemsRequestConnectionId;
     QDateTime m_premiereDate;
 
     QJsonObject m_movieData;

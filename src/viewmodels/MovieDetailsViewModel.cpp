@@ -261,6 +261,11 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
 
     const bool sameMovie = (movieId == m_movieId && !m_movieId.isEmpty());
 
+    if (!m_similarItemsRequestConnectionId.isEmpty()
+        && m_similarItemsRequestConnectionId != activeCacheScope()) {
+        resetSimilarItemsRequest();
+    }
+
     // Clear only when navigating to a different movie
     if (!sameMovie) {
         clear();
@@ -293,6 +298,7 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
         m_similarItems = normalizeSimilarItems(jsonArrayToVariantList(cachedSimilarItems));
         m_similarItemsAttempted = hasFreshSimilarItems;
         m_similarItemsLoading = false;
+        m_similarItemsRequestConnectionId.clear();
         emit similarItemsChanged();
         emit similarItemsLoadingChanged();
     }
@@ -310,7 +316,7 @@ void MovieDetailsViewModel::loadMovieDetails(const QString &movieId)
 void MovieDetailsViewModel::reload()
 {
     if (!m_movieId.isEmpty()) {
-        m_similarItemsAttempted = false;
+        resetSimilarItemsRequest();
         loadMovieDetails(m_movieId);
     }
 }
@@ -352,6 +358,7 @@ void MovieDetailsViewModel::clear(bool preserveArtwork)
     m_similarItems.clear();
     m_similarItemsAttempted = false;
     m_similarItemsLoading = false;
+    m_similarItemsRequestConnectionId.clear();
     m_premiereDate = QDateTime();
     
     m_movieData = QJsonObject();
@@ -449,12 +456,7 @@ void MovieDetailsViewModel::onMovieDetailsLoaded(const QString &itemId, const QV
     updateMovieMetadata(data);
     storeMovieCache(itemId, m_movieData);
 
-    if (!m_similarItemsAttempted && !m_similarItemsLoading && m_libraryService) {
-        m_similarItemsAttempted = true;
-        m_similarItemsLoading = true;
-        emit similarItemsLoadingChanged();
-        m_libraryService->getSimilarItems(itemId);
-    }
+    requestSimilarItems(itemId);
     
     emit movieLoaded();
 }
@@ -467,11 +469,30 @@ void MovieDetailsViewModel::onMovieDetailsNotModified(const QString &itemId)
     setLoading(false);
     qCDebug(lcViewModels) << "MovieDetailsViewModel: Movie details not modified" << itemId;
 
-    if (!m_similarItemsAttempted && !m_similarItemsLoading && m_libraryService) {
-        m_similarItemsAttempted = true;
-        m_similarItemsLoading = true;
+    requestSimilarItems(itemId);
+}
+
+void MovieDetailsViewModel::requestSimilarItems(const QString &itemId)
+{
+    if (m_similarItemsAttempted || m_similarItemsLoading
+        || !m_libraryService || itemId.isEmpty()) {
+        return;
+    }
+
+    m_similarItemsAttempted = true;
+    m_similarItemsLoading = true;
+    m_similarItemsRequestConnectionId = activeCacheScope();
+    emit similarItemsLoadingChanged();
+    m_libraryService->getSimilarItems(itemId);
+}
+
+void MovieDetailsViewModel::resetSimilarItemsRequest()
+{
+    m_similarItemsAttempted = false;
+    m_similarItemsRequestConnectionId.clear();
+    if (m_similarItemsLoading) {
+        m_similarItemsLoading = false;
         emit similarItemsLoadingChanged();
-        m_libraryService->getSimilarItems(itemId);
     }
 }
 
@@ -479,13 +500,24 @@ void MovieDetailsViewModel::onSimilarItemsLoaded(const QString &connectionId,
                                                  const QString &itemId,
                                                  const QVariantList &items)
 {
-    if (connectionId != activeCacheScope() || itemId != m_movieId) {
+    if (itemId != m_movieId) {
+        return;
+    }
+    if (connectionId != activeCacheScope()) {
+        if (connectionId == m_similarItemsRequestConnectionId) {
+            resetSimilarItemsRequest();
+        }
+        return;
+    }
+    if (!m_similarItemsRequestConnectionId.isEmpty()
+        && connectionId != m_similarItemsRequestConnectionId) {
         return;
     }
 
     m_similarItems = normalizeSimilarItems(items);
     m_similarItemsAttempted = true;
     m_similarItemsLoading = false;
+    m_similarItemsRequestConnectionId.clear();
     storeSimilarItemsCache(itemId, variantListToJsonArray(m_similarItems));
     emit similarItemsChanged();
     emit similarItemsLoadingChanged();
@@ -495,15 +527,21 @@ void MovieDetailsViewModel::onSimilarItemsFailed(const QString &connectionId,
                                                  const QString &itemId,
                                                  const QString &error)
 {
-    if (connectionId != activeCacheScope() || itemId != m_movieId) {
+    if (itemId != m_movieId) {
+        return;
+    }
+    if (connectionId != activeCacheScope()) {
+        if (connectionId == m_similarItemsRequestConnectionId) {
+            resetSimilarItemsRequest();
+        }
+        return;
+    }
+    if (!m_similarItemsRequestConnectionId.isEmpty()
+        && connectionId != m_similarItemsRequestConnectionId) {
         return;
     }
 
-    m_similarItemsAttempted = false;
-    if (m_similarItemsLoading) {
-        m_similarItemsLoading = false;
-        emit similarItemsLoadingChanged();
-    }
+    resetSimilarItemsRequest();
 
     qCWarning(lcViewModels) << "MovieDetailsViewModel similar items error:" << error;
 }

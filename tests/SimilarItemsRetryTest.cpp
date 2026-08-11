@@ -169,6 +169,7 @@ private slots:
     void init();
     void cleanup();
     void movieSimilarItemsFailureAllowsRetry();
+    void movieStaleConnectionSettlesOnlyItsOwnRequest();
     void movieCanonicalSimilarItemsReplaceWireShape();
     void seriesSimilarItemsFailureAllowsRetry();
     void seriesCanonicalModelsPreserveSourceTimingAndSpecialOrder();
@@ -230,6 +231,35 @@ void SimilarItemsRetryTest::movieSimilarItemsFailureAllowsRetry()
     vm.onMovieDetailsNotModified(QStringLiteral("movie-1"));
     QCOMPARE(m_libraryService->requestedIds.size(), 1);
     QCOMPARE(m_libraryService->requestedIds.first(), QStringLiteral("movie-1"));
+}
+
+void SimilarItemsRetryTest::movieStaleConnectionSettlesOnlyItsOwnRequest()
+{
+    MovieDetailsViewModel vm;
+    vm.m_movieId = QStringLiteral("movie-1");
+    vm.m_similarItemsAttempted = true;
+    vm.m_similarItemsLoading = true;
+    vm.m_similarItemsRequestConnectionId = QStringLiteral("old-connection");
+
+    vm.onSimilarItemsLoaded(QStringLiteral("old-connection"),
+                            QStringLiteral("movie-1"),
+                            {});
+    QVERIFY(!vm.m_similarItemsAttempted);
+    QVERIFY(!vm.m_similarItemsLoading);
+    QVERIFY(vm.m_similarItemsRequestConnectionId.isEmpty());
+
+    vm.onMovieDetailsNotModified(QStringLiteral("movie-1"));
+    QCOMPARE(m_libraryService->requestedIds,
+             QStringList{QStringLiteral("movie-1")});
+    QCOMPARE(vm.m_similarItemsRequestConnectionId, QStringLiteral("_local"));
+    QVERIFY(vm.m_similarItemsLoading);
+
+    vm.onSimilarItemsFailed(QStringLiteral("old-connection"),
+                            QStringLiteral("movie-1"),
+                            QStringLiteral("late failure"));
+    QCOMPARE(vm.m_similarItemsRequestConnectionId, QStringLiteral("_local"));
+    QVERIFY(vm.m_similarItemsAttempted);
+    QVERIFY(vm.m_similarItemsLoading);
 }
 
 void SimilarItemsRetryTest::movieCanonicalSimilarItemsReplaceWireShape()
