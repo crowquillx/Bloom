@@ -273,6 +273,7 @@ class UpdateServiceTest : public QObject
     void manifestFetch_rejectsOversizeResponse();
     void manifestFetch_rejectsTruncation();
     void manifestFetch_timesOut();
+    void manifestFetch_callbackCanDestroyProvider();
     void installerDownload_rejectsRedirectAndCleansPartial();
     void installerDownload_rejectsOversizeAndTruncation();
     void installerDownload_timesOutAndCleansPartial();
@@ -494,6 +495,33 @@ void UpdateServiceTest::manifestFetch_timesOut()
                            });
     QTRY_VERIFY_WITH_TIMEOUT(completed, 2000);
     QVERIFY(error.contains(QStringLiteral("timed out"), Qt::CaseInsensitive));
+}
+
+void UpdateServiceTest::manifestFetch_callbackCanDestroyProvider()
+{
+    const QByteArray envelope =
+        signedEnvelope(manifestToJsonObject(makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"))));
+    ScriptedHttpServer server(ScriptedHttpServer::Behavior::Response, envelope);
+    QVERIFY(server.start());
+    QNetworkAccessManager network;
+    GitHubReleaseUpdateProviderOptions options;
+    options.manifestBaseUrl = server.baseUrl();
+    options.urlValidator = [](const QUrl &url) { return url.host() == QStringLiteral("127.0.0.1"); };
+    options.trustedKeys = testTrustedKeys();
+    auto *provider = new GitHubReleaseUpdateProvider(&network, options);
+
+    bool completed = false;
+    provider->fetchManifest(QStringLiteral("stable"), provider,
+                            [&](std::optional<UpdateManifest> manifest, const QString &error)
+                            {
+                                QVERIFY2(manifest.has_value(), qPrintable(error));
+                                delete provider;
+                                provider = nullptr;
+                                completed = true;
+                            });
+
+    QTRY_VERIFY_WITH_TIMEOUT(completed, 2000);
+    QVERIFY(provider == nullptr);
 }
 
 void UpdateServiceTest::installerDownload_rejectsRedirectAndCleansPartial()

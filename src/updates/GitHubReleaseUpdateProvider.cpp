@@ -215,11 +215,16 @@ class ManifestFetchJob final : public QObject
         }
         m_finished = true;
         m_deadline.stop();
-        if (m_context && m_completion)
+        QPointer<ManifestFetchJob> guard(this);
+        Completion completion = std::move(m_completion);
+        if (m_context && completion)
         {
-            m_completion(std::move(body), error);
+            completion(std::move(body), error);
         }
-        deleteLater();
+        if (guard)
+        {
+            guard->deleteLater();
+        }
     }
 
   private:
