@@ -157,6 +157,7 @@ private slots:
     void cleanup();
     void canonicalRolesAndContainerFiltering();
     void cachePayloadRejectsProviderWireShape();
+    void sortStateUsesCanonicalKeys();
     void swrIdentityUsesCanonicalItemId();
     void failedLoadMoreRecovers();
     void viewsFailureClearsLoadingState();
@@ -263,6 +264,27 @@ void LibraryViewModelCanonicalTest::cachePayloadRejectsProviderWireShape()
         QJsonObject{{QStringLiteral("itemId"), QStringLiteral("movie-1")},
                     {QStringLiteral("Id"), QStringLiteral("wire-id")}}
     }));
+}
+
+void LibraryViewModelCanonicalTest::sortStateUsesCanonicalKeys()
+{
+    LibraryViewModel viewModel;
+    viewModel.setSortBy(QStringLiteral("releaseDate"));
+    viewModel.setSortOrder(QStringLiteral("descending"));
+    QCOMPARE(viewModel.sortBy(), QStringLiteral("releaseDate"));
+    QCOMPARE(viewModel.sortOrder(), QStringLiteral("descending"));
+
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 20);
+    QCOMPARE(m_libraryService->itemRequests.size(), 1);
+    QCOMPARE(m_libraryService->itemRequests.first().sortBy,
+             QStringLiteral("releaseDate"));
+    QCOMPARE(m_libraryService->itemRequests.first().sortOrder,
+             QStringLiteral("descending"));
+
+    viewModel.setSortBy(QStringLiteral("PremiereDate"));
+    viewModel.setSortOrder(QStringLiteral("Descending"));
+    QVERIFY(viewModel.sortBy().isEmpty());
+    QVERIFY(viewModel.sortOrder().isEmpty());
 }
 
 void LibraryViewModelCanonicalTest::swrIdentityUsesCanonicalItemId()

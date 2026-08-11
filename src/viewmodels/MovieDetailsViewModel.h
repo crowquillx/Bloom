@@ -161,8 +161,12 @@ signals:
 private slots:
     void onMovieDetailsLoaded(const QString &itemId, const QVariantMap &data);
     void onMovieDetailsNotModified(const QString &itemId);
-    void onSimilarItemsLoaded(const QString &itemId, const QVariantList &items);
-    void onSimilarItemsFailed(const QString &itemId, const QString &error);
+    void onSimilarItemsLoaded(const QString &connectionId,
+                              const QString &itemId,
+                              const QVariantList &items);
+    void onSimilarItemsFailed(const QString &connectionId,
+                              const QString &itemId,
+                              const QString &error);
     void onMovieChaptersLoaded(const QString &connectionId,
                                const QString &itemId,
                                const QVariantList &chapters);

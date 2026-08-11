@@ -1012,7 +1012,7 @@ FocusScope {
                         Layout.preferredWidth: Math.round(220 * Theme.layoutScale)
                         Layout.preferredHeight: Theme.buttonHeightSmall
                         model: ["Library order", "Title", "Release date", "Date added", "Rating", "Year", "Random"]
-                        values: ["", "SortName", "PremiereDate", "DateCreated", "CommunityRating", "ProductionYear", "Random"]
+                        values: ["", "title", "releaseDate", "dateAdded", "rating", "year", "random"]
                         Accessible.name: "Sort library"
                         leftTarget: searchField
                         rightTarget: orderCombo
@@ -1029,7 +1029,7 @@ FocusScope {
                         Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
                         Layout.preferredHeight: Theme.buttonHeightSmall
                         model: ["Ascending", "Descending"]
-                        values: ["Ascending", "Descending"]
+                        values: ["ascending", "descending"]
                         Accessible.name: "Sort order"
                         leftTarget: sortCombo
                         rightTarget: filterDrawerButton

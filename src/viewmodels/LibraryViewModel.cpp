@@ -607,12 +607,12 @@ void LibraryViewModel::setSortBy(const QString &sortBy)
 {
     static const QStringList allowed = {
         QString(),
-        QStringLiteral("SortName"),
-        QStringLiteral("PremiereDate"),
-        QStringLiteral("DateCreated"),
-        QStringLiteral("CommunityRating"),
-        QStringLiteral("ProductionYear"),
-        QStringLiteral("Random"),
+        QStringLiteral("title"),
+        QStringLiteral("releaseDate"),
+        QStringLiteral("dateAdded"),
+        QStringLiteral("rating"),
+        QStringLiteral("year"),
+        QStringLiteral("random"),
     };
     const QString normalized = allowed.contains(sortBy) ? sortBy : QString();
     if (m_sortBy == normalized)
@@ -625,8 +625,8 @@ void LibraryViewModel::setSortOrder(const QString &sortOrder)
 {
     static const QStringList allowed = {
         QString(),
-        QStringLiteral("Ascending"),
-        QStringLiteral("Descending"),
+        QStringLiteral("ascending"),
+        QStringLiteral("descending"),
     };
     const QString normalized = allowed.contains(sortOrder) ? sortOrder : QString();
     if (m_sortOrder == normalized)

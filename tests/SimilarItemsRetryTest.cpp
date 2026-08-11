@@ -220,7 +220,9 @@ void SimilarItemsRetryTest::movieSimilarItemsFailureAllowsRetry()
     vm.m_similarItemsAttempted = true;
     vm.m_similarItemsLoading = true;
 
-    vm.onSimilarItemsFailed(QStringLiteral("movie-1"), QStringLiteral("network"));
+    vm.onSimilarItemsFailed(QStringLiteral("_local"),
+                            QStringLiteral("movie-1"),
+                            QStringLiteral("network"));
 
     QCOMPARE(vm.m_similarItemsAttempted, false);
     QCOMPARE(vm.m_similarItemsLoading, false);
@@ -257,7 +259,15 @@ void SimilarItemsRetryTest::movieCanonicalSimilarItemsReplaceWireShape()
         }
     };
 
-    vm.onSimilarItemsLoaded(QStringLiteral("movie-1"), canonicalItems);
+    vm.onSimilarItemsLoaded(QStringLiteral("stale-connection"),
+                            QStringLiteral("movie-1"),
+                            canonicalItems);
+    QVERIFY(vm.similarItems().isEmpty());
+    QVERIFY(vm.similarItemsLoading());
+
+    vm.onSimilarItemsLoaded(QStringLiteral("_local"),
+                            QStringLiteral("movie-1"),
+                            canonicalItems);
 
     QCOMPARE(vm.similarItems().size(), 1);
     const QVariantMap item = vm.similarItems().first().toMap();

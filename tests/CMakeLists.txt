@@ -7,6 +7,12 @@ add_test(
         ${CMAKE_CURRENT_SOURCE_DIR}/contracts/provider_contracts_test.py
 )
 
+add_test(
+    NAME CanonicalBoundaryContractTest
+    COMMAND ${Python3_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/contracts/canonical_boundary_test.py
+)
+
 set(UPDATER_SOURCES
     ${CMAKE_SOURCE_DIR}/src/updates/IUpdateProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/updates/IUpdateApplier.cpp

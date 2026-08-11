@@ -39,10 +39,8 @@ void MockLibraryService::getViewsForRequest(const QString &requestKey)
 {
     QJsonArray views = m_libraries["Items"].toArray();
     qCDebug(lcTest) << "MockLibraryService::getViews() ->" << views.size() << "views";
-    emit viewsLoaded(views);
     const QVariantList canonicalViews =
         JellyfinModelMapper::mediaItems(views, QStringLiteral("mock-connection"));
-    emit canonicalViewsLoaded(canonicalViews);
     emit canonicalViewsLoadedForConnection(QStringLiteral("mock-connection"), canonicalViews);
     emit canonicalViewsLoadedForRequest(
         QStringLiteral("mock-connection"), requestKey, canonicalViews);
@@ -153,37 +151,27 @@ void MockLibraryService::getItems(const LibraryItemQuery &query)
     for (const auto &val : items) {
         sortable.append(val.toObject());
     }
-    const bool descending = query.sortOrder.compare("Descending", Qt::CaseInsensitive) == 0;
+    const bool descending = query.sortOrder == QStringLiteral("descending");
     const QString sortBy = query.normalizedSortBy();
     std::sort(sortable.begin(), sortable.end(), [sortBy, descending](const QJsonObject &a, const QJsonObject &b) {
         bool less = false;
         bool greater = false;
-        if (sortBy.contains("DateCreated")) {
+        if (sortBy == QStringLiteral("dateAdded")) {
             const int cmp = QString::localeAwareCompare(a.value("DateCreated").toString(), b.value("DateCreated").toString());
             less = cmp < 0;
             greater = cmp > 0;
-        } else if (sortBy.contains("PremiereDate")) {
+        } else if (sortBy == QStringLiteral("releaseDate")) {
             const int cmp = QString::localeAwareCompare(a.value("PremiereDate").toString(), b.value("PremiereDate").toString());
             less = cmp < 0;
             greater = cmp > 0;
-        } else if (sortBy.contains("RunTimeTicks")) {
-            const double av = a.value("RunTimeTicks").toDouble();
-            const double bv = b.value("RunTimeTicks").toDouble();
-            less = av < bv;
-            greater = av > bv;
-        } else if (sortBy.contains("CommunityRating")) {
+        } else if (sortBy == QStringLiteral("rating")) {
             const double av = a.value("CommunityRating").toDouble();
             const double bv = b.value("CommunityRating").toDouble();
             less = av < bv;
             greater = av > bv;
-        } else if (sortBy.contains("ProductionYear")) {
+        } else if (sortBy == QStringLiteral("year")) {
             const int av = a.value("ProductionYear").toInt();
             const int bv = b.value("ProductionYear").toInt();
-            less = av < bv;
-            greater = av > bv;
-        } else if (sortBy.contains("IsPlayed")) {
-            const bool av = a.value("UserData").toObject().value("Played").toBool();
-            const bool bv = b.value("UserData").toObject().value("Played").toBool();
             less = av < bv;
             greater = av > bv;
         } else {
@@ -204,16 +192,9 @@ void MockLibraryService::getItems(const LibraryItemQuery &query)
     
     const QString queryKey = query.requestKey.isEmpty() ? query.cacheKey() : query.requestKey;
     qCDebug(lcTest) << "MockLibraryService::getItems(" << query.parentId << ") ->" << paged.size() << "items";
-    emit itemsLoadedWithTotal(query.parentId, paged, totalCount);
-    emit itemsLoadedWithTotalForQuery(query.parentId, queryKey, paged, totalCount);
     const QVariantList canonicalPaged =
         JellyfinModelMapper::mediaItems(
             paged, QStringLiteral("mock-connection"));
-    emit canonicalItemsLoadedWithTotalForQuery(
-        query.parentId,
-        queryKey,
-        canonicalPaged,
-        totalCount);
     emit canonicalItemsLoadedForConnection(
         QStringLiteral("mock-connection"),
         query.parentId,
@@ -291,7 +272,6 @@ void MockLibraryService::getNextUp()
 {
     QJsonArray items = m_nextUp["Items"].toArray();
     qCDebug(lcTest) << "MockLibraryService::getNextUp() ->" << items.size() << "items";
-    emit nextUpLoaded(items);
     emit canonicalNextUpLoaded(
         QStringLiteral("mock-connection"),
         JellyfinModelMapper::mediaItems(items, QStringLiteral("mock-connection")));
@@ -301,7 +281,6 @@ void MockLibraryService::getLatestMedia(const QString &parentId)
 {
     QJsonArray items = m_latestItems["Items"].toArray();
     qCDebug(lcTest) << "MockLibraryService::getLatestMedia(" << parentId << ") ->" << items.size() << "items";
-    emit latestMediaLoaded(parentId, items);
     emit canonicalLatestMediaLoaded(
         QStringLiteral("mock-connection"), parentId,
         JellyfinModelMapper::mediaItems(items, QStringLiteral("mock-connection")));
@@ -331,7 +310,6 @@ void MockLibraryService::getHomeBackdropItems(int limit)
     }
 
     qCDebug(lcTest) << "MockLibraryService::getHomeBackdropItems(" << limit << ") ->" << result.size() << "items";
-    emit homeBackdropItemsLoaded(result);
     emit canonicalHomeBackdropItemsLoaded(
         QStringLiteral("mock-connection"),
         JellyfinModelMapper::mediaItems(result, QStringLiteral("mock-connection")));
@@ -377,8 +355,6 @@ void MockLibraryService::getItem(const QString &itemId, const QString &requestCo
         qCDebug(lcTest) << "MockLibraryService::getItem(" << itemId << ") -> found";
         const QVariantMap canonicalItem = JellyfinModelMapper::mediaItem(
             item, QStringLiteral("mock-connection"));
-        emit itemLoaded(itemId, item, requestContext);
-        emit itemLoaded(itemId, item);
         emit canonicalItemLoaded(itemId, canonicalItem, requestContext);
         emit canonicalItemLoaded(itemId, canonicalItem);
     } else {
@@ -401,8 +377,7 @@ void MockLibraryService::clearItemCacheValidation(const QString &itemId)
 /**
  * @brief Load detailed data for a series and emit the appropriate result signal.
  *
- * Loads the series object for the provided seriesId and emits seriesDetailsLoaded(seriesId, seriesData)
- * where `seriesData` contains the original series object with added `Seasons` and `Episodes` arrays.
+ * Loads the series object for the provided seriesId and emits its canonical projection.
  * If the series cannot be found, emits errorOccurred("getSeriesDetails", "Series not found: " + seriesId).
  *
  * @param seriesId Identifier of the series to load details for.
@@ -421,7 +396,11 @@ void MockLibraryService::getSeriesDetails(const QString &seriesId)
         
         qCDebug(lcTest) << "MockLibraryService::getSeriesDetails(" << seriesId << ") -> found with" 
                  << seasons.size() << "seasons and" << episodes.size() << "episodes";
-        emit seriesDetailsLoaded(seriesId, seriesData);
+        emit canonicalSeriesDetailsLoaded(
+            QStringLiteral("mock-connection"),
+            seriesId,
+            JellyfinModelMapper::mediaItem(
+                seriesData, QStringLiteral("mock-connection")));
     } else {
         qCWarning(lcTest) << "MockLibraryService::getSeriesDetails(" << seriesId << ") -> not found";
         emit errorOccurred("getSeriesDetails", "Series not found: " + seriesId);
@@ -593,7 +572,6 @@ void MockLibraryService::getHeroLibraryItems(int limit, const QStringList &paren
     for (int i = 0; i < count; ++i) result.append(filtered[i]);
 
     qCDebug(lcTest) << "MockLibraryService::getHeroLibraryItems(" << limit << "," << ids.size() << "," << unwatchedOnly << ") ->" << result.size() << "items";
-    emit heroLibraryItemsLoaded(result);
     emit canonicalHeroLibraryItemsLoaded(
         QStringLiteral("mock-connection"),
         JellyfinModelMapper::mediaItems(result, QStringLiteral("mock-connection")));
@@ -612,7 +590,6 @@ void MockLibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
     }
 
     qCDebug(lcTest) << "MockLibraryService::getHeroSeriesOverviews(" << seriesIds.size() << ") ->" << result.size() << "items";
-    emit heroSeriesOverviewsLoaded(result);
     emit canonicalHeroSeriesOverviewsLoaded(
         QStringLiteral("mock-connection"), result.toVariantMap());
 }

@@ -27,8 +27,8 @@ public:
         case ProviderCatalogOperation::LatestMedia: {
             ProviderCatalogQuery latest = query;
             if (latest.sortBy.trimmed().isEmpty()) {
-                latest.sortBy = QStringLiteral("added_at");
-                latest.sortOrder = QStringLiteral("desc");
+                latest.sortBy = QStringLiteral("dateAdded");
+                latest.sortOrder = QStringLiteral("descending");
             }
             return createCatalogRequest(latest, false);
         }
@@ -235,44 +235,26 @@ private:
         return {};
     }
 
-    static std::optional<QString> normalizedSort(const QString &wireSort)
+    static std::optional<QString> normalizedSort(const QString &canonicalSort)
     {
-        const QString sort = wireSort.trimmed().toLower();
-        if (sort.isEmpty()) {
+        const QString sort = canonicalSort.trimmed();
+        if (sort.isEmpty() || sort == QStringLiteral("libraryOrder")) {
             return QString();
         }
-        if (sort.contains(QLatin1Char(','))) {
-            return std::nullopt;
-        }
-        if (sort == QStringLiteral("sortname") || sort == QStringLiteral("sort_name")
-            || sort == QStringLiteral("title")) {
+        if (sort == QStringLiteral("title")) {
             return QStringLiteral("title");
         }
-        if (sort == QStringLiteral("datecreated") || sort == QStringLiteral("date_created")
-            || sort == QStringLiteral("added_at") || sort == QStringLiteral("recently_added")) {
+        if (sort == QStringLiteral("dateAdded")) {
             return QStringLiteral("added_at");
         }
-        if (sort == QStringLiteral("premieredate") || sort == QStringLiteral("premiere_date")
-            || sort == QStringLiteral("release_date")) {
+        if (sort == QStringLiteral("releaseDate")) {
             return QStringLiteral("release_date");
         }
-        if (sort == QStringLiteral("productionyear") || sort == QStringLiteral("production_year")
-            || sort == QStringLiteral("year")) {
+        if (sort == QStringLiteral("year")) {
             return QStringLiteral("year");
         }
-        if (sort == QStringLiteral("communityrating")
-            || sort == QStringLiteral("community_rating")
-            || sort == QStringLiteral("rating") || sort == QStringLiteral("rating_imdb")) {
+        if (sort == QStringLiteral("rating")) {
             return QStringLiteral("rating_imdb");
-        }
-        if (sort == QStringLiteral("runtime") || sort == QStringLiteral("content_rating")
-            || sort == QStringLiteral("last_air_date")
-            || sort == QStringLiteral("latest_episode_added")
-            || sort == QStringLiteral("resolution") || sort == QStringLiteral("bitrate")
-            || sort == QStringLiteral("progress") || sort == QStringLiteral("date_viewed")
-            || sort == QStringLiteral("plays") || sort == QStringLiteral("author")
-            || sort == QStringLiteral("narrator") || sort == QStringLiteral("series")) {
-            return sort;
         }
         return std::nullopt;
     }

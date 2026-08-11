@@ -130,9 +130,9 @@ MovieDetailsViewModel::MovieDetailsViewModel(QObject *parent)
         connect(m_libraryService,
                 qOverload<const QString &>(&LibraryService::itemNotModified),
                 this, &MovieDetailsViewModel::onMovieDetailsNotModified);
-        connect(m_libraryService, &LibraryService::canonicalSimilarItemsLoaded,
+        connect(m_libraryService, &LibraryService::canonicalSimilarItemsLoadedForConnection,
                 this, &MovieDetailsViewModel::onSimilarItemsLoaded);
-        connect(m_libraryService, &LibraryService::similarItemsFailed,
+        connect(m_libraryService, &LibraryService::canonicalSimilarItemsFailedForConnection,
                 this, &MovieDetailsViewModel::onSimilarItemsFailed);
         connect(m_libraryService, &LibraryService::canonicalChaptersLoaded,
                 this, &MovieDetailsViewModel::onMovieChaptersLoaded);
@@ -475,9 +475,11 @@ void MovieDetailsViewModel::onMovieDetailsNotModified(const QString &itemId)
     }
 }
 
-void MovieDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const QVariantList &items)
+void MovieDetailsViewModel::onSimilarItemsLoaded(const QString &connectionId,
+                                                 const QString &itemId,
+                                                 const QVariantList &items)
 {
-    if (itemId != m_movieId) {
+    if (connectionId != activeCacheScope() || itemId != m_movieId) {
         return;
     }
 
@@ -489,9 +491,11 @@ void MovieDetailsViewModel::onSimilarItemsLoaded(const QString &itemId, const QV
     emit similarItemsLoadingChanged();
 }
 
-void MovieDetailsViewModel::onSimilarItemsFailed(const QString &itemId, const QString &error)
+void MovieDetailsViewModel::onSimilarItemsFailed(const QString &connectionId,
+                                                 const QString &itemId,
+                                                 const QString &error)
 {
-    if (itemId != m_movieId) {
+    if (connectionId != activeCacheScope() || itemId != m_movieId) {
         return;
     }
 

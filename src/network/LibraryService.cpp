@@ -112,7 +112,7 @@ QHash<QByteArray, QByteArray> responseHeaders(const QNetworkReply *reply)
 
 QString LibraryItemQuery::normalizedSortBy() const
 {
-    return sortBy.isEmpty() ? QStringLiteral("ParentIndexNumber,IndexNumber,SortName") : sortBy;
+    return sortBy.isEmpty() ? QStringLiteral("libraryOrder") : sortBy;
 }
 
 QString LibraryItemQuery::datasetKey() const
@@ -392,27 +392,6 @@ void LibraryService::emitCatalogError(
     emitError(error);
 }
 
-void LibraryService::emitItemStateResponse(
-    const QString &itemId,
-    const ProviderCatalogResponse &response)
-{
-    if (response.rawItem.isEmpty()) {
-        return;
-    }
-    QJsonObject state = response.rawItem;
-    if (m_authService
-        && m_authService->activeProviderKind() == ProviderKind::Silo) {
-        const QVariantMap item = m_authService->mapMediaItem(
-            response.rawItem, activeConnectionId(m_authService));
-        const QVariantMap userState =
-            item.value(QStringLiteral("userState")).toMap();
-        if (!userState.isEmpty()) {
-            state = QJsonObject::fromVariantMap(userState);
-        }
-    }
-    emit itemUserDataChanged(itemId, state);
-}
-
 void LibraryService::emitError(const NetworkError &error)
 {
     qCWarning(lcLibrary) << "Emitting error for endpoint:" << error.endpoint
@@ -439,10 +418,8 @@ void LibraryService::getViewsForRequest(const QString &requestKey)
         ProviderCatalogOperation::Views,
         query,
         [this, connectionId, requestKey](const ProviderCatalogResponse &response) {
-            emit viewsLoaded(response.rawItems);
             const QVariantList items =
                 m_authService->mapMediaItems(response.rawItems, connectionId);
-            emit canonicalViewsLoaded(items);
             emit canonicalViewsLoadedForConnection(connectionId, items);
             emit canonicalViewsLoadedForRequest(connectionId, requestKey, items);
         },
@@ -504,14 +481,8 @@ void LibraryService::getItems(const LibraryItemQuery &query)
         providerQuery,
         [this, parentId, queryKey, connectionId](
             const ProviderCatalogResponse &response) {
-            emit itemsLoaded(parentId, response.rawItems);
-            emit itemsLoadedWithTotal(parentId, response.rawItems, response.total);
-            emit itemsLoadedWithTotalForQuery(
-                parentId, queryKey, response.rawItems, response.total);
             const QVariantList items =
                 m_authService->mapMediaItems(response.rawItems, connectionId);
-            emit canonicalItemsLoadedWithTotalForQuery(
-                parentId, queryKey, items, response.total);
             emit canonicalItemsLoadedForConnection(
                 connectionId, parentId, queryKey, items, response.total);
         },
@@ -520,8 +491,6 @@ void LibraryService::getItems(const LibraryItemQuery &query)
                 connectionId, parentId, queryKey, error.userMessage);
         },
         [this, parentId, queryKey, connectionId]() {
-            emit itemsNotModified(parentId);
-            emit itemsNotModifiedForQuery(parentId, queryKey);
             emit canonicalItemsNotModifiedForConnection(
                 connectionId, parentId, queryKey);
         });
@@ -644,7 +613,6 @@ void LibraryService::getNextUp()
         ProviderCatalogOperation::NextUp,
         baseCatalogQuery(),
         [this, connectionId](const ProviderCatalogResponse &response) {
-            emit nextUpLoaded(response.rawItems);
             emit canonicalNextUpLoaded(
                 connectionId,
                 m_authService->mapMediaItems(response.rawItems, connectionId));
@@ -661,7 +629,6 @@ void LibraryService::getLatestMedia(const QString &parentId)
         ProviderCatalogOperation::LatestMedia,
         query,
         [this, parentId, connectionId](const ProviderCatalogResponse &response) {
-            emit latestMediaLoaded(parentId, response.rawItems);
             emit canonicalLatestMediaLoaded(
                 connectionId,
                 parentId,
@@ -683,7 +650,6 @@ void LibraryService::getHomeBackdropItems(int limit)
             ProviderCatalogOperation::HomeBackdrops,
             query,
             [this, connectionId](const ProviderCatalogResponse &response) {
-                emit homeBackdropItemsLoaded(response.rawItems);
                 emit canonicalHomeBackdropItemsLoaded(
                     connectionId,
                     m_authService->mapMediaItems(response.rawItems, connectionId));
@@ -712,7 +678,6 @@ void LibraryService::getHomeBackdropItems(int limit)
             [this, connectionId, generation, fetchPage, startIndex, snapshot](
                 const ProviderCatalogResponse &response) {
                 if (!response.rawItems.isEmpty()) {
-                    emit homeBackdropItemsLoaded(response.rawItems);
                     emit canonicalHomeBackdropItemsLoaded(
                         connectionId,
                         m_authService->mapMediaItems(response.rawItems, connectionId));
@@ -788,8 +753,6 @@ void LibraryService::getItem(const QString &itemId, const QString &requestContex
             const ProviderCatalogResponse &response) {
             const QVariantMap item =
                 m_authService->mapMediaItem(response.rawItem, connectionId);
-            emit itemLoaded(itemId, response.rawItem, requestContext);
-            emit itemLoaded(itemId, response.rawItem);
             emit canonicalItemLoaded(itemId, item, requestContext);
             emit canonicalItemLoaded(itemId, item);
         },
@@ -906,7 +869,6 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
         ProviderCatalogOperation::Item,
         query,
         [this, connectionId, seriesId](const ProviderCatalogResponse &response) {
-            emit seriesDetailsLoaded(seriesId, response.rawItem);
             emit canonicalSeriesDetailsLoaded(
                 connectionId,
                 seriesId,
@@ -917,7 +879,6 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
                 connectionId, seriesId, error.userMessage);
         },
         [this, connectionId, seriesId]() {
-            emit seriesDetailsNotModified(seriesId);
             emit canonicalSeriesDetailsNotModified(connectionId, seriesId);
         });
 }
@@ -935,13 +896,10 @@ void LibraryService::getSimilarItems(const QString &itemId, int limit)
         [this, itemId, connectionId](const ProviderCatalogResponse &response) {
             const QVariantList items =
                 m_authService->mapMediaItems(response.rawItems, connectionId);
-            emit similarItemsLoaded(itemId, response.rawItems);
-            emit canonicalSimilarItemsLoaded(itemId, items);
             emit canonicalSimilarItemsLoadedForConnection(
                 connectionId, itemId, items);
         },
         [this, itemId, connectionId](const NetworkError &error) {
-            emit similarItemsFailed(itemId, error.userMessage);
             emit canonicalSimilarItemsFailedForConnection(
                 connectionId, itemId, error.userMessage);
         });
@@ -1010,8 +968,7 @@ void LibraryService::markItemPlayed(const QString &itemId)
         QStringLiteral("markItemPlayed"),
         ProviderCatalogOperation::SetWatched,
         query,
-        [this, itemId](const ProviderCatalogResponse &response) {
-            emitItemStateResponse(itemId, response);
+        [this, itemId](const ProviderCatalogResponse &) {
             emit itemPlayedStatusChanged(itemId, true);
         });
 }
@@ -1025,8 +982,7 @@ void LibraryService::markItemUnplayed(const QString &itemId)
         QStringLiteral("markItemUnplayed"),
         ProviderCatalogOperation::SetWatched,
         query,
-        [this, itemId](const ProviderCatalogResponse &response) {
-            emitItemStateResponse(itemId, response);
+        [this, itemId](const ProviderCatalogResponse &) {
             emit itemPlayedStatusChanged(itemId, false);
         });
 }
@@ -1040,8 +996,7 @@ void LibraryService::markItemFavorite(const QString &itemId)
         QStringLiteral("markItemFavorite"),
         ProviderCatalogOperation::SetFavorite,
         query,
-        [this, itemId](const ProviderCatalogResponse &response) {
-            emitItemStateResponse(itemId, response);
+        [this, itemId](const ProviderCatalogResponse &) {
             emit favoriteStatusChanged(itemId, true);
         });
 }
@@ -1055,8 +1010,7 @@ void LibraryService::markItemUnfavorite(const QString &itemId)
         QStringLiteral("markItemUnfavorite"),
         ProviderCatalogOperation::SetFavorite,
         query,
-        [this, itemId](const ProviderCatalogResponse &response) {
-            emitItemStateResponse(itemId, response);
+        [this, itemId](const ProviderCatalogResponse &) {
             emit favoriteStatusChanged(itemId, false);
         });
 }
@@ -1212,7 +1166,6 @@ void LibraryService::getHeroLibraryItems(int limit,
                 if (heroGeneration != m_heroRequestGeneration) {
                     return;
                 }
-                emit heroLibraryItemsLoaded(response.rawItems);
                 emit canonicalHeroLibraryItemsLoaded(
                     connectionId,
                     m_authService->mapMediaItems(response.rawItems, connectionId));
@@ -1249,7 +1202,6 @@ void LibraryService::getHeroLibraryItems(int limit,
         for (int index = 0; index < count; ++index) {
             items.append(aggregate->at(index));
         }
-        emit heroLibraryItemsLoaded(items);
         emit canonicalHeroLibraryItemsLoaded(
             connectionId, m_authService->mapMediaItems(items, connectionId));
     };
@@ -1295,7 +1247,6 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
         }
     }
     if (ids.isEmpty()) {
-        emit heroSeriesOverviewsLoaded({});
         emit canonicalHeroSeriesOverviewsLoaded(connectionId, {});
         return;
     }
@@ -1304,7 +1255,6 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
         for (const QString &seriesId : ids) {
             overviews.insert(seriesId, QString());
         }
-        emit heroSeriesOverviewsLoaded(overviews);
         emit canonicalHeroSeriesOverviewsLoaded(
             connectionId, overviews.toVariantMap());
         emitCatalogError(
@@ -1321,7 +1271,6 @@ void LibraryService::getHeroSeriesOverviews(const QStringList &seriesIds)
             || heroGeneration != m_heroRequestGeneration) {
             return;
         }
-        emit heroSeriesOverviewsLoaded(*overviews);
         emit canonicalHeroSeriesOverviewsLoaded(
             connectionId, overviews->toVariantMap());
     };
