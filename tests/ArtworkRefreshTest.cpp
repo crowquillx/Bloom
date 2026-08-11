@@ -1,8 +1,12 @@
 #include <QtTest/QtTest>
+#include <QtConcurrent>
 
 #include <memory>
+#include <QBuffer>
 #include <QHostAddress>
+#include <QImage>
 #include <QImageReader>
+#include <QImageWriter>
 #include <QNetworkRequest>
 #include <QPointer>
 #include <QQuickImageResponse>
@@ -10,6 +14,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QUrlQuery>
 #include <QUuid>
 
@@ -32,6 +37,8 @@ class ScriptedHttpServer final : public QTcpServer
 {
 public:
     QList<int> statuses;
+    QList<QByteArray> bodies;
+    QList<int> delaysMs;
     QStringList requestTargets;
 
     bool start()
@@ -57,15 +64,34 @@ public:
                         requestTargets.append(QString::fromUtf8(requestLine.at(1)));
                     }
                     const int status = statuses.isEmpty() ? 500 : statuses.takeFirst();
-                    const QByteArray reason = status == 401
-                        ? QByteArrayLiteral("Unauthorized")
-                        : (status == 403 ? QByteArrayLiteral("Forbidden")
-                                         : QByteArrayLiteral("Internal Server Error"));
-                    socket->write(QByteArrayLiteral("HTTP/1.1 ")
-                                  + QByteArray::number(status) + QByteArrayLiteral(" ")
-                                  + reason
-                                  + QByteArrayLiteral("\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"));
-                    socket->disconnectFromHost();
+                    const QByteArray body = bodies.isEmpty() ? QByteArray() : bodies.takeFirst();
+                    const int delayMs = delaysMs.isEmpty() ? 0 : delaysMs.takeFirst();
+                    const QByteArray reason = status == 200
+                        ? QByteArrayLiteral("OK")
+                        : (status == 401
+                               ? QByteArrayLiteral("Unauthorized")
+                               : (status == 403
+                                      ? QByteArrayLiteral("Forbidden")
+                                      : QByteArrayLiteral("Internal Server Error")));
+                    const QPointer<QTcpSocket> socketGuard(socket);
+                    const auto respond = [socketGuard, status, reason, body]() {
+                        if (!socketGuard) {
+                            return;
+                        }
+                        socketGuard->write(QByteArrayLiteral("HTTP/1.1 ")
+                                           + QByteArray::number(status)
+                                           + QByteArrayLiteral(" ") + reason
+                                           + QByteArrayLiteral("\r\nContent-Type: image/png\r\nContent-Length: ")
+                                           + QByteArray::number(body.size())
+                                           + QByteArrayLiteral("\r\nConnection: close\r\n\r\n")
+                                           + body);
+                        socketGuard->disconnectFromHost();
+                    };
+                    if (delayMs > 0) {
+                        QTimer::singleShot(delayMs, this, respond);
+                    } else {
+                        respond();
+                    }
                 });
             }
         });
@@ -135,6 +161,32 @@ public:
     mutable int refreshCount = 0;
 };
 
+class HangingArtworkProvider final : public IArtworkProvider
+{
+public:
+    explicit HangingArtworkProvider(ScriptedHttpServer *server)
+        : m_server(server)
+    {
+    }
+
+    std::optional<QNetworkRequest> resolveArtwork(
+        const Bloom::ArtworkRef &) const override
+    {
+        return QNetworkRequest(m_server->url(QStringLiteral("/expired.jpg")));
+    }
+
+    void refreshArtwork(const Bloom::ArtworkRef &,
+                        RefreshCallback) const override
+    {
+        ++refreshCount;
+    }
+
+    mutable int refreshCount = 0;
+
+private:
+    ScriptedHttpServer *m_server;
+};
+
 class ExposedJellyfinAuthenticationService final : public AuthenticationService
 {
 public:
@@ -164,6 +216,23 @@ Bloom::ArtworkRef artworkRef()
     return artwork;
 }
 
+QByteArray pngBytes(const QSize &size = QSize(8, 8))
+{
+    QImage image(size, QImage::Format_ARGB32_Premultiplied);
+    image.fill(QColor(QStringLiteral("#3daee9")));
+    QByteArray bytes;
+    QBuffer buffer(&bytes);
+    const bool opened = buffer.open(QIODevice::WriteOnly);
+    Q_ASSERT_X(opened, "pngBytes", "unable to open PNG buffer");
+    if (!opened) {
+        return {};
+    }
+    QImageWriter writer(&buffer, QByteArrayLiteral("png"));
+    const bool written = writer.write(image);
+    Q_ASSERT_X(written, "pngBytes", qPrintable(writer.errorString()));
+    return bytes;
+}
+
 } // namespace
 
 class ArtworkRefreshTest : public QObject
@@ -178,6 +247,18 @@ private slots:
     void missingArtworkDegradesWithoutRefresh();
     void tokenFreeCacheMissRetainsTransientSourceUrl();
     void signedUrlIsNotPartOfCacheIdentity();
+    void identicalRequestsCoalesceAcrossCancellation();
+    void destroyingSubscriberKeepsSharedJobAlive();
+    void concurrentRequestRegistrationCoalesces();
+    void terminalSignalAllowsImmediateResubscribe();
+    void lastSubscriberCancellationClearsPendingState();
+    void clearCancelsJobsWithoutStaleWrites();
+    void clearCancelsRoundedGenerationWithoutStaleWrites();
+    void networkDeadlineIsBounded();
+    void artworkRefreshDeadlineIsBounded();
+    void networkResponseSizeIsBounded();
+    void decodedMemoryIsBounded();
+    void decodedLimitPreservesValidDiskEntry();
     void authorizationFailureRefreshesExactlyOnce_data();
     void authorizationFailureRefreshesExactlyOnce();
     void jellyfinRefreshKeepsExistingResolvedRequest();
@@ -323,6 +404,381 @@ void ArtworkRefreshTest::signedUrlIsNotPartOfCacheIdentity()
              Bloom::ArtworkOwnerKind::MediaItem);
     QCOMPARE(Bloom::artworkOwnerKindFromName(QStringLiteral("unknown-owner")),
              Bloom::ArtworkOwnerKind::MediaItem);
+}
+
+void ArtworkRefreshTest::identicalRequestsCoalesceAcrossCancellation()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes()};
+    QVERIFY(server.start());
+
+    ImageCacheProvider cache(1);
+    cache.setDefaultRoundedParams(16, QSize(32, 32));
+    const QString identity = server.url(QStringLiteral("/coalesced.png")).toString();
+    QPointer<QQuickImageResponse> cancelled(
+        cache.requestImageResponse(identity, QSize()));
+    QPointer<QQuickImageResponse> active(
+        cache.requestImageResponse(identity, QSize()));
+    QVERIFY(cancelled);
+    QVERIFY(active);
+    QSignalSpy cancelledSpy(cancelled, &QQuickImageResponse::finished);
+    QSignalSpy activeSpy(active, &QQuickImageResponse::finished);
+    cancelled->cancel();
+
+    QTRY_COMPARE_WITH_TIMEOUT(activeSpy.count(), 1, 3000);
+    QCOMPARE(cancelledSpy.count(), 1);
+    QVERIFY(cancelled->errorString().contains(QStringLiteral("cancelled")));
+    QVERIFY(active->errorString().isEmpty());
+    QCOMPARE(server.requestTargets.size(), 1);
+
+    const QVariantMap stats = cache.cacheStats();
+    QCOMPARE(stats.value(QStringLiteral("networkLoads")).toULongLong(), quint64(1));
+    QCOMPARE(stats.value(QStringLiteral("coalescedRequests")).toULongLong(), quint64(1));
+    QCOMPARE(stats.value(QStringLiteral("decodeAttempts")).toULongLong(), quint64(1));
+    QCOMPARE(stats.value(QStringLiteral("decodedImages")).toULongLong(), quint64(1));
+
+    QPointer<QQuickImageResponse> cached(
+        cache.requestImageResponse(identity, QSize()));
+    QSignalSpy cachedSpy(cached, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(cachedSpy.count(), 1, 1000);
+    QCOMPARE(server.requestTargets.size(), 1);
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("imageHits")).toULongLong(),
+             quint64(1));
+
+    for (int index = 0; index < 8; ++index) {
+        cache.requestRoundedImage(identity, 16, 32, 32);
+    }
+    QTRY_COMPARE_WITH_TIMEOUT(
+        cache.cacheStats().value(QStringLiteral("roundedGenerations")).toULongLong(),
+        quint64(1), 3000);
+
+    delete cancelled;
+    delete active;
+    delete cached;
+}
+
+void ArtworkRefreshTest::destroyingSubscriberKeepsSharedJobAlive()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes()};
+    server.delaysMs = {100};
+    QVERIFY(server.start());
+
+    ImageCacheProvider cache(1);
+    const QString identity = server.url(
+        QStringLiteral("/destroyed-subscriber.png")).toString();
+    QQuickImageResponse *destroyed = cache.requestImageResponse(identity, QSize());
+    QPointer<QQuickImageResponse> active(
+        cache.requestImageResponse(identity, QSize()));
+    QVERIFY(destroyed);
+    QVERIFY(active);
+    QSignalSpy activeSpy(active, &QQuickImageResponse::finished);
+
+    delete destroyed;
+
+    QTRY_COMPARE_WITH_TIMEOUT(activeSpy.count(), 1, 3000);
+    QVERIFY(active->errorString().isEmpty());
+    QCOMPARE(server.requestTargets.size(), 1);
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("inFlightImageJobs")).toInt(), 0);
+    delete active;
+}
+
+void ArtworkRefreshTest::concurrentRequestRegistrationCoalesces()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes()};
+    server.delaysMs = {100};
+    QVERIFY(server.start());
+
+    ImageCacheProvider cache(1);
+    const QString identity = server.url(QStringLiteral("/concurrent.png")).toString();
+    auto firstFuture = QtConcurrent::run([&cache, identity]() {
+        return cache.requestImageResponse(identity, QSize(16, 16));
+    });
+    auto secondFuture = QtConcurrent::run([&cache, identity]() {
+        return cache.requestImageResponse(identity, QSize(16, 16));
+    });
+    QTRY_VERIFY_WITH_TIMEOUT(firstFuture.isFinished() && secondFuture.isFinished(), 1000);
+
+    QPointer<QQuickImageResponse> first(firstFuture.result());
+    QPointer<QQuickImageResponse> second(secondFuture.result());
+    QVERIFY(first);
+    QVERIFY(second);
+    QSignalSpy firstSpy(first, &QQuickImageResponse::finished);
+    QSignalSpy secondSpy(second, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(firstSpy.count(), 1, 3000);
+    QTRY_COMPARE_WITH_TIMEOUT(secondSpy.count(), 1, 3000);
+    QCOMPARE(server.requestTargets.size(), 1);
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("coalescedRequests")).toULongLong(),
+             quint64(1));
+
+    delete first;
+    delete second;
+}
+
+void ArtworkRefreshTest::terminalSignalAllowsImmediateResubscribe()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes()};
+    QVERIFY(server.start());
+
+    ImageCacheProvider cache(1);
+    const QString identity = server.url(QStringLiteral("/reentrant.png")).toString();
+    QPointer<QQuickImageResponse> first(
+        cache.requestImageResponse(identity, QSize()));
+    QPointer<QQuickImageResponse> nested;
+    int nestedFinished = 0;
+    connect(first, &QQuickImageResponse::finished, this, [&]() {
+        nested = cache.requestImageResponse(identity, QSize());
+        connect(nested, &QQuickImageResponse::finished, this, [&]() {
+            ++nestedFinished;
+        });
+    });
+
+    QTRY_COMPARE_WITH_TIMEOUT(nestedFinished, 1, 3000);
+    QVERIFY(nested);
+    QVERIFY(nested->errorString().isEmpty());
+    QCOMPARE(server.requestTargets.size(), 1);
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("inFlightImageJobs")).toInt(), 0);
+
+    delete first;
+    delete nested;
+}
+
+void ArtworkRefreshTest::lastSubscriberCancellationClearsPendingState()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200, 200};
+    server.bodies = {pngBytes(), pngBytes()};
+    server.delaysMs = {250, 0};
+    QVERIFY(server.start());
+
+    ImageCacheProvider cache(1);
+    const QString identity = server.url(QStringLiteral("/cancelled.png")).toString();
+    QCOMPARE(cache.requestRoundedImage(identity, 16, 32, 32), QString());
+    QPointer<QQuickImageResponse> cancelled(
+        cache.requestImageResponse(identity, QSize()));
+    QTRY_COMPARE_WITH_TIMEOUT(server.requestTargets.size(), 1, 1000);
+    cancelled->cancel();
+    QTRY_COMPARE_WITH_TIMEOUT(
+        cache.cacheStats().value(QStringLiteral("inFlightImageJobs")).toInt(), 0, 1000);
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("pendingRoundedRequests")).toInt(), 0);
+    delete cancelled;
+
+    QPointer<QQuickImageResponse> retry(
+        cache.requestImageResponse(identity, QSize()));
+    QSignalSpy retrySpy(retry, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(retrySpy.count(), 1, 3000);
+    QVERIFY(retry->errorString().isEmpty());
+    QCOMPARE(server.requestTargets.size(), 2);
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("inFlightImageJobs")).toInt(), 0);
+    delete retry;
+}
+
+void ArtworkRefreshTest::clearCancelsJobsWithoutStaleWrites()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200, 200};
+    server.bodies = {pngBytes(), pngBytes()};
+    server.delaysMs = {200, 0};
+    QVERIFY(server.start());
+
+    ImageCacheProvider cache(1);
+    cache.setRoundedPreprocessEnabled(false);
+    const QString identity = server.url(QStringLiteral("/clear-active.png")).toString();
+    QPointer<QQuickImageResponse> cleared(
+        cache.requestImageResponse(identity, QSize()));
+    QSignalSpy clearedSpy(cleared, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(server.requestTargets.size(), 1, 1000);
+
+    cache.clearCache();
+    QCOMPARE(clearedSpy.count(), 1);
+    QVERIFY(cleared->errorString().contains(QStringLiteral("shutting down")));
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("inFlightImageJobs")).toInt(), 0);
+    QCOMPARE(cache.currentCacheSize(), qint64(0));
+
+    QPointer<QQuickImageResponse> retry(
+        cache.requestImageResponse(identity, QSize()));
+    QSignalSpy retrySpy(retry, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(retrySpy.count(), 1, 3000);
+    QVERIFY(retry->errorString().isEmpty());
+    QCOMPARE(server.requestTargets.size(), 2);
+    QTest::qWait(250);
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("writes")).toULongLong(), quint64(1));
+    QVERIFY(cache.currentCacheSize() > 0);
+
+    delete cleared;
+    delete retry;
+}
+
+void ArtworkRefreshTest::clearCancelsRoundedGenerationWithoutStaleWrites()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes(QSize(512, 512))};
+    QVERIFY(server.start());
+
+    ImageCacheProvider cache(20);
+    cache.setRoundedPreprocessEnabled(false);
+    const QString identity = server.url(QStringLiteral("/rounded-clear.png")).toString();
+    QPointer<QQuickImageResponse> base(
+        cache.requestImageResponse(identity, QSize()));
+    QSignalSpy baseSpy(base, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(baseSpy.count(), 1, 3000);
+    QVERIFY(base->errorString().isEmpty());
+    QVERIFY(cache.currentCacheSize() > 0);
+
+    cache.setRoundedPreprocessEnabled(true);
+    QSignalSpy roundedSpy(&cache, &ImageCacheProvider::roundedImageReady);
+    QCOMPARE(cache.requestRoundedImage(identity, 24, 1536, 1536), QString());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        cache.cacheStats().value(QStringLiteral("inFlightRoundedJobs")).toInt(), 1, 1000);
+    QTest::qWait(10);
+    cache.clearCache();
+    QTRY_COMPARE_WITH_TIMEOUT(
+        cache.cacheStats().value(QStringLiteral("activeRoundedTasks")).toULongLong(),
+        quint64(0), 3000);
+
+    QCOMPARE(cache.currentCacheSize(), qint64(0));
+    QCOMPARE(roundedSpy.count(), 0);
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("inFlightRoundedJobs")).toInt(), 0);
+    delete base;
+}
+
+void ArtworkRefreshTest::networkDeadlineIsBounded()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes()};
+    server.delaysMs = {250};
+    QVERIFY(server.start());
+
+    ImageRequestLimits limits;
+    limits.networkDeadlineMs = 40;
+    ImageCacheProvider cache(1, nullptr, limits);
+    QPointer<QQuickImageResponse> response(cache.requestImageResponse(
+        server.url(QStringLiteral("/slow.png")).toString(), QSize()));
+    QSignalSpy finishedSpy(response, &QQuickImageResponse::finished);
+
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1000);
+    QVERIFY(response->errorString().contains(QStringLiteral("timed out")));
+    QCOMPARE(server.requestTargets.size(), 1);
+    delete response;
+}
+
+void ArtworkRefreshTest::artworkRefreshDeadlineIsBounded()
+{
+    ScriptedHttpServer server;
+    server.statuses = {401};
+    QVERIFY(server.start());
+
+    HangingArtworkProvider artworkProvider(&server);
+    ImageRequestLimits limits;
+    limits.networkDeadlineMs = 40;
+    ImageCacheProvider cache(1, &artworkProvider, limits);
+    cache.setRoundedPreprocessEnabled(false);
+    const Bloom::ArtworkRef artwork = artworkRef();
+    QPointer<QQuickImageResponse> response(
+        cache.requestImageResponse(artwork.cacheKey(), QSize()));
+    QSignalSpy finishedSpy(response, &QQuickImageResponse::finished);
+
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1000);
+    QCOMPARE(artworkProvider.refreshCount, 1);
+    QVERIFY(response->errorString().contains(QStringLiteral("timed out")));
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("inFlightImageJobs")).toInt(), 0);
+    delete response;
+}
+
+void ArtworkRefreshTest::networkResponseSizeIsBounded()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200, 200};
+    server.bodies = {pngBytes(), pngBytes()};
+    QVERIFY(server.start());
+
+    ImageRequestLimits limits;
+    limits.maximumNetworkBytes = 32;
+    ImageCacheProvider cache(1, nullptr, limits);
+    QPointer<QQuickImageResponse> response(cache.requestImageResponse(
+        server.url(QStringLiteral("/oversize.png")).toString(), QSize()));
+    QSignalSpy finishedSpy(response, &QQuickImageResponse::finished);
+
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1000);
+    QVERIFY(response->errorString().contains(QStringLiteral("size limit")));
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("writes")).toULongLong(),
+             quint64(0));
+    delete response;
+
+    QPointer<QQuickImageResponse> retry(cache.requestImageResponse(
+        server.url(QStringLiteral("/oversize.png")).toString(), QSize()));
+    QSignalSpy retrySpy(retry, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(retrySpy.count(), 1, 1000);
+    QCOMPARE(server.requestTargets.size(), 2);
+    delete retry;
+}
+
+void ArtworkRefreshTest::decodedMemoryIsBounded()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes(QSize(8, 8))};
+    QVERIFY(server.start());
+
+    ImageRequestLimits limits;
+    limits.maximumDecodedBytes = 64;
+    ImageCacheProvider cache(1, nullptr, limits);
+    QPointer<QQuickImageResponse> response(cache.requestImageResponse(
+        server.url(QStringLiteral("/decoded-limit.png")).toString(), QSize()));
+    QSignalSpy finishedSpy(response, &QQuickImageResponse::finished);
+
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1000);
+    QVERIFY(response->errorString().contains(QStringLiteral("memory limit")));
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("writes")).toULongLong(),
+             quint64(0));
+    delete response;
+}
+
+void ArtworkRefreshTest::decodedLimitPreservesValidDiskEntry()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes(QSize(8, 8))};
+    QVERIFY(server.start());
+
+    ImageRequestLimits limits;
+    limits.maximumDecodedBytes = 1024;
+    ImageCacheProvider cache(1, nullptr, limits);
+    cache.setRoundedPreprocessEnabled(false);
+    const QString identity = server.url(QStringLiteral("/valid-disk-entry.png")).toString();
+
+    QPointer<QQuickImageResponse> initial(
+        cache.requestImageResponse(identity, QSize()));
+    QSignalSpy initialSpy(initial, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(initialSpy.count(), 1, 1000);
+    QVERIFY(initial->errorString().isEmpty());
+    QCOMPARE(server.requestTargets.size(), 1);
+    delete initial;
+
+    cache.clearMemoryCache();
+    QPointer<QQuickImageResponse> oversized(
+        cache.requestImageResponse(identity, QSize(100, 100)));
+    QSignalSpy oversizedSpy(oversized, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(oversizedSpy.count(), 1, 1000);
+    QVERIFY(oversized->errorString().contains(QStringLiteral("memory limit")));
+    QCOMPARE(server.requestTargets.size(), 1);
+    delete oversized;
+
+    QPointer<QQuickImageResponse> valid(
+        cache.requestImageResponse(identity, QSize(4, 4)));
+    QSignalSpy validSpy(valid, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(validSpy.count(), 1, 1000);
+    QVERIFY(valid->errorString().isEmpty());
+    QCOMPARE(server.requestTargets.size(), 1);
+    delete valid;
 }
 
 void ArtworkRefreshTest::authorizationFailureRefreshesExactlyOnce_data()

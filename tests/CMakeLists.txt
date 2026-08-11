@@ -465,6 +465,43 @@ target_link_libraries(ImageCacheStoreTest
 
 add_test(NAME ImageCacheStoreTest COMMAND ImageCacheStoreTest)
 
+add_executable(RoundedImageTest
+    RoundedImageTest.cpp
+)
+
+target_compile_definitions(RoundedImageTest PRIVATE
+    BLOOM_ROUNDED_IMAGE_QML="${CMAKE_SOURCE_DIR}/src/ui/RoundedImage.qml"
+)
+
+target_link_libraries(RoundedImageTest
+    PRIVATE
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Qml
+        Qt6::Quick
+        Qt6::Test
+)
+
+add_test(NAME RoundedImageTest COMMAND RoundedImageTest)
+set_tests_properties(RoundedImageTest PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;BLOOM_ROUNDED_TEST_SOFTWARE=1"
+)
+
+add_test(NAME RoundedImagePreferredRenderPathTest COMMAND RoundedImageTest)
+set_tests_properties(RoundedImagePreferredRenderPathTest PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
+)
+
+if(Qt6ShaderTools_FOUND)
+    qt6_add_shaders(RoundedImageTest "rounded_image_test_shaders"
+        PREFIX /shaders
+        OUTPUTS
+            rounded_image.frag.qsb
+        FILES
+            ${CMAKE_SOURCE_DIR}/src/resources/shaders/rounded_image.frag
+    )
+endif()
+
 add_executable(CanonicalModelsTest
     CanonicalModelsTest.cpp
     ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
