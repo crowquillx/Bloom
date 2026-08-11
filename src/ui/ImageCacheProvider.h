@@ -178,6 +178,8 @@ public:
 
 #ifdef BLOOM_TESTING
     void blockCacheWorkerForTest(QSemaphore *entered, QSemaphore *release);
+    void blockNextRoundedLookupForTest(QSemaphore *entered, QSemaphore *release);
+    void advanceCacheContentRevisionForTest();
 #endif
 
 signals:
@@ -247,6 +249,11 @@ private:
      */
     QString saveDataForKeyIfCurrent(const QString &urlKey, const QByteArray &data,
                                     quint64 generation);
+
+    /**
+     * @brief Invalidate provider-thread cache knowledge after a disk mutation.
+     */
+    quint64 advanceCacheContentRevision();
     
     /**
      * @brief Get the network manager owned by the provider thread.
@@ -305,12 +312,19 @@ private:
         QString path;
         quint64 contentRevision = 0;
     };
+    static constexpr qsizetype MaximumRoundedKnowledgeEntries = 256;
+    static constexpr qsizetype MaximumRoundedTouchesInFlight = 256;
     QHash<QString, QList<RoundedVariantRequest>> m_pendingRounded;
     QHash<QString, quint64> m_roundedInFlight;
     QHash<QString, ReadyRoundedVariant> m_readyRounded;
     QHash<QString, KnownBaseImage> m_knownBaseImages;
     QHash<QString, quint64> m_roundedTouchesInFlight;
     mutable QMutex m_pendingMutex;
+#ifdef BLOOM_TESTING
+    QSemaphore *m_roundedLookupEnteredForTest = nullptr;
+    QSemaphore *m_roundedLookupReleaseForTest = nullptr;
+    QMutex m_testHookMutex;
+#endif
 };
 
 #endif // IMAGECACHEPROVIDER_H

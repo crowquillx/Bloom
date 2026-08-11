@@ -115,7 +115,7 @@ target_link_libraries(BloomImageCache
         Qt6::Sql
 )
 if(BUILD_TESTING)
-    target_compile_definitions(BloomImageCache PUBLIC BLOOM_TESTING=1)
+    target_compile_definitions(BloomImageCache PRIVATE BLOOM_TESTING=1)
 endif()
 
 add_library(BloomPlayerProcess STATIC

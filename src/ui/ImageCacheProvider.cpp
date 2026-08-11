@@ -884,12 +884,24 @@ QString ImageCacheProvider::saveDataForKeyIfCurrent(const QString &urlKey,
     if (filepath.isEmpty()) {
         return QString();
     }
-    ++m_cacheContentRevision;
+    advanceCacheContentRevision();
     
     qCDebug(lcImageCache) << "Cached:" << safeCacheLabel(urlKey)
                           << "size:" << data.size();
     
     return filepath;
+}
+
+quint64 ImageCacheProvider::advanceCacheContentRevision()
+{
+    const quint64 revision = m_cacheContentRevision.fetch_add(1) + 1;
+    QMutexLocker locker(&m_pendingMutex);
+    // A write can evict any previously known file. Those entries were already
+    // unusable once their revision stopped matching, so discard them eagerly
+    // instead of allowing stale provider-thread knowledge to accumulate.
+    m_readyRounded.clear();
+    m_knownBaseImages.clear();
+    return revision;
 }
 
 QString ImageCacheProvider::hashUrl(const QString &url) const
@@ -990,6 +1002,7 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
 
     struct RoundedTaskResult {
         QString path;
+        bool retryLookup = false;
     };
 
     const QString key = roundedKey(url, radiusPx, targetSize);
@@ -1013,11 +1026,31 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
         }
 
         const quint64 lookupRevision = m_cacheContentRevision.load();
+#ifdef BLOOM_TESTING
+        QSemaphore *lookupEntered = nullptr;
+        QSemaphore *lookupRelease = nullptr;
+        {
+            QMutexLocker testHookLock(&m_testHookMutex);
+            lookupEntered = std::exchange(m_roundedLookupEnteredForTest, nullptr);
+            lookupRelease = std::exchange(m_roundedLookupReleaseForTest, nullptr);
+        }
+        if (lookupEntered && lookupRelease) {
+            lookupEntered->release();
+            lookupRelease->acquire();
+        }
+#endif
         const ImageCacheStore::LookupResult existing =
             m_store->lookupEntry(key, true);
-        if (existing.isValid()
-            && m_cacheGeneration.load() == generation
-            && m_cacheContentRevision.load() == lookupRevision) {
+        if (m_cacheGeneration.load() != generation) {
+            --m_activeRoundedTasks;
+            return result;
+        }
+        if (m_cacheContentRevision.load() != lookupRevision) {
+            result.retryLookup = true;
+            --m_activeRoundedTasks;
+            return result;
+        }
+        if (existing.isValid()) {
             result.path = existing.path;
             --m_activeRoundedTasks;
             return result;
@@ -1027,9 +1060,16 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
         if (resolvedSourcePath.isEmpty()) {
             const quint64 baseLookupRevision = m_cacheContentRevision.load();
             const ImageCacheStore::LookupResult base = m_store->lookupEntry(url);
-            if (base.isValid()
-                && m_cacheGeneration.load() == generation
-                && m_cacheContentRevision.load() == baseLookupRevision) {
+            if (m_cacheGeneration.load() != generation) {
+                --m_activeRoundedTasks;
+                return result;
+            }
+            if (m_cacheContentRevision.load() != baseLookupRevision) {
+                result.retryLookup = true;
+                --m_activeRoundedTasks;
+                return result;
+            }
+            if (base.isValid()) {
                 resolvedSourcePath = base.path;
             }
         }
@@ -1062,6 +1102,7 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
 
         QString retrySourcePath;
         QString fileUrl;
+        bool retryLookup = false;
         {
             QMutexLocker locker(&m_pendingMutex);
             if (m_roundedInFlight.value(key) != generation
@@ -1074,6 +1115,10 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
             if (!result.path.isEmpty() && QFile::exists(result.path)) {
                 fileUrl = QUrl::fromLocalFile(result.path).toString();
                 const quint64 currentRevision = m_cacheContentRevision.load();
+                if (!m_readyRounded.contains(key)
+                    && m_readyRounded.size() >= MaximumRoundedKnowledgeEntries) {
+                    m_readyRounded.erase(m_readyRounded.begin());
+                }
                 m_readyRounded.insert(
                     key, {fileUrl, generation, currentRevision});
                 if (pendingIt != m_pendingRounded.end()) {
@@ -1086,6 +1131,8 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
                         m_pendingRounded.erase(pendingIt);
                     }
                 }
+            } else if (result.retryLookup && pendingIt != m_pendingRounded.end()) {
+                retryLookup = true;
             } else if (sourcePath.isEmpty() && pendingIt != m_pendingRounded.end()) {
                 const KnownBaseImage known = m_knownBaseImages.value(url);
                 if (!known.path.isEmpty()
@@ -1102,6 +1149,9 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
         } else if (!retrySourcePath.isEmpty()) {
             scheduleRoundedVariant(
                 url, retrySourcePath, radiusPx, targetSize, emitSignal);
+        } else if (retryLookup) {
+            scheduleRoundedVariant(
+                url, QString(), radiusPx, targetSize, emitSignal);
         }
     });
     watcher->setFuture(future);
@@ -1112,6 +1162,10 @@ void ImageCacheProvider::processPendingRounded(const QString &url, const QString
     QList<RoundedVariantRequest> requests;
     {
         QMutexLocker locker(&m_pendingMutex);
+        if (!m_knownBaseImages.contains(url)
+            && m_knownBaseImages.size() >= MaximumRoundedKnowledgeEntries) {
+            m_knownBaseImages.erase(m_knownBaseImages.begin());
+        }
         m_knownBaseImages.insert(
             url, {sourcePath, m_cacheContentRevision.load()});
         if (!m_pendingRounded.contains(url)) {
@@ -1197,6 +1251,10 @@ void ImageCacheProvider::touchRoundedVariantAsync(const QString &key,
     {
         QMutexLocker locker(&m_pendingMutex);
         if (m_roundedTouchesInFlight.value(key) == generation) {
+            return;
+        }
+        if (!m_roundedTouchesInFlight.contains(key)
+            && m_roundedTouchesInFlight.size() >= MaximumRoundedTouchesInFlight) {
             return;
         }
         m_roundedTouchesInFlight.insert(key, generation);
@@ -1328,7 +1386,7 @@ void ImageCacheProvider::setMaxCacheSize(qint64 bytes)
     m_maxCacheSize = bytes;
     if (m_store) {
         m_store->setMaximumSize(bytes);
-        ++m_cacheContentRevision;
+        advanceCacheContentRevision();
     }
 }
 
@@ -1339,5 +1397,20 @@ void ImageCacheProvider::blockCacheWorkerForTest(QSemaphore *entered,
     if (m_store) {
         m_store->blockWorkerForTest(entered, release);
     }
+}
+
+void ImageCacheProvider::advanceCacheContentRevisionForTest()
+{
+    advanceCacheContentRevision();
+}
+
+void ImageCacheProvider::blockNextRoundedLookupForTest(QSemaphore *entered,
+                                                       QSemaphore *release)
+{
+    Q_ASSERT(entered);
+    Q_ASSERT(release);
+    QMutexLocker locker(&m_testHookMutex);
+    m_roundedLookupEnteredForTest = entered;
+    m_roundedLookupReleaseForTest = release;
 }
 #endif

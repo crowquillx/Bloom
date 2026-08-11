@@ -37,6 +37,7 @@ signals:
 
 private:
     void attemptGrab();
+    void scheduleRetry();
     void setReady(bool ready);
 
     QPointer<QQuickItem> m_sourceItem;
@@ -44,5 +45,8 @@ private:
     QImage m_image;
     qreal m_radius = 0.0;
     quint64 m_generation = 0;
+    int m_retryCount = 0;
     bool m_ready = false;
+
+    static constexpr int MaximumGrabRetries = 4;
 };

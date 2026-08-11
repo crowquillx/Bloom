@@ -457,6 +457,8 @@ target_include_directories(ArtworkRefreshTest PRIVATE
     ${CMAKE_BINARY_DIR}/src
 )
 
+target_compile_definitions(ArtworkRefreshTest PRIVATE BLOOM_TESTING=1)
+
 target_link_libraries(ArtworkRefreshTest
     PRIVATE
         Qt6::Core

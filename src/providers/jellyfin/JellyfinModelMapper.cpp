@@ -519,6 +519,9 @@ QVariantMap JellyfinModelMapper::mediaItem(const QJsonObject &wireItem,
             wireItem.value(QStringLiteral("ChildCount")).toInt();
     }
     if (wireItem.value(QStringLiteral("Type")).toString() == QStringLiteral("Episode")) {
+        // Jellyfin 12's ItemFields.SpecialEpisodeNumbers selector exposes
+        // these as top-level BaseItemDto properties; it is not a nested JSON
+        // object. Keep the canonical projection aligned with that wire shape.
         item[QStringLiteral("airsBeforeSeasonNumber")] =
             wireItem.value(QStringLiteral("AirsBeforeSeasonNumber")).toInt(-1);
         item[QStringLiteral("airsAfterSeasonNumber")] =

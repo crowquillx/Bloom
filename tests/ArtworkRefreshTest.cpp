@@ -254,6 +254,7 @@ private slots:
     void identicalRequestsCoalesceAcrossCancellation();
     void existingRoundedVariantIsDiscoveredAsynchronously();
     void roundedRequestDoesNotWaitForBusyCacheWorker();
+    void revisionRaceRetriesRoundedLookup();
     void destroyingSubscriberKeepsSharedJobAlive();
     void concurrentRequestRegistrationCoalesces();
     void terminalSignalAllowsImmediateResubscribe();
@@ -535,6 +536,47 @@ void ArtworkRefreshTest::roundedRequestDoesNotWaitForBusyCacheWorker()
     QTRY_COMPARE_WITH_TIMEOUT(
         cache.cacheStats().value(QStringLiteral("inFlightRoundedJobs")).toInt(),
         0, 3000);
+}
+
+void ArtworkRefreshTest::revisionRaceRetriesRoundedLookup()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes()};
+    QVERIFY(server.start());
+
+    ImageCacheProvider cache(1);
+    cache.setRoundedPreprocessEnabled(false);
+    const QString identity = server.url(
+        QStringLiteral("/rounded-revision-race.png")).toString();
+    QPointer<QQuickImageResponse> base(
+        cache.requestImageResponse(identity, QSize()));
+    QSignalSpy baseSpy(base, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(baseSpy.count(), 1, 3000);
+    QVERIFY(base->errorString().isEmpty());
+
+    cache.setRoundedPreprocessEnabled(true);
+    QSemaphore lookupEntered;
+    QSemaphore releaseLookup;
+    cache.blockNextRoundedLookupForTest(&lookupEntered, &releaseLookup);
+    QSignalSpy roundedSpy(&cache, &ImageCacheProvider::roundedImageReady);
+    QCOMPARE(cache.requestRoundedImage(identity, 16, 32, 32), QString());
+    const bool lookupPaused = lookupEntered.tryAcquire(1, 1000);
+
+    // Simulate an unrelated disk-cache mutation while the async lookup is in
+    // flight. The request must retry rather than leaving its pending variant
+    // permanently stranded.
+    if (lookupPaused) {
+        cache.advanceCacheContentRevisionForTest();
+    }
+    releaseLookup.release();
+    QVERIFY(lookupPaused);
+
+    QTRY_COMPARE_WITH_TIMEOUT(roundedSpy.count(), 1, 3000);
+    const QString roundedUrl = roundedSpy.constFirst().at(1).toString();
+    QVERIFY(!roundedUrl.isEmpty());
+    QCOMPARE(cache.requestRoundedImage(identity, 16, 32, 32), roundedUrl);
+    delete base;
 }
 
 void ArtworkRefreshTest::destroyingSubscriberKeepsSharedJobAlive()

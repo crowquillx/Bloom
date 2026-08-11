@@ -392,9 +392,16 @@ void SessionService::onRevokeSessionFinished(QNetworkReply *, QString sessionId,
 {
     setIsLoading(false);
 
-    // Check if we revoked our own session
-    if (sessionId == m_currentSessionId) {
-        qCWarning(lcAuth) << "SessionService: Self-session was revoked";
+    // Jellyfin 12 revocation deletes a device rather than one playback
+    // session. Another session row for this device therefore revokes the
+    // current session as well.
+    const QString sessionCurrentDeviceId = deviceIdForSession(m_currentSessionId);
+    const QString currentDeviceId = sessionCurrentDeviceId.isEmpty()
+        ? m_deviceId
+        : sessionCurrentDeviceId;
+    if (sessionId == m_currentSessionId
+        || (!deviceId.isEmpty() && deviceId == currentDeviceId)) {
+        qCWarning(lcAuth) << "SessionService: Current device was revoked";
         emit selfSessionRevoked();
         return;
     }

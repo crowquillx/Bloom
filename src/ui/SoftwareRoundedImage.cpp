@@ -42,6 +42,12 @@ void SoftwareRoundedImage::setSourceItem(QQuickItem *sourceItem)
             requestRefresh();
             emit sourceItemChanged();
         });
+        connect(m_sourceItem, &QQuickItem::windowChanged, this,
+                [this](QQuickWindow *window) {
+            if (window) {
+                requestRefresh();
+            }
+        });
     }
     emit sourceItemChanged();
     requestRefresh();
@@ -61,6 +67,7 @@ void SoftwareRoundedImage::setRadius(qreal radius)
 void SoftwareRoundedImage::requestRefresh()
 {
     ++m_generation;
+    m_retryCount = 0;
     m_retryTimer.stop();
     m_image = {};
     setReady(false);
@@ -73,14 +80,12 @@ void SoftwareRoundedImage::attemptGrab()
     if (!m_sourceItem) {
         return;
     }
-    // Size changes already schedule a refresh. Avoid polling forever for a
-    // zero-sized delegate; only the transient lack of a scene window needs a
-    // bounded-delay retry.
+    // Size and window changes schedule a refresh. A detached source therefore
+    // waits for windowChanged instead of polling the UI thread indefinitely.
     if (width() <= 0.0 || height() <= 0.0) {
         return;
     }
     if (!m_sourceItem->window()) {
-        m_retryTimer.start();
         return;
     }
 
@@ -91,7 +96,7 @@ void SoftwareRoundedImage::attemptGrab()
     const QSharedPointer<QQuickItemGrabResult> result =
         m_sourceItem->grabToImage(targetSize);
     if (!result) {
-        m_retryTimer.start();
+        scheduleRetry();
         return;
     }
 
@@ -102,13 +107,23 @@ void SoftwareRoundedImage::attemptGrab()
         }
         const QImage image = result->image();
         if (image.isNull()) {
-            m_retryTimer.start();
+            scheduleRetry();
             return;
         }
         m_image = image;
         setReady(true);
         update();
     });
+}
+
+void SoftwareRoundedImage::scheduleRetry()
+{
+    if (!m_sourceItem || !m_sourceItem->window()
+        || m_retryCount >= MaximumGrabRetries) {
+        return;
+    }
+    ++m_retryCount;
+    m_retryTimer.start();
 }
 
 void SoftwareRoundedImage::paint(QPainter *painter)
