@@ -258,6 +258,7 @@ private slots:
     void artworkRefreshDeadlineIsBounded();
     void networkResponseSizeIsBounded();
     void decodedMemoryIsBounded();
+    void decodedLimitPreservesValidDiskEntry();
     void authorizationFailureRefreshesExactlyOnce_data();
     void authorizationFailureRefreshesExactlyOnce();
     void jellyfinRefreshKeepsExistingResolvedRequest();
@@ -739,6 +740,45 @@ void ArtworkRefreshTest::decodedMemoryIsBounded()
     QCOMPARE(cache.cacheStats().value(QStringLiteral("writes")).toULongLong(),
              quint64(0));
     delete response;
+}
+
+void ArtworkRefreshTest::decodedLimitPreservesValidDiskEntry()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes(QSize(8, 8))};
+    QVERIFY(server.start());
+
+    ImageRequestLimits limits;
+    limits.maximumDecodedBytes = 1024;
+    ImageCacheProvider cache(1, nullptr, limits);
+    cache.setRoundedPreprocessEnabled(false);
+    const QString identity = server.url(QStringLiteral("/valid-disk-entry.png")).toString();
+
+    QPointer<QQuickImageResponse> initial(
+        cache.requestImageResponse(identity, QSize()));
+    QSignalSpy initialSpy(initial, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(initialSpy.count(), 1, 1000);
+    QVERIFY(initial->errorString().isEmpty());
+    QCOMPARE(server.requestTargets.size(), 1);
+    delete initial;
+
+    cache.clearMemoryCache();
+    QPointer<QQuickImageResponse> oversized(
+        cache.requestImageResponse(identity, QSize(100, 100)));
+    QSignalSpy oversizedSpy(oversized, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(oversizedSpy.count(), 1, 1000);
+    QVERIFY(oversized->errorString().contains(QStringLiteral("memory limit")));
+    QCOMPARE(server.requestTargets.size(), 1);
+    delete oversized;
+
+    QPointer<QQuickImageResponse> valid(
+        cache.requestImageResponse(identity, QSize(4, 4)));
+    QSignalSpy validSpy(valid, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(validSpy.count(), 1, 1000);
+    QVERIFY(valid->errorString().isEmpty());
+    QCOMPARE(server.requestTargets.size(), 1);
+    delete valid;
 }
 
 void ArtworkRefreshTest::authorizationFailureRefreshesExactlyOnce_data()

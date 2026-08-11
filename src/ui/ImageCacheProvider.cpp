@@ -24,10 +24,17 @@
 
 namespace {
 
+enum class DecodeFailure {
+    None,
+    InvalidSource,
+    LimitExceeded,
+};
+
 struct DecodedImage {
     QImage image;
     QString error;
     qint64 latencyMs = 0;
+    DecodeFailure failure = DecodeFailure::None;
 };
 
 bool exceedsDecodedLimit(const QSize &size, qint64 maximumBytes)
@@ -44,13 +51,15 @@ DecodedImage decodeImage(QImageReader &reader,
                          qint64 maximumDecodedBytes)
 {
     if (exceedsDecodedLimit(requestedSize, maximumDecodedBytes)) {
-        return {{}, QStringLiteral("Requested image size exceeds memory limit"), 0};
+        return {{}, QStringLiteral("Requested image size exceeds memory limit"), 0,
+                DecodeFailure::LimitExceeded};
     }
 
     const QSize sourceSize = reader.size();
     if ((!requestedSize.isValid() || requestedSize.isEmpty())
         && exceedsDecodedLimit(sourceSize, maximumDecodedBytes)) {
-        return {{}, QStringLiteral("Decoded image exceeds memory limit"), 0};
+        return {{}, QStringLiteral("Decoded image exceeds memory limit"), 0,
+                DecodeFailure::LimitExceeded};
     }
     if (requestedSize.isValid() && !requestedSize.isEmpty()) {
         reader.setScaledSize(requestedSize);
@@ -62,10 +71,11 @@ DecodedImage decodeImage(QImageReader &reader,
     const qint64 latencyMs = timer.elapsed();
     if (image.isNull()) {
         return {{}, QStringLiteral("Failed to decode image: %1").arg(reader.errorString()),
-                latencyMs};
+                latencyMs, DecodeFailure::InvalidSource};
     }
     if (image.sizeInBytes() > maximumDecodedBytes) {
-        return {{}, QStringLiteral("Decoded image exceeds memory limit"), latencyMs};
+        return {{}, QStringLiteral("Decoded image exceeds memory limit"), latencyMs,
+                DecodeFailure::LimitExceeded};
     }
     return {std::move(image), {}, latencyMs};
 }
@@ -190,6 +200,7 @@ private:
         QString error;
         qint64 decodeLatencyMs = 0;
         bool found = false;
+        DecodeFailure failure = DecodeFailure::None;
     };
 
     void loadMemoryImage(QImage image)
@@ -271,9 +282,10 @@ private:
                 result.image = std::move(decoded.image);
                 result.error = std::move(decoded.error);
                 result.decodeLatencyMs = decoded.latencyMs;
-                if (result.image.isNull()) {
+                result.failure = decoded.failure;
+                if (result.failure == DecodeFailure::InvalidSource) {
                     store->invalidateIfCurrent(cacheKey, entry.revision);
-                } else {
+                } else if (!result.image.isNull()) {
                     store->touch(cacheKey);
                 }
                 if (!guard) {
@@ -306,6 +318,10 @@ private:
                             << "Cached image decode failed:"
                             << m_provider->safeCacheLabel(m_cacheKey)
                             << result.error;
+                        if (result.failure == DecodeFailure::LimitExceeded) {
+                            finish({}, result.error);
+                            return;
+                        }
                     }
                     beginNetworkLoad();
                 });
