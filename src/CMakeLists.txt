@@ -85,8 +85,6 @@ qt_add_executable(Bloom
     viewmodels/MovieDetailsViewModel.cpp
     viewmodels/UpNextRecommendationsViewModel.h
     viewmodels/UpNextRecommendationsViewModel.cpp
-    ui/ImageCacheProvider.h
-    ui/ImageCacheProvider.cpp
     ui/UiSoundController.h
     ui/UiSoundController.cpp
     ui/ScreensaverController.h
@@ -414,6 +412,7 @@ endif()
 
 target_link_libraries(Bloom
     PRIVATE
+    Bloom::ImageCache
     Bloom::Network
     Qt6::Core
     Qt6::Gui

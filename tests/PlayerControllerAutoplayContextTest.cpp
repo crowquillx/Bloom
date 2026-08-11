@@ -695,7 +695,10 @@ void PlayerControllerAutoplayContextTest::userStopPastThresholdRequestsNextEpiso
     controller.stop();
     QCoreApplication::processEvents();
 
-    QCOMPARE(libraryService.requestedSeriesIds.size(), 1);
+    // Terminal finalization is deliberately queued so backend callbacks cannot
+    // re-enter the playback state machine. Wait for that queued boundary rather
+    // than assuming one processEvents() pass drains it on every Qt version.
+    QTRY_COMPARE(libraryService.requestedSeriesIds.size(), 1);
     QCOMPARE(libraryService.requestedSeriesIds.first(), QStringLiteral("series-1"));
     QCOMPARE(libraryService.requestedExcludeIds.first(), QStringLiteral("item-1"));
     QCOMPARE(libraryService.requestedContexts.first(),

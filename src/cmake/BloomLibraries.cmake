@@ -1,6 +1,6 @@
 # Reusable production libraries shared by the application and unit tests.
 # Keep dependency direction acyclic:
-#   Models -> Config / Transport -> Providers -> Network
+#   Models -> Config / Transport / ImageCache -> Providers -> Network
 
 add_library(BloomModels STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/models/MediaModels.cpp
@@ -59,6 +59,29 @@ target_link_libraries(BloomTransport
         Qt6::Network
 )
 
+add_library(BloomImageCache STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/ImageCacheProvider.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/ImageCacheProvider.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/ImageCacheStore.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/ImageCacheStore.h
+)
+add_library(Bloom::ImageCache ALIAS BloomImageCache)
+target_include_directories(BloomImageCache
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(BloomImageCache
+    PUBLIC
+        Bloom::Models
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+        Qt6::Quick
+        Qt6::Sql
+)
+
 add_library(BloomProviders STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinAuthenticator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinModelMapper.cpp
@@ -112,6 +135,7 @@ set_target_properties(
     BloomModels
     BloomConfig
     BloomTransport
+    BloomImageCache
     BloomProviders
     BloomNetwork
     PROPERTIES FOLDER "Bloom/Libraries"

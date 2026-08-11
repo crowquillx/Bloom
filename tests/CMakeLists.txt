@@ -73,6 +73,8 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloModelMapper.cpp
     ${CMAKE_SOURCE_DIR}/src/providers/silo/SiloPlaybackProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/security/CredentialStore.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigStorage.cpp
@@ -84,6 +86,12 @@ list(REMOVE_DUPLICATES BLOOM_LINKED_PRODUCTION_SOURCES)
 
 function(bloom_use_production_libraries test_target)
     get_target_property(test_sources ${test_target} SOURCES)
+    set(image_cache_provider_source ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp)
+    set(image_cache_store_source ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp)
+    if(image_cache_provider_source IN_LIST test_sources
+       OR image_cache_store_source IN_LIST test_sources)
+        target_link_libraries(${test_target} PRIVATE Bloom::ImageCache)
+    endif()
     list(REMOVE_ITEM test_sources ${BLOOM_LINKED_PRODUCTION_SOURCES})
     set_property(TARGET ${test_target} PROPERTY SOURCES "${test_sources}")
     target_link_libraries(${test_target} PRIVATE Bloom::Network)
@@ -443,6 +451,20 @@ target_link_libraries(ArtworkRefreshTest
 
 add_test(NAME ArtworkRefreshTest COMMAND ArtworkRefreshTest)
 
+add_executable(ImageCacheStoreTest
+    ImageCacheStoreTest.cpp
+)
+
+target_link_libraries(ImageCacheStoreTest
+    PRIVATE
+        Bloom::ImageCache
+        Qt6::Core
+        Qt6::Sql
+        Qt6::Test
+)
+
+add_test(NAME ImageCacheStoreTest COMMAND ImageCacheStoreTest)
+
 add_executable(CanonicalModelsTest
     CanonicalModelsTest.cpp
     ${CMAKE_SOURCE_DIR}/src/models/MediaModels.cpp
@@ -758,6 +780,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     ProviderCatalogTest
     SiloCatalogServiceTest
     ArtworkRefreshTest
+    ImageCacheStoreTest
     CanonicalModelsTest
     InputBindingManagerTest
     PlayerBackendFactoryTest
