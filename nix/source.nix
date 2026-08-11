@@ -9,6 +9,7 @@ lib.fileset.toSource {
     [
       ../CMakeLists.txt
       ../VERSION
+      ../cmake
       ../config
       ../src
       ../third_party/monocypher

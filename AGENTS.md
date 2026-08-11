@@ -124,8 +124,11 @@ License: See `LICENSE`.
 
 Testing policy:
 - The Nix `.#checks.x86_64-linux.tests` derivation runs automatically in CI,
-  alongside the other flake checks; `nix flake check` remains the blessed local
-  command for the full check suite.
+  alongside structural QML lint and the offscreen Release startup smoke;
+  `nix flake check` remains the blessed local command for the full check suite.
+- Targeted clang-tidy, ASan/UBSan, concurrency-focused TSAN, and coverage run
+  in the scheduled/on-demand deep-analysis workflow. Keep those checks scoped
+  to meaningful ownership boundaries and do not make normal PR CI unbounded.
 - Live provider/server, display, GPU, and playback contracts requiring hosts or
   runtime hardware remain manual validation; unavailable environments are not
   automated passes.

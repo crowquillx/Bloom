@@ -1,7 +1,18 @@
 ---
-Checks:          'bugprone-*,performance-*,readability-*,qt-*'
-WarningsAsErrors: 'qt-*'
-CheckOptions:
-  - key:             readability-identifier-naming.ClassCase
-    value:           CamelCase
+Checks: >-
+  -*,
+  clang-analyzer-core.*,
+  clang-analyzer-cplusplus.*,
+  clang-analyzer-unix.*,
+  bugprone-dangling-handle,
+  bugprone-sizeof-expression,
+  bugprone-suspicious-enum-usage,
+  bugprone-unchecked-optional-access,
+  bugprone-unique-ptr-array-mismatch,
+  bugprone-use-after-move,
+  performance-move-const-arg,
+  performance-unnecessary-copy-initialization
+WarningsAsErrors: '*'
+HeaderFilterRegex: '^.*/src/'
+SystemHeaders: false
 ...

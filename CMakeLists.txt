@@ -11,6 +11,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+include(cmake/BloomAnalysis.cmake)
+
 if(WIN32)
     add_compile_definitions(NOMINMAX)
 endif()

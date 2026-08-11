@@ -61,12 +61,64 @@ nix flake check --print-build-logs \
 ```
 
 This builds Bloom and runs the deterministic unit/contract tests, QML lint,
-desktop/AppStream validation, and release-manifest validation. The CI `nix`
+desktop/AppStream validation, release-manifest validation, and an offscreen
+Release startup/version smoke test. ShellCheck and actionlint also validate the
+deep-analysis scripts and workflow definitions. The CI `nix`
 job builds the same `.#checks.x86_64-linux.tests` derivation alongside the
 other checks, so pull requests and dependency updates exercise automated
 tests. Live provider/server, display, GPU, and playback contracts that require
 hosts or runtime hardware remain manual validation; unavailable environments
 are recorded as unavailable rather than treated as automated passes.
+
+QML lint treats structural diagnostics such as duplicate bindings, cycles,
+invalid directives, assignments in conditions, and unreachable code as
+errors. Context-property and generated-type diagnostics remain visible but are
+not promoted globally because several runtime-injected QML objects cannot yet
+be modeled accurately by `qmllint`.
+
+## Deep analysis
+
+The normal pull-request workflow stays focused on the reproducible Release
+build, deterministic tests, QML lint, and Windows packaging. More expensive
+compiler instrumentation runs every Sunday and on demand through the `Deep
+analysis` workflow:
+
+```bash
+./scripts/run-clang-tidy.sh
+./scripts/run-sanitizers.sh address
+./scripts/run-sanitizers.sh thread
+./scripts/run-coverage.sh
+```
+
+Each script enters the pinned `.#analysis` Nix shell automatically, leaving the
+normal development shell unchanged, and uses a separate ignored directory
+below `build-analysis/`. The clang-tidy gate covers
+the image-cache, process/IPC, display, playback-policy, and updater ownership
+boundaries with high-confidence analyzer, lifetime, optional, move, and copy
+checks. The address job combines ASan with UBSan; vptr instrumentation alone is
+disabled because focused updater tests intentionally link a narrow
+`PlayerController` stub instead of the full facade. TSAN is limited to the
+process-manager and display-manager concurrency tests. The image-cache worker
+remains covered by direct concurrent-access tests and ASan/UBSan; TSAN against
+the system's uninstrumented Qt library reports the queued
+`QMetaObject::invokeMethod` allocation handoff as a framework race, so Bloom
+does not hide that report with a broad Qt-event suppression.
+
+Coverage runs the deterministic Linux suite and writes Cobertura XML, HTML,
+JSON summary, and text output to `build-analysis/coverage-report/`. Scheduled
+runs publish the text totals in the GitHub Actions run summary and retain the
+full report for 90 days, providing a lightweight history without adding a
+third-party reporting credential. Coverage is a trend signal rather than a
+line-percentage merge gate; behavior-specific regression tests remain the
+primary requirement. The initial deterministic-suite baseline measured on
+August 11, 2026 is 54.9% lines (16,352/29,781), 57.5% functions
+(1,422/2,471), and 45.4% branches (19,633/43,247).
+
+For custom CMake-based instrumentation, `BLOOM_SANITIZER` accepts `none`,
+`address`, or `thread`, and `BLOOM_ENABLE_COVERAGE=ON` enables gcov-compatible
+coverage. Sanitizer and coverage instrumentation must use separate build
+trees. These options require GCC or Clang and are intentionally off for MSVC,
+packaging, and release builds.
 
 Production models, configuration, transport, provider, and network code is
 compiled through reusable `Bloom::*` CMake libraries. Tests link those targets

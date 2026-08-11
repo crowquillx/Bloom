@@ -4,6 +4,7 @@
 
 #include <QJsonDocument>
 #include <QJsonParseError>
+#include <QTimeZone>
 #include <QUrl>
 #include <QUrlQuery>
 #include <QtGlobal>
@@ -386,17 +387,17 @@ private:
         if (query.minPremiereDate.isValid()) {
             urlQuery.addQueryItem(
                 QStringLiteral("MinPremiereDate"),
-                query.minPremiereDate.startOfDay(Qt::UTC).toString(Qt::ISODate));
+                query.minPremiereDate.startOfDay(QTimeZone::UTC).toString(Qt::ISODate));
         }
         if (query.maxPremiereDate.isValid()) {
             urlQuery.addQueryItem(
                 QStringLiteral("MaxPremiereDate"),
-                query.maxPremiereDate.endOfDay(Qt::UTC).toString(Qt::ISODate));
+                query.maxPremiereDate.endOfDay(QTimeZone::UTC).toString(Qt::ISODate));
         }
         if (query.minDateLastSaved.isValid()) {
             urlQuery.addQueryItem(
                 QStringLiteral("MinDateLastSaved"),
-                query.minDateLastSaved.startOfDay(Qt::UTC).toString(Qt::ISODate));
+                query.minDateLastSaved.startOfDay(QTimeZone::UTC).toString(Qt::ISODate));
         }
         if (query.watched != ProviderCatalogTriState::Any) {
             urlQuery.addQueryItem(

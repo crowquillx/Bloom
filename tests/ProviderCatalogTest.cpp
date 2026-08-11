@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 
+#include <QDate>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -87,6 +88,9 @@ void ProviderCatalogTest::jellyfinItemsRequestRetainsNativeContract()
     query.sortOrder = QStringLiteral("descending");
     query.watched = ProviderCatalogTriState::No;
     query.recursive = true;
+    query.minPremiereDate = QDate(2020, 2, 3);
+    query.maxPremiereDate = QDate(2024, 11, 12);
+    query.minDateLastSaved = QDate(2026, 8, 7);
     query.useCacheValidation = true;
     query.etag = QByteArrayLiteral("\"catalog-v2\"");
     query.lastModified = QByteArrayLiteral("Fri, 07 Aug 2026 10:00:00 GMT");
@@ -124,6 +128,12 @@ void ProviderCatalogTest::jellyfinItemsRequestRetainsNativeContract()
              QStringLiteral("false"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("Recursive")),
              QStringLiteral("true"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("MinPremiereDate")),
+             QStringLiteral("2020-02-03T00:00:00Z"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("MaxPremiereDate")),
+             QStringLiteral("2024-11-12T23:59:59Z"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("MinDateLastSaved")),
+             QStringLiteral("2026-08-07T00:00:00Z"));
     QVERIFY(parameters.queryItemValue(QStringLiteral("Fields"))
                 .contains(QStringLiteral("MediaSources")));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("EnableImageTypes")),

@@ -100,10 +100,12 @@ jobs:
             done
           }
           retry nix build \
+            .#checks.x86_64-linux.automation-lint \
             .#checks.x86_64-linux.qml-lint \
             .#checks.x86_64-linux.tests \
             .#checks.x86_64-linux.metadata \
             .#checks.x86_64-linux.release-manifest \
+            .#checks.x86_64-linux.release-smoke \
             --print-build-logs --option max-jobs 1 --option cores 4
           retry nix build .#bloom --print-build-logs --option max-jobs 1 --option cores 4
 

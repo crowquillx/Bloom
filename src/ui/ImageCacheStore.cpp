@@ -784,7 +784,7 @@ private:
 };
 
 ImageCacheStore::ImageCacheStore(QString cacheDirectory, qint64 maximumSizeBytes)
-    : m_cacheDirectory(QDir::cleanPath(std::move(cacheDirectory)))
+    : m_cacheDirectory(QDir::cleanPath(cacheDirectory))
     , m_worker(new ImageCacheStoreWorker(m_cacheDirectory, maximumSizeBytes))
 {
     m_thread.setObjectName(QStringLiteral("BloomImageCacheStore"));
