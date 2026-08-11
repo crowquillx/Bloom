@@ -38,8 +38,13 @@ struct HdrAsyncFallbackResult
 };
 
 #ifdef Q_OS_WIN
-bool setRefreshRateWindowsImpl(double hz);
-bool restoreRefreshRateWindowsImpl(double targetHz, double baselineHz);
+using NativeOperationGuard = std::function<bool()>;
+
+bool setRefreshRateWindowsImpl(double hz,
+                               const NativeOperationGuard &shouldContinue = {});
+bool restoreRefreshRateWindowsImpl(double targetHz,
+                                   double baselineHz,
+                                   const NativeOperationGuard &shouldContinue = {});
 
 QThreadPool *nativeDisplayThreadPool()
 {
@@ -114,6 +119,32 @@ QString refreshRateCommand(QString commandTemplate, double hz)
     return commandTemplate;
 }
 
+#ifdef Q_OS_UNIX
+QString quotePosixShellArgument(QString argument)
+{
+    argument.replace(QLatin1Char('\''), QStringLiteral("'\"'\"'"));
+    return QStringLiteral("'%1'").arg(argument);
+}
+
+QString detachedCommandSequence(const QStringList &commands)
+{
+    QStringList invocations;
+    invocations.reserve(commands.size());
+    for (const QString &command : commands) {
+        const QStringList arguments = QProcess::splitCommand(command);
+        QStringList quotedArguments;
+        quotedArguments.reserve(arguments.size());
+        for (const QString &argument : arguments) {
+            quotedArguments.append(quotePosixShellArgument(argument));
+        }
+        if (!quotedArguments.isEmpty()) {
+            invocations.append(quotedArguments.join(QLatin1Char(' ')));
+        }
+    }
+    return invocations.join(QStringLiteral("; "));
+}
+#endif
+
 bool isCadenceCompatible(double currentHz, double targetHz)
 {
     if (currentHz <= 0.0 || targetHz <= 0.0 || currentHz <= targetHz) {
@@ -155,7 +186,6 @@ void killProcessTree(QProcess *process, quintptr *jobHandle)
 #ifdef Q_OS_WIN
     if (jobHandle != nullptr && *jobHandle != 0) {
         closeCommandJob(jobHandle, true);
-        return;
     }
 #endif
 #ifdef Q_OS_UNIX
@@ -245,12 +275,19 @@ AdvancedColorStateQueryResult queryAdvancedColorState(const DISPLAYCONFIG_PATH_I
     return result;
 }
 
-bool waitForAdvancedColorState(const DISPLAYCONFIG_PATH_INFO &pathInfo, bool enabled, int timeoutMs, int pollMs)
+bool waitForAdvancedColorState(const DISPLAYCONFIG_PATH_INFO &pathInfo,
+                               bool enabled,
+                               int timeoutMs,
+                               int pollMs,
+                               const NativeOperationGuard &shouldContinue)
 {
     QElapsedTimer timer;
     timer.start();
 
     while (timer.elapsed() < timeoutMs) {
+        if (shouldContinue && !shouldContinue()) {
+            return false;
+        }
         const AdvancedColorStateQueryResult state = queryAdvancedColorState(pathInfo);
         if (state.ok && state.enabled == enabled) {
             return true;
@@ -291,8 +328,13 @@ bool isAnyAdvancedColorEnabled()
     return false;
 }
 
-bool setHDRWindowsImpl(bool enabled, int settleDeadlineMs)
+bool setHDRWindowsImpl(bool enabled,
+                       int settleDeadlineMs,
+                       const NativeOperationGuard &shouldContinue = {})
 {
+    if (shouldContinue && !shouldContinue()) {
+        return false;
+    }
     // Use undocumented API to toggle HDR.
     UINT32 numPathArrayElements = 0;
     UINT32 numModeInfoArrayElements = 0;
@@ -327,11 +369,15 @@ bool setHDRWindowsImpl(bool enabled, int settleDeadlineMs)
         return false;
     }
 
-    bool success = false;
+    bool success = true;
+    bool handledAnyPath = false;
     QElapsedTimer settleDeadline;
     settleDeadline.start();
 
     for (UINT32 i = 0; i < numPathArrayElements; ++i) {
+        if (shouldContinue && !shouldContinue()) {
+            return false;
+        }
         const AdvancedColorStateQueryResult preState = queryAdvancedColorState(pathArray[i]);
         qCInfo(lcDisplayTrace) << "setHDRWindows pre-state"
                                << "path=" << i
@@ -343,8 +389,11 @@ bool setHDRWindowsImpl(bool enabled, int settleDeadlineMs)
             qCInfo(lcDisplayTrace) << "setHDRWindows no-op (already requested state)"
                                    << "path=" << i
                                    << "requested=" << enabled;
-            success = true;
+            handledAnyPath = true;
             continue;
+        }
+        if (!preState.ok) {
+            success = false;
         }
 
         DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE setAdvancedColorState = {};
@@ -354,6 +403,9 @@ bool setHDRWindowsImpl(bool enabled, int settleDeadlineMs)
         setAdvancedColorState.header.id = pathArray[i].targetInfo.id;
         setAdvancedColorState.value = enabled ? 1 : 0;
 
+        if (shouldContinue && !shouldContinue()) {
+            return false;
+        }
         const LONG ret = DisplayConfigSetDeviceInfo(&setAdvancedColorState.header);
         qCInfo(lcDisplayTrace) << "setHDRWindows path"
                                << i
@@ -362,13 +414,15 @@ bool setHDRWindowsImpl(bool enabled, int settleDeadlineMs)
                                << "requested=" << enabled
                                << "ret=" << ret;
         if (ret == ERROR_SUCCESS) {
+            handledAnyPath = true;
             qCDebug(lcDisplayTrace) << "DisplayManager: Successfully set HDR to" << enabled << "for path" << i;
             static constexpr int kHdrSettlePollMs = 50;
             const int remainingMs = std::max(
                 0, settleDeadlineMs - int(settleDeadline.elapsed()));
             const bool settled = remainingMs > 0
                 && waitForAdvancedColorState(pathArray[i], enabled,
-                                             remainingMs, kHdrSettlePollMs);
+                                             remainingMs, kHdrSettlePollMs,
+                                             shouldContinue);
             const AdvancedColorStateQueryResult postState = queryAdvancedColorState(pathArray[i]);
             qCInfo(lcDisplayTrace) << "setHDRWindows post-state"
                                    << "path=" << i
@@ -376,27 +430,30 @@ bool setHDRWindowsImpl(bool enabled, int settleDeadlineMs)
                                    << "queryRet=" << postState.ret
                                    << "enabled=" << postState.enabled;
             if (!settled) {
+                success = false;
                 qCWarning(lcDisplayTrace) << "setHDRWindows settle-timeout"
                                           << "path=" << i
                                           << "requested=" << enabled
                                           << "deadlineMs=" << settleDeadlineMs;
                 continue;
             }
-            success = true;
         } else {
+            success = false;
             qCWarning(lcDisplayTrace) << "DisplayManager: Failed to set HDR for path" << i << "error:" << ret;
         }
     }
 
-    return success;
+    return handledAnyPath && success;
 }
 
 HdrAsyncFallbackResult runBlockingWindowsHdrToggle(bool enabled,
-                                                   int settleDeadlineMs)
+                                                   int settleDeadlineMs,
+                                                   const NativeOperationGuard &shouldContinue)
 {
     HdrAsyncFallbackResult result;
     result.preState = isAnyAdvancedColorEnabled();
-    result.success = setHDRWindowsImpl(enabled, settleDeadlineMs);
+    result.success = setHDRWindowsImpl(enabled, settleDeadlineMs,
+                                       shouldContinue);
     return result;
 }
 #endif
@@ -555,12 +612,14 @@ void DisplayManager::cancelCommandProcess()
     m_commandDeadlineTimer.stop();
     m_commandCompletion = {};
     if (!m_commandProcess) {
+        closeCommandJob(&m_commandJobHandle, false);
         return;
     }
     QProcess *process = m_commandProcess;
     m_commandProcess.clear();
     QObject::disconnect(process, nullptr, this, nullptr);
     if (process->state() == QProcess::NotRunning) {
+        closeCommandJob(&m_commandJobHandle, false);
         process->deleteLater();
         return;
     }
@@ -784,7 +843,12 @@ void DisplayManager::setRefreshRateAsync(double hz)
         if (nativeGeneration->load(std::memory_order_acquire) != generation) {
             return false;
         }
-        return setRefreshRateWindowsImpl(hz);
+        const NativeOperationGuard shouldContinue =
+            [nativeGeneration, generation]() {
+                return nativeGeneration->load(std::memory_order_acquire)
+                    == generation;
+            };
+        return setRefreshRateWindowsImpl(hz, shouldContinue);
     }));
     QTimer::singleShot(m_options.commandDeadlineMs, this,
                        [this, generation, hz]() {
@@ -874,7 +938,13 @@ void DisplayManager::restoreRefreshRateAsync()
         if (nativeGeneration->load(std::memory_order_acquire) != generation) {
             return false;
         }
-        return restoreRefreshRateWindowsImpl(target, baseline);
+        const NativeOperationGuard shouldContinue =
+            [nativeGeneration, generation]() {
+                return nativeGeneration->load(std::memory_order_acquire)
+                    == generation;
+            };
+        return restoreRefreshRateWindowsImpl(target, baseline,
+                                             shouldContinue);
     }));
     QTimer::singleShot(m_options.commandDeadlineMs, this,
                        [this, generation]() {
@@ -930,11 +1000,10 @@ void DisplayManager::setHDRAsync(bool enabled)
     const bool preState = m_hasCapturedOriginalHDRState
         ? m_originalHDRState : false;
 #endif
+#ifdef Q_OS_WIN
     m_hdrOperationPending = true;
     m_pendingHdrRequestedState = enabled;
     m_pendingHdrPreState = preState;
-
-#ifdef Q_OS_WIN
     const QString command = hdrCommand(m_config->getWindowsCustomHDRCommand(), enabled);
     if (!command.isEmpty()) {
         startExternalCommand(m_activeOperation, command, generation,
@@ -977,7 +1046,13 @@ void DisplayManager::setHDRAsync(bool enabled)
         if (nativeGeneration->load(std::memory_order_acquire) != generation) {
             return HdrAsyncFallbackResult{};
         }
-        return runBlockingWindowsHdrToggle(enabled, settleDeadlineMs);
+        const NativeOperationGuard shouldContinue =
+            [nativeGeneration, generation]() {
+                return nativeGeneration->load(std::memory_order_acquire)
+                    == generation;
+            };
+        return runBlockingWindowsHdrToggle(enabled, settleDeadlineMs,
+                                           shouldContinue);
     }));
     QTimer::singleShot(m_options.commandDeadlineMs, this,
                        [this, generation, enabled, preState]() {
@@ -1010,6 +1085,9 @@ void DisplayManager::setHDRAsync(bool enabled)
         }, Qt::QueuedConnection);
         return;
     }
+    m_hdrOperationPending = true;
+    m_pendingHdrRequestedState = enabled;
+    m_pendingHdrPreState = preState;
     startExternalCommand(m_activeOperation, command, generation,
                          [this, enabled, preState, generation](bool success,
                                                               bool timedOut) {
@@ -1050,8 +1128,12 @@ double DisplayManager::getCurrentRefreshRate()
 
 namespace {
 #ifdef Q_OS_WIN
-bool setRefreshRateWindowsImpl(double hz)
+bool setRefreshRateWindowsImpl(double hz,
+                               const NativeOperationGuard &shouldContinue)
 {
+    if (shouldContinue && !shouldContinue()) {
+        return false;
+    }
     qCDebug(lcDisplayTrace) << "DisplayManager::setRefreshRateWindows called with hz:" << hz;
     
     DEVMODE dm;
@@ -1094,6 +1176,9 @@ bool setRefreshRateWindowsImpl(double hz)
             dm.dmDisplayFrequency = exactHz;
             dm.dmFields = DM_DISPLAYFREQUENCY;
             
+            if (shouldContinue && !shouldContinue()) {
+                return false;
+            }
             LONG ret = ChangeDisplaySettingsEx(NULL, &dm, NULL, CDS_FULLSCREEN, NULL);
             if (ret == DISP_CHANGE_SUCCESSFUL) {
                 qCDebug(lcDisplayTrace) << "DisplayManager: Successfully set refresh rate to" << exactHz << "Hz (exact match for" << hz << ")";
@@ -1107,6 +1192,9 @@ bool setRefreshRateWindowsImpl(double hz)
         dm.dmFields = DM_DISPLAYFREQUENCY;
         
         // Use CDS_FULLSCREEN without CDS_UPDATEREGISTRY so we can restore to registry settings later
+        if (shouldContinue && !shouldContinue()) {
+            return false;
+        }
         LONG ret = ChangeDisplaySettingsEx(NULL, &dm, NULL, CDS_FULLSCREEN, NULL);
         if (ret == DISP_CHANGE_SUCCESSFUL) {
             qCDebug(lcDisplayTrace) << "DisplayManager: Successfully set refresh rate to" << targetHz << "Hz";
@@ -1131,19 +1219,28 @@ bool setRefreshRateWindowsImpl(double hz)
     return false;
 }
 
-bool restoreRefreshRateWindowsImpl(double targetHz, double baselineHz)
+bool restoreRefreshRateWindowsImpl(
+    double targetHz,
+    double baselineHz,
+    const NativeOperationGuard &shouldContinue)
 {
+    if (shouldContinue && !shouldContinue()) {
+        return false;
+    }
     const double restoreTarget = targetHz > 0.0 ? targetHz : baselineHz;
     if (restoreTarget > 0.0) {
         qCDebug(lcDisplayTrace) << "DisplayManager: Restoring display refresh to captured original rate"
                  << restoreTarget << "Hz";
-        if (setRefreshRateWindowsImpl(restoreTarget)) {
+        if (setRefreshRateWindowsImpl(restoreTarget, shouldContinue)) {
             return true;
         }
         qCWarning(lcDisplayTrace) << "DisplayManager: Failed to restore to captured rate, falling back to registry defaults";
     }
 
     qCDebug(lcDisplayTrace) << "DisplayManager: Restoring display settings to registry defaults";
+    if (shouldContinue && !shouldContinue()) {
+        return false;
+    }
     LONG ret = ChangeDisplaySettingsEx(NULL, NULL, NULL, 0, NULL);
     if (ret == DISP_CHANGE_SUCCESSFUL) {
         qCDebug(lcDisplayTrace) << "DisplayManager: Restored display settings";
@@ -1219,8 +1316,11 @@ void DisplayManager::launchBestEffortShutdownRestore()
         }
     }
     if (!commands.isEmpty()) {
+        // Match QProcess::startCommand tokenization for each configured command,
+        // then quote each token into one detached, ordered best-effort sequence.
+        const QString sequence = detachedCommandSequence(commands);
         QProcess::startDetached(QStringLiteral("/bin/sh"),
-                                {QStringLiteral("-c"), commands.join(QStringLiteral("; "))});
+                                {QStringLiteral("-c"), sequence});
     }
 #endif
 }

@@ -61,11 +61,12 @@ Display/HDR operation lifecycle
   thread. The existing stabilization delay is applied only after a real mode
   switch.
 - Linux refresh/HDR commands and Windows custom HDR commands run through an
-  event-driven `QProcess` with a 5-second deadline and separately capped 64 KiB
-  stdout/stderr buffers. Their descendant processes are isolated as a Unix
-  process group or Windows job so cancellation terminates the complete command
-  tree. Command contents are not logged. Native Windows HDR and refresh APIs run
-  off the GUI thread and have the same controller-visible deadline.
+  event-driven `QProcess`. `DisplayManagerOptions` configures the command
+  deadline (5 seconds by default) and per-stream stdout/stderr cap (64 KiB by
+  default). Their descendant processes are isolated as a Unix process group or
+  Windows job so cancellation terminates the complete command tree. Command
+  contents are not logged. Native Windows HDR and refresh APIs run off the GUI
+  thread and have the same controller-visible deadline.
 - A single operation generation invalidates stale command and native-operation
   completions. Windows native mutations are serialized; queued stale mutations
   check a process-lifetime generation before touching the display, and the

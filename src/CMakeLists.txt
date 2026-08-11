@@ -66,7 +66,6 @@ qt_add_executable(Bloom
     utils/InputModeManager.h
     utils/InputBindingManager.cpp
     utils/InputBindingManager.h
-    utils/DisplayManager.h
     utils/SidebarSettings.h
     utils/SidebarSettings.cpp
     utils/SystemPowerController.h

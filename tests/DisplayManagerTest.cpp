@@ -7,16 +7,9 @@
 
 #include "utils/ConfigManager.h"
 #include "utils/DisplayManager.h"
+#include "support/DisplayTestUtils.h"
 
 namespace {
-
-QString shellCommand(const QString &script)
-{
-    QString escaped = script;
-    escaped.replace(QLatin1Char('"'), QStringLiteral("\\\""));
-    return QStringLiteral("/bin/sh -c \"%1\"").arg(escaped);
-}
-
 DisplayManagerOptions fastOptions()
 {
     DisplayManagerOptions options;
@@ -43,10 +36,12 @@ class DisplayManagerTest : public QObject
 private slots:
     void hdrCommandIsNonBlockingAndDeadlineBounded();
     void commandOutputCaptureIsBounded();
+    void missingHdrCommandDoesNotCreateRestoreState();
     void replacementCancelsStaleCompletion();
     void compatibleRefreshMultipleSkipsCommand();
     void refreshCommandSubstitutesFractionalAndIntegerRates();
     void destructionDoesNotWaitForCommand();
+    void shutdownRestoreAttemptsRefreshAfterHdrFailure();
 };
 
 void DisplayManagerTest::hdrCommandIsNonBlockingAndDeadlineBounded()
@@ -55,7 +50,7 @@ void DisplayManagerTest::hdrCommandIsNonBlockingAndDeadlineBounded()
     QSKIP("Linux custom-command integration test");
 #else
     ConfigManager config;
-    config.setLinuxHDRCommand(shellCommand(QStringLiteral("sleep 2")));
+    config.setLinuxHDRCommand(BloomTest::shellCommand(QStringLiteral("sleep 2")));
     DisplayManager manager(&config, fastOptions());
     QSignalSpy hdrSpy(&manager, &DisplayManager::hdrChangeFinished);
     QSignalSpy operationSpy(&manager, &DisplayManager::displayOperationMeasured);
@@ -72,7 +67,7 @@ void DisplayManagerTest::hdrCommandIsNonBlockingAndDeadlineBounded()
     QCOMPARE(operationSpy.first().at(3).toBool(), true);
     QCOMPARE(manager.diagnostics().value(QStringLiteral("operationsTimedOut"))
                  .toULongLong(), quint64(1));
-    config.setLinuxHDRCommand(shellCommand(QStringLiteral("true")));
+    config.setLinuxHDRCommand(BloomTest::shellCommand(QStringLiteral("true")));
     manager.setHDRAsync(false);
     QTRY_COMPARE_WITH_TIMEOUT(hdrSpy.count(), 2, 1000);
 #endif
@@ -84,9 +79,9 @@ void DisplayManagerTest::commandOutputCaptureIsBounded()
     QSKIP("Linux custom-command integration test");
 #else
     ConfigManager config;
-    config.setLinuxHDRCommand(shellCommand(
-        QStringLiteral("yes output | head -c 100000; "
-                       "yes error | head -c 100000 >&2; exit 7")));
+    config.setLinuxHDRCommand(BloomTest::shellCommand(
+        QStringLiteral("yes output | head -c 4096; "
+                       "yes error | head -c 4096 >&2; exit 7")));
     DisplayManager manager(&config, fastOptions());
     QSignalSpy hdrSpy(&manager, &DisplayManager::hdrChangeFinished);
 
@@ -94,10 +89,25 @@ void DisplayManagerTest::commandOutputCaptureIsBounded()
     QTRY_COMPARE_WITH_TIMEOUT(hdrSpy.count(), 1, 2000);
     QCOMPARE(hdrSpy.first().at(1).toBool(), false);
     const QVariantMap diagnostics = manager.diagnostics();
-    QVERIFY(diagnostics.value(QStringLiteral("capturedStdoutBytes")).toLongLong()
-            == fastOptions().maximumCommandOutputBytes);
-    QVERIFY(diagnostics.value(QStringLiteral("capturedStderrBytes")).toLongLong()
-            == fastOptions().maximumCommandOutputBytes);
+    QCOMPARE(diagnostics.value(QStringLiteral("capturedStdoutBytes")).toLongLong(),
+             fastOptions().maximumCommandOutputBytes);
+    QCOMPARE(diagnostics.value(QStringLiteral("capturedStderrBytes")).toLongLong(),
+             fastOptions().maximumCommandOutputBytes);
+    QVERIFY(!manager.needsHdrRestore());
+#endif
+}
+
+void DisplayManagerTest::missingHdrCommandDoesNotCreateRestoreState()
+{
+#ifdef Q_OS_WIN
+    QSKIP("Linux custom-command integration test");
+#else
+    ConfigManager config;
+    DisplayManager manager(&config, fastOptions());
+
+    manager.setHDRAsync(true);
+    manager.cancelPendingOperations();
+
     QVERIFY(!manager.needsHdrRestore());
 #endif
 }
@@ -111,14 +121,14 @@ void DisplayManagerTest::replacementCancelsStaleCompletion()
     QVERIFY(directory.isValid());
     const QString marker = directory.filePath(QStringLiteral("state.txt"));
     ConfigManager config;
-    config.setLinuxHDRCommand(shellCommand(
+    config.setLinuxHDRCommand(BloomTest::shellCommand(
         QStringLiteral("sleep 0.4; printf stale > %1").arg(marker)));
     DisplayManager manager(&config, fastOptions());
     QSignalSpy hdrSpy(&manager, &DisplayManager::hdrChangeFinished);
 
     manager.setHDRAsync(true);
     QTest::qWait(50);
-    config.setLinuxHDRCommand(shellCommand(
+    config.setLinuxHDRCommand(BloomTest::shellCommand(
         QStringLiteral("printf current > %1").arg(marker)));
     manager.setHDRAsync(false);
 
@@ -146,7 +156,7 @@ void DisplayManagerTest::compatibleRefreshMultipleSkipsCommand()
     const QString marker = directory.filePath(QStringLiteral("unexpected.txt"));
     ConfigManager config;
     config.setSkipRefreshRateOnCompatibleMultiple(true);
-    config.setLinuxRefreshRateCommand(shellCommand(
+    config.setLinuxRefreshRateCommand(BloomTest::shellCommand(
         QStringLiteral("printf switched > %1").arg(marker)));
     DisplayManager manager(&config, fastOptions());
     QSignalSpy changeSpy(&manager, &DisplayManager::refreshRateChangeFinished);
@@ -170,7 +180,7 @@ void DisplayManagerTest::refreshCommandSubstitutesFractionalAndIntegerRates()
     QVERIFY(directory.isValid());
     const QString marker = directory.filePath(QStringLiteral("rate.txt"));
     ConfigManager config;
-    config.setLinuxRefreshRateCommand(shellCommand(
+    config.setLinuxRefreshRateCommand(BloomTest::shellCommand(
         QStringLiteral("printf {RATE}:{RATE_INT} > %1").arg(marker)));
     DisplayManager manager(&config, fastOptions());
     QSignalSpy changeSpy(&manager, &DisplayManager::refreshRateChangeFinished);
@@ -196,16 +206,47 @@ void DisplayManagerTest::destructionDoesNotWaitForCommand()
     QSKIP("Linux custom-command integration test");
 #else
     ConfigManager config;
-    config.setLinuxHDRCommand(shellCommand(QStringLiteral("sleep 2")));
+    config.setLinuxHDRCommand(BloomTest::shellCommand(QStringLiteral("sleep 2")));
     auto *manager = new DisplayManager(&config, fastOptions());
     manager->setHDRAsync(true);
-    config.setLinuxHDRCommand(shellCommand(QStringLiteral("true")));
+    config.setLinuxHDRCommand(BloomTest::shellCommand(QStringLiteral("true")));
 
     QElapsedTimer timer;
     timer.start();
     delete manager;
     QVERIFY2(timer.elapsed() < 50, "DisplayManager destruction blocked on a command");
     QTest::qWait(50);
+#endif
+}
+
+void DisplayManagerTest::shutdownRestoreAttemptsRefreshAfterHdrFailure()
+{
+#ifdef Q_OS_WIN
+    QSKIP("Linux custom-command integration test");
+#else
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString marker = directory.filePath(QStringLiteral("restore-order.txt"));
+    ConfigManager config;
+    config.setSkipRefreshRateOnCompatibleMultiple(false);
+    config.setLinuxHDRCommand(BloomTest::shellCommand(QStringLiteral("true")));
+    config.setLinuxRefreshRateCommand(BloomTest::shellCommand(QStringLiteral("true")));
+    auto *manager = new DisplayManager(&config, fastOptions());
+    QSignalSpy hdrSpy(manager, &DisplayManager::hdrChangeFinished);
+    QSignalSpy refreshSpy(manager, &DisplayManager::refreshRateChangeFinished);
+
+    manager->setHDRAsync(true);
+    QTRY_COMPARE_WITH_TIMEOUT(hdrSpy.count(), 1, 1000);
+    manager->setRefreshRateAsync(23.976);
+    QTRY_COMPARE_WITH_TIMEOUT(refreshSpy.count(), 1, 1000);
+
+    config.setLinuxHDRCommand(BloomTest::shellCommand(
+        QStringLiteral("printf hdr >> %1; exit 7").arg(marker)));
+    config.setLinuxRefreshRateCommand(BloomTest::shellCommand(
+        QStringLiteral("printf refresh >> %1").arg(marker)));
+    delete manager;
+
+    QTRY_COMPARE_WITH_TIMEOUT(readFile(marker), QStringLiteral("hdrrefresh"), 2000);
 #endif
 }
 

@@ -2,6 +2,7 @@
 #include <QtTest/QSignalSpy>
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUrl>
@@ -17,15 +18,7 @@
 #include "utils/ConfigManager.h"
 #include "utils/DisplayManager.h"
 #include "utils/TrackPreferencesManager.h"
-
-namespace {
-QString displayTestShellCommand(const QString &script)
-{
-    QString escaped = script;
-    escaped.replace(QLatin1Char('"'), QStringLiteral("\\\""));
-    return QStringLiteral("/bin/sh -c \"%1\"").arg(escaped);
-}
-}
+#include "support/DisplayTestUtils.h"
 
 class FakePlayerBackend final : public IPlayerBackend
 {
@@ -3347,14 +3340,19 @@ void PlayerControllerAutoplayContextTest::playbackWaitsForAsynchronousHdrAndRefr
 #ifdef Q_OS_WIN
     QSKIP("Linux custom display-command integration test");
 #else
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString sequenceMarker = directory.filePath(QStringLiteral("display-order.txt"));
     ConfigManager config;
     config.setEnableHDR(true);
     config.setHDROutputMode(QStringLiteral("match-content"));
     config.setEnableFramerateMatching(true);
     config.setFramerateMatchDelay(0);
-    config.setLinuxHDRCommand(displayTestShellCommand(QStringLiteral("sleep 0.15")));
+    config.setLinuxHDRCommand(BloomTest::shellCommand(
+        QStringLiteral("printf hdr >> %1; sleep 1").arg(sequenceMarker)));
     config.setLinuxRefreshRateCommand(
-        displayTestShellCommand(QStringLiteral("sleep 0.15")));
+        BloomTest::shellCommand(
+            QStringLiteral("printf refresh >> %1; sleep 1").arg(sequenceMarker)));
     TrackPreferencesManager trackPrefs;
     DisplayManager displayManager(&config);
     AuthenticationService authService(nullptr);
@@ -3383,7 +3381,11 @@ void PlayerControllerAutoplayContextTest::playbackWaitsForAsynchronousHdrAndRefr
 
     QTRY_COMPARE_WITH_TIMEOUT(
         backend.lastStartUrl,
-        QStringLiteral("https://example.invalid/async-display"), 3000);
+        QStringLiteral("https://example.invalid/async-display"), 5000);
+    QFile sequenceFile(sequenceMarker);
+    QVERIFY(sequenceFile.open(QIODevice::ReadOnly | QIODevice::Text));
+    QCOMPARE(QString::fromUtf8(sequenceFile.readAll()),
+             QStringLiteral("hdrrefresh"));
     QVERIFY(displayManager.needsHdrRestore());
     QVERIFY(displayManager.needsRefreshRestore());
 #endif
@@ -3398,7 +3400,7 @@ void PlayerControllerAutoplayContextTest::displayTimeoutDoesNotFreezePlaybackSta
     config.setEnableHDR(true);
     config.setHDROutputMode(QStringLiteral("match-content"));
     config.setEnableFramerateMatching(false);
-    config.setLinuxHDRCommand(displayTestShellCommand(QStringLiteral("sleep 2")));
+    config.setLinuxHDRCommand(BloomTest::shellCommand(QStringLiteral("sleep 2")));
     TrackPreferencesManager trackPrefs;
     DisplayManagerOptions options;
     options.commandDeadlineMs = 100;
@@ -3430,7 +3432,7 @@ void PlayerControllerAutoplayContextTest::displayTimeoutDoesNotFreezePlaybackSta
         backend.lastStartUrl,
         QStringLiteral("https://example.invalid/display-timeout"), 1000);
 
-    config.setLinuxHDRCommand(displayTestShellCommand(QStringLiteral("true")));
+    config.setLinuxHDRCommand(BloomTest::shellCommand(QStringLiteral("true")));
     displayManager.setHDRAsync(false);
     QTRY_COMPARE_WITH_TIMEOUT(hdrSpy.count(), 2, 1000);
 #endif
