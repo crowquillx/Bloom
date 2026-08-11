@@ -81,7 +81,7 @@ Backend selection notes
 Note: Avoid tightly coupling multiple services. Prefer small, single-purpose services and keep interface clear.
 
 Series/Season detail caching (December 2025)
-- `LibraryService::getSeriesDetails` and `getItems` honor `ETag/If-None-Match` and `If-Modified-Since` when `useCacheValidation=true` (SeriesDetailsViewModel uses this for series + season episode lists). 304 responses are surfaced via `seriesDetailsNotModified` / `itemsNotModified`.
+- `LibraryService::getSeriesDetails` and `getItems` honor `ETag/If-None-Match` and `If-Modified-Since` when `useCacheValidation=true` (SeriesDetailsViewModel uses this for series + season episode lists). 304 responses are surfaced through the connection-scoped `canonicalSeriesDetailsNotModified` / `canonicalItemsNotModifiedForConnection` signals.
 - `LibraryService::getChapters(itemId)` fetches Jellyfin item `Chapters`, requests chapter image metadata, normalizes missing titles to `Chapter N`, and emits typed chapter data reusable outside playback. `getCachedChapterThumbnailUrl(...)` mirrors the Jellyfin client pattern of requesting `/Items/{itemId}/Images/Chapter/{chapterIndex}` with the chapter image tag when present; the UI keeps a neutral placeholder visible until the image provider reports a ready frame.
 - Series details and season/episode lists are cached in-memory (≈5 min TTL) and on disk under `cache/series` (≈1 hour TTL). Cache is served immediately (SWR) and revalidated in the background; stale data stays visible until refresh completes.
 - Prefetch: when navigating seasons, the view model prefetches the next two seasons' episodes (bounded, cancelable) to reduce focus-to-episodes latency.

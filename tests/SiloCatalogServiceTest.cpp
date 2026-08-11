@@ -193,6 +193,14 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     QCOMPARE(request.relativeEndpoint,
              QStringLiteral("/api/v1/catalog?source=query&include_technical=true"));
 
+    request = provider.createRequest(ProviderCatalogOperation::LatestMedia, query);
+    QVERIFY(request.supported);
+    const QUrlQuery latestParameters{QUrl(request.relativeEndpoint)};
+    QCOMPARE(latestParameters.queryItemValue(QStringLiteral("sort")),
+             QStringLiteral("added_at"));
+    QCOMPARE(latestParameters.queryItemValue(QStringLiteral("order")),
+             QStringLiteral("desc"));
+
     ProviderCatalogQuery paged;
     paged.snapshot = QStringLiteral("opaque/snapshot + token");
     request = provider.createRequest(ProviderCatalogOperation::Items, paged);
@@ -270,8 +278,8 @@ void SiloCatalogServiceTest::structuredFiltersUseNativeQueryBody()
     query.includeItemTypes = {QStringLiteral("Movie"), QStringLiteral("Series")};
     query.watched = ProviderCatalogTriState::No;
     query.favorite = ProviderCatalogTriState::Yes;
-    query.sortBy = QStringLiteral("PremiereDate");
-    query.sortOrder = QStringLiteral("Descending");
+    query.sortBy = QStringLiteral("releaseDate");
+    query.sortOrder = QStringLiteral("descending");
 
     const ProviderCatalogRequest request = provider.createRequest(
         ProviderCatalogOperation::Items, query);
@@ -389,6 +397,18 @@ void SiloCatalogServiceTest::unsupportedFiltersAreExplicit()
 
     query = {};
     query.sortBy = QStringLiteral("unsupported-sort");
+    verifyUnsupported(ProviderCatalogOperation::Items, query);
+
+    query = {};
+    query.sortBy = QStringLiteral("PremiereDate");
+    verifyUnsupported(ProviderCatalogOperation::Items, query);
+
+    query = {};
+    query.sortOrder = QStringLiteral("desc");
+    verifyUnsupported(ProviderCatalogOperation::Items, query);
+
+    query = {};
+    query.sortOrder = QStringLiteral("sideways");
     verifyUnsupported(ProviderCatalogOperation::Items, query);
 
     query = {};

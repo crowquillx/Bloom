@@ -182,10 +182,6 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     // Connect to LibraryService for autoplay next episode
     connect(m_libraryService, &LibraryService::canonicalNextUnplayedEpisodeLoaded,
             this, &PlayerController::onNextEpisodeLoaded);
-    connect(m_libraryService, &LibraryService::seriesDetailsLoaded,
-            this, &PlayerController::onSeriesDetailsLoaded);
-    connect(m_libraryService, &LibraryService::seriesDetailsNotModified,
-            this, &PlayerController::onSeriesDetailsNotModified);
     connect(m_libraryService, &LibraryService::itemLibraryResolved,
             this, &PlayerController::onItemLibraryResolved);
     connect(m_libraryService, &LibraryService::itemLibraryResolutionFailed,
@@ -2106,17 +2102,6 @@ void PlayerController::requestPlayback(const QVariantMap &request)
 
     m_playbackService->getPlaybackInfo(itemId, pending.requestId);
     m_playbackService->getAdditionalParts(itemId, pending.requestId);
-}
-
-void PlayerController::onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData)
-{
-    Q_UNUSED(seriesId);
-    Q_UNUSED(seriesData);
-}
-
-void PlayerController::onSeriesDetailsNotModified(const QString &seriesId)
-{
-    Q_UNUSED(seriesId);
 }
 
 void PlayerController::onItemLibraryResolved(const QString &itemId, const QString &libraryId)

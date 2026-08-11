@@ -44,6 +44,11 @@ target. Keep language, track, HDR, version, completion, and autoplay policy free
 of I/O and `QObject`; `PlayerController` remains the stable QML-facing facade
 and state coordinator documented in `docs/playback.md`.
 
+Provider wire DTOs stay inside provider adapters and `LibraryService` request
+handling. Migrated view models, QML, and player code consume connection-scoped
+canonical projections only; do not reintroduce raw DTO signals or PascalCase
+wire-key fallbacks.
+
 Build & run (blessed path):
 ```
 nix build

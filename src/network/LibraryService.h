@@ -1,8 +1,6 @@
 #pragma once
 
 #include <QObject>
-#include <QJsonArray>
-#include <QJsonObject>
 #include <QStringList>
 #include <QNetworkReply>
 #include <QHash>
@@ -168,8 +166,6 @@ public:
     QNetworkReply* pingServer();
 
 signals:
-    void viewsLoaded(const QJsonArray &views);
-    void canonicalViewsLoaded(const QVariantList &views);
     void canonicalViewsLoadedForConnection(const QString &connectionId,
                                            const QVariantList &views);
     void canonicalViewsLoadedForRequest(const QString &connectionId,
@@ -178,13 +174,6 @@ signals:
     void canonicalViewsFailedForRequest(const QString &connectionId,
                                         const QString &requestKey,
                                         const QString &error);
-    void itemsLoaded(const QString &parentId, const QJsonArray &items);
-    void itemsLoadedWithTotal(const QString &parentId, const QJsonArray &items, int totalRecordCount);
-    void itemsLoadedWithTotalForQuery(const QString &parentId, const QString &queryKey, const QJsonArray &items, int totalRecordCount);
-    void canonicalItemsLoadedWithTotalForQuery(const QString &parentId,
-                                               const QString &queryKey,
-                                               const QVariantList &items,
-                                               int totalRecordCount);
     void canonicalItemsLoadedForConnection(const QString &connectionId,
                                            const QString &parentId,
                                            const QString &queryKey,
@@ -194,8 +183,6 @@ signals:
                                            const QString &parentId,
                                            const QString &requestKey,
                                            const QString &error);
-    void itemsNotModified(const QString &parentId);
-    void itemsNotModifiedForQuery(const QString &parentId, const QString &queryKey);
     void canonicalItemsNotModifiedForConnection(const QString &connectionId,
                                                 const QString &parentId,
                                                 const QString &queryKey);
@@ -214,11 +201,7 @@ signals:
                                        const QString &requestKey,
                                        const QString &error);
     
-    // Generic Item Signals
-    void itemLoaded(const QString &itemId, const QJsonObject &data);
-    void itemLoaded(const QString &itemId, const QJsonObject &data, const QString &requestContext);
     // Provider-neutral camelCase item projections (mapped once at the service boundary).
-    // Raw itemLoaded signals remain for unmigrated callers during the catalog migration.
     void canonicalItemLoaded(const QString &itemId, const QVariantMap &item);
     void canonicalItemLoaded(const QString &itemId, const QVariantMap &item, const QString &requestContext);
     void itemLibraryResolved(const QString &itemId, const QString &libraryId);
@@ -226,7 +209,6 @@ signals:
     void itemNotModified(const QString &itemId);
     void itemNotModified(const QString &itemId, const QString &requestContext);
     void itemFailed(const QString &itemId, const QString &error, const QString &requestContext);
-    void itemUserDataChanged(const QString &itemId, const QJsonObject &userData);
     void canonicalChaptersLoaded(const QString &connectionId,
                                  const QString &itemId,
                                  const QVariantList &chapters);
@@ -234,13 +216,10 @@ signals:
                        const QString &itemId,
                        const QString &error);
 
-    void nextUpLoaded(const QJsonArray &items);
     void canonicalNextUpLoaded(const QString &connectionId, const QVariantList &items);
-    void latestMediaLoaded(const QString &parentId, const QJsonArray &items);
     void canonicalLatestMediaLoaded(const QString &connectionId,
                                     const QString &parentId,
                                     const QVariantList &items);
-    void homeBackdropItemsLoaded(const QJsonArray &items);
     void canonicalHomeBackdropItemsLoaded(const QString &connectionId,
                                           const QVariantList &items);
     void canonicalHomeBackdropItemsFailed(const QString &connectionId,
@@ -249,22 +228,17 @@ signals:
                                          const QVariantList &items);
     void canonicalScreensaverItemsFailed(const QString &connectionId,
                                          const QString &error);
-    void seriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
     void canonicalSeriesDetailsLoaded(const QString &connectionId,
                                       const QString &seriesId,
                                       const QVariantMap &seriesData);
-    void seriesDetailsNotModified(const QString &seriesId);
     void canonicalSeriesDetailsNotModified(const QString &connectionId,
                                            const QString &seriesId);
     void canonicalSeriesDetailsFailed(const QString &connectionId,
                                       const QString &seriesId,
                                       const QString &error);
-    void similarItemsLoaded(const QString &itemId, const QJsonArray &items);
-    void canonicalSimilarItemsLoaded(const QString &itemId, const QVariantList &items);
     void canonicalSimilarItemsLoadedForConnection(const QString &connectionId,
                                                   const QString &itemId,
                                                   const QVariantList &items);
-    void similarItemsFailed(const QString &itemId, const QString &error);
     void canonicalSimilarItemsFailedForConnection(const QString &connectionId,
                                                   const QString &itemId,
                                                   const QString &error);
@@ -290,12 +264,10 @@ signals:
                                     const QVariantList &items);
     void canonicalRandomItemsFailed(const QString &connectionId,
                                     const QString &error);
-    void heroLibraryItemsLoaded(const QJsonArray &items);
     void canonicalHeroLibraryItemsLoaded(const QString &connectionId,
                                          const QVariantList &items);
     void canonicalHeroLibraryItemsFailed(const QString &connectionId,
                                          const QString &error);
-    void heroSeriesOverviewsLoaded(const QJsonObject &overviewsBySeriesId);
     void canonicalHeroSeriesOverviewsLoaded(const QString &connectionId,
                                             const QVariantMap &overviewsBySeriesId);
     
@@ -340,8 +312,6 @@ private:
                           const QString &message,
                           FailureHandler failureHandler = FailureHandler(),
                           int code = -1);
-    void emitItemStateResponse(const QString &itemId,
-                               const ProviderCatalogResponse &response);
     void emitError(const NetworkError &error);
 
     QSet<QString> m_inFlightChapterRequests;

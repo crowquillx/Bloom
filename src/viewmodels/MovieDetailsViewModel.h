@@ -161,8 +161,12 @@ signals:
 private slots:
     void onMovieDetailsLoaded(const QString &itemId, const QVariantMap &data);
     void onMovieDetailsNotModified(const QString &itemId);
-    void onSimilarItemsLoaded(const QString &itemId, const QVariantList &items);
-    void onSimilarItemsFailed(const QString &itemId, const QString &error);
+    void onSimilarItemsLoaded(const QString &connectionId,
+                              const QString &itemId,
+                              const QVariantList &items);
+    void onSimilarItemsFailed(const QString &connectionId,
+                              const QString &itemId,
+                              const QString &error);
     void onMovieChaptersLoaded(const QString &connectionId,
                                const QString &itemId,
                                const QVariantList &chapters);
@@ -179,6 +183,8 @@ private:
     void compileRatings();
     void applyMovieChapters(const QString &movieId, const QVariantList &chapters);
     void setMovieChaptersLoading(bool loading);
+    void requestSimilarItems(const QString &itemId);
+    void resetSimilarItemsRequest();
 
     LibraryService *m_libraryService = nullptr;
     QNetworkAccessManager *m_networkManager = nullptr;
@@ -204,6 +210,7 @@ private:
     QVariantList m_similarItems;
     bool m_similarItemsAttempted = false;
     bool m_similarItemsLoading = false;
+    QString m_similarItemsRequestConnectionId;
     QDateTime m_premiereDate;
 
     QJsonObject m_movieData;

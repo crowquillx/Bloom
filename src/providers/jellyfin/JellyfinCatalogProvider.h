@@ -8,6 +8,7 @@
 #include <QUrlQuery>
 #include <QtGlobal>
 #include <algorithm>
+#include <optional>
 
 class JellyfinCatalogProvider final : public ICatalogProvider
 {
@@ -232,6 +233,46 @@ private:
         }
     }
 
+    static std::optional<QString> nativeSort(const QString &canonicalSort)
+    {
+        if (canonicalSort.isEmpty() || canonicalSort == QStringLiteral("libraryOrder")) {
+            return QStringLiteral("ParentIndexNumber,IndexNumber,SortName");
+        }
+        if (canonicalSort == QStringLiteral("title")) {
+            return QStringLiteral("SortName");
+        }
+        if (canonicalSort == QStringLiteral("releaseDate")) {
+            return QStringLiteral("PremiereDate");
+        }
+        if (canonicalSort == QStringLiteral("dateAdded")) {
+            return QStringLiteral("DateCreated");
+        }
+        if (canonicalSort == QStringLiteral("rating")) {
+            return QStringLiteral("CommunityRating");
+        }
+        if (canonicalSort == QStringLiteral("year")) {
+            return QStringLiteral("ProductionYear");
+        }
+        if (canonicalSort == QStringLiteral("random")) {
+            return QStringLiteral("Random");
+        }
+        return std::nullopt;
+    }
+
+    static std::optional<QString> nativeSortOrder(const QString &canonicalOrder)
+    {
+        if (canonicalOrder.isEmpty()) {
+            return QString();
+        }
+        if (canonicalOrder == QStringLiteral("ascending")) {
+            return QStringLiteral("Ascending");
+        }
+        if (canonicalOrder == QStringLiteral("descending")) {
+            return QStringLiteral("Descending");
+        }
+        return std::nullopt;
+    }
+
     static QStringList standardItemFields(bool includeHeavyFields)
     {
         QStringList fields = {
@@ -314,6 +355,11 @@ private:
         if (!validation.supported) {
             return validation;
         }
+        const std::optional<QString> sort = nativeSort(query.sortBy);
+        const std::optional<QString> sortOrder = nativeSortOrder(query.sortOrder);
+        if (!sort || !sortOrder) {
+            return unsupported(QStringLiteral("Unsupported Jellyfin catalog sort"));
+        }
 
         QUrl url(QStringLiteral("/Users/%1/Items").arg(encodedPathSegment(query.userId)));
         QUrlQuery urlQuery;
@@ -389,10 +435,9 @@ private:
         }
         urlQuery.addQueryItem(
             QStringLiteral("SortBy"),
-            query.sortBy.isEmpty()
-                ? QStringLiteral("ParentIndexNumber,IndexNumber,SortName") : query.sortBy);
-        if (!query.sortOrder.isEmpty()) {
-            urlQuery.addQueryItem(QStringLiteral("SortOrder"), query.sortOrder);
+            *sort);
+        if (!sortOrder->isEmpty()) {
+            urlQuery.addQueryItem(QStringLiteral("SortOrder"), *sortOrder);
         }
         url.setQuery(urlQuery);
 

@@ -405,8 +405,6 @@ private slots:
                              const QString &seriesId,
                              const QVariantMap &episodeData,
                              const QString &requestContext);
-    void onSeriesDetailsLoaded(const QString &seriesId, const QJsonObject &seriesData);
-    void onSeriesDetailsNotModified(const QString &seriesId);
     void onPlaybackInfoLoaded(const QString &itemId, const PlaybackInfoResponse &playbackInfo);
     void onPlaybackInfoLoadedForRequest(const QString &itemId,
                                         const PlaybackInfoResponse &playbackInfo,

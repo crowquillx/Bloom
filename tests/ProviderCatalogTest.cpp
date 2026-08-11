@@ -19,6 +19,7 @@ class ProviderCatalogTest : public QObject
 
 private slots:
     void jellyfinItemsRequestRetainsNativeContract();
+    void jellyfinCanonicalSortKeysMapAtProviderBoundary();
     void jellyfinReservedIdentifiersAndLimitsRemainOpaque();
     void jellyfinMutationsAndPaginationRemainCompatible();
     void siloTrackIndicesAndMultipartFallbackStayContiguous();
@@ -29,6 +30,44 @@ private slots:
     void siloNumericSeasonRoutesAndEnvelopeOperation();
 
 };
+
+void ProviderCatalogTest::jellyfinCanonicalSortKeysMapAtProviderBoundary()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    const QList<QPair<QString, QString>> sortCases = {
+        {QString(), QStringLiteral("ParentIndexNumber,IndexNumber,SortName")},
+        {QStringLiteral("title"), QStringLiteral("SortName")},
+        {QStringLiteral("releaseDate"), QStringLiteral("PremiereDate")},
+        {QStringLiteral("dateAdded"), QStringLiteral("DateCreated")},
+        {QStringLiteral("rating"), QStringLiteral("CommunityRating")},
+        {QStringLiteral("year"), QStringLiteral("ProductionYear")},
+        {QStringLiteral("random"), QStringLiteral("Random")},
+    };
+    for (const auto &[canonical, native] : sortCases) {
+        ProviderCatalogQuery query;
+        query.userId = QStringLiteral("user-1");
+        query.sortBy = canonical;
+        query.sortOrder = QStringLiteral("descending");
+        const ProviderCatalogRequest request = catalog->createRequest(
+            ProviderCatalogOperation::Items, query);
+        QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+        const QUrlQuery parameters{QUrl(request.relativeEndpoint)};
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("SortBy")), native);
+        QCOMPARE(parameters.queryItemValue(QStringLiteral("SortOrder")),
+                 QStringLiteral("Descending"));
+    }
+
+    ProviderCatalogQuery invalid;
+    invalid.userId = QStringLiteral("user-1");
+    invalid.sortBy = QStringLiteral("PremiereDate");
+    const ProviderCatalogRequest rejected = catalog->createRequest(
+        ProviderCatalogOperation::Items, invalid);
+    QVERIFY(!rejected.supported);
+    QVERIFY(!rejected.unsupportedReason.isEmpty());
+}
 
 void ProviderCatalogTest::jellyfinItemsRequestRetainsNativeContract()
 {
@@ -44,8 +83,8 @@ void ProviderCatalogTest::jellyfinItemsRequestRetainsNativeContract()
     query.searchTerm = QStringLiteral("Alien");
     query.genres = {QStringLiteral("Science Fiction"), QStringLiteral("Drama")};
     query.includeItemTypes = {QStringLiteral("Movie")};
-    query.sortBy = QStringLiteral("PremiereDate");
-    query.sortOrder = QStringLiteral("Descending");
+    query.sortBy = QStringLiteral("releaseDate");
+    query.sortOrder = QStringLiteral("descending");
     query.watched = ProviderCatalogTriState::No;
     query.recursive = true;
     query.useCacheValidation = true;

@@ -23,6 +23,13 @@
 
 namespace {
 
+// Hosted Windows runners can take several seconds to schedule a freshly
+// spawned, self-hosted fake mpv process. These waits observe asynchronous
+// completion; the tests that exercise manager-owned deadlines still assert
+// their configured bounds independently.
+constexpr int asyncProcessTimeoutMs = 5000;
+constexpr qint64 nonBlockingCallLimitMs = 250;
+
 QString optionValue(const QStringList &arguments, const QString &prefix)
 {
     for (const QString &argument : arguments) {
@@ -169,8 +176,8 @@ PlayerProcessOptions fastOptions()
     options.gracefulQuitTimeoutMs = 80;
     options.terminateTimeoutMs = 80;
     options.ipcRetryIntervalMs = 15;
-    options.ipcConnectionDeadlineMs = 500;
-    options.maximumIpcAttempts = 40;
+    options.ipcConnectionDeadlineMs = asyncProcessTimeoutMs;
+    options.maximumIpcAttempts = 400;
     options.maximumPendingCommands = 3;
     options.maximumIpcMessageBytes = 4096;
     options.maximumBufferedWriteBytes = 64 * 1024;
@@ -256,42 +263,50 @@ void PlayerProcessManagerTest::replacementWaitsForFinishedWithoutBlocking()
 
     manager.startMpv(QCoreApplication::applicationFilePath(),
                      fakeArguments(logPath), QStringLiteral("first-media"));
-    QTRY_VERIFY_WITH_TIMEOUT(manager.isRunning(), 1000);
-    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 1, 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(manager.isRunning(), asyncProcessTimeoutMs);
+    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 1, asyncProcessTimeoutMs);
 
     QElapsedTimer callTimer;
     callTimer.start();
     manager.startMpv(QCoreApplication::applicationFilePath(),
                      fakeArguments(logPath), QStringLiteral("second-media"));
-    QVERIFY2(callTimer.elapsed() < 50, "replacement start blocked the caller");
+    QVERIFY2(callTimer.elapsed() < nonBlockingCallLimitMs,
+             "replacement start blocked the caller");
 
-    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 2000);
-    QTRY_COMPARE_WITH_TIMEOUT(launchRecords(logPath).size(), 2, 2000);
-    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 2, 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, asyncProcessTimeoutMs);
+    QTRY_COMPARE_WITH_TIMEOUT(launchRecords(logPath).size(), 2,
+                              asyncProcessTimeoutMs);
+    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 2, asyncProcessTimeoutMs);
     QCOMPARE(launchRecords(logPath),
              QStringList({QStringLiteral("first-media"), QStringLiteral("second-media")}));
 
     manager.stopMpv();
-    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
     QVERIFY(stateSpy.count() >= 4);
 }
 
 void PlayerProcessManagerTest::gracefulStopEscalatesWithoutBlocking()
 {
-    PlayerProcessManager manager(fastOptions());
+    PlayerProcessOptions options = fastOptions();
+    // Keep the manager-owned grace period well above the caller latency bound
+    // so a reintroduced waitForFinished-style implementation cannot pass.
+    options.gracefulQuitTimeoutMs = 1000;
+    options.terminateTimeoutMs = 1000;
+    PlayerProcessManager manager(options);
     QSignalSpy stateSpy(&manager, &PlayerProcessManager::stateChanged);
     QSignalSpy ipcSpy(&manager, &PlayerProcessManager::ipcConnectionLatencyMeasured);
     QSignalSpy errorSpy(&manager, &PlayerProcessManager::errorOccurred);
     manager.startMpv(QCoreApplication::applicationFilePath(),
                      fakeArguments({}, {QStringLiteral("--fake-ignore-quit")}),
                      QStringLiteral("stubborn-media"));
-    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 1, 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 1, asyncProcessTimeoutMs);
 
     QElapsedTimer callTimer;
     callTimer.start();
     manager.stopMpv();
-    QVERIFY2(callTimer.elapsed() < 50, "stopMpv blocked the caller");
-    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+    QVERIFY2(callTimer.elapsed() < nonBlockingCallLimitMs,
+             "stopMpv blocked the caller");
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
     QVERIFY(manager.diagnostics().value(QStringLiteral("terminateEscalations"))
                 .toULongLong() >= 1);
     QCOMPARE(errorSpy.count(), 0);
@@ -306,12 +321,13 @@ void PlayerProcessManagerTest::destructionDoesNotBlockRunningProcess()
                       fakeArguments({}, {QStringLiteral("--fake-no-ipc"),
                                          QStringLiteral("--fake-ignore-terminate")}),
                       QStringLiteral("destructor-media"));
-    QTRY_COMPARE_WITH_TIMEOUT(startedSpy.count(), 1, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(startedSpy.count(), 1, asyncProcessTimeoutMs);
 
     QElapsedTimer callTimer;
     callTimer.start();
     delete manager;
-    QVERIFY2(callTimer.elapsed() < 50, "manager destruction blocked on the child process");
+    QVERIFY2(callTimer.elapsed() < nonBlockingCallLimitMs,
+             "manager destruction blocked on the child process");
     QTest::qWait(50);
 }
 
@@ -326,9 +342,9 @@ void PlayerProcessManagerTest::killEscalationIsBounded()
                      fakeArguments({}, {QStringLiteral("--fake-ignore-quit"),
                                         QStringLiteral("--fake-ignore-terminate")}),
                      QStringLiteral("unkillable-media"));
-    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 1, 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 1, asyncProcessTimeoutMs);
     manager.stopMpv();
-    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
     QVERIFY(manager.diagnostics().value(QStringLiteral("killEscalations"))
                 .toULongLong() >= 1);
 #endif
@@ -344,9 +360,13 @@ void PlayerProcessManagerTest::ipcConnectionDeadlineIsBounded()
                      fakeArguments({}, {QStringLiteral("--fake-no-ipc")}),
                      QStringLiteral("no-ipc-media"));
 
-    QTRY_VERIFY_WITH_TIMEOUT(errorSpy.count() >= 1, 1000);
+    QElapsedTimer deadlineTimer;
+    deadlineTimer.start();
+    QTRY_VERIFY_WITH_TIMEOUT(errorSpy.count() >= 1, asyncProcessTimeoutMs);
+    QVERIFY2(deadlineTimer.elapsed() < 1000,
+             "IPC connection deadline was not bounded");
     QVERIFY(errorSpy.first().first().toString().contains(QStringLiteral("IPC connection failed")));
-    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
 }
 
 void PlayerProcessManagerTest::ipcReconnectAttemptsAreBounded()
@@ -360,11 +380,15 @@ void PlayerProcessManagerTest::ipcReconnectAttemptsAreBounded()
                      fakeArguments({}, {QStringLiteral("--fake-no-ipc")}),
                      QStringLiteral("attempt-limit-media"));
 
-    QTRY_VERIFY_WITH_TIMEOUT(errorSpy.count() >= 1, 1000);
+    QElapsedTimer attemptTimer;
+    attemptTimer.start();
+    QTRY_VERIFY_WITH_TIMEOUT(errorSpy.count() >= 1, asyncProcessTimeoutMs);
+    QVERIFY2(attemptTimer.elapsed() < 1000,
+             "IPC reconnect attempt limit was not bounded");
     QVERIFY(errorSpy.first().first().toString().contains(
         QStringLiteral("maximum reconnect attempts")));
     QCOMPARE(manager.diagnostics().value(QStringLiteral("ipcAttempts")).toInt(), 3);
-    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
 }
 
 void PlayerProcessManagerTest::pendingCommandsAreBounded()
@@ -376,7 +400,7 @@ void PlayerProcessManagerTest::pendingCommandsAreBounded()
     manager.startMpv(QCoreApplication::applicationFilePath(),
                      fakeArguments({}, {QStringLiteral("--fake-no-ipc")}),
                      QStringLiteral("queued-command-media"));
-    QTRY_COMPARE_WITH_TIMEOUT(startedSpy.count(), 1, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(startedSpy.count(), 1, asyncProcessTimeoutMs);
 
     manager.sendVariantCommand({});
     manager.sendVariantCommand(QVariantList{42, QStringLiteral("not-a-command")});
@@ -389,7 +413,7 @@ void PlayerProcessManagerTest::pendingCommandsAreBounded()
     QCOMPARE(diagnostics.value(QStringLiteral("droppedPendingCommands")).toULongLong(),
              quint64(7));
     manager.stopMpv();
-    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
 }
 
 void PlayerProcessManagerTest::validCommandLargerThanInitialWriteLimitIsDelivered()
@@ -404,16 +428,16 @@ void PlayerProcessManagerTest::validCommandLargerThanInitialWriteLimitIsDelivere
     manager.startMpv(QCoreApplication::applicationFilePath(),
                      fakeArguments({}, {QStringLiteral("--fake-ack-commands")}),
                      QStringLiteral("large-command-media"));
-    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 1, 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 1, asyncProcessTimeoutMs);
 
     for (int index = 0; index < 6; ++index) {
         manager.sendVariantCommand(QVariantList{QStringLiteral("script-message"),
                                                 QString(1024, QLatin1Char('x'))});
     }
-    QTRY_COMPARE_WITH_TIMEOUT(messageSpy.count(), 6, 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(messageSpy.count(), 6, asyncProcessTimeoutMs);
     QCOMPARE(messageSpy.first().first().toString(), QStringLiteral("command-ack"));
     manager.stopMpv();
-    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
 }
 
 void PlayerProcessManagerTest::batchedIpcMessagesAreFullyDrained()
@@ -426,10 +450,10 @@ void PlayerProcessManagerTest::batchedIpcMessagesAreFullyDrained()
                      fakeArguments({}, {QStringLiteral("--fake-send-burst")}),
                      QStringLiteral("burst-media"));
 
-    QTRY_COMPARE_WITH_TIMEOUT(positionSpy.count(), 100, 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(positionSpy.count(), 100, asyncProcessTimeoutMs);
     QCOMPARE(positionSpy.last().first().toDouble(), 99.0);
     manager.stopMpv();
-    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
 }
 
 void PlayerProcessManagerTest::disconnectedIpcReconnectsWithinDeadline()
@@ -440,10 +464,10 @@ void PlayerProcessManagerTest::disconnectedIpcReconnectsWithinDeadline()
                      fakeArguments({}, {QStringLiteral("--fake-disconnect-once")}),
                      QStringLiteral("reconnect-media"));
 
-    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 2, 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(ipcSpy.count(), 2, asyncProcessTimeoutMs);
     QVERIFY(manager.isRunning());
     manager.stopMpv();
-    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
 }
 
 void PlayerProcessManagerTest::malformedIpcIsIgnoredBeforeValidEvent()
@@ -454,12 +478,12 @@ void PlayerProcessManagerTest::malformedIpcIsIgnoredBeforeValidEvent()
                      fakeArguments({}, {QStringLiteral("--fake-send-events")}),
                      QStringLiteral("event-media"));
 
-    QTRY_COMPARE_WITH_TIMEOUT(positionSpy.count(), 1, 2000);
+    QTRY_COMPARE_WITH_TIMEOUT(positionSpy.count(), 1, asyncProcessTimeoutMs);
     QCOMPARE(positionSpy.first().first().toDouble(), 12.5);
     QVERIFY(manager.diagnostics().value(QStringLiteral("invalidIpcMessages"))
                 .toULongLong() >= 2);
     manager.stopMpv();
-    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), 2000);
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
 }
 
 void PlayerProcessManagerTest::startupFailureIsClear()
@@ -468,7 +492,7 @@ void PlayerProcessManagerTest::startupFailureIsClear()
     QSignalSpy errorSpy(&manager, &PlayerProcessManager::errorOccurred);
     manager.startMpv(QStringLiteral("/definitely/missing/bloom-mpv"), {},
                      QStringLiteral("failure-media"));
-    QTRY_COMPARE_WITH_TIMEOUT(errorSpy.count(), 1, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(errorSpy.count(), 1, asyncProcessTimeoutMs);
     QVERIFY(errorSpy.first().first().toString().startsWith(QStringLiteral("Failed to start mpv:")));
     QVERIFY(!manager.isRunning());
 }

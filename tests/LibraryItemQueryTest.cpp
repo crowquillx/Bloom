@@ -26,8 +26,8 @@ void LibraryItemQueryTest::cacheKeySeparatesSearchFilterAndSort()
     filtered.genres = {"Action"};
 
     LibraryItemQuery sorted = base;
-    sorted.sortBy = "PremiereDate";
-    sorted.sortOrder = "Descending";
+    sorted.sortBy = "releaseDate";
+    sorted.sortOrder = "descending";
 
     QVERIFY(base.cacheKey() != searched.cacheKey());
     QVERIFY(base.cacheKey() != filtered.cacheKey());
