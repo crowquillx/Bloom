@@ -222,7 +222,11 @@ QByteArray pngBytes(const QSize &size = QSize(8, 8))
     image.fill(QColor(QStringLiteral("#3daee9")));
     QByteArray bytes;
     QBuffer buffer(&bytes);
-    Q_ASSERT(buffer.open(QIODevice::WriteOnly));
+    const bool opened = buffer.open(QIODevice::WriteOnly);
+    Q_ASSERT_X(opened, "pngBytes", "unable to open PNG buffer");
+    if (!opened) {
+        return {};
+    }
     QImageWriter writer(&buffer, QByteArrayLiteral("png"));
     const bool written = writer.write(image);
     Q_ASSERT_X(written, "pngBytes", qPrintable(writer.errorString()));
@@ -244,6 +248,7 @@ private slots:
     void tokenFreeCacheMissRetainsTransientSourceUrl();
     void signedUrlIsNotPartOfCacheIdentity();
     void identicalRequestsCoalesceAcrossCancellation();
+    void destroyingSubscriberKeepsSharedJobAlive();
     void concurrentRequestRegistrationCoalesces();
     void terminalSignalAllowsImmediateResubscribe();
     void lastSubscriberCancellationClearsPendingState();
@@ -450,6 +455,33 @@ void ArtworkRefreshTest::identicalRequestsCoalesceAcrossCancellation()
     delete cancelled;
     delete active;
     delete cached;
+}
+
+void ArtworkRefreshTest::destroyingSubscriberKeepsSharedJobAlive()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes()};
+    server.delaysMs = {100};
+    QVERIFY(server.start());
+
+    ImageCacheProvider cache(1);
+    const QString identity = server.url(
+        QStringLiteral("/destroyed-subscriber.png")).toString();
+    QQuickImageResponse *destroyed = cache.requestImageResponse(identity, QSize());
+    QPointer<QQuickImageResponse> active(
+        cache.requestImageResponse(identity, QSize()));
+    QVERIFY(destroyed);
+    QVERIFY(active);
+    QSignalSpy activeSpy(active, &QQuickImageResponse::finished);
+
+    delete destroyed;
+
+    QTRY_COMPARE_WITH_TIMEOUT(activeSpy.count(), 1, 3000);
+    QVERIFY(active->errorString().isEmpty());
+    QCOMPARE(server.requestTargets.size(), 1);
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("inFlightImageJobs")).toInt(), 0);
+    delete active;
 }
 
 void ArtworkRefreshTest::concurrentRequestRegistrationCoalesces()

@@ -143,6 +143,16 @@ public:
         }
     }
 
+    void removeExpiredSubscribers()
+    {
+        m_subscribers.removeIf([](const QPointer<CachedImageResponse> &candidate) {
+            return !candidate;
+        });
+        if (m_subscribers.isEmpty()) {
+            finish({}, QStringLiteral("Image request cancelled"));
+        }
+    }
+
     void start()
     {
         if (m_finished) {
@@ -596,9 +606,9 @@ CachedImageResponse::~CachedImageResponse()
         job = std::exchange(m_job, nullptr);
     }
     if (job) {
-        QMetaObject::invokeMethod(job, [job, response = this]() {
+        QMetaObject::invokeMethod(job, [job]() {
             if (job) {
-                job->removeSubscriber(response);
+                job->removeExpiredSubscribers();
             }
         }, Qt::QueuedConnection);
     }
@@ -630,9 +640,14 @@ void CachedImageResponse::cancel()
         job = std::exchange(m_job, nullptr);
     }
     if (job) {
-        QMetaObject::invokeMethod(job, [job, response = this]() {
+        const QPointer<CachedImageResponse> response(this);
+        QMetaObject::invokeMethod(job, [job, response]() {
             if (job) {
-                job->removeSubscriber(response);
+                if (response) {
+                    job->removeSubscriber(response);
+                } else {
+                    job->removeExpiredSubscribers();
+                }
             }
         }, Qt::QueuedConnection);
     }
@@ -755,6 +770,11 @@ QQuickImageResponse *ImageCacheProvider::requestImageResponse(const QString &id,
 
 void ImageCacheProvider::prefetch(const QStringList &urls)
 {
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(
+            this, [this, urls]() { prefetch(urls); }, Qt::BlockingQueuedConnection);
+        return;
+    }
     for (const QString &url : urls) {
         // Check if already cached
         QString cachedPath = getCachedPath(url);
@@ -784,6 +804,7 @@ ImageLoadJob *ImageCacheProvider::subscribe(CachedImageResponse *response,
     auto *job = new ImageLoadJob(
         key, cacheKey, requestedSize, this, resolveRequest(cacheKey));
     m_inFlightImages.insert(key, job);
+    ++m_inFlightImageJobs;
     job->addSubscriber(response);
     QMetaObject::invokeMethod(job, [job]() { job->start(); }, Qt::QueuedConnection);
     return job;
@@ -798,6 +819,7 @@ void ImageCacheProvider::imageJobFinished(const QString &jobKey,
         return;
     }
     m_inFlightImages.remove(jobKey);
+    --m_inFlightImageJobs;
     if (!successful) {
         const bool replacementPending = std::any_of(
             m_inFlightImages.cbegin(), m_inFlightImages.cend(),
@@ -1162,7 +1184,8 @@ QVariantMap ImageCacheProvider::cacheStats() const
                   decodeAttempts > 0 ? double(totalDecodeLatencyMs) / decodeAttempts : 0.0);
     result.insert(QStringLiteral("roundedGenerations"),
                   QVariant::fromValue(m_roundedGenerations.load()));
-    result.insert(QStringLiteral("inFlightImageJobs"), m_inFlightImages.size());
+    result.insert(QStringLiteral("inFlightImageJobs"),
+                  QVariant::fromValue(m_inFlightImageJobs.load()));
     {
         QMutexLocker locker(&m_pendingMutex);
         qsizetype pendingRoundedRequests = 0;

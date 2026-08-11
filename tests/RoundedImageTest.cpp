@@ -125,11 +125,14 @@ void RoundedImageTest::modesUseOneBaseLoadAndLazyPrerender()
     const bool shaderCapable = item->property("shaderSupported").toBool();
     if (shaderCapable) {
         QTRY_VERIFY(item->property("shaderActive").toBool());
-        QVERIFY2(nearColor(fallbackCapture.pixelColor(8, 8),
-                           fallbackCapture.pixelColor(0, 0)),
-                 qPrintable(QStringLiteral("corner=%1")
-                                .arg(fallbackCapture.pixelColor(8, 8).name(QColor::HexArgb))));
         QTRY_VERIFY(item->property("shaderRefreshCount").toInt() > 0);
+        processFrames(window);
+        const QImage shaderCapture = window.grabWindow();
+        QVERIFY(!shaderCapture.isNull());
+        QVERIFY2(nearColor(shaderCapture.pixelColor(8, 8),
+                           shaderCapture.pixelColor(0, 0)),
+                 qPrintable(QStringLiteral("corner=%1")
+                                .arg(shaderCapture.pixelColor(8, 8).name(QColor::HexArgb))));
         const int refreshesBeforeIdle = item->property("shaderRefreshCount").toInt();
         processFrames(window, 60);
         QCOMPARE(item->property("shaderRefreshCount").toInt(), refreshesBeforeIdle);

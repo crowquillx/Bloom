@@ -272,6 +272,7 @@ private:
     std::atomic<quint64> m_cacheGeneration{1};
     QMutex m_cacheMutationMutex;
     QHash<QString, ImageLoadJob *> m_inFlightImages;
+    std::atomic<quint64> m_inFlightImageJobs{0};
 
     std::atomic<quint64> m_imageHits{0};
     std::atomic<quint64> m_networkLoads{0};

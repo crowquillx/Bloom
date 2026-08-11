@@ -489,7 +489,7 @@ set_tests_properties(RoundedImageTest PROPERTIES
 
 add_test(NAME RoundedImagePreferredRenderPathTest COMMAND RoundedImageTest)
 set_tests_properties(RoundedImagePreferredRenderPathTest PROPERTIES
-    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QSG_RHI_BACKEND=opengl"
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen"
 )
 
 if(Qt6ShaderTools_FOUND)
