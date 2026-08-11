@@ -40,7 +40,9 @@ Coding style
 - Write small unit tests for C++ core logic and integration tests for critical flows if feasible.
 
 Useful utilities
-- `PlayerProcessManager` for mpv lifecycle.
+- `PlayerProcessManager` for external mpv lifecycle. Link `Bloom::PlayerProcess`
+  in tests; keep process and IPC control asynchronous and bounded as documented
+  in `docs/playback.md`.
 - `HttpTransport` for shared HTTP execution/retry/cancellation policy.
 - `IProviderRequestFactory` implementations for provider URL/header construction.
 - `ConfigManager` for settings and QML exposures.

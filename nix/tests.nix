@@ -73,6 +73,7 @@ stdenv.mkDerivation {
       CanonicalModelsTest \
       InputBindingManagerTest \
       PlayerBackendFactoryTest \
+      PlayerProcessManagerTest \
       PlayerControllerAutoplayContextTest \
       MediaSegmentProviderServiceTest \
       NextEpisodeResolverTest \

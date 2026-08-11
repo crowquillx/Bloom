@@ -31,7 +31,6 @@ qt_add_executable(Bloom
     resources/sounds.qrc
     resources/images.qrc
     resources/mpv-shaders.qrc
-    player/PlayerProcessManager.cpp
     player/PlayerController.cpp
     player/MpvVideoItem.h
     player/MpvVideoItem.cpp
@@ -414,6 +413,7 @@ target_link_libraries(Bloom
     PRIVATE
     Bloom::ImageCache
     Bloom::Network
+    Bloom::PlayerProcess
     Qt6::Core
     Qt6::Gui
     Qt6::Quick

@@ -82,6 +82,23 @@ target_link_libraries(BloomImageCache
         Qt6::Sql
 )
 
+add_library(BloomPlayerProcess STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/PlayerProcessManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/PlayerProcessManager.h
+)
+add_library(Bloom::PlayerProcess ALIAS BloomPlayerProcess)
+target_include_directories(BloomPlayerProcess
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(BloomPlayerProcess
+    PUBLIC
+        Bloom::Models
+        Qt6::Core
+        Qt6::Network
+)
+
 add_library(BloomProviders STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinAuthenticator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinModelMapper.cpp
@@ -136,6 +153,7 @@ set_target_properties(
     BloomConfig
     BloomTransport
     BloomImageCache
+    BloomPlayerProcess
     BloomProviders
     BloomNetwork
     PROPERTIES FOLDER "Bloom/Libraries"

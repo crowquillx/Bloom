@@ -75,6 +75,7 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/security/CredentialStore.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigStorage.cpp
@@ -91,6 +92,10 @@ function(bloom_use_production_libraries test_target)
     if(image_cache_provider_source IN_LIST test_sources
        OR image_cache_store_source IN_LIST test_sources)
         target_link_libraries(${test_target} PRIVATE Bloom::ImageCache)
+    endif()
+    set(player_process_source ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp)
+    if(player_process_source IN_LIST test_sources)
+        target_link_libraries(${test_target} PRIVATE Bloom::PlayerProcess)
     endif()
     list(REMOVE_ITEM test_sources ${BLOOM_LINKED_PRODUCTION_SOURCES})
     set_property(TARGET ${test_target} PROPERTY SOURCES "${test_sources}")
@@ -598,6 +603,25 @@ target_link_libraries(PlayerBackendFactoryTest
 
 add_test(NAME PlayerBackendFactoryTest COMMAND PlayerBackendFactoryTest)
 
+add_executable(PlayerProcessManagerTest
+    PlayerProcessManagerTest.cpp
+)
+
+target_include_directories(PlayerProcessManagerTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(PlayerProcessManagerTest
+    PRIVATE
+        Bloom::PlayerProcess
+        Qt6::Core
+        Qt6::Network
+        Qt6::Test
+)
+
+add_test(NAME PlayerProcessManagerTest COMMAND PlayerProcessManagerTest)
+
 add_executable(PlayerControllerAutoplayContextTest
     PlayerControllerAutoplayContextTest.cpp
     ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
@@ -821,6 +845,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     CanonicalModelsTest
     InputBindingManagerTest
     PlayerBackendFactoryTest
+    PlayerProcessManagerTest
     PlayerControllerAutoplayContextTest
     MediaSegmentProviderServiceTest
     NextEpisodeResolverTest
