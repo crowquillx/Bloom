@@ -1,15 +1,17 @@
 #include "DisplayManager.h"
 #include <QDebug>
-#include <QProcess>
-#include <QGuiApplication>
-#include <QScreen>
-#include <QtMath>
 #include <QElapsedTimer>
 #include <QFutureWatcher>
+#include <QGuiApplication>
 #include <QLoggingCategory>
 #include <QMetaObject>
+#include <QProcess>
+#include <QScreen>
 #include <QThread>
+#include <QThreadPool>
+#include <QtMath>
 #include <QtConcurrent/QtConcurrent>
+#include <algorithm>
 #include <vector>
 
 #include "BloomLogging.h"
@@ -29,23 +31,48 @@ struct HdrAsyncFallbackResult
     bool preState = false;
 };
 
-bool runCommandAndWait(const QString &cmd, int *exitCode = nullptr)
-{
-    QProcess process;
-    process.startCommand(cmd);
-    const bool finished = process.waitForFinished();
-    if (!finished) {
-        qCWarning(lcDisplayTrace) << "DisplayManager: Command timed out:" << cmd;
-        process.kill();
-        process.waitForFinished(1000);
-    }
+#ifdef Q_OS_WIN
+bool setRefreshRateWindowsImpl(double hz);
+bool restoreRefreshRateWindowsImpl(double targetHz, double baselineHz);
 
-    const bool exitedNormally = finished && process.exitStatus() == QProcess::NormalExit;
-    const int code = exitedNormally ? process.exitCode() : -1;
-    if (exitCode != nullptr) {
-        *exitCode = code;
+QThreadPool *nativeDisplayThreadPool()
+{
+    // Deliberately process-wide: serialized native mutations prevent a stale
+    // enable from physically overtaking a newer restore. The pool is not
+    // destroyed during QObject teardown, so shutdown never waits on a display API.
+    static QThreadPool *pool = []() {
+        auto *created = new QThreadPool;
+        created->setMaxThreadCount(1);
+        created->setExpiryTimeout(-1);
+        return created;
+    }();
+    return pool;
+}
+#endif
+
+QString hdrCommand(QString commandTemplate, bool enabled)
+{
+    if (!commandTemplate.isEmpty()) {
+        commandTemplate.replace(QStringLiteral("{STATE}"),
+                                enabled ? QStringLiteral("on")
+                                        : QStringLiteral("off"));
     }
-    return exitedNormally && code == 0;
+    return commandTemplate;
+}
+
+QString refreshRateCommand(QString commandTemplate, double hz)
+{
+    if (commandTemplate.isEmpty()) {
+        return {};
+    }
+    QString rate = QString::number(hz, 'f', 3);
+    while (rate.contains('.') && (rate.endsWith('0') || rate.endsWith('.'))) {
+        rate.chop(1);
+    }
+    commandTemplate.replace(QStringLiteral("{RATE}"), rate);
+    commandTemplate.replace(QStringLiteral("{RATE_INT}"),
+                            QString::number(qRound(hz)));
+    return commandTemplate;
 }
 
 bool isCadenceCompatible(double currentHz, double targetHz)
@@ -187,7 +214,7 @@ bool isAnyAdvancedColorEnabled()
     return false;
 }
 
-bool setHDRWindowsImpl(bool enabled)
+bool setHDRWindowsImpl(bool enabled, int settleDeadlineMs)
 {
     // Use undocumented API to toggle HDR.
     UINT32 numPathArrayElements = 0;
@@ -224,6 +251,8 @@ bool setHDRWindowsImpl(bool enabled)
     }
 
     bool success = false;
+    QElapsedTimer settleDeadline;
+    settleDeadline.start();
 
     for (UINT32 i = 0; i < numPathArrayElements; ++i) {
         const AdvancedColorStateQueryResult preState = queryAdvancedColorState(pathArray[i]);
@@ -257,9 +286,12 @@ bool setHDRWindowsImpl(bool enabled)
                                << "ret=" << ret;
         if (ret == ERROR_SUCCESS) {
             qCDebug(lcDisplayTrace) << "DisplayManager: Successfully set HDR to" << enabled << "for path" << i;
-            static constexpr int kHdrSettleTimeoutMs = 5000;
             static constexpr int kHdrSettlePollMs = 50;
-            const bool settled = waitForAdvancedColorState(pathArray[i], enabled, kHdrSettleTimeoutMs, kHdrSettlePollMs);
+            const int remainingMs = std::max(
+                0, settleDeadlineMs - int(settleDeadline.elapsed()));
+            const bool settled = remainingMs > 0
+                && waitForAdvancedColorState(pathArray[i], enabled,
+                                             remainingMs, kHdrSettlePollMs);
             const AdvancedColorStateQueryResult postState = queryAdvancedColorState(pathArray[i]);
             qCInfo(lcDisplayTrace) << "setHDRWindows post-state"
                                    << "path=" << i
@@ -270,7 +302,7 @@ bool setHDRWindowsImpl(bool enabled)
                 qCWarning(lcDisplayTrace) << "setHDRWindows settle-timeout"
                                           << "path=" << i
                                           << "requested=" << enabled
-                                          << "timeoutMs=" << kHdrSettleTimeoutMs;
+                                          << "deadlineMs=" << settleDeadlineMs;
                 continue;
             }
             success = true;
@@ -282,64 +314,64 @@ bool setHDRWindowsImpl(bool enabled)
     return success;
 }
 
-HdrAsyncFallbackResult runBlockingWindowsHdrToggle(bool enabled, const QString &customCmdTemplate)
+HdrAsyncFallbackResult runBlockingWindowsHdrToggle(bool enabled,
+                                                   int settleDeadlineMs)
 {
     HdrAsyncFallbackResult result;
     result.preState = isAnyAdvancedColorEnabled();
-
-    if (!customCmdTemplate.isEmpty()) {
-        QString cmd = customCmdTemplate;
-        cmd.replace("{STATE}", enabled ? "on" : "off");
-        qCDebug(lcDisplayTrace) << "DisplayManager: Executing custom Windows HDR command:" << cmd;
-
-        int exitCode = -1;
-        result.success = runCommandAndWait(cmd, &exitCode);
-        qCInfo(lcDisplayTrace) << "setHDR custom-command result"
-                               << "requested=" << enabled
-                               << "exitCode=" << exitCode;
-        return result;
-    }
-
-    result.success = setHDRWindowsImpl(enabled);
+    result.success = setHDRWindowsImpl(enabled, settleDeadlineMs);
     return result;
-}
-#else
-bool setHDRLinuxImpl(const QString &cmdTemplate, bool enabled)
-{
-    if (cmdTemplate.isEmpty()) {
-        qCWarning(lcDisplayTrace) << "DisplayManager: No Linux HDR command configured";
-        return false;
-    }
-
-    QString cmd = cmdTemplate;
-    cmd.replace("{STATE}", enabled ? "on" : "off");
-
-    qCDebug(lcDisplayTrace) << "DisplayManager: Executing Linux HDR command:" << cmd;
-    return runCommandAndWait(cmd);
 }
 #endif
 }
 
 DisplayManager::DisplayManager(ConfigManager *config, QObject *parent)
+    : DisplayManager(config, DisplayManagerOptions{}, parent)
+{
+}
+
+DisplayManager::DisplayManager(ConfigManager *config,
+                               const DisplayManagerOptions &options,
+                               QObject *parent)
     : QObject(parent)
     , m_config(config)
+    , m_options(options)
 {
-    // Baseline target used for restore if runtime capture happens while HDR is already on.
+    m_options.commandDeadlineMs = std::max(1, m_options.commandDeadlineMs);
+    m_options.maximumCommandOutputBytes = std::max<qint64>(
+        1024, m_options.maximumCommandOutputBytes);
     m_baselineRefreshRate = getCurrentRefreshRate();
-    m_hdrAsyncPollTimer.setInterval(50);
-    m_hdrAsyncPollTimer.setSingleShot(false);
-    connect(&m_hdrAsyncPollTimer, &QTimer::timeout, this, &DisplayManager::pollPendingHdrAsync);
+    m_commandDeadlineTimer.setSingleShot(true);
+    connect(&m_commandDeadlineTimer, &QTimer::timeout, this, [this]() {
+        if (!m_commandProcess || m_commandProcess->state() == QProcess::NotRunning) {
+            return;
+        }
+        QProcess *process = m_commandProcess;
+        const QString operation = m_activeOperation;
+        const qint64 elapsed = m_operationElapsed.elapsed();
+        const std::function<void(bool, bool)> completion =
+            std::move(m_commandCompletion);
+        m_commandProcess.clear();
+        m_activeOperation.clear();
+        QObject::disconnect(process, nullptr, this, nullptr);
+        process->setParent(nullptr);
+        connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                process, &QObject::deleteLater);
+        qCWarning(lcDisplayTrace) << "Display operation exceeded its deadline"
+                                  << "operation=" << operation
+                                  << "deadlineMs=" << m_options.commandDeadlineMs;
+        process->kill();
+        recordOperationResult(operation, elapsed, false, true);
+        if (completion) {
+            completion(false, true);
+        }
+    });
 }
 
 DisplayManager::~DisplayManager()
 {
-    cancelPendingHdrAsync();
-    if (m_refreshRateChanged) {
-        restoreRefreshRate();
-    }
-    if (m_hdrChanged) {
-        setHDR(m_originalHDRState);
-    }
+    cancelPendingOperations();
+    launchBestEffortShutdownRestore();
 }
 
 void DisplayManager::captureOriginalRefreshRate()
@@ -390,192 +422,482 @@ void DisplayManager::updateHdrRestoreTracking(bool requestedState, bool preState
                            << "capturedOriginalState=" << m_hasCapturedOriginalHDRState;
 }
 
-bool DisplayManager::setRefreshRate(double hz)
+QVariantMap DisplayManager::diagnostics() const
 {
-    qCDebug(lcDisplayTrace) << "DisplayManager::setRefreshRate called with hz:" << hz;
+    return {
+        {QStringLiteral("activeOperation"), m_activeOperation},
+        {QStringLiteral("generation"), QVariant::fromValue(m_operationGeneration)},
+        {QStringLiteral("operationsStarted"), QVariant::fromValue(m_operationsStarted)},
+        {QStringLiteral("operationsSucceeded"), QVariant::fromValue(m_operationsSucceeded)},
+        {QStringLiteral("operationsTimedOut"), QVariant::fromValue(m_operationsTimedOut)},
+        {QStringLiteral("operationsCanceled"), QVariant::fromValue(m_operationsCanceled)},
+        {QStringLiteral("lastOperationLatencyMs"), m_lastOperationLatencyMs},
+        {QStringLiteral("capturedStdoutBytes"), m_commandStandardOutput.size()},
+        {QStringLiteral("capturedStderrBytes"), m_commandStandardError.size()},
+    };
+}
+
+quint64 DisplayManager::beginOperation(const QString &operation)
+{
+    cancelPendingOperations();
+    m_activeOperation = operation;
+    m_operationElapsed.restart();
+    ++m_operationsStarted;
+    qCInfo(lcDisplayTrace) << "Display operation started"
+                           << "operation=" << operation
+                           << "generation=" << m_operationGeneration;
+    return m_operationGeneration;
+}
+
+void DisplayManager::recordOperationResult(const QString &operation,
+                                           qint64 elapsedMs,
+                                           bool success,
+                                           bool timedOut)
+{
+    m_lastOperationLatencyMs = elapsedMs;
+    if (success) {
+        ++m_operationsSucceeded;
+    }
+    if (timedOut) {
+        ++m_operationsTimedOut;
+    }
+    qCInfo(lcDisplayTrace) << "Display operation finished"
+                           << "operation=" << operation
+                           << "success=" << success
+                           << "timedOut=" << timedOut
+                           << "elapsedMs=" << elapsedMs;
+    emit displayOperationMeasured(operation, elapsedMs, success, timedOut);
+}
+
+void DisplayManager::cancelCommandProcess()
+{
+    m_commandDeadlineTimer.stop();
+    m_commandCompletion = {};
+    if (!m_commandProcess) {
+        return;
+    }
+    QProcess *process = m_commandProcess;
+    m_commandProcess.clear();
+    QObject::disconnect(process, nullptr, this, nullptr);
+    if (process->state() == QProcess::NotRunning) {
+        process->deleteLater();
+        return;
+    }
+    process->setParent(nullptr);
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            process, &QObject::deleteLater);
+    process->kill();
+}
+
+void DisplayManager::cancelPendingOperations()
+{
+    if (m_hdrOperationPending) {
+        // The command/native request may already have changed the display even
+        // though its completion is stale. Preserve the earliest state as a
+        // conservative restore target without accepting any stale playback result.
+        updateHdrRestoreTracking(m_pendingHdrRequestedState,
+                                 m_pendingHdrPreState);
+        m_hdrOperationPending = false;
+    }
+    if (!m_activeOperation.isEmpty() || m_commandProcess) {
+        ++m_operationsCanceled;
+    }
+    ++m_operationGeneration;
+    cancelCommandProcess();
+    m_activeOperation.clear();
+}
+
+void DisplayManager::startExternalCommand(const QString &operation,
+                                          const QString &command,
+                                          quint64 generation,
+                                          std::function<void(bool, bool)> completion)
+{
+    if (generation != m_operationGeneration || command.trimmed().isEmpty()) {
+        return;
+    }
+    auto *process = new QProcess(this);
+    m_commandProcess = process;
+    m_commandCompletion = std::move(completion);
+    m_commandStandardOutput.clear();
+    m_commandStandardError.clear();
+
+    auto drainBounded = [this](QByteArray chunk, QByteArray *destination) {
+        const qint64 remaining = m_options.maximumCommandOutputBytes
+            - destination->size();
+        if (remaining > 0) {
+            destination->append(chunk.left(remaining));
+        }
+    };
+    connect(process, &QProcess::readyReadStandardOutput, this,
+            [this, process, drainBounded]() {
+                drainBounded(process->readAllStandardOutput(),
+                             &m_commandStandardOutput);
+            });
+    connect(process, &QProcess::readyReadStandardError, this,
+            [this, process, drainBounded]() {
+                drainBounded(process->readAllStandardError(),
+                             &m_commandStandardError);
+            });
+    connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, process, generation](int exitCode,
+                                               QProcess::ExitStatus exitStatus) {
+                finishExternalCommand(process, generation,
+                                      exitStatus == QProcess::NormalExit
+                                          && exitCode == 0);
+            });
+    connect(process, &QProcess::errorOccurred, this,
+            [this, process, generation](QProcess::ProcessError error) {
+                if (error == QProcess::FailedToStart) {
+                    finishExternalCommand(process, generation, false);
+                }
+            });
+
+    qCInfo(lcDisplayTrace) << "Starting external display command"
+                           << "operation=" << operation
+                           << "deadlineMs=" << m_options.commandDeadlineMs;
+    process->startCommand(command);
+    m_commandDeadlineTimer.start(m_options.commandDeadlineMs);
+}
+
+void DisplayManager::finishExternalCommand(QProcess *process,
+                                           quint64 generation,
+                                           bool success)
+{
+    if (process != m_commandProcess) {
+        return;
+    }
+    m_commandDeadlineTimer.stop();
+    const QString operation = m_activeOperation;
+    const qint64 elapsed = m_operationElapsed.elapsed();
+    const std::function<void(bool, bool)> completion =
+        std::move(m_commandCompletion);
+    const auto appendRemaining = [this](QByteArray chunk, QByteArray *destination) {
+        const qint64 remaining = m_options.maximumCommandOutputBytes
+            - destination->size();
+        if (remaining > 0) {
+            destination->append(chunk.left(remaining));
+        }
+    };
+    appendRemaining(process->readAllStandardOutput(), &m_commandStandardOutput);
+    appendRemaining(process->readAllStandardError(), &m_commandStandardError);
+    m_commandProcess.clear();
+    process->deleteLater();
+    m_activeOperation.clear();
+
+    if (generation != m_operationGeneration) {
+        return;
+    }
+    recordOperationResult(operation, elapsed, success, false);
+    if (completion) {
+        completion(success, false);
+    }
+}
+
+void DisplayManager::queueRefreshRateResult(double requestedHz,
+                                            bool success,
+                                            bool changed,
+                                            bool skippedCompatibleMultiple,
+                                            double effectiveRate,
+                                            quint64 generation)
+{
+    QMetaObject::invokeMethod(this, [this, requestedHz, success, changed,
+                                     skippedCompatibleMultiple, effectiveRate,
+                                     generation]() {
+        if (generation != m_operationGeneration) {
+            return;
+        }
+        const QString operation = m_activeOperation;
+        const qint64 elapsed = m_operationElapsed.elapsed();
+        m_activeOperation.clear();
+        m_lastRefreshRateSwitchChanged = success && changed;
+        m_lastRefreshRateSwitchSkippedCompatibleMultiple =
+            success && skippedCompatibleMultiple;
+        m_lastRefreshRateSwitchEffectiveRate = success ? effectiveRate : 0.0;
+        if (success && changed) {
+            m_refreshRateChanged = true;
+        }
+        recordOperationResult(operation, elapsed, success, false);
+        emit refreshRateChangeFinished(requestedHz, success);
+    }, Qt::QueuedConnection);
+}
+
+void DisplayManager::setRefreshRateAsync(double hz)
+{
+    const quint64 generation = beginOperation(QStringLiteral("set-refresh-rate"));
     m_lastRefreshRateSwitchChanged = false;
     m_lastRefreshRateSwitchSkippedCompatibleMultiple = false;
     m_lastRefreshRateSwitchEffectiveRate = 0.0;
-    
-    if (hz <= 0) {
-        qCDebug(lcDisplayTrace) << "DisplayManager: Invalid refresh rate" << hz << ", skipping";
-        return false;
+
+    if (hz <= 0.0) {
+        queueRefreshRateResult(hz, false, false, false, 0.0, generation);
+        return;
     }
-    
-    // Don't switch if already at target. Keep the tolerance tight so fractional
-    // film modes are not confused with their neighboring integer modes.
-    double current = getCurrentRefreshRate();
-    qCDebug(lcDisplayTrace) << "DisplayManager: Current refresh rate:" << current << "Hz, target:" << hz << "Hz";
-    
+    const double current = getCurrentRefreshRate();
     if (isCurrentRefreshAlreadyTarget(current, hz)) {
-        qCDebug(lcDisplayTrace) << "DisplayManager: Already at target refresh rate" << current << "Hz";
-        m_lastRefreshRateSwitchEffectiveRate = hz;
-        return true;
+        queueRefreshRateResult(hz, true, false, false, hz, generation);
+        return;
+    }
+    if (m_config->getSkipRefreshRateOnCompatibleMultiple()
+        && isCadenceCompatible(current, hz)) {
+        queueRefreshRateResult(hz, true, false, true, current, generation);
+        return;
+    }
+    if (!m_refreshRateChanged && !m_hasCapturedOriginalRefreshRate) {
+        m_originalRefreshRate = current;
+        m_hasCapturedOriginalRefreshRate = current > 0.0;
     }
 
-    if (m_config->getSkipRefreshRateOnCompatibleMultiple() && isCadenceCompatible(current, hz)) {
-        const double ratio = current / hz;
-        qCDebug(lcDisplayTrace) << "DisplayManager: Current refresh rate" << current
-                 << "Hz is cadence-compatible with target" << hz
-                 << "Hz (ratio" << ratio << "), skipping mode switch";
-        m_lastRefreshRateSwitchSkippedCompatibleMultiple = true;
-        m_lastRefreshRateSwitchEffectiveRate = current;
-        return true;
-    }
-
-    if (!m_refreshRateChanged) {
-        if (m_hasCapturedOriginalRefreshRate && m_originalRefreshRate > 0.0) {
-            qCDebug(lcDisplayTrace) << "DisplayManager: Using captured original refresh rate for restore target:"
-                     << m_originalRefreshRate << "Hz";
-        } else {
-            m_originalRefreshRate = current;
-            m_hasCapturedOriginalRefreshRate = true;
-            qCDebug(lcDisplayTrace) << "DisplayManager: Stored original refresh rate:" << m_originalRefreshRate << "Hz";
+#ifdef Q_OS_WIN
+    auto *watcher = new QFutureWatcher<bool>(this);
+    connect(watcher, &QFutureWatcher<bool>::finished, this,
+            [this, watcher, hz, generation]() {
+                const bool success = watcher->result();
+                watcher->deleteLater();
+                if (generation != m_operationGeneration) {
+                    return;
+                }
+                const QString operation = m_activeOperation;
+                const qint64 elapsed = m_operationElapsed.elapsed();
+                m_activeOperation.clear();
+                const double current = getCurrentRefreshRate();
+                m_lastRefreshRateSwitchChanged = success;
+                m_lastRefreshRateSwitchSkippedCompatibleMultiple = false;
+                m_lastRefreshRateSwitchEffectiveRate = success
+                    ? (isCurrentRefreshAlreadyTarget(current, hz) ? hz : current)
+                    : 0.0;
+                if (success) {
+                    m_refreshRateChanged = true;
+                }
+                recordOperationResult(operation, elapsed, success, false);
+                emit refreshRateChangeFinished(hz, success);
+            });
+    watcher->setFuture(QtConcurrent::run(nativeDisplayThreadPool(), [hz]() {
+        return setRefreshRateWindowsImpl(hz);
+    }));
+    QTimer::singleShot(m_options.commandDeadlineMs, this,
+                       [this, generation, hz]() {
+        if (generation != m_operationGeneration
+            || m_activeOperation != QStringLiteral("set-refresh-rate")) {
+            return;
         }
-    }
-
-#ifdef Q_OS_WIN
-    if (setRefreshRateWindows(hz)) {
-        m_refreshRateChanged = true;
-        m_lastRefreshRateSwitchChanged = true;
-        const double postSwitchRefresh = getCurrentRefreshRate();
-        m_lastRefreshRateSwitchEffectiveRate = isCurrentRefreshAlreadyTarget(postSwitchRefresh, hz)
-            ? hz
-            : postSwitchRefresh;
-        return true;
-    }
+        ++m_operationGeneration;
+        const QString operation = m_activeOperation;
+        const qint64 elapsed = m_operationElapsed.elapsed();
+        m_activeOperation.clear();
+        recordOperationResult(operation, elapsed, false, true);
+        emit refreshRateChangeFinished(hz, false);
+    });
 #else
-    if (setRefreshRateLinux(hz)) {
-        m_refreshRateChanged = true;
-        m_lastRefreshRateSwitchChanged = true;
-        const double postSwitchRefresh = getCurrentRefreshRate();
-        m_lastRefreshRateSwitchEffectiveRate = isCurrentRefreshAlreadyTarget(postSwitchRefresh, hz)
-            ? hz
-            : postSwitchRefresh;
-        return true;
+    const QString command = refreshRateCommand(
+        m_config->getLinuxRefreshRateCommand(), hz);
+    if (command.isEmpty()) {
+        queueRefreshRateResult(hz, false, false, false, 0.0, generation);
+        return;
     }
+    startExternalCommand(QStringLiteral("set-refresh-rate"), command, generation,
+                         [this, hz, generation](bool success, bool) {
+        if (generation != m_operationGeneration) {
+            return;
+        }
+        const double current = getCurrentRefreshRate();
+        m_lastRefreshRateSwitchChanged = success;
+        m_lastRefreshRateSwitchSkippedCompatibleMultiple = false;
+        m_lastRefreshRateSwitchEffectiveRate = success
+            ? (isCurrentRefreshAlreadyTarget(current, hz) ? hz : current)
+            : 0.0;
+        if (success) {
+            m_refreshRateChanged = true;
+        }
+        emit refreshRateChangeFinished(hz, success);
+    });
 #endif
-    return false;
 }
 
-bool DisplayManager::restoreRefreshRate()
+void DisplayManager::restoreRefreshRateAsync()
 {
-    const bool hasCapturedTarget = m_hasCapturedOriginalRefreshRate && m_originalRefreshRate > 0.0;
-    qCInfo(lcDisplayTrace) << "restoreRefreshRate begin"
-                           << "refreshChanged=" << m_refreshRateChanged
-                           << "hasCapturedTarget=" << hasCapturedTarget
-                           << "capturedHz=" << m_originalRefreshRate;
-    if (!m_refreshRateChanged && !hasCapturedTarget) {
-        qCInfo(lcDisplayTrace) << "restoreRefreshRate no-op";
-        return true;
+    const quint64 generation = beginOperation(QStringLiteral("restore-refresh-rate"));
+    const bool hasTarget = m_hasCapturedOriginalRefreshRate
+        && m_originalRefreshRate > 0.0;
+    if (!m_refreshRateChanged && !hasTarget) {
+        QMetaObject::invokeMethod(this, [this, generation]() {
+            if (generation != m_operationGeneration) {
+                return;
+            }
+            const QString operation = m_activeOperation;
+            const qint64 elapsed = m_operationElapsed.elapsed();
+            m_activeOperation.clear();
+            recordOperationResult(operation, elapsed, true, false);
+            emit refreshRateRestoreFinished(true);
+        }, Qt::QueuedConnection);
+        return;
     }
-
-    bool success = false;
-#ifdef Q_OS_WIN
-    success = restoreRefreshRateWindows();
-#else
-    success = restoreRefreshRateLinux();
-#endif
-
-    if (success) {
-        m_refreshRateChanged = false;
-        m_hasCapturedOriginalRefreshRate = false;
-        m_originalRefreshRate = 0.0;
-    }
-    qCInfo(lcDisplayTrace) << "restoreRefreshRate done"
-                           << "success=" << success
-                           << "refreshChanged=" << m_refreshRateChanged
-                           << "hasCapturedTarget=" << m_hasCapturedOriginalRefreshRate;
-    return success;
-}
-
-bool DisplayManager::setHDR(bool enabled)
-{
-    QElapsedTimer hdrTimer;
-    hdrTimer.start();
-    qCInfo(lcDisplayTrace) << "setHDR begin"
-                           << "requested=" << enabled
-                           << "hdrChanged=" << m_hdrChanged;
-
-#ifndef Q_OS_WIN
-    const bool preState = m_hasCapturedOriginalHDRState ? m_originalHDRState : false;
-#endif
+    const double target = m_originalRefreshRate > 0.0
+        ? m_originalRefreshRate : m_baselineRefreshRate;
 
 #ifdef Q_OS_WIN
-    const HdrAsyncFallbackResult result = runBlockingWindowsHdrToggle(enabled, m_config->getWindowsCustomHDRCommand());
-    if (result.success) {
-        updateHdrRestoreTracking(enabled, result.preState);
-        return true;
-    }
+    auto *watcher = new QFutureWatcher<bool>(this);
+    connect(watcher, &QFutureWatcher<bool>::finished, this,
+            [this, watcher, generation]() {
+                const bool success = watcher->result();
+                watcher->deleteLater();
+                if (generation != m_operationGeneration) {
+                    return;
+                }
+                const QString operation = m_activeOperation;
+                const qint64 elapsed = m_operationElapsed.elapsed();
+                m_activeOperation.clear();
+                if (success) {
+                    m_refreshRateChanged = false;
+                    m_hasCapturedOriginalRefreshRate = false;
+                    m_originalRefreshRate = 0.0;
+                }
+                recordOperationResult(operation, elapsed, success, false);
+                emit refreshRateRestoreFinished(success);
+            });
+    const double baseline = m_baselineRefreshRate;
+    watcher->setFuture(QtConcurrent::run(nativeDisplayThreadPool(), [target, baseline]() {
+        return restoreRefreshRateWindowsImpl(target, baseline);
+    }));
+    QTimer::singleShot(m_options.commandDeadlineMs, this,
+                       [this, generation]() {
+        if (generation != m_operationGeneration
+            || m_activeOperation != QStringLiteral("restore-refresh-rate")) {
+            return;
+        }
+        ++m_operationGeneration;
+        const QString operation = m_activeOperation;
+        const qint64 elapsed = m_operationElapsed.elapsed();
+        m_activeOperation.clear();
+        recordOperationResult(operation, elapsed, false, true);
+        emit refreshRateRestoreFinished(false);
+    });
 #else
-    if (setHDRLinuxImpl(m_config->getLinuxHDRCommand(), enabled)) {
-        updateHdrRestoreTracking(enabled, preState);
-        return true;
+    const QString command = refreshRateCommand(
+        m_config->getLinuxRefreshRateCommand(), target);
+    if (command.isEmpty()) {
+        QMetaObject::invokeMethod(this, [this, generation]() {
+            if (generation != m_operationGeneration) {
+                return;
+            }
+            const QString operation = m_activeOperation;
+            const qint64 elapsed = m_operationElapsed.elapsed();
+            m_activeOperation.clear();
+            recordOperationResult(operation, elapsed, false, false);
+            emit refreshRateRestoreFinished(false);
+        }, Qt::QueuedConnection);
+        return;
     }
+    startExternalCommand(QStringLiteral("restore-refresh-rate"), command,
+                         generation, [this, generation](bool success, bool) {
+        if (generation != m_operationGeneration) {
+            return;
+        }
+        if (success) {
+            m_refreshRateChanged = false;
+            m_hasCapturedOriginalRefreshRate = false;
+            m_originalRefreshRate = 0.0;
+        }
+        emit refreshRateRestoreFinished(success);
+    });
 #endif
-    qCWarning(lcDisplayTrace) << "setHDR failed"
-                              << "requested=" << enabled
-                              << "elapsedMs=" << hdrTimer.elapsed();
-    return false;
 }
 
 void DisplayManager::setHDRAsync(bool enabled)
 {
-    cancelPendingHdrAsync();
-    qCInfo(lcDisplayTrace) << "setHDRAsync begin"
-                           << "requested=" << enabled;
+    const quint64 generation = beginOperation(
+        enabled ? QStringLiteral("enable-hdr") : QStringLiteral("restore-hdr"));
+#ifdef Q_OS_WIN
+    const bool preState = isAnyAdvancedColorEnabled();
+#else
+    const bool preState = m_hasCapturedOriginalHDRState
+        ? m_originalHDRState : false;
+#endif
+    m_hdrOperationPending = true;
+    m_pendingHdrRequestedState = enabled;
+    m_pendingHdrPreState = preState;
 
 #ifdef Q_OS_WIN
-    if (startHDRAsyncWindows(enabled)) {
+    const QString command = hdrCommand(m_config->getWindowsCustomHDRCommand(), enabled);
+    if (!command.isEmpty()) {
+        startExternalCommand(m_activeOperation, command, generation,
+                             [this, enabled, preState, generation](bool success,
+                                                                  bool timedOut) {
+            if (generation != m_operationGeneration) {
+                return;
+            }
+            m_hdrOperationPending = false;
+            if (success || timedOut) {
+                updateHdrRestoreTracking(enabled, preState);
+            }
+            emit hdrChangeFinished(enabled, success);
+        });
         return;
     }
-#endif
-
-    const quint64 generation = m_hdrAsyncGeneration;
     auto *watcher = new QFutureWatcher<HdrAsyncFallbackResult>(this);
-    connect(watcher, &QFutureWatcher<HdrAsyncFallbackResult>::finished, this, [this, watcher, enabled, generation]() {
+    connect(watcher, &QFutureWatcher<HdrAsyncFallbackResult>::finished, this,
+            [this, watcher, enabled, generation]() {
         const HdrAsyncFallbackResult result = watcher->result();
         watcher->deleteLater();
-
-        if (generation != m_hdrAsyncGeneration) {
+        if (generation != m_operationGeneration) {
             return;
         }
-
+        const QString operation = m_activeOperation;
+        const qint64 elapsed = m_operationElapsed.elapsed();
+        m_activeOperation.clear();
+        m_hdrOperationPending = false;
         if (result.success) {
             updateHdrRestoreTracking(enabled, result.preState);
         }
+        recordOperationResult(operation, elapsed, result.success, false);
         emit hdrChangeFinished(enabled, result.success);
     });
-
-#ifdef Q_OS_WIN
-    const QString customCmd = m_config->getWindowsCustomHDRCommand();
-    watcher->setFuture(QtConcurrent::run([enabled, customCmd]() {
-        return runBlockingWindowsHdrToggle(enabled, customCmd);
+    const int settleDeadlineMs = m_options.commandDeadlineMs;
+    watcher->setFuture(QtConcurrent::run(nativeDisplayThreadPool(), [enabled, settleDeadlineMs]() {
+        return runBlockingWindowsHdrToggle(enabled, settleDeadlineMs);
     }));
+    QTimer::singleShot(m_options.commandDeadlineMs, this,
+                       [this, generation, enabled, preState]() {
+        if (generation != m_operationGeneration
+            || m_activeOperation.isEmpty()) {
+            return;
+        }
+        ++m_operationGeneration;
+        const QString operation = m_activeOperation;
+        const qint64 elapsed = m_operationElapsed.elapsed();
+        m_activeOperation.clear();
+        m_hdrOperationPending = false;
+        updateHdrRestoreTracking(enabled, preState);
+        recordOperationResult(operation, elapsed, false, true);
+        emit hdrChangeFinished(enabled, false);
+    });
 #else
-    const bool preState = m_hasCapturedOriginalHDRState ? m_originalHDRState : false;
-    const QString cmdTemplate = m_config->getLinuxHDRCommand();
-    watcher->setFuture(QtConcurrent::run([enabled, cmdTemplate, preState]() {
-        HdrAsyncFallbackResult result;
-        result.preState = preState;
-        result.success = setHDRLinuxImpl(cmdTemplate, enabled);
-        return result;
-    }));
-#endif
-}
-
-void DisplayManager::cancelPendingHdrAsync()
-{
-    if (m_hdrAsyncPending) {
-        updateHdrRestoreTracking(m_hdrAsyncRequestedState, m_hdrAsyncPreState);
+    const QString command = hdrCommand(m_config->getLinuxHDRCommand(), enabled);
+    if (command.isEmpty()) {
+        QMetaObject::invokeMethod(this, [this, enabled, generation]() {
+            if (generation != m_operationGeneration) {
+                return;
+            }
+            const QString operation = m_activeOperation;
+            const qint64 elapsed = m_operationElapsed.elapsed();
+            m_activeOperation.clear();
+            m_hdrOperationPending = false;
+            recordOperationResult(operation, elapsed, false, false);
+            emit hdrChangeFinished(enabled, false);
+        }, Qt::QueuedConnection);
+        return;
     }
-    ++m_hdrAsyncGeneration;
-    m_hdrAsyncPending = false;
-    if (m_hdrAsyncPollTimer.isActive()) {
-        m_hdrAsyncPollTimer.stop();
-    }
-#ifdef Q_OS_WIN
-    m_hdrAsyncPaths.clear();
+    startExternalCommand(m_activeOperation, command, generation,
+                         [this, enabled, preState, generation](bool success,
+                                                              bool timedOut) {
+        if (generation != m_operationGeneration) {
+            return;
+        }
+        m_hdrOperationPending = false;
+        if (success || timedOut) {
+            updateHdrRestoreTracking(enabled, preState);
+        }
+        emit hdrChangeFinished(enabled, success);
+    });
 #endif
 }
 
@@ -602,8 +924,9 @@ double DisplayManager::getCurrentRefreshRate()
     return 60.0;
 }
 
+namespace {
 #ifdef Q_OS_WIN
-bool DisplayManager::setRefreshRateWindows(double hz)
+bool setRefreshRateWindowsImpl(double hz)
 {
     qCDebug(lcDisplayTrace) << "DisplayManager::setRefreshRateWindows called with hz:" << hz;
     
@@ -663,7 +986,6 @@ bool DisplayManager::setRefreshRateWindows(double hz)
         LONG ret = ChangeDisplaySettingsEx(NULL, &dm, NULL, CDS_FULLSCREEN, NULL);
         if (ret == DISP_CHANGE_SUCCESSFUL) {
             qCDebug(lcDisplayTrace) << "DisplayManager: Successfully set refresh rate to" << targetHz << "Hz";
-            qCDebug(lcDisplayTrace) << "DisplayManager: Reported refresh after switch:" << getCurrentRefreshRate() << "Hz";
             return true;
         } else {
             QString errorMsg;
@@ -685,13 +1007,13 @@ bool DisplayManager::setRefreshRateWindows(double hz)
     return false;
 }
 
-bool DisplayManager::restoreRefreshRateWindows()
+bool restoreRefreshRateWindowsImpl(double targetHz, double baselineHz)
 {
-    const double targetHz = (m_originalRefreshRate > 0.0) ? m_originalRefreshRate : m_baselineRefreshRate;
-    if (targetHz > 0.0) {
+    const double restoreTarget = targetHz > 0.0 ? targetHz : baselineHz;
+    if (restoreTarget > 0.0) {
         qCDebug(lcDisplayTrace) << "DisplayManager: Restoring display refresh to captured original rate"
-                 << targetHz << "Hz";
-        if (setRefreshRateWindows(targetHz)) {
+                 << restoreTarget << "Hz";
+        if (setRefreshRateWindowsImpl(restoreTarget)) {
             return true;
         }
         qCWarning(lcDisplayTrace) << "DisplayManager: Failed to restore to captured rate, falling back to registry defaults";
@@ -708,211 +1030,73 @@ bool DisplayManager::restoreRefreshRateWindows()
     return false;
 }
 
-bool DisplayManager::setHDRWindows(bool enabled)
-{
-    return setHDRWindowsImpl(enabled);
-}
-
-bool DisplayManager::startHDRAsyncWindows(bool enabled)
-{
-    const bool preState = isAnyAdvancedColorEnabled();
-    const quint64 generation = m_hdrAsyncGeneration;
-    m_hdrAsyncRequestedState = enabled;
-    m_hdrAsyncPreState = preState;
-
-    QString customCmd = m_config->getWindowsCustomHDRCommand();
-    if (!customCmd.isEmpty()) {
-        return false;
-    }
-
-    UINT32 numPathArrayElements = 0;
-    UINT32 numModeInfoArrayElements = 0;
-    const LONG sizeRet = GetDisplayConfigBufferSizes(QDC_ONLY_ACTIVE_PATHS, &numPathArrayElements, &numModeInfoArrayElements);
-    if (sizeRet != ERROR_SUCCESS) {
-        qCWarning(lcDisplayTrace) << "DisplayManager: GetDisplayConfigBufferSizes failed for async HDR toggle";
-        return false;
-    }
-
-    std::vector<DISPLAYCONFIG_PATH_INFO> pathArray(numPathArrayElements);
-    std::vector<DISPLAYCONFIG_MODE_INFO> modeInfoArray(numModeInfoArrayElements);
-    const LONG queryRet = QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS,
-                                             &numPathArrayElements,
-                                             pathArray.data(),
-                                             &numModeInfoArrayElements,
-                                             modeInfoArray.data(),
-                                             nullptr);
-    if (queryRet != ERROR_SUCCESS) {
-        qCWarning(lcDisplayTrace) << "DisplayManager: QueryDisplayConfig failed for async HDR toggle";
-        return false;
-    }
-
-    bool success = true;
-    bool handledAnyPath = false;
-    bool issuedRequest = false;
-    m_hdrAsyncPaths.clear();
-    m_hdrAsyncPaths.reserve(static_cast<int>(numPathArrayElements));
-
-    for (UINT32 i = 0; i < numPathArrayElements; ++i) {
-        const DISPLAYCONFIG_PATH_INFO &pathInfo = pathArray[i];
-        const AdvancedColorStateQueryResult prePathState = queryAdvancedColorState(pathInfo);
-        if (!prePathState.ok) {
-            success = false;
-        }
-        if (prePathState.ok && prePathState.enabled == enabled) {
-            handledAnyPath = true;
-            continue;
-        }
-
-        DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE setAdvancedColorState = {};
-        setAdvancedColorState.header.type = DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE;
-        setAdvancedColorState.header.size = sizeof(DISPLAYCONFIG_SET_ADVANCED_COLOR_STATE);
-        setAdvancedColorState.header.adapterId = pathInfo.targetInfo.adapterId;
-        setAdvancedColorState.header.id = pathInfo.targetInfo.id;
-        setAdvancedColorState.value = enabled ? 1 : 0;
-
-        const LONG ret = DisplayConfigSetDeviceInfo(&setAdvancedColorState.header);
-        qCInfo(lcDisplayTrace) << "setHDRAsyncWindows path"
-                               << i
-                               << "adapter=" << formatAdapterId(pathInfo.targetInfo.adapterId)
-                               << "targetId=" << pathInfo.targetInfo.id
-                               << "requested=" << enabled
-                               << "ret=" << ret;
-        if (ret == ERROR_SUCCESS) {
-            handledAnyPath = true;
-            issuedRequest = true;
-            m_hdrAsyncPaths.push_back(pathInfo);
-        } else {
-            success = false;
-            qCWarning(lcDisplayTrace) << "DisplayManager: Failed async HDR toggle for path" << i << "error:" << ret;
-        }
-    }
-
-    if (!handledAnyPath) {
-        return false;
-    }
-
-    if (!issuedRequest || m_hdrAsyncPaths.isEmpty()) {
-        if (success) {
-            updateHdrRestoreTracking(enabled, preState);
-        }
-        QMetaObject::invokeMethod(this,
-                                  [this, enabled, success, generation]() {
-                                      if (generation != m_hdrAsyncGeneration) {
-                                          return;
-                                      }
-                                      emit hdrChangeFinished(enabled, success);
-                                  },
-                                  Qt::QueuedConnection);
-        return true;
-    }
-
-    m_hdrAsyncPending = true;
-    m_hdrAsyncElapsed.restart();
-    m_hdrAsyncPollTimer.start();
-    return true;
-}
-
-#else
-bool DisplayManager::setRefreshRateLinux(double hz)
-{
-    QString cmdTemplate = m_config->getLinuxRefreshRateCommand();
-    if (cmdTemplate.isEmpty()) {
-        // Default to xrandr if not configured
-        // This is a naive default, users likely need to configure it
-        qCWarning(lcDisplayTrace) << "DisplayManager: No Linux refresh rate command configured";
-        return false;
-    }
-    
-    QString cmd = cmdTemplate;
-    
-    // Support both {RATE} (fractional) and {RATE_INT} (integer) placeholders
-    // This allows users to configure commands that need exact rates (like kwin/Wayland)
-    // or integer rates (like some xrandr setups)
-    // 
-    // For exact matching (23.976, 59.94, etc.), use {RATE} with full precision
-    // Example: kwin command might use exact rate
-    // Example xrandr: xrandr --output HDMI-1 --rate {RATE}
-    
-    // Format rate with appropriate precision
-    // 23.976023... -> "23.976" (3 decimal places is enough for display matching)
-    QString rateStr = QString::number(hz, 'f', 3);
-    // Remove trailing zeros for cleaner output: 24.000 -> 24
-    while (rateStr.contains('.') && (rateStr.endsWith('0') || rateStr.endsWith('.'))) {
-        rateStr.chop(1);
-    }
-    
-    cmd.replace("{RATE}", rateStr);
-    cmd.replace("{RATE_INT}", QString::number(qRound(hz)));
-    
-    qCDebug(lcDisplayTrace) << "DisplayManager: Executing Linux refresh rate command:" << cmd;
-    
-    QProcess process;
-    process.startCommand(cmd);
-    process.waitForFinished();
-    
-    if (process.exitCode() == 0) {
-        return true;
-    }
-    
-    qCWarning(lcDisplayTrace) << "DisplayManager: Command failed:" << process.readAllStandardError();
-    return false;
-}
-
-bool DisplayManager::restoreRefreshRateLinux()
-{
-    if (m_originalRefreshRate > 0) {
-        return setRefreshRateLinux(m_originalRefreshRate);
-    }
-    return false;
-}
-
-bool DisplayManager::setHDRLinux(bool enabled)
-{
-    return setHDRLinuxImpl(m_config->getLinuxHDRCommand(), enabled);
-}
 #endif
+} // namespace
 
-void DisplayManager::pollPendingHdrAsync()
+void DisplayManager::launchBestEffortShutdownRestore()
 {
-    if (!m_hdrAsyncPending) {
+    if (!m_hdrChanged && !needsRefreshRestore()) {
         return;
     }
+
+    qCWarning(lcDisplayTrace)
+        << "DisplayManager destroyed with pending display restoration; issuing best-effort non-blocking restore"
+        << "hdr=" << m_hdrChanged
+        << "refresh=" << needsRefreshRestore();
 
 #ifdef Q_OS_WIN
-    bool allSettled = true;
-    bool success = !m_hdrAsyncPaths.isEmpty();
-    for (const DISPLAYCONFIG_PATH_INFO &pathInfo : m_hdrAsyncPaths) {
-        const AdvancedColorStateQueryResult state = queryAdvancedColorState(pathInfo);
-        if (!state.ok || state.enabled != m_hdrAsyncRequestedState) {
-            allSettled = false;
-            if (!state.ok) {
-                success = false;
+    const bool restoreHdr = m_hdrChanged;
+    const bool originalHdrState = m_originalHDRState;
+    const bool restoreRefresh = needsRefreshRestore();
+    const double refreshTarget = m_originalRefreshRate;
+    const double baseline = m_baselineRefreshRate;
+    const QString customHdrCommand = restoreHdr
+        ? hdrCommand(m_config->getWindowsCustomHDRCommand(), originalHdrState)
+        : QString();
+    const int deadlineMs = m_options.commandDeadlineMs;
+    (void) QtConcurrent::run(nativeDisplayThreadPool(),
+                            [restoreHdr, originalHdrState, restoreRefresh,
+                             refreshTarget, baseline, customHdrCommand,
+                             deadlineMs]() {
+        if (restoreHdr) {
+            if (customHdrCommand.isEmpty()) {
+                setHDRWindowsImpl(originalHdrState, deadlineMs);
+            } else {
+                QProcess process;
+                process.setStandardOutputFile(QProcess::nullDevice());
+                process.setStandardErrorFile(QProcess::nullDevice());
+                process.startCommand(customHdrCommand);
+                if (!process.waitForFinished(deadlineMs)) {
+                    process.kill();
+                    process.waitForFinished(250);
+                }
             }
         }
-    }
-
-    if (!allSettled && m_hdrAsyncElapsed.elapsed() < 5000) {
-        return;
-    }
-
-    if (!allSettled) {
-        success = false;
-        qCWarning(lcDisplayTrace) << "setHDRAsync settle-timeout"
-                                  << "requested=" << m_hdrAsyncRequestedState
-                                  << "elapsedMs=" << m_hdrAsyncElapsed.elapsed();
-    }
+        if (restoreRefresh) {
+            restoreRefreshRateWindowsImpl(refreshTarget, baseline);
+        }
+    });
 #else
-    const bool success = false;
+    QStringList commands;
+    if (m_hdrChanged) {
+        const QString command = hdrCommand(m_config->getLinuxHDRCommand(),
+                                           m_originalHDRState);
+        if (!command.isEmpty()) {
+            commands.append(command);
+        }
+    }
+    if (needsRefreshRestore()) {
+        const double target = m_originalRefreshRate > 0.0
+            ? m_originalRefreshRate : m_baselineRefreshRate;
+        const QString command = refreshRateCommand(
+            m_config->getLinuxRefreshRateCommand(), target);
+        if (!command.isEmpty()) {
+            commands.append(command);
+        }
+    }
+    if (!commands.isEmpty()) {
+        QProcess::startDetached(QStringLiteral("/bin/sh"),
+                                {QStringLiteral("-c"), commands.join(QStringLiteral(" && "))});
+    }
 #endif
-
-    m_hdrAsyncPending = false;
-    if (m_hdrAsyncPollTimer.isActive()) {
-        m_hdrAsyncPollTimer.stop();
-    }
-
-    if (success) {
-        updateHdrRestoreTracking(m_hdrAsyncRequestedState, m_hdrAsyncPreState);
-    }
-
-    emit hdrChangeFinished(m_hdrAsyncRequestedState, success);
 }

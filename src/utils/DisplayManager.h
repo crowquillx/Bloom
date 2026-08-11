@@ -1,15 +1,23 @@
 #pragma once
 
-#include <QObject>
 #include <QElapsedTimer>
+#include <QObject>
+#include <QPointer>
 #include <QString>
 #include <QTimer>
-#include <QVector>
+#include <QVariantMap>
+
+#include <functional>
+
 #include "ConfigManager.h"
 
-#ifdef Q_OS_WIN
-#include <windows.h>
-#endif
+class QProcess;
+
+struct DisplayManagerOptions
+{
+    int commandDeadlineMs = 5000;
+    qint64 maximumCommandOutputBytes = 64 * 1024;
+};
 
 class DisplayManager : public QObject
 {
@@ -17,10 +25,19 @@ class DisplayManager : public QObject
 
 public:
     explicit DisplayManager(ConfigManager *config, QObject *parent = nullptr);
-    ~DisplayManager();
+    explicit DisplayManager(ConfigManager *config,
+                            const DisplayManagerOptions &options,
+                            QObject *parent = nullptr);
+    ~DisplayManager() override;
 
 signals:
     void hdrChangeFinished(bool enabled, bool success);
+    void refreshRateChangeFinished(double requestedHz, bool success);
+    void refreshRateRestoreFinished(bool success);
+    void displayOperationMeasured(const QString &operation,
+                                  qint64 milliseconds,
+                                  bool success,
+                                  bool timedOut);
 
 public slots:
     /**
@@ -30,29 +47,9 @@ public slots:
      */
     void captureOriginalRefreshRate();
 
-    /**
-     * @brief Sets the display refresh rate to the specified Hz.
-     * @param hz The target refresh rate (supports fractional rates like 23.976).
-     * @return true if successful, false otherwise.
-     * 
-     * The method will attempt to match the exact rate if the display supports it.
-     * Many modern TVs (e.g., LG) support exact 23.976Hz. If exact matching fails,
-     * it will try the nearest integer rate (e.g., 24Hz for 23.976fps content).
-     */
-    bool setRefreshRate(double hz);
+    void setRefreshRateAsync(double hz);
 
-    /**
-     * @brief Restores the original display refresh rate.
-     * @return true if successful, false otherwise.
-     */
-    bool restoreRefreshRate();
-
-    /**
-     * @brief Toggles HDR on or off.
-     * @param enabled true to enable HDR, false to disable.
-     * @return true if successful, false otherwise.
-     */
-    bool setHDR(bool enabled);
+    void restoreRefreshRateAsync();
 
     /**
      * @brief Toggles HDR on or off without blocking the GUI thread.
@@ -61,9 +58,9 @@ public slots:
     void setHDRAsync(bool enabled);
 
     /**
-     * @brief Cancels any pending asynchronous HDR settle polling.
+     * @brief Cancels any pending display operation and invalidates its completion.
      */
-    void cancelPendingHdrAsync();
+    void cancelPendingOperations();
 
     /**
      * @brief Gets the current refresh rate of the primary display.
@@ -76,15 +73,15 @@ public slots:
      */
     bool hasActiveRefreshRateOverride() const { return m_refreshRateChanged; }
     /**
-     * @brief Whether the most recent setRefreshRate() call performed a real mode switch.
+     * @brief Whether the most recent setRefreshRateAsync() call performed a real mode switch.
      */
     bool lastRefreshRateSwitchChanged() const { return m_lastRefreshRateSwitchChanged; }
     /**
-     * @brief Whether the most recent setRefreshRate() call skipped because the current mode was a compatible multiple.
+     * @brief Whether the most recent setRefreshRateAsync() call skipped because the current mode was a compatible multiple.
      */
     bool lastRefreshRateSwitchSkippedCompatibleMultiple() const { return m_lastRefreshRateSwitchSkippedCompatibleMultiple; }
     /**
-     * @brief Effective refresh rate from the most recent setRefreshRate() call.
+     * @brief Effective refresh rate from the most recent setRefreshRateAsync() call.
      *
      * For integer-reported fractional Windows modes, this is normalized to the requested
      * fractional rate only when the current mode belongs to that exact fractional family.
@@ -92,9 +89,11 @@ public slots:
     double lastRefreshRateSwitchEffectiveRate() const { return m_lastRefreshRateSwitchEffectiveRate; }
     bool needsRefreshRestore() const { return m_refreshRateChanged || (m_hasCapturedOriginalRefreshRate && m_originalRefreshRate > 0.0); }
     bool needsHdrRestore() const { return m_hdrChanged; }
+    QVariantMap diagnostics() const;
 
 private:
     ConfigManager *m_config;
+    DisplayManagerOptions m_options;
     
     // State tracking
     bool m_refreshRateChanged = false;
@@ -107,27 +106,42 @@ private:
     bool m_hdrChanged = false;
     bool m_originalHDRState = false;
     bool m_hasCapturedOriginalHDRState = false;
-    QTimer m_hdrAsyncPollTimer;
-    QElapsedTimer m_hdrAsyncElapsed;
-    bool m_hdrAsyncPending = false;
-    bool m_hdrAsyncRequestedState = false;
-    bool m_hdrAsyncPreState = false;
-    quint64 m_hdrAsyncGeneration = 0;
-#ifdef Q_OS_WIN
-    QVector<DISPLAYCONFIG_PATH_INFO> m_hdrAsyncPaths;
-#endif
+    quint64 m_operationGeneration = 0;
+    QPointer<QProcess> m_commandProcess;
+    QTimer m_commandDeadlineTimer;
+    QElapsedTimer m_operationElapsed;
+    QByteArray m_commandStandardError;
+    QByteArray m_commandStandardOutput;
+    QString m_activeOperation;
+    bool m_hdrOperationPending = false;
+    bool m_pendingHdrRequestedState = false;
+    bool m_pendingHdrPreState = false;
+    std::function<void(bool, bool)> m_commandCompletion;
+    quint64 m_operationsStarted = 0;
+    quint64 m_operationsSucceeded = 0;
+    quint64 m_operationsTimedOut = 0;
+    quint64 m_operationsCanceled = 0;
+    qint64 m_lastOperationLatencyMs = -1;
 
-    // Platform-specific helpers
-#ifdef Q_OS_WIN
-    bool setRefreshRateWindows(double hz);
-    bool restoreRefreshRateWindows();
-    bool setHDRWindows(bool enabled);
-    bool startHDRAsyncWindows(bool enabled);
-#else
-    bool setRefreshRateLinux(double hz);
-    bool restoreRefreshRateLinux();
-    bool setHDRLinux(bool enabled);
-#endif
-    void pollPendingHdrAsync();
+    quint64 beginOperation(const QString &operation);
+    void startExternalCommand(const QString &operation,
+                              const QString &command,
+                              quint64 generation,
+                              std::function<void(bool, bool)> completion);
+    void finishExternalCommand(QProcess *process,
+                               quint64 generation,
+                               bool success);
+    void cancelCommandProcess();
+    void recordOperationResult(const QString &operation,
+                               qint64 elapsedMs,
+                               bool success,
+                               bool timedOut);
+    void queueRefreshRateResult(double requestedHz,
+                                bool success,
+                                bool changed,
+                                bool skippedCompatibleMultiple,
+                                double effectiveRate,
+                                quint64 generation);
+    void launchBestEffortShutdownRestore();
     void updateHdrRestoreTracking(bool requestedState, bool preState);
 };

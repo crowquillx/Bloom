@@ -53,6 +53,31 @@ Windows embedded overlay layering model
 - Windows playback-start logs include the selected profile, `windows_render_api`, effective `vo`, `gpu-api`, `gpu-context`, 10-bit D3D11 output state, HDR output args, and shader filenames. Use mpv stats/log overlays with `BLOOM_WINDOWS_LIBMPV_MPV_LOG=info` or `debug` to verify input/output colorspace, HDR signaling, renderer selection, and shader application during runtime validation.
 - Embedded libmpv backends (`win-libmpv`, `linux-libmpv-opengl`) apply profile shaders after `mpv_initialize` using `change-list glsl-shaders clr/append` with absolute paths resolved from Bloom's mpv config directory (`~~/shaders/...` expands to `{config}/mpv/shaders/...`). CLI-style `--glsl-shaders-append` remains for external mpv only.
 
+Display/HDR operation lifecycle
+- `DisplayManager` is provided by the reusable `Bloom::Display` target. All HDR,
+  refresh-rate change, and refresh restoration requests are asynchronous.
+  `PlayerController` sequences HDR first, refresh matching second, and backend
+  startup last; shutdown restores HDR before refresh without holding the GUI
+  thread. The existing stabilization delay is applied only after a real mode
+  switch.
+- Linux refresh/HDR commands and Windows custom HDR commands run through an
+  event-driven `QProcess` with a 5-second deadline and separately capped 64 KiB
+  stdout/stderr buffers. Command contents are not logged. Native Windows HDR
+  and refresh APIs run off the GUI thread and have the same controller-visible
+  deadline.
+- A single operation generation invalidates stale command and native-operation
+  completions. Starting another episode cancels in-flight restoration and then
+  reconciles the actual desired HDR/refresh state before mpv starts. The
+  earliest pre-playback refresh/HDR state remains the restore target, including
+  the existing compatible-multiple skip and Up Next parking optimization.
+- `displayOperationMeasured` and `diagnostics()` expose operation latency,
+  timeout, cancellation, output-size, and success counters. Destruction never
+  waits for an external command; if normal playback teardown did not finish,
+  Bloom issues a best-effort non-blocking restore. Persistent automatic crash
+  recovery was considered but intentionally not added because replaying stale
+  display state after a reboot or user mode change would make restoration more
+  intrusive.
+
 Audio output device & hotplug handling
 - Goal: audio should follow the device the user actually wants, including devices that connect *after* Bloom (or playback) has already started — e.g. powering on a Bluetooth headset mid-session — without restarting the app.
 - Setting: `ConfigManager.audioOutputDevice` (`settings.playback.audio_output_device`, default `auto`). `auto`/empty follows the system default output device; a specific value is an mpv audio-device id such as `wasapi/{...}`. A picker lives in **Settings > Playback > Audio Output Device**, populated from the live device list plus the saved selection.

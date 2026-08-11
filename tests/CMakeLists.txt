@@ -77,6 +77,7 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/ConfigStorage.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/Logger.cpp
@@ -96,6 +97,10 @@ function(bloom_use_production_libraries test_target)
     set(player_process_source ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp)
     if(player_process_source IN_LIST test_sources)
         target_link_libraries(${test_target} PRIVATE Bloom::PlayerProcess)
+    endif()
+    set(display_manager_source ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp)
+    if(display_manager_source IN_LIST test_sources)
+        target_link_libraries(${test_target} PRIVATE Bloom::Display)
     endif()
     list(REMOVE_ITEM test_sources ${BLOOM_LINKED_PRODUCTION_SOURCES})
     set_property(TARGET ${test_target} PROPERTY SOURCES "${test_sources}")
@@ -622,6 +627,27 @@ target_link_libraries(PlayerProcessManagerTest
 
 add_test(NAME PlayerProcessManagerTest COMMAND PlayerProcessManagerTest)
 
+add_executable(DisplayManagerTest
+    DisplayManagerTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/utils/DisplayManager.cpp
+    ${TEST_CONFIG_SOURCES}
+)
+
+target_include_directories(DisplayManagerTest PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/src
+)
+
+target_link_libraries(DisplayManagerTest
+    PRIVATE
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Test
+)
+
+add_test(NAME DisplayManagerTest COMMAND DisplayManagerTest)
+
 add_executable(PlayerControllerAutoplayContextTest
     PlayerControllerAutoplayContextTest.cpp
     ${CMAKE_SOURCE_DIR}/src/player/backend/IPlayerBackend.h
@@ -846,6 +872,7 @@ set(BLOOM_UNIT_TEST_TARGETS
     InputBindingManagerTest
     PlayerBackendFactoryTest
     PlayerProcessManagerTest
+    DisplayManagerTest
     PlayerControllerAutoplayContextTest
     MediaSegmentProviderServiceTest
     NextEpisodeResolverTest

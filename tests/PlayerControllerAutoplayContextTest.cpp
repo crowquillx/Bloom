@@ -18,6 +18,15 @@
 #include "utils/DisplayManager.h"
 #include "utils/TrackPreferencesManager.h"
 
+namespace {
+QString displayTestShellCommand(const QString &script)
+{
+    QString escaped = script;
+    escaped.replace(QLatin1Char('"'), QStringLiteral("\\\""));
+    return QStringLiteral("/bin/sh -c \"%1\"").arg(escaped);
+}
+}
+
 class FakePlayerBackend final : public IPlayerBackend
 {
     Q_OBJECT
@@ -541,6 +550,8 @@ private slots:
     void remoteMountStartupBufferingAppendsMpvArgs();
     void remoteMountStartupCacheReadyWhileBufferingUnpausesAndPlays();
     void remoteMountPausedForCacheReleaseUnpausesManualPause();
+    void playbackWaitsForAsynchronousHdrAndRefreshPreparation();
+    void displayTimeoutDoesNotFreezePlaybackStartup();
     void requestPlaybackWaitsForSeriesDetailsParentIdBeforeStarting();
     void requestPlaybackUsesRecoveredLibraryWhenSeriesDetailsArriveBeforePlaybackInfo();
     void requestPlaybackFallsBackWithoutRecoveredLibraryProfileWhenParentIdMissing();
@@ -3329,6 +3340,100 @@ void PlayerControllerAutoplayContextTest::embeddedFallbackWaitsForAsynchronousBa
     QCOMPARE(controller.m_playerBackend->backendName(), QStringLiteral("null-backend"));
     QVERIFY(controller.m_backendFallbackSource.isNull());
     QCOMPARE(controller.playbackState(), PlayerController::Loading);
+}
+
+void PlayerControllerAutoplayContextTest::playbackWaitsForAsynchronousHdrAndRefreshPreparation()
+{
+#ifdef Q_OS_WIN
+    QSKIP("Linux custom display-command integration test");
+#else
+    ConfigManager config;
+    config.setEnableHDR(true);
+    config.setHDROutputMode(QStringLiteral("match-content"));
+    config.setEnableFramerateMatching(true);
+    config.setFramerateMatchDelay(0);
+    config.setLinuxHDRCommand(displayTestShellCommand(QStringLiteral("sleep 0.15")));
+    config.setLinuxRefreshRateCommand(
+        displayTestShellCommand(QStringLiteral("sleep 0.15")));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    controller.m_playbackState = PlayerController::Loading;
+    controller.m_pendingUrl = QStringLiteral("https://example.invalid/async-display");
+    controller.m_contentIsHDR = true;
+    controller.m_contentShouldToneMapToSdr = false;
+    controller.m_contentFramerate = 23.976;
+
+    QElapsedTimer timer;
+    timer.start();
+    controller.startPlayback(controller.m_pendingUrl);
+    QVERIFY2(timer.elapsed() < 50, "display preparation blocked playback startup");
+    QVERIFY(backend.lastStartUrl.isEmpty());
+
+    QTRY_COMPARE_WITH_TIMEOUT(
+        backend.lastStartUrl,
+        QStringLiteral("https://example.invalid/async-display"), 3000);
+    QVERIFY(displayManager.needsHdrRestore());
+    QVERIFY(displayManager.needsRefreshRestore());
+#endif
+}
+
+void PlayerControllerAutoplayContextTest::displayTimeoutDoesNotFreezePlaybackStartup()
+{
+#ifdef Q_OS_WIN
+    QSKIP("Linux custom display-command integration test");
+#else
+    ConfigManager config;
+    config.setEnableHDR(true);
+    config.setHDROutputMode(QStringLiteral("match-content"));
+    config.setEnableFramerateMatching(false);
+    config.setLinuxHDRCommand(displayTestShellCommand(QStringLiteral("sleep 2")));
+    TrackPreferencesManager trackPrefs;
+    DisplayManagerOptions options;
+    options.commandDeadlineMs = 100;
+    DisplayManager displayManager(&config, options);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    QSignalSpy hdrSpy(&displayManager, &DisplayManager::hdrChangeFinished);
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    controller.m_playbackState = PlayerController::Loading;
+    controller.m_pendingUrl = QStringLiteral("https://example.invalid/display-timeout");
+    controller.m_contentIsHDR = true;
+
+    QElapsedTimer timer;
+    timer.start();
+    controller.startPlayback(controller.m_pendingUrl);
+    QVERIFY2(timer.elapsed() < 50, "display timeout setup blocked playback startup");
+    QTRY_COMPARE_WITH_TIMEOUT(hdrSpy.count(), 1, 1000);
+    QCOMPARE(hdrSpy.first().at(1).toBool(), false);
+    QTRY_COMPARE_WITH_TIMEOUT(
+        backend.lastStartUrl,
+        QStringLiteral("https://example.invalid/display-timeout"), 1000);
+
+    config.setLinuxHDRCommand(displayTestShellCommand(QStringLiteral("true")));
+    displayManager.setHDRAsync(false);
+    QTRY_COMPARE_WITH_TIMEOUT(hdrSpy.count(), 2, 1000);
+#endif
 }
 
 void PlayerControllerAutoplayContextTest::playbackInfoDirectStreamUrlIsPreferred()

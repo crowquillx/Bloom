@@ -43,6 +43,9 @@ Useful utilities
 - `PlayerProcessManager` for external mpv lifecycle. Link `Bloom::PlayerProcess`
   in tests; keep process and IPC control asynchronous and bounded as documented
   in `docs/playback.md`.
+- `DisplayManager` for HDR and refresh-rate lifecycle. Link `Bloom::Display` in
+  tests; never wait for an external display command on the GUI thread, and keep
+  playback preparation/restoration generation-safe.
 - `HttpTransport` for shared HTTP execution/retry/cancellation policy.
 - `IProviderRequestFactory` implementations for provider URL/header construction.
 - `ConfigManager` for settings and QML exposures.

@@ -34,6 +34,11 @@ graceful-quit/escalation sequence, queued replacement playback, bounded IPC
 deadlines/queues, and per-user/per-instance private endpoints documented in
 `docs/playback.md`.
 
+Display/HDR lifecycle is owned by `Bloom::Display`. Keep HDR, refresh matching,
+and restoration asynchronous and generation-safe; external display commands
+must retain deadlines and bounded output, and `PlayerController` must preserve
+HDR-before-refresh startup plus HDR-before-refresh restoration ordering.
+
 Build & run (blessed path):
 ```
 nix build
