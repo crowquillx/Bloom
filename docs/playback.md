@@ -67,10 +67,14 @@ Display/HDR operation lifecycle
   tree. Command contents are not logged. Native Windows HDR and refresh APIs run
   off the GUI thread and have the same controller-visible deadline.
 - A single operation generation invalidates stale command and native-operation
-  completions. Starting another episode cancels in-flight restoration and then
-  reconciles the actual desired HDR/refresh state before mpv starts. The
-  earliest pre-playback refresh/HDR state remains the restore target, including
-  the existing compatible-multiple skip and Up Next parking optimization.
+  completions. Windows native mutations are serialized; queued stale mutations
+  check a process-lifetime generation before touching the display, and the
+  newest physical request still runs last when its caller-visible deadline
+  expires behind an already-running OS call. Starting another episode cancels
+  in-flight restoration and then reconciles the actual desired HDR/refresh state
+  before mpv starts. The earliest pre-playback refresh/HDR state remains the
+  restore target, including the existing compatible-multiple skip and Up Next
+  parking optimization.
 - `displayOperationMeasured` and `diagnostics()` expose operation latency,
   timeout, cancellation, output-size, and success counters. Destruction never
   waits for an external command; if normal playback teardown did not finish,

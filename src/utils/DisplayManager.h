@@ -9,6 +9,11 @@
 
 #include <functional>
 
+#ifdef Q_OS_WIN
+#include <atomic>
+#include <memory>
+#endif
+
 #include "ConfigManager.h"
 
 class QProcess;
@@ -107,6 +112,9 @@ private:
     bool m_originalHDRState = false;
     bool m_hasCapturedOriginalHDRState = false;
     quint64 m_operationGeneration = 0;
+#ifdef Q_OS_WIN
+    std::shared_ptr<std::atomic<quint64>> m_nativeOperationGeneration;
+#endif
     QPointer<QProcess> m_commandProcess;
     quintptr m_commandJobHandle = 0;
     QTimer m_commandDeadlineTimer;

@@ -417,6 +417,10 @@ DisplayManager::DisplayManager(ConfigManager *config,
     m_options.commandDeadlineMs = std::max(1, m_options.commandDeadlineMs);
     m_options.maximumCommandOutputBytes = std::max<qint64>(
         1024, m_options.maximumCommandOutputBytes);
+#ifdef Q_OS_WIN
+    m_nativeOperationGeneration =
+        std::make_shared<std::atomic<quint64>>(m_operationGeneration);
+#endif
     m_baselineRefreshRate = getCurrentRefreshRate();
     m_commandDeadlineTimer.setSingleShot(true);
     connect(&m_commandDeadlineTimer, &QTimer::timeout, this, [this]() {
@@ -580,6 +584,10 @@ void DisplayManager::cancelPendingOperations()
         ++m_operationsCanceled;
     }
     ++m_operationGeneration;
+#ifdef Q_OS_WIN
+    m_nativeOperationGeneration->store(m_operationGeneration,
+                                       std::memory_order_release);
+#endif
     cancelCommandProcess();
     m_activeOperation.clear();
 }
@@ -770,7 +778,12 @@ void DisplayManager::setRefreshRateAsync(double hz)
                 recordOperationResult(operation, elapsed, success, false);
                 emit refreshRateChangeFinished(hz, success);
             });
-    watcher->setFuture(QtConcurrent::run(nativeDisplayThreadPool(), [hz]() {
+    const auto nativeGeneration = m_nativeOperationGeneration;
+    watcher->setFuture(QtConcurrent::run(nativeDisplayThreadPool(),
+                                         [hz, generation, nativeGeneration]() {
+        if (nativeGeneration->load(std::memory_order_acquire) != generation) {
+            return false;
+        }
         return setRefreshRateWindowsImpl(hz);
     }));
     QTimer::singleShot(m_options.commandDeadlineMs, this,
@@ -854,7 +867,13 @@ void DisplayManager::restoreRefreshRateAsync()
                 emit refreshRateRestoreFinished(success);
             });
     const double baseline = m_baselineRefreshRate;
-    watcher->setFuture(QtConcurrent::run(nativeDisplayThreadPool(), [target, baseline]() {
+    const auto nativeGeneration = m_nativeOperationGeneration;
+    watcher->setFuture(QtConcurrent::run(nativeDisplayThreadPool(),
+                                         [target, baseline, generation,
+                                          nativeGeneration]() {
+        if (nativeGeneration->load(std::memory_order_acquire) != generation) {
+            return false;
+        }
         return restoreRefreshRateWindowsImpl(target, baseline);
     }));
     QTimer::singleShot(m_options.commandDeadlineMs, this,
@@ -951,7 +970,13 @@ void DisplayManager::setHDRAsync(bool enabled)
         emit hdrChangeFinished(enabled, result.success);
     });
     const int settleDeadlineMs = m_options.commandDeadlineMs;
-    watcher->setFuture(QtConcurrent::run(nativeDisplayThreadPool(), [enabled, settleDeadlineMs]() {
+    const auto nativeGeneration = m_nativeOperationGeneration;
+    watcher->setFuture(QtConcurrent::run(nativeDisplayThreadPool(),
+                                         [enabled, settleDeadlineMs, generation,
+                                          nativeGeneration]() {
+        if (nativeGeneration->load(std::memory_order_acquire) != generation) {
+            return HdrAsyncFallbackResult{};
+        }
         return runBlockingWindowsHdrToggle(enabled, settleDeadlineMs);
     }));
     QTimer::singleShot(m_options.commandDeadlineMs, this,
