@@ -11,7 +11,11 @@ lib.fileset.toSource {
       ../VERSION
       ../config
       ../src
+      ../third_party/monocypher
     ]
-    ++ lib.optionals includeTests [ ../tests ]
+    ++ lib.optionals includeTests [
+      ../scripts/generate-update-manifest.py
+      ../tests
+    ]
   );
 }

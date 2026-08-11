@@ -44,17 +44,6 @@ qt_add_executable(Bloom
     player/backend/PlayerBackendFactory.cpp
     player/backend/MpvEmbeddedShaderUtils.h
     player/backend/MpvEmbeddedShaderUtils.cpp
-    updates/UpdateTypes.h
-    updates/IUpdateProvider.h
-    updates/IUpdateProvider.cpp
-    updates/GitHubReleaseUpdateProvider.h
-    updates/GitHubReleaseUpdateProvider.cpp
-    updates/IUpdateApplier.h
-    updates/IUpdateApplier.cpp
-    updates/WindowsNsisUpdateApplier.h
-    updates/WindowsNsisUpdateApplier.cpp
-    updates/UpdateService.h
-    updates/UpdateService.cpp
     utils/AudioOutputRouter.cpp
     utils/AudioOutputRouter.h
     utils/DetailViewCache.h
@@ -414,6 +403,7 @@ target_link_libraries(Bloom
     Bloom::Network
     Bloom::PlayerPolicy
     Bloom::PlayerProcess
+    Bloom::Updater
     Qt6::Core
     Qt6::Gui
     Qt6::Quick
@@ -433,6 +423,10 @@ qt6_add_translations(Bloom
     QM_FILES_OUTPUT_VARIABLE qm_files
 )
 install(FILES ${qm_files} DESTINATION ${CMAKE_INSTALL_DATADIR}/bloom/translations)
+install(FILES ${CMAKE_SOURCE_DIR}/third_party/monocypher/LICENCE.md
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/Bloom
+    RENAME Monocypher-LICENCE.md
+)
 
 if (TARGET Qt6::MultimediaQuick)
     target_link_libraries(Bloom PRIVATE Qt6::MultimediaQuick)

@@ -5,6 +5,7 @@
   ninja,
   pkg-config,
   python3,
+  openssl,
   gtest,
   libsecret,
   mpv,
@@ -25,6 +26,7 @@ stdenv.mkDerivation {
     ninja
     pkg-config
     python3
+    openssl
     qt6.wrapQtAppsHook
   ];
 

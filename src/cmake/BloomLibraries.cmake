@@ -3,6 +3,19 @@
 #   Models -> Config / Transport / ImageCache / PlayerProcess -> Providers -> Network
 #                     Config -> Display
 #                     Qt Core -> PlayerPolicy
+#                     Monocypher -> Updater -> Config
+
+add_library(BloomMonocypher STATIC
+    ${CMAKE_SOURCE_DIR}/third_party/monocypher/src/monocypher.c
+    ${CMAKE_SOURCE_DIR}/third_party/monocypher/src/monocypher.h
+    ${CMAKE_SOURCE_DIR}/third_party/monocypher/src/optional/monocypher-ed25519.c
+    ${CMAKE_SOURCE_DIR}/third_party/monocypher/src/optional/monocypher-ed25519.h
+)
+add_library(Bloom::Monocypher ALIAS BloomMonocypher)
+target_include_directories(BloomMonocypher
+    PUBLIC
+        ${CMAKE_SOURCE_DIR}/third_party/monocypher/src
+)
 
 add_library(BloomModels STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/models/MediaModels.cpp
@@ -134,6 +147,45 @@ target_link_libraries(BloomPlayerPolicy
         Qt6::Core
 )
 
+add_library(BloomUpdater STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/IUpdateProvider.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/IUpdateProvider.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/IUpdateApplier.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/IUpdateApplier.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/UpdateTypes.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/UpdateManifestVerifier.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/UpdateManifestVerifier.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/UpdateNetworkPolicy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/UpdateNetworkPolicy.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/GitHubReleaseUpdateProvider.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/GitHubReleaseUpdateProvider.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/WindowsNsisUpdateApplier.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/WindowsNsisUpdateApplier.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/UpdateService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/updates/UpdateService.h
+)
+add_library(Bloom::Updater ALIAS BloomUpdater)
+target_include_directories(BloomUpdater
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(BloomUpdater
+    PUBLIC
+        Bloom::Config
+        Bloom::Monocypher
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Network
+)
+target_compile_definitions(BloomUpdater
+    PRIVATE
+        BLOOM_UPDATE_AUTHENTICODE_PUBLISHER="${BLOOM_UPDATE_AUTHENTICODE_PUBLISHER}"
+)
+if(WIN32)
+    target_link_libraries(BloomUpdater PUBLIC crypt32 shell32 wintrust)
+endif()
+
 add_library(BloomProviders STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinAuthenticator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinModelMapper.cpp
@@ -184,6 +236,7 @@ target_link_libraries(BloomNetwork
 )
 
 set_target_properties(
+    BloomMonocypher
     BloomModels
     BloomConfig
     BloomDisplay
@@ -191,6 +244,7 @@ set_target_properties(
     BloomImageCache
     BloomPlayerProcess
     BloomPlayerPolicy
+    BloomUpdater
     BloomProviders
     BloomNetwork
     PROPERTIES FOLDER "Bloom/Libraries"
