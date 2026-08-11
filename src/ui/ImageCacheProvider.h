@@ -195,7 +195,7 @@ private:
      * @param url Image URL
      * @return Path to cached file, or empty if not cached
      */
-    QString getCachedPath(const QString &url);
+    QString getCachedPath(const QString &url, qint64 *revision = nullptr);
     
     /**
      * @brief Save image data to cache

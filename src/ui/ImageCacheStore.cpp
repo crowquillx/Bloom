@@ -65,17 +65,24 @@ auto onWorker(QObject *worker, Function &&function)
     }
 
     if constexpr (std::is_void_v<Result>) {
-        QMetaObject::invokeMethod(worker,
-                                  std::forward<Function>(function),
-                                  Qt::BlockingQueuedConnection);
+        if (!QMetaObject::invokeMethod(worker,
+                                       std::forward<Function>(function),
+                                       Qt::BlockingQueuedConnection)) {
+            qCWarning(lcImageCache) << "Image cache worker call was not delivered";
+        }
     } else {
         std::optional<Result> result;
-        QMetaObject::invokeMethod(worker,
-                                  [&result, function = std::forward<Function>(function)]() mutable {
-                                      result.emplace(function());
-                                  },
-                                  Qt::BlockingQueuedConnection);
-        return std::move(result).value();
+        const bool delivered = QMetaObject::invokeMethod(
+            worker,
+            [&result, function = std::forward<Function>(function)]() mutable {
+                result.emplace(function());
+            },
+            Qt::BlockingQueuedConnection);
+        if (!delivered || !result.has_value()) {
+            qCWarning(lcImageCache) << "Image cache worker call was not delivered";
+            return Result{};
+        }
+        return std::move(*result);
     }
 }
 
@@ -151,7 +158,8 @@ public:
 
     [[nodiscard]] bool isAvailable() const { return m_database.isOpen(); }
 
-    QString lookup(const QString &cacheKey, bool updateAccessTime)
+    ImageCacheStore::LookupResult lookupEntry(const QString &cacheKey,
+                                              bool updateAccessTime)
     {
         Q_ASSERT(QThread::currentThread() == thread());
         if (!m_database.isOpen()) {
@@ -161,7 +169,7 @@ public:
 
         QSqlQuery query(m_database);
         query.prepare(QStringLiteral(
-            "SELECT filename, size FROM cache_entries WHERE url = ?"));
+            "SELECT filename, size, created_at FROM cache_entries WHERE url = ?"));
         const QString databaseKey = databaseKeyFor(cacheKey);
         query.addBindValue(databaseKey);
         if (!query.exec() || !query.next()) {
@@ -171,6 +179,7 @@ public:
 
         const QString filename = query.value(0).toString();
         const qint64 recordedSize = query.value(1).toLongLong();
+        const qint64 revision = query.value(2).toLongLong();
         query.finish();
         if (!validFilenameForKey(databaseKey, filename)) {
             deleteRow(databaseKey);
@@ -199,7 +208,7 @@ public:
             touch(cacheKey);
         }
         ++m_stats.diskHits;
-        return path;
+        return {path, revision};
     }
 
     QString write(const QString &cacheKey, const QByteArray &data)
@@ -213,11 +222,12 @@ public:
         const QString databaseKey = databaseKeyFor(cacheKey);
         const Entry previousEntry = findEntry(databaseKey);
         const QString path = dataPath(filename);
-        const QFileInfo previousInfo(path);
-        const qint64 previousSize = previousInfo.isFile() && !previousInfo.isSymLink()
-            ? previousInfo.size()
+        // The in-memory total reflects the database's recorded size. The file
+        // may have disappeared or changed since the last reconciliation, so
+        // subtracting its current on-disk size can retain stale tracked bytes.
+        const qint64 trackedPreviousSize = previousEntry.valid
+            ? previousEntry.recordedSize
             : 0;
-        const qint64 trackedPreviousSize = previousEntry.valid ? previousSize : 0;
 
         if (!m_database.transaction()) {
             qCWarning(lcImageCache) << "Failed to start image cache write transaction";
@@ -245,7 +255,8 @@ public:
                 ON CONFLICT(url) DO UPDATE SET
                     filename = excluded.filename,
                     size = excluded.size,
-                    last_accessed = excluded.last_accessed
+                    last_accessed = excluded.last_accessed,
+                    created_at = excluded.created_at
             )"));
             query.addBindValue(databaseKey);
             query.addBindValue(filename);
@@ -261,17 +272,24 @@ public:
                 QFile::remove(path);
                 return {};
             }
-            // Atomic replacement has already installed the new bytes. Preserve
-            // accurate real-file accounting even if SQLite must repair the row
-            // on a later lookup/startup.
-            m_currentSize = std::max<qint64>(0,
-                                             m_currentSize - trackedPreviousSize + data.size());
-            updateRecordedSize(databaseKey, data.size());
-            ++m_stats.writes;
-            ++m_stats.replacements;
             ++m_stats.recoveryActions;
-            evictIfNeeded();
-            return path;
+            if (repairReplacementMetadata(databaseKey, filename, data.size(), now)) {
+                m_currentSize = std::max<qint64>(
+                    0, m_currentSize - trackedPreviousSize + data.size());
+                ++m_stats.writes;
+                ++m_stats.replacements;
+                evictIfNeeded();
+                return path;
+            }
+
+            // Leave the previous row and its bytes in the tracked total. If
+            // removal succeeds, a later lookup will remove that stale row and
+            // subtract it exactly once. If removal fails, lookup will instead
+            // reconcile the installed file's actual size.
+            if (!QFile::remove(path)) {
+                ++m_stats.deletionFailures;
+            }
+            return {};
         }
 
         m_currentSize = std::max<qint64>(
@@ -306,6 +324,19 @@ public:
         }
         const Entry entry = findEntry(databaseKeyFor(cacheKey));
         if (!entry.valid) {
+            return;
+        }
+        removeEntry(entry, false);
+    }
+
+    void invalidateIfCurrent(const QString &cacheKey, qint64 expectedRevision)
+    {
+        Q_ASSERT(QThread::currentThread() == thread());
+        if (!m_database.isOpen()) {
+            return;
+        }
+        const Entry entry = findEntry(databaseKeyFor(cacheKey));
+        if (!entry.valid || entry.revision != expectedRevision) {
             return;
         }
         removeEntry(entry, false);
@@ -383,6 +414,7 @@ private:
         QString databaseKey;
         QString filename;
         qint64 recordedSize = 0;
+        qint64 revision = 0;
         bool valid = false;
     };
 
@@ -546,15 +578,16 @@ private:
         QSqlQuery query(m_database);
         const QString statement = oldestFirst
             ? QStringLiteral(
-                  "SELECT url, filename, size FROM cache_entries "
+                  "SELECT url, filename, size, created_at FROM cache_entries "
                   "ORDER BY last_accessed ASC, rowid ASC")
-            : QStringLiteral("SELECT url, filename, size FROM cache_entries");
+            : QStringLiteral(
+                  "SELECT url, filename, size, created_at FROM cache_entries");
         if (!query.exec(statement)) {
             return entries;
         }
         while (query.next()) {
             entries.append({query.value(0).toString(), query.value(1).toString(),
-                            query.value(2).toLongLong(), true});
+                            query.value(2).toLongLong(), query.value(3).toLongLong(), true});
         }
         return entries;
     }
@@ -563,12 +596,13 @@ private:
     {
         QSqlQuery query(m_database);
         query.prepare(QStringLiteral(
-            "SELECT filename, size FROM cache_entries WHERE url = ?"));
+            "SELECT filename, size, created_at FROM cache_entries WHERE url = ?"));
         query.addBindValue(databaseKey);
         if (!query.exec() || !query.next()) {
             return {};
         }
-        return {databaseKey, query.value(0).toString(), query.value(1).toLongLong(), true};
+        return {databaseKey, query.value(0).toString(), query.value(1).toLongLong(),
+                query.value(2).toLongLong(), true};
     }
 
     bool removeEntry(const Entry &entry, bool eviction)
@@ -639,6 +673,33 @@ private:
         query.addBindValue(size);
         query.addBindValue(databaseKey);
         return query.exec();
+    }
+
+    bool repairReplacementMetadata(const QString &databaseKey,
+                                   const QString &filename,
+                                   qint64 size,
+                                   qint64 revision)
+    {
+        if (!m_database.transaction()) {
+            return false;
+        }
+        QSqlQuery query(m_database);
+        query.prepare(QStringLiteral(R"(
+            UPDATE cache_entries
+            SET filename = ?, size = ?, last_accessed = ?, created_at = ?
+            WHERE url = ?
+        )"));
+        query.addBindValue(filename);
+        query.addBindValue(size);
+        query.addBindValue(revision);
+        query.addBindValue(revision);
+        query.addBindValue(databaseKey);
+        const bool updated = query.exec() && query.numRowsAffected() == 1;
+        if (updated && m_database.commit()) {
+            return true;
+        }
+        m_database.rollback();
+        return false;
     }
 
     void recomputeCurrentSize()
@@ -712,8 +773,14 @@ bool ImageCacheStore::isAvailable() const
 
 QString ImageCacheStore::lookup(const QString &cacheKey, bool updateAccessTime)
 {
+    return lookupEntry(cacheKey, updateAccessTime).path;
+}
+
+ImageCacheStore::LookupResult ImageCacheStore::lookupEntry(
+    const QString &cacheKey, bool updateAccessTime)
+{
     return onWorker(m_worker, [worker = m_worker, cacheKey, updateAccessTime]() {
-        return worker->lookup(cacheKey, updateAccessTime);
+        return worker->lookupEntry(cacheKey, updateAccessTime);
     });
 }
 
@@ -732,6 +799,13 @@ void ImageCacheStore::touch(const QString &cacheKey)
 void ImageCacheStore::invalidate(const QString &cacheKey)
 {
     onWorker(m_worker, [worker = m_worker, cacheKey]() { worker->invalidate(cacheKey); });
+}
+
+void ImageCacheStore::invalidateIfCurrent(const QString &cacheKey, qint64 expectedRevision)
+{
+    onWorker(m_worker, [worker = m_worker, cacheKey, expectedRevision]() {
+        worker->invalidateIfCurrent(cacheKey, expectedRevision);
+    });
 }
 
 void ImageCacheStore::clear()

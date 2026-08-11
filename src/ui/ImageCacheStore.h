@@ -12,12 +12,20 @@ class ImageCacheStoreWorker;
  * Thread-safe façade for the on-disk image cache.
  *
  * All SQLite and cache-file operations execute on one dedicated worker thread.
- * Public methods are synchronous so callers can safely use returned paths, but
- * ImageCacheProvider only calls them from its existing asynchronous work.
+ * Public methods are synchronous and block until queued worker operations have
+ * completed. GUI/QML-facing provider methods such as cacheStats(), clearCache(),
+ * currentCacheSize(), and setMaxCacheSize() therefore also block their caller.
  */
 class ImageCacheStore final
 {
 public:
+    struct LookupResult {
+        QString path;
+        qint64 revision = 0;
+
+        [[nodiscard]] bool isValid() const { return !path.isEmpty(); }
+    };
+
     struct Stats {
         quint64 diskHits = 0;
         quint64 diskMisses = 0;
@@ -37,10 +45,13 @@ public:
     ImageCacheStore &operator=(const ImageCacheStore &) = delete;
 
     [[nodiscard]] bool isAvailable() const;
+    [[nodiscard]] LookupResult lookupEntry(const QString &cacheKey,
+                                           bool updateAccessTime = false);
     [[nodiscard]] QString lookup(const QString &cacheKey, bool updateAccessTime = false);
     [[nodiscard]] QString write(const QString &cacheKey, const QByteArray &data);
     void touch(const QString &cacheKey);
     void invalidate(const QString &cacheKey);
+    void invalidateIfCurrent(const QString &cacheKey, qint64 expectedRevision);
     void clear();
     void evictIfNeeded();
     void setMaximumSize(qint64 bytes);

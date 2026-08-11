@@ -9,6 +9,10 @@
 #include <QTemporaryDir>
 #include <QTest>
 
+#include <array>
+#include <thread>
+#include <vector>
+
 namespace {
 
 QString databaseKey(const QString &key)
@@ -69,6 +73,9 @@ class ImageCacheStoreTest : public QObject
 
 private slots:
     void replacementSubtractsPreviousSize();
+    void replacementSubtractsRecordedSizeWhenFileIsMissing();
+    void staleInvalidationDoesNotRemoveReplacement();
+    void serializesConcurrentCallers();
     void evictionContinuesPastOneHundredEntries();
     void deletionFailureDoesNotStopEviction();
     void corruptDatabaseRecoversCleanly();
@@ -109,6 +116,86 @@ void ImageCacheStoreTest::replacementSubtractsPreviousSize()
     const ImageCacheStore::Stats stats = store.stats();
     QCOMPARE(stats.writes, quint64(3));
     QCOMPARE(stats.replacements, quint64(1));
+}
+
+void ImageCacheStoreTest::replacementSubtractsRecordedSizeWhenFileIsMissing()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    ImageCacheStore store(directory.path(), 1024 * 1024);
+
+    const QString key = QStringLiteral("artwork:missing-replacement");
+    const QString path = store.write(key, QByteArray(31, 'a'));
+    QVERIFY(!path.isEmpty());
+    QCOMPARE(store.currentSize(), 31);
+    QVERIFY(QFile::remove(path));
+
+    QCOMPARE(store.write(key, QByteArray(7, 'b')), path);
+    QCOMPARE(store.currentSize(), 7);
+    QFile replacement(path);
+    QVERIFY(replacement.open(QIODevice::ReadOnly));
+    QCOMPARE(replacement.readAll(), QByteArray(7, 'b'));
+}
+
+void ImageCacheStoreTest::staleInvalidationDoesNotRemoveReplacement()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    ImageCacheStore store(directory.path(), 1024 * 1024);
+
+    const QString key = QStringLiteral("artwork:decode-race");
+    QVERIFY(!store.write(key, QByteArrayLiteral("invalid-image")).isEmpty());
+    const ImageCacheStore::LookupResult stale = store.lookupEntry(key);
+    QVERIFY(stale.isValid());
+
+    QCOMPARE(store.write(key, QByteArrayLiteral("replacement-image")), stale.path);
+    const ImageCacheStore::LookupResult replacement = store.lookupEntry(key);
+    QVERIFY(replacement.isValid());
+    QVERIFY(replacement.revision != stale.revision);
+
+    store.invalidateIfCurrent(key, stale.revision);
+    QCOMPARE(store.lookup(key), replacement.path);
+    QCOMPARE(store.currentSize(), qint64(QByteArrayLiteral("replacement-image").size()));
+
+    store.invalidateIfCurrent(key, replacement.revision);
+    QVERIFY(store.lookup(key).isEmpty());
+    QCOMPARE(store.currentSize(), 0);
+}
+
+void ImageCacheStoreTest::serializesConcurrentCallers()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    ImageCacheStore store(directory.path(), 1024 * 1024);
+
+    constexpr int callerCount = 8;
+    constexpr int entrySize = 13;
+    std::array<bool, callerCount> successful{};
+    std::array<ImageCacheStore::Stats, callerCount> snapshots{};
+    std::vector<std::thread> callers;
+    callers.reserve(callerCount);
+    for (int index = 0; index < callerCount; ++index) {
+        callers.emplace_back([&store, &successful, &snapshots, index]() {
+            const QString key = QStringLiteral("artwork:concurrent-%1").arg(index);
+            const QString path = store.write(key, QByteArray(entrySize, 'a' + index));
+            successful[index] = !path.isEmpty() && store.lookup(key) == path;
+            snapshots[index] = store.stats();
+        });
+    }
+    for (std::thread &caller : callers) {
+        caller.join();
+    }
+
+    for (bool result : successful) {
+        QVERIFY(result);
+    }
+    for (const ImageCacheStore::Stats &snapshot : snapshots) {
+        QVERIFY(snapshot.writes >= 1);
+    }
+    QCOMPARE(store.currentSize(), qint64(callerCount * entrySize));
+    const ImageCacheStore::Stats stats = store.stats();
+    QCOMPARE(stats.writes, quint64(callerCount));
+    QCOMPARE(stats.diskHits, quint64(callerCount));
 }
 
 void ImageCacheStoreTest::evictionContinuesPastOneHundredEntries()

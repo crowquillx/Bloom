@@ -97,7 +97,8 @@ void CachedImageResponse::run()
 
 void CachedImageResponse::loadFromCache()
 {
-    QString cachedPath = m_provider->getCachedPath(m_url);
+    qint64 cachedRevision = 0;
+    QString cachedPath = m_provider->getCachedPath(m_url, &cachedRevision);
     
     if (!cachedPath.isEmpty() && QFile::exists(cachedPath)) {
         QImageReader reader(cachedPath);
@@ -136,7 +137,9 @@ void CachedImageResponse::loadFromCache()
         } else {
             qCWarning(lcImageCache) << "Failed to read cached image:" << cachedPath 
                                   << reader.errorString();
-            m_provider->m_store->invalidate(m_url);
+            if (m_provider->m_store) {
+                m_provider->m_store->invalidateIfCurrent(m_url, cachedRevision);
+            }
         }
     }
     
@@ -419,9 +422,16 @@ void ImageCacheProvider::prefetch(const QStringList &urls)
     }
 }
 
-QString ImageCacheProvider::getCachedPath(const QString &url)
+QString ImageCacheProvider::getCachedPath(const QString &url, qint64 *revision)
 {
-    return m_store ? m_store->lookup(url) : QString();
+    if (!m_store) {
+        return {};
+    }
+    const ImageCacheStore::LookupResult result = m_store->lookupEntry(url);
+    if (revision) {
+        *revision = result.revision;
+    }
+    return result.path;
 }
 
 void ImageCacheProvider::saveToCache(const QString &url, const QByteArray &data)
