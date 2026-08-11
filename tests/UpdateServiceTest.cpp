@@ -618,19 +618,26 @@ void UpdateServiceTest::installerDownload_finalizesAtomicallyAndCleansObsolete()
 
     applier.downloadAndInstall(manifest, QStringLiteral("stable"));
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 2000);
-#ifndef Q_OS_WIN
     QVERIFY(!finishedSpy.first().at(0).toBool());
+#ifdef Q_OS_WIN
+    QVERIFY(finishedSpy.first().at(1).toString().contains(QStringLiteral("eligible"), Qt::CaseInsensitive));
+#else
     QVERIFY(finishedSpy.first().at(1).toString().contains(QStringLiteral("Windows"), Qt::CaseInsensitive));
 #endif
 
     const QDir directory(directoryPath);
     QVERIFY(!QFileInfo::exists(directory.filePath(QStringLiteral("old.exe"))));
     const QString finalPath = directory.filePath(manifest.installer.filename);
+#ifdef Q_OS_WIN
+    QVERIFY(!QFileInfo::exists(finalPath));
+    QVERIFY(directory.entryList(QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+#else
     QFile finalFile(finalPath);
     QVERIFY(finalFile.open(QIODevice::ReadOnly));
     QCOMPARE(finalFile.readAll(), installerBytes);
     const QStringList files = directory.entryList(QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot);
     QCOMPARE(files, QStringList{manifest.installer.filename});
+#endif
 }
 
 void UpdateServiceTest::autoUpdateCheckDefaultsOff()

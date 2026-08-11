@@ -477,6 +477,7 @@ void WindowsNsisUpdateApplier::finalizeVerifiedDownload()
     const QString uninstallerPath = QDir(registeredDir).filePath(QStringLiteral("Uninstall.exe"));
     if (installLocation.isEmpty() || currentDir != registeredDir || !QFileInfo::exists(uninstallerPath))
     {
+        removeCommittedDownload();
         finishWithError(tr("Bloom downloaded the update, but this build is no "
                            "longer eligible for automatic install."));
         return;
@@ -503,6 +504,7 @@ void WindowsNsisUpdateApplier::finalizeVerifiedDownload()
     }
     if (!launched)
     {
+        removeCommittedDownload();
         finishWithError(tr("Bloom downloaded the update but could not launch the "
                            "elevated installer: %1")
                             .arg(windowsErrorMessage(launchError)));
