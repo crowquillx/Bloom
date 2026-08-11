@@ -100,11 +100,13 @@ private:
     QString m_pendingRevokeSessionId;
     bool m_pendingRevokeWasCurrent = false;
     QString m_deviceId;
+    bool m_bulkRevokeRefreshPending = false;
     QSet<QString> m_pendingBulkRevokeDeviceIds;
     int m_successfulBulkRevocations = 0;
 
     void setIsLoading(bool loading);
     void setErrorString(const QString &error);
+    void revokeLoadedOtherDevices();
     void finishDeviceRevocation(const QString &deviceId, bool successful);
     QString getDeviceId() const;
     QString deviceIdForSession(const QString &sessionId) const;
