@@ -372,8 +372,8 @@ FocusScope {
         id: combinedLayoutComponent
         Item {
             anchors.fill: parent
-            property alias playButton: heroActions.playButtonRef
-            property alias detailsButton: heroActions.detailsButtonRef
+            property alias playButton: combinedHeroActions.playButtonRef
+            property alias detailsButton: combinedHeroActions.detailsButtonRef
 
             HeroBannerLayoutHost {
                 id: combinedHost
@@ -386,7 +386,7 @@ FocusScope {
                 HeroMetadataRow { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
                 HeroSynopsisText { layoutBlockAlignment: combinedHost.contentLayoutAlignment }
                 HeroActionsRow {
-                    id: heroActions
+                    id: combinedHeroActions
                     layoutBlockAlignment: combinedHost.contentLayoutAlignment
                 }
             }
@@ -397,8 +397,8 @@ FocusScope {
         id: splitLayoutComponent
         Item {
             anchors.fill: parent
-            property alias playButton: heroActions.playButtonRef
-            property alias detailsButton: heroActions.detailsButtonRef
+            property alias playButton: splitHeroActions.playButtonRef
+            property alias detailsButton: splitHeroActions.detailsButtonRef
 
             HeroBannerLayoutHost {
                 id: logoHost
@@ -418,7 +418,7 @@ FocusScope {
                 HeroMetadataRow { layoutBlockAlignment: infoHost.contentLayoutAlignment }
                 HeroSynopsisText { layoutBlockAlignment: infoHost.contentLayoutAlignment }
                 HeroActionsRow {
-                    id: heroActions
+                    id: splitHeroActions
                     layoutBlockAlignment: infoHost.contentLayoutAlignment
                 }
             }

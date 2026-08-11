@@ -1,0 +1,87 @@
+name: Deep analysis
+
+on:
+  schedule:
+    - cron: '41 7 * * 0'
+  workflow_dispatch:
+
+concurrency:
+  group: bloom-deep-analysis-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  clang-tidy:
+    name: Targeted clang-tidy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+      - name: Analyze ownership and security boundaries
+        env:
+          BLOOM_BUILD_JOBS: '4'
+        run: nix develop .#analysis --command ./scripts/run-clang-tidy.sh
+
+  sanitizers:
+    name: ${{ matrix.label }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: address
+            label: ASan and UBSan
+          - mode: thread
+            label: Targeted TSAN
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+      - name: Build and run instrumented tests
+        env:
+          BLOOM_BUILD_JOBS: '4'
+        run: nix develop .#analysis --command ./scripts/run-sanitizers.sh '${{ matrix.mode }}'
+
+  coverage:
+    name: Coverage report
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: cachix/install-nix-action@630ae543ea3a38a9a4166f03376c02c50f408342 # v31
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+      - name: Build tests and collect coverage
+        env:
+          BLOOM_BUILD_JOBS: '4'
+        run: nix develop .#analysis --command ./scripts/run-coverage.sh
+      - name: Add coverage to run summary
+        run: |
+          {
+            echo '## Bloom coverage'
+            echo '```text'
+            cat build-analysis/coverage-report/coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: bloom-coverage-${{ github.sha }}
+          path: build-analysis/coverage-report
+          if-no-files-found: error
+          retention-days: 90

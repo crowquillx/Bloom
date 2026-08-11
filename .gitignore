@@ -6,6 +6,7 @@
 # ===========================
 build/
 build-dev/
+build-analysis/
 build_verify/
 build-docker/
 build-windows/

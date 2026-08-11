@@ -45,7 +45,17 @@ stdenv.mkDerivation {
     cmake --build . --parallel "$NIX_BUILD_CORES" --target \
       Bloom_copy_qml Bloom_copy_res Bloom_qmltyperegistration
     mapfile -t qml_files < <(find src/BloomUI/ui -type f -name '*.qml' | sort)
-    qmllint -I src -I ${qt6.qtdeclarative}/lib/qt-6/qml "''${qml_files[@]}"
+    # Keep context-dependent warnings visible while making high-confidence
+    # structural defects fail the build.
+    qmllint \
+      --alias-cycle error \
+      --assignment-in-condition error \
+      --duplicate-import error \
+      --duplicate-property-binding error \
+      --inheritance-cycle error \
+      --invalid-lint-directive error \
+      --unreachable-code error \
+      -I src -I ${qt6.qtdeclarative}/lib/qt-6/qml "''${qml_files[@]}"
     runHook postBuild
   '';
   installPhase = ''

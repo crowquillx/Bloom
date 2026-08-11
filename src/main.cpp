@@ -139,7 +139,12 @@ int main(int argc, char *argv[])
     QCommandLineParser parser;
     parser.setApplicationDescription("Bloom - Media Client for Jellyfin and Silo Servers (experimental native Silo support)");
     parser.addHelpOption();
-    parser.addVersionOption();
+    // Keep -v available for the documented verbose mode. Qt's convenience
+    // version option also claims -v, so Bloom owns a long-only version option.
+    QCommandLineOption versionOption(
+        QStringList() << "version",
+        "Displays version information."
+    );
     
     QCommandLineOption testModeOption(
         QStringList() << "test-mode",
@@ -162,11 +167,17 @@ int main(int argc, char *argv[])
         "Enable full debug logging (overrides settings.logging.level for this session)."
     );
     
+    parser.addOption(versionOption);
     parser.addOption(testModeOption);
     parser.addOption(fixtureOption);
     parser.addOption(resolutionOption);
     parser.addOption(verboseOption);
     parser.process(app);
+
+    if (parser.isSet(versionOption)) {
+        std::printf("Bloom %s\n", BLOOM_VERSION);
+        return 0;
+    }
     
     // Initialize test mode if requested
     if (parser.isSet(testModeOption)) {

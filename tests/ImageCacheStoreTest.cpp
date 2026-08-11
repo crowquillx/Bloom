@@ -392,5 +392,5 @@ void ImageCacheStoreTest::persistedIdentityIsCredentialFree()
     QVERIFY(!bytes.contains("token"));
 }
 
-QTEST_MAIN(ImageCacheStoreTest)
+QTEST_GUILESS_MAIN(ImageCacheStoreTest)
 #include "ImageCacheStoreTest.moc"

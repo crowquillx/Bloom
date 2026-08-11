@@ -87,6 +87,44 @@
           inherit bloom;
           tests = pkgs.callPackage ./nix/tests.nix { };
           qml-lint = pkgs.callPackage ./nix/qml-lint.nix { };
+          release-smoke =
+            pkgs.runCommand "bloom-release-smoke"
+              {
+                nativeBuildInputs = [ pkgs.gnugrep ];
+              }
+              ''
+                export HOME="$TMPDIR/home"
+                export XDG_CACHE_HOME="$TMPDIR/cache"
+                mkdir -p "$HOME" "$XDG_CACHE_HOME"
+                export FONTCONFIG_FILE=${pkgs.fontconfig.out}/etc/fonts/fonts.conf
+                export LC_ALL=C.UTF-8
+                export QT_QPA_PLATFORM=offscreen
+                output="$(${bloom}/bin/bloom --version 2>&1)"
+                printf '%s\n' "$output"
+                test "$output" = "Bloom ${bloom.version}"
+                help_output="$(${bloom}/bin/bloom --help 2>&1)"
+                printf '%s\n' "$help_output" | grep -F -- "--verbose, -v"
+                touch "$out"
+              '';
+          automation-lint =
+            pkgs.runCommand "bloom-automation-lint"
+              {
+                nativeBuildInputs = with pkgs; [
+                  actionlint
+                  shellcheck
+                ];
+              }
+              ''
+                shellcheck \
+                  ${./scripts/run-clang-tidy.sh} \
+                  ${./scripts/run-coverage.sh} \
+                  ${./scripts/run-sanitizers.sh}
+                actionlint \
+                  ${./.github/workflows/ci.yml} \
+                  ${./.github/workflows/deep-analysis.yml} \
+                  ${./.github/workflows/update-dependencies.yml}
+                touch "$out"
+              '';
           metadata =
             pkgs.runCommand "bloom-metadata-check"
               {
@@ -126,26 +164,24 @@
         let
           pkgs = import nixpkgs { inherit system; };
           bloom = self.packages.${system}.bloom;
-        in
-        {
-          default = pkgs.mkShell {
-            name = "bloom";
+          commonPackages = with pkgs; [
+            appstream
+            cachix
+            ccache
+            desktop-file-utils
+            flatpak
+            flatpak-builder
+            gdb
+            git
+            jq
+            nixfmt
+            podman
+            python3
+            skopeo
+          ];
+          commonShellArgs = {
             inputsFrom = [ bloom ];
-            packages = with pkgs; [
-              appstream
-              cachix
-              ccache
-              desktop-file-utils
-              flatpak
-              flatpak-builder
-              gdb
-              git
-              jq
-              nixfmt
-              podman
-              python3
-              skopeo
-            ];
+            packages = commonPackages;
             shellHook = ''
               export QT_PLUGIN_PATH="${
                 pkgs.lib.makeSearchPath "lib/qt-6/plugins" [
@@ -177,6 +213,22 @@
               echo "  package:  nix run .#package-linux -- --output dist"
             '';
           };
+        in
+        {
+          default = pkgs.mkShell (commonShellArgs // { name = "bloom"; });
+          analysis = pkgs.mkShell (
+            commonShellArgs
+            // {
+              name = "bloom-analysis";
+              packages = commonPackages ++ [
+                pkgs.clang-tools
+                pkgs.gcovr
+              ];
+              shellHook = commonShellArgs.shellHook + ''
+                export BLOOM_ANALYSIS_SHELL=1
+              '';
+            }
+          );
         }
       );
 
