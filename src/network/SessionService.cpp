@@ -192,20 +192,48 @@ void SessionService::fetchActiveSessions()
 
 void SessionService::revokeSession(const QString &sessionId)
 {
+    beginSessionRevocation(sessionId);
+}
+
+bool SessionService::beginSessionRevocation(const QString &sessionId,
+                                            const QString &knownDeviceId)
+{
+    const QString deviceId = knownDeviceId.isEmpty()
+        ? deviceIdForSession(sessionId)
+        : knownDeviceId;
+    const auto finishBulkDispatch = [this, &deviceId]() {
+        if (!deviceId.isEmpty()
+            && m_pendingBulkRevokeDeviceIds.contains(deviceId)) {
+            finishDeviceRevocation(deviceId, false);
+            return true;
+        }
+        return false;
+    };
+
     if (!m_authService || !m_authService->isAuthenticated()) {
+        finishBulkDispatch();
         setErrorString("Not authenticated");
         emit operationFailed(m_errorString);
-        return;
+        return false;
     }
 
     if (sessionId.isEmpty()) {
+        finishBulkDispatch();
         setErrorString("Session ID is required");
         emit operationFailed(m_errorString);
-        return;
+        return false;
     }
 
     if (authenticationSessionMode() && m_isLoading) {
-        return;
+        finishBulkDispatch();
+        return false;
+    }
+
+    if (!knownDeviceId.isEmpty() && authenticationSessionMode()) {
+        finishBulkDispatch();
+        setErrorString(tr("Playback-session revocation is no longer available."));
+        emit operationFailed(m_errorString);
+        return false;
     }
 
     setIsLoading(true);
@@ -215,25 +243,30 @@ void SessionService::revokeSession(const QString &sessionId)
         m_pendingRevokeSessionId = sessionId;
         m_pendingRevokeWasCurrent = isCurrentSession(sessionId);
         m_authService->revokeAuthSession(sessionId);
-        return;
+        return true;
     }
 
     if (!m_transport) {
-        setIsLoading(false);
+        const bool bulkDispatch = finishBulkDispatch();
+        if (!bulkDispatch) {
+            setIsLoading(false);
+        }
         setErrorString("Network transport unavailable");
         emit operationFailed(m_errorString);
-        return;
+        return false;
     }
 
     // Jellyfin 12 no longer exposes the legacy per-session Logout route in
     // OpenAPI. Delete the device associated with the selected playback
     // session using the supported device-management endpoint instead.
-    const QString deviceId = deviceIdForSession(sessionId);
     if (deviceId.isEmpty()) {
-        setIsLoading(false);
+        const bool bulkDispatch = finishBulkDispatch();
+        if (!bulkDispatch) {
+            setIsLoading(false);
+        }
         setErrorString(tr("The selected session has no device identifier."));
         emit operationFailed(m_errorString);
-        return;
+        return false;
     }
     QUrl endpointUrl(QStringLiteral("/Devices"));
     QUrlQuery query;
@@ -258,6 +291,7 @@ void SessionService::revokeSession(const QString &sessionId)
             emit operationFailed(error.userMessage);
         },
         options);
+    return true;
 }
 void SessionService::revokeAllOtherSessions()
 {
@@ -273,6 +307,8 @@ void SessionService::revokeAllOtherSessions()
         return;
     }
     if (m_isLoading) {
+        setErrorString(tr("A session operation is already in progress."));
+        emit operationFailed(m_errorString);
         return;
     }
 
@@ -284,7 +320,17 @@ void SessionService::revokeAllOtherSessions()
 
 void SessionService::revokeLoadedOtherDevices()
 {
-    QStringList revocations;
+    if (!m_authService || !m_authService->isAuthenticated()
+        || authenticationSessionMode() || !m_transport) {
+        m_pendingBulkRevokeDeviceIds.clear();
+        m_successfulBulkRevocations = 0;
+        setIsLoading(false);
+        setErrorString(tr("Playback-session revocation is no longer available."));
+        emit operationFailed(m_errorString);
+        return;
+    }
+
+    QList<QPair<QString, QString>> revocations;
     QSet<QString> revokedDeviceIds;
     const QString sessionDeviceId = deviceIdForSession(m_currentSessionId);
     const QString currentDeviceId = sessionDeviceId.isEmpty()
@@ -302,7 +348,7 @@ void SessionService::revokeLoadedOtherDevices()
         if (!sessionId.isEmpty() && !deviceId.isEmpty()
             && deviceId != currentDeviceId && !revokedDeviceIds.contains(deviceId)) {
             revokedDeviceIds.insert(deviceId);
-            revocations.append(sessionId);
+            revocations.append({sessionId, deviceId});
         }
     }
     if (revocations.isEmpty()) {
@@ -313,8 +359,8 @@ void SessionService::revokeLoadedOtherDevices()
     m_pendingBulkRevokeDeviceIds = revokedDeviceIds;
     m_successfulBulkRevocations = 0;
     setIsLoading(true);
-    for (const QString &sessionId : revocations) {
-        revokeSession(sessionId);
+    for (const auto &revocation : revocations) {
+        beginSessionRevocation(revocation.first, revocation.second);
     }
 }
 

@@ -1028,8 +1028,8 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
 
         const quint64 lookupRevision = m_cacheContentRevision.load();
 #ifdef BLOOM_TESTING
-        QSemaphore *lookupEntered = nullptr;
-        QSemaphore *lookupRelease = nullptr;
+        QSharedPointer<QSemaphore> lookupEntered;
+        QSharedPointer<QSemaphore> lookupRelease;
         {
             QMutexLocker testHookLock(&m_testHookMutex);
             lookupEntered = std::exchange(m_roundedLookupEnteredForTest, nullptr);
@@ -1428,8 +1428,9 @@ void ImageCacheProvider::processPendingRoundedForTest(
     processPendingRounded(url, sourcePath);
 }
 
-void ImageCacheProvider::blockNextRoundedLookupForTest(QSemaphore *entered,
-                                                       QSemaphore *release)
+void ImageCacheProvider::blockNextRoundedLookupForTest(
+    const QSharedPointer<QSemaphore> &entered,
+    const QSharedPointer<QSemaphore> &release)
 {
     Q_ASSERT(entered);
     Q_ASSERT(release);

@@ -180,7 +180,9 @@ public:
 #ifdef BLOOM_TESTING
     void blockCacheWorkerForTest(const QSharedPointer<QSemaphore> &entered,
                                  const QSharedPointer<QSemaphore> &release);
-    void blockNextRoundedLookupForTest(QSemaphore *entered, QSemaphore *release);
+    void blockNextRoundedLookupForTest(
+        const QSharedPointer<QSemaphore> &entered,
+        const QSharedPointer<QSemaphore> &release);
     void advanceCacheContentRevisionForTest();
     void processPendingRoundedForTest(const QString &url,
                                       const QString &sourcePath);
@@ -325,8 +327,8 @@ private:
     QHash<QString, quint64> m_roundedTouchesInFlight;
     mutable QMutex m_pendingMutex;
 #ifdef BLOOM_TESTING
-    QSemaphore *m_roundedLookupEnteredForTest = nullptr;
-    QSemaphore *m_roundedLookupReleaseForTest = nullptr;
+    QSharedPointer<QSemaphore> m_roundedLookupEnteredForTest;
+    QSharedPointer<QSemaphore> m_roundedLookupReleaseForTest;
     QMutex m_testHookMutex;
 #endif
 };

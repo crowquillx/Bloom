@@ -557,12 +557,12 @@ void ArtworkRefreshTest::revisionRaceRetriesRoundedLookup()
     QVERIFY(base->errorString().isEmpty());
 
     cache.setRoundedPreprocessEnabled(true);
-    QSemaphore lookupEntered;
-    QSemaphore releaseLookup;
-    cache.blockNextRoundedLookupForTest(&lookupEntered, &releaseLookup);
+    const auto lookupEntered = QSharedPointer<QSemaphore>::create();
+    const auto releaseLookup = QSharedPointer<QSemaphore>::create();
+    cache.blockNextRoundedLookupForTest(lookupEntered, releaseLookup);
     QSignalSpy roundedSpy(&cache, &ImageCacheProvider::roundedImageReady);
     QCOMPARE(cache.requestRoundedImage(identity, 16, 32, 32), QString());
-    const bool lookupPaused = lookupEntered.tryAcquire(1, 1000);
+    const bool lookupPaused = lookupEntered->tryAcquire(1, 1000);
 
     // Simulate an unrelated disk-cache mutation while the async lookup is in
     // flight. The request must retry rather than leaving its pending variant
@@ -570,7 +570,7 @@ void ArtworkRefreshTest::revisionRaceRetriesRoundedLookup()
     if (lookupPaused) {
         cache.advanceCacheContentRevisionForTest();
     }
-    releaseLookup.release();
+    releaseLookup->release();
     QVERIFY(lookupPaused);
 
     QTRY_COMPARE_WITH_TIMEOUT(roundedSpy.count(), 1, 3000);

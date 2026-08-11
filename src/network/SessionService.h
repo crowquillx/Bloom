@@ -106,6 +106,8 @@ private:
 
     void setIsLoading(bool loading);
     void setErrorString(const QString &error);
+    bool beginSessionRevocation(const QString &sessionId,
+                                const QString &knownDeviceId = {});
     void revokeLoadedOtherDevices();
     void finishDeviceRevocation(const QString &deviceId, bool successful);
     QString getDeviceId() const;

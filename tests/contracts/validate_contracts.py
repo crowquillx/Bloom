@@ -171,9 +171,15 @@ def _validate_jellyfin_openapi(snapshot: dict[str, Any]):
         "EventName" not in progress_properties,
         "PlaybackProgressInfo must not restore the removed EventName field",
     )
-    stream = operations[("GET", "/Videos/{itemId}/stream")]
+    stream = operations.get(("GET", "/Videos/{itemId}/stream"))
+    _require(
+        stream is not None,
+        "Jellyfin OpenAPI is missing ('GET', '/Videos/{itemId}/stream')",
+    )
     stream_parameters = {
-        parameter.get("name"): parameter for parameter in stream.get("parameters", [])
+        parameter.get("name"): parameter
+        for parameter in stream.get("parameters", [])
+        if isinstance(parameter, dict)
     }
     _require(
         stream_parameters.get("deviceProfileId", {}).get("deprecated", False),
