@@ -75,8 +75,7 @@ qt_add_executable(Bloom
     ui/UiSoundController.cpp
     ui/ScreensaverController.h
     ui/ScreensaverController.cpp
-    ui/SoftwareRoundedImage.h
-    ui/SoftwareRoundedImage.cpp
+    ui/SoftwareRoundedImageRegistration.h
     ui/ResponsiveLayoutManager.h
     ui/ResponsiveLayoutManager.cpp
     security/ISecretStore.h
@@ -404,6 +403,7 @@ target_link_libraries(Bloom
     Bloom::Network
     Bloom::PlayerPolicy
     Bloom::PlayerProcess
+    Bloom::SoftwareRoundedImage
     Bloom::Updater
     Qt6::Core
     Qt6::Gui

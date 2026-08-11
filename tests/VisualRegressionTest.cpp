@@ -81,7 +81,6 @@ private:
     QDir m_fixtureDir;     // tests/fixtures/
 
     // Application components
-    QGuiApplication* m_app = nullptr;
     ApplicationInitializer* m_appInitializer = nullptr;
     WindowManager* m_windowManager = nullptr;
     QQuickWindow* m_window = nullptr;
@@ -189,21 +188,8 @@ void VisualRegressionTest::initTestCase()
     TestModeController::instance()->initialize(fixturePath, QSize(1920, 1080));
     qDebug() << "Test mode initialized with fixture:" << fixturePath;
 
-    // Create QGuiApplication (required for QML)
-    // Note: We use a static argc/argv since QGuiApplication requires references
-    static int argc = 1;
-    static char* argv[1] = {const_cast<char*>("VisualRegressionTest")};
-    
-    // Set application metadata
-    QCoreApplication::setOrganizationName("Bloom");
-    QCoreApplication::setOrganizationDomain("com.github.bloom");
-    QCoreApplication::setApplicationName("Bloom");
-    
-    // Set Qt Quick Controls style
-    QQuickStyle::setStyle("Basic");
-    
-    m_app = new QGuiApplication(argc, argv);
-    QVERIFY(m_app != nullptr);
+    auto *app = qobject_cast<QGuiApplication *>(QCoreApplication::instance());
+    QVERIFY(app != nullptr);
 
     // Register shared network metatypes
     registerNetworkMetaTypes();
@@ -217,14 +203,14 @@ void VisualRegressionTest::initTestCase()
     fontLoader.load();
     
     // Initialize Application Services
-    m_appInitializer = new ApplicationInitializer(m_app);
+    m_appInitializer = new ApplicationInitializer(app);
     QVERIFY(m_appInitializer != nullptr);
     
     m_appInitializer->registerServices();
     m_appInitializer->initializeServices();
     
     // Setup Window and UI
-    m_windowManager = new WindowManager(m_app);
+    m_windowManager = new WindowManager(app);
     QVERIFY(m_windowManager != nullptr);
     
     m_windowManager->setup(m_appInitializer->configManager());
@@ -260,8 +246,6 @@ void VisualRegressionTest::cleanupTestCase()
     delete m_appInitializer;
     m_appInitializer = nullptr;
     
-    delete m_app;
-    m_app = nullptr;
 }
 
 void VisualRegressionTest::testBackendServiceRegistration()
@@ -673,5 +657,16 @@ void VisualRegressionTest::testMovieDetailsView_4K()
     runVisualTest("MovieDetailsView", res);
 }
 
-QTEST_APPLESS_MAIN(VisualRegressionTest)
+int main(int argc, char **argv)
+{
+    QCoreApplication::setOrganizationName("Bloom");
+    QCoreApplication::setOrganizationDomain("com.github.bloom");
+    QCoreApplication::setApplicationName("Bloom");
+    QQuickStyle::setStyle("Basic");
+
+    QGuiApplication application(argc, argv);
+    VisualRegressionTest test;
+    return QTest::qExec(&test, argc, argv);
+}
+
 #include "VisualRegressionTest.moc"

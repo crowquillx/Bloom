@@ -4,12 +4,10 @@
 #include <QPointer>
 #include <QQuickPaintedItem>
 #include <QTimer>
-#include <QtQml/qqmlregistration.h>
 
 class SoftwareRoundedImage : public QQuickPaintedItem
 {
     Q_OBJECT
-    QML_ELEMENT
 
     Q_PROPERTY(QQuickItem *sourceItem READ sourceItem WRITE setSourceItem
                    NOTIFY sourceItemChanged)

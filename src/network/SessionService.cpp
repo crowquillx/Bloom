@@ -33,6 +33,8 @@ SessionService::SessionService(AuthenticationService *authService, QObject *pare
             m_authLoadPending = false;
             m_pendingRevokeSessionId.clear();
             m_pendingRevokeWasCurrent = false;
+            m_pendingBulkRevokeDeviceIds.clear();
+            m_successfulBulkRevocations = 0;
             setIsLoading(false);
             setErrorString(error);
         });
@@ -243,8 +245,8 @@ void SessionService::revokeSession(const QString &sessionId)
         [this, sessionId, deviceId](QNetworkReply *reply) {
             onRevokeSessionFinished(reply, sessionId, deviceId);
         },
-        [this](const NetworkError &error) {
-            setIsLoading(false);
+        [this, deviceId](const NetworkError &error) {
+            finishDeviceRevocation(deviceId, false);
             setErrorString(error.userMessage);
             emit operationFailed(error.userMessage);
         },
@@ -263,11 +265,14 @@ void SessionService::revokeAllOtherSessions()
         emit operationFailed(m_errorString);
         return;
     }
+    if (m_isLoading) {
+        return;
+    }
 
     // Refresh the Jellyfin playback-session list before revoking every session
     // except the current device.
     connect(this, &SessionService::sessionsLoaded, this, [this]() {
-        int revokedCount = 0;
+        QStringList revocations;
         QSet<QString> revokedDeviceIds;
         const QString sessionDeviceId = deviceIdForSession(m_currentSessionId);
         const QString currentDeviceId = sessionDeviceId.isEmpty()
@@ -285,11 +290,20 @@ void SessionService::revokeAllOtherSessions()
             if (!sessionId.isEmpty() && !deviceId.isEmpty()
                 && deviceId != currentDeviceId && !revokedDeviceIds.contains(deviceId)) {
                 revokedDeviceIds.insert(deviceId);
-                revokeSession(sessionId);
-                ++revokedCount;
+                revocations.append(sessionId);
             }
         }
-        emit allOtherSessionsRevoked(revokedCount);
+        if (revocations.isEmpty()) {
+            emit allOtherSessionsRevoked(0);
+            return;
+        }
+
+        m_pendingBulkRevokeDeviceIds = revokedDeviceIds;
+        m_successfulBulkRevocations = 0;
+        setIsLoading(true);
+        for (const QString &sessionId : revocations) {
+            revokeSession(sessionId);
+        }
     }, Qt::SingleShotConnection);
 
     fetchActiveSessions();
@@ -390,8 +404,6 @@ void SessionService::onFetchSessionsFinished(QNetworkReply *reply)
 
 void SessionService::onRevokeSessionFinished(QNetworkReply *, QString sessionId, QString deviceId)
 {
-    setIsLoading(false);
-
     // Jellyfin 12 revocation deletes a device rather than one playback
     // session. Another session row for this device therefore revokes the
     // current session as well.
@@ -402,6 +414,7 @@ void SessionService::onRevokeSessionFinished(QNetworkReply *, QString sessionId,
     if (sessionId == m_currentSessionId
         || (!deviceId.isEmpty() && deviceId == currentDeviceId)) {
         qCWarning(lcAuth) << "SessionService: Current device was revoked";
+        finishDeviceRevocation(deviceId, true);
         emit selfSessionRevoked();
         return;
     }
@@ -417,8 +430,29 @@ void SessionService::onRevokeSessionFinished(QNetworkReply *, QString sessionId,
 
     emit sessionsChanged();
     emit sessionRevoked(sessionId);
+    finishDeviceRevocation(deviceId, true);
     
     qCDebug(lcAuth) << "SessionService: Revoked session" << sessionId;
+}
+
+void SessionService::finishDeviceRevocation(const QString &deviceId, bool successful)
+{
+    if (!m_pendingBulkRevokeDeviceIds.remove(deviceId)) {
+        setIsLoading(false);
+        return;
+    }
+
+    if (successful) {
+        ++m_successfulBulkRevocations;
+    }
+    if (!m_pendingBulkRevokeDeviceIds.isEmpty()) {
+        return;
+    }
+
+    setIsLoading(false);
+    const int revokedCount = m_successfulBulkRevocations;
+    m_successfulBulkRevocations = 0;
+    emit allOtherSessionsRevoked(revokedCount);
 }
 
 void SessionService::setIsLoading(bool loading)

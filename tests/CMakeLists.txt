@@ -73,6 +73,8 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/security/CredentialStore.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.h
+    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlaybackPolicy.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
@@ -96,6 +98,17 @@ function(bloom_use_production_libraries test_target)
     if(image_cache_provider_source IN_LIST test_sources
        OR image_cache_store_source IN_LIST test_sources)
         target_link_libraries(${test_target} PRIVATE Bloom::ImageCache)
+    endif()
+    set(software_rounded_image_source
+        ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.cpp)
+    set(software_rounded_image_header
+        ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.h)
+    set(software_rounded_image_registration
+        ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImageRegistration.h)
+    if(software_rounded_image_source IN_LIST test_sources
+       OR software_rounded_image_header IN_LIST test_sources
+       OR software_rounded_image_registration IN_LIST test_sources)
+        target_link_libraries(${test_target} PRIVATE Bloom::SoftwareRoundedImage)
     endif()
     set(player_process_source ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp)
     if(player_process_source IN_LIST test_sources)
@@ -488,8 +501,6 @@ add_test(NAME ImageCacheStoreTest COMMAND ImageCacheStoreTest)
 
 add_executable(RoundedImageTest
     RoundedImageTest.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.h
-    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.cpp
 )
 
 target_compile_definitions(RoundedImageTest PRIVATE
@@ -505,6 +516,7 @@ target_link_libraries(RoundedImageTest
         Qt6::Qml
         Qt6::Quick
         Qt6::Test
+        Bloom::SoftwareRoundedImage
 )
 
 add_test(NAME RoundedImageTest COMMAND RoundedImageTest)
@@ -1016,8 +1028,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/ui/ResponsiveLayoutManager.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/FontLoader.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/UiSoundController.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.h
-    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImageRegistration.h
     # ViewModels
     ${CMAKE_SOURCE_DIR}/src/viewmodels/LibraryViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
