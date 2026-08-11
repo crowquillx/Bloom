@@ -112,11 +112,12 @@ void DisplayManagerTest::replacementCancelsStaleCompletion()
     const QString marker = directory.filePath(QStringLiteral("state.txt"));
     ConfigManager config;
     config.setLinuxHDRCommand(shellCommand(
-        QStringLiteral("sleep 1; printf stale > %1").arg(marker)));
+        QStringLiteral("sleep 0.4; printf stale > %1").arg(marker)));
     DisplayManager manager(&config, fastOptions());
     QSignalSpy hdrSpy(&manager, &DisplayManager::hdrChangeFinished);
 
     manager.setHDRAsync(true);
+    QTest::qWait(50);
     config.setLinuxHDRCommand(shellCommand(
         QStringLiteral("printf current > %1").arg(marker)));
     manager.setHDRAsync(false);
@@ -125,7 +126,9 @@ void DisplayManagerTest::replacementCancelsStaleCompletion()
     QCOMPARE(hdrSpy.first().at(0).toBool(), false);
     QCOMPARE(hdrSpy.first().at(1).toBool(), true);
     QTRY_COMPARE_WITH_TIMEOUT(readFile(marker), QStringLiteral("current"), 1000);
-    QTest::qWait(350);
+    // The first shell's child would overwrite the marker after its sleep if
+    // cancellation killed only the immediate QProcess.
+    QTest::qWait(500);
     QCOMPARE(hdrSpy.count(), 1);
     QCOMPARE(readFile(marker), QStringLiteral("current"));
     QVERIFY(manager.diagnostics().value(QStringLiteral("operationsCanceled"))

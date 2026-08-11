@@ -20,6 +20,12 @@
 #include <windows.h>
 #endif
 
+#ifdef Q_OS_UNIX
+#include <signal.h>
+#include <sys/types.h>
+#include <unistd.h>
+#endif
+
 // Windows 10 SDK 10.0.26100.0+ already includes the necessary definitions.
 // For older SDKs, we'd need to define DISPLAYCONFIG_DEVICE_INFO_SET_ADVANCED_COLOR_STATE,
 // but since we're targeting newer SDKs, we can rely on wingdi.h providing them.
@@ -89,6 +95,21 @@ bool isCadenceCompatible(double currentHz, double targetHz)
 
     // Allow small drift for common fractional rates (23.976/29.97/59.94).
     return qAbs(ratio - static_cast<double>(nearestIntegerMultiple)) <= 0.01;
+}
+
+void killProcessTree(QProcess *process)
+{
+    if (process == nullptr) {
+        return;
+    }
+#ifdef Q_OS_UNIX
+    const qint64 processId = process->processId();
+    if (processId > 0
+        && ::kill(-static_cast<pid_t>(processId), SIGKILL) == 0) {
+        return;
+    }
+#endif
+    process->kill();
 }
 
 static bool isFractionalRateFamily(double targetHz, int reportedHz)
@@ -360,7 +381,7 @@ DisplayManager::DisplayManager(ConfigManager *config,
         qCWarning(lcDisplayTrace) << "Display operation exceeded its deadline"
                                   << "operation=" << operation
                                   << "deadlineMs=" << m_options.commandDeadlineMs;
-        process->kill();
+        killProcessTree(process);
         recordOperationResult(operation, elapsed, false, true);
         if (completion) {
             completion(false, true);
@@ -486,7 +507,7 @@ void DisplayManager::cancelCommandProcess()
     process->setParent(nullptr);
     connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             process, &QObject::deleteLater);
-    process->kill();
+    killProcessTree(process);
 }
 
 void DisplayManager::cancelPendingOperations()
@@ -516,6 +537,14 @@ void DisplayManager::startExternalCommand(const QString &operation,
         return;
     }
     auto *process = new QProcess(this);
+#ifdef Q_OS_UNIX
+    // Put the configured command and every child it launches in an isolated
+    // process group so cancellation cannot leave a stale compositor command
+    // running after replacement playback has started.
+    process->setChildProcessModifier([]() {
+        (void) ::setpgid(0, 0);
+    });
+#endif
     m_commandProcess = process;
     m_commandCompletion = std::move(completion);
     m_commandStandardOutput.clear();
@@ -1096,7 +1125,7 @@ void DisplayManager::launchBestEffortShutdownRestore()
     }
     if (!commands.isEmpty()) {
         QProcess::startDetached(QStringLiteral("/bin/sh"),
-                                {QStringLiteral("-c"), commands.join(QStringLiteral(" && "))});
+                                {QStringLiteral("-c"), commands.join(QStringLiteral("; "))});
     }
 #endif
 }
