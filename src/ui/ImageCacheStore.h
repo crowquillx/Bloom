@@ -3,6 +3,10 @@
 
 #include <QThread>
 #include <QString>
+#ifdef BLOOM_TESTING
+#include <QSemaphore>
+#include <QSharedPointer>
+#endif
 
 #include <memory>
 
@@ -61,6 +65,15 @@ public:
     [[nodiscard]] QString cacheDirectory() const { return m_cacheDirectory; }
 
     static QString filenameForKey(const QString &cacheKey);
+
+#ifdef BLOOM_TESTING
+    /**
+     * Queue a bounded worker pause. Shared ownership keeps both semaphores
+     * alive until the worker either receives the release or times out.
+     */
+    void blockWorkerForTest(const QSharedPointer<QSemaphore> &entered,
+                            const QSharedPointer<QSemaphore> &release);
+#endif
 
 private:
     QString m_cacheDirectory;

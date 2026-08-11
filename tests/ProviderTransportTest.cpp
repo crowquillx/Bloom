@@ -202,8 +202,9 @@ void ProviderTransportTest::jellyfinRequestFactoryNormalizesUrlAndRedactsSecrets
     QCOMPARE(request.url(), QUrl(QStringLiteral("https://media.example.test/Items/item-1")));
 
     const QString redacted = factory.redactedUrl(QUrl(
-        QStringLiteral("https://user:password@media.example.test/Items/item-1?api_key=secret&width=480")));
+        QStringLiteral("https://user:password@media.example.test/Items/item-1?ApiKey=secret&api_key=legacy&width=480")));
     QVERIFY(!redacted.contains(QStringLiteral("secret")));
+    QVERIFY(!redacted.contains(QStringLiteral("legacy")));
     QVERIFY(!redacted.contains(QStringLiteral("user")));
     QVERIFY(!redacted.contains(QStringLiteral("password")));
     QVERIFY(redacted.contains(QStringLiteral("%5BREDACTED%5D"))

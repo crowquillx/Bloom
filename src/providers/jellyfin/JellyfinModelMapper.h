@@ -23,6 +23,8 @@ public:
     static TrickplayTileInfoMap trickplayInfo(const QJsonObject &wireItem);
     static QList<MediaSegmentInfo> introSkipperSegments(
         const QString &itemId, const QJsonObject &wireSegments);
+    static QList<MediaSegmentInfo> mediaSegments(
+        const QString &itemId, const QJsonObject &wireSegments);
     static QVariantList remoteSessions(const QJsonArray &wireSessions,
                                        const QString &connectionId);
     static QString libraryIdFromAncestors(const QJsonArray &wireAncestors);

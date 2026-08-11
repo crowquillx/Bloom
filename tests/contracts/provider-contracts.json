@@ -4,6 +4,11 @@
     "bloomRevision": "571218325258fae98e5606f4b84cf92ff0c5b1e6",
     "jellyfinVersion": "10.11.10",
     "jellyfinImage": "docker.io/jellyfin/jellyfin@sha256:f66273e014b307e4ac46778845ebc1e9ee24b2e57c1fc17d5ec5ac3015649bfa",
+    "jellyfinOpenApiVersion": "12.0.0",
+    "jellyfinOpenApiSha256": "f073a3e661f1c7249c8dc7df257b31f290c8931950f8563e9df537a46717f700",
+    "jellyfinOpenApiSource": "https://raw.githubusercontent.com/jellyfin/jellyfin-sdk-typescript/592747ce7add446b9a14ad56aba8a7441a2e2618/openapi.json",
+    "jellyfin12SmokeVersion": "12.0.0",
+    "jellyfin12SmokeImage": "docker.io/jellyfin/jellyfin@sha256:16c88d577a4094cd838ddc6559087a39c24e5b0836d585b09e60085673f977f2",
     "siloRevision": "8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6",
     "siloImage": "ghcr.io/silo-server/silo-server@sha256:944ee9821de1d6a61876c9b7b06daa358118163d1e5f9b3aa9f5437856fd06e9",
     "siloImageTag": "8044eb8"
@@ -73,7 +78,6 @@
     "state.played",
     "state.favorite",
     "hierarchy.ancestors",
-    "segments.plugin-intro-skipper",
     "segments.standard",
     "sessions.list",
     "sessions.revoke",
@@ -142,8 +146,8 @@
       "journey": "catalog",
       "bloomCaller": "LibraryService::getViews",
       "method": "GET",
-      "path": "/Users/{userId}/Views",
-      "requestSemantics": ["Authenticated profile userId is part of the route"],
+      "path": "/UserViews",
+      "requestSemantics": ["Authenticated profile UserId is sent as a query parameter"],
       "requiredSemantics": ["Response Items contains stable library Id and Name values"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Standard user views contract."},
@@ -155,7 +159,7 @@
       "journey": "catalog",
       "bloomCaller": "LibraryService::getItems",
       "method": "GET",
-      "path": "/Users/{userId}/Items",
+      "path": "/Items",
       "requestSemantics": ["Bloom sends paging, sort, item type, recursive, field, image and optional filter parameters"],
       "requiredSemantics": ["Response has Items and TotalRecordCount", "StartIndex and Limit produce stable non-overlapping pages", "Requested sort order is honored"],
       "expectations": {
@@ -168,8 +172,8 @@
       "journey": "catalog",
       "bloomCaller": "LibraryService::getItem/getSeriesDetails",
       "method": "GET",
-      "path": "/Users/{userId}/Items/{itemId}",
-      "requestSemantics": ["Bloom requests rich PascalCase fields including UserData, ProviderIds, People and MediaSources"],
+      "path": "/Items?Ids={itemId}",
+      "requestSemantics": ["Bloom sends UserId, Ids and OpenAPI ItemFields and consumes the first item from the query envelope"],
       "requiredSemantics": ["Id, Type and Name are non-empty", "UserData carries played/favorite/resume state when available"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Standard item detail contract."},
@@ -181,8 +185,8 @@
       "journey": "catalog",
       "bloomCaller": "LibraryService::getLatestMedia",
       "method": "GET",
-      "path": "/Users/{userId}/Items/Latest",
-      "requestSemantics": ["ParentId and rich Fields are requested"],
+      "path": "/Items/Latest",
+      "requestSemantics": ["UserId, ParentId and OpenAPI ItemFields are requested"],
       "requiredSemantics": ["Returned items belong to the requested visible library", "Items are ordered as latest media"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Standard latest-items contract."},
@@ -207,7 +211,7 @@
       "journey": "catalog",
       "bloomCaller": "LibraryService::search",
       "method": "GET",
-      "path": "/Users/{userId}/Items",
+      "path": "/Items",
       "requestSemantics": ["SearchTerm is percent-encoded and item types are Movie,Series"],
       "requiredSemantics": ["Matches correspond to the search term", "Limit is honored"],
       "expectations": {
@@ -220,8 +224,8 @@
       "journey": "catalog",
       "bloomCaller": "LibraryService::getFilterOptions",
       "method": "GET",
-      "path": "/Items/Filters + /Genres + /Studios",
-      "requestSemantics": ["UserId, ParentId, IncludeItemTypes and Recursive are sent"],
+      "path": "/Items/Filters2 + /Genres + /Studios",
+      "requestSemantics": ["UserId, ParentId and IncludeItemTypes are sent; Recursive is used only where the OpenAPI operation accepts it"],
       "requiredSemantics": ["Genres, tags and studios reflect the selected library", "Values can be passed back to the item query using the same identity semantics"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Control for filter facet names and item query semantics."},
@@ -235,7 +239,7 @@
       "bloomCaller": "LibraryService::getImageUrl/getCachedImageUrl",
       "method": "GET",
       "path": "/Items/{itemId}/Images/{imageType}",
-      "requestSemantics": ["Bloom may send fillWidth, quality, tag and api_key in the URL"],
+      "requestSemantics": ["Bloom may send fillWidth, quality and tag; external image consumers use the current ApiKey query fallback"],
       "requiredSemantics": ["Response is image data for Primary, Backdrop, Thumb or Logo", "Opaque image variants remain fetchable"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Standard item image routes."},
@@ -248,8 +252,8 @@
       "journey": "artwork",
       "bloomCaller": "LibraryService::getCachedChapterThumbnailUrl",
       "method": "GET",
-      "path": "/Items/{itemId}/Images/Chapter/{index}",
-      "requestSemantics": ["Bloom sends maxWidth, api_key and an image tag"],
+      "path": "/Items/{itemId}/Images/{imageType}/{imageIndex}",
+      "requestSemantics": ["Bloom selects imageType=Chapter and sends maxWidth, the current ApiKey query fallback and an image tag"],
       "requiredSemantics": ["Response is the requested chapter thumbnail rather than generic artwork"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Chapter image type is part of Jellyfin's image contract."},
@@ -262,7 +266,7 @@
       "bloomCaller": "PlaybackService::getPlaybackInfo",
       "method": "POST",
       "path": "/Items/{itemId}/PlaybackInfo",
-      "requestSemantics": ["UserId is a query parameter and Bloom currently sends an empty JSON object"],
+      "requestSemantics": ["UserId is sent in the PlaybackInfoDto JSON body; obsolete POST query parameters are not used"],
       "requiredSemantics": ["PlaySessionId is non-empty", "At least one MediaSource has a stable Id and usable direct or transcode URL", "Audio/subtitle stream indices and defaults are preserved"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Standard PlaybackInfo negotiation."},
@@ -275,7 +279,7 @@
       "bloomCaller": "mpv via LibraryService/PlaybackInfo URL",
       "method": "GET",
       "path": "/Videos/{itemId}/stream",
-      "requestSemantics": ["mpv issues byte-range requests against a static/direct URL", "api_key or playback-session fallback authorizes the request"],
+      "requestSemantics": ["mpv issues byte-range requests against a static/direct URL", "ApiKey or playback-session fallback authorizes the request"],
       "requiredSemantics": ["Range request returns HTTP 206", "Content-Range matches the requested bytes", "Seeking does not require a Jellyfin-specific player"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Control for mpv direct playback and seeking."},
@@ -302,7 +306,7 @@
       "journey": "playback",
       "bloomCaller": "PlaybackService::getTrickplayInfo/TrickplayProcessor",
       "method": "GET",
-      "path": "/Items/{itemId}?Fields=Trickplay and /Videos/{itemId}/Trickplay/{width}/{index}.jpg",
+      "path": "/Items?Ids={itemId}&Fields=Trickplay and /Videos/{itemId}/Trickplay/{width}/{index}.jpg",
       "requestSemantics": ["Bloom reads nested Trickplay metadata, then downloads indexed tiles"],
       "requiredSemantics": ["Metadata describes dimensions, tile grid, thumbnail count and interval", "Every referenced tile route returns the matching image"],
       "expectations": {
@@ -317,7 +321,7 @@
       "bloomCaller": "PlaybackService::reportPlaybackStarted/Progress/Paused/Resumed/Stopped",
       "method": "POST",
       "path": "/Sessions/Playing*",
-      "requestSemantics": ["Bloom sends ticks, play session/source IDs, selected stream indices and state/event names"],
+      "requestSemantics": ["Bloom sends documented ticks, play session/source IDs, selected stream indices and pause state; stopped reports use PlaybackStopInfo fields only"],
       "requiredSemantics": ["Progress is observable on a subsequent item read", "Pause/resume do not complete playback", "Stopped tears down the playback session"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Standard Jellyfin session reporting lifecycle."},
@@ -329,7 +333,7 @@
       "journey": "user-state",
       "bloomCaller": "LibraryService/PlaybackService mark played methods",
       "method": "POST/DELETE",
-      "path": "/Users/{userId}/PlayedItems/{itemId}",
+      "path": "/UserPlayedItems/{itemId}",
       "requestSemantics": ["Mutation uses an empty body"],
       "requiredSemantics": ["Subsequent item UserData.Played reflects the mutation"],
       "expectations": {
@@ -342,7 +346,7 @@
       "journey": "user-state",
       "bloomCaller": "LibraryService favorite methods",
       "method": "POST/DELETE",
-      "path": "/Users/{userId}/FavoriteItems/{itemId}",
+      "path": "/UserFavoriteItems/{itemId}",
       "requestSemantics": ["Mutation uses an empty body"],
       "requiredSemantics": ["Subsequent item UserData.IsFavorite reflects the mutation"],
       "expectations": {
@@ -364,31 +368,17 @@
       }
     },
     {
-      "id": "segments.plugin-intro-skipper",
-      "issue": 80,
-      "journey": "segments",
-      "bloomCaller": "PlaybackService::getMediaSegments",
-      "method": "GET",
-      "path": "/Episode/{itemId}/IntroSkipperSegments",
-      "requestSemantics": ["Bloom currently probes the Jellyfin Intro Skipper plugin route"],
-      "requiredSemantics": ["Valid Introduction/Credits/Recap/Preview entries contain numeric Start and End seconds", "A missing optional plugin degrades quietly"],
-      "expectations": {
-        "jellyfin-supported": {"outcome": "partial", "evidence": "Available only when the optional Intro Skipper plugin is installed."},
-        "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Only Timestamps/IntroTimestamps stubs and the standard MediaSegments route are registered."}
-      }
-    },
-    {
       "id": "segments.standard",
       "issue": 80,
       "journey": "segments",
-      "bloomCaller": "Not currently called; target for canonical adapter work",
+      "bloomCaller": "PlaybackService::getMediaSegments",
       "method": "GET",
       "path": "/MediaSegments/{itemId}",
       "requestSemantics": ["Authenticated item marker lookup"],
       "requiredSemantics": ["Items carry Type plus StartTicks/EndTicks with ordered non-negative ranges", "Intro, Outro, Recap and Preview map without plugin-specific fields"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "Standard Jellyfin media-segments endpoint on supported releases."},
-        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat maps native file markers to a Jellyfin MediaSegments envelope; Bloom does not yet consume it."}
+        "silo-8044eb8-compat": {"outcome": "supported", "evidence": "Compat maps native file markers to a Jellyfin MediaSegments envelope consumed by Bloom."}
       }
     },
     {
@@ -410,12 +400,12 @@
       "issue": 80,
       "journey": "sessions",
       "bloomCaller": "SessionService::terminateSession",
-      "method": "POST",
-      "path": "/Sessions/{sessionId}/Logout",
-      "requestSemantics": ["Target session Id is part of the route"],
-      "requiredSemantics": ["The named remote session is revoked while the caller remains authenticated"],
+      "method": "DELETE",
+      "path": "/Devices?id={deviceId}",
+      "requestSemantics": ["Bloom resolves the selected playback session to DeviceId and deletes that remote device"],
+      "requiredSemantics": ["Sessions for the selected remote device are revoked while the caller's different device remains authenticated"],
       "expectations": {
-        "jellyfin-supported": {"outcome": "supported", "evidence": "Standard remote session revocation."},
+        "jellyfin-supported": {"outcome": "supported", "evidence": "OpenAPI-listed device revocation replaces the excluded legacy per-session logout route."},
         "silo-8044eb8-compat": {"outcome": "missing", "evidence": "Only POST /Sessions/Logout for the caller's compat token exists."}
       }
     },
@@ -424,8 +414,8 @@
       "journey": "metadata",
       "bloomCaller": "PlaybackService context, Seerr and external segment providers",
       "method": "GET",
-      "path": "/Users/{userId}/Items/{itemId}?Fields=ProviderIds",
-      "requestSemantics": ["ProviderIds is explicitly requested"],
+      "path": "/Items?Ids={itemId}&Fields=ProviderIds",
+      "requestSemantics": ["UserId is sent and ProviderIds is requested through the OpenAPI item query"],
       "requiredSemantics": ["Known external IDs are emitted using Jellyfin keys such as Imdb, Tmdb and Tvdb"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "External integrations depend on these IDs."},
@@ -464,7 +454,7 @@
       "journey": "cache",
       "bloomCaller": "LibraryService item/list/detail cache validation",
       "method": "GET",
-      "path": "/Users/{userId}/Items*",
+      "path": "/Items*",
       "requestSemantics": ["Bloom replays ETag/Last-Modified as If-None-Match/If-Modified-Since"],
       "requiredSemantics": ["Unchanged representation returns HTTP 304", "Changed representation returns HTTP 200 with a new validator"],
       "expectations": {
@@ -518,9 +508,9 @@
       "issue": 80,
       "journey": "playback",
       "bloomCaller": "PlaybackService::getPlaybackInfo and PlayerController version selection",
-      "method": "GET",
-      "path": "/Items/{itemId}?Fields=MediaSources and /Videos/{itemId}/AdditionalParts",
-      "requestSemantics": ["Bloom requests all available media sources and ordered physical parts before user-initiated playback"],
+      "method": "POST/GET",
+      "path": "POST /Items/{itemId}/PlaybackInfo and GET /Videos/{itemId}/AdditionalParts",
+      "requestSemantics": ["Bloom requests all available media sources through PlaybackInfo and ordered physical parts before user-initiated playback"],
       "requiredSemantics": ["Versions retain stable source identity and selectable stream metadata", "Missing alternate-version or part data degrades to the available source rather than inventing a URL"],
       "expectations": {
         "jellyfin-supported": {"outcome": "supported", "evidence": "PlaybackInfo and AdditionalParts are used for the version picker and multipart queue."},

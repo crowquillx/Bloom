@@ -73,6 +73,8 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/security/CredentialStore.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.h
+    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlaybackPolicy.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
@@ -96,6 +98,17 @@ function(bloom_use_production_libraries test_target)
     if(image_cache_provider_source IN_LIST test_sources
        OR image_cache_store_source IN_LIST test_sources)
         target_link_libraries(${test_target} PRIVATE Bloom::ImageCache)
+    endif()
+    set(software_rounded_image_source
+        ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.cpp)
+    set(software_rounded_image_header
+        ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.h)
+    set(software_rounded_image_registration
+        ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImageRegistration.h)
+    if(software_rounded_image_source IN_LIST test_sources
+       OR software_rounded_image_header IN_LIST test_sources
+       OR software_rounded_image_registration IN_LIST test_sources)
+        target_link_libraries(${test_target} PRIVATE Bloom::SoftwareRoundedImage)
     endif()
     set(player_process_source ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp)
     if(player_process_source IN_LIST test_sources)
@@ -400,6 +413,10 @@ target_include_directories(ProviderCatalogTest PRIVATE
     ${CMAKE_BINARY_DIR}/src
 )
 
+target_compile_definitions(ProviderCatalogTest PRIVATE
+    BLOOM_JELLYFIN_OPENAPI_MANIFEST="${CMAKE_CURRENT_SOURCE_DIR}/contracts/jellyfin-12-openapi-manifest.json"
+)
+
 target_link_libraries(ProviderCatalogTest
     PRIVATE
         Qt6::Core
@@ -457,6 +474,8 @@ target_include_directories(ArtworkRefreshTest PRIVATE
     ${CMAKE_BINARY_DIR}/src
 )
 
+target_compile_definitions(ArtworkRefreshTest PRIVATE BLOOM_TESTING=1)
+
 target_link_libraries(ArtworkRefreshTest
     PRIVATE
         Qt6::Core
@@ -492,6 +511,8 @@ target_compile_definitions(RoundedImageTest PRIVATE
     BLOOM_ROUNDED_IMAGE_QML="${CMAKE_SOURCE_DIR}/src/ui/RoundedImage.qml"
 )
 
+target_include_directories(RoundedImageTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
 target_link_libraries(RoundedImageTest
     PRIVATE
         Qt6::Core
@@ -499,6 +520,7 @@ target_link_libraries(RoundedImageTest
         Qt6::Qml
         Qt6::Quick
         Qt6::Test
+        Bloom::SoftwareRoundedImage
 )
 
 add_test(NAME RoundedImageTest COMMAND RoundedImageTest)
@@ -1010,6 +1032,7 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/ui/ResponsiveLayoutManager.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/FontLoader.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/UiSoundController.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImageRegistration.h
     # ViewModels
     ${CMAKE_SOURCE_DIR}/src/viewmodels/LibraryViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
@@ -1108,7 +1131,6 @@ qt_add_qml_module(VisualRegressionTest
     URI BloomUI
     VERSION 1.0
     RESOURCE_PREFIX /
-    NO_CACHEGEN
     QML_FILES
         ${QML_SOURCES}
 )
@@ -1131,6 +1153,7 @@ endif()
 
 target_include_directories(VisualRegressionTest PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/ui
     ${CMAKE_SOURCE_DIR}/src/player
     ${CMAKE_BINARY_DIR}/src
 )

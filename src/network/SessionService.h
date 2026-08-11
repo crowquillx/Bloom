@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QSet>
 #include <QVariantList>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -85,7 +86,7 @@ signals:
 
 private slots:
     void onFetchSessionsFinished(QNetworkReply *reply);
-    void onRevokeSessionFinished(QNetworkReply *reply, QString sessionId);
+    void onRevokeSessionFinished(QNetworkReply *reply, QString sessionId, QString deviceId);
     void syncAuthenticationSessions();
 
 private:
@@ -99,9 +100,17 @@ private:
     QString m_pendingRevokeSessionId;
     bool m_pendingRevokeWasCurrent = false;
     QString m_deviceId;
+    bool m_bulkRevokeRefreshPending = false;
+    QSet<QString> m_pendingBulkRevokeDeviceIds;
+    int m_successfulBulkRevocations = 0;
 
     void setIsLoading(bool loading);
     void setErrorString(const QString &error);
+    bool beginSessionRevocation(const QString &sessionId,
+                                const QString &knownDeviceId = {});
+    void revokeLoadedOtherDevices();
+    void finishDeviceRevocation(const QString &deviceId, bool successful);
     QString getDeviceId() const;
+    QString deviceIdForSession(const QString &sessionId) const;
     QNetworkRequest createAuthenticatedRequest(const QString &endpoint) const;
 };

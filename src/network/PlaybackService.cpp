@@ -18,6 +18,24 @@
 
 namespace {
 
+QString encodedPathSegment(const QString &value)
+{
+    return QString::fromLatin1(QUrl::toPercentEncoding(value));
+}
+
+QJsonObject firstItem(const QJsonDocument &document)
+{
+    if (!document.isObject()) {
+        return {};
+    }
+    const QJsonObject root = document.object();
+    const QJsonArray items = root.value(QStringLiteral("Items")).toArray();
+    if (!items.isEmpty() && items.first().isObject()) {
+        return items.first().toObject();
+    }
+    return root;
+}
+
 QString activeConnectionId(AuthenticationService *authService, ConfigManager *configManager)
 {
     ConfigManager *config = configManager
@@ -175,6 +193,10 @@ PlaybackProviderContext PlaybackService::providerContext() const
         if (connection.has_value()) {
             context.profileId = connection->profileId;
         }
+    }
+    if (context.profileId.isEmpty()
+        && m_authService->activeProviderKind() == ProviderKind::Jellyfin) {
+        context.profileId = m_authService->getUserId();
     }
     context.deviceName = QSysInfo::machineHostName();
     context.devicePlatform = QSysInfo::prettyProductName();
@@ -680,11 +702,12 @@ void PlaybackService::getPlaybackInfo(const QString &itemId, const QString &requ
     const PlaybackInfoRequest providerRequest =
         provider->createPlaybackInfoRequest(context, media, {});
     if (!providerRequest.isValid()) {
-        const QString endpoint = QStringLiteral("/Items/%1/PlaybackInfo?UserId=%2")
-            .arg(itemId, m_authService->getUserId());
+        const QString endpoint = QStringLiteral("/Items/%1/PlaybackInfo")
+            .arg(encodedPathSegment(itemId));
+        const QJsonObject body{{QStringLiteral("UserId"), m_authService->getUserId()}};
         sendRequestWithRetry(
             endpoint,
-            [this, endpoint, itemId, requestContext, generation]() -> QNetworkReply * {
+            [this, endpoint, body, itemId, requestContext, generation]() -> QNetworkReply * {
                 if (!isCurrentRequest(QStringLiteral("info"), itemId,
                                       requestContext, generation)) {
                     return nullptr;
@@ -692,7 +715,8 @@ void PlaybackService::getPlaybackInfo(const QString &itemId, const QString &requ
                 QNetworkRequest request = m_authService->createRequest(endpoint);
                 request.setHeader(QNetworkRequest::ContentTypeHeader,
                                   QStringLiteral("application/json"));
-                return m_authService->networkManager()->post(request, QByteArray("{}"));
+                return m_authService->networkManager()->post(
+                    request, QJsonDocument(body).toJson(QJsonDocument::Compact));
             },
             [this, itemId, requestContext, generation](QNetworkReply *reply) {
                 if (!isCurrentRequest(QStringLiteral("info"), itemId,
@@ -826,7 +850,7 @@ void PlaybackService::getAdditionalParts(const QString &itemId,
 
     const QString connectionId = activeConnectionId(m_authService, m_configManager);
     const QString endpoint = QStringLiteral("/Videos/%1/AdditionalParts?UserId=%2")
-        .arg(itemId, m_authService->getUserId());
+        .arg(encodedPathSegment(itemId), encodedPathSegment(m_authService->getUserId()));
 
     sendRequestWithRetry(endpoint,
         [this, endpoint, itemId, requestContext, generation]() -> QNetworkReply * {
@@ -900,16 +924,14 @@ void PlaybackService::getMediaSegments(const QString &itemId, const QString &fil
         }
         endpoint = *nativeEndpoint;
     } else {
-        // GET /Episode/{id}/IntroSkipperSegments
-        // This endpoint is provided by the "Intro Skipper" plugin on Jellyfin.
-        endpoint = QString("/Episode/%1/IntroSkipperSegments").arg(itemId);
+        endpoint = QStringLiteral("/MediaSegments/%1").arg(encodedPathSegment(itemId));
     }
 
     qCDebug(lcPlayback) << "Getting media segments for item:" << itemId;
     QNetworkRequest request = m_authService->createRequest(endpoint);
     QNetworkReply *reply = m_authService->networkManager()->get(request);
 
-    connect(reply, &QNetworkReply::finished, this, [this, reply, itemId, nativeProvider]() {
+    connect(reply, &QNetworkReply::finished, this, [this, reply, itemId]() {
         reply->deleteLater();
         const int httpStatus =
             reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -922,9 +944,7 @@ void PlaybackService::getMediaSegments(const QString &itemId, const QString &fil
         }
 
         if (httpStatus == 404) {
-            if (!nativeProvider) {
-                qCDebug(lcPlayback) << "Intro Skipper plugin not available for" << itemId;
-            }
+            qCDebug(lcPlayback) << "Server media segments not available for" << itemId;
             maybeLoadExternalMediaSegments(itemId, {});
             return;
         }
@@ -938,9 +958,8 @@ void PlaybackService::getMediaSegments(const QString &itemId, const QString &fil
 
         const QJsonDocument document = QJsonDocument::fromJson(reply->readAll());
         const QJsonObject object = document.object();
-        const QList<MediaSegmentInfo> segments = nativeProvider
-            ? m_authService->mapMediaSegments(itemId, object)
-            : m_authService->mapIntroSkipperSegments(itemId, object);
+        const QList<MediaSegmentInfo> segments =
+            m_authService->mapMediaSegments(itemId, object);
         maybeLoadExternalMediaSegments(itemId, segments);
     });
 }
@@ -976,10 +995,9 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
         }
         endpoint = *nativeEndpoint;
     } else {
-        const QString fields =
-            QStringLiteral("ProviderIds,ParentIndexNumber,IndexNumber,SeriesId,RunTimeTicks,Type");
-        endpoint = QString("/Users/%1/Items/%2?Fields=%3")
-            .arg(m_authService->getUserId(), itemId, fields);
+        endpoint = QStringLiteral(
+            "/Items?UserId=%1&Ids=%2&Fields=ProviderIds,SpecialEpisodeNumbers")
+            .arg(encodedPathSegment(m_authService->getUserId()), encodedPathSegment(itemId));
     }
 
     sendRequestWithRetry(endpoint,
@@ -989,7 +1007,7 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
         },
         [this, itemId, serverSegments, nativeProvider](QNetworkReply *reply) {
             const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            const QVariantMap item = m_authService->mapMediaItem(doc.object(), QString());
+            const QVariantMap item = m_authService->mapMediaItem(firstItem(doc), QString());
             MediaSegmentLookupContext context;
             context.itemId = itemId;
             context.type = item.value(QStringLiteral("mediaType")).toString();
@@ -1033,8 +1051,9 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
                 }
                 seriesEndpoint = *nativeSeriesEndpoint;
             } else {
-                seriesEndpoint = QString("/Users/%1/Items/%2?Fields=ProviderIds")
-                    .arg(m_authService->getUserId(), context.seriesId);
+                seriesEndpoint = QStringLiteral("/Items?UserId=%1&Ids=%2&Fields=ProviderIds")
+                    .arg(encodedPathSegment(m_authService->getUserId()),
+                         encodedPathSegment(context.seriesId));
             }
             sendRequestWithRetry(seriesEndpoint,
                 [this, seriesEndpoint]() {
@@ -1044,7 +1063,7 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
                 [this, context, serverSegments, itemId](QNetworkReply *seriesReply) mutable {
                     const QJsonDocument seriesDoc = QJsonDocument::fromJson(seriesReply->readAll());
                     const QVariantMap seriesProviderIds = m_authService
-                        ->mapMediaItem(seriesDoc.object(), QString())
+                        ->mapMediaItem(firstItem(seriesDoc), QString())
                         .value(QStringLiteral("providerIds")).toMap();
                     if (context.imdbId.isEmpty()) context.imdbId = seriesProviderIds.value(QStringLiteral("Imdb")).toString();
                     if (context.tmdbId.isEmpty()) context.tmdbId = seriesProviderIds.value(QStringLiteral("Tmdb")).toString();
@@ -1126,7 +1145,8 @@ void PlaybackService::getTrickplayInfo(const QString &itemId)
     }
 
     qCDebug(lcPlayback) << "Getting trickplay info for item:" << itemId;
-    const QString endpoint = QString("/Items/%1?Fields=Trickplay").arg(itemId);
+    const QString endpoint = QStringLiteral("/Items?UserId=%1&Ids=%2&Fields=Trickplay")
+        .arg(encodedPathSegment(m_authService->getUserId()), encodedPathSegment(itemId));
     sendRequestWithRetry(endpoint,
         [this, endpoint]() {
             QNetworkRequest request = m_authService->createRequest(endpoint);
@@ -1135,7 +1155,7 @@ void PlaybackService::getTrickplayInfo(const QString &itemId)
         [this, itemId](QNetworkReply *reply) {
             const QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             const TrickplayTileInfoMap trickplayInfo =
-                m_authService->mapTrickplayInfo(doc.object());
+                m_authService->mapTrickplayInfo(firstItem(doc));
             if (trickplayInfo.isEmpty()) {
                 qCDebug(lcPlayback) << "No trickplay info available for" << itemId;
             } else {
@@ -1400,8 +1420,8 @@ void PlaybackService::markItemPlayed(const QString &itemId)
         return;
     }
 
-    const QString endpoint = QString("/Users/%1/PlayedItems/%2")
-        .arg(m_authService->getUserId(), itemId);
+    const QString endpoint = QStringLiteral("/UserPlayedItems/%1?UserId=%2")
+        .arg(encodedPathSegment(itemId), encodedPathSegment(m_authService->getUserId()));
     sendRequestWithRetry(
         endpoint,
         [this, endpoint]() {

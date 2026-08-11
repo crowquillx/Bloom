@@ -1682,28 +1682,34 @@ FocusScope {
                     id: delegateItem
                     width: grid.cellWidth
                     height: grid.cellHeight
-                    
+
                     // Access the full item data from the model
                     required property var modelData
                     required property string imageUrl
                     required property int index
-                    
+                    property string roundedImageSource: ""
+                    property bool baseImageFailed: false
+
                     // Poster dimensions — fill nearly the full cell with minimal spacing
                     property real posterWidth: grid.cellWidth - Theme.spacingSmall
                     property real posterHeight: posterWidth * 1.5
-                    
+
                     // Handle item pooling/reuse
                     GridView.onPooled: {
                         // Reset state when item goes to pool
                         coverArt.source = ""
-                        coverArt.preRoundedSource = ""
+                        roundedImageSource = ""
+                        baseImageFailed = false
                     }
                     GridView.onReused: {
                         // Rebind image source when item is reused
-                        coverArt.source = Qt.binding(function() { return getImageSource() })
-                        coverArt.preRoundedSource = Qt.binding(function() { return getRoundedImageSource() })
+                        baseImageFailed = false
+                        coverArt.source = Qt.binding(function() {
+                            return baseImageFailed ? "" : getImageSource()
+                        })
+                        refreshRoundedImageSource()
                     }
-                    
+
                     function getImageSource() {
                         return delegateItem.imageUrl || ""
                     }
@@ -1719,17 +1725,37 @@ FocusScope {
                         return ImageCacheProvider.requestRoundedImage(base, Theme.imageRadius, 640, 960) || ""
                     }
 
+                    function refreshRoundedImageSource() {
+                        roundedImageSource = getRoundedImageSource()
+                    }
+
+                    onImageUrlChanged: {
+                        baseImageFailed = false
+                        refreshRoundedImageSource()
+                    }
+                    Component.onCompleted: refreshRoundedImageSource()
+
+                    Connections {
+                        target: root
+                        function onRoundedImageModeChanged() {
+                            delegateItem.refreshRoundedImageSource()
+                        }
+                        function onRoundedPreprocessEnabledChanged() {
+                            delegateItem.refreshRoundedImageSource()
+                        }
+                    }
+
                     Connections {
                         target: ImageCacheProvider
                         function onRoundedImageReady(url, fileUrl) {
                             if (!url || !fileUrl)
                                 return
                             if (delegateItem.getImageSource() === url) {
-                                coverArt.preRoundedSource = fileUrl
+                                delegateItem.roundedImageSource = fileUrl
                             }
                         }
                     }
-                    
+
                     property bool isFocused: grid.currentIndex === index && grid.activeFocus
                     property bool isHovered: InputModeManager.pointerActive && mouseArea.containsMouse
                     scale: isFocused ? 1.05 : (isHovered ? 1.02 : 1.0)
@@ -1752,36 +1778,29 @@ FocusScope {
                             clip: false
                             color: "transparent"
 
-                            Image {
+                            RoundedImage {
                                 id: coverArt
                                 anchors.fill: parent
                                 fillMode: Image.PreserveAspectCrop
+                                mode: root.roundedImageMode
+                                preferPreRounded: root.roundedPreprocessEnabled
+                                allowShader: root.roundedImageMode !== "prerender"
+                                radius: Theme.imageRadius
+                                sourceWidth: 640
+                                sourceHeight: 960
+                                preRoundedSource: delegateItem.roundedImageSource
                                 asynchronous: true
                                 cache: true
                                 mipmap: true
                                 smooth: true
                                 visible: true
-                                source: delegateItem.getImageSource()
+                                source: delegateItem.baseImageFailed
+                                    ? "" : delegateItem.getImageSource()
                                 onStatusChanged: {
                                     if (status === Image.Error) {
-                                        source = ""
+                                        delegateItem.baseImageFailed = true
                                     }
                                 }
-
-                                layer.enabled: true
-                                layer.effect: MultiEffect {
-                                    maskEnabled: true
-                                    maskSource: coverMask
-                                }
-                            }
-
-                            Rectangle {
-                                id: coverMask
-                                anchors.fill: parent
-                                radius: Theme.imageRadius
-                                visible: false
-                                layer.enabled: true
-                                layer.smooth: true
                             }
 
                             // Focus border overlay

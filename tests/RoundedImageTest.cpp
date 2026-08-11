@@ -5,12 +5,15 @@
 #include <QPainter>
 #include <QQmlComponent>
 #include <QQmlEngine>
+#include <qqml.h>
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QTemporaryDir>
 #include <QTest>
 
 #include <memory>
+
+#include "ui/SoftwareRoundedImage.h"
 
 namespace {
 
@@ -73,9 +76,22 @@ void RoundedImageTest::modesUseOneBaseLoadAndLazyPrerender()
 
     QFile qmlFile(QStringLiteral(BLOOM_ROUNDED_IMAGE_QML));
     QVERIFY(qmlFile.open(QIODevice::ReadOnly));
+    qmlRegisterType<SoftwareRoundedImage>(
+        "BloomInternal", 1, 0, "SoftwareRoundedImage");
     QQmlEngine engine;
     QQmlComponent component(&engine);
-    component.setData(qmlFile.readAll(), QUrl(QStringLiteral("inmemory:/RoundedImage.qml")));
+    QByteArray qmlSource = qmlFile.readAll();
+    // The Windows checkout may preserve CRLF in QML sources. Insert the
+    // auxiliary import independently of the source line ending so the test
+    // exercises the same registered type on every platform.
+    qmlSource.replace(
+        QByteArrayLiteral("import QtQuick"),
+        QByteArrayLiteral(
+            "import QtQuick\nimport BloomInternal 1.0 as BloomInternal"));
+    qmlSource.replace(
+        QByteArrayLiteral("            SoftwareRoundedImage {"),
+        QByteArrayLiteral("            BloomInternal.SoftwareRoundedImage {"));
+    component.setData(qmlSource, QUrl(QStringLiteral("inmemory:/RoundedImage.qml")));
     QTRY_VERIFY_WITH_TIMEOUT(component.status() != QQmlComponent::Loading, 1000);
     QVERIFY2(component.isReady(), qPrintable(component.errorString()));
     std::unique_ptr<QObject> owner(component.create());
@@ -147,6 +163,21 @@ void RoundedImageTest::modesUseOneBaseLoadAndLazyPrerender()
         QVERIFY(item->property("shaderRefreshCount").toInt() > refreshesBeforeIdle);
         qInfo() << "RoundedImage static shader: 60 idle frames scheduled 0 refreshes;"
                 << "source replacement rendered in" << updateTimer.elapsed() << "ms";
+    } else {
+        QTRY_VERIFY_WITH_TIMEOUT(
+            item->property("softwareFallbackReady").toBool(), 3000);
+        processFrames(window);
+        fallbackCapture = window.grabWindow();
+        QVERIFY(!fallbackCapture.isNull());
+        QVERIFY2(nearColor(fallbackCapture.pixelColor(8, 8), background),
+                 qPrintable(QStringLiteral("software corner=%1 background=%2")
+                                .arg(fallbackCapture.pixelColor(8, 8)
+                                         .name(QColor::HexArgb),
+                                     background.name(QColor::HexArgb))));
+        QVERIFY2(nearColor(fallbackCapture.pixelColor(40, 40), blue),
+                 qPrintable(QStringLiteral("software center=%1")
+                                .arg(fallbackCapture.pixelColor(40, 40)
+                                         .name(QColor::HexArgb))));
     }
 
     item->setProperty("mode", QStringLiteral("prerender"));

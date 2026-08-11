@@ -4,12 +4,12 @@ Overview
 - `PlaybackService::getMediaSegments()` is the provider-neutral playback entry point.
 - The active provider's server segments are loaded before any external lookup.
 - Native Silo markers use `/api/v1/markers/files/{file_id}` for the selected playback version or multipart file, falling back to `/api/v1/markers/items/{content_id}` only when no file identity is available. They remain authoritative for every segment type Silo returns.
-- On Jellyfin, Bloom uses the optional Intro Skipper plugin route (`/Episode/{id}/IntroSkipperSegments`) as the server-marker source. A missing plugin is an expected optional capability, not a playback error.
+- On Jellyfin, Bloom uses the OpenAPI-listed core `/MediaSegments/{id}` route and maps tick ranges at the provider boundary. It does not probe excluded legacy plugin routes.
 - Only after the server response is normalized does `MediaSegmentProviderService` query configured external providers to fill missing types.
 
 Precedence
 - Native Silo server segments win per segment type.
-- Jellyfin Intro Skipper server segments win per segment type when the Jellyfin provider is active; the plugin route is the Jellyfin fallback for server markers, not proof that every Jellyfin deployment has markers.
+- Jellyfin core server segments win per segment type when the Jellyfin provider is active. An empty core response is valid and allows configured external providers to fill missing types.
 - External provider order defaults to TheIntroDB, then IntroDB.
 - `mergeSegmentsByType` keeps the first server segment for each type and only adds a later provider's type when no server segment of that type exists. For example, a server intro plus TheIntroDB intro/credits keeps the server intro and adds only credits.
 Provider parsing

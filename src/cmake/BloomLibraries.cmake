@@ -114,6 +114,29 @@ target_link_libraries(BloomImageCache
         Qt6::Quick
         Qt6::Sql
 )
+if(BUILD_TESTING)
+    target_compile_definitions(BloomImageCache PRIVATE BLOOM_TESTING=1)
+endif()
+
+# SoftwareRoundedImage is production-owned here. QML modules expose it through
+# a lightweight QML_FOREIGN registration header without rebuilding the class.
+add_library(BloomSoftwareRoundedImage STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/SoftwareRoundedImage.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/ui/SoftwareRoundedImage.cpp
+)
+add_library(Bloom::SoftwareRoundedImage ALIAS BloomSoftwareRoundedImage)
+target_include_directories(BloomSoftwareRoundedImage
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(BloomSoftwareRoundedImage
+    PUBLIC
+        Qt6::Core
+        Qt6::Gui
+        Qt6::Quick
+)
+qt_extract_metatypes(BloomSoftwareRoundedImage)
 
 add_library(BloomPlayerProcess STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/player/PlayerProcessManager.cpp

@@ -3494,7 +3494,7 @@ void PlayerControllerAutoplayContextTest::playbackInfoDirectStreamUrlIsPreferred
     QCOMPARE(startedUrl.path(), QStringLiteral("/Videos/episode-1/stream"));
 
     const QUrlQuery query(startedUrl);
-    QCOMPARE(query.queryItemValue(QStringLiteral("api_key")), QStringLiteral("token-1"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("ApiKey")), QStringLiteral("token-1"));
     QCOMPARE(query.queryItemValue(QStringLiteral("MediaSourceId")), QStringLiteral("media-source-1"));
     QCOMPARE(query.queryItemValue(QStringLiteral("AudioStreamIndex")), QStringLiteral("3"));
     QVERIFY(!query.hasQueryItem(QStringLiteral("SubtitleStreamIndex")));

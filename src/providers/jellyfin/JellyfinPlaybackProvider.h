@@ -20,5 +20,15 @@ public:
         int width,
         int tileIndex) const override;
 
+    PlaybackInfoRequest createPlaybackInfoRequest(
+        const PlaybackProviderContext &context,
+        const Bloom::MediaRef &media,
+        const QVariantMap &providerSource) const override;
+    PlaybackInfoParseResult parsePlaybackInfoResponse(
+        const PlaybackProviderContext &context,
+        const Bloom::MediaRef &media,
+        const QJsonObject &wireResponse,
+        const QVariantMap &providerSource = {}) const override;
+
     PlaybackReportRequest createReportRequest(const PlaybackReport &report) const override;
 };

@@ -1,9 +1,11 @@
 #include <QtTest/QtTest>
 
 #include <QDate>
+#include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSet>
 #include <QUrl>
 #include <QUrlQuery>
 #include <limits>
@@ -23,6 +25,7 @@ private slots:
     void jellyfinCanonicalSortKeysMapAtProviderBoundary();
     void jellyfinReservedIdentifiersAndLimitsRemainOpaque();
     void jellyfinMutationsAndPaginationRemainCompatible();
+    void jellyfinRequestsUseOpenApiRoutesAndFields();
     void siloTrackIndicesAndMultipartFallbackStayContiguous();
     void siloCanonicalIdentityVersionsMultipartAndStateUseMilliseconds();
     void siloPlaybackFallbacksAndExternalSubtitleMetadata();
@@ -107,7 +110,8 @@ void ProviderCatalogTest::jellyfinItemsRequestRetainsNativeContract()
 
     const QUrl url(request.relativeEndpoint);
     const QUrlQuery parameters(url);
-    QCOMPARE(url.path(), QStringLiteral("/Users/user-1/Items"));
+    QCOMPARE(url.path(), QStringLiteral("/Items"));
+    QCOMPARE(parameters.queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("ParentId")),
              QStringLiteral("library-1"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("StartIndex")),
@@ -155,19 +159,20 @@ void ProviderCatalogTest::jellyfinReservedIdentifiersAndLimitsRemainOpaque()
     const ProviderCatalogRequest items = catalog->createRequest(
         ProviderCatalogOperation::Items, query);
     QVERIFY(items.supported);
-    QVERIFY(items.relativeEndpoint.contains(QStringLiteral("user%2F%26%3F%3D")));
     const QUrl itemsUrl(items.relativeEndpoint);
-    QCOMPARE(itemsUrl.path(QUrl::FullyEncoded),
-             QStringLiteral("/Users/user%2F%26%3F%3D/Items"));
+    QCOMPARE(itemsUrl.path(QUrl::FullyEncoded), QStringLiteral("/Items"));
+    QCOMPARE(QUrlQuery(itemsUrl).queryItemValue(QStringLiteral("UserId")), query.userId);
     QCOMPARE(QUrlQuery(itemsUrl).queryItemValue(QStringLiteral("ParentId")),
              query.parentId);
 
     const ProviderCatalogRequest item = catalog->createRequest(
         ProviderCatalogOperation::Item, query);
     QVERIFY(item.supported);
-    QVERIFY(item.relativeEndpoint.contains(QStringLiteral("item%2Fchild%3Fx%3D1")));
-    QCOMPARE(QUrl(item.relativeEndpoint).path(QUrl::FullyEncoded),
-             QStringLiteral("/Users/user%2F%26%3F%3D/Items/item%2Fchild%3Fx%3D1"));
+    QCOMPARE(QUrl(item.relativeEndpoint).path(QUrl::FullyEncoded), QStringLiteral("/Items"));
+    QCOMPARE(QUrlQuery(QUrl(item.relativeEndpoint)).queryItemValue(QStringLiteral("UserId")),
+             query.userId);
+    QCOMPARE(QUrlQuery(QUrl(item.relativeEndpoint)).queryItemValue(QStringLiteral("Ids")),
+             query.itemId);
 
     query.limit = 0;
     const ProviderCatalogRequest searchDefault = catalog->createRequest(
@@ -202,8 +207,10 @@ void ProviderCatalogTest::jellyfinMutationsAndPaginationRemainCompatible()
     QVERIFY(markWatched.supported);
     QCOMPARE(markWatched.method, ProviderHttpMethod::Post);
     QCOMPARE(markWatched.retrySafety, ProviderCatalogRetrySafety::Never);
-    QCOMPARE(markWatched.relativeEndpoint,
-             QStringLiteral("/Users/user-1/PlayedItems/item-9"));
+    QCOMPARE(QUrl(markWatched.relativeEndpoint).path(),
+             QStringLiteral("/UserPlayedItems/item-9"));
+    QCOMPARE(QUrlQuery(QUrl(markWatched.relativeEndpoint))
+                 .queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
     QCOMPARE(markWatched.extraHeaders.value(QByteArrayLiteral("Content-Type")),
              QByteArrayLiteral("application/json"));
 
@@ -213,8 +220,10 @@ void ProviderCatalogTest::jellyfinMutationsAndPaginationRemainCompatible()
     QVERIFY(clearFavorite.supported);
     QCOMPARE(clearFavorite.method, ProviderHttpMethod::Delete);
     QCOMPARE(clearFavorite.retrySafety, ProviderCatalogRetrySafety::Never);
-    QCOMPARE(clearFavorite.relativeEndpoint,
-             QStringLiteral("/Users/user-1/FavoriteItems/item-9"));
+    QCOMPARE(QUrl(clearFavorite.relativeEndpoint).path(),
+             QStringLiteral("/UserFavoriteItems/item-9"));
+    QCOMPARE(QUrlQuery(QUrl(clearFavorite.relativeEndpoint))
+                 .queryItemValue(QStringLiteral("UserId")), QStringLiteral("user-1"));
 
     const ProviderCatalogResponse response = catalog->parseResponse(
         ProviderCatalogOperation::Items,
@@ -231,6 +240,103 @@ void ProviderCatalogTest::jellyfinMutationsAndPaginationRemainCompatible()
              QStringLiteral("\"items-v3\""));
     QCOMPARE(response.snapshot.value(QStringLiteral("lastModified")).toString(),
              QStringLiteral("Fri, 07 Aug 2026 11:00:00 GMT"));
+}
+
+void ProviderCatalogTest::jellyfinRequestsUseOpenApiRoutesAndFields()
+{
+    JellyfinProviderAdapter adapter;
+    const ICatalogProvider *catalog = adapter.catalogProvider();
+    QVERIFY(catalog);
+
+    ProviderCatalogQuery query;
+    query.userId = QStringLiteral("user-1");
+    query.itemId = QStringLiteral("item-1");
+    query.parentId = QStringLiteral("library-1");
+    query.seriesId = QStringLiteral("series-1");
+    query.limit = 12;
+    query.recursive = true;
+
+    const QHash<ProviderCatalogOperation, QString> expectedPaths{
+        {ProviderCatalogOperation::Views, QStringLiteral("/UserViews")},
+        {ProviderCatalogOperation::Items, QStringLiteral("/Items")},
+        {ProviderCatalogOperation::LatestMedia, QStringLiteral("/Items/Latest")},
+        {ProviderCatalogOperation::Item, QStringLiteral("/Items")},
+        {ProviderCatalogOperation::Chapters, QStringLiteral("/Items")},
+        {ProviderCatalogOperation::SimilarItems, QStringLiteral("/Items/item-1/Similar")},
+        {ProviderCatalogOperation::NextUnplayedEpisode, QStringLiteral("/Items")},
+        {ProviderCatalogOperation::Search, QStringLiteral("/Items")},
+        {ProviderCatalogOperation::RandomItems, QStringLiteral("/Items")},
+        {ProviderCatalogOperation::HeroItems, QStringLiteral("/Items")},
+        {ProviderCatalogOperation::HeroOverviews, QStringLiteral("/Items")},
+        {ProviderCatalogOperation::Versions, QStringLiteral("/Items")},
+        {ProviderCatalogOperation::SetWatched, QStringLiteral("/UserPlayedItems/item-1")},
+        {ProviderCatalogOperation::SetFavorite, QStringLiteral("/UserFavoriteItems/item-1")}
+    };
+    for (auto it = expectedPaths.constBegin(); it != expectedPaths.constEnd(); ++it) {
+        const ProviderCatalogRequest request = catalog->createRequest(it.key(), query);
+        QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+        const QUrl url(request.relativeEndpoint);
+        QCOMPARE(url.path(), it.value());
+        QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("UserId")), query.userId);
+        if (it.key() == ProviderCatalogOperation::Item
+            || it.key() == ProviderCatalogOperation::Chapters
+            || it.key() == ProviderCatalogOperation::HeroOverviews
+            || it.key() == ProviderCatalogOperation::Versions) {
+            QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("Ids")),
+                     it.key() == ProviderCatalogOperation::HeroOverviews
+                         ? query.seriesId : query.itemId);
+        }
+    }
+
+    QFile openApiManifest(QStringLiteral(BLOOM_JELLYFIN_OPENAPI_MANIFEST));
+    QVERIFY2(openApiManifest.open(QIODevice::ReadOnly),
+             qPrintable(openApiManifest.errorString()));
+    const QJsonObject manifest = QJsonDocument::fromJson(
+        openApiManifest.readAll()).object();
+    const QJsonArray itemFieldValues = manifest.value(QStringLiteral("schemas"))
+                                               .toObject()
+                                               .value(QStringLiteral("ItemFields"))
+                                               .toObject()
+                                               .value(QStringLiteral("enum"))
+                                               .toArray();
+    QVERIFY(!itemFieldValues.isEmpty());
+    QSet<QString> openApiItemFields;
+    for (const QJsonValue &field : itemFieldValues) {
+        openApiItemFields.insert(field.toString());
+    }
+    for (ProviderCatalogOperation operation : {
+             ProviderCatalogOperation::Items, ProviderCatalogOperation::NextUp,
+             ProviderCatalogOperation::LatestMedia, ProviderCatalogOperation::HomeBackdrops,
+             ProviderCatalogOperation::ScreensaverItems, ProviderCatalogOperation::SimilarItems,
+             ProviderCatalogOperation::NextUnplayedEpisode, ProviderCatalogOperation::Search,
+             ProviderCatalogOperation::RandomItems, ProviderCatalogOperation::HeroItems}) {
+        const ProviderCatalogRequest request = catalog->createRequest(operation, query);
+        QVERIFY2(request.supported, qPrintable(request.unsupportedReason));
+        const QString fields = QUrlQuery(QUrl(request.relativeEndpoint))
+                                   .queryItemValue(QStringLiteral("Fields"));
+        for (const QString &field : fields.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+            QVERIFY2(openApiItemFields.contains(field), qPrintable(field));
+        }
+    }
+
+    query.filterFacet = QStringLiteral("filters");
+    const ProviderCatalogRequest filters = catalog->createRequest(
+        ProviderCatalogOperation::FilterOptions, query);
+    QCOMPARE(QUrl(filters.relativeEndpoint).path(), QStringLiteral("/Items/Filters2"));
+    QVERIFY(!QUrlQuery(QUrl(filters.relativeEndpoint)).hasQueryItem(QStringLiteral("Limit")));
+    query.filterFacet = QStringLiteral("genres");
+    const ProviderCatalogRequest genres = catalog->createRequest(
+        ProviderCatalogOperation::FilterOptions, query);
+    QCOMPARE(QUrl(genres.relativeEndpoint).path(), QStringLiteral("/Genres"));
+    QVERIFY(!QUrlQuery(QUrl(genres.relativeEndpoint)).hasQueryItem(QStringLiteral("Recursive")));
+
+    const ProviderCatalogResponse detail = catalog->parseResponse(
+        ProviderCatalogOperation::Item,
+        QByteArrayLiteral(R"({"Items":[{"Id":"item-1","Name":"Refreshed"}],"TotalRecordCount":1})"));
+    QVERIFY(detail.valid);
+    QCOMPARE(detail.rawItem.value(QStringLiteral("Id")).toString(), QStringLiteral("item-1"));
+    QCOMPARE(detail.rawItem.value(QStringLiteral("Name")).toString(),
+             QStringLiteral("Refreshed"));
 }
 
 void ProviderCatalogTest::siloTrackIndicesAndMultipartFallbackStayContiguous()

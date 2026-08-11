@@ -13,7 +13,12 @@ if str(CONTRACT_DIR) not in sys.path:
 
 import run_live_contracts
 from run_live_contracts import DRIVERS, HttpTransport, Response
-from validate_contracts import ContractValidationError, load_and_validate, validate_contract_data
+from validate_contracts import (
+    ContractValidationError,
+    load_and_validate,
+    load_jellyfin_openapi_manifest,
+    validate_contract_data,
+)
 
 
 class ProviderContractValidationTest(unittest.TestCase):
@@ -64,7 +69,6 @@ class ProviderContractValidationTest(unittest.TestCase):
             "playback.additional-parts",
             "playback.trickplay",
             "playback.report",
-            "segments.plugin-intro-skipper",
             "segments.standard",
             "sessions.list",
             "sessions.revoke",
@@ -124,7 +128,6 @@ class ProviderContractValidationTest(unittest.TestCase):
             "artwork.chapter",
             "playback.additional-parts",
             "playback.trickplay",
-            "segments.plugin-intro-skipper",
             "sessions.revoke",
             "catalog.recommendations",
             "playback.versions",
@@ -137,7 +140,6 @@ class ProviderContractValidationTest(unittest.TestCase):
                 "missing",
                 contract_id,
             )
-
         for contract_id in (
             "optional.household-overview",
             "optional.watchlist",
@@ -155,6 +157,65 @@ class ProviderContractValidationTest(unittest.TestCase):
                 ),
                 contract_id,
             )
+
+    def test_jellyfin_12_openapi_snapshot_and_production_routes(self):
+        snapshot = self.valid_data["snapshot"]
+        self.assertEqual(snapshot["jellyfinOpenApiVersion"], "12.0.0")
+        self.assertEqual(
+            snapshot["jellyfinOpenApiSha256"],
+            "f073a3e661f1c7249c8dc7df257b31f290c8931950f8563e9df537a46717f700",
+        )
+        self.assertEqual(
+            snapshot["jellyfinOpenApiSource"],
+            "https://raw.githubusercontent.com/jellyfin/jellyfin-sdk-typescript/592747ce7add446b9a14ad56aba8a7441a2e2618/openapi.json",
+        )
+        manifest = load_jellyfin_openapi_manifest()
+        self.assertEqual(manifest["source"], snapshot["jellyfinOpenApiSource"])
+        self.assertEqual(manifest["sourceSha256"], snapshot["jellyfinOpenApiSha256"])
+        self.assertEqual(manifest["apiVersion"], "12.0.0")
+        operations = {
+            (operation["method"], operation["path"]): operation
+            for operation in manifest["operations"]
+        }
+        self.assertIn(("POST", "/Items/{itemId}/PlaybackInfo"), operations)
+        self.assertIn(("DELETE", "/Devices"), operations)
+        self.assertFalse(
+            operations[("POST", "/Items/{itemId}/PlaybackInfo")]["deprecated"]
+        )
+        self.assertEqual(snapshot["jellyfin12SmokeVersion"], "12.0.0")
+        self.assertEqual(
+            snapshot["jellyfin12SmokeImage"],
+            "docker.io/jellyfin/jellyfin@sha256:16c88d577a4094cd838ddc6559087a39c24e5b0836d585b09e60085673f977f2",
+        )
+
+        repository = CONTRACT_DIR.parent.parent
+        audited_sources = (
+            repository / "src/providers/jellyfin/JellyfinCatalogProvider.h",
+            repository / "src/providers/jellyfin/JellyfinPlaybackProvider.cpp",
+            repository / "src/network/PlaybackService.cpp",
+            repository / "src/network/SessionService.cpp",
+        )
+        production_text = "\n".join(
+            source.read_text(encoding="utf-8") for source in audited_sources
+        )
+        for excluded_route in (
+            "/Users/%1/Items",
+            "/Episode/%1/IntroSkipperSegments",
+            "/Sessions/%1/Logout",
+            "/Items/Filters\"",
+        ):
+            with self.subTest(excluded_route=excluded_route):
+                self.assertNotIn(excluded_route, production_text)
+        self.assertNotIn("EventName", production_text)
+
+        jellyfin_paths = " ".join(
+            contract["path"]
+            for contract in self.valid_data["contracts"]
+            if contract["expectations"]["jellyfin-supported"]["outcome"] != "not-applicable"
+        )
+        self.assertNotIn("/IntroSkipperSegments", jellyfin_paths)
+        self.assertNotIn("/Sessions/{sessionId}/Logout", jellyfin_paths)
+        self.assertNotIn("/Users/{userId}/Items", jellyfin_paths)
 
     def test_rejects_non_object_native_detection(self):
         data = copy.deepcopy(self.valid_data)

@@ -27,6 +27,7 @@ private slots:
     void playbackDescriptorExposesProviderNeutralShape();
     void jellyfinPlaybackProviderFinalizesStreamAtBoundary();
     void jellyfinPlaybackProviderFinalizesTrickplayUrl();
+    void jellyfinPlaybackInfoRequestUsesBodyUserId();
     void jellyfinPlaybackReportsSerializeAtProviderBoundary();
 };
 
@@ -133,6 +134,25 @@ void CanonicalModelsTest::jellyfinTrickplayAndSegmentsMapAtProviderBoundary()
     QCOMPARE(segments.first().startMs, 1250);
     QCOMPARE(segments.first().endMs, 8500);
     QCOMPARE(segments.first().source, QStringLiteral("jellyfin"));
+
+    const QList<MediaSegmentInfo> coreSegments = JellyfinModelMapper::mediaSegments(
+        QStringLiteral("episode-1"),
+        QJsonObject{{QStringLiteral("Items"), QJsonArray{
+            QJsonObject{{QStringLiteral("Id"), QStringLiteral("segment-1")},
+                        {QStringLiteral("ItemId"), QStringLiteral("episode-1")},
+                        {QStringLiteral("Type"), QStringLiteral("Intro")},
+                        {QStringLiteral("StartTicks"), 12'500'000},
+                        {QStringLiteral("EndTicks"), 85'000'000}},
+            QJsonObject{{QStringLiteral("Type"), QStringLiteral("Outro")},
+                        {QStringLiteral("StartTicks"), 90'000'000},
+                        {QStringLiteral("EndTicks"), 80'000'000}}
+        }}});
+    QCOMPARE(coreSegments.size(), 1);
+    QCOMPARE(coreSegments.first().id, QStringLiteral("segment-1"));
+    QCOMPARE(coreSegments.first().itemId, QStringLiteral("episode-1"));
+    QCOMPARE(coreSegments.first().type, MediaSegmentType::Intro);
+    QCOMPARE(coreSegments.first().startMs, 1250);
+    QCOMPARE(coreSegments.first().endMs, 8500);
 }
 
 void CanonicalModelsTest::jellyfinRemoteSessionsMapAtProviderBoundary()
@@ -483,7 +503,8 @@ void CanonicalModelsTest::jellyfinPlaybackProviderFinalizesStreamAtBoundary()
     };
     const QVariantMap source{
         {QStringLiteral("id"), QStringLiteral("source-1")},
-        {QStringLiteral("directStreamUrl"), QStringLiteral("/Videos/movie-1/stream")},
+        {QStringLiteral("directStreamUrl"),
+         QStringLiteral("/Videos/movie-1/stream?api_key=legacy-token&deviceProfileId=obsolete")},
         {QStringLiteral("durationMs"), 2000},
         {QStringLiteral("mediaStreams"), QVariantList{
              QVariantMap{
@@ -518,7 +539,9 @@ void CanonicalModelsTest::jellyfinPlaybackProviderFinalizesStreamAtBoundary()
     const QUrlQuery query(descriptor.stream.url);
     QCOMPARE(descriptor.stream.url.host(), QStringLiteral("media.example.test"));
     QCOMPARE(descriptor.stream.url.path(), QStringLiteral("/base/Videos/movie-1/stream"));
-    QCOMPARE(query.queryItemValue(QStringLiteral("api_key")), QStringLiteral("secret-token"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("ApiKey")), QStringLiteral("secret-token"));
+    QVERIFY(!query.hasQueryItem(QStringLiteral("api_key")));
+    QVERIFY(!query.hasQueryItem(QStringLiteral("deviceProfileId")));
     QCOMPARE(query.queryItemValue(QStringLiteral("MediaSourceId")), QStringLiteral("source-1"));
     QCOMPARE(query.queryItemValue(QStringLiteral("AudioStreamIndex")), QStringLiteral("2"));
     QCOMPARE(query.queryItemValue(QStringLiteral("SubtitleStreamIndex")), QStringLiteral("4"));
@@ -551,10 +574,34 @@ void CanonicalModelsTest::jellyfinPlaybackProviderFinalizesTrickplayUrl()
         4);
 
     QCOMPARE(url.path(), QStringLiteral("/base/Videos/movie-1/Trickplay/320/4.jpg"));
-    QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("api_key")),
+    QCOMPARE(QUrlQuery(url).queryItemValue(QStringLiteral("ApiKey")),
              QStringLiteral("secret-token"));
     QVERIFY(provider.createTrickplayTileUrl(
         PlaybackProviderContext{}, QStringLiteral("movie-1"), 320, 4).isEmpty());
+}
+
+void CanonicalModelsTest::jellyfinPlaybackInfoRequestUsesBodyUserId()
+{
+    JellyfinPlaybackProvider provider;
+    PlaybackProviderContext context;
+    context.profileId = QStringLiteral("user-1");
+    const PlaybackInfoRequest request = provider.createPlaybackInfoRequest(
+        context,
+        Bloom::MediaRef{QStringLiteral("connection-1"), QStringLiteral("item/1")},
+        {});
+    QCOMPARE(request.method, QStringLiteral("POST"));
+    QCOMPARE(request.endpoint, QStringLiteral("/Items/item%2F1/PlaybackInfo"));
+    QCOMPARE(request.body.value(QStringLiteral("UserId")).toString(),
+             QStringLiteral("user-1"));
+    QVERIFY(!request.endpoint.contains(QStringLiteral("UserId"), Qt::CaseInsensitive));
+
+    const PlaybackInfoParseResult parsed = provider.parsePlaybackInfoResponse(
+        context, {},
+        QJsonObject{{QStringLiteral("MediaSources"), QJsonArray{
+            QJsonObject{{QStringLiteral("Id"), QStringLiteral("source-1")}}
+        }}});
+    QVERIFY(parsed.valid);
+    QCOMPARE(parsed.response.mediaSources.size(), 1);
 }
 
 void CanonicalModelsTest::playbackDescriptorExposesProviderNeutralShape()
@@ -612,8 +659,7 @@ void CanonicalModelsTest::jellyfinPlaybackReportsSerializeAtProviderBoundary()
              QStringLiteral("session-1"));
     QCOMPARE(progress.body.value(QStringLiteral("PlayMethod")).toString(),
              QStringLiteral("DirectStream"));
-    QCOMPARE(progress.body.value(QStringLiteral("EventName")).toString(),
-             QStringLiteral("TimeUpdate"));
+    QVERIFY(!progress.body.contains(QStringLiteral("EventName")));
 
     report.event = PlaybackReportEvent::Start;
     report.positionMs = -1;
@@ -629,8 +675,11 @@ void CanonicalModelsTest::jellyfinPlaybackReportsSerializeAtProviderBoundary()
     QVERIFY(!stop.deferSessionExpiry);
     QCOMPARE(stop.body.value(QStringLiteral("PositionTicks")).toVariant().toLongLong(),
              43'210'000LL);
-    QCOMPARE(stop.body.value(QStringLiteral("EventName")).toString(),
-             QStringLiteral("Stop"));
+    QVERIFY(!stop.body.contains(QStringLiteral("EventName")));
+    QVERIFY(!stop.body.contains(QStringLiteral("CanSeek")));
+    QVERIFY(!stop.body.contains(QStringLiteral("IsPaused")));
+    QVERIFY(!stop.body.contains(QStringLiteral("PlayMethod")));
+    QVERIFY(!stop.body.contains(QStringLiteral("AudioStreamIndex")));
 }
 
 QTEST_MAIN(CanonicalModelsTest)

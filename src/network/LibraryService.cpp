@@ -853,17 +853,6 @@ void LibraryService::getSeriesDetails(const QString &seriesId)
     ProviderCatalogQuery query = baseCatalogQuery();
     query.itemId = seriesId;
     query.useCacheValidation = true;
-    query.fields = {
-        QStringLiteral("Overview"), QStringLiteral("ImageTags"),
-        QStringLiteral("BackdropImageTags"),
-        QStringLiteral("ParentBackdropImageTags"), QStringLiteral("Genres"),
-        QStringLiteral("Studios"), QStringLiteral("People"),
-        QStringLiteral("ChildCount"), QStringLiteral("ParentId"),
-        QStringLiteral("UserData"), QStringLiteral("ProductionYear"),
-        QStringLiteral("PremiereDate"), QStringLiteral("EndDate"),
-        QStringLiteral("ProviderIds"), QStringLiteral("RecursiveItemCount"),
-        QStringLiteral("Status")
-    };
     sendCatalogRequest(
         QStringLiteral("getSeriesDetails"),
         ProviderCatalogOperation::Item,

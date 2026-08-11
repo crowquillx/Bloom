@@ -15,6 +15,10 @@
 #include <QList>
 #include <QHash>
 #include <QPointer>
+#ifdef BLOOM_TESTING
+#include <QSemaphore>
+#include <QSharedPointer>
+#endif
 #include <atomic>
 #include <memory>
 #include <optional>
@@ -173,6 +177,17 @@ public:
      */
     void setDefaultRoundedParams(int radiusPx, const QSize &targetSize);
 
+#ifdef BLOOM_TESTING
+    void blockCacheWorkerForTest(const QSharedPointer<QSemaphore> &entered,
+                                 const QSharedPointer<QSemaphore> &release);
+    void blockNextRoundedLookupForTest(
+        const QSharedPointer<QSemaphore> &entered,
+        const QSharedPointer<QSemaphore> &release);
+    void advanceCacheContentRevisionForTest();
+    void processPendingRoundedForTest(const QString &url,
+                                      const QString &sourcePath);
+#endif
+
 signals:
     void roundedImageReady(const QString &url, const QString &fileUrl);
 
@@ -193,12 +208,6 @@ private:
      * @return Path to cached file, or empty if not cached
      */
     QString getCachedPath(const QString &url, qint64 *revision = nullptr);
-    
-    /**
-     * @brief Update access time for cache entry
-     * @param url Image URL
-     */
-    void touchCacheEntry(const QString &url);
     
     /**
      * @brief Generate a cache filename from a token-free identity.
@@ -224,6 +233,11 @@ private:
     void scheduleRoundedVariant(const QString &url, const QString &sourcePath,
                                 int radiusPx, const QSize &targetSize,
                                 bool emitSignal);
+
+    /**
+     * @brief Coalesce an asynchronous LRU touch for a known-ready variant.
+     */
+    void touchRoundedVariantAsync(const QString &key, quint64 generation);
     
     /**
      * @brief Process any pending rounded variant requests once the base image is cached.
@@ -241,6 +255,11 @@ private:
      */
     QString saveDataForKeyIfCurrent(const QString &urlKey, const QByteArray &data,
                                     quint64 generation);
+
+    /**
+     * @brief Invalidate provider-thread cache knowledge after a disk mutation.
+     */
+    quint64 advanceCacheContentRevision();
     
     /**
      * @brief Get the network manager owned by the provider thread.
@@ -270,6 +289,9 @@ private:
     QThreadPool m_threadPool;
 
     std::atomic<quint64> m_cacheGeneration{1};
+    // Changes after every successful cache write/eviction-capable mutation.
+    // Ready-path entries are usable only while this revision still matches.
+    std::atomic<quint64> m_cacheContentRevision{1};
     QMutex m_cacheMutationMutex;
     QHash<QString, ImageLoadJob *> m_inFlightImages;
     std::atomic<quint64> m_inFlightImageJobs{0};
@@ -287,9 +309,28 @@ private:
         int radiusPx;
         QSize size;
     };
+    struct ReadyRoundedVariant {
+        QString fileUrl;
+        quint64 generation = 0;
+        quint64 contentRevision = 0;
+    };
+    struct KnownBaseImage {
+        QString path;
+        quint64 contentRevision = 0;
+    };
+    static constexpr qsizetype MaximumRoundedKnowledgeEntries = 256;
+    static constexpr qsizetype MaximumRoundedTouchesInFlight = 256;
     QHash<QString, QList<RoundedVariantRequest>> m_pendingRounded;
     QHash<QString, quint64> m_roundedInFlight;
+    QHash<QString, ReadyRoundedVariant> m_readyRounded;
+    QHash<QString, KnownBaseImage> m_knownBaseImages;
+    QHash<QString, quint64> m_roundedTouchesInFlight;
     mutable QMutex m_pendingMutex;
+#ifdef BLOOM_TESTING
+    QSharedPointer<QSemaphore> m_roundedLookupEnteredForTest;
+    QSharedPointer<QSemaphore> m_roundedLookupReleaseForTest;
+    QMutex m_testHookMutex;
+#endif
 };
 
 #endif // IMAGECACHEPROVIDER_H

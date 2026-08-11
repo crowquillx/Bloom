@@ -4,8 +4,10 @@
 #include "../utils/ConfigManager.h"
 #include <QNetworkRequest>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QSet>
 #include <QDebug>
 #include "../utils/BloomLogging.h"
 
@@ -31,6 +33,9 @@ SessionService::SessionService(AuthenticationService *authService, QObject *pare
             m_authLoadPending = false;
             m_pendingRevokeSessionId.clear();
             m_pendingRevokeWasCurrent = false;
+            m_bulkRevokeRefreshPending = false;
+            m_pendingBulkRevokeDeviceIds.clear();
+            m_successfulBulkRevocations = 0;
             setIsLoading(false);
             setErrorString(error);
         });
@@ -39,6 +44,9 @@ SessionService::SessionService(AuthenticationService *authService, QObject *pare
             m_authLoadPending = false;
             m_pendingRevokeSessionId.clear();
             m_pendingRevokeWasCurrent = false;
+            m_bulkRevokeRefreshPending = false;
+            m_pendingBulkRevokeDeviceIds.clear();
+            m_successfulBulkRevocations = 0;
             m_sessions.clear();
             m_currentSessionId.clear();
             m_errorString.clear();
@@ -126,6 +134,7 @@ void SessionService::syncAuthenticationSessions()
 void SessionService::fetchActiveSessions()
 {
     if (!m_authService || !m_authService->isAuthenticated()) {
+        m_bulkRevokeRefreshPending = false;
         setErrorString("Not authenticated");
         emit operationFailed(m_errorString);
         return;
@@ -154,6 +163,7 @@ void SessionService::fetchActiveSessions()
     }
 
     if (!m_transport) {
+        m_bulkRevokeRefreshPending = false;
         setIsLoading(false);
         setErrorString("Network transport unavailable");
         emit operationFailed(m_errorString);
@@ -172,6 +182,7 @@ void SessionService::fetchActiveSessions()
         },
         [this](QNetworkReply *reply) { onFetchSessionsFinished(reply); },
         [this](const NetworkError &error) {
+            m_bulkRevokeRefreshPending = false;
             setIsLoading(false);
             setErrorString(error.userMessage);
             emit operationFailed(error.userMessage);
@@ -181,20 +192,48 @@ void SessionService::fetchActiveSessions()
 
 void SessionService::revokeSession(const QString &sessionId)
 {
+    beginSessionRevocation(sessionId);
+}
+
+bool SessionService::beginSessionRevocation(const QString &sessionId,
+                                            const QString &knownDeviceId)
+{
+    const QString deviceId = knownDeviceId.isEmpty()
+        ? deviceIdForSession(sessionId)
+        : knownDeviceId;
+    const auto finishBulkDispatch = [this, &deviceId]() {
+        if (!deviceId.isEmpty()
+            && m_pendingBulkRevokeDeviceIds.contains(deviceId)) {
+            finishDeviceRevocation(deviceId, false);
+            return true;
+        }
+        return false;
+    };
+
     if (!m_authService || !m_authService->isAuthenticated()) {
+        finishBulkDispatch();
         setErrorString("Not authenticated");
         emit operationFailed(m_errorString);
-        return;
+        return false;
     }
 
     if (sessionId.isEmpty()) {
+        finishBulkDispatch();
         setErrorString("Session ID is required");
         emit operationFailed(m_errorString);
-        return;
+        return false;
     }
 
     if (authenticationSessionMode() && m_isLoading) {
-        return;
+        finishBulkDispatch();
+        return false;
+    }
+
+    if (!knownDeviceId.isEmpty() && authenticationSessionMode()) {
+        finishBulkDispatch();
+        setErrorString(tr("Playback-session revocation is no longer available."));
+        emit operationFailed(m_errorString);
+        return false;
     }
 
     setIsLoading(true);
@@ -204,36 +243,55 @@ void SessionService::revokeSession(const QString &sessionId)
         m_pendingRevokeSessionId = sessionId;
         m_pendingRevokeWasCurrent = isCurrentSession(sessionId);
         m_authService->revokeAuthSession(sessionId);
-        return;
+        return true;
     }
 
     if (!m_transport) {
-        setIsLoading(false);
+        const bool bulkDispatch = finishBulkDispatch();
+        if (!bulkDispatch) {
+            setIsLoading(false);
+        }
         setErrorString("Network transport unavailable");
         emit operationFailed(m_errorString);
-        return;
+        return false;
     }
 
-    // Jellyfin uses POST /Sessions/{id}/Logout to revoke a session.
-    const QString endpoint = QString("/Sessions/%1/Logout").arg(sessionId);
+    // Jellyfin 12 no longer exposes the legacy per-session Logout route in
+    // OpenAPI. Delete the device associated with the selected playback
+    // session using the supported device-management endpoint instead.
+    if (deviceId.isEmpty()) {
+        const bool bulkDispatch = finishBulkDispatch();
+        if (!bulkDispatch) {
+            setIsLoading(false);
+        }
+        setErrorString(tr("The selected session has no device identifier."));
+        emit operationFailed(m_errorString);
+        return false;
+    }
+    QUrl endpointUrl(QStringLiteral("/Devices"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("id"), deviceId);
+    endpointUrl.setQuery(query);
+    const QString endpoint = endpointUrl.toString(QUrl::FullyEncoded);
     HttpRequestOptions options;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     m_transport->sendWithRetry(
         this,
         endpoint,
         [this, endpoint]() {
-            return m_authService->networkManager()->post(
-                createAuthenticatedRequest(endpoint), QByteArray());
+            return m_authService->networkManager()->deleteResource(
+                createAuthenticatedRequest(endpoint));
         },
-        [this, sessionId](QNetworkReply *reply) {
-            onRevokeSessionFinished(reply, sessionId);
+        [this, sessionId, deviceId](QNetworkReply *reply) {
+            onRevokeSessionFinished(reply, sessionId, deviceId);
         },
-        [this](const NetworkError &error) {
-            setIsLoading(false);
+        [this, deviceId](const NetworkError &error) {
+            finishDeviceRevocation(deviceId, false);
             setErrorString(error.userMessage);
             emit operationFailed(error.userMessage);
         },
         options);
+    return true;
 }
 void SessionService::revokeAllOtherSessions()
 {
@@ -248,23 +306,62 @@ void SessionService::revokeAllOtherSessions()
         emit operationFailed(m_errorString);
         return;
     }
+    if (m_isLoading) {
+        setErrorString(tr("A session operation is already in progress."));
+        emit operationFailed(m_errorString);
+        return;
+    }
 
-    // Refresh the Jellyfin playback-session list before revoking every session
-    // except the current device.
-    connect(this, &SessionService::sessionsLoaded, this, [this]() {
-        int revokedCount = 0;
-        for (const QVariant &var : m_sessions) {
-            const QVariantMap session = var.toMap();
-            const QString sessionId = session.value(QStringLiteral("id")).toString();
-            if (!sessionId.isEmpty() && sessionId != m_currentSessionId) {
-                revokeSession(sessionId);
-                ++revokedCount;
-            }
-        }
-        emit allOtherSessionsRevoked(revokedCount);
-    }, Qt::SingleShotConnection);
-
+    // The explicit pending flag is cleared on every fetch failure, so a later
+    // unrelated refresh can never inherit this destructive operation.
+    m_bulkRevokeRefreshPending = true;
     fetchActiveSessions();
+}
+
+void SessionService::revokeLoadedOtherDevices()
+{
+    if (!m_authService || !m_authService->isAuthenticated()
+        || authenticationSessionMode() || !m_transport) {
+        m_pendingBulkRevokeDeviceIds.clear();
+        m_successfulBulkRevocations = 0;
+        setIsLoading(false);
+        setErrorString(tr("Playback-session revocation is no longer available."));
+        emit operationFailed(m_errorString);
+        return;
+    }
+
+    QList<QPair<QString, QString>> revocations;
+    QSet<QString> revokedDeviceIds;
+    const QString sessionDeviceId = deviceIdForSession(m_currentSessionId);
+    const QString currentDeviceId = sessionDeviceId.isEmpty()
+        ? m_deviceId
+        : sessionDeviceId;
+    if (currentDeviceId.isEmpty()) {
+        setErrorString(tr("The current Jellyfin device could not be identified."));
+        emit operationFailed(m_errorString);
+        return;
+    }
+    for (const QVariant &var : m_sessions) {
+        const QVariantMap session = var.toMap();
+        const QString sessionId = session.value(QStringLiteral("id")).toString();
+        const QString deviceId = session.value(QStringLiteral("deviceId")).toString();
+        if (!sessionId.isEmpty() && !deviceId.isEmpty()
+            && deviceId != currentDeviceId && !revokedDeviceIds.contains(deviceId)) {
+            revokedDeviceIds.insert(deviceId);
+            revocations.append({sessionId, deviceId});
+        }
+    }
+    if (revocations.isEmpty()) {
+        emit allOtherSessionsRevoked(0);
+        return;
+    }
+
+    m_pendingBulkRevokeDeviceIds = revokedDeviceIds;
+    m_successfulBulkRevocations = 0;
+    setIsLoading(true);
+    for (const auto &revocation : revocations) {
+        beginSessionRevocation(revocation.first, revocation.second);
+    }
 }
 
 void SessionService::identifyCurrentSession()
@@ -336,6 +433,7 @@ void SessionService::onFetchSessionsFinished(QNetworkReply *reply)
     QJsonDocument doc = QJsonDocument::fromJson(data);
     
     if (!doc.isArray()) {
+        m_bulkRevokeRefreshPending = false;
         QString error = "Invalid response format from server";
         setErrorString(error);
         emit operationFailed(error);
@@ -354,36 +452,68 @@ void SessionService::onFetchSessionsFinished(QNetworkReply *reply)
     // Identify our session
     identifyCurrentSession();
 
+    if (m_bulkRevokeRefreshPending) {
+        m_bulkRevokeRefreshPending = false;
+        revokeLoadedOtherDevices();
+    }
+
     emit sessionsChanged();
     emit sessionsLoaded();
     
     qCDebug(lcAuth) << "SessionService: Loaded" << m_sessions.size() << "sessions, current:" << m_currentSessionId;
 }
 
-void SessionService::onRevokeSessionFinished(QNetworkReply *, QString sessionId)
+void SessionService::onRevokeSessionFinished(QNetworkReply *, QString sessionId, QString deviceId)
 {
-    setIsLoading(false);
-
-    // Check if we revoked our own session
-    if (sessionId == m_currentSessionId) {
-        qCWarning(lcAuth) << "SessionService: Self-session was revoked";
+    // Jellyfin 12 revocation deletes a device rather than one playback
+    // session. Another session row for this device therefore revokes the
+    // current session as well.
+    const QString sessionCurrentDeviceId = deviceIdForSession(m_currentSessionId);
+    const QString currentDeviceId = sessionCurrentDeviceId.isEmpty()
+        ? m_deviceId
+        : sessionCurrentDeviceId;
+    if (sessionId == m_currentSessionId
+        || (!deviceId.isEmpty() && deviceId == currentDeviceId)) {
+        qCWarning(lcAuth) << "SessionService: Current device was revoked";
+        finishDeviceRevocation(deviceId, true);
         emit selfSessionRevoked();
         return;
     }
 
-    // Remove from local list
-    for (int i = 0; i < m_sessions.size(); ++i) {
-        QVariantMap session = m_sessions[i].toMap();
-        if (session["id"].toString() == sessionId) {
+    // Device deletion can remove more than one server session for the same
+    // device, so keep the local projection consistent with that operation.
+    for (int i = m_sessions.size() - 1; i >= 0; --i) {
+        const QVariantMap session = m_sessions[i].toMap();
+        if (session.value(QStringLiteral("deviceId")).toString() == deviceId) {
             m_sessions.removeAt(i);
-            break;
         }
     }
 
     emit sessionsChanged();
     emit sessionRevoked(sessionId);
+    finishDeviceRevocation(deviceId, true);
     
     qCDebug(lcAuth) << "SessionService: Revoked session" << sessionId;
+}
+
+void SessionService::finishDeviceRevocation(const QString &deviceId, bool successful)
+{
+    if (!m_pendingBulkRevokeDeviceIds.remove(deviceId)) {
+        setIsLoading(false);
+        return;
+    }
+
+    if (successful) {
+        ++m_successfulBulkRevocations;
+    }
+    if (!m_pendingBulkRevokeDeviceIds.isEmpty()) {
+        return;
+    }
+
+    setIsLoading(false);
+    const int revokedCount = m_successfulBulkRevocations;
+    m_successfulBulkRevocations = 0;
+    emit allOtherSessionsRevoked(revokedCount);
 }
 
 void SessionService::setIsLoading(bool loading)
@@ -407,6 +537,17 @@ QString SessionService::getDeviceId() const
         return m_authService->configManager()->getDeviceId();
     }
     return QString();
+}
+
+QString SessionService::deviceIdForSession(const QString &sessionId) const
+{
+    for (const QVariant &value : m_sessions) {
+        const QVariantMap session = value.toMap();
+        if (session.value(QStringLiteral("id")).toString() == sessionId) {
+            return session.value(QStringLiteral("deviceId")).toString();
+        }
+    }
+    return {};
 }
 
 QNetworkRequest SessionService::createAuthenticatedRequest(const QString &endpoint) const

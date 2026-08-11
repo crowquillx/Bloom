@@ -879,3 +879,23 @@ QString ImageCacheStore::filenameForKey(const QString &cacheKey)
             .toHex()
             .left(32));
 }
+
+#ifdef BLOOM_TESTING
+void ImageCacheStore::blockWorkerForTest(
+    const QSharedPointer<QSemaphore> &entered,
+    const QSharedPointer<QSemaphore> &release)
+{
+    Q_ASSERT(entered);
+    Q_ASSERT(release);
+    QMetaObject::invokeMethod(
+        m_worker,
+        [entered, release]() {
+            entered->release();
+            if (!release->tryAcquire(1, 5'000)) {
+                qCWarning(lcImageCache)
+                    << "Timed out waiting to release test cache-worker pause";
+            }
+        },
+        Qt::QueuedConnection);
+}
+#endif

@@ -75,6 +75,7 @@ qt_add_executable(Bloom
     ui/UiSoundController.cpp
     ui/ScreensaverController.h
     ui/ScreensaverController.cpp
+    ui/SoftwareRoundedImageRegistration.h
     ui/ResponsiveLayoutManager.h
     ui/ResponsiveLayoutManager.cpp
     security/ISecretStore.h
@@ -133,7 +134,6 @@ qt_add_qml_module(Bloom
     URI BloomUI
     VERSION 1.0
     RESOURCE_PREFIX /
-    NO_CACHEGEN
     QML_FILES
         ui/Main.qml
         ui/LoginScreen.qml
@@ -403,6 +403,7 @@ target_link_libraries(Bloom
     Bloom::Network
     Bloom::PlayerPolicy
     Bloom::PlayerProcess
+    Bloom::SoftwareRoundedImage
     Bloom::Updater
     Qt6::Core
     Qt6::Gui
@@ -416,6 +417,7 @@ target_link_libraries(Bloom
 )
 
 target_include_directories(Bloom PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/player)
+target_include_directories(Bloom PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 target_include_directories(Bloom PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 qt6_add_translations(Bloom

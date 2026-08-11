@@ -1526,12 +1526,22 @@ bool LibraryViewModel::hasDataChanged(const QJsonArray &newItems, int newTotal, 
         return true;
     }
     
-    // Compare item IDs to detect changes (additions, removals, reorders)
+    // Compare complete canonical items. Identity-only comparison misses
+    // metadata changes (user state, progress, artwork tags, titles, and other
+    // modelData fields) when a revalidation returns the same ordering.
     for (int i = 0; i < newItems.size(); ++i) {
-        QString newId = newItems[i].toObject().value(QStringLiteral("itemId")).toString();
-        QString cachedId = cached.items[i].toObject().value(QStringLiteral("itemId")).toString();
+        const QJsonObject newItem = newItems[i].toObject();
+        const QJsonObject cachedItem = cached.items[i].toObject();
+        const QString newId = newItem.value(QStringLiteral("itemId")).toString();
+        const QString cachedId = cachedItem.value(QStringLiteral("itemId")).toString();
         if (newId != cachedId) {
             qCDebug(lcViewModels) << "LibraryViewModel: SWR item ID mismatch at" << i << ":" << cachedId << "->" << newId;
+            return true;
+        }
+        if (newItem != cachedItem) {
+            qCDebug(lcViewModels)
+                << "LibraryViewModel: SWR metadata changed at" << i
+                << "for item" << newId;
             return true;
         }
     }
@@ -1555,20 +1565,77 @@ bool LibraryViewModel::isCanonicalCachePayload(const QJsonArray &items) const
 
 void LibraryViewModel::updateItemsFromBackground(const QJsonArray &items)
 {
-    // For SWR: update the model with fresh data while minimizing UI disruption
-    // We use beginResetModel/endResetModel but Qt's view should preserve scroll position
-    // since we're not changing isLoading state
-    
-    beginResetModel();
-    m_items.clear();
-    m_items.reserve(items.size());
+    QVector<QJsonObject> refreshedItems;
+    refreshedItems.reserve(items.size());
     for (const QJsonValue &val : items) {
-        QJsonObject item = val.toObject();
+        const QJsonObject item = val.toObject();
         if (!isEmptyFolder(item)) {
-            m_items.append(item);
+            refreshedItems.append(item);
         }
     }
-    endResetModel();
-    
-    qCDebug(lcViewModels) << "LibraryViewModel: SWR updated model with" << m_items.size() << "items";
+
+    const bool stableStructure = refreshedItems.size() == m_items.size()
+        && std::equal(
+            refreshedItems.cbegin(), refreshedItems.cend(), m_items.cbegin(),
+            [](const QJsonObject &fresh, const QJsonObject &current) {
+                return fresh.value(QStringLiteral("itemId")).toString()
+                    == current.value(QStringLiteral("itemId")).toString();
+            });
+
+    if (!stableStructure) {
+        beginResetModel();
+        m_items = std::move(refreshedItems);
+        endResetModel();
+        qCDebug(lcViewModels)
+            << "LibraryViewModel: SWR reset structurally changed model with"
+            << m_items.size() << "items";
+        return;
+    }
+
+    for (int row = 0; row < refreshedItems.size(); ++row) {
+        const QJsonObject &fresh = refreshedItems.at(row);
+        const QJsonObject current = m_items.at(row);
+        if (fresh == current) {
+            continue;
+        }
+
+        QList<int> changedRoles{ModelDataRole};
+        const auto addRoleIfChanged = [&changedRoles, &fresh, &current](
+                                          const QString &field, int role) {
+            if (fresh.value(field) != current.value(field)) {
+                changedRoles.append(role);
+            }
+        };
+        addRoleIfChanged(QStringLiteral("name"), NameRole);
+        addRoleIfChanged(QStringLiteral("itemId"), IdRole);
+        addRoleIfChanged(QStringLiteral("mediaType"), TypeRole);
+        addRoleIfChanged(QStringLiteral("productionYear"), ProductionYearRole);
+        addRoleIfChanged(QStringLiteral("indexNumber"), IndexNumberRole);
+        addRoleIfChanged(QStringLiteral("parentIndexNumber"), ParentIndexNumberRole);
+        addRoleIfChanged(QStringLiteral("overview"), OverviewRole);
+
+        static const QStringList imageFields{
+            QStringLiteral("mediaType"),
+            QStringLiteral("thumbArtwork"),
+            QStringLiteral("primaryArtwork"),
+            QStringLiteral("parentPrimaryArtwork"),
+            QStringLiteral("seriesPrimaryArtwork"),
+        };
+        const bool imageChanged = std::any_of(
+            imageFields.cbegin(), imageFields.cend(),
+            [&fresh, &current](const QString &field) {
+                return fresh.value(field) != current.value(field);
+            });
+        if (imageChanged) {
+            changedRoles.append(ImageUrlRole);
+        }
+
+        m_items[row] = fresh;
+        const QModelIndex changedIndex = index(row);
+        emit dataChanged(changedIndex, changedIndex, changedRoles);
+    }
+
+    qCDebug(lcViewModels)
+        << "LibraryViewModel: SWR updated stable rows in model with"
+        << m_items.size() << "items";
 }
