@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 
 // Rounded image renderer with hybrid pre-rounded and shader paths.
@@ -24,14 +25,15 @@ Item {
     property bool cache: true
     property bool asynchronous: true
     property bool mipmap: true
-    property bool smooth: true
+    readonly property alias shaderRefreshCount: shaderSource.refreshCount
 
     // Expose effective status for placeholders/spinners.
     // Do not switch to pre-rounded until it is actually ready, so base stays visible.
     readonly property bool preRoundedReady: effectivePreferPreRounded
-                                           && preRoundedSource !== ""
-                                           && preRoundedImage.status === Image.Ready
-    readonly property int status: (preRoundedReady ? preRoundedImage.status : baseImage.status)
+                                           && preRoundedSource.toString() !== ""
+                                           && preRoundedLoader.item
+                                           && preRoundedLoader.imageStatus === Image.Ready
+    readonly property int status: (preRoundedReady ? preRoundedLoader.imageStatus : baseImage.status)
     readonly property bool loading: status === Image.Loading
     readonly property bool ready: status === Image.Ready
     readonly property bool error: status === Image.Error
@@ -48,68 +50,41 @@ Item {
     readonly property bool effectiveAllowShader: modeAllowsShader && allowShader
     readonly property bool usePreRounded: preRoundedReady
     readonly property bool shaderSupported: effectiveAllowShader && GraphicsInfo.api !== GraphicsInfo.Software
+    readonly property bool shaderActive: !usePreRounded && shaderSupported
+                                         && baseImage.status === Image.Ready
 
-    // Raw image used for shader/fallback. Kept hidden when shader is active.
-    Image {
-        id: baseImage
-        anchors.fill: parent
-        source: root.source
-        sourceSize.width: root.sourceWidth
-        sourceSize.height: root.sourceHeight
-        fillMode: root.fillMode
-        asynchronous: root.asynchronous
-        cache: root.cache
-        mipmap: root.mipmap
-        smooth: root.smooth
-        // Kept visible so ShaderEffectSource can render; not shown because hideSource is true.
-        visible: true
+    function refreshStaticShaderSource() {
+        if (!shaderActive)
+            return
+        shaderSource.scheduleUpdate()
+        shaderSource.refreshCount += 1
     }
 
-    // Pre-rounded path (preferred when provided).
-    Image {
-        id: preRoundedImage
-        anchors.fill: parent
-        source: root.preRoundedSource
-        sourceSize.width: root.sourceWidth
-        sourceSize.height: root.sourceHeight
-        fillMode: root.fillMode
-        asynchronous: root.asynchronous
-        cache: root.cache
-        mipmap: root.mipmap
-        smooth: root.smooth
-        visible: root.preRoundedReady
-    }
+    onSourceChanged: Qt.callLater(refreshStaticShaderSource)
+    onShaderActiveChanged: Qt.callLater(refreshStaticShaderSource)
+    onWidthChanged: Qt.callLater(refreshStaticShaderSource)
+    onHeightChanged: Qt.callLater(refreshStaticShaderSource)
+    onSourceWidthChanged: Qt.callLater(refreshStaticShaderSource)
+    onSourceHeightChanged: Qt.callLater(refreshStaticShaderSource)
+    onFillModeChanged: Qt.callLater(refreshStaticShaderSource)
+    onMipmapChanged: Qt.callLater(refreshStaticShaderSource)
+    onSmoothChanged: Qt.callLater(refreshStaticShaderSource)
+    onVisibleChanged: Qt.callLater(refreshStaticShaderSource)
 
-    // Shader-based rounded corners (default fast path).
-    ShaderEffectSource {
-        id: shaderSource
-        sourceItem: baseImage
-        hideSource: true
-        live: true
-        visible: false
-    }
-
-    ShaderEffect {
-        id: roundedEffect
-        anchors.fill: parent
-        visible: !root.usePreRounded && root.shaderSupported && baseImage.status === Image.Ready
-        property var source: shaderSource
-        property real radiusPx: Math.max(0, root.radius)
-        property vector2d itemSize: Qt.vector2d(width, height)
-
-        fragmentShader: "qrc:/shaders/rounded_image.frag.qsb"
-    }
-
-    // Software fallback: clip the base image if shaders are unavailable or while shader path is not active.
+    // One base image feeds both the shader and software fallback. Binding
+    // hideSource to the active shader avoids the duplicate fallback download.
     Rectangle {
         id: fallbackClip
+        objectName: "fallbackClip"
         anchors.fill: parent
         radius: root.radius
         color: "transparent"
         clip: true
-        visible: !root.usePreRounded && (!root.shaderSupported || baseImage.status !== Image.Ready)
+        visible: !root.usePreRounded
 
         Image {
+            id: baseImage
+            objectName: "baseImage"
             anchors.fill: parent
             source: root.source
             sourceSize.width: root.sourceWidth
@@ -119,7 +94,70 @@ Item {
             cache: root.cache
             mipmap: root.mipmap
             smooth: root.smooth
-            visible: fallbackClip.visible
+            visible: true
+
+            onStatusChanged: {
+                if (status === Image.Ready)
+                    Qt.callLater(root.refreshStaticShaderSource)
+            }
         }
     }
+
+    // The prerender-only image object is instantiated only when that path is
+    // eligible and a source exists.
+    Loader {
+        id: preRoundedLoader
+        objectName: "preRoundedLoader"
+        anchors.fill: parent
+        active: root.effectivePreferPreRounded
+                && root.preRoundedSource.toString() !== ""
+        visible: root.preRoundedReady
+        property int imageStatus: Image.Null
+
+        onActiveChanged: {
+            if (!active)
+                imageStatus = Image.Null
+        }
+
+        sourceComponent: Component {
+            Image {
+                objectName: "preRoundedImage"
+                source: root.preRoundedSource
+                sourceSize.width: root.sourceWidth
+                sourceSize.height: root.sourceHeight
+                fillMode: root.fillMode
+                asynchronous: root.asynchronous
+                cache: root.cache
+                mipmap: root.mipmap
+                smooth: root.smooth
+
+                Component.onCompleted: preRoundedLoader.imageStatus = status
+                onStatusChanged: preRoundedLoader.imageStatus = status
+            }
+        }
+    }
+
+    // Shader-based rounded corners (default fast path).
+    ShaderEffectSource {
+        id: shaderSource
+        objectName: "shaderSource"
+        sourceItem: baseImage
+        hideSource: root.shaderActive
+        live: false
+        visible: false
+        property int refreshCount: 0
+    }
+
+    ShaderEffect {
+        id: roundedEffect
+        objectName: "roundedEffect"
+        anchors.fill: parent
+        visible: root.shaderActive
+        property var source: shaderSource
+        property real radiusPx: Math.max(0, root.radius)
+        property vector2d itemSize: Qt.vector2d(width, height)
+
+        fragmentShader: "qrc:/shaders/rounded_image.frag.qsb"
+    }
+
 }

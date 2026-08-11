@@ -68,6 +68,7 @@ stdenv.mkDerivation {
       SiloCatalogServiceTest \
       ArtworkRefreshTest \
       ImageCacheStoreTest \
+      RoundedImageTest \
       SiloPlaybackProviderTest \
       CanonicalModelsTest \
       InputBindingManagerTest \

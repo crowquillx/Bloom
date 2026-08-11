@@ -50,6 +50,8 @@ network services.
 
 Image-cache SQLite and disk-file lifecycle is owned by the dedicated worker
 behind `Bloom::ImageCache`; never share its `QSqlDatabase` across threads.
+Provider-owned image jobs coalesce identical identity-and-size requests; QML
+responses subscribe to those jobs and must not own shared download/decode work.
 
 When to update: Only edit this file for architecture, conventions, or global policy changes. Implementation details live in `docs/*` and should be updated there.
 

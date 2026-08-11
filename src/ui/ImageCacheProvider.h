@@ -5,76 +5,64 @@
 #include <QObject>
 #include <QThreadPool>
 #include <QNetworkAccessManager>
-#include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QMutex>
 #include <QCache>
 #include <QUrl>
 #include <QSize>
 #include <QVariantMap>
-#include <QRunnable>
 #include <QImage>
 #include <QList>
 #include <QHash>
-#include <QPair>
+#include <QPointer>
+#include <atomic>
 #include <memory>
 #include <optional>
 
 class IArtworkProvider;
 class ImageCacheProvider;
 class ImageCacheStore;
+class ImageLoadJob;
+
+struct ImageRequestLimits {
+    qint64 maximumNetworkBytes = 20 * 1024 * 1024;
+    qint64 maximumDecodedBytes = 192 * 1024 * 1024;
+    int networkDeadlineMs = 15'000;
+};
 
 /**
  * @brief Response handler for async image loading
  * 
- * Handles the lifecycle of a single image request, coordinating between
- * disk cache lookup and network fetch.
+ * Subscribes one QML request to a provider-owned shared load job. The response
+ * owns only its result and cancellation state.
  */
-class CachedImageResponse : public QQuickImageResponse, public QRunnable
+class CachedImageResponse : public QQuickImageResponse
 {
     Q_OBJECT
     
 public:
     CachedImageResponse(const QString &url,
                         const QSize &requestedSize,
-                        ImageCacheProvider *provider,
-                        std::optional<QNetworkRequest> resolvedRequest);
+                        ImageCacheProvider *provider);
     ~CachedImageResponse() override;
     
     QQuickTextureFactory *textureFactory() const override;
     QString errorString() const override;
     void cancel() override;
     
-    void run() override;
-
-signals:
-    void imageLoaded(const QImage &image);
-    void loadFailed(const QString &error);
-
-public:
-    // Called by ImageCacheProvider for error handling
-    void finishWithError(const QString &error);
-
-private slots:
-    void onNetworkReplyFinished();
-
 private:
-    void loadFromCache();
-    void fetchFromNetwork();
-    void refreshArtworkRequest(const QString &networkError);
-    void saveToCache(const QByteArray &data);
+    friend class ImageLoadJob;
+
     void finishWithImage(const QImage &image);
+    void finishWithError(const QString &error);
     
-    QString m_url;
-    QSize m_requestedSize;
-    ImageCacheProvider *m_provider;
+    QString m_safeCacheLabel;
     QImage m_image;
     QString m_errorString;
     bool m_cancelled = false;
-    QNetworkReply *m_reply = nullptr;
-    std::optional<QNetworkRequest> m_resolvedRequest;
-    bool m_refreshAttempted = false;
-    QMutex m_mutex;
+    bool m_finished = false;
+    QPointer<ImageLoadJob> m_job;
+    mutable QMutex m_mutex;
 };
 
 /**
@@ -105,7 +93,8 @@ public:
      * @param maxCacheSizeMB Maximum disk cache size in megabytes (default 500MB)
      */
     explicit ImageCacheProvider(qint64 maxCacheSizeMB = 500,
-                                IArtworkProvider *artworkProvider = nullptr);
+                                IArtworkProvider *artworkProvider = nullptr,
+                                ImageRequestLimits requestLimits = {});
     ~ImageCacheProvider() override;
     
     QQuickImageResponse *requestImageResponse(const QString &id, 
@@ -189,6 +178,14 @@ signals:
 
 private:
     friend class CachedImageResponse;
+    friend class ImageLoadJob;
+
+    ImageLoadJob *subscribe(CachedImageResponse *response,
+                            const QString &cacheKey,
+                            const QSize &requestedSize);
+    void imageJobFinished(const QString &jobKey, const QString &cacheKey,
+                          ImageLoadJob *job, bool successful);
+    void discardPendingRounded(const QString &cacheKey);
     
     /**
      * @brief Get cached file path for URL
@@ -196,14 +193,6 @@ private:
      * @return Path to cached file, or empty if not cached
      */
     QString getCachedPath(const QString &url, qint64 *revision = nullptr);
-    
-    /**
-     * @brief Save image data to cache
-     * @param url Original URL
-     * @param data Image data
-     * @param size File size in bytes
-     */
-    void saveToCache(const QString &url, const QByteArray &data);
     
     /**
      * @brief Update access time for cache entry
@@ -253,7 +242,7 @@ private:
     QString saveDataForKey(const QString &urlKey, const QByteArray &data);
     
     /**
-     * @brief Get network manager (thread-safe)
+     * @brief Get the network manager owned by the provider thread.
      */
     QNetworkAccessManager *networkManager();
     
@@ -264,6 +253,7 @@ private:
     QSize m_defaultRoundedSize = QSize(640, 960);
     bool m_enableRoundedPreprocess = true;
     IArtworkProvider *m_artworkProvider = nullptr;
+    ImageRequestLimits m_requestLimits;
     
     // Dedicated-thread owner for SQLite metadata and cache files.
     std::unique_ptr<ImageCacheStore> m_store;
@@ -274,16 +264,27 @@ private:
     
     // Network access for fetching images
     QNetworkAccessManager *m_networkManager = nullptr;
-    QMutex m_networkMutex;
     
     // Thread pool for async operations
     QThreadPool m_threadPool;
+
+    std::atomic<quint64> m_cacheGeneration{1};
+    QHash<QString, ImageLoadJob *> m_inFlightImages;
+
+    std::atomic<quint64> m_imageHits{0};
+    std::atomic<quint64> m_networkLoads{0};
+    std::atomic<quint64> m_coalescedRequests{0};
+    std::atomic<quint64> m_decodeAttempts{0};
+    std::atomic<quint64> m_decodedImages{0};
+    std::atomic<quint64> m_totalDecodeLatencyMs{0};
+    std::atomic<quint64> m_roundedGenerations{0};
     
     struct RoundedVariantRequest {
         int radiusPx;
         QSize size;
     };
     QHash<QString, QList<RoundedVariantRequest>> m_pendingRounded;
+    QHash<QString, quint64> m_roundedInFlight;
     mutable QMutex m_pendingMutex;
 };
 
