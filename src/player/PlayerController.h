@@ -639,6 +639,8 @@ private:
     void scheduleReplacementPlayback(const std::function<void()> &action);
     void finalizeReplacementPlaybackStop();
     bool runPendingReplacementPlaybackAction();
+    void queueBackendFallbackFinalization();
+    void finalizeBackendFallback();
     /**
      * Attempt to fall back from the internal player backend to an external backend for the current attempt.
      * @param reason Human-readable reason for attempting the fallback.
@@ -785,6 +787,8 @@ private:
 
     IPlayerBackend *m_playerBackend;
     std::unique_ptr<IPlayerBackend> m_ownedBackend;
+    QPointer<IPlayerBackend> m_backendFallbackSource;
+    bool m_backendFallbackFinalizationQueued = false;
     ConfigManager *m_config;
     TrackPreferencesManager *m_trackPrefs;
     DisplayManager *m_displayManager;

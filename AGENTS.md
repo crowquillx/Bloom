@@ -28,6 +28,12 @@ Windows embedded playback guardrail (regression prevention):
 
 Backend policy (high level): Windows always uses embedded libmpv (`win-libmpv`) for playback. Linux embedded libmpv remains experimental/validation-only; keep current Linux fallback behavior (Wayland defaults to `external-mpv-ipc` unless explicitly opted in for validation, and unsupported embedded runtime conditions fall back to `external-mpv-ipc`).
 
+External mpv process/IPC lifecycle is owned by `Bloom::PlayerProcess`. It is
+fully event-driven: never add UI-thread `QProcess::waitFor*` calls. Preserve the
+graceful-quit/escalation sequence, queued replacement playback, bounded IPC
+deadlines/queues, and per-user/per-instance private endpoints documented in
+`docs/playback.md`.
+
 Build & run (blessed path):
 ```
 nix build

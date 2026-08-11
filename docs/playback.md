@@ -101,11 +101,53 @@ Key components
 - LinuxMpvBackend: Linux embedded backend entry point.
 - LinuxMpvBackend now includes basic `mpv_handle` lifecycle, property/event observation, and a Qt Quick `beforeRendering`-driven `mpv_render_context` render path (Linux runtime validation still pending).
 - MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
-- PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
+- PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir through the reusable `Bloom::PlayerProcess` production target. Observes `time-pos`, `duration`, `pause`, `aid`, `sid`, `paused-for-cache`, `volume`, `mute`, `playlist-pos`, `playlist-count`, `demuxer-cache-time`, and `audio-device-list`.
 - PlayerController: provider-neutral state machine that handles play/pause/resume, listens for backend updates, manages track selection, and sends canonical playback state through `PlaybackService`.
 - `IPlaybackProvider` / `JellyfinPlaybackProvider` / `SiloPlaybackProvider`: finalize provider PlaybackInfo into Bloom `PlaybackDescriptor` values and serialize canonical playback reports into provider endpoints and wire payloads. Silo uses its pinned legacy native envelope; Jellyfin retains its synchronous descriptor path.
 - `PlaybackService`: stable application façade for playback preparation and reporting transport; its public timing contract uses milliseconds.
 - TrackPreferencesManager: persists explicit audio/subtitle user choices to a separate JSON file using a versioned schema.
+
+### External mpv lifecycle and IPC
+
+`PlayerProcessManager` never waits synchronously for a child process or local
+socket. Starting replacement playback records the newest request, asks the
+active mpv to quit over IPC, waits for its process-finished event, and launches
+the replacement on the next event-loop turn. Explicit stop cancels any queued
+replacement. Shutdown progresses through bounded stages: graceful IPC `quit`
+(750 ms by default), `QProcess::terminate()` (another 750 ms), and finally
+`QProcess::kill()`. An intentional terminate/kill result is not reported as a
+new playback failure.
+
+Each manager and launch uses a collision-resistant endpoint containing a
+non-reversible user token, the Bloom PID, a random instance token, and a launch
+sequence. Unix sockets live under `QStandardPaths::RuntimeLocation` in an
+owner-only directory, with an owner-only cache/runtime or unique temporary
+directory fallback when required; overlong Unix socket paths are rejected.
+Windows uses an equivalently unique named pipe. Bloom intentionally supports
+multiple application instances and therefore does not enforce an app-wide
+single-instance lock; independent endpoints prevent their external mpv
+processes from colliding.
+
+When Linux embedded rendering fails, `PlayerController` keeps that backend
+alive until its asynchronous stopped signal arrives, then replaces it with the
+external-mpv backend on the next event-loop turn. Repeated render errors during
+that shutdown do not start overlapping fallback or terminal transitions.
+
+IPC connection and reconnection are asynchronous. The default connection
+window is 5 seconds with 100 ms per-attempt retry pacing and at most 50
+attempts. A disconnect queues reconnection after the socket notification has
+unwound. Pending commands are capped at 256 (oldest dropped), while outgoing
+socket buffering and each incoming/outgoing JSON message are capped at 1 MiB.
+Incoming documents must be JSON objects with a valid event shape; property
+values and client-message arguments are type-checked before signals are emitted. Logs
+record command names and lifecycle timing but never command payloads, media
+URLs, or signed credentials.
+
+Startup and IPC connection latency are logged and exposed through
+`startupLatencyMeasured`, `ipcConnectionLatencyMeasured`, and `diagnostics()`.
+`PlayerProcessManagerTest` runs a local fake-mpv child to cover graceful and
+forced shutdown, replacement ordering, private endpoints, startup/IPC failure,
+reconnection, bounded queues, and malformed JSON without playback hardware.
 
 HDR and Dolby Vision policy
 - Bloom keeps `enableHDR` as the master switch. With `enableHDR=false`, HDR and Dolby Vision sources are direct-played where possible and locally tone-mapped to SDR by mpv/libplacebo.
