@@ -1,6 +1,7 @@
 #include "ui/ImageCacheStore.h"
 
 #include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -28,8 +29,9 @@ void writeFile(const QString &path, const QByteArray &contents)
     QCOMPARE(file.write(contents), contents.size());
 }
 
-void createVersionThreeDatabase(const QString &directory,
-                                const QList<QList<QVariant>> &rows)
+void createDatabase(const QString &directory,
+                    const QList<QList<QVariant>> &rows,
+                    int schemaVersion = 3)
 {
     const QString connectionName = QStringLiteral("image_cache_store_seed");
     {
@@ -49,7 +51,8 @@ void createVersionThreeDatabase(const QString &directory,
         )")));
         QVERIFY(query.exec(QStringLiteral(
             "CREATE INDEX idx_last_accessed ON cache_entries(last_accessed)")));
-        QVERIFY(query.exec(QStringLiteral("PRAGMA user_version = 3")));
+        QVERIFY(query.exec(
+            QStringLiteral("PRAGMA user_version = %1").arg(schemaVersion)));
         for (const QList<QVariant> &row : rows) {
             query.prepare(QStringLiteral(
                 "INSERT INTO cache_entries "
@@ -79,6 +82,8 @@ private slots:
     void evictionContinuesPastOneHundredEntries();
     void deletionFailureDoesNotStopEviction();
     void corruptDatabaseRecoversCleanly();
+    void newerDatabaseSchemaIsRebuilt();
+    void replacementRevisionExceedsPersistedTimestamp();
     void startupReconcilesRowsAndFiles();
     void clearRemovesTrackedAndOrphanFiles();
     void evictionCountsActualRemovedBytes();
@@ -261,6 +266,50 @@ void ImageCacheStoreTest::corruptDatabaseRecoversCleanly()
     QVERIFY(stats.recoveryActions >= 2);
 }
 
+void ImageCacheStoreTest::newerDatabaseSchemaIsRebuilt()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString key = QStringLiteral("artwork:future-schema");
+    const QString filename = ImageCacheStore::filenameForKey(key);
+    const QString path = directory.filePath(filename);
+    writeFile(path, QByteArrayLiteral("future"));
+    createDatabase(directory.path(),
+                   {{databaseKey(key), filename, 6, 1, 1}},
+                   4);
+
+    ImageCacheStore store(directory.path(), 1024 * 1024);
+    QVERIFY(store.isAvailable());
+    QVERIFY(store.lookup(key).isEmpty());
+    QVERIFY(!QFileInfo::exists(path));
+    QVERIFY(!store.write(QStringLiteral("artwork:after-future-schema"),
+                         QByteArrayLiteral("ok"))
+                 .isEmpty());
+    QVERIFY(store.stats().recoveryActions >= 1);
+}
+
+void ImageCacheStoreTest::replacementRevisionExceedsPersistedTimestamp()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString key = QStringLiteral("artwork:future-revision");
+    const QString filename = ImageCacheStore::filenameForKey(key);
+    const qint64 futureRevision = QDateTime::currentMSecsSinceEpoch() + 60'000;
+    writeFile(directory.filePath(filename), QByteArrayLiteral("old"));
+    createDatabase(directory.path(),
+                   {{databaseKey(key), filename, 3, futureRevision, futureRevision}});
+
+    ImageCacheStore store(directory.path(), 1024 * 1024);
+    const ImageCacheStore::LookupResult stale = store.lookupEntry(key);
+    QCOMPARE(stale.revision, futureRevision);
+    QCOMPARE(store.write(key, QByteArrayLiteral("new")), stale.path);
+    const ImageCacheStore::LookupResult replacement = store.lookupEntry(key);
+    QVERIFY(replacement.revision > stale.revision);
+
+    store.invalidateIfCurrent(key, stale.revision);
+    QCOMPARE(store.lookup(key), replacement.path);
+}
+
 void ImageCacheStoreTest::startupReconcilesRowsAndFiles()
 {
     QTemporaryDir directory;
@@ -272,7 +321,7 @@ void ImageCacheStoreTest::startupReconcilesRowsAndFiles()
     writeFile(directory.filePath(presentFilename), QByteArrayLiteral("1234567"));
     const QString orphanPath = directory.filePath(QStringLiteral("0123456789abcdef0123456789abcdef"));
     writeFile(orphanPath, QByteArrayLiteral("orphan"));
-    createVersionThreeDatabase(
+    createDatabase(
         directory.path(),
         {{databaseKey(presentKey), presentFilename, 99, 1, 1},
          {databaseKey(missingKey), missingFilename, 11, 2, 2}});

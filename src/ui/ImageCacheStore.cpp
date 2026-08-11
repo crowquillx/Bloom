@@ -17,6 +17,7 @@
 #include <QUuid>
 
 #include <algorithm>
+#include <limits>
 #include <optional>
 #include <type_traits>
 #include <utility>
@@ -124,10 +125,11 @@ public:
         if (schemaVersion < 0) {
             recoverDatabase();
         } else {
-            if (databaseExisted && schemaVersion < kSchemaVersion) {
-                // Older indexes persisted caller-provided identities. Reset the
-                // database itself so authenticated URLs cannot remain in live,
-                // WAL, or freelist pages. Artwork identities remain stable
+            if (databaseExisted && schemaVersion != kSchemaVersion) {
+                // Older indexes persisted caller-provided identities, while a
+                // newer index may have a schema this build cannot safely use.
+                // Reset the database itself rather than relabeling an
+                // incompatible schema. Artwork identities remain stable
                 // because callers continue to address entries by ArtworkRef.
                 ++m_stats.recoveryActions;
                 closeDatabase();
@@ -145,6 +147,12 @@ public:
         {
             QSqlQuery setVersion(m_database);
             setVersion.exec(QStringLiteral("PRAGMA user_version = %1").arg(kSchemaVersion));
+        }
+        if (!seedRevisionClock()) {
+            recoverDatabase();
+            if (!m_database.isOpen() || !seedRevisionClock()) {
+                return;
+            }
         }
         reconcile();
         evictIfNeeded();
@@ -521,12 +529,22 @@ private:
 
         QList<Entry> entries = allEntries();
         QSet<QString> referenced;
-        m_currentSize = 0;
+        qint64 trackedSize = 0;
+        for (const Entry &entry : entries) {
+            if (validFilenameForKey(entry.databaseKey, entry.filename)) {
+                trackedSize += std::max<qint64>(0, entry.recordedSize);
+            }
+        }
         if (!m_database.transaction()) {
+            // Preserve accounting that matches the unchanged rows. Missing or
+            // resized files will then apply their correction exactly once on
+            // lookup/eviction instead of making the cache appear empty.
+            m_currentSize = trackedSize;
             qCWarning(lcImageCache) << "Failed to start image cache recovery transaction";
             return;
         }
 
+        m_currentSize = 0;
         bool transactionOk = true;
         for (const Entry &entry : entries) {
             if (!validFilenameForKey(entry.databaseKey, entry.filename)) {
@@ -552,6 +570,9 @@ private:
 
         if (!transactionOk || !m_database.commit()) {
             m_database.rollback();
+            // The row changes did not commit, so keep the in-memory total in
+            // the same recorded-size domain as SQLite.
+            m_currentSize = trackedSize;
             qCWarning(lcImageCache) << "Failed to commit image cache recovery transaction";
         }
 
@@ -732,6 +753,24 @@ private:
     {
         m_lastTimestamp = std::max(QDateTime::currentMSecsSinceEpoch(), m_lastTimestamp + 1);
         return m_lastTimestamp;
+    }
+
+    bool seedRevisionClock()
+    {
+        QSqlQuery query(m_database);
+        if (!query.exec(QStringLiteral(
+                "SELECT COALESCE(MAX(created_at), 0) FROM cache_entries"))
+            || !query.next()) {
+            qCWarning(lcImageCache) << "Failed to initialize image cache revision clock";
+            return false;
+        }
+        const qint64 persistedMaximum = query.value(0).toLongLong();
+        if (persistedMaximum == std::numeric_limits<qint64>::max()) {
+            qCWarning(lcImageCache) << "Image cache revision clock is exhausted";
+            return false;
+        }
+        m_lastTimestamp = std::max<qint64>(0, persistedMaximum);
+        return true;
     }
 
     QString m_cacheDirectory;
