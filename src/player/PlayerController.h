@@ -16,6 +16,7 @@
 #include <functional>
 #include <memory>
 #include "backend/IPlayerBackend.h"
+#include "PlaybackPolicy.h"
 #include "TrickplayProcessor.h"
 #include "../network/Types.h"
 #include "../models/MediaModels.h"
@@ -471,12 +472,7 @@ private:
     };
 
     struct PendingPlaybackRequest;
-    struct HdrPlaybackPolicy
-    {
-        bool toneMapToSdr = false;
-        bool outputHdr = false;
-        bool shouldToggleDisplayHdr = false;
-    };
+    using HdrPlaybackPolicy = Bloom::PlaybackPolicy::HdrPlaybackPolicy;
     // State machine
     void setupStateMachine();
     bool processEvent(Event event);
@@ -646,13 +642,8 @@ private:
      * @returns `true` if a fallback was initiated, `false` otherwise.
      */
     bool tryFallbackToExternalBackend(const QString &reason);
-    struct ResolvedTrackSelection
-    {
-        int audioIndex = -1;
-        int subtitleIndex = -1;
-        QString audioSource;
-        QString subtitleSource;
-    };
+    using ResolvedTrackSelection =
+        Bloom::PlaybackPolicy::ResolvedTrackSelection;
 
     void updateTrackMappings(const QVariantMap &mediaSource);
     /**

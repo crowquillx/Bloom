@@ -412,6 +412,7 @@ target_link_libraries(Bloom
     Bloom::ImageCache
     Bloom::Display
     Bloom::Network
+    Bloom::PlayerPolicy
     Bloom::PlayerProcess
     Qt6::Core
     Qt6::Gui

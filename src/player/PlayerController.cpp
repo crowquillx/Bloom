@@ -1,4 +1,5 @@
 #include "PlayerController.h"
+#include "PlaybackPolicy.h"
 #include "TrickplayProcessor.h"
 #if !defined(BLOOM_TESTING)
 #include "backend/ExternalMpvBackend.h"
@@ -8,7 +9,6 @@
 #include "../network/AuthenticationService.h"
 #include "../network/Types.h"
 #include <QFile>
-#include <QFileInfo>
 #include <QBuffer>
 #include <QNetworkReply>
 #include <QJsonDocument>
@@ -29,11 +29,12 @@
 #include <QThread>
 #include <atomic>
 #include <algorithm>
-#include <limits>
 #include "../utils/BloomLogging.h"
 #include "../utils/MpvArgFilter.h"
 
 namespace {
+namespace PlayerPolicy = Bloom::PlaybackPolicy;
+
 std::atomic<quint64> gPlaybackAttemptCounter{0};
 bool isLinuxEmbeddedLibmpvBackend(const IPlayerBackend *backend)
 {
@@ -64,16 +65,6 @@ static QString formatMpvDisplayFps(double fps)
         value.chop(1);
     }
     return value;
-}
-
-QString buildNextEpisodeRequestContext(const QString &mode,
-                                       const QString &seriesId,
-                                       const QString &itemId)
-{
-    if (mode.isEmpty() || seriesId.isEmpty() || itemId.isEmpty()) {
-        return {};
-    }
-    return QStringLiteral("player:%1:%2:%3").arg(mode, seriesId, itemId);
 }
 
 class NullPlayerBackend final : public IPlayerBackend
@@ -122,245 +113,6 @@ QVariantList mediaStreamsForType(const QVariantMap &mediaSource, const QString &
     return result;
 }
 
-enum class HdrContentKind {
-    Sdr,
-    Hdr,
-    DolbyVisionCompatible,
-    DolbyVisionUnsupported
-};
-
-QString normalizedMetadataText(const QVariantMap &stream)
-{
-    return QStringList{
-        stream.value(QStringLiteral("codec")).toString(),
-        stream.value(QStringLiteral("title")).toString(),
-        stream.value(QStringLiteral("displayTitle")).toString(),
-        stream.value(QStringLiteral("videoRange")).toString(),
-        stream.value(QStringLiteral("videoRangeType")).toString(),
-        stream.value(QStringLiteral("videoDoViTitle")).toString(),
-        stream.value(QStringLiteral("codecTag")).toString(),
-        stream.value(QStringLiteral("codecTagString")).toString(),
-        stream.value(QStringLiteral("codecId")).toString(),
-        stream.value(QStringLiteral("profile")).toString()
-    }.join(QLatin1Char(' ')).trimmed().toLower();
-}
-
-QString normalizedMediaSourceMetadataText(const QVariantMap &mediaSource)
-{
-    return QStringList{
-        mediaSource.value(QStringLiteral("name")).toString(),
-        mediaSource.value(QStringLiteral("path")).toString(),
-        mediaSource.value(QStringLiteral("container")).toString()
-    }.join(QLatin1Char(' ')).trimmed().toLower();
-}
-
-bool metadataContainsDolbyVisionProfile(const QString &metadata, int profile)
-{
-    const QString profileText = QString::number(profile);
-    return metadata.contains(QStringLiteral("dvhe.0") + profileText)
-        || metadata.contains(QStringLiteral("dvh1.0") + profileText)
-        || metadata.contains(QStringLiteral("profile ") + profileText)
-        || metadata.contains(QStringLiteral("profile-") + profileText)
-        || metadata.contains(QStringLiteral("profile.") + profileText)
-        || metadata.contains(QStringLiteral(" p") + profileText);
-}
-
-bool rangeTokenIndicatesHdr(const QString &token)
-{
-    const QString normalized = token.trimmed().toUpper();
-    return !normalized.isEmpty()
-        && normalized != QStringLiteral("UNKNOWN")
-        && normalized != QStringLiteral("SDR")
-        && normalized != QStringLiteral("0")
-        && normalized != QStringLiteral("1");
-}
-
-HdrContentKind classifyVideoStream(const QVariantMap &stream, const QString &mediaSourceMetadata = QString())
-{
-    const QString metadata = QStringList{normalizedMetadataText(stream), mediaSourceMetadata}
-        .join(QLatin1Char(' '))
-        .trimmed()
-        .toLower();
-    const int dvProfile = stream.value(QStringLiteral("dolbyVisionProfile")).toInt();
-    const int dvBlSignalCompatibilityId =
-        stream.value(QStringLiteral("dolbyVisionBlSignalCompatibilityId")).toInt();
-    const QString range = stream.value(QStringLiteral("videoRange")).toString().trimmed().toUpper();
-    const QString rangeType = stream.value(QStringLiteral("videoRangeType")).toString().trimmed().toUpper();
-    const bool hasHdr10OrHlgBaseLayer = metadata.contains(QStringLiteral("hdr10"))
-        || metadata.contains(QStringLiteral("hlg"))
-        || dvBlSignalCompatibilityId == 1
-        || dvBlSignalCompatibilityId == 4
-        || dvBlSignalCompatibilityId == 6;
-    const bool isDolbyVision = dvProfile > 0
-        || metadata.contains(QStringLiteral("dovi"))
-        || metadata.contains(QStringLiteral("dolby vision"))
-        || metadata.contains(QStringLiteral("dvhe"))
-        || metadata.contains(QStringLiteral("dvh1"));
-
-    if (isDolbyVision) {
-        if (dvProfile == 7 || dvProfile == 8
-            || metadataContainsDolbyVisionProfile(metadata, 7)
-            || metadataContainsDolbyVisionProfile(metadata, 8)
-            || hasHdr10OrHlgBaseLayer) {
-            return HdrContentKind::DolbyVisionCompatible;
-        }
-        return HdrContentKind::DolbyVisionUnsupported;
-    }
-
-    if (rangeTokenIndicatesHdr(range)
-        || rangeTokenIndicatesHdr(rangeType)
-        || hasHdr10OrHlgBaseLayer) {
-        return HdrContentKind::Hdr;
-    }
-
-    return HdrContentKind::Sdr;
-}
-
-HdrContentKind classifyMediaSourceHdr(const QVariantMap &mediaSource)
-{
-    HdrContentKind result = HdrContentKind::Sdr;
-    const QString mediaSourceMetadata = normalizedMediaSourceMetadataText(mediaSource);
-    for (const QVariant &streamVariant : mediaStreamsForType(mediaSource, QStringLiteral("Video"))) {
-        const HdrContentKind streamKind = classifyVideoStream(streamVariant.toMap(), mediaSourceMetadata);
-        if (streamKind == HdrContentKind::DolbyVisionUnsupported) {
-            return streamKind;
-        }
-        if (streamKind == HdrContentKind::DolbyVisionCompatible) {
-            result = streamKind;
-        } else if (streamKind == HdrContentKind::Hdr && result == HdrContentKind::Sdr) {
-            result = streamKind;
-        }
-    }
-    return result;
-}
-
-bool kindIsHdr(HdrContentKind kind)
-{
-    return kind != HdrContentKind::Sdr;
-}
-
-bool kindShouldToneMapToSdr(HdrContentKind kind, const QString &dolbyVisionFallbackMode)
-{
-    return kind == HdrContentKind::DolbyVisionUnsupported
-        && dolbyVisionFallbackMode != QStringLiteral("experimental-direct-play");
-}
-
-const char *hdrContentKindName(HdrContentKind kind)
-{
-    switch (kind) {
-    case HdrContentKind::Sdr:
-        return "sdr";
-    case HdrContentKind::Hdr:
-        return "hdr";
-    case HdrContentKind::DolbyVisionCompatible:
-        return "dolby-vision-compatible";
-    case HdrContentKind::DolbyVisionUnsupported:
-        return "dolby-vision-unsupported";
-    }
-    return "unknown";
-}
-
-bool hasStreamIndex(const QVariantList &streams, int streamIndex)
-{
-    for (const QVariant &streamVariant : streams) {
-        if (streamVariant.toMap().value(QStringLiteral("index"), -1).toInt() == streamIndex) {
-            return true;
-        }
-    }
-    return false;
-}
-
-int firstMatchingStreamIndex(const QVariantList &streams, const std::function<bool(const QVariantMap &)> &predicate)
-{
-    for (const QVariant &streamVariant : streams) {
-        const QVariantMap stream = streamVariant.toMap();
-        if (predicate(stream)) {
-            return stream.value(QStringLiteral("index"), -1).toInt();
-        }
-    }
-    return -1;
-}
-
-QString normalizedLanguageCode(const QString &language)
-{
-    const QString normalized = language.trimmed().toLower();
-    static const QHash<QString, QString> aliases = {
-        {QStringLiteral("en"), QStringLiteral("eng")}, {QStringLiteral("eng"), QStringLiteral("eng")},
-        {QStringLiteral("ja"), QStringLiteral("jpn")}, {QStringLiteral("jpn"), QStringLiteral("jpn")},
-        {QStringLiteral("es"), QStringLiteral("spa")}, {QStringLiteral("spa"), QStringLiteral("spa")},
-        {QStringLiteral("fr"), QStringLiteral("fre")}, {QStringLiteral("fre"), QStringLiteral("fre")},
-        {QStringLiteral("fra"), QStringLiteral("fre")},
-        {QStringLiteral("de"), QStringLiteral("ger")}, {QStringLiteral("ger"), QStringLiteral("ger")},
-        {QStringLiteral("deu"), QStringLiteral("ger")},
-        {QStringLiteral("it"), QStringLiteral("ita")}, {QStringLiteral("ita"), QStringLiteral("ita")},
-        {QStringLiteral("pt"), QStringLiteral("por")}, {QStringLiteral("por"), QStringLiteral("por")},
-        {QStringLiteral("ru"), QStringLiteral("rus")}, {QStringLiteral("rus"), QStringLiteral("rus")},
-        {QStringLiteral("zh"), QStringLiteral("chi")}, {QStringLiteral("chi"), QStringLiteral("chi")},
-        {QStringLiteral("zho"), QStringLiteral("chi")},
-        {QStringLiteral("ko"), QStringLiteral("kor")}, {QStringLiteral("kor"), QStringLiteral("kor")},
-        {QStringLiteral("ar"), QStringLiteral("ara")}, {QStringLiteral("ara"), QStringLiteral("ara")},
-        {QStringLiteral("hi"), QStringLiteral("hin")}, {QStringLiteral("hin"), QStringLiteral("hin")},
-        {QStringLiteral("nl"), QStringLiteral("dut")}, {QStringLiteral("dut"), QStringLiteral("dut")},
-        {QStringLiteral("nld"), QStringLiteral("dut")},
-        {QStringLiteral("sv"), QStringLiteral("swe")}, {QStringLiteral("swe"), QStringLiteral("swe")},
-        {QStringLiteral("no"), QStringLiteral("nor")}, {QStringLiteral("nor"), QStringLiteral("nor")},
-        {QStringLiteral("da"), QStringLiteral("dan")}, {QStringLiteral("dan"), QStringLiteral("dan")},
-        {QStringLiteral("fi"), QStringLiteral("fin")}, {QStringLiteral("fin"), QStringLiteral("fin")},
-        {QStringLiteral("pl"), QStringLiteral("pol")}, {QStringLiteral("pol"), QStringLiteral("pol")},
-        {QStringLiteral("tr"), QStringLiteral("tur")}, {QStringLiteral("tur"), QStringLiteral("tur")},
-        {QStringLiteral("cs"), QStringLiteral("cze")}, {QStringLiteral("cze"), QStringLiteral("cze")},
-        {QStringLiteral("ces"), QStringLiteral("cze")},
-        {QStringLiteral("el"), QStringLiteral("gre")}, {QStringLiteral("gre"), QStringLiteral("gre")},
-        {QStringLiteral("ell"), QStringLiteral("gre")},
-        {QStringLiteral("he"), QStringLiteral("heb")}, {QStringLiteral("heb"), QStringLiteral("heb")},
-        {QStringLiteral("id"), QStringLiteral("ind")}, {QStringLiteral("ind"), QStringLiteral("ind")},
-        {QStringLiteral("tha"), QStringLiteral("tha")}, {QStringLiteral("th"), QStringLiteral("tha")},
-        {QStringLiteral("vi"), QStringLiteral("vie")}, {QStringLiteral("vie"), QStringLiteral("vie")}
-    };
-    return aliases.value(normalized, normalized);
-}
-
-int bestLanguageStreamIndex(const QVariantList &streams, const QString &language, bool subtitle)
-{
-    const QString normalizedPreference = normalizedLanguageCode(language);
-    if (normalizedPreference.isEmpty()) {
-        return -1;
-    }
-
-    int bestIndex = -1;
-    int bestScore = -1;
-    int ordinal = 0;
-    for (const QVariant &streamVariant : streams) {
-        const QVariantMap stream = streamVariant.toMap();
-        if (normalizedLanguageCode(stream.value(QStringLiteral("language")).toString()) != normalizedPreference) {
-            ++ordinal;
-            continue;
-        }
-
-        int score = 10000 - ordinal;
-        if (stream.value(QStringLiteral("isDefault"), false).toBool()) {
-            score += 100000;
-        } else if (subtitle) {
-            const bool forced = stream.value(QStringLiteral("isForced"), false).toBool();
-            const bool hearingImpaired = stream.value(QStringLiteral("isHearingImpaired"), false).toBool();
-            if (!forced && !hearingImpaired) {
-                score += 50000;
-            } else if (forced) {
-                score += 30000;
-            } else if (hearingImpaired) {
-                score += 10000;
-            }
-        }
-
-        if (score > bestScore) {
-            bestScore = score;
-            bestIndex = stream.value(QStringLiteral("index"), -1).toInt();
-        }
-        ++ordinal;
-    }
-    return bestIndex;
-}
-
 QString trackTitleForStream(const QVariantMap &stream)
 {
     const QString displayTitle = stream.value(QStringLiteral("displayTitle")).toString().trimmed();
@@ -395,66 +147,6 @@ QString trackTitleForStream(const QVariantMap &stream)
     return parts.join(QStringLiteral(" • "));
 }
 
-QString normalizedStringKey(const QString &value)
-{
-    return value.trimmed().toLower();
-}
-
-QString fileParentPathKey(const QString &value)
-{
-    QFileInfo info(value);
-    const QString parentPath = info.dir().absolutePath().replace(QLatin1Char('\\'), QLatin1Char('/'));
-    return normalizedStringKey(parentPath);
-}
-
-QString mediaSourceVideoDescriptor(const QVariantMap &mediaSource)
-{
-    QString codec;
-    QString profile;
-    QString videoRange;
-    int width = 0;
-    int height = 0;
-
-    const QVariantList streams = mediaStreamsForType(mediaSource, QStringLiteral("Video"));
-    if (!streams.isEmpty()) {
-        const QVariantMap videoStream = streams.first().toMap();
-        codec = normalizedStringKey(videoStream.value(QStringLiteral("codec")).toString());
-        profile = normalizedStringKey(videoStream.value(QStringLiteral("profile")).toString());
-        videoRange = normalizedStringKey(videoStream.value(QStringLiteral("videoRange")).toString());
-        width = videoStream.value(QStringLiteral("width")).toInt();
-        height = videoStream.value(QStringLiteral("height")).toInt();
-    }
-
-    return QStringLiteral("%1|%2|%3|%4x%5|%6|%7")
-        .arg(codec,
-             profile,
-             videoRange,
-             QString::number(width),
-             QString::number(height),
-             normalizedStringKey(mediaSource.value(QStringLiteral("container")).toString()),
-             QString::number(mediaSource.value(QStringLiteral("bitRate")).toInt()));
-}
-QVariantList primaryPresentationSources(const QVariantList &mediaSources)
-{
-    int firstPart = std::numeric_limits<int>::max();
-    for (const QVariant &value : mediaSources) {
-        const int part = value.toMap().value(QStringLiteral("presentationPartIndex")).toInt();
-        if (part > 0) {
-            firstPart = qMin(firstPart, part);
-        }
-    }
-    if (firstPart == std::numeric_limits<int>::max()) {
-        return mediaSources;
-    }
-
-    QVariantList result;
-    for (const QVariant &value : mediaSources) {
-        if (value.toMap().value(QStringLiteral("presentationPartIndex")).toInt() == firstPart) {
-            result.append(value);
-        }
-    }
-    return result;
-}
 }
 
 PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager *config, TrackPreferencesManager *trackPrefs, DisplayManager *displayManager, PlaybackService *playbackService, LibraryService *libraryService, AuthenticationService *authService, QObject *parent)
@@ -2570,7 +2262,8 @@ void PlayerController::maybeFinalizePendingPlaybackRequest(const QString &reques
 
     const PlaybackInfoResponse primaryPlaybackInfo = it->playbackInfos.value(it->itemId);
     const QVariantList primarySources =
-        primaryPresentationSources(primaryPlaybackInfo.getMediaSourcesVariant());
+        PlayerPolicy::primaryPresentationSources(
+            primaryPlaybackInfo.getMediaSourcesVariant());
     if (primarySources.size() > 1
         && it->allowVersionPrompt
         && it->chosenMediaSourceId.isEmpty()) {
@@ -2597,7 +2290,8 @@ void PlayerController::launchResolvedPlaybackRequest(const QString &requestId)
     const PlaybackInfoResponse primaryPlaybackInfo =
         request.playbackInfos.value(request.itemId);
     const QVariantList primaryMediaSources =
-        primaryPresentationSources(primaryPlaybackInfo.getMediaSourcesVariant());
+        PlayerPolicy::primaryPresentationSources(
+            primaryPlaybackInfo.getMediaSourcesVariant());
 
     if (primaryMediaSources.isEmpty()) {
         failPendingPlaybackRequest(requestId, tr("No playable media sources found."));
@@ -2871,8 +2565,9 @@ void PlayerController::onPlaybackDescriptorLoadedForRequest(
                               : mediaSourceIsHdr(m_pendingAutoplayDescriptorSource),
                           m_pendingAutoplayDescriptorSource.isEmpty()
                               ? m_pendingAutoplayToneMapToSdr
-                              : kindShouldToneMapToSdr(
-                                  classifyMediaSourceHdr(m_pendingAutoplayDescriptorSource),
+                              : PlayerPolicy::shouldToneMapToSdr(
+                                  PlayerPolicy::classifyMediaSourceHdr(
+                                      m_pendingAutoplayDescriptorSource),
                                   m_config->getDolbyVisionFallbackMode()));
         m_pendingAutoplayDescriptorContext.clear();
         return;
@@ -2947,7 +2642,8 @@ QVariantMap PlayerController::buildPlaybackVersionDialogModel(const QString &req
     QVariantList options;
     const PlaybackInfoResponse playbackInfo = it->playbackInfos.value(it->itemId);
     const QVariantList mediaSources =
-        primaryPresentationSources(playbackInfo.getMediaSourcesVariant());
+        PlayerPolicy::primaryPresentationSources(
+            playbackInfo.getMediaSourcesVariant());
     for (const QVariant &mediaSourceVariant : mediaSources) {
         const QVariantMap mediaSource = mediaSourceVariant.toMap();
         options.append(QVariantMap{
@@ -2968,47 +2664,15 @@ QVariantMap PlayerController::selectMediaSourceForRequest(const QVariantList &me
                                                           const QString &forcedMediaSourceId,
                                                           bool useAffinityFallback) const
 {
-    if (!forcedMediaSourceId.isEmpty()) {
-        for (const QVariant &mediaSourceVariant : mediaSources) {
-            const QVariantMap mediaSource = mediaSourceVariant.toMap();
-            if (mediaSource.value(QStringLiteral("id")).toString() == forcedMediaSourceId) {
-                return mediaSource;
-            }
-        }
-    }
-
-    if (useAffinityFallback) {
-        const QString preferredParentPath = normalizedStringKey(m_lastVersionParentPath);
-        if (!preferredParentPath.isEmpty()) {
-            for (const QVariant &mediaSourceVariant : mediaSources) {
-                const QVariantMap mediaSource = mediaSourceVariant.toMap();
-                if (mediaSourceParentPath(mediaSource) == preferredParentPath) {
-                    return mediaSource;
-                }
-            }
-        }
-
-        const QString preferredName = normalizedStringKey(m_lastVersionName);
-        if (!preferredName.isEmpty()) {
-            for (const QVariant &mediaSourceVariant : mediaSources) {
-                const QVariantMap mediaSource = mediaSourceVariant.toMap();
-                if (normalizedStringKey(mediaSource.value(QStringLiteral("name")).toString()) == preferredName) {
-                    return mediaSource;
-                }
-            }
-        }
-
-        if (!m_lastVersionSignature.isEmpty()) {
-            for (const QVariant &mediaSourceVariant : mediaSources) {
-                const QVariantMap mediaSource = mediaSourceVariant.toMap();
-                if (mediaSourceSignature(mediaSource) == m_lastVersionSignature) {
-                    return mediaSource;
-                }
-            }
-        }
-    }
-
-    return mediaSources.isEmpty() ? QVariantMap{} : mediaSources.first().toMap();
+    return PlayerPolicy::selectMediaSource(
+        mediaSources,
+        forcedMediaSourceId,
+        useAffinityFallback,
+        PlayerPolicy::VersionAffinity{
+            m_lastVersionParentPath,
+            m_lastVersionName,
+            m_lastVersionSignature
+        });
 }
 
 QVariantMap PlayerController::resolveSegmentPlaybackContext(const QString &scopeId, bool isMovie,
@@ -3032,7 +2696,8 @@ QVariantMap PlayerController::resolveSegmentPlaybackContext(const QString &scope
                                                                            isMovie,
                                                                            preferredAudioIndex,
                                                                            preferredSubtitleIndex);
-    const HdrContentKind hdrKind = classifyMediaSourceHdr(resolvedSource);
+    const PlayerPolicy::HdrContentKind hdrKind =
+        PlayerPolicy::classifyMediaSourceHdr(resolvedSource);
     return QVariantMap{
         {QStringLiteral("mediaSource"), resolvedSource},
         {QStringLiteral("mediaSourceId"), resolvedSource.value(QStringLiteral("id")).toString()},
@@ -3042,9 +2707,10 @@ QVariantMap PlayerController::resolveSegmentPlaybackContext(const QString &scope
         {QStringLiteral("availableAudioTracks"), buildAvailableTrackOptions(resolvedSource, QStringLiteral("Audio"))},
         {QStringLiteral("availableSubtitleTracks"), buildAvailableTrackOptions(resolvedSource, QStringLiteral("Subtitle"))},
         {QStringLiteral("framerate"), videoFramerateForMediaSource(resolvedSource)},
-        {QStringLiteral("isHDR"), kindIsHdr(hdrKind)},
-        {QStringLiteral("hdrKind"), QString::fromLatin1(hdrContentKindName(hdrKind))},
-        {QStringLiteral("toneMapToSdr"), kindShouldToneMapToSdr(hdrKind, m_config->getDolbyVisionFallbackMode())}
+        {QStringLiteral("isHDR"), PlayerPolicy::isHdr(hdrKind)},
+        {QStringLiteral("hdrKind"), PlayerPolicy::hdrContentKindName(hdrKind)},
+        {QStringLiteral("toneMapToSdr"), PlayerPolicy::shouldToneMapToSdr(
+             hdrKind, m_config->getDolbyVisionFallbackMode())}
     };
 }
 
@@ -3320,53 +2986,17 @@ void PlayerController::updateVersionAffinityFromMediaSource(const QVariantMap &m
 
 QString PlayerController::mediaSourceParentPath(const QVariantMap &mediaSource) const
 {
-    return fileParentPathKey(mediaSource.value(QStringLiteral("path")).toString());
+    return PlayerPolicy::mediaSourceParentPath(mediaSource);
 }
 
 QString PlayerController::mediaSourceSignature(const QVariantMap &mediaSource) const
 {
-    return mediaSourceVideoDescriptor(mediaSource);
+    return PlayerPolicy::mediaSourceSignature(mediaSource);
 }
 
 QString PlayerController::buildVersionSubtitle(const QVariantMap &mediaSource) const
 {
-    QStringList parts;
-    const QVariantList videoStreams = mediaStreamsForType(mediaSource, QStringLiteral("Video"));
-    if (!videoStreams.isEmpty()) {
-        const QVariantMap videoStream = videoStreams.first().toMap();
-        const int width = videoStream.value(QStringLiteral("width")).toInt();
-        const int height = videoStream.value(QStringLiteral("height")).toInt();
-        if (width > 0 && height > 0) {
-            parts.append(QStringLiteral("%1x%2").arg(width).arg(height));
-        }
-
-        const QString videoRange = videoStream.value(QStringLiteral("videoRange")).toString().trimmed();
-        if (!videoRange.isEmpty() && videoRange.compare(QStringLiteral("SDR"), Qt::CaseInsensitive) != 0) {
-            parts.append(videoRange.toUpper());
-        }
-
-        const QString codec = videoStream.value(QStringLiteral("codec")).toString().trimmed();
-        if (!codec.isEmpty()) {
-            parts.append(codec.toUpper());
-        }
-
-        const QString profile = videoStream.value(QStringLiteral("profile")).toString().trimmed();
-        if (!profile.isEmpty()) {
-            parts.append(profile);
-        }
-    }
-
-    const QString container = mediaSource.value(QStringLiteral("container")).toString().trimmed();
-    if (!container.isEmpty()) {
-        parts.append(container.toUpper());
-    }
-
-    const int bitrate = mediaSource.value(QStringLiteral("bitRate")).toInt();
-    if (bitrate > 0) {
-        parts.append(QStringLiteral("%1 Mbps").arg(QString::number(static_cast<double>(bitrate) / 1000000.0, 'f', 1)));
-    }
-
-    return parts.join(QStringLiteral(" • "));
+    return PlayerPolicy::buildVersionSubtitle(mediaSource);
 }
 
 /**
@@ -4843,167 +4473,15 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
                                                                                  int preferredAudioIndex,
                                                                                  int preferredSubtitleIndex) const
 {
-    ResolvedTrackSelection resolved;
-    const QVariantList audioStreams = mediaStreamsForType(mediaSource, QStringLiteral("Audio"));
-    const QVariantList subtitleStreams = mediaStreamsForType(mediaSource, QStringLiteral("Subtitle"));
-
-    const auto resolveProviderAudioDefault = [&]() -> std::pair<int, QString> {
-        const int providerDefault = mediaSource.value(QStringLiteral("defaultAudioStreamIndex"), -1).toInt();
-        if (providerDefault >= 0 && hasStreamIndex(audioStreams, providerDefault)) {
-            return {providerDefault, QStringLiteral("jellyfin-default")};
-        }
-        return {-1, {}};
-    };
-
-    const auto resolveFileAudioDefault = [&]() -> std::pair<int, QString> {
-        const int fileDefault = firstMatchingStreamIndex(audioStreams, [](const QVariantMap &stream) {
-            return stream.value(QStringLiteral("isDefault"), false).toBool();
-        });
-        if (fileDefault >= 0) {
-            return {fileDefault, QStringLiteral("file-default")};
-        }
-        return {-1, {}};
-    };
-
-    const auto resolveBuiltInAudioFallback = [&]() -> std::pair<int, QString> {
-        const auto [providerDefault, providerSource] = resolveProviderAudioDefault();
-        if (providerDefault >= 0) {
-            return {providerDefault, providerSource};
-        }
-
-        const auto [fileDefault, fileSource] = resolveFileAudioDefault();
-        if (fileDefault >= 0) {
-            return {fileDefault, fileSource};
-        }
-
-        const int fallback = firstMatchingStreamIndex(audioStreams, [](const QVariantMap &) {
-            return true;
-        });
-        return {fallback, fallback >= 0 ? QStringLiteral("fallback") : QStringLiteral("none")};
-    };
-
-    const auto resolveProviderSubtitleDefault = [&]() -> std::pair<int, QString> {
-        const int providerDefault = mediaSource.value(QStringLiteral("defaultSubtitleStreamIndex"), -1).toInt();
-        if (providerDefault >= 0 && hasStreamIndex(subtitleStreams, providerDefault)) {
-            return {providerDefault, QStringLiteral("jellyfin-default")};
-        }
-        return {-1, {}};
-    };
-
-    const auto resolveFileSubtitleDefault = [&]() -> std::pair<int, QString> {
-        const int fileDefault = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
-            return stream.value(QStringLiteral("isDefault"), false).toBool();
-        });
-        if (fileDefault >= 0) {
-            return {fileDefault, QStringLiteral("file-default")};
-        }
-        return {-1, {}};
-    };
-
-    const auto resolveBuiltInSubtitleFallback = [&]() -> std::pair<int, QString> {
-        const auto [providerDefault, providerSource] = resolveProviderSubtitleDefault();
-        if (providerDefault >= 0) {
-            return {providerDefault, providerSource};
-        }
-
-        const auto [fileDefault, fileSource] = resolveFileSubtitleDefault();
-        if (fileDefault >= 0) {
-            return {fileDefault, fileSource};
-        }
-
-        const int forcedDefault = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
-            return stream.value(QStringLiteral("isForced"), false).toBool();
-        });
-        if (forcedDefault >= 0) {
-            return {forcedDefault, QStringLiteral("forced-default")};
-        }
-
-        return {-1, QStringLiteral("fallback-off")};
-    };
-
-    const auto resolveGlobalAudioDefault = [&]() -> std::pair<int, QString> {
-        const QString selection = m_config ? m_config->getDefaultAudioTrackSelection() : QStringLiteral("jellyfin-default");
-        if (selection == QStringLiteral("file-default")) {
-            const auto [fileDefault, fileSource] = resolveFileAudioDefault();
-            if (fileDefault >= 0) {
-                return {fileDefault, fileSource};
-            }
-            return resolveBuiltInAudioFallback();
-        }
-        if (selection != QStringLiteral("jellyfin-default")) {
-            const int languageDefault = bestLanguageStreamIndex(audioStreams, selection, false);
-            if (languageDefault >= 0) {
-                return {languageDefault, QStringLiteral("global-language")};
-            }
-        }
-        return resolveBuiltInAudioFallback();
-    };
-
-    const auto resolveGlobalSubtitleDefault = [&]() -> std::pair<int, QString> {
-        const QString selection = m_config ? m_config->getDefaultSubtitleTrackSelection() : QStringLiteral("jellyfin-default");
-        if (selection == QStringLiteral("off")) {
-            return {-1, QStringLiteral("global-off")};
-        }
-        if (selection == QStringLiteral("forced")) {
-            const int forcedDefault = firstMatchingStreamIndex(subtitleStreams, [](const QVariantMap &stream) {
-                return stream.value(QStringLiteral("isForced"), false).toBool();
-            });
-            if (forcedDefault >= 0) {
-                return {forcedDefault, QStringLiteral("global-forced")};
-            }
-            return {-1, QStringLiteral("global-forced-off")};
-        }
-        if (selection == QStringLiteral("file-default")) {
-            const auto [fileDefault, fileSource] = resolveFileSubtitleDefault();
-            if (fileDefault >= 0) {
-                return {fileDefault, fileSource};
-            }
-            return resolveBuiltInSubtitleFallback();
-        }
-        if (selection != QStringLiteral("jellyfin-default")) {
-            const int languageDefault = bestLanguageStreamIndex(subtitleStreams, selection, true);
-            if (languageDefault >= 0) {
-                return {languageDefault, QStringLiteral("global-language")};
-            }
-        }
-        return resolveBuiltInSubtitleFallback();
-    };
-
-    const auto resolveAudio = [&]() -> std::pair<int, QString> {
-        if (preferredAudioIndex >= 0 && hasStreamIndex(audioStreams, preferredAudioIndex)) {
-            return {preferredAudioIndex, QStringLiteral("override")};
-        }
-        if (preferences.audio.mode == TrackPreferenceMode::ExplicitStream
-            && hasStreamIndex(audioStreams, preferences.audio.streamIndex)) {
-            return {preferences.audio.streamIndex, QStringLiteral("explicit")};
-        }
-        return resolveGlobalAudioDefault();
-    };
-
-    const auto resolveSubtitle = [&]() -> std::pair<int, QString> {
-        if (preferredSubtitleIndex == -1) {
-            return {-1, QStringLiteral("override-off")};
-        }
-        if (preferredSubtitleIndex >= 0 && hasStreamIndex(subtitleStreams, preferredSubtitleIndex)) {
-            return {preferredSubtitleIndex, QStringLiteral("override")};
-        }
-        if (preferences.subtitle.mode == TrackPreferenceMode::Off) {
-            return {-1, QStringLiteral("explicit-off")};
-        }
-        if (preferences.subtitle.mode == TrackPreferenceMode::ExplicitStream
-            && hasStreamIndex(subtitleStreams, preferences.subtitle.streamIndex)) {
-            return {preferences.subtitle.streamIndex, QStringLiteral("explicit")};
-        }
-        return resolveGlobalSubtitleDefault();
-    };
-
-    const auto [audioIndex, audioSource] = resolveAudio();
-    const auto [subtitleIndex, subtitleSource] = resolveSubtitle();
-    resolved.audioIndex = audioIndex;
-    resolved.subtitleIndex = subtitleIndex;
-    resolved.audioSource = audioSource;
-    resolved.subtitleSource = subtitleSource;
-    return resolved;
+    return PlayerPolicy::resolveTrackSelection(
+        mediaSource,
+        preferences,
+        m_config ? m_config->getDefaultAudioTrackSelection()
+                 : QStringLiteral("jellyfin-default"),
+        m_config ? m_config->getDefaultSubtitleTrackSelection()
+                 : QStringLiteral("jellyfin-default"),
+        preferredAudioIndex,
+        preferredSubtitleIndex);
 }
 
 void PlayerController::syncBackendAudioTrack(int mpvTrackId)
@@ -5278,7 +4756,8 @@ double PlayerController::videoFramerateForMediaSource(const QVariantMap &mediaSo
 
 bool PlayerController::mediaSourceIsHdr(const QVariantMap &mediaSource) const
 {
-    return kindIsHdr(classifyMediaSourceHdr(mediaSource));
+    return PlayerPolicy::isHdr(
+        PlayerPolicy::classifyMediaSourceHdr(mediaSource));
 }
 
 // === PRIVATE HELPERS ===
@@ -5504,12 +4983,14 @@ void PlayerController::checkCompletionThreshold()
 
 bool PlayerController::wouldMeetCompletionThreshold() const
 {
-    return !m_hasEvaluatedCompletionForAttempt
-           && !m_currentItemId.isEmpty()
-           && m_duration > 0
-           && !m_currentSeriesId.isEmpty()
-           && ((m_currentPosition / m_duration) * 100.0)
-                  >= m_config->getPlaybackCompletionThreshold();
+    return PlayerPolicy::meetsCompletionThreshold({
+        m_hasEvaluatedCompletionForAttempt,
+        m_currentItemId,
+        m_currentSeriesId,
+        m_currentPosition,
+        m_duration,
+        m_config->getPlaybackCompletionThreshold()
+    });
 }
 
 /**
@@ -5554,19 +5035,19 @@ bool PlayerController::checkCompletionThresholdAndAutoplay()
  */
 void PlayerController::maybeTriggerNextEpisodePrefetch()
 {
-    if (m_nextEpisodePrefetchRequestedForAttempt
-        || m_currentSeriesId.isEmpty()
-        || m_currentItemId.isEmpty()
-        || m_duration <= 0.0
-        || (m_playbackState != Playing && m_playbackState != Paused)) {
+    if (!PlayerPolicy::shouldPrefetchNextEpisode({
+            m_nextEpisodePrefetchRequestedForAttempt,
+            m_playbackState == Playing || m_playbackState == Paused,
+            m_currentSeriesId,
+            m_currentItemId,
+            m_currentPosition,
+            m_duration,
+            kNextEpisodePrefetchTriggerPercent
+        })) {
         return;
     }
 
     const double progressPercent = (m_currentPosition / m_duration) * 100.0;
-    if (progressPercent < kNextEpisodePrefetchTriggerPercent) {
-        return;
-    }
-
     m_nextEpisodePrefetchRequestedForAttempt = true;
     qCDebug(lcPlayback) << "Triggering next-episode prefetch"
                         << "itemId=" << m_currentItemId
@@ -5579,16 +5060,16 @@ void PlayerController::maybeTriggerNextEpisodePrefetch()
 
 QString PlayerController::expectedPrefetchRequestContext() const
 {
-    return buildNextEpisodeRequestContext(QStringLiteral("prefetch"),
-                                          m_currentSeriesId,
-                                          m_currentItemId);
+    return PlayerPolicy::nextEpisodeRequestContext(
+        QStringLiteral("prefetch"), m_currentSeriesId, m_currentItemId);
 }
 
 QString PlayerController::expectedAutoplayResolutionRequestContext() const
 {
-    return buildNextEpisodeRequestContext(QStringLiteral("resolve"),
-                                          m_pendingAutoplaySeriesId,
-                                          m_pendingAutoplayItemId);
+    return PlayerPolicy::nextEpisodeRequestContext(
+        QStringLiteral("resolve"),
+        m_pendingAutoplaySeriesId,
+        m_pendingAutoplayItemId);
 }
 
 bool PlayerController::matchesPlaybackRequestContext(const QString &requestContext,
@@ -5621,26 +5102,14 @@ bool PlayerController::matchesPlaybackRequestContext(const QString &requestConte
  */
 bool PlayerController::hasUsablePrefetchedNextEpisode() const
 {
-    const QString prefetchedEpisodeId = m_prefetchedNextEpisodeData.value(QStringLiteral("itemId")).toString();
-    if (!m_nextEpisodePrefetchReady
-        || m_prefetchedNextEpisodeData.isEmpty()
-        || prefetchedEpisodeId.isEmpty()) {
-        return false;
-    }
-    if (m_prefetchedNextEpisodeSeriesId.isEmpty()
-        || m_prefetchedNextEpisodeSeriesId != m_pendingAutoplaySeriesId) {
-        return false;
-    }
-    if (m_prefetchedForItemId.isEmpty()
-        || m_prefetchedForItemId != m_pendingAutoplayItemId) {
-        return false;
-    }
-    // Jellyfin may still return the currently playing episode until mark-played settles.
-    // Never consume a prefetched candidate that points to the just-finished item.
-    if (prefetchedEpisodeId == m_pendingAutoplayItemId) {
-        return false;
-    }
-    return true;
+    return PlayerPolicy::isUsablePrefetchedEpisode({
+        m_nextEpisodePrefetchReady,
+        m_prefetchedNextEpisodeData,
+        m_prefetchedNextEpisodeSeriesId,
+        m_prefetchedForItemId,
+        m_pendingAutoplaySeriesId,
+        m_pendingAutoplayItemId
+    });
 }
 
 /**
@@ -5957,21 +5426,11 @@ void PlayerController::startPlayback(const QString &url)
 
 PlayerController::HdrPlaybackPolicy PlayerController::computeEffectiveHdrPlaybackPolicy() const
 {
-    HdrPlaybackPolicy policy;
-    if (!m_contentIsHDR) {
-        return policy;
-    }
-
-    const QString hdrOutputMode = m_config->getHDROutputMode();
-    policy.toneMapToSdr = m_contentShouldToneMapToSdr
-        || !m_config->getEnableHDR()
-        || hdrOutputMode == QStringLiteral("tone-map-to-sdr");
-    policy.outputHdr = m_config->getEnableHDR()
-        && !policy.toneMapToSdr
-        && (hdrOutputMode == QStringLiteral("match-content")
-            || hdrOutputMode == QStringLiteral("force-hdr-experimental"));
-    policy.shouldToggleDisplayHdr = policy.outputHdr;
-    return policy;
+    return PlayerPolicy::evaluateHdrPlayback(
+        m_contentIsHDR,
+        m_contentShouldToneMapToSdr,
+        m_config->getEnableHDR(),
+        m_config->getHDROutputMode());
 }
 
 void PlayerController::applyFramerateMatchingAndStart()

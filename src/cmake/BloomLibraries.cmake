@@ -2,6 +2,7 @@
 # Keep dependency direction acyclic:
 #   Models -> Config / Transport / ImageCache / PlayerProcess -> Providers -> Network
 #                     Config -> Display
+#                     Qt Core -> PlayerPolicy
 
 add_library(BloomModels STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/models/MediaModels.cpp
@@ -118,6 +119,21 @@ target_link_libraries(BloomPlayerProcess
         Qt6::Network
 )
 
+add_library(BloomPlayerPolicy STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/PlaybackPolicy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/PlaybackPolicy.h
+)
+add_library(Bloom::PlayerPolicy ALIAS BloomPlayerPolicy)
+target_include_directories(BloomPlayerPolicy
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(BloomPlayerPolicy
+    PUBLIC
+        Qt6::Core
+)
+
 add_library(BloomProviders STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinAuthenticator.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/jellyfin/JellyfinModelMapper.cpp
@@ -174,6 +190,7 @@ set_target_properties(
     BloomTransport
     BloomImageCache
     BloomPlayerProcess
+    BloomPlayerPolicy
     BloomProviders
     BloomNetwork
     PROPERTIES FOLDER "Bloom/Libraries"
