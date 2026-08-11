@@ -8,19 +8,21 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QMutex>
-#include <QSqlDatabase>
 #include <QCache>
 #include <QUrl>
 #include <QSize>
+#include <QVariantMap>
 #include <QRunnable>
 #include <QImage>
 #include <QList>
 #include <QHash>
 #include <QPair>
+#include <memory>
 #include <optional>
 
 class IArtworkProvider;
 class ImageCacheProvider;
+class ImageCacheStore;
 
 /**
  * @brief Response handler for async image loading
@@ -149,6 +151,11 @@ public:
      * @brief Get current cache size in bytes
      */
     qint64 currentCacheSize() const;
+
+    /**
+     * @brief Snapshot disk-cache diagnostics without exposing persisted keys.
+     */
+    Q_INVOKABLE QVariantMap cacheStats() const;
     
     /**
      * @brief Get maximum cache size in bytes
@@ -184,11 +191,6 @@ private:
     friend class CachedImageResponse;
     
     /**
-     * @brief Initialize SQLite database for cache metadata
-     */
-    void initDatabase();
-    
-    /**
      * @brief Get cached file path for URL
      * @param url Image URL
      * @return Path to cached file, or empty if not cached
@@ -208,11 +210,6 @@ private:
      * @param url Image URL
      */
     void touchCacheEntry(const QString &url);
-    
-    /**
-     * @brief Evict oldest entries until under size limit
-     */
-    void evictIfNeeded();
     
     /**
      * @brief Generate a cache filename from a token-free identity.
@@ -268,9 +265,8 @@ private:
     bool m_enableRoundedPreprocess = true;
     IArtworkProvider *m_artworkProvider = nullptr;
     
-    // SQLite database for cache metadata
-    QSqlDatabase m_db;
-    mutable QMutex m_dbMutex;
+    // Dedicated-thread owner for SQLite metadata and cache files.
+    std::unique_ptr<ImageCacheStore> m_store;
     
     // Memory cache for recently accessed images (16 entries, ~50MB max)
     QCache<QString, QImage> m_memoryCache;
@@ -282,10 +278,6 @@ private:
     
     // Thread pool for async operations
     QThreadPool m_threadPool;
-    
-    // Track current cache size
-    qint64 m_currentCacheSize = 0;
-    mutable QMutex m_sizeMutex;
     
     struct RoundedVariantRequest {
         int radiusPx;

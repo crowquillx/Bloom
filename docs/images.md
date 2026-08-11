@@ -9,12 +9,17 @@ Hybrid mode prefers cached pre-rounded PNGs, falls back to the shader path, and 
 
 ## Pre-rounded path (ImageCacheProvider)
 - Provider artwork is identified by a token-free `ArtworkRef` cache key (`connectionId`, item, owner kind, kind/index/tag, and requested width). Authenticated URLs and headers are resolved only on a cache miss and are never persisted or logged. UI code passes the complete reference to `LibraryService.getCachedArtworkUrlFromRef(...)`; this preserves native Silo's in-memory opaque source while deriving width-specific cache identities. Transient sources remain available for the authenticated session regardless of catalog size and are cleared when account state resets.
+- `ImageCacheStore` owns the SQLite index and cache files on one dedicated worker thread. That thread exclusively creates, uses, closes, and removes its named `QSQLITE` connection; image loading and rounded rendering continue on the image pool.
+- Cache data uses atomic `QSaveFile` replacement. SQLite stores only SHA-256 identities and safe hash filenames, so direct or signed source URLs cannot be recovered from index pages or diagnostics.
+- Startup reconciles missing files, stale rows, recorded-size drift, and orphan files. A corrupt index is discarded and rebuilt; an unavailable index disables disk caching without preventing network image loading.
+- Replacement accounting uses the prior file's actual size. LRU eviction scans all candidates until it reaches 80% of the configured limit, continues after individual deletion failures, and reports actual removed bytes.
+- `ImageCacheProvider.cacheStats()` exposes disk hits/misses, writes/replacements, evicted entries/bytes, deletion failures, and recovery counters without exposing cache identities.
 - Linux builds and portable artifacts ship Qt Image Formats so Silo's native S3 artwork and Jellyfin-compat image redirects can decode WebP responses. `ArtworkRefreshTest` guards the runtime decoder, and portable packaging rejects an artifact missing `libqwebp.so`.
 - Rounded variants are stored beside originals and keyed by the `ArtworkRef` identity + radius + size.
 - Generation triggers after cache hits/misses when preprocessing is enabled; emits `roundedImageReady(url, fileUrl)` once written.
 - Defaults: radius `Theme.imageRadius`, size `640x960` (poster). Callers may pass custom radius/size to `requestRoundedImage(url, radius, w, h)`.
 - Invalidation: artwork tag, radius, and size are part of the cache key; `ConfigManager.clearCache()` removes originals and rounded variants together.
-- Migration: image-cache schema v2 clears legacy URL-keyed rows and vacuums SQLite so query credentials from older releases do not remain in cache metadata.
+- Migration: image-cache schema v3 replaces pre-hashed metadata by recreating the recoverable cache index and data files, ensuring caller-provided or signed URLs from older releases cannot remain in SQLite live, WAL, or freelist pages.
 
 ## Shader fallback
 - GLSL source: `src/resources/shaders/rounded_image.frag`; compiled via `qt6_add_shaders` to `qrc:/shaders/rounded_image.frag.qsb`.

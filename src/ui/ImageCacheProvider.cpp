@@ -1,13 +1,10 @@
 #include "ImageCacheProvider.h"
+#include "ImageCacheStore.h"
 #include "providers/IArtworkProvider.h"
 #include <QStandardPaths>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
-#include <QCryptographicHash>
-#include <QSqlQuery>
-#include <QSqlError>
-#include <QDateTime>
 #include <QNetworkRequest>
 #include <QNetworkReply>
 #include <QImageReader>
@@ -139,6 +136,7 @@ void CachedImageResponse::loadFromCache()
         } else {
             qCWarning(lcImageCache) << "Failed to read cached image:" << cachedPath 
                                   << reader.errorString();
+            m_provider->m_store->invalidate(m_url);
         }
     }
     
@@ -358,9 +356,8 @@ ImageCacheProvider::ImageCacheProvider(qint64 maxCacheSizeMB,
     
     qCInfo(lcImageCache) << "Image cache initialized at:" << m_cacheDir 
                        << "Max size:" << maxCacheSizeMB << "MB";
-    
-    // Initialize database
-    initDatabase();
+
+    m_store = std::make_unique<ImageCacheStore>(m_cacheDir, m_maxCacheSize);
 }
 
 void ImageCacheProvider::setRoundedPreprocessEnabled(bool enabled)
@@ -379,89 +376,6 @@ void ImageCacheProvider::setDefaultRoundedParams(int radiusPx, const QSize &targ
 ImageCacheProvider::~ImageCacheProvider()
 {
     m_threadPool.waitForDone();
-    
-    {
-        QMutexLocker locker(&m_dbMutex);
-        if (m_db.isOpen()) {
-            m_db.close();
-        }
-    }
-    
-    // Use unique connection name for cleanup
-    QString connectionName = m_db.connectionName();
-    m_db = QSqlDatabase();  // Reset before removing
-    QSqlDatabase::removeDatabase(connectionName);
-}
-
-void ImageCacheProvider::initDatabase()
-{
-    QMutexLocker locker(&m_dbMutex);
-    
-    // Use unique connection name to avoid conflicts
-    QString connectionName = QString("bloom_image_cache_%1")
-                            .arg(reinterpret_cast<quintptr>(this), 0, 16);
-    
-    m_db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-    m_db.setDatabaseName(m_cacheDir + "/cache_index.db");
-    
-    if (!m_db.open()) {
-        qCCritical(lcImageCache) << "Failed to open cache database:" 
-                               << m_db.lastError().text();
-        return;
-    }
-    
-    // Create cache metadata table
-    QSqlQuery query(m_db);
-    bool success = query.exec(R"(
-        CREATE TABLE IF NOT EXISTS cache_entries (
-            url TEXT PRIMARY KEY,
-            filename TEXT NOT NULL,
-            size INTEGER NOT NULL,
-            last_accessed INTEGER NOT NULL,
-            created_at INTEGER NOT NULL
-        )
-    )");
-    
-    if (!success) {
-        qCCritical(lcImageCache) << "Failed to create cache table:" 
-                               << query.lastError().text();
-        return;
-    }
-    
-    // Create index for LRU queries
-    query.exec("CREATE INDEX IF NOT EXISTS idx_last_accessed ON cache_entries(last_accessed)");
-
-    query.exec(QStringLiteral("PRAGMA user_version"));
-    const int schemaVersion = query.next() ? query.value(0).toInt() : 0;
-    query.finish();
-    if (schemaVersion < 2) {
-        QSqlQuery oldEntries(m_db);
-        oldEntries.exec(QStringLiteral("SELECT filename FROM cache_entries"));
-        QStringList oldFiles;
-        while (oldEntries.next()) {
-            oldFiles.append(m_cacheDir + QLatin1Char('/') + oldEntries.value(0).toString());
-        }
-        oldEntries.finish();
-        QSqlQuery reset(m_db);
-        reset.exec(QStringLiteral("DELETE FROM cache_entries"));
-        reset.exec(QStringLiteral("VACUUM"));
-        reset.exec(QStringLiteral("PRAGMA user_version = 2"));
-        for (const QString &file : oldFiles) {
-            QFile::remove(file);
-        }
-        qCInfo(lcImageCache) << "Cleared legacy URL-keyed image cache entries";
-    }
-
-    // Calculate current cache size
-    query.exec("SELECT COALESCE(SUM(size), 0) FROM cache_entries");
-    if (query.next()) {
-        m_currentCacheSize = query.value(0).toLongLong();
-        qCInfo(lcImageCache) << "Current cache size:" << m_currentCacheSize / (1024.0 * 1024.0) << "MB";
-    }
-    
-    // Run eviction if needed on startup
-    locker.unlock();
-    evictIfNeeded();
 }
 
 QQuickImageResponse *ImageCacheProvider::requestImageResponse(const QString &id, 
@@ -507,21 +421,7 @@ void ImageCacheProvider::prefetch(const QStringList &urls)
 
 QString ImageCacheProvider::getCachedPath(const QString &url)
 {
-    QMutexLocker locker(&m_dbMutex);
-    
-    if (!m_db.isOpen()) {
-        return QString();
-    }
-    
-    QSqlQuery query(m_db);
-    query.prepare("SELECT filename FROM cache_entries WHERE url = ?");
-    query.addBindValue(url);
-    
-    if (query.exec() && query.next()) {
-        return m_cacheDir + "/" + query.value(0).toString();
-    }
-    
-    return QString();
+    return m_store ? m_store->lookup(url) : QString();
 }
 
 void ImageCacheProvider::saveToCache(const QString &url, const QByteArray &data)
@@ -545,166 +445,27 @@ QString ImageCacheProvider::saveDataForKey(const QString &urlKey, const QByteArr
         return QString();
     }
     
-    QString filename = hashUrl(urlKey);
-    QString filepath = m_cacheDir + "/" + filename;
-    
-    // Write file
-    QFile file(filepath);
-    if (!file.open(QIODevice::WriteOnly)) {
-        qCWarning(lcImageCache) << "Failed to write cache file:" << filepath;
+    const QString filepath = m_store ? m_store->write(urlKey, data) : QString();
+    if (filepath.isEmpty()) {
         return QString();
-    }
-    
-    qint64 written = file.write(data);
-    file.close();
-    
-    if (written != data.size()) {
-        qCWarning(lcImageCache) << "Incomplete write to cache file:" << filepath;
-        QFile::remove(filepath);
-        return QString();
-    }
-    
-    qint64 now = QDateTime::currentSecsSinceEpoch();
-    
-    // Update database
-    {
-        QMutexLocker locker(&m_dbMutex);
-        
-        if (!m_db.isOpen()) {
-            return QString();
-        }
-        
-        QSqlQuery query(m_db);
-        query.prepare(R"(
-            INSERT OR REPLACE INTO cache_entries 
-            (url, filename, size, last_accessed, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        )");
-        query.addBindValue(urlKey);
-        query.addBindValue(filename);
-        query.addBindValue(data.size());
-        query.addBindValue(now);
-        query.addBindValue(now);
-        
-        if (!query.exec()) {
-            qCWarning(lcImageCache) << "Failed to update cache database:" 
-                                  << query.lastError().text();
-            return QString();
-        }
-    }
-    
-    // Update size tracking
-    {
-        QMutexLocker locker(&m_sizeMutex);
-        m_currentCacheSize += data.size();
     }
     
     qCDebug(lcImageCache) << "Cached:" << safeCacheLabel(urlKey)
                           << "size:" << data.size();
     
-    // Check if eviction is needed
-    evictIfNeeded();
     return filepath;
 }
 
 void ImageCacheProvider::touchCacheEntry(const QString &url)
 {
-    QMutexLocker locker(&m_dbMutex);
-    
-    if (!m_db.isOpen()) {
-        return;
+    if (m_store) {
+        m_store->touch(url);
     }
-    
-    QSqlQuery query(m_db);
-    query.prepare("UPDATE cache_entries SET last_accessed = ? WHERE url = ?");
-    query.addBindValue(QDateTime::currentSecsSinceEpoch());
-    query.addBindValue(url);
-    query.exec();
-}
-
-void ImageCacheProvider::evictIfNeeded()
-{
-    QMutexLocker sizeLock(&m_sizeMutex);
-    
-    if (m_currentCacheSize <= m_maxCacheSize) {
-        return;  // Under limit, no eviction needed
-    }
-    
-    qint64 targetSize = static_cast<qint64>(m_maxCacheSize * 0.8);  // Evict to 80% of max
-    qint64 bytesToFree = m_currentCacheSize - targetSize;
-    
-    sizeLock.unlock();
-    
-    qCInfo(lcImageCache) << "Cache eviction needed. Current:" 
-                       << m_currentCacheSize / (1024.0 * 1024.0) << "MB"
-                       << "Target:" << targetSize / (1024.0 * 1024.0) << "MB";
-    
-    QMutexLocker dbLock(&m_dbMutex);
-    
-    if (!m_db.isOpen()) {
-        return;
-    }
-    
-    // Get oldest entries (LRU)
-    QSqlQuery query(m_db);
-    query.prepare(R"(
-        SELECT url, filename, size FROM cache_entries 
-        ORDER BY last_accessed ASC
-        LIMIT 100
-    )");
-    
-    if (!query.exec()) {
-        qCWarning(lcImageCache) << "Failed to query cache for eviction:" 
-                              << query.lastError().text();
-        return;
-    }
-    
-    QStringList urlsToDelete;
-    QStringList filesToDelete;
-    qint64 freedBytes = 0;
-    
-    while (query.next() && freedBytes < bytesToFree) {
-        QString url = query.value(0).toString();
-        QString filename = query.value(1).toString();
-        qint64 size = query.value(2).toLongLong();
-        
-        urlsToDelete.append(url);
-        filesToDelete.append(m_cacheDir + "/" + filename);
-        freedBytes += size;
-    }
-    
-    // Delete database entries
-    if (!urlsToDelete.isEmpty()) {
-        QSqlQuery deleteQuery(m_db);
-        for (const QString &url : urlsToDelete) {
-            deleteQuery.prepare("DELETE FROM cache_entries WHERE url = ?");
-            deleteQuery.addBindValue(url);
-            deleteQuery.exec();
-        }
-    }
-    
-    dbLock.unlock();
-    
-    // Delete files
-    for (const QString &filepath : filesToDelete) {
-        if (QFile::remove(filepath)) {
-            qCDebug(lcImageCache) << "Evicted:" << filepath;
-        }
-    }
-    
-    // Update size tracking
-    sizeLock.relock();
-    m_currentCacheSize -= freedBytes;
-    
-    qCInfo(lcImageCache) << "Evicted" << urlsToDelete.size() << "entries,"
-                       << freedBytes / (1024.0 * 1024.0) << "MB freed";
 }
 
 QString ImageCacheProvider::hashUrl(const QString &url) const
 {
-    QByteArray hash = QCryptographicHash::hash(url.toUtf8(), 
-                                                QCryptographicHash::Sha256);
-    return hash.toHex().left(32);  // Use first 32 chars of SHA256
+    return ImageCacheStore::filenameForKey(url);
 }
 
 QString ImageCacheProvider::safeCacheLabel(const QString &cacheKey) const
@@ -921,29 +682,12 @@ void ImageCacheProvider::clearCache()
         m_memoryCache.clear();
     }
     
-    // Clear database
     {
-        QMutexLocker locker(&m_dbMutex);
-        
-        if (m_db.isOpen()) {
-            QSqlQuery query(m_db);
-            query.exec("DELETE FROM cache_entries");
-        }
+        QMutexLocker locker(&m_pendingMutex);
+        m_pendingRounded.clear();
     }
-    
-    // Remove all cached files
-    QDir cacheDir(m_cacheDir);
-    QStringList files = cacheDir.entryList(QDir::Files);
-    for (const QString &file : files) {
-        if (file != "cache_index.db" && file != "cache_index.db-journal") {
-            QFile::remove(m_cacheDir + "/" + file);
-        }
-    }
-    
-    // Reset size
-    {
-        QMutexLocker locker(&m_sizeMutex);
-        m_currentCacheSize = 0;
+    if (m_store) {
+        m_store->clear();
     }
     
     qCInfo(lcImageCache) << "Cache cleared";
@@ -951,12 +695,32 @@ void ImageCacheProvider::clearCache()
 
 qint64 ImageCacheProvider::currentCacheSize() const
 {
-    QMutexLocker locker(&m_sizeMutex);
-    return m_currentCacheSize;
+    return m_store ? m_store->currentSize() : 0;
+}
+
+QVariantMap ImageCacheProvider::cacheStats() const
+{
+    if (!m_store) {
+        return {};
+    }
+    const ImageCacheStore::Stats stats = m_store->stats();
+    return {
+        {QStringLiteral("diskHits"), QVariant::fromValue(stats.diskHits)},
+        {QStringLiteral("diskMisses"), QVariant::fromValue(stats.diskMisses)},
+        {QStringLiteral("writes"), QVariant::fromValue(stats.writes)},
+        {QStringLiteral("replacements"), QVariant::fromValue(stats.replacements)},
+        {QStringLiteral("evictedEntries"), QVariant::fromValue(stats.evictedEntries)},
+        {QStringLiteral("evictedBytes"), QVariant::fromValue(stats.evictedBytes)},
+        {QStringLiteral("deletionFailures"), QVariant::fromValue(stats.deletionFailures)},
+        {QStringLiteral("recoveryActions"), QVariant::fromValue(stats.recoveryActions)},
+        {QStringLiteral("databaseRecoveries"), QVariant::fromValue(stats.databaseRecoveries)},
+    };
 }
 
 void ImageCacheProvider::setMaxCacheSize(qint64 bytes)
 {
     m_maxCacheSize = bytes;
-    evictIfNeeded();
+    if (m_store) {
+        m_store->setMaximumSize(bytes);
+    }
 }
