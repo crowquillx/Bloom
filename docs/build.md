@@ -111,8 +111,8 @@ full report for 90 days, providing a lightweight history without adding a
 third-party reporting credential. Coverage is a trend signal rather than a
 line-percentage merge gate; behavior-specific regression tests remain the
 primary requirement. The initial deterministic-suite baseline measured on
-August 11, 2026 is 54.5% lines (16,216/29,781), 57.1% functions
-(1,410/2,471), and 44.9% branches (19,426/43,247).
+August 11, 2026 is 54.9% lines (16,352/29,781), 57.5% functions
+(1,422/2,471), and 45.4% branches (19,633/43,247).
 
 For custom CMake-based instrumentation, `BLOOM_SANITIZER` accepts `none`,
 `address`, or `thread`, and `BLOOM_ENABLE_COVERAGE=ON` enables gcov-compatible

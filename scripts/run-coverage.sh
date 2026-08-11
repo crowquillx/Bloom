@@ -25,9 +25,16 @@ cmake -S "$ROOT" -B "$BUILD_DIR" -G Ninja \
     -DBLOOM_ENABLE_COVERAGE=ON
 cmake --build "$BUILD_DIR" --parallel "$JOBS"
 
+configured_root="$(sed -n 's/^CMAKE_HOME_DIRECTORY:INTERNAL=//p' "$BUILD_DIR/CMakeCache.txt")"
+if [[ "$configured_root" != "$ROOT" ]]; then
+    echo "Refusing to clear coverage counters outside Bloom's configured build tree: $BUILD_DIR" >&2
+    exit 1
+fi
+find "$BUILD_DIR" -type f -name '*.gcda' -delete
+
 export QT_QPA_PLATFORM=offscreen
 ctest --test-dir "$BUILD_DIR" --output-on-failure --timeout 120 \
-    --exclude-regex '^(VisualRegressionTest|SeriesDetailsCacheTest)$'
+    --exclude-regex '^VisualRegressionTest$'
 
 cmake -E make_directory "$REPORT_DIR"
 gcovr --root "$ROOT" \
