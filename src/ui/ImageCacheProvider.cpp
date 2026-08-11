@@ -853,6 +853,7 @@ void ImageCacheProvider::discardPendingRounded(const QString &cacheKey)
 {
     QMutexLocker locker(&m_pendingMutex);
     m_pendingRounded.remove(cacheKey);
+    m_knownBaseImages.remove(cacheKey);
 }
 
 QString ImageCacheProvider::getCachedPath(const QString &url, qint64 *revision)
@@ -883,18 +884,12 @@ QString ImageCacheProvider::saveDataForKeyIfCurrent(const QString &urlKey,
     if (filepath.isEmpty()) {
         return QString();
     }
+    ++m_cacheContentRevision;
     
     qCDebug(lcImageCache) << "Cached:" << safeCacheLabel(urlKey)
                           << "size:" << data.size();
     
     return filepath;
-}
-
-void ImageCacheProvider::touchCacheEntry(const QString &url)
-{
-    if (m_store) {
-        m_store->touch(url);
-    }
 }
 
 QString ImageCacheProvider::hashUrl(const QString &url) const
@@ -993,6 +988,10 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
         return;
     }
 
+    struct RoundedTaskResult {
+        QString path;
+    };
+
     const QString key = roundedKey(url, radiusPx, targetSize);
     const quint64 generation = m_cacheGeneration.load();
     {
@@ -1003,58 +1002,109 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
         m_roundedInFlight.insert(key, generation);
     }
 
-    const QString existing = getCachedPath(key);
-    if (!existing.isEmpty() && QFile::exists(existing)) {
-        {
-            QMutexLocker locker(&m_pendingMutex);
-            if (m_roundedInFlight.value(key) == generation) {
-                m_roundedInFlight.remove(key);
+    ++m_activeRoundedTasks;
+    auto future = QtConcurrent::run(
+        &m_threadPool,
+        [this, url, key, sourcePath, radiusPx, targetSize, generation]() {
+        RoundedTaskResult result;
+        if (m_cacheGeneration.load() != generation || !m_store) {
+            --m_activeRoundedTasks;
+            return result;
+        }
+
+        const quint64 lookupRevision = m_cacheContentRevision.load();
+        const ImageCacheStore::LookupResult existing =
+            m_store->lookupEntry(key, true);
+        if (existing.isValid()
+            && m_cacheGeneration.load() == generation
+            && m_cacheContentRevision.load() == lookupRevision) {
+            result.path = existing.path;
+            --m_activeRoundedTasks;
+            return result;
+        }
+
+        QString resolvedSourcePath = sourcePath;
+        if (resolvedSourcePath.isEmpty()) {
+            const quint64 baseLookupRevision = m_cacheContentRevision.load();
+            const ImageCacheStore::LookupResult base = m_store->lookupEntry(url);
+            if (base.isValid()
+                && m_cacheGeneration.load() == generation
+                && m_cacheContentRevision.load() == baseLookupRevision) {
+                resolvedSourcePath = base.path;
             }
         }
-        if (emitSignal) {
-            QString fileUrl = QUrl::fromLocalFile(existing).toString();
-            QMetaObject::invokeMethod(this, [this, url, fileUrl, generation]() {
-                if (m_cacheGeneration.load() == generation
-                    && QFile::exists(QUrl(fileUrl).toLocalFile())) {
-                    emit roundedImageReady(url, fileUrl);
-                }
-            }, Qt::QueuedConnection);
-        }
-        return;
-    }
 
-    ++m_activeRoundedTasks;
-    auto future = QtConcurrent::run(&m_threadPool, [this, url, key, sourcePath,
-                                                    radiusPx, targetSize, emitSignal,
-                                                    generation]() {
+        if (resolvedSourcePath.isEmpty()
+            || m_cacheGeneration.load() != generation) {
+            --m_activeRoundedTasks;
+            return result;
+        }
+
         QByteArray roundedBytes;
         const bool rendered = renderRoundedPng(
-            sourcePath, radiusPx, targetSize, roundedBytes);
-        QString destPath;
+            resolvedSourcePath, radiusPx, targetSize, roundedBytes);
         if (rendered && m_cacheGeneration.load() == generation) {
-            destPath = saveDataForKeyIfCurrent(key, roundedBytes, generation);
-            if (!destPath.isEmpty()) {
+            result.path = saveDataForKeyIfCurrent(key, roundedBytes, generation);
+            if (!result.path.isEmpty()) {
                 ++m_roundedGenerations;
             }
         }
+        --m_activeRoundedTasks;
+        return result;
+    });
+
+    auto *watcher = new QFutureWatcher<RoundedTaskResult>(this);
+    connect(watcher, &QFutureWatcher<RoundedTaskResult>::finished, this,
+            [this, watcher, url, key, sourcePath, radiusPx, targetSize,
+             emitSignal, generation]() {
+        const RoundedTaskResult result = watcher->result();
+        watcher->deleteLater();
+
+        QString retrySourcePath;
+        QString fileUrl;
         {
             QMutexLocker locker(&m_pendingMutex);
-            if (m_roundedInFlight.value(key) == generation) {
-                m_roundedInFlight.remove(key);
+            if (m_roundedInFlight.value(key) != generation
+                || m_cacheGeneration.load() != generation) {
+                return;
+            }
+            m_roundedInFlight.remove(key);
+
+            auto pendingIt = m_pendingRounded.find(url);
+            if (!result.path.isEmpty() && QFile::exists(result.path)) {
+                fileUrl = QUrl::fromLocalFile(result.path).toString();
+                const quint64 currentRevision = m_cacheContentRevision.load();
+                m_readyRounded.insert(
+                    key, {fileUrl, generation, currentRevision});
+                if (pendingIt != m_pendingRounded.end()) {
+                    pendingIt->removeIf(
+                        [radiusPx, targetSize](const RoundedVariantRequest &request) {
+                            return request.radiusPx == radiusPx
+                                && request.size == targetSize;
+                        });
+                    if (pendingIt->isEmpty()) {
+                        m_pendingRounded.erase(pendingIt);
+                    }
+                }
+            } else if (sourcePath.isEmpty() && pendingIt != m_pendingRounded.end()) {
+                const KnownBaseImage known = m_knownBaseImages.value(url);
+                if (!known.path.isEmpty()
+                    && known.contentRevision == m_cacheContentRevision.load()) {
+                    retrySourcePath = known.path;
+                }
             }
         }
-        if (emitSignal && !destPath.isEmpty()) {
-            QString fileUrl = QUrl::fromLocalFile(destPath).toString();
-            QMetaObject::invokeMethod(this, [this, url, fileUrl, generation]() {
-                if (m_cacheGeneration.load() == generation
-                    && QFile::exists(QUrl(fileUrl).toLocalFile())) {
-                    emit roundedImageReady(url, fileUrl);
-                }
-            }, Qt::QueuedConnection);
+
+        if (!fileUrl.isEmpty()) {
+            if (emitSignal) {
+                emit roundedImageReady(url, fileUrl);
+            }
+        } else if (!retrySourcePath.isEmpty()) {
+            scheduleRoundedVariant(
+                url, retrySourcePath, radiusPx, targetSize, emitSignal);
         }
-        --m_activeRoundedTasks;
     });
-    Q_UNUSED(future);
+    watcher->setFuture(future);
 }
 
 void ImageCacheProvider::processPendingRounded(const QString &url, const QString &sourcePath)
@@ -1062,10 +1112,12 @@ void ImageCacheProvider::processPendingRounded(const QString &url, const QString
     QList<RoundedVariantRequest> requests;
     {
         QMutexLocker locker(&m_pendingMutex);
+        m_knownBaseImages.insert(
+            url, {sourcePath, m_cacheContentRevision.load()});
         if (!m_pendingRounded.contains(url)) {
             return;
         }
-        requests = m_pendingRounded.take(url);
+        requests = m_pendingRounded.value(url);
     }
 
     for (const auto &req : requests) {
@@ -1076,6 +1128,16 @@ void ImageCacheProvider::processPendingRounded(const QString &url, const QString
 QString ImageCacheProvider::requestRoundedImage(const QString &url, int radiusPx,
                                                 int targetWidth, int targetHeight)
 {
+    if (QThread::currentThread() != thread()) {
+        QMetaObject::invokeMethod(
+            this,
+            [this, url, radiusPx, targetWidth, targetHeight]() {
+                requestRoundedImage(url, radiusPx, targetWidth, targetHeight);
+            },
+            Qt::QueuedConnection);
+        return QString();
+    }
+
     if (!m_enableRoundedPreprocess || url.isEmpty()) {
         return QString();
     }
@@ -1088,35 +1150,74 @@ QString ImageCacheProvider::requestRoundedImage(const QString &url, int radiusPx
         radiusPx = m_defaultRoundedRadius;
     }
 
-    QString key = roundedKey(url, radiusPx, targetSize);
-    QString cachedRounded = getCachedPath(key);
-    if (!cachedRounded.isEmpty() && QFile::exists(cachedRounded)) {
-        touchCacheEntry(key);
-        return QUrl::fromLocalFile(cachedRounded).toString();
-    }
-
-    QString basePath = getCachedPath(url);
-    if (!basePath.isEmpty() && QFile::exists(basePath)) {
-        scheduleRoundedVariant(url, basePath, radiusPx, targetSize, true);
-        return QString();
-    }
-
-    // Base not cached yet: enqueue request to process once fetched.
+    const QString key = roundedKey(url, radiusPx, targetSize);
+    QString knownBasePath;
     {
         QMutexLocker locker(&m_pendingMutex);
-        auto &queue = m_pendingRounded[url];
-        bool exists = false;
-        for (const auto &req : queue) {
-            if (req.radiusPx == radiusPx && req.size == targetSize) {
-                exists = true;
-                break;
-            }
+        const auto readyIt = m_readyRounded.constFind(key);
+        if (readyIt != m_readyRounded.cend()
+            && readyIt->generation == m_cacheGeneration.load()
+            && readyIt->contentRevision == m_cacheContentRevision.load()) {
+            const QString fileUrl = readyIt->fileUrl;
+            const quint64 readyGeneration = readyIt->generation;
+            locker.unlock();
+            touchRoundedVariantAsync(key, readyGeneration);
+            return fileUrl;
         }
+        m_readyRounded.remove(key);
+
+        auto &queue = m_pendingRounded[url];
+        const bool exists = std::any_of(
+            queue.cbegin(), queue.cend(),
+            [radiusPx, targetSize](const RoundedVariantRequest &request) {
+                return request.radiusPx == radiusPx
+                    && request.size == targetSize;
+            });
         if (!exists) {
             queue.append({radiusPx, targetSize});
         }
+
+        const KnownBaseImage known = m_knownBaseImages.value(url);
+        if (!known.path.isEmpty()
+            && known.contentRevision == m_cacheContentRevision.load()) {
+            knownBasePath = known.path;
+        }
     }
+
+    // All SQLite and filesystem discovery/generation happens after this
+    // QML-facing call returns. The reservation in scheduleRoundedVariant()
+    // coalesces concurrent requests for the same identity/radius/size.
+    scheduleRoundedVariant(url, knownBasePath, radiusPx, targetSize, true);
     return QString();
+}
+
+void ImageCacheProvider::touchRoundedVariantAsync(const QString &key,
+                                                  quint64 generation)
+{
+    {
+        QMutexLocker locker(&m_pendingMutex);
+        if (m_roundedTouchesInFlight.value(key) == generation) {
+            return;
+        }
+        m_roundedTouchesInFlight.insert(key, generation);
+    }
+
+    auto future = QtConcurrent::run(&m_threadPool, [this, key, generation]() {
+        QMutexLocker mutationLock(&m_cacheMutationMutex);
+        if (m_cacheGeneration.load() == generation && m_store) {
+            m_store->touch(key);
+        }
+        QMetaObject::invokeMethod(
+            this,
+            [this, key, generation]() {
+                QMutexLocker locker(&m_pendingMutex);
+                if (m_roundedTouchesInFlight.value(key) == generation) {
+                    m_roundedTouchesInFlight.remove(key);
+                }
+            },
+            Qt::QueuedConnection);
+    });
+    Q_UNUSED(future);
 }
 
 QNetworkAccessManager *ImageCacheProvider::networkManager()
@@ -1137,6 +1238,7 @@ void ImageCacheProvider::clearMemoryCache()
 void ImageCacheProvider::clearCache()
 {
     ++m_cacheGeneration;
+    ++m_cacheContentRevision;
     const QList<ImageLoadJob *> jobs = m_inFlightImages.values();
     for (ImageLoadJob *job : jobs) {
         if (job) {
@@ -1154,6 +1256,9 @@ void ImageCacheProvider::clearCache()
         QMutexLocker locker(&m_pendingMutex);
         m_pendingRounded.clear();
         m_roundedInFlight.clear();
+        m_readyRounded.clear();
+        m_knownBaseImages.clear();
+        m_roundedTouchesInFlight.clear();
     }
     if (m_store) {
         QMutexLocker mutationLock(&m_cacheMutationMutex);
@@ -1223,5 +1328,16 @@ void ImageCacheProvider::setMaxCacheSize(qint64 bytes)
     m_maxCacheSize = bytes;
     if (m_store) {
         m_store->setMaximumSize(bytes);
+        ++m_cacheContentRevision;
     }
 }
+
+#ifdef BLOOM_TESTING
+void ImageCacheProvider::blockCacheWorkerForTest(QSemaphore *entered,
+                                                 QSemaphore *release)
+{
+    if (m_store) {
+        m_store->blockWorkerForTest(entered, release);
+    }
+}
+#endif

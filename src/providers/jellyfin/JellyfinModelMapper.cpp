@@ -350,6 +350,52 @@ QList<MediaSegmentInfo> JellyfinModelMapper::introSkipperSegments(
     return segments;
 }
 
+QList<MediaSegmentInfo> JellyfinModelMapper::mediaSegments(
+    const QString &itemId, const QJsonObject &wireSegments)
+{
+    static const QMap<QString, QPair<MediaSegmentType, QString>> typeMapping{
+        {QStringLiteral("Intro"), {MediaSegmentType::Intro, QStringLiteral("Intro")}},
+        {QStringLiteral("Outro"), {MediaSegmentType::Outro, QStringLiteral("Outro")}},
+        {QStringLiteral("Recap"), {MediaSegmentType::Recap, QStringLiteral("Recap")}},
+        {QStringLiteral("Preview"), {MediaSegmentType::Preview, QStringLiteral("Preview")}},
+        {QStringLiteral("Commercial"), {MediaSegmentType::Commercial, QStringLiteral("Commercial")}}
+    };
+
+    QList<MediaSegmentInfo> segments;
+    const QJsonArray items = wireSegments.value(QStringLiteral("Items")).toArray();
+    segments.reserve(items.size());
+    for (const QJsonValue &value : items) {
+        if (!value.isObject()) {
+            continue;
+        }
+        const QJsonObject wire = value.toObject();
+        const qint64 startMs = ticksToMilliseconds(
+            wire.value(QStringLiteral("StartTicks")).toVariant().toLongLong());
+        const qint64 endMs = ticksToMilliseconds(
+            wire.value(QStringLiteral("EndTicks")).toVariant().toLongLong());
+        if (startMs < 0 || endMs <= startMs) {
+            continue;
+        }
+
+        const QString wireType = wire.value(QStringLiteral("Type")).toString();
+        const auto mapping = typeMapping.constFind(wireType);
+        MediaSegmentInfo segment;
+        segment.id = wire.value(QStringLiteral("Id")).toString();
+        segment.itemId = wire.value(QStringLiteral("ItemId")).toString(itemId);
+        segment.startMs = startMs;
+        segment.endMs = endMs;
+        segment.source = QStringLiteral("jellyfin");
+        if (mapping == typeMapping.constEnd()) {
+            segment.typeString = wireType.isEmpty() ? QStringLiteral("Unknown") : wireType;
+        } else {
+            segment.type = mapping->first;
+            segment.typeString = mapping->second;
+        }
+        segments.append(segment);
+    }
+    return segments;
+}
+
 QVariantList JellyfinModelMapper::remoteSessions(const QJsonArray &wireSessions,
                                                   const QString &connectionId)
 {

@@ -4,8 +4,10 @@
 #include "../utils/ConfigManager.h"
 #include <QNetworkRequest>
 #include <QUrl>
+#include <QUrlQuery>
 #include <QJsonDocument>
 #include <QJsonArray>
+#include <QSet>
 #include <QDebug>
 #include "../utils/BloomLogging.h"
 
@@ -214,19 +216,32 @@ void SessionService::revokeSession(const QString &sessionId)
         return;
     }
 
-    // Jellyfin uses POST /Sessions/{id}/Logout to revoke a session.
-    const QString endpoint = QString("/Sessions/%1/Logout").arg(sessionId);
+    // Jellyfin 12 no longer exposes the legacy per-session Logout route in
+    // OpenAPI. Delete the device associated with the selected playback
+    // session using the supported device-management endpoint instead.
+    const QString deviceId = deviceIdForSession(sessionId);
+    if (deviceId.isEmpty()) {
+        setIsLoading(false);
+        setErrorString(tr("The selected session has no device identifier."));
+        emit operationFailed(m_errorString);
+        return;
+    }
+    QUrl endpointUrl(QStringLiteral("/Devices"));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("id"), deviceId);
+    endpointUrl.setQuery(query);
+    const QString endpoint = endpointUrl.toString(QUrl::FullyEncoded);
     HttpRequestOptions options;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     m_transport->sendWithRetry(
         this,
         endpoint,
         [this, endpoint]() {
-            return m_authService->networkManager()->post(
-                createAuthenticatedRequest(endpoint), QByteArray());
+            return m_authService->networkManager()->deleteResource(
+                createAuthenticatedRequest(endpoint));
         },
-        [this, sessionId](QNetworkReply *reply) {
-            onRevokeSessionFinished(reply, sessionId);
+        [this, sessionId, deviceId](QNetworkReply *reply) {
+            onRevokeSessionFinished(reply, sessionId, deviceId);
         },
         [this](const NetworkError &error) {
             setIsLoading(false);
@@ -253,10 +268,23 @@ void SessionService::revokeAllOtherSessions()
     // except the current device.
     connect(this, &SessionService::sessionsLoaded, this, [this]() {
         int revokedCount = 0;
+        QSet<QString> revokedDeviceIds;
+        const QString sessionDeviceId = deviceIdForSession(m_currentSessionId);
+        const QString currentDeviceId = sessionDeviceId.isEmpty()
+            ? m_deviceId
+            : sessionDeviceId;
+        if (currentDeviceId.isEmpty()) {
+            setErrorString(tr("The current Jellyfin device could not be identified."));
+            emit operationFailed(m_errorString);
+            return;
+        }
         for (const QVariant &var : m_sessions) {
             const QVariantMap session = var.toMap();
             const QString sessionId = session.value(QStringLiteral("id")).toString();
-            if (!sessionId.isEmpty() && sessionId != m_currentSessionId) {
+            const QString deviceId = session.value(QStringLiteral("deviceId")).toString();
+            if (!sessionId.isEmpty() && !deviceId.isEmpty()
+                && deviceId != currentDeviceId && !revokedDeviceIds.contains(deviceId)) {
+                revokedDeviceIds.insert(deviceId);
                 revokeSession(sessionId);
                 ++revokedCount;
             }
@@ -360,7 +388,7 @@ void SessionService::onFetchSessionsFinished(QNetworkReply *reply)
     qCDebug(lcAuth) << "SessionService: Loaded" << m_sessions.size() << "sessions, current:" << m_currentSessionId;
 }
 
-void SessionService::onRevokeSessionFinished(QNetworkReply *, QString sessionId)
+void SessionService::onRevokeSessionFinished(QNetworkReply *, QString sessionId, QString deviceId)
 {
     setIsLoading(false);
 
@@ -371,12 +399,12 @@ void SessionService::onRevokeSessionFinished(QNetworkReply *, QString sessionId)
         return;
     }
 
-    // Remove from local list
-    for (int i = 0; i < m_sessions.size(); ++i) {
-        QVariantMap session = m_sessions[i].toMap();
-        if (session["id"].toString() == sessionId) {
+    // Device deletion can remove more than one server session for the same
+    // device, so keep the local projection consistent with that operation.
+    for (int i = m_sessions.size() - 1; i >= 0; --i) {
+        const QVariantMap session = m_sessions[i].toMap();
+        if (session.value(QStringLiteral("deviceId")).toString() == deviceId) {
             m_sessions.removeAt(i);
-            break;
         }
     }
 
@@ -407,6 +435,17 @@ QString SessionService::getDeviceId() const
         return m_authService->configManager()->getDeviceId();
     }
     return QString();
+}
+
+QString SessionService::deviceIdForSession(const QString &sessionId) const
+{
+    for (const QVariant &value : m_sessions) {
+        const QVariantMap session = value.toMap();
+        if (session.value(QStringLiteral("id")).toString() == sessionId) {
+            return session.value(QStringLiteral("deviceId")).toString();
+        }
+    }
+    return {};
 }
 
 QNetworkRequest SessionService::createAuthenticatedRequest(const QString &endpoint) const

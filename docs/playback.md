@@ -342,7 +342,7 @@ UI Components for Track Selection
   - Intro/outro skip UX: transient "Skip Intro"/"Skip Credits" pop-up button auto-focuses when a segment window starts, then a compact persistent skip button remains available until that segment ends.
     - Popup timing is controlled by `ConfigManager.skipButtonAutoHideSeconds` (`settings.playback.skip_button_auto_hide_seconds`, range 0-120; 0 disables popup only). The popup is still dismissed as soon as the active intro/outro segment ends.
     - Optional automatic skip is controlled by `ConfigManager.autoSkipIntro` and `ConfigManager.autoSkipOutro`; each auto-skip applies at most once per playback item even if the user seeks back.
-    - Segment source precedence is provider-neutral: native Silo marker responses win per segment type; when Jellyfin is active, the optional Intro Skipper plugin is the server-marker source and wins per type. External providers are queried only after the active server response and may fill missing types such as recap, intro, credits, or preview.
+    - Segment source precedence is provider-neutral: native Silo marker responses win per segment type; when Jellyfin is active, the core `/MediaSegments/{id}` response is the server-marker source and wins per type. External providers are queried only after the active server response and may fill missing types such as recap, intro, credits, or preview.
     - External provider order defaults to TheIntroDB then IntroDB. Reads are anonymous. TheIntroDB requires TMDB metadata; IntroDB requires series IMDb metadata plus season/episode.
 
 Playback overlay metadata
@@ -428,10 +428,11 @@ mpv config hints
 
 Jellyfin integration
 - Key endpoints used frequently:
-  - `/Users/{userId}/Items`
+  - `/Items?UserId={userId}`
   - `/Shows/NextUp`
-  - `/Items/{itemId}/PlaybackInfo` - Get media streams and track info
+  - `POST /Items/{itemId}/PlaybackInfo` with `PlaybackInfoDto.UserId` - Get media streams and track info
   - `/Sessions/Playing` - Start, progress, stop reporting with track selection
+- Jellyfin requests follow the pinned 12.0 OpenAPI contract. Playback progress does not send the unlisted `EventName`, and stopped reports are limited to `PlaybackStopInfo` fields.
 - The client persists non-secret session/connection metadata via `ConfigManager`; access, refresh, and profile credentials are restored through `CredentialStore`.
 - On 401 responses, the selected provider's transport/authenticator performs bounded single-flight recovery and the refresh-once policy, then emits a sessionExpired event and triggers the provider-aware logout/restore flow if recovery fails or times out. Native Silo recovery never switches to a Jellyfin endpoint.
 

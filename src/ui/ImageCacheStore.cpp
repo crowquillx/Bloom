@@ -879,3 +879,18 @@ QString ImageCacheStore::filenameForKey(const QString &cacheKey)
             .toHex()
             .left(32));
 }
+
+#ifdef BLOOM_TESTING
+void ImageCacheStore::blockWorkerForTest(QSemaphore *entered, QSemaphore *release)
+{
+    Q_ASSERT(entered);
+    Q_ASSERT(release);
+    QMetaObject::invokeMethod(
+        m_worker,
+        [entered, release]() {
+            entered->release();
+            release->acquire();
+        },
+        Qt::QueuedConnection);
+}
+#endif

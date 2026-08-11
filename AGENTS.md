@@ -47,7 +47,10 @@ and state coordinator documented in `docs/playback.md`.
 Provider wire DTOs stay inside provider adapters and `LibraryService` request
 handling. Migrated view models, QML, and player code consume connection-scoped
 canonical projections only; do not reintroduce raw DTO signals or PascalCase
-wire-key fallbacks.
+wire-key fallbacks. Jellyfin client requests must use only endpoints listed in
+the pinned official OpenAPI contract and must not use operations or parameters
+marked obsolete there; record the pin and detailed compatibility notes in
+`docs/provider-compatibility.md`.
 
 Update trust and bounded download lifecycle are owned by `Bloom::Updater`.
 Release manifests must remain Ed25519-signed, HTTPS/origin restricted, and

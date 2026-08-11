@@ -43,6 +43,7 @@ REQUIRED_NATIVE_COVERAGE = {
     "native.theme-songs",
 }
 SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 DIGEST_IMAGE_RE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 HTTP_STATUS_RE = re.compile(r"\bHTTP\s+\d{3}\b", re.IGNORECASE)
 
@@ -159,6 +160,15 @@ def validate_contract_data(data: dict[str, Any]):
     _require(SHA_RE.fullmatch(snapshot.get("bloomRevision", "")) is not None, "snapshot bloomRevision must be a full Git SHA")
     _require(isinstance(snapshot.get("jellyfinVersion"), str) and snapshot["jellyfinVersion"], "snapshot jellyfinVersion must be non-empty")
     _require(DIGEST_IMAGE_RE.fullmatch(snapshot.get("jellyfinImage", "")) is not None, "snapshot jellyfinImage must use an immutable sha256 digest")
+    _require(snapshot.get("jellyfinOpenApiVersion") == "12.0.0", "snapshot Jellyfin OpenAPI must target version 12.0.0")
+    _require(SHA256_RE.fullmatch(snapshot.get("jellyfinOpenApiSha256", "")) is not None, "snapshot Jellyfin OpenAPI must use a full sha256 digest")
+    _require(
+        snapshot.get("jellyfinOpenApiSource")
+        == "https://github.com/jellyfin/jellyfin-sdk-typescript/blob/592747ce7add446b9a14ad56aba8a7441a2e2618/openapi.json",
+        "snapshot Jellyfin OpenAPI must reference the official SDK specification",
+    )
+    _require(snapshot.get("jellyfin12SmokeVersion") == "12.0.0", "snapshot Jellyfin 12 smoke must report 12.0.0")
+    _require(DIGEST_IMAGE_RE.fullmatch(snapshot.get("jellyfin12SmokeImage", "")) is not None, "snapshot Jellyfin 12 smoke image must use an immutable sha256 digest")
     _require(SHA_RE.fullmatch(snapshot.get("siloRevision", "")) is not None, "snapshot siloRevision must be a full Git SHA")
     _require(DIGEST_IMAGE_RE.fullmatch(snapshot.get("siloImage", "")) is not None, "snapshot siloImage must use an immutable sha256 digest")
     _require(snapshot.get("siloImageTag") == snapshot["siloRevision"][:7], "snapshot siloImageTag must match the Silo revision")

@@ -29,10 +29,11 @@ if(NOT BLOOM_BUILD_CHANNEL IN_LIST BLOOM_ALLOWED_BUILD_CHANNELS)
     message(FATAL_ERROR "Invalid BLOOM_BUILD_CHANNEL '${BLOOM_BUILD_CHANNEL}'. Allowed values: ${BLOOM_ALLOWED_BUILD_CHANNELS}")
 endif()
 
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network Sql Concurrent Multimedia Test ShaderTools LinguistTools)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Quick QuickControls2 Network Sql Concurrent Multimedia ShaderTools LinguistTools)
 find_package(Qt6 COMPONENTS MultimediaQuick QUIET)
 include(CTest)
 if(BUILD_TESTING)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
     find_package(GTest QUIET)
     if(NOT GTest_FOUND)
         # Fall back to a pinned FetchContent build for platforms without a

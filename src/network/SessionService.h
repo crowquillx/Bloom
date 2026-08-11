@@ -85,7 +85,7 @@ signals:
 
 private slots:
     void onFetchSessionsFinished(QNetworkReply *reply);
-    void onRevokeSessionFinished(QNetworkReply *reply, QString sessionId);
+    void onRevokeSessionFinished(QNetworkReply *reply, QString sessionId, QString deviceId);
     void syncAuthenticationSessions();
 
 private:
@@ -103,5 +103,6 @@ private:
     void setIsLoading(bool loading);
     void setErrorString(const QString &error);
     QString getDeviceId() const;
+    QString deviceIdForSession(const QString &sessionId) const;
     QNetworkRequest createAuthenticatedRequest(const QString &endpoint) const;
 };

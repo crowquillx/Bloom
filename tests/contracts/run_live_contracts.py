@@ -209,7 +209,9 @@ class MediaBrowserV1Probe:
         expired = self.request("GET", f"/Users/{urllib.parse.quote(self.user_id)}", headers=self.headers(token=self.token + "-revoked"))
         record("errors.expired-session", "supported" if expired.status == 401 else "partial", f"invalid token returned HTTP {expired.status}")
 
-        views_response = self.request("GET", f"/Users/{urllib.parse.quote(self.user_id)}/Views")
+        views_response = self.request(
+            "GET", f"/UserViews?{urllib.parse.urlencode({'UserId': self.user_id})}"
+        )
         views = self._items(views_response.json() if views_response.status == 200 else None)
         library = next((item for item in views if isinstance(item, dict) and item.get("Id")), None)
         record("catalog.views", "supported" if library else "partial", f"found {len(views)} visible views")
@@ -223,12 +225,14 @@ class MediaBrowserV1Probe:
             "SortOrder": "Ascending",
             "StartIndex": "0",
             "Limit": "5",
-            "Fields": "Overview,ProviderIds,UserData,ImageTags,BackdropImageTags,MediaSources,Chapters,Trickplay",
+            "Fields": "Overview,ProviderIds,MediaSources,Chapters,Trickplay",
             "EnableImages": "true",
+            "EnableUserData": "true",
+            "UserId": self.user_id,
         }
         if library:
             query["ParentId"] = str(library["Id"])
-        items_path = f"/Users/{urllib.parse.quote(self.user_id)}/Items?{urllib.parse.urlencode(query)}"
+        items_path = f"/Items?{urllib.parse.urlencode(query)}"
         items_response = self.request("GET", items_path)
         items_payload = items_response.json() if items_response.status == 200 else None
         items = self._items(items_payload)
@@ -241,7 +245,7 @@ class MediaBrowserV1Probe:
         if isinstance(total_count, int) and total_count > len(items):
             second_query = dict(query)
             second_query["StartIndex"] = str(len(items))
-            second_path = f"/Users/{urllib.parse.quote(self.user_id)}/Items?{urllib.parse.urlencode(second_query)}"
+            second_path = f"/Items?{urllib.parse.urlencode(second_query)}"
             second_response = self.request("GET", second_path)
             second_items = self._items(second_response.json() if second_response.status == 200 else None)
             second_ids = [str(entry["Id"]) for entry in second_items if isinstance(entry, dict) and entry.get("Id")]
@@ -261,22 +265,23 @@ class MediaBrowserV1Probe:
         if item.get("SeriesId"):
             self.variables["seriesId"] = str(item["SeriesId"])
 
-        detail_path = f"/Users/{urllib.parse.quote(self.user_id)}/Items/{urllib.parse.quote(item_id)}?Fields=Overview,ProviderIds,People,MediaSources,Chapters,Trickplay"
+        detail_path = f"/Items?{urllib.parse.urlencode({'UserId': self.user_id, 'Ids': item_id, 'Fields': 'Overview,ProviderIds,People,MediaSources,Chapters,Trickplay', 'EnableUserData': 'true'})}"
         detail_response = self.request("GET", detail_path)
-        detail = detail_response.json() if detail_response.status == 200 else {}
+        detail_items = self._items(detail_response.json() if detail_response.status == 200 else None)
+        detail = detail_items[0] if detail_items and isinstance(detail_items[0], dict) else {}
         detail_ok = isinstance(detail, dict) and detail.get("Id") == item_id and detail.get("Type") and detail.get("Name")
         record("catalog.details", expected["catalog.details"] if detail_ok else "missing", f"detail required fields present={bool(detail_ok)}")
 
-        latest_query = {"Limit": "10", "Fields": "UserData,ProviderIds"}
+        latest_query = {"UserId": self.user_id, "Limit": "10", "Fields": "ProviderIds", "EnableUserData": "true"}
         if library:
             latest_query["ParentId"] = str(library["Id"])
-        latest = self.request("GET", f"/Users/{urllib.parse.quote(self.user_id)}/Items/Latest?{urllib.parse.urlencode(latest_query)}")
+        latest = self.request("GET", f"/Items/Latest?{urllib.parse.urlencode(latest_query)}")
         latest_items = self._items(latest.json() if latest.status == 200 else None)
         latest_ids = [str(entry["Id"]) for entry in latest_items if isinstance(entry, dict) and entry.get("Id")]
         latest_ok = bool(latest_ids) and len(latest_ids) == len(latest_items) == len(set(latest_ids))
         record("catalog.latest", "supported" if latest_ok else "inconclusive" if latest.status == 200 else "missing", f"latest returned {len(latest_items)} items with stable unique ids={latest_ok}")
 
-        next_up = self.request("GET", f"/Shows/NextUp?{urllib.parse.urlencode({'UserId': self.user_id, 'Limit': '10', 'Fields': 'UserData,SeriesId'})}")
+        next_up = self.request("GET", f"/Shows/NextUp?{urllib.parse.urlencode({'UserId': self.user_id, 'Limit': '10', 'Fields': 'Overview,ParentId', 'EnableUserData': 'true'})}")
         next_items = self._items(next_up.json() if next_up.status == 200 else None)
         next_shape_ok = bool(next_items) and next_up.status == 200 and all(
             isinstance(entry, dict) and entry.get("Id") and entry.get("Type") == "Episode"
@@ -291,10 +296,10 @@ class MediaBrowserV1Probe:
         if next_episode:
             self.variables["episodeId"] = str(next_episode["Id"])
         elif "episodeId" not in self.variables:
-            episode_query = {"IncludeItemTypes": "Episode", "Recursive": "true", "Limit": "1"}
+            episode_query = {"UserId": self.user_id, "IncludeItemTypes": "Episode", "Recursive": "true", "Limit": "1"}
             episode_response = self.request(
                 "GET",
-                f"/Users/{urllib.parse.quote(self.user_id)}/Items?{urllib.parse.urlencode(episode_query)}",
+                f"/Items?{urllib.parse.urlencode(episode_query)}",
             )
             episode_items = self._items(episode_response.json() if episode_response.status == 200 else None)
             episode = next(
@@ -304,10 +309,10 @@ class MediaBrowserV1Probe:
             if episode:
                 self.variables["episodeId"] = str(episode["Id"])
             else:
-                series_query = {"IncludeItemTypes": "Series", "Recursive": "true", "Limit": "1"}
+                series_query = {"UserId": self.user_id, "IncludeItemTypes": "Series", "Recursive": "true", "Limit": "1"}
                 series_response = self.request(
                     "GET",
-                    f"/Users/{urllib.parse.quote(self.user_id)}/Items?{urllib.parse.urlencode(series_query)}",
+                    f"/Items?{urllib.parse.urlencode(series_query)}",
                 )
                 series_items = self._items(series_response.json() if series_response.status == 200 else None)
                 series = next(
@@ -329,20 +334,23 @@ class MediaBrowserV1Probe:
                         self.variables["episodeId"] = str(episode["Id"])
 
         search_term = title.split()[0] if title else "contract"
-        search_query = {"SearchTerm": search_term, "IncludeItemTypes": "Movie,Series,Episode", "Recursive": "true", "Limit": "20"}
-        search = self.request("GET", f"/Users/{urllib.parse.quote(self.user_id)}/Items?{urllib.parse.urlencode(search_query)}")
+        search_query = {"UserId": self.user_id, "SearchTerm": search_term, "IncludeItemTypes": "Movie,Series,Episode", "Recursive": "true", "Limit": "20"}
+        search = self.request("GET", f"/Items?{urllib.parse.urlencode(search_query)}")
         search_items = self._items(search.json() if search.status == 200 else None)
         search_matches = any(search_term.casefold() in str(entry.get("Name", "")).casefold() for entry in search_items if isinstance(entry, dict))
         record("catalog.search", "supported" if search_matches else "partial", f"search for {search_term!r} returned {len(search_items)} items with a matching title={search_matches}")
 
-        facet_query = {"UserId": self.user_id, "Limit": "500"}
+        facet_query = {"UserId": self.user_id}
         if library:
             facet_query["ParentId"] = str(library["Id"])
         facets = []
-        for path in ("/Items/Filters", "/Genres", "/Studios"):
-            response = self.request("GET", f"{path}?{urllib.parse.urlencode(facet_query)}")
+        for route, allow_limit in (("/Items/Filters2", False), ("/Genres", True), ("/Studios", True)):
+            route_query = dict(facet_query)
+            if allow_limit:
+                route_query["Limit"] = "500"
+            response = self.request("GET", f"{route}?{urllib.parse.urlencode(route_query)}")
             payload = response.json() if response.status == 200 else None
-            facets.append((path, response.status, payload))
+            facets.append((route, response.status, payload))
         non_empty = sum(bool(self._items(payload)) or (isinstance(payload, dict) and any(bool(value) for value in payload.values())) for _, _, payload in facets)
         filter_outcome = "supported" if non_empty == 3 else "partial" if all(status == 200 for _, status, _ in facets) else "missing"
         record("catalog.filters", filter_outcome, f"{non_empty}/3 facet responses contained data")
@@ -402,21 +410,8 @@ class MediaBrowserV1Probe:
         trickplay_observed = "supported" if isinstance(trickplay, dict) and bool(trickplay) else "missing"
         record("playback.trickplay", trickplay_observed, f"Trickplay metadata has entries={bool(trickplay)}")
 
-        episode_id = self.variables.get("episodeId")
-        if episode_id:
-            plugin_segments = self.request("GET", f"/Episode/{urllib.parse.quote(episode_id)}/IntroSkipperSegments")
-            plugin_payload = plugin_segments.json() if plugin_segments.status == 200 else None
-            plugin_valid = isinstance(plugin_payload, dict) and any(
-                isinstance(value, dict) and value.get("Valid") for value in plugin_payload.values()
-            )
-            plugin_observed = "supported" if plugin_valid else self._outcome_for_missing(plugin_segments)
-            if plugin_segments.status == 200 and not plugin_valid:
-                plugin_observed = "stubbed"
-            record("segments.plugin-intro-skipper", plugin_observed, f"episode route returned HTTP {plugin_segments.status}; valid segment={plugin_valid}")
-        else:
-            record("segments.plugin-intro-skipper", "inconclusive", "fixture exposes no episode for the episode-specific plugin probe")
-
-        standard_segments = self.request("GET", f"/MediaSegments/{urllib.parse.quote(item_id)}")
+        segment_item_id = self.variables.get("episodeId", item_id)
+        standard_segments = self.request("GET", f"/MediaSegments/{urllib.parse.quote(segment_item_id)}")
         segment_payload = standard_segments.json() if standard_segments.status == 200 else None
         segment_items = self._items(segment_payload)
         segments_shape_ok = standard_segments.status == 200 and isinstance(segment_payload, dict) and isinstance(segment_payload.get("Items"), list)
@@ -450,9 +445,11 @@ class MediaBrowserV1Probe:
             secondary_payload = secondary_login.json() if secondary_login.status == 200 else {}
             secondary_token = secondary_payload.get("AccessToken", "") if isinstance(secondary_payload, dict) else ""
             secondary_session = secondary_payload.get("SessionInfo", {}) if isinstance(secondary_payload, dict) else {}
-            secondary_session_id = secondary_session.get("Id", "") if isinstance(secondary_session, dict) else ""
-            if secondary_token and secondary_session_id:
-                revoke = self.request("POST", f"/Sessions/{urllib.parse.quote(secondary_session_id)}/Logout", raw_body=b"")
+            secondary_device_id = "bloom-contract-revocation-target"
+            if secondary_token and secondary_session.get("Id"):
+                revoke = self.request(
+                    "DELETE", f"/Devices?{urllib.parse.urlencode({'id': secondary_device_id})}"
+                )
                 revoked_validation = self.transport.request(
                     "GET",
                     f"/Users/{urllib.parse.quote(self.user_id)}",
@@ -465,9 +462,9 @@ class MediaBrowserV1Probe:
         elif expected["sessions.revoke"] == "supported":
             record("sessions.revoke", "inconclusive", "revocation probe skipped; pass --allow-mutations to create and revoke an isolated session")
         else:
-            revoke = self.request("POST", "/Sessions/nonexistent-contract-session/Logout", raw_body=b"")
+            revoke = self.request("DELETE", "/Devices?id=nonexistent-contract-device")
             revoke_observed = "missing" if revoke.status in {404, 405} else "partial"
-            record("sessions.revoke", revoke_observed, f"named-session logout probe returned HTTP {revoke.status}")
+            record("sessions.revoke", revoke_observed, f"device deletion probe returned HTTP {revoke.status}")
 
         series_id = self.variables.get("seriesId", item_id)
         themes = self.request("GET", f"/Items/{urllib.parse.quote(series_id)}/ThemeSongs?{urllib.parse.urlencode({'UserId': self.user_id})}")
@@ -477,8 +474,8 @@ class MediaBrowserV1Probe:
 
         playback = self.request(
             "POST",
-            f"/Items/{urllib.parse.quote(item_id)}/PlaybackInfo?{urllib.parse.urlencode({'UserId': self.user_id})}",
-            json_body={},
+            f"/Items/{urllib.parse.quote(item_id)}/PlaybackInfo",
+            json_body={"UserId": self.user_id},
         )
         playback_payload = playback.json() if playback.status == 200 else {}
         play_session = playback_payload.get("PlaySessionId", "") if isinstance(playback_payload, dict) else ""
@@ -515,9 +512,10 @@ class MediaBrowserV1Probe:
                 "PlayMethod": "DirectPlay",
             }
             started = self.request("POST", "/Sessions/Playing", json_body=report)
-            progressed = self.request("POST", "/Sessions/Playing/Progress", json_body={**report, "PositionTicks": 20_000_000, "EventName": "TimeUpdate"})
+            progressed = self.request("POST", "/Sessions/Playing/Progress", json_body={**report, "PositionTicks": 20_000_000})
             progress_detail = self.request("GET", detail_path)
-            progress_payload = progress_detail.json() if progress_detail.status == 200 else {}
+            progress_items = self._items(progress_detail.json() if progress_detail.status == 200 else None)
+            progress_payload = progress_items[0] if progress_items and isinstance(progress_items[0], dict) else {}
             progress_user_data = progress_payload.get("UserData", {}) if isinstance(progress_payload, dict) else {}
             progress_observable = (
                 isinstance(progress_user_data, dict)
@@ -526,7 +524,16 @@ class MediaBrowserV1Probe:
                     or bool(progress_user_data.get("Played"))
                 )
             )
-            stopped = self.request("POST", "/Sessions/Playing/Stopped", json_body={**report, "PositionTicks": 20_000_000, "EventName": "Stop"})
+            stopped = self.request(
+                "POST",
+                "/Sessions/Playing/Stopped",
+                json_body={
+                    "ItemId": item_id,
+                    "MediaSourceId": source["Id"],
+                    "PlaySessionId": play_session,
+                    "PositionTicks": 20_000_000,
+                },
+            )
             report_ok = all(response.status in {200, 204} for response in (started, progressed, stopped)) and progress_observable
             report_observed = expected["playback.report"] if report_ok else "missing"
             record("playback.report", report_observed, f"start/progress/stop HTTP statuses={started.status}/{progressed.status}/{stopped.status}; progress observable={progress_observable}")
@@ -536,24 +543,25 @@ class MediaBrowserV1Probe:
             record("playback.report", "missing", "no playback session was available for reporting")
 
         if allow_mutations:
-            encoded_user = urllib.parse.quote(self.user_id)
             encoded_item = urllib.parse.quote(item_id)
             original_user_data = detail.get("UserData", {}) if isinstance(detail, dict) else {}
             for contract, suffix, field in (
-                ("state.played", "PlayedItems", "Played"),
-                ("state.favorite", "FavoriteItems", "IsFavorite"),
+                ("state.played", "UserPlayedItems", "Played"),
+                ("state.favorite", "UserFavoriteItems", "IsFavorite"),
             ):
-                state_path = f"/Users/{encoded_user}/{suffix}/{encoded_item}"
+                state_path = f"/{suffix}/{encoded_item}?{urllib.parse.urlencode({'UserId': self.user_id})}"
                 original_state = bool(original_user_data.get(field)) if isinstance(original_user_data, dict) else False
                 mutation_method = "DELETE" if original_state else "POST"
                 restore_method = "POST" if original_state else "DELETE"
                 changed = self.request(mutation_method, state_path, raw_body=b"")
                 changed_detail = self.request("GET", detail_path)
-                changed_payload = changed_detail.json() if changed_detail.status == 200 else {}
+                changed_items = self._items(changed_detail.json() if changed_detail.status == 200 else None)
+                changed_payload = changed_items[0] if changed_items and isinstance(changed_items[0], dict) else {}
                 changed_state = bool(changed_payload.get("UserData", {}).get(field)) if isinstance(changed_payload, dict) else original_state
                 restored = self.request(restore_method, state_path, raw_body=b"")
                 restored_detail = self.request("GET", detail_path)
-                restored_payload = restored_detail.json() if restored_detail.status == 200 else {}
+                restored_items = self._items(restored_detail.json() if restored_detail.status == 200 else None)
+                restored_payload = restored_items[0] if restored_items and isinstance(restored_items[0], dict) else {}
                 restored_state = bool(restored_payload.get("UserData", {}).get(field)) if isinstance(restored_payload, dict) else not original_state
                 state_ok = (
                     changed.status in {200, 204}

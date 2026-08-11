@@ -16,8 +16,10 @@ QString normalizedBaseUrl(const QString &baseUrl)
 
 bool isSensitiveQueryItem(const QString &name)
 {
-    return name.compare(QStringLiteral("api_key"), Qt::CaseInsensitive) == 0
+    return name.compare(QStringLiteral("ApiKey"), Qt::CaseInsensitive) == 0
+        || name.compare(QStringLiteral("api_key"), Qt::CaseInsensitive) == 0
         || name.compare(QStringLiteral("X-Emby-Token"), Qt::CaseInsensitive) == 0
+        || name.compare(QStringLiteral("X-MediaBrowser-Token"), Qt::CaseInsensitive) == 0
         || name.compare(QStringLiteral("access_token"), Qt::CaseInsensitive) == 0
         || name.compare(QStringLiteral("token"), Qt::CaseInsensitive) == 0;
 }

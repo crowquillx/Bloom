@@ -3,7 +3,7 @@ import QtQuick
 
 // Rounded image renderer with hybrid pre-rounded and shader paths.
 // Uses shader-based masking by default, falls back to pre-rounded bitmaps
-// when provided, and clips in software if shaders are unavailable.
+// when provided, and paints a CPU-rounded snapshot in software mode.
 Item {
     id: root
 
@@ -52,6 +52,12 @@ Item {
     readonly property bool shaderSupported: effectiveAllowShader && GraphicsInfo.api !== GraphicsInfo.Software
     readonly property bool shaderActive: !usePreRounded && shaderSupported
                                          && baseImage.status === Image.Ready
+    readonly property bool softwareFallbackActive: !usePreRounded
+                                                    && !shaderSupported
+                                                    && baseImage.status === Image.Ready
+    readonly property bool softwareFallbackReady: softwareFallbackActive
+                                                   && softwareFallbackLoader.item
+                                                   && softwareFallbackLoader.item.ready
 
     function refreshStaticShaderSource() {
         if (!shaderActive)
@@ -60,26 +66,43 @@ Item {
         shaderSource.refreshCount += 1
     }
 
-    onSourceChanged: Qt.callLater(refreshStaticShaderSource)
-    onShaderActiveChanged: Qt.callLater(refreshStaticShaderSource)
-    onWidthChanged: Qt.callLater(refreshStaticShaderSource)
-    onHeightChanged: Qt.callLater(refreshStaticShaderSource)
-    onSourceWidthChanged: Qt.callLater(refreshStaticShaderSource)
-    onSourceHeightChanged: Qt.callLater(refreshStaticShaderSource)
-    onFillModeChanged: Qt.callLater(refreshStaticShaderSource)
-    onMipmapChanged: Qt.callLater(refreshStaticShaderSource)
-    onSmoothChanged: Qt.callLater(refreshStaticShaderSource)
-    onVisibleChanged: Qt.callLater(refreshStaticShaderSource)
+    function refreshSoftwareFallback() {
+        if (!softwareFallbackActive || !softwareFallbackLoader.item
+                || width <= 0 || height <= 0)
+            return
+        softwareFallbackLoader.item.requestRefresh()
+    }
 
-    // One base image feeds both the shader and software fallback. Binding
-    // hideSource to the active shader avoids the duplicate fallback download.
-    Rectangle {
+    function refreshRenderPaths() {
+        refreshStaticShaderSource()
+        refreshSoftwareFallback()
+    }
+
+    onSourceChanged: {
+        Qt.callLater(refreshRenderPaths)
+    }
+    onShaderActiveChanged: Qt.callLater(refreshStaticShaderSource)
+    onSoftwareFallbackActiveChanged: {
+        if (softwareFallbackActive)
+            Qt.callLater(refreshSoftwareFallback)
+    }
+    onWidthChanged: Qt.callLater(refreshRenderPaths)
+    onHeightChanged: Qt.callLater(refreshRenderPaths)
+    onRadiusChanged: Qt.callLater(refreshSoftwareFallback)
+    onSourceWidthChanged: Qt.callLater(refreshRenderPaths)
+    onSourceHeightChanged: Qt.callLater(refreshRenderPaths)
+    onFillModeChanged: Qt.callLater(refreshRenderPaths)
+    onMipmapChanged: Qt.callLater(refreshRenderPaths)
+    onSmoothChanged: Qt.callLater(refreshRenderPaths)
+    onVisibleChanged: Qt.callLater(refreshRenderPaths)
+
+    // One base image feeds the shader and the software snapshot. The software
+    // painted item never loads root.source itself, so image-provider/network work is
+    // not duplicated.
+    Item {
         id: fallbackClip
         objectName: "fallbackClip"
         anchors.fill: parent
-        radius: root.radius
-        color: "transparent"
-        clip: true
         visible: !root.usePreRounded
 
         Image {
@@ -94,11 +117,34 @@ Item {
             cache: root.cache
             mipmap: root.mipmap
             smooth: root.smooth
-            visible: true
+            // Keep the base visible while the CPU snapshot is prepared, then
+            // hide it so the canvas's transparent corners reveal the parent.
+            visible: !root.softwareFallbackReady
 
             onStatusChanged: {
                 if (status === Image.Ready)
-                    Qt.callLater(root.refreshStaticShaderSource)
+                    Qt.callLater(root.refreshRenderPaths)
+            }
+        }
+    }
+
+    // ShaderEffect is unavailable in Qt Quick's software adaptation. Capture
+    // the already-loaded base item once and paint it through a rounded QPainter
+    // path. The Loader keeps this CPU-only path absent from normal GPU scenes.
+    Loader {
+        id: softwareFallbackLoader
+        objectName: "softwareFallbackLoader"
+        anchors.fill: parent
+        active: root.softwareFallbackActive
+        visible: active
+
+        onLoaded: Qt.callLater(root.refreshSoftwareFallback)
+
+        sourceComponent: Component {
+            SoftwareRoundedImage {
+                objectName: "softwareFallbackCanvas"
+                sourceItem: baseImage
+                radius: root.radius
             }
         }
     }

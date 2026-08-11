@@ -21,7 +21,7 @@ public:
     {
         switch (operation) {
         case ProviderCatalogOperation::Views:
-            return userRequest(query, QStringLiteral("/Users/%1/Views"));
+            return viewsRequest(query);
         case ProviderCatalogOperation::Items:
             return itemsRequest(query);
         case ProviderCatalogOperation::FilterOptions:
@@ -45,9 +45,9 @@ public:
         case ProviderCatalogOperation::NextUnplayedEpisode:
             return nextUnplayedEpisodeRequest(query);
         case ProviderCatalogOperation::SetWatched:
-            return stateRequest(query, QStringLiteral("PlayedItems"));
+            return stateRequest(query, QStringLiteral("UserPlayedItems"));
         case ProviderCatalogOperation::SetFavorite:
-            return stateRequest(query, QStringLiteral("FavoriteItems"));
+            return stateRequest(query, QStringLiteral("UserFavoriteItems"));
         case ProviderCatalogOperation::Search:
             return searchRequest(query);
         case ProviderCatalogOperation::RandomItems:
@@ -123,7 +123,14 @@ public:
             || operation == ProviderCatalogOperation::Chapters
             || operation == ProviderCatalogOperation::HeroOverviews
             || operation == ProviderCatalogOperation::Versions) {
-            response.rawItem = root;
+            if (root.value(QStringLiteral("Items")).isArray()) {
+                response.rawItems = root.value(QStringLiteral("Items")).toArray();
+                if (!response.rawItems.isEmpty() && response.rawItems.first().isObject()) {
+                    response.rawItem = response.rawItems.first().toObject();
+                }
+            } else {
+                response.rawItem = root;
+            }
             response.valid = true;
             return response;
         }
@@ -200,16 +207,11 @@ private:
         return QString::fromLatin1(QUrl::toPercentEncoding(value));
     }
 
-    static ProviderCatalogRequest userRequest(
-        const ProviderCatalogQuery &query,
-        const QString &endpointTemplate)
+    static QString endpointWithQuery(const QString &path, const QUrlQuery &query)
     {
-        const ProviderCatalogRequest validation = requireIds(
-            query, true, false, QStringLiteral("catalog request"));
-        if (!validation.supported) {
-            return validation;
-        }
-        return supportedRequest(endpointTemplate.arg(encodedPathSegment(query.userId)));
+        QUrl url(path);
+        url.setQuery(query);
+        return url.toString(QUrl::FullyEncoded);
     }
 
     static QStringList sortedValues(QStringList values)
@@ -277,37 +279,15 @@ private:
     static QStringList standardItemFields(bool includeHeavyFields)
     {
         QStringList fields = {
-            QStringLiteral("Type"),
-            QStringLiteral("ParentIndexNumber"),
-            QStringLiteral("IndexNumber"),
-            QStringLiteral("LocationType"),
-            QStringLiteral("ImageTags"),
-            QStringLiteral("BackdropImageTags"),
-            QStringLiteral("ParentBackdropImageTags"),
-            QStringLiteral("ParentBackdropImageItemId"),
-            QStringLiteral("ParentBackdropItemId"),
-            QStringLiteral("ParentPrimaryImageTag"),
-            QStringLiteral("ParentPrimaryImageItemId"),
-            QStringLiteral("SeriesPrimaryImageTag"),
-            QStringLiteral("ProductionYear"),
-            QStringLiteral("PremiereDate"),
             QStringLiteral("DateCreated"),
             QStringLiteral("ChildCount"),
             QStringLiteral("ParentId"),
-            QStringLiteral("SeasonId"),
-            QStringLiteral("SeriesId"),
-            QStringLiteral("SeriesName"),
-            QStringLiteral("UserData"),
-            QStringLiteral("RunTimeTicks"),
             QStringLiteral("Overview"),
-            QStringLiteral("CommunityRating"),
+            QStringLiteral("PrimaryImageAspectRatio"),
             QStringLiteral("Studios"),
             QStringLiteral("Genres"),
             QStringLiteral("Tags"),
-            QStringLiteral("SpecialEpisodeNumbers"),
-            QStringLiteral("AirsBeforeSeasonNumber"),
-            QStringLiteral("AirsAfterSeasonNumber"),
-            QStringLiteral("AirsBeforeEpisodeNumber")
+            QStringLiteral("SpecialEpisodeNumbers")
         };
         if (includeHeavyFields) {
             fields.prepend(QStringLiteral("Path"));
@@ -316,24 +296,40 @@ private:
         return fields;
     }
 
+    static ProviderCatalogRequest viewsRequest(const ProviderCatalogQuery &query)
+    {
+        const ProviderCatalogRequest validation = requireIds(
+            query, true, false, QStringLiteral("views"));
+        if (!validation.supported) {
+            return validation;
+        }
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        return supportedRequest(endpointWithQuery(QStringLiteral("/UserViews"), parameters));
+    }
+
     static QStringList itemDetailFields()
     {
         return {
-            QStringLiteral("Overview"),
-            QStringLiteral("ImageTags"),
-            QStringLiteral("BackdropImageTags"),
-            QStringLiteral("ParentBackdropImageTags"),
-            QStringLiteral("Genres"),
-            QStringLiteral("Studios"),
-            QStringLiteral("People"),
-            QStringLiteral("UserData"),
-            QStringLiteral("ProductionYear"),
-            QStringLiteral("PremiereDate"),
-            QStringLiteral("OfficialRating"),
-            QStringLiteral("RunTimeTicks"),
-            QStringLiteral("CommunityRating"),
-            QStringLiteral("ProviderIds")
+            QStringLiteral("Overview"), QStringLiteral("Genres"),
+            QStringLiteral("Studios"), QStringLiteral("People"),
+            QStringLiteral("ChildCount"), QStringLiteral("ParentId"),
+            QStringLiteral("ProviderIds"), QStringLiteral("RecursiveItemCount"),
+            QStringLiteral("MediaSources")
         };
+    }
+
+    static ProviderCatalogRequest itemQueryRequest(
+        const ProviderCatalogQuery &query, const QStringList &fields)
+    {
+        QUrlQuery parameters;
+        parameters.addQueryItem(QStringLiteral("UserId"), query.userId);
+        parameters.addQueryItem(QStringLiteral("Ids"), query.itemId);
+        if (!fields.isEmpty()) {
+            parameters.addQueryItem(QStringLiteral("Fields"), fields.join(QLatin1Char(',')));
+        }
+        parameters.addQueryItem(QStringLiteral("EnableUserData"), QStringLiteral("true"));
+        return supportedRequest(endpointWithQuery(QStringLiteral("/Items"), parameters));
     }
 
     static void applyCacheHeaders(
@@ -362,8 +358,9 @@ private:
             return unsupported(QStringLiteral("Unsupported Jellyfin catalog sort"));
         }
 
-        QUrl url(QStringLiteral("/Users/%1/Items").arg(encodedPathSegment(query.userId)));
+        QUrl url(QStringLiteral("/Items"));
         QUrlQuery urlQuery;
+        urlQuery.addQueryItem(QStringLiteral("UserId"), query.userId);
         if (!query.parentId.isEmpty()) {
             urlQuery.addQueryItem(QStringLiteral("ParentId"), query.parentId);
         }
@@ -458,11 +455,14 @@ private:
         }
 
         const QString facet = query.filterFacet.trimmed().toLower();
-        QString path = QStringLiteral("/Items/Filters");
+        QString path = QStringLiteral("/Items/Filters2");
+        bool namedFacet = false;
         if (facet == QStringLiteral("genres")) {
             path = QStringLiteral("/Genres");
+            namedFacet = true;
         } else if (facet == QStringLiteral("studios")) {
             path = QStringLiteral("/Studios");
+            namedFacet = true;
         } else if (!facet.isEmpty() && facet != QStringLiteral("filters")) {
             return unsupported(QStringLiteral("Unsupported Jellyfin filter facet: %1")
                                    .arg(query.filterFacet));
@@ -478,10 +478,12 @@ private:
             urlQuery.addQueryItem(
                 QStringLiteral("IncludeItemTypes"), query.includeItemTypes.join(QLatin1Char(',')));
         }
-        if (query.recursive) {
+        if (query.recursive && !namedFacet) {
             urlQuery.addQueryItem(QStringLiteral("Recursive"), QStringLiteral("true"));
         }
-        urlQuery.addQueryItem(QStringLiteral("Limit"), QStringLiteral("500"));
+        if (namedFacet) {
+            urlQuery.addQueryItem(QStringLiteral("Limit"), QStringLiteral("500"));
+        }
         url.setQuery(urlQuery);
         return supportedRequest(url.toString(QUrl::FullyEncoded));
     }
@@ -494,7 +496,7 @@ private:
             return validation;
         }
         return supportedRequest(QStringLiteral(
-            "/Shows/NextUp?UserId=%1&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,SeriesThumbImageTag,ParentThumbItemId,ParentThumbImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,UserData,RunTimeTicks&EnableImageTypes=Primary,Thumb,Backdrop,Logo")
+            "/Shows/NextUp?UserId=%1&Limit=10&Fields=Path,Overview,ParentId&EnableUserData=true&EnableImageTypes=Primary,Thumb,Backdrop,Logo")
                                     .arg(encodedPathSegment(query.userId)));
     }
 
@@ -506,9 +508,8 @@ private:
             return validation;
         }
         return supportedRequest(QStringLiteral(
-            "/Users/%1/Items/Latest?ParentId=%2&Limit=10&Fields=Path,Overview,SeriesName,ImageTags,ParentId,SeriesId,SeriesPrimaryImageTag,SeriesThumbImageTag,ParentThumbItemId,ParentThumbImageTag,ParentPrimaryImageTag,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,ProductionYear,Status,EndDate,ParentIndexNumber,IndexNumber,UserData,RunTimeTicks&EnableImageTypes=Primary,Backdrop,Thumb,Logo")
-                                    .arg(encodedPathSegment(query.userId),
-                                         encodedPathSegment(query.parentId)));
+            "/Items/Latest?UserId=%1&ParentId=%2&Limit=10&Fields=Path,Overview,ParentId&EnableUserData=true&EnableImageTypes=Primary,Backdrop,Thumb,Logo")
+                                    .arg(encodedPathSegment(query.userId), encodedPathSegment(query.parentId)));
     }
 
     static ProviderCatalogRequest homeBackdropsRequest(const ProviderCatalogQuery &query)
@@ -519,16 +520,16 @@ private:
             return validation;
         }
         const QString fields = QStringLiteral(
-            "Id,ImageTags,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,SeriesId");
+            "ParentId");
         if (query.limit > 0) {
             const int limit = qBound(50, query.limit, 20000);
             return supportedRequest(QStringLiteral(
-                "/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series,Season,Episode&SortBy=Random&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableTotalRecordCount=false&Limit=%3")
+                "/Items?UserId=%1&Recursive=true&IncludeItemTypes=Movie,Series,Season,Episode&SortBy=Random&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableTotalRecordCount=false&Limit=%3")
                                         .arg(encodedPathSegment(query.userId), fields)
                                         .arg(limit));
         }
         return supportedRequest(QStringLiteral(
-            "/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series,Season,Episode&SortBy=SortName&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableTotalRecordCount=false&StartIndex=%3&Limit=250")
+            "/Items?UserId=%1&Recursive=true&IncludeItemTypes=Movie,Series,Season,Episode&SortBy=SortName&Fields=%2&EnableImages=true&EnableImageTypes=Backdrop&ImageTypeLimit=1&EnableTotalRecordCount=false&StartIndex=%3&Limit=250")
                                     .arg(encodedPathSegment(query.userId), fields)
                                     .arg(qMax(0, query.startIndex)));
     }
@@ -542,7 +543,7 @@ private:
         }
         const int limit = qBound(10, query.limit > 0 ? query.limit : 80, 200);
         return supportedRequest(QStringLiteral(
-            "/Users/%1/Items?Recursive=true&IncludeItemTypes=Movie,Series&SortBy=Random&Fields=Id,Name,Overview,Type,SeriesName,SeriesId,ImageTags,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,ParentId,ProductionYear&EnableImages=true&EnableImageTypes=Backdrop,Logo&ImageTypeLimit=1&EnableTotalRecordCount=false&Limit=%2")
+            "/Items?UserId=%1&Recursive=true&IncludeItemTypes=Movie,Series&SortBy=Random&Fields=Overview,ParentId&EnableImages=true&EnableImageTypes=Backdrop,Logo&ImageTypeLimit=1&EnableTotalRecordCount=false&Limit=%2")
                                     .arg(encodedPathSegment(query.userId))
                                     .arg(limit));
     }
@@ -555,11 +556,7 @@ private:
             return validation;
         }
         const QStringList fields = query.fields.isEmpty() ? itemDetailFields() : query.fields;
-        ProviderCatalogRequest request = supportedRequest(
-            QStringLiteral("/Users/%1/Items/%2?Fields=%3")
-                .arg(encodedPathSegment(query.userId),
-                     encodedPathSegment(query.itemId),
-                     fields.join(QLatin1Char(','))));
+        ProviderCatalogRequest request = itemQueryRequest(query, fields);
         applyCacheHeaders(request, query);
         return request;
     }
@@ -571,10 +568,16 @@ private:
         if (!validation.supported) {
             return validation;
         }
-        return supportedRequest(QStringLiteral(
-            "/Users/%1/Items/%2?Fields=Chapters&EnableImages=true&EnableImageTypes=Chapter&ImageTypeLimit=100")
-                                    .arg(encodedPathSegment(query.userId),
-                                         encodedPathSegment(query.itemId)));
+        ProviderCatalogRequest request = itemQueryRequest(
+            query, {QStringLiteral("Chapters")});
+        QUrl url(request.relativeEndpoint);
+        QUrlQuery parameters(url);
+        parameters.addQueryItem(QStringLiteral("EnableImages"), QStringLiteral("true"));
+        parameters.addQueryItem(QStringLiteral("EnableImageTypes"), QStringLiteral("Chapter"));
+        parameters.addQueryItem(QStringLiteral("ImageTypeLimit"), QStringLiteral("100"));
+        url.setQuery(parameters);
+        request.relativeEndpoint = url.toString(QUrl::FullyEncoded);
+        return request;
     }
 
     static ProviderCatalogRequest resolveLibraryRequest(const ProviderCatalogQuery &query)
@@ -597,7 +600,7 @@ private:
             return validation;
         }
         return supportedRequest(QStringLiteral(
-            "/Items/%1/Similar?UserId=%2&Limit=%3&Fields=Type,ImageTags,PrimaryImageAspectRatio,ProductionYear,PremiereDate,Overview,UserData,ChildCount&EnableImageTypes=Primary")
+            "/Items/%1/Similar?UserId=%2&Limit=%3&Fields=PrimaryImageAspectRatio,Overview,ChildCount")
                                     .arg(encodedPathSegment(query.itemId),
                                          encodedPathSegment(query.userId))
                                     .arg(qMax(1, query.limit)));
@@ -617,9 +620,8 @@ private:
                 "Jellyfin next unplayed episode requires a series ID"));
         }
         return supportedRequest(QStringLiteral(
-            "/Users/%1/Items?ParentId=%2&Recursive=true&IncludeItemTypes=Episode&Fields=Name,SortName,Overview,UserData,RunTimeTicks,ImageTags,ParentId,SeasonId,SeriesId,SeriesName,IndexNumber,ParentIndexNumber,PremiereDate,LocationType,AirsBeforeSeasonNumber,AirsAfterSeasonNumber,AirsBeforeEpisodeNumber&SortBy=ParentIndexNumber,IndexNumber,SortName&EnableImageTypes=Primary,Thumb")
-                                    .arg(encodedPathSegment(query.userId),
-                                         encodedPathSegment(seriesId)));
+            "/Items?UserId=%1&ParentId=%2&Recursive=true&IncludeItemTypes=Episode&Fields=SortName,Overview,ParentId,SpecialEpisodeNumbers&SortBy=ParentIndexNumber,IndexNumber,SortName&EnableUserData=true&EnableImageTypes=Primary,Thumb")
+                                    .arg(encodedPathSegment(query.userId), encodedPathSegment(seriesId)));
     }
 
     static ProviderCatalogRequest stateRequest(
@@ -632,9 +634,8 @@ private:
             return validation;
         }
         ProviderCatalogRequest request = supportedRequest(
-            QStringLiteral("/Users/%1/%2/%3")
-                .arg(encodedPathSegment(query.userId), collection,
-                     encodedPathSegment(query.itemId)),
+            QStringLiteral("/%1/%2?UserId=%3")
+                .arg(collection, encodedPathSegment(query.itemId), encodedPathSegment(query.userId)),
             query.stateValue ? ProviderHttpMethod::Post : ProviderHttpMethod::Delete);
         if (query.stateValue) {
             request.extraHeaders.insert(
@@ -652,7 +653,7 @@ private:
         }
         const int limit = query.limit > 0 ? query.limit : 50;
         return supportedRequest(QStringLiteral(
-            "/Users/%1/Items?SearchTerm=%2&IncludeItemTypes=Movie,Series&Recursive=true&Fields=Path,Overview,ImageTags,BackdropImageTags,ProductionYear,CommunityRating,UserData&Limit=%3&EnableImageTypes=Primary,Backdrop")
+            "/Items?UserId=%1&SearchTerm=%2&IncludeItemTypes=Movie,Series&Recursive=true&Fields=Path,Overview&EnableUserData=true&Limit=%3&EnableImageTypes=Primary,Backdrop")
                                     .arg(encodedPathSegment(query.userId))
                                     .arg(QString::fromUtf8(
                                         QUrl::toPercentEncoding(query.searchTerm.trimmed())))
@@ -668,7 +669,7 @@ private:
         }
         const int limit = query.limit > 0 ? query.limit : 50;
         return supportedRequest(QStringLiteral(
-            "/Users/%1/Items?IncludeItemTypes=Movie,Series&Recursive=true&SortBy=Random&Limit=%2&Fields=Overview,ImageTags,BackdropImageTags,ProductionYear")
+            "/Items?UserId=%1&IncludeItemTypes=Movie,Series&Recursive=true&SortBy=Random&Limit=%2&Fields=Overview")
                                     .arg(encodedPathSegment(query.userId))
                                     .arg(limit));
     }
@@ -688,7 +689,7 @@ private:
             ? query.parentId
             : (query.parentIds.isEmpty() ? QString() : query.parentIds.constFirst());
         QString endpoint = QStringLiteral(
-            "/Users/%1/Items?IncludeItemTypes=Movie,Series&Recursive=true&SortBy=Random&Limit=%2&Fields=Overview,SeriesName,ImageTags,BackdropImageTags,ParentBackdropImageTags,ParentBackdropItemId,ParentId,SeriesId,SeriesPrimaryImageTag,ParentPrimaryImageTag,ProductionYear,PremiereDate,UserData,RunTimeTicks,CommunityRating,OfficialRating,Genres,Studios,Tags&EnableImageTypes=Primary,Backdrop,Thumb,Logo&ImageTypeLimit=1")
+            "/Items?UserId=%1&IncludeItemTypes=Movie,Series&Recursive=true&SortBy=Random&Limit=%2&Fields=Overview,ParentId,Genres,Studios,Tags&EnableUserData=true&EnableImageTypes=Primary,Backdrop,Thumb,Logo&ImageTypeLimit=1")
                                .arg(encodedPathSegment(query.userId))
                                .arg(qBound(1, query.limit, 25));
         if (!parentId.isEmpty()) {
@@ -717,9 +718,9 @@ private:
         if (seriesId.isEmpty()) {
             return unsupported(QStringLiteral("Jellyfin hero overview requires a series ID"));
         }
-        return supportedRequest(QStringLiteral("/Users/%1/Items/%2?Fields=Overview")
-                                    .arg(encodedPathSegment(query.userId),
-                                         encodedPathSegment(seriesId)));
+        ProviderCatalogQuery itemQuery = query;
+        itemQuery.itemId = seriesId;
+        return itemQueryRequest(itemQuery, {QStringLiteral("Overview")});
     }
 
     static ProviderCatalogRequest versionsRequest(const ProviderCatalogQuery &query)
@@ -729,9 +730,7 @@ private:
         if (!validation.supported) {
             return validation;
         }
-        return supportedRequest(QStringLiteral("/Users/%1/Items/%2?Fields=MediaSources")
-                                    .arg(encodedPathSegment(query.userId),
-                                         encodedPathSegment(query.itemId)));
+        return itemQueryRequest(query, {QStringLiteral("MediaSources")});
     }
 
     static ProviderCatalogRequest themeSongsRequest(const ProviderCatalogQuery &query)

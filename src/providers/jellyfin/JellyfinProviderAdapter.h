@@ -51,6 +51,11 @@ public:
     {
         return JellyfinModelMapper::introSkipperSegments(itemId, wireSegments);
     }
+    std::optional<QList<MediaSegmentInfo>> mapMediaSegments(
+        const QString &itemId, const QJsonObject &wireSegments) const override
+    {
+        return JellyfinModelMapper::mediaSegments(itemId, wireSegments);
+    }
     QVariantList mapRemoteSessions(const QJsonArray &wireSessions,
                                    const QString &connectionId) const override
     {

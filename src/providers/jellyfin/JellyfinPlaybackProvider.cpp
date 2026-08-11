@@ -129,10 +129,16 @@ Bloom::PlaybackDescriptor JellyfinPlaybackProvider::createDescriptor(
 
     QUrlQuery query(url);
     const QString accessToken = context.accessToken;
-    if (!accessToken.isEmpty()
-        && !query.hasQueryItem(QStringLiteral("api_key"))
-        && !query.hasQueryItem(QStringLiteral("X-Emby-Token"))) {
-        query.addQueryItem(QStringLiteral("api_key"), accessToken);
+    query.removeAllQueryItems(QStringLiteral("api_key"));
+    query.removeAllQueryItems(QStringLiteral("X-Emby-Token"));
+    query.removeAllQueryItems(QStringLiteral("X-MediaBrowser-Token"));
+    query.removeAllQueryItems(QStringLiteral("deviceProfileId"));
+    query.removeAllQueryItems(QStringLiteral("DeviceProfileId"));
+    if (!accessToken.isEmpty() && !query.hasQueryItem(QStringLiteral("ApiKey"))) {
+        // External mpv cannot use Bloom's request factory. Jellyfin's current
+        // query fallback is ApiKey (capitalized); the older aliases are
+        // rejected when legacy authentication is disabled.
+        query.addQueryItem(QStringLiteral("ApiKey"), accessToken);
     }
     if (!descriptor.mediaVersionId.isEmpty()
         && !query.hasQueryItem(QStringLiteral("MediaSourceId"))) {
@@ -177,10 +183,41 @@ QUrl JellyfinPlaybackProvider::createTrickplayTileUrl(
             .arg(itemId, QString::number(width), QString::number(tileIndex)));
     QUrlQuery query(url);
     if (!context.accessToken.isEmpty()) {
-        query.addQueryItem(QStringLiteral("api_key"), context.accessToken);
+        query.addQueryItem(QStringLiteral("ApiKey"), context.accessToken);
     }
     url.setQuery(query);
     return url;
+}
+
+PlaybackInfoRequest JellyfinPlaybackProvider::createPlaybackInfoRequest(
+    const PlaybackProviderContext &context,
+    const Bloom::MediaRef &media,
+    const QVariantMap &) const
+{
+    PlaybackInfoRequest request;
+    if (media.itemId.isEmpty() || context.profileId.isEmpty()) {
+        return request;
+    }
+    request.endpoint = QStringLiteral("/Items/%1/PlaybackInfo")
+                           .arg(QString::fromLatin1(QUrl::toPercentEncoding(media.itemId)));
+    request.method = QStringLiteral("POST");
+    request.body.insert(QStringLiteral("UserId"), context.profileId);
+    return request;
+}
+
+PlaybackInfoParseResult JellyfinPlaybackProvider::parsePlaybackInfoResponse(
+    const PlaybackProviderContext &,
+    const Bloom::MediaRef &,
+    const QJsonObject &wireResponse,
+    const QVariantMap &) const
+{
+    PlaybackInfoParseResult result;
+    result.response = JellyfinModelMapper::playbackInfo(wireResponse);
+    result.valid = !result.response.mediaSources.isEmpty();
+    if (!result.valid) {
+        result.error = QStringLiteral("Jellyfin playback info did not contain media sources");
+    }
+    return result;
 }
 
 PlaybackReportRequest JellyfinPlaybackProvider::createReportRequest(
@@ -218,20 +255,27 @@ PlaybackReportRequest JellyfinPlaybackProvider::createReportRequest(
         break;
     case PlaybackReportEvent::Progress:
         request.endpoint = QStringLiteral("/Sessions/Playing/Progress");
-        body.insert(QStringLiteral("EventName"), QStringLiteral("TimeUpdate"));
         break;
     case PlaybackReportEvent::Pause:
         request.endpoint = QStringLiteral("/Sessions/Playing/Progress");
-        body.insert(QStringLiteral("EventName"), QStringLiteral("Pause"));
         break;
     case PlaybackReportEvent::Resume:
         request.endpoint = QStringLiteral("/Sessions/Playing/Progress");
-        body.insert(QStringLiteral("EventName"), QStringLiteral("Unpause"));
         break;
     case PlaybackReportEvent::Stop:
         request.endpoint = QStringLiteral("/Sessions/Playing/Stopped");
         request.deferSessionExpiry = false;
-        body.insert(QStringLiteral("EventName"), QStringLiteral("Stop"));
+        body = QJsonObject{{QStringLiteral("ItemId"), report.media.itemId}};
+        if (report.positionMs >= 0) {
+            body.insert(QStringLiteral("PositionTicks"),
+                        JellyfinModelMapper::millisecondsToTicks(report.positionMs));
+        }
+        if (!report.mediaVersionId.isEmpty()) {
+            body.insert(QStringLiteral("MediaSourceId"), report.mediaVersionId);
+        }
+        if (!report.playbackSessionId.isEmpty()) {
+            body.insert(QStringLiteral("PlaySessionId"), report.playbackSessionId);
+        }
         break;
     }
 

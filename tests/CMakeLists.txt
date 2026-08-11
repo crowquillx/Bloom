@@ -486,11 +486,15 @@ add_test(NAME ImageCacheStoreTest COMMAND ImageCacheStoreTest)
 
 add_executable(RoundedImageTest
     RoundedImageTest.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.h
+    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.cpp
 )
 
 target_compile_definitions(RoundedImageTest PRIVATE
     BLOOM_ROUNDED_IMAGE_QML="${CMAKE_SOURCE_DIR}/src/ui/RoundedImage.qml"
 )
+
+target_include_directories(RoundedImageTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 target_link_libraries(RoundedImageTest
     PRIVATE
@@ -1010,6 +1014,8 @@ qt_add_executable(VisualRegressionTest
     ${CMAKE_SOURCE_DIR}/src/ui/ResponsiveLayoutManager.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/FontLoader.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/UiSoundController.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.h
+    ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.cpp
     # ViewModels
     ${CMAKE_SOURCE_DIR}/src/viewmodels/LibraryViewModel.cpp
     ${CMAKE_SOURCE_DIR}/src/viewmodels/SeriesDetailsViewModel.cpp
@@ -1108,7 +1114,6 @@ qt_add_qml_module(VisualRegressionTest
     URI BloomUI
     VERSION 1.0
     RESOURCE_PREFIX /
-    NO_CACHEGEN
     QML_FILES
         ${QML_SOURCES}
 )
@@ -1131,6 +1136,7 @@ endif()
 
 target_include_directories(VisualRegressionTest PRIVATE
     ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/ui
     ${CMAKE_SOURCE_DIR}/src/player
     ${CMAKE_BINARY_DIR}/src
 )

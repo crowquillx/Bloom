@@ -53,6 +53,9 @@ changed targets on later runs. Useful options include:
 Use `nix build` and `nix flake check` for clean reproducibility and final
 verification.
 
+The `BloomUI` application and visual-test modules use Qt's normal QML cache
+generation; changes must continue to pass both cache generation and QML lint.
+
 ## Local checks
 
 ```bash

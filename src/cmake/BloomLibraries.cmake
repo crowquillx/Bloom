@@ -114,6 +114,9 @@ target_link_libraries(BloomImageCache
         Qt6::Quick
         Qt6::Sql
 )
+if(BUILD_TESTING)
+    target_compile_definitions(BloomImageCache PUBLIC BLOOM_TESTING=1)
+endif()
 
 add_library(BloomPlayerProcess STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/player/PlayerProcessManager.cpp

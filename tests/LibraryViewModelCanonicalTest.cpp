@@ -159,6 +159,7 @@ private slots:
     void cachePayloadRejectsProviderWireShape();
     void sortStateUsesCanonicalKeys();
     void swrIdentityUsesCanonicalItemId();
+    void swrMetadataRefreshUpdatesRowsWithoutReset();
     void failedLoadMoreRecovers();
     void viewsFailureClearsLoadingState();
     void staleResultsCannotOwnNewDataset();
@@ -307,6 +308,101 @@ void LibraryViewModelCanonicalTest::swrIdentityUsesCanonicalItemId()
         QJsonObject{{QStringLiteral("itemId"), QStringLiteral("movie-1")}}
     };
     QVERIFY(viewModel.hasDataChanged(reordered, 2, cached));
+
+    QJsonArray metadataChanged = cached.items;
+    QJsonObject changed = metadataChanged.at(0).toObject();
+    changed.insert(QStringLiteral("watched"), true);
+    metadataChanged.replace(0, changed);
+    QVERIFY(viewModel.hasDataChanged(metadataChanged, 2, cached));
+}
+
+void LibraryViewModelCanonicalTest::swrMetadataRefreshUpdatesRowsWithoutReset()
+{
+    LibraryViewModel viewModel;
+    QVariantMap userStateItem = canonicalItem(QStringLiteral("movie-1"));
+    userStateItem.insert(QStringLiteral("watched"), false);
+    userStateItem.insert(QStringLiteral("favorite"), false);
+    userStateItem.insert(QStringLiteral("playbackProgress"), 0.1);
+
+    QVariantMap visibleItem = canonicalItem(QStringLiteral("movie-2"));
+    visibleItem.insert(QStringLiteral("name"), QStringLiteral("Old title"));
+    visibleItem.insert(QStringLiteral("productionYear"), 2020);
+    visibleItem.insert(QStringLiteral("overview"), QStringLiteral("Old overview"));
+    visibleItem.insert(QStringLiteral("communityRating"), 6.5);
+    visibleItem.insert(QStringLiteral("primaryArtwork"), QVariantMap{
+        {QStringLiteral("connectionId"), QStringLiteral("test-connection")},
+        {QStringLiteral("itemId"), QStringLiteral("movie-2")},
+        {QStringLiteral("kind"), QStringLiteral("primary")},
+        {QStringLiteral("ownerKind"), QStringLiteral("mediaItem")},
+        {QStringLiteral("tag"), QStringLiteral("old-artwork")},
+    });
+
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 2);
+    m_libraryService->succeedItem(0, {userStateItem, visibleItem}, 2);
+    const QString oldImageUrl = viewModel.data(
+        viewModel.index(1), LibraryViewModel::ImageUrlRole).toString();
+    QVERIFY(!oldImageUrl.isEmpty());
+
+    const QString datasetKey = m_libraryService->itemRequests.at(0).datasetKey();
+    viewModel.s_libraryCache[
+        viewModel.scopedCacheKey(datasetKey)].timestamp = 1;
+
+    viewModel.loadLibrary(QStringLiteral("library"), QStringLiteral("movies"), 0, 2);
+    QVERIFY(viewModel.m_isBackgroundRefresh);
+
+    QSignalSpy changedSpy(&viewModel, &QAbstractItemModel::dataChanged);
+    QSignalSpy resetSpy(&viewModel, &QAbstractItemModel::modelReset);
+
+    userStateItem.insert(QStringLiteral("watched"), true);
+    userStateItem.insert(QStringLiteral("favorite"), true);
+    userStateItem.insert(QStringLiteral("playbackProgress"), 0.75);
+    visibleItem.insert(QStringLiteral("name"), QStringLiteral("New title"));
+    visibleItem.insert(QStringLiteral("productionYear"), 2025);
+    visibleItem.insert(QStringLiteral("overview"), QStringLiteral("New overview"));
+    visibleItem.insert(QStringLiteral("communityRating"), 8.4);
+    QVariantMap artwork = visibleItem.value(QStringLiteral("primaryArtwork")).toMap();
+    artwork.insert(QStringLiteral("tag"), QStringLiteral("new-artwork"));
+    visibleItem.insert(QStringLiteral("primaryArtwork"), artwork);
+
+    m_libraryService->succeedItem(1, {userStateItem, visibleItem}, 2);
+
+    QVERIFY(!viewModel.m_isBackgroundRefresh);
+    QCOMPARE(resetSpy.count(), 0);
+    QCOMPARE(changedSpy.count(), 2);
+
+    const QVariantMap refreshedState = viewModel.getItem(0);
+    QCOMPARE(refreshedState.value(QStringLiteral("watched")).toBool(), true);
+    QCOMPARE(refreshedState.value(QStringLiteral("favorite")).toBool(), true);
+    QCOMPARE(refreshedState.value(QStringLiteral("playbackProgress")).toDouble(), 0.75);
+
+    const QModelIndex visibleIndex = viewModel.index(1);
+    QCOMPARE(viewModel.data(visibleIndex, LibraryViewModel::NameRole).toString(),
+             QStringLiteral("New title"));
+    QCOMPARE(viewModel.data(visibleIndex, LibraryViewModel::ProductionYearRole).toInt(),
+             2025);
+    QCOMPARE(viewModel.data(visibleIndex, LibraryViewModel::OverviewRole).toString(),
+             QStringLiteral("New overview"));
+    const QVariantMap refreshedVisible = viewModel.getItem(1);
+    QCOMPARE(refreshedVisible.value(QStringLiteral("communityRating")).toDouble(), 8.4);
+    QCOMPARE(refreshedVisible.value(QStringLiteral("primaryArtwork")).toMap()
+                 .value(QStringLiteral("tag")).toString(),
+             QStringLiteral("new-artwork"));
+    const QString refreshedImageUrl = viewModel.data(
+        visibleIndex, LibraryViewModel::ImageUrlRole).toString();
+    QVERIFY(!refreshedImageUrl.isEmpty());
+    QVERIFY(refreshedImageUrl != oldImageUrl);
+
+    bool sawModelDataRole = false;
+    bool sawImageRole = false;
+    for (const QList<QVariant> &arguments : changedSpy) {
+        const QList<int> roles = arguments.at(2).value<QList<int>>();
+        sawModelDataRole = sawModelDataRole
+            || roles.contains(LibraryViewModel::ModelDataRole);
+        sawImageRole = sawImageRole
+            || roles.contains(LibraryViewModel::ImageUrlRole);
+    }
+    QVERIFY(sawModelDataRole);
+    QVERIFY(sawImageRole);
 }
 
 void LibraryViewModelCanonicalTest::failedLoadMoreRecovers()

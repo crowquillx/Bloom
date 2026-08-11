@@ -3,6 +3,9 @@
 
 #include <QThread>
 #include <QString>
+#ifdef BLOOM_TESTING
+#include <QSemaphore>
+#endif
 
 #include <memory>
 
@@ -61,6 +64,10 @@ public:
     [[nodiscard]] QString cacheDirectory() const { return m_cacheDirectory; }
 
     static QString filenameForKey(const QString &cacheKey);
+
+#ifdef BLOOM_TESTING
+    void blockWorkerForTest(QSemaphore *entered, QSemaphore *release);
+#endif
 
 private:
     QString m_cacheDirectory;

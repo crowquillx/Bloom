@@ -30,10 +30,47 @@ The baseline was prepared from:
 |---|---|
 | Bloom | `571218325258fae98e5606f4b84cf92ff0c5b1e6` |
 | Jellyfin control | `10.11.10`, `docker.io/jellyfin/jellyfin@sha256:f66273e014b307e4ac46778845ebc1e9ee24b2e57c1fc17d5ec5ac3015649bfa` |
+| Jellyfin 12 API | OpenAPI `12.0.0` at SDK revision `592747ce7add446b9a14ad56aba8a7441a2e2618`, SHA-256 `f073a3e661f1c7249c8dc7df257b31f290c8931950f8563e9df537a46717f700` |
+| Jellyfin 12 route smoke | Server `12.0.0` from official amd64 RC3 image `docker.io/jellyfin/jellyfin@sha256:16c88d577a4094cd838ddc6559087a39c24e5b0836d585b09e60085673f977f2` |
 | Silo | `8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6` |
 | Silo image | `ghcr.io/silo-server/silo-server@sha256:944ee9821de1d6a61876c9b7b06daa358118163d1e5f9b3aa9f5437856fd06e9` (tag `8044eb8`) |
 
 Container digests are immutable. Short-SHA tags are included only for operator readability.
+
+### Jellyfin 12 API policy
+
+Bloom's Jellyfin production requests are audited against the pinned official
+OpenAPI document above. Client code must use only listed operations and must
+not use operations or parameters marked obsolete. The same replacements are present in Jellyfin
+10.11, so Bloom does not branch the core catalog/playback contract by server
+version. In particular:
+
+- user-scoped catalog operations use `/UserViews`, `/Items`, `/Items/Latest`,
+  `/Items?Ids={id}`, `/UserPlayedItems/{id}`, and `/UserFavoriteItems/{id}` with
+  `UserId` where the operation declares it;
+- item `Fields` values are limited to the OpenAPI `ItemFields` enum, and direct
+  item reads do not send the unlisted `Fields` parameter;
+- `PlaybackInfoDto.UserId` is sent in the POST body, playback progress omits
+  the unlisted `EventName`, and stopped reports contain only
+  `PlaybackStopInfo` fields;
+- Jellyfin media markers use `/MediaSegments/{id}`. Bloom does not call the
+  excluded legacy Intro Skipper plugin endpoint;
+- remote session removal resolves the session's device and uses
+  `DELETE /Devices?id=...`; the excluded per-session logout endpoint is not
+  used; and
+- requests made through Bloom use the `Authorization: MediaBrowser ...`
+  header. External consumers that cannot receive request headers use the
+  current capitalized `ApiKey` query fallback; Bloom strips deprecated query
+  aliases and the obsolete `deviceProfileId` from provider-supplied stream URLs.
+
+The checked-in live Jellyfin fixture remains the stable 10.11.10 control. On
+2026-08-11, the pinned official Jellyfin 12 image above reported server version
+`12.0.0`; unauthenticated probes of `/UserViews`, `/Items`, `/Items/Filters2`,
+`/Items/Latest`, `/MediaSegments/{id}`, `/Sessions`, and POST PlaybackInfo all
+reached registered routes and returned `401`, not `404`. The Jellyfin 12 target
+was also validated structurally against the pinned OpenAPI. A credentialed
+12.0 release-candidate/final payload run still requires the operator-owned
+media fixture described below.
 
 ### Silo compatibility deployment
 
@@ -160,9 +197,9 @@ Shared assumptions:
 - `JellyfinAuthenticator` expects `AccessToken`, `User.Id`, and `User.Name`.
 - Lists generally use `{ "Items": [...], "TotalRecordCount": n }`.
 - Jellyfin time is in 100-nanosecond ticks. Ticks must not escape the Jellyfin adapter.
-- Current image, stream, subtitle, and trickplay URLs may contain `api_key`; provider artwork/playback boundaries replace persistent token-bearing URLs with opaque request descriptors.
+- Current stream, subtitle, and trickplay URLs passed to external consumers use the supported `ApiKey` query fallback; provider artwork/playback boundaries replace persistent token-bearing URLs with opaque request descriptors and remove deprecated token aliases.
 - Bloom derives the home continue-watching rail from Next Up items whose `UserData.PlaybackPositionTicks` is positive.
-- Application logout is currently local. `SessionService` uses `/Sessions/{id}/Logout` only for remote-session revocation; native Silo uses its caller-logout/auth-session routes.
+- Application logout is currently local. For Jellyfin remote-session revocation, `SessionService` resolves the selected session to a device and uses `DELETE /Devices?id=...`; native Silo uses its caller-logout/auth-session routes.
 
 
 ## Compatibility results
@@ -175,7 +212,7 @@ This is the human-readable summary. Exact call sites, required semantics, and ev
 | Views, items, item details | Supported | Partial | Core browsing works; some optional fields/advanced query parameters are absent or ignored. |
 | Latest, Next Up, search | Supported | Supported | Home and basic search should populate. |
 | Paging and basic sort/type filters | Supported | Supported | Core library navigation works. |
-| Advanced item filters | Supported | Partial | `Items/Filters` and Studios are stubs; genre identity differs; UI choices can silently do nothing. |
+| Advanced item filters | Supported | Partial | Bloom uses OpenAPI-listed `Items/Filters2`; compatibility filter/studio support remains partial and genre identity differs. |
 | Standard item artwork | Supported | Supported | Posters/backdrops/thumbs/logos work. |
 | Chapter image route | Supported | Missing | Chapter thumbnails fail even though chapter metadata may exist. |
 | `POST /Items/{id}/PlaybackInfo` | Supported | Partial | Direct/HLS playback works through a permissive fallback profile; negotiation is not Bloom-specific. |
@@ -185,10 +222,9 @@ This is the human-readable summary. Exact call sites, required semantics, and ev
 | `/Sessions/Playing*` reporting | Supported | Partial | Resume/progress and teardown work; some Bloom payload fields are ignored. |
 | Played/favorite mutations | Supported | Supported | User-state controls work. |
 | `/Items/{id}/Ancestors` | Supported | Missing | Episodic library/profile context resolution degrades. |
-| Plugin `/Episode/{id}/IntroSkipperSegments` | Optional/partial | Missing | Bloom misses Silo's native markers and falls back to external providers. |
-| Standard `/MediaSegments/{id}` | Supported | Supported | Silo exposes markers, but Bloom does not yet call this route. |
+| Standard `/MediaSegments/{id}` | Supported | Supported | Bloom consumes core server markers, then lets external providers fill only missing segment types. |
 | `GET /Sessions` | Supported | Stubbed | Active Sessions is empty. |
-| `/Sessions/{id}/Logout` | Supported | Missing | Remote revocation fails; Silo only has caller logout at `/Sessions/Logout`. |
+| `DELETE /Devices?id=...` | Supported | Missing | Jellyfin remote revocation removes the selected device; Silo uses its native authentication-session API instead. |
 | Provider IDs | Supported | Missing | `ProviderIds` is omitted from serialized details, weakening Seerr and external metadata/segment matching. |
 | Theme songs | Supported | Stubbed | Series theme songs are unavailable. |
 | External subtitle `DeliveryUrl` | Partial in Bloom | Partial in Bloom | Servers can advertise it; Bloom currently drops the URL before playback. |
