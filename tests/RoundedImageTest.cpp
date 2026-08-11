@@ -81,10 +81,13 @@ void RoundedImageTest::modesUseOneBaseLoadAndLazyPrerender()
     QQmlEngine engine;
     QQmlComponent component(&engine);
     QByteArray qmlSource = qmlFile.readAll();
+    // The Windows checkout may preserve CRLF in QML sources. Insert the
+    // auxiliary import independently of the source line ending so the test
+    // exercises the same registered type on every platform.
     qmlSource.replace(
-        QByteArrayLiteral("import QtQuick\n"),
+        QByteArrayLiteral("import QtQuick"),
         QByteArrayLiteral(
-            "import QtQuick\nimport BloomInternal 1.0 as BloomInternal\n"));
+            "import QtQuick\nimport BloomInternal 1.0 as BloomInternal"));
     qmlSource.replace(
         QByteArrayLiteral("            SoftwareRoundedImage {"),
         QByteArrayLiteral("            BloomInternal.SoftwareRoundedImage {"));
