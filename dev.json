@@ -1,22 +1,6 @@
 {
-  "build_id": "20260811065028-74f1921",
-  "channel": "dev",
-  "installer": {
-    "filename": "Bloom-Setup-dev.exe",
-    "sha256": "3bb0e06fe89b02cca51e5a278a05b11452a5b7fb40eda76f54cf3a81ca9c7ba9",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Setup-dev.exe"
-  },
-  "notes": "Latest development build from the `main` branch.\n\n- Build ID: `20260811065028-74f1921`\n- Commit: `74f1921f2321f6aac3b7103da64c8e48b67923ca`\n- Base version: `0.8.0`\n- Built: `2026-08-11T07:05:51Z`",
-  "portable": {
-    "filename": "Bloom-Windows.zip",
-    "sha256": "38610da76f5c3617158c77e5c84e74fa7a24efdd57743f5d2bd8b7d33114a515",
-    "url": "https://github.com/crowquillx/Bloom/releases/download/dev-latest/Bloom-Windows.zip"
-  },
-  "published_at": "2026-08-11T07:05:51Z",
-  "release_tag": "dev-latest",
-  "rollout": {
-    "enabled": true,
-    "minimum_supported_version": "0.8.0"
-  },
-  "version": "0.8.0"
+  "key_id": "bloom-update-2026-08",
+  "payload": "eyJidWlsZF9pZCI6IjIwMjYwODExMDgxNzUzLTYzOWRlMmMiLCJjaGFubmVsIjoiZGV2IiwiaW5zdGFsbGVyIjp7ImZpbGVuYW1lIjoiQmxvb20tU2V0dXAtZGV2LmV4ZSIsInNoYTI1NiI6IjkyMjFhOGQzMWI4NmVhMzA3OTMyMmRlMDBiMTgzNGQ4NTY1OGIzZmNlMWI2NjI2YTc1YjIwNjg0Mjk4YzY3ZmUiLCJ1cmwiOiJodHRwczovL2dpdGh1Yi5jb20vY3Jvd3F1aWxseC9CbG9vbS9yZWxlYXNlcy9kb3dubG9hZC9kZXYtbGF0ZXN0L0Jsb29tLVNldHVwLWRldi5leGUifSwibm90ZXMiOiJMYXRlc3QgZGV2ZWxvcG1lbnQgYnVpbGQgZnJvbSB0aGUgYG1haW5gIGJyYW5jaC5cblxuLSBCdWlsZCBJRDogYDIwMjYwODExMDgxNzUzLTYzOWRlMmNgXG4tIENvbW1pdDogYDYzOWRlMmNkMjE0YzEzYzRkNTgxYzQzNzRmMTllZGY2MWMyYWM5NTNgXG4tIEJhc2UgdmVyc2lvbjogYDAuOC4wYFxuLSBCdWlsdDogYDIwMjYtMDgtMTFUMDg6Mzg6MjZaYCIsInBvcnRhYmxlIjp7ImZpbGVuYW1lIjoiQmxvb20tV2luZG93cy56aXAiLCJzaGEyNTYiOiIxZjRjNWU5OGEwNjEyZjgxZjU1ZTM4YmI4MzViYTQzYTY0ZDBmNDIyNmVhNmMwMTZkNWZlMGRmMGUxMTYwZjVlIiwidXJsIjoiaHR0cHM6Ly9naXRodWIuY29tL2Nyb3dxdWlsbHgvQmxvb20vcmVsZWFzZXMvZG93bmxvYWQvZGV2LWxhdGVzdC9CbG9vbS1XaW5kb3dzLnppcCJ9LCJwdWJsaXNoZWRfYXQiOiIyMDI2LTA4LTExVDA4OjM4OjI2WiIsInJlbGVhc2VfdGFnIjoiZGV2LWxhdGVzdCIsInJvbGxvdXQiOnsiZW5hYmxlZCI6dHJ1ZSwibWluaW11bV9zdXBwb3J0ZWRfdmVyc2lvbiI6IjAuOC4wIn0sInZlcnNpb24iOiIwLjguMCJ9",
+  "schema": 2,
+  "signature": "Wk4BL2R1MnJDhMizRInTCOaefKcgu03s8HD9awbL4t93sgIXMlYBDiB5MIFmyn8O3R1g581cxsCOTwhu14QsDg=="
 }
