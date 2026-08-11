@@ -239,7 +239,8 @@ private:
     /**
      * @brief Shared cache write helper for original and derived assets.
      */
-    QString saveDataForKey(const QString &urlKey, const QByteArray &data);
+    QString saveDataForKeyIfCurrent(const QString &urlKey, const QByteArray &data,
+                                    quint64 generation);
     
     /**
      * @brief Get the network manager owned by the provider thread.
@@ -269,6 +270,7 @@ private:
     QThreadPool m_threadPool;
 
     std::atomic<quint64> m_cacheGeneration{1};
+    QMutex m_cacheMutationMutex;
     QHash<QString, ImageLoadJob *> m_inFlightImages;
 
     std::atomic<quint64> m_imageHits{0};
@@ -278,6 +280,7 @@ private:
     std::atomic<quint64> m_decodedImages{0};
     std::atomic<quint64> m_totalDecodeLatencyMs{0};
     std::atomic<quint64> m_roundedGenerations{0};
+    std::atomic<quint64> m_activeRoundedTasks{0};
     
     struct RoundedVariantRequest {
         int radiusPx;

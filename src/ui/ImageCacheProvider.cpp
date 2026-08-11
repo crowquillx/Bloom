@@ -124,7 +124,7 @@ public:
     {
         m_deadline.setSingleShot(true);
         connect(&m_deadline, &QTimer::timeout, this, [this]() {
-            finish({}, QStringLiteral("Image network request timed out"));
+            finish({}, QStringLiteral("Image request timed out"));
         });
     }
 
@@ -215,6 +215,11 @@ private:
                         if (!guard) {
                             return;
                         }
+                        if (guard->m_finished
+                            || guard->m_provider->m_cacheGeneration.load()
+                                != guard->m_cacheGeneration) {
+                            return;
+                        }
                         guard->recordDecode(scaled, latencyMs);
                         if (scaled.isNull()
                             || scaled.sizeInBytes()
@@ -271,7 +276,8 @@ private:
                 [this, watcher]() {
                     const DiskResult result = watcher->result();
                     watcher->deleteLater();
-                    if (m_finished) {
+                    if (m_finished
+                        || m_provider->m_cacheGeneration.load() != m_cacheGeneration) {
                         return;
                     }
                     if (!result.image.isNull()) {
@@ -399,6 +405,7 @@ private:
             return;
         }
 
+        m_deadline.start(m_provider->m_requestLimits.networkDeadlineMs);
         const QPointer<ImageLoadJob> guard(this);
         m_provider->m_artworkProvider->refreshArtwork(
             artwork,
@@ -440,9 +447,9 @@ private:
                 DecodedImage result = decodeBytes(
                     data, requestedSize, maximumDecodedBytes);
                 QString path;
-                if (!result.image.isNull() && store
-                    && provider->m_cacheGeneration.load() == generation) {
-                    path = store->write(cacheKey, data);
+                if (!result.image.isNull() && store) {
+                    path = provider->saveDataForKeyIfCurrent(
+                        cacheKey, data, generation);
                 }
                 if (!guard) {
                     return;
@@ -451,6 +458,11 @@ private:
                     guard,
                     [guard, result = std::move(result), path = std::move(path)]() mutable {
                         if (!guard) {
+                            return;
+                        }
+                        if (guard->m_finished
+                            || guard->m_provider->m_cacheGeneration.load()
+                                != guard->m_cacheGeneration) {
                             return;
                         }
                         guard->recordDecode(result.image, result.latencyMs);
@@ -817,12 +829,18 @@ QString ImageCacheProvider::getCachedPath(const QString &url, qint64 *revision)
     return result.path;
 }
 
-QString ImageCacheProvider::saveDataForKey(const QString &urlKey, const QByteArray &data)
+QString ImageCacheProvider::saveDataForKeyIfCurrent(const QString &urlKey,
+                                                    const QByteArray &data,
+                                                    quint64 generation)
 {
     if (data.isEmpty()) {
         return QString();
     }
-    
+
+    QMutexLocker mutationLock(&m_cacheMutationMutex);
+    if (m_cacheGeneration.load() != generation) {
+        return QString();
+    }
     const QString filepath = m_store ? m_store->write(urlKey, data) : QString();
     if (filepath.isEmpty()) {
         return QString();
@@ -957,13 +975,17 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
         }
         if (emitSignal) {
             QString fileUrl = QUrl::fromLocalFile(existing).toString();
-            QMetaObject::invokeMethod(this, [this, url, fileUrl]() {
-                emit roundedImageReady(url, fileUrl);
+            QMetaObject::invokeMethod(this, [this, url, fileUrl, generation]() {
+                if (m_cacheGeneration.load() == generation
+                    && QFile::exists(QUrl(fileUrl).toLocalFile())) {
+                    emit roundedImageReady(url, fileUrl);
+                }
             }, Qt::QueuedConnection);
         }
         return;
     }
 
+    ++m_activeRoundedTasks;
     auto future = QtConcurrent::run(&m_threadPool, [this, url, key, sourcePath,
                                                     radiusPx, targetSize, emitSignal,
                                                     generation]() {
@@ -972,7 +994,7 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
             sourcePath, radiusPx, targetSize, roundedBytes);
         QString destPath;
         if (rendered && m_cacheGeneration.load() == generation) {
-            destPath = saveDataForKey(key, roundedBytes);
+            destPath = saveDataForKeyIfCurrent(key, roundedBytes, generation);
             if (!destPath.isEmpty()) {
                 ++m_roundedGenerations;
             }
@@ -985,10 +1007,14 @@ void ImageCacheProvider::scheduleRoundedVariant(const QString &url, const QStrin
         }
         if (emitSignal && !destPath.isEmpty()) {
             QString fileUrl = QUrl::fromLocalFile(destPath).toString();
-            QMetaObject::invokeMethod(this, [this, url, fileUrl]() {
-                emit roundedImageReady(url, fileUrl);
+            QMetaObject::invokeMethod(this, [this, url, fileUrl, generation]() {
+                if (m_cacheGeneration.load() == generation
+                    && QFile::exists(QUrl(fileUrl).toLocalFile())) {
+                    emit roundedImageReady(url, fileUrl);
+                }
             }, Qt::QueuedConnection);
         }
+        --m_activeRoundedTasks;
     });
     Q_UNUSED(future);
 }
@@ -1092,6 +1118,7 @@ void ImageCacheProvider::clearCache()
         m_roundedInFlight.clear();
     }
     if (m_store) {
+        QMutexLocker mutationLock(&m_cacheMutationMutex);
         m_store->clear();
     }
     
@@ -1147,6 +1174,8 @@ QVariantMap ImageCacheProvider::cacheStats() const
         result.insert(QStringLiteral("inFlightRoundedJobs"),
                       m_roundedInFlight.size());
     }
+    result.insert(QStringLiteral("activeRoundedTasks"),
+                  QVariant::fromValue(m_activeRoundedTasks.load()));
     return result;
 }
 

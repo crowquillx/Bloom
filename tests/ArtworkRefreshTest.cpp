@@ -161,6 +161,32 @@ public:
     mutable int refreshCount = 0;
 };
 
+class HangingArtworkProvider final : public IArtworkProvider
+{
+public:
+    explicit HangingArtworkProvider(ScriptedHttpServer *server)
+        : m_server(server)
+    {
+    }
+
+    std::optional<QNetworkRequest> resolveArtwork(
+        const Bloom::ArtworkRef &) const override
+    {
+        return QNetworkRequest(m_server->url(QStringLiteral("/expired.jpg")));
+    }
+
+    void refreshArtwork(const Bloom::ArtworkRef &,
+                        RefreshCallback) const override
+    {
+        ++refreshCount;
+    }
+
+    mutable int refreshCount = 0;
+
+private:
+    ScriptedHttpServer *m_server;
+};
+
 class ExposedJellyfinAuthenticationService final : public AuthenticationService
 {
 public:
@@ -222,7 +248,9 @@ private slots:
     void terminalSignalAllowsImmediateResubscribe();
     void lastSubscriberCancellationClearsPendingState();
     void clearCancelsJobsWithoutStaleWrites();
+    void clearCancelsRoundedGenerationWithoutStaleWrites();
     void networkDeadlineIsBounded();
+    void artworkRefreshDeadlineIsBounded();
     void networkResponseSizeIsBounded();
     void decodedMemoryIsBounded();
     void authorizationFailureRefreshesExactlyOnce_data();
@@ -554,6 +582,40 @@ void ArtworkRefreshTest::clearCancelsJobsWithoutStaleWrites()
     delete retry;
 }
 
+void ArtworkRefreshTest::clearCancelsRoundedGenerationWithoutStaleWrites()
+{
+    ScriptedHttpServer server;
+    server.statuses = {200};
+    server.bodies = {pngBytes(QSize(512, 512))};
+    QVERIFY(server.start());
+
+    ImageCacheProvider cache(20);
+    cache.setRoundedPreprocessEnabled(false);
+    const QString identity = server.url(QStringLiteral("/rounded-clear.png")).toString();
+    QPointer<QQuickImageResponse> base(
+        cache.requestImageResponse(identity, QSize()));
+    QSignalSpy baseSpy(base, &QQuickImageResponse::finished);
+    QTRY_COMPARE_WITH_TIMEOUT(baseSpy.count(), 1, 3000);
+    QVERIFY(base->errorString().isEmpty());
+    QVERIFY(cache.currentCacheSize() > 0);
+
+    cache.setRoundedPreprocessEnabled(true);
+    QSignalSpy roundedSpy(&cache, &ImageCacheProvider::roundedImageReady);
+    QCOMPARE(cache.requestRoundedImage(identity, 24, 1536, 1536), QString());
+    QTRY_COMPARE_WITH_TIMEOUT(
+        cache.cacheStats().value(QStringLiteral("inFlightRoundedJobs")).toInt(), 1, 1000);
+    QTest::qWait(10);
+    cache.clearCache();
+    QTRY_COMPARE_WITH_TIMEOUT(
+        cache.cacheStats().value(QStringLiteral("activeRoundedTasks")).toULongLong(),
+        quint64(0), 3000);
+
+    QCOMPARE(cache.currentCacheSize(), qint64(0));
+    QCOMPARE(roundedSpy.count(), 0);
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("inFlightRoundedJobs")).toInt(), 0);
+    delete base;
+}
+
 void ArtworkRefreshTest::networkDeadlineIsBounded()
 {
     ScriptedHttpServer server;
@@ -572,6 +634,29 @@ void ArtworkRefreshTest::networkDeadlineIsBounded()
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1000);
     QVERIFY(response->errorString().contains(QStringLiteral("timed out")));
     QCOMPARE(server.requestTargets.size(), 1);
+    delete response;
+}
+
+void ArtworkRefreshTest::artworkRefreshDeadlineIsBounded()
+{
+    ScriptedHttpServer server;
+    server.statuses = {401};
+    QVERIFY(server.start());
+
+    HangingArtworkProvider artworkProvider(&server);
+    ImageRequestLimits limits;
+    limits.networkDeadlineMs = 40;
+    ImageCacheProvider cache(1, &artworkProvider, limits);
+    cache.setRoundedPreprocessEnabled(false);
+    const Bloom::ArtworkRef artwork = artworkRef();
+    QPointer<QQuickImageResponse> response(
+        cache.requestImageResponse(artwork.cacheKey(), QSize()));
+    QSignalSpy finishedSpy(response, &QQuickImageResponse::finished);
+
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, 1000);
+    QCOMPARE(artworkProvider.refreshCount, 1);
+    QVERIFY(response->errorString().contains(QStringLiteral("timed out")));
+    QCOMPARE(cache.cacheStats().value(QStringLiteral("inFlightImageJobs")).toInt(), 0);
     delete response;
 }
 
