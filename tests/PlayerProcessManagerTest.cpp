@@ -369,7 +369,9 @@ void PlayerProcessManagerTest::ipcReconnectAttemptsAreBounded()
 
 void PlayerProcessManagerTest::pendingCommandsAreBounded()
 {
-    PlayerProcessManager manager(fastOptions());
+    PlayerProcessOptions options = fastOptions();
+    options.ipcConnectionDeadlineMs = 10000;
+    PlayerProcessManager manager(options);
     QSignalSpy startedSpy(&manager, &PlayerProcessManager::startupLatencyMeasured);
     manager.startMpv(QCoreApplication::applicationFilePath(),
                      fakeArguments({}, {QStringLiteral("--fake-no-ipc")}),

@@ -702,16 +702,48 @@ bool PlayerController::tryFallbackToExternalBackend(const QString &reason)
     m_attemptedLinuxEmbeddedFallback = true;
     qCWarning(lcPlayback) << "Embedded Linux backend failed; switching to external-mpv-ipc. Reason:" << reason;
 
-    QObject::disconnect(m_playerBackend, nullptr, this, nullptr);
+    m_backendFallbackSource = m_playerBackend;
     if (m_playerBackend->isRunning()) {
         m_playerBackend->stopMpv();
     }
+    if (!m_backendFallbackSource || !m_backendFallbackSource->isRunning()) {
+        queueBackendFallbackFinalization();
+    }
 
-    #if defined(BLOOM_TESTING)
+    return true;
+}
+
+void PlayerController::queueBackendFallbackFinalization()
+{
+    if (!m_backendFallbackSource || m_backendFallbackFinalizationQueued) {
+        return;
+    }
+    m_backendFallbackFinalizationQueued = true;
+    const QPointer<IPlayerBackend> source = m_backendFallbackSource;
+    QMetaObject::invokeMethod(this, [this, source]() {
+        m_backendFallbackFinalizationQueued = false;
+        if (!source || source != m_backendFallbackSource
+            || source != m_playerBackend || source->isRunning()) {
+            return;
+        }
+        finalizeBackendFallback();
+    }, Qt::QueuedConnection);
+}
+
+void PlayerController::finalizeBackendFallback()
+{
+    IPlayerBackend *source = m_backendFallbackSource;
+    if (!source || source != m_playerBackend || source->isRunning()) {
+        return;
+    }
+    QObject::disconnect(source, nullptr, this, nullptr);
+    m_backendFallbackSource.clear();
+
+#if defined(BLOOM_TESTING)
     m_ownedBackend = std::make_unique<NullPlayerBackend>(this);
-    #else
+#else
     m_ownedBackend = std::make_unique<ExternalMpvBackend>(this);
-    #endif
+#endif
 
     m_playerBackend = m_ownedBackend.get();
     connectBackendSignals(m_playerBackend);
@@ -721,8 +753,6 @@ bool PlayerController::tryFallbackToExternalBackend(const QString &reason)
         qCInfo(lcPlayback) << "Retrying current media with external-mpv-ipc fallback backend";
         initiateMpvStart();
     }
-
-    return true;
 }
 
 void PlayerController::setupStateMachine()
@@ -1292,6 +1322,13 @@ void PlayerController::onProcessStateChanged(bool running)
                                 << "terminalActive=" << m_terminalTransitionActive
                                 << "backendStopRequested=" << m_backendStopRequested;
 
+        if (m_backendFallbackSource == m_playerBackend) {
+            qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                    << "] embedded-backend stop confirmed for fallback";
+            queueBackendFallbackFinalization();
+            return;
+        }
+
         if (m_suppressBackendStopHandling) {
             qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                     << "] backend-stop ignored during replacement playback";
@@ -1318,9 +1355,14 @@ void PlayerController::onProcessError(const QString &error)
                                << "] process-error"
                                << error;
 
-    if (error.startsWith(QStringLiteral("linux-libmpv-render-unavailable"))
-        && tryFallbackToExternalBackend(error)) {
-        return;
+    if (error.startsWith(QStringLiteral("linux-libmpv-render-unavailable"))) {
+        if (m_backendFallbackSource == m_playerBackend) {
+            qCInfo(lcPlayback) << "Ignoring repeated embedded-render failure while fallback shutdown completes";
+            return;
+        }
+        if (tryFallbackToExternalBackend(error)) {
+            return;
+        }
     }
 
     setWaitingForRemoteMountInitialCache(false);

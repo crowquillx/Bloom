@@ -30,7 +30,7 @@ public:
 
     QString backendName() const override
     {
-        return QStringLiteral("fake-backend");
+        return backendNameValue;
     }
 
     void startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl) override
@@ -51,6 +51,9 @@ public:
     {
         ++stopCallCount;
         if (!m_running) {
+            return;
+        }
+        if (keepRunningUntilStopCompletion) {
             return;
         }
         m_running = false;
@@ -100,6 +103,8 @@ private:
 
 public:
     bool emitStopStateChangeSynchronously = true;
+    bool keepRunningUntilStopCompletion = false;
+    QString backendNameValue = QStringLiteral("fake-backend");
     int stopCallCount = 0;
     QList<QVariantList> variantCommands;
     QList<QStringList> commands;
@@ -110,6 +115,17 @@ public:
     void setRunning(bool running)
     {
         m_running = running;
+    }
+
+    void completeStop()
+    {
+        m_running = false;
+        emit stateChanged(false);
+    }
+
+    void emitError(const QString &error)
+    {
+        emit errorOccurred(error);
     }
 
     void emitAudioTrackId(int mpvTrackId)
@@ -538,6 +554,7 @@ private slots:
     void recoverableBackendStreamErrorStartsRecovery();
     void recoverableErrorAfterBackendStopUpgradesTerminalTransition();
     void backendStopWithoutRecoverableErrorGoesIdle();
+    void embeddedFallbackWaitsForAsynchronousBackendStop();
     void playbackInfoDirectStreamUrlIsPreferred();
     void multipartIntermediateEndIsIgnoredUntilFinalSegment();
     void versionAffinityPrefersMatchingParentPath();
@@ -3271,6 +3288,47 @@ void PlayerControllerAutoplayContextTest::backendStopWithoutRecoverableErrorGoes
     QVERIFY(!controller.m_recoveryContext.valid);
     QVERIFY(!controller.m_isRecovering);
     QVERIFY(!controller.isPlaybackActive());
+}
+
+void PlayerControllerAutoplayContextTest::embeddedFallbackWaitsForAsynchronousBackendStop()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    backend.backendNameValue = QStringLiteral("linux-libmpv-opengl");
+    backend.keepRunningUntilStopCompletion = true;
+    backend.setRunning(true);
+
+    PlayerController controller(&backend,
+                                &config,
+                                &trackPrefs,
+                                &displayManager,
+                                &playbackService,
+                                &libraryService,
+                                &authService);
+    controller.m_playbackState = PlayerController::Loading;
+    controller.m_pendingUrl = QStringLiteral("https://example.invalid/fallback-media");
+
+    backend.emitError(QStringLiteral("linux-libmpv-render-unavailable: test failure"));
+
+    QCOMPARE(backend.stopCallCount, 1);
+    QCOMPARE(controller.m_playerBackend, &backend);
+    QCOMPARE(controller.m_backendFallbackSource.data(), &backend);
+    backend.emitError(QStringLiteral("linux-libmpv-render-unavailable: repeated failure"));
+    QCOMPARE(backend.stopCallCount, 1);
+    QCOMPARE(controller.playbackState(), PlayerController::Loading);
+    QCoreApplication::processEvents();
+    QCOMPARE(controller.m_playerBackend, &backend);
+
+    backend.completeStop();
+    QTRY_VERIFY(controller.m_playerBackend != &backend);
+    QCOMPARE(controller.m_playerBackend->backendName(), QStringLiteral("null-backend"));
+    QVERIFY(controller.m_backendFallbackSource.isNull());
+    QCOMPARE(controller.playbackState(), PlayerController::Loading);
 }
 
 void PlayerControllerAutoplayContextTest::playbackInfoDirectStreamUrlIsPreferred()

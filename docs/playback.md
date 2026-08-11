@@ -101,7 +101,7 @@ Key components
 - LinuxMpvBackend: Linux embedded backend entry point.
 - LinuxMpvBackend now includes basic `mpv_handle` lifecycle, property/event observation, and a Qt Quick `beforeRendering`-driven `mpv_render_context` render path (Linux runtime validation still pending).
 - MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
-- PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir through the reusable `Bloom::PlayerProcess` production target. Observes `time-pos`, `duration`, `pause`, `aid`, and `sid` properties.
+- PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir through the reusable `Bloom::PlayerProcess` production target. Observes `time-pos`, `duration`, `pause`, `aid`, `sid`, `paused-for-cache`, `volume`, `mute`, `playlist-pos`, `playlist-count`, `demuxer-cache-time`, and `audio-device-list`.
 - PlayerController: provider-neutral state machine that handles play/pause/resume, listens for backend updates, manages track selection, and sends canonical playback state through `PlaybackService`.
 - `IPlaybackProvider` / `JellyfinPlaybackProvider` / `SiloPlaybackProvider`: finalize provider PlaybackInfo into Bloom `PlaybackDescriptor` values and serialize canonical playback reports into provider endpoints and wire payloads. Silo uses its pinned legacy native envelope; Jellyfin retains its synchronous descriptor path.
 - `PlaybackService`: stable application façade for playback preparation and reporting transport; its public timing contract uses milliseconds.
@@ -127,6 +127,11 @@ Windows uses an equivalently unique named pipe. Bloom intentionally supports
 multiple application instances and therefore does not enforce an app-wide
 single-instance lock; independent endpoints prevent their external mpv
 processes from colliding.
+
+When Linux embedded rendering fails, `PlayerController` keeps that backend
+alive until its asynchronous stopped signal arrives, then replaces it with the
+external-mpv backend on the next event-loop turn. Repeated render errors during
+that shutdown do not start overlapping fallback or terminal transitions.
 
 IPC connection and reconnection are asynchronous. The default connection
 window is 5 seconds with 100 ms per-attempt retry pacing and at most 50
