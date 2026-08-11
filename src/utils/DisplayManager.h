@@ -108,6 +108,7 @@ private:
     bool m_hasCapturedOriginalHDRState = false;
     quint64 m_operationGeneration = 0;
     QPointer<QProcess> m_commandProcess;
+    quintptr m_commandJobHandle = 0;
     QTimer m_commandDeadlineTimer;
     QElapsedTimer m_operationElapsed;
     QByteArray m_commandStandardError;

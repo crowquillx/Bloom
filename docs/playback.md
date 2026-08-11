@@ -62,9 +62,10 @@ Display/HDR operation lifecycle
   switch.
 - Linux refresh/HDR commands and Windows custom HDR commands run through an
   event-driven `QProcess` with a 5-second deadline and separately capped 64 KiB
-  stdout/stderr buffers. Command contents are not logged. Native Windows HDR
-  and refresh APIs run off the GUI thread and have the same controller-visible
-  deadline.
+  stdout/stderr buffers. Their descendant processes are isolated as a Unix
+  process group or Windows job so cancellation terminates the complete command
+  tree. Command contents are not logged. Native Windows HDR and refresh APIs run
+  off the GUI thread and have the same controller-visible deadline.
 - A single operation generation invalidates stale command and native-operation
   completions. Starting another episode cancels in-flight restoration and then
   reconciles the actual desired HDR/refresh state before mpv starts. The

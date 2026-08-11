@@ -54,6 +54,39 @@ QThreadPool *nativeDisplayThreadPool()
     }();
     return pool;
 }
+
+quintptr createCommandJob()
+{
+    HANDLE job = CreateJobObjectW(nullptr, nullptr);
+    if (job == nullptr) {
+        return 0;
+    }
+
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits = {};
+    limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+    if (!SetInformationJobObject(job, JobObjectExtendedLimitInformation,
+                                 &limits, sizeof(limits))) {
+        CloseHandle(job);
+        return 0;
+    }
+    return reinterpret_cast<quintptr>(job);
+}
+
+bool assignCommandToJob(QProcess *process, quintptr jobHandle)
+{
+    if (process == nullptr || process->processId() <= 0 || jobHandle == 0) {
+        return false;
+    }
+    HANDLE child = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE,
+                               FALSE, DWORD(process->processId()));
+    if (child == nullptr) {
+        return false;
+    }
+    const bool assigned = AssignProcessToJobObject(
+        reinterpret_cast<HANDLE>(jobHandle), child) != FALSE;
+    CloseHandle(child);
+    return assigned;
+}
 #endif
 
 QString hdrCommand(QString commandTemplate, bool enabled)
@@ -97,11 +130,34 @@ bool isCadenceCompatible(double currentHz, double targetHz)
     return qAbs(ratio - static_cast<double>(nearestIntegerMultiple)) <= 0.01;
 }
 
-void killProcessTree(QProcess *process)
+void closeCommandJob(quintptr *jobHandle, bool terminate)
+{
+#ifdef Q_OS_WIN
+    if (jobHandle != nullptr && *jobHandle != 0) {
+        HANDLE job = reinterpret_cast<HANDLE>(*jobHandle);
+        if (terminate) {
+            (void) TerminateJobObject(job, 1);
+        }
+        CloseHandle(job);
+        *jobHandle = 0;
+    }
+#else
+    Q_UNUSED(jobHandle);
+    Q_UNUSED(terminate);
+#endif
+}
+
+void killProcessTree(QProcess *process, quintptr *jobHandle)
 {
     if (process == nullptr) {
         return;
     }
+#ifdef Q_OS_WIN
+    if (jobHandle != nullptr && *jobHandle != 0) {
+        closeCommandJob(jobHandle, true);
+        return;
+    }
+#endif
 #ifdef Q_OS_UNIX
     const qint64 processId = process->processId();
     if (processId > 0
@@ -381,7 +437,7 @@ DisplayManager::DisplayManager(ConfigManager *config,
         qCWarning(lcDisplayTrace) << "Display operation exceeded its deadline"
                                   << "operation=" << operation
                                   << "deadlineMs=" << m_options.commandDeadlineMs;
-        killProcessTree(process);
+        killProcessTree(process, &m_commandJobHandle);
         recordOperationResult(operation, elapsed, false, true);
         if (completion) {
             completion(false, true);
@@ -507,7 +563,7 @@ void DisplayManager::cancelCommandProcess()
     process->setParent(nullptr);
     connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             process, &QObject::deleteLater);
-    killProcessTree(process);
+    killProcessTree(process, &m_commandJobHandle);
 }
 
 void DisplayManager::cancelPendingOperations()
@@ -543,6 +599,19 @@ void DisplayManager::startExternalCommand(const QString &operation,
     // running after replacement playback has started.
     process->setChildProcessModifier([]() {
         (void) ::setpgid(0, 0);
+    });
+#endif
+#ifdef Q_OS_WIN
+    m_commandJobHandle = createCommandJob();
+    connect(process, &QProcess::started, this, [this, process]() {
+        if (process != m_commandProcess || m_commandJobHandle == 0) {
+            return;
+        }
+        if (!assignCommandToJob(process, m_commandJobHandle)) {
+            qCWarning(lcDisplayTrace)
+                << "Could not isolate external display command in a Windows job";
+            closeCommandJob(&m_commandJobHandle, false);
+        }
     });
 #endif
     m_commandProcess = process;
@@ -609,6 +678,7 @@ void DisplayManager::finishExternalCommand(QProcess *process,
     };
     appendRemaining(process->readAllStandardOutput(), &m_commandStandardOutput);
     appendRemaining(process->readAllStandardError(), &m_commandStandardError);
+    closeCommandJob(&m_commandJobHandle, false);
     m_commandProcess.clear();
     process->deleteLater();
     m_activeOperation.clear();
