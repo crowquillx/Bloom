@@ -408,7 +408,17 @@ jobs:
           INSTALLER: ${{ steps.release.outputs.installer }}
           NOTES_FILE: ${{ steps.release.outputs.notes_file }}
           PUBLISHED_AT: ${{ steps.release.outputs.published_at }}
+          MANIFEST_SIGNING_KEY_B64: ${{ secrets.BLOOM_UPDATE_MANIFEST_SIGNING_KEY_B64 }}
         run: |
+          set -euo pipefail
+          if [[ -z "$MANIFEST_SIGNING_KEY_B64" ]]; then
+            echo "BLOOM_UPDATE_MANIFEST_SIGNING_KEY_B64 is not configured" >&2
+            exit 1
+          fi
+          SIGNING_KEY_FILE="$RUNNER_TEMP/bloom-update-signing-key.pem"
+          trap 'shred -u "$SIGNING_KEY_FILE" 2>/dev/null || rm -f "$SIGNING_KEY_FILE"' EXIT
+          install -m 600 /dev/null "$SIGNING_KEY_FILE"
+          printf '%s' "$MANIFEST_SIGNING_KEY_B64" | base64 --decode > "$SIGNING_KEY_FILE"
           PORTABLE="Bloom-Windows.zip"
           INSTALLER_HASH="$(sha256sum "release-assets/$INSTALLER" | cut -d' ' -f1)"
           PORTABLE_HASH="$(sha256sum "release-assets/$PORTABLE" | cut -d' ' -f1)"
@@ -426,6 +436,8 @@ jobs:
             --portable-filename "$PORTABLE" \
             --portable-sha256 "$PORTABLE_HASH" \
             --minimum-supported-version "$VERSION" \
+            --key-id "bloom-update-2026-08" \
+            --signing-key-file "$SIGNING_KEY_FILE" \
             --output "$CHANNEL.json"
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
       - name: Publish update manifest

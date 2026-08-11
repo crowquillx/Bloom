@@ -13,14 +13,6 @@ add_test(
         ${CMAKE_CURRENT_SOURCE_DIR}/contracts/canonical_boundary_test.py
 )
 
-set(UPDATER_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateProvider.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/IUpdateApplier.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/GitHubReleaseUpdateProvider.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/UpdateService.cpp
-    ${CMAKE_SOURCE_DIR}/src/updates/WindowsNsisUpdateApplier.cpp
-)
-
 set(TEST_LOGGING_SOURCES
     ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
 )
@@ -95,6 +87,10 @@ list(REMOVE_DUPLICATES BLOOM_LINKED_PRODUCTION_SOURCES)
 
 function(bloom_use_production_libraries test_target)
     get_target_property(test_sources ${test_target} SOURCES)
+    set(application_initializer_source ${CMAKE_SOURCE_DIR}/src/core/ApplicationInitializer.cpp)
+    if(application_initializer_source IN_LIST test_sources)
+        target_link_libraries(${test_target} PRIVATE Bloom::Updater)
+    endif()
     set(image_cache_provider_source ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheProvider.cpp)
     set(image_cache_store_source ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp)
     if(image_cache_provider_source IN_LIST test_sources
@@ -859,8 +855,6 @@ add_test(NAME UpNextRecommendationsViewModelTest COMMAND UpNextRecommendationsVi
 add_executable(UpdateServiceTest
     UpdateServiceTest.cpp
     PlayerControllerPlaybackStateStub.cpp
-    ${UPDATER_SOURCES}
-    ${TEST_CONFIG_SOURCES}
 )
 
 target_include_directories(UpdateServiceTest PRIVATE
@@ -874,13 +868,19 @@ target_link_libraries(UpdateServiceTest
         Qt6::Gui
         Qt6::Network
         Qt6::Test
+        Bloom::Updater
 )
 
-if(WIN32)
-    target_link_libraries(UpdateServiceTest PRIVATE shell32)
-endif()
-
 add_test(NAME UpdateServiceTest COMMAND UpdateServiceTest)
+
+if(NOT WIN32)
+    add_test(
+        NAME UpdateManifestGeneratorTest
+        COMMAND ${Python3_EXECUTABLE}
+            ${CMAKE_CURRENT_SOURCE_DIR}/scripts/update_manifest_test.py
+            $<TARGET_FILE:UpdateServiceTest>
+    )
+endif()
 
 set(BLOOM_UNIT_TEST_TARGETS
     BaseViewModelTest

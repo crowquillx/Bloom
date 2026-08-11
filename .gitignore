@@ -12,7 +12,9 @@ build-windows/
 cmake-build-*/
 out/
 _codeql_build_dir/
-third_party/
+third_party/*
+!third_party/monocypher/
+!third_party/monocypher/**
 lib/
 
 # ===========================

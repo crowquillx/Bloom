@@ -49,6 +49,11 @@ handling. Migrated view models, QML, and player code consume connection-scoped
 canonical projections only; do not reintroduce raw DTO signals or PascalCase
 wire-key fallbacks.
 
+Update trust and bounded download lifecycle are owned by `Bloom::Updater`.
+Release manifests must remain Ed25519-signed, HTTPS/origin restricted, and
+size/deadline bounded; installer bytes are incrementally hashed and atomically
+finalized before any Windows elevation. See `docs/updates.md` for key rotation.
+
 Build & run (blessed path):
 ```
 nix build
