@@ -48,7 +48,7 @@ class WindowsNsisUpdateApplier : public IUpdateApplier
     void removeCommittedDownload();
     static QString normalizedPath(const QString &path);
 
-    QNetworkAccessManager *m_networkAccessManager = nullptr;
+    QPointer<QNetworkAccessManager> m_networkAccessManager;
     UpdateDownloadOptions m_options;
     QPointer<QNetworkReply> m_reply;
     QSaveFile m_outputFile;

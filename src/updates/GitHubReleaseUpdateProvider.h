@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QNetworkAccessManager>
+#include <QPointer>
 
 #include <functional>
 
@@ -38,6 +39,6 @@ class GitHubReleaseUpdateProvider : public IUpdateProvider
   private:
     QString configuredManifestUrl(const QString &channel) const;
 
-    QNetworkAccessManager *m_networkAccessManager = nullptr;
+    QPointer<QNetworkAccessManager> m_networkAccessManager;
     GitHubReleaseUpdateProviderOptions m_options;
 };

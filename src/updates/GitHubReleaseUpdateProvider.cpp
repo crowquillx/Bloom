@@ -18,8 +18,8 @@ namespace
 
 QString normalizedChannel(const QString &channel)
 {
-    return channel.trimmed().compare(QStringLiteral("dev"), Qt::CaseInsensitive) == 0 ? QStringLiteral("dev")
-                                                                                      : QStringLiteral("stable");
+    const QString normalized = channel.trimmed().toLower();
+    return normalized == QStringLiteral("stable") || normalized == QStringLiteral("dev") ? normalized : QString();
 }
 
 UpdateAsset parseAsset(const QJsonObject &object)
@@ -82,7 +82,12 @@ class ManifestFetchJob final : public QObject
 
     void issueRequest()
     {
-        if (!m_networkAccessManager || !urlAllowed(m_url))
+        if (!m_networkAccessManager)
+        {
+            fail(QObject::tr("Update check is unavailable because its network manager was destroyed."));
+            return;
+        }
+        if (!urlAllowed(m_url))
         {
             fail(QObject::tr("Update manifest URL is not an allowed HTTPS origin."));
             return;
@@ -228,7 +233,7 @@ class ManifestFetchJob final : public QObject
     }
 
   private:
-    QNetworkAccessManager *m_networkAccessManager = nullptr;
+    QPointer<QNetworkAccessManager> m_networkAccessManager;
     GitHubReleaseUpdateProviderOptions m_options;
     QUrl m_url;
     QPointer<QObject> m_context;
@@ -257,6 +262,14 @@ void GitHubReleaseUpdateProvider::fetchManifest(const QString &channel, QObject 
                                                 FetchManifestCallback completion)
 {
     const QString expectedChannel = normalizedChannel(channel);
+    if (expectedChannel.isEmpty())
+    {
+        if (context)
+        {
+            completion(std::nullopt, tr("Update channel is not supported."));
+        }
+        return;
+    }
     const QUrl url(configuredManifestUrl(channel));
     auto byteCompletion = [expectedChannel, trustedKeys = m_options.trustedKeys,
                            completion = std::move(completion)](QByteArray body, const QString &error) mutable
@@ -282,7 +295,8 @@ void GitHubReleaseUpdateProvider::fetchManifest(const QString &channel, QObject 
         }
         completion(std::move(manifest), QString());
     };
-    auto *job = new ManifestFetchJob(m_networkAccessManager, m_options, url, context, std::move(byteCompletion), this);
+    auto *job =
+        new ManifestFetchJob(m_networkAccessManager.data(), m_options, url, context, std::move(byteCompletion), this);
     job->start();
 }
 
@@ -371,6 +385,10 @@ std::optional<UpdateManifest> GitHubReleaseUpdateProvider::parseManifestBytes(
 QString GitHubReleaseUpdateProvider::manifestUrlForChannel(const QString &channel)
 {
     const QString normalized = normalizedChannel(channel);
+    if (normalized.isEmpty())
+    {
+        return {};
+    }
     const QString baseUrl = QString::fromUtf8(BLOOM_UPDATE_MANIFEST_BASE_URL).trimmed();
     return baseUrl + QLatin1Char('/') + normalized + QStringLiteral(".json");
 }

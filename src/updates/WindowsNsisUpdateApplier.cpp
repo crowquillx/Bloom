@@ -11,9 +11,9 @@
 #include <QStandardPaths>
 
 #ifdef Q_OS_WIN
+#include <windows.h>
 #include <shellapi.h>
 #include <softpub.h>
-#include <windows.h>
 #include <wintrust.h>
 #endif
 
@@ -80,6 +80,42 @@ QString sanitizedInstallerFilename(const QString &filename)
 }
 
 #ifdef Q_OS_WIN
+class ScopedWindowsHandle
+{
+  public:
+    explicit ScopedWindowsHandle(HANDLE handle = INVALID_HANDLE_VALUE) : m_handle(handle)
+    {
+    }
+
+    ~ScopedWindowsHandle()
+    {
+        if (m_handle && m_handle != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(m_handle);
+        }
+    }
+
+    ScopedWindowsHandle(const ScopedWindowsHandle &) = delete;
+    ScopedWindowsHandle &operator=(const ScopedWindowsHandle &) = delete;
+
+    explicit operator bool() const
+    {
+        return m_handle && m_handle != INVALID_HANDLE_VALUE;
+    }
+
+    void reset()
+    {
+        if (m_handle && m_handle != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(m_handle);
+        }
+        m_handle = INVALID_HANDLE_VALUE;
+    }
+
+  private:
+    HANDLE m_handle = INVALID_HANDLE_VALUE;
+};
+
 QString windowsErrorMessage(DWORD errorCode)
 {
     LPWSTR buffer = nullptr;
@@ -310,7 +346,12 @@ bool WindowsNsisUpdateApplier::isAllowedUrl(const QUrl &url, bool initialRequest
 
 void WindowsNsisUpdateApplier::beginRequest(const QUrl &url, bool initialRequest)
 {
-    if (!m_networkAccessManager || !isAllowedUrl(url, initialRequest))
+    if (!m_networkAccessManager)
+    {
+        finishWithError(tr("Update download is unavailable because its network manager was destroyed."));
+        return;
+    }
+    if (!isAllowedUrl(url, initialRequest))
     {
         finishWithError(tr("Update installer redirect was rejected."));
         return;
@@ -458,12 +499,25 @@ void WindowsNsisUpdateApplier::finalizeVerifiedDownload()
     m_deadline.stop();
 
 #ifdef Q_OS_WIN
+    const std::wstring installerPath = QDir::toNativeSeparators(m_pendingFilePath).toStdWString();
+    ScopedWindowsHandle verifiedInstaller(CreateFileW(installerPath.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                                                       OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!verifiedInstaller)
+    {
+        const DWORD openError = GetLastError();
+        removeCommittedDownload();
+        finishWithError(tr("Downloaded installer could not be locked for verified launch: %1")
+                            .arg(windowsErrorMessage(openError)));
+        return;
+    }
+
     const AuthenticodeVerification signature = verifyAuthenticode(m_pendingFilePath);
     const QString expectedPublisher = QString::fromUtf8(BLOOM_UPDATE_AUTHENTICODE_PUBLISHER).trimmed();
     if (signature.result == AuthenticodeResult::Invalid ||
         (!expectedPublisher.isEmpty() && (signature.result != AuthenticodeResult::Valid ||
                                           signature.publisher.compare(expectedPublisher, Qt::CaseInsensitive) != 0)))
     {
+        verifiedInstaller.reset();
         removeCommittedDownload();
         finishWithError(expectedPublisher.isEmpty() ? tr("Downloaded installer has an invalid Authenticode signature.")
                                                     : tr("Downloaded installer is not signed by the expected "
@@ -477,6 +531,7 @@ void WindowsNsisUpdateApplier::finalizeVerifiedDownload()
     const QString uninstallerPath = QDir(registeredDir).filePath(QStringLiteral("Uninstall.exe"));
     if (installLocation.isEmpty() || currentDir != registeredDir || !QFileInfo::exists(uninstallerPath))
     {
+        verifiedInstaller.reset();
         removeCommittedDownload();
         finishWithError(tr("Bloom downloaded the update, but this build is no "
                            "longer eligible for automatic install."));
@@ -484,7 +539,6 @@ void WindowsNsisUpdateApplier::finalizeVerifiedDownload()
     }
 
     const QString parameters = QStringLiteral("/S /D=%1").arg(QDir::toNativeSeparators(installLocation));
-    const std::wstring installerPath = QDir::toNativeSeparators(m_pendingFilePath).toStdWString();
     const std::wstring parameterString = parameters.toStdWString();
 
     SHELLEXECUTEINFOW executeInfo{};
@@ -504,6 +558,7 @@ void WindowsNsisUpdateApplier::finalizeVerifiedDownload()
     }
     if (!launched)
     {
+        verifiedInstaller.reset();
         removeCommittedDownload();
         finishWithError(tr("Bloom downloaded the update but could not launch the "
                            "elevated installer: %1")

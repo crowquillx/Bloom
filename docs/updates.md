@@ -43,7 +43,8 @@ public key is embedded in Bloom.
 The release manifest generator accepts only HTTPS asset URLs under
 `github.com/crowquillx/Bloom/releases/download/`, validates every field, signs
 the compact sorted payload with OpenSSL Ed25519, and atomically replaces the
-output manifest.
+output manifest. Contributor and release environments require OpenSSL 3.0 or
+newer because older versions do not support this Ed25519 `pkeyutl -rawin` flow.
 
 Development build IDs continue to use `YYYYMMDDhhmmss-<short-sha>` so rolling
 builds compare lexicographically. Stable notes come from `RELEASE_NOTES.md`;
@@ -74,7 +75,10 @@ Installer downloads:
   new download.
 
 The verified installer is never launched from a partial path. Filename
-sanitization and registered-install eligibility checks remain mandatory.
+sanitization and registered-install eligibility checks remain mandatory. On
+Windows, Bloom holds a read handle that denies write and delete sharing from
+Authenticode verification until `ShellExecuteExW` has created the elevated
+process, preventing the verified pathname from being swapped before launch.
 
 ## Authenticode
 

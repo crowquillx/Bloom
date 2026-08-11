@@ -144,19 +144,21 @@ class UpdateManifestGeneratorTest(unittest.TestCase):
             )
 
     def test_rejects_insecure_or_foreign_asset_origins(self) -> None:
-        for replacement in (
+        replacements = (
             "http://github.com/crowquillx/Bloom/releases/download/v1.2.3/Bloom-Setup.exe",
             "https://evil.example/Bloom-Setup.exe",
-        ):
-            with self.subTest(replacement=replacement):
-                output = self.directory / "rejected.json"
-                command = self.command(output)
-                url_index = command.index("--installer-url") + 1
-                command[url_index] = replacement
-                result = subprocess.run(command, capture_output=True, text=True)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertFalse(output.exists())
-                self.assertIn("official Bloom HTTPS release URL", result.stderr)
+        )
+        for option in ("--installer-url", "--portable-url"):
+            for replacement in replacements:
+                with self.subTest(option=option, replacement=replacement):
+                    output = self.directory / "rejected.json"
+                    command = self.command(output)
+                    url_index = command.index(option) + 1
+                    command[url_index] = replacement
+                    result = subprocess.run(command, capture_output=True, text=True)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertFalse(output.exists())
+                    self.assertIn("official Bloom HTTPS release URL", result.stderr)
 
     def test_failed_signing_leaves_no_output_or_temporary_file(self) -> None:
         output = self.directory / "failed.json"

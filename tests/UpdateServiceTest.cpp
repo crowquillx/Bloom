@@ -274,7 +274,9 @@ class UpdateServiceTest : public QObject
     void manifestFetch_rejectsOversizeResponse();
     void manifestFetch_rejectsTruncation();
     void manifestFetch_timesOut();
+    void manifestFetch_rejectsUnknownChannel();
     void manifestFetch_callbackCanDestroyProvider();
+    void destroyedNetworkManagers_failCleanly();
     void installerDownload_rejectsRedirectAndCleansPartial();
     void installerDownload_rejectsOversizeAndTruncation();
     void installerDownload_timesOutAndCleansPartial();
@@ -355,6 +357,14 @@ void UpdateServiceTest::parseManifestBytes_rejectsInvalidSignature()
     const std::optional<UpdateManifest> unsignedManifest =
         GitHubReleaseUpdateProvider::parseManifestBytes(QByteArrayLiteral("{\"channel\":\"stable\""), &error);
     QVERIFY(!unsignedManifest.has_value());
+    QVERIFY(!error.trimmed().isEmpty());
+
+    error.clear();
+    const auto legacyManifest = GitHubReleaseUpdateProvider::parseManifestBytes(
+        QJsonDocument(manifestToJsonObject(makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"))))
+            .toJson(QJsonDocument::Compact),
+        testTrustedKeys(), &error);
+    QVERIFY(!legacyManifest.has_value());
     QVERIFY(!error.trimmed().isEmpty());
 
     QByteArray tampered =
@@ -514,6 +524,24 @@ void UpdateServiceTest::manifestFetch_timesOut()
     QVERIFY(error.contains(QStringLiteral("timed out"), Qt::CaseInsensitive));
 }
 
+void UpdateServiceTest::manifestFetch_rejectsUnknownChannel()
+{
+    GitHubReleaseUpdateProvider provider;
+    bool completed = false;
+    QString error;
+    provider.fetchManifest(QStringLiteral("beta"), &provider,
+                           [&](std::optional<UpdateManifest> manifest, const QString &message)
+                           {
+                               QVERIFY(!manifest.has_value());
+                               error = message;
+                               completed = true;
+                           });
+
+    QVERIFY(completed);
+    QVERIFY(error.contains(QStringLiteral("channel"), Qt::CaseInsensitive));
+    QVERIFY(GitHubReleaseUpdateProvider::manifestUrlForChannel(QStringLiteral("beta")).isEmpty());
+}
+
 void UpdateServiceTest::manifestFetch_callbackCanDestroyProvider()
 {
     const QByteArray envelope =
@@ -539,6 +567,39 @@ void UpdateServiceTest::manifestFetch_callbackCanDestroyProvider()
 
     QTRY_VERIFY_WITH_TIMEOUT(completed, 2000);
     QVERIFY(provider == nullptr);
+}
+
+void UpdateServiceTest::destroyedNetworkManagers_failCleanly()
+{
+    GitHubReleaseUpdateProviderOptions providerOptions;
+    providerOptions.manifestBaseUrl = QStringLiteral("https://example.invalid");
+    providerOptions.urlValidator = [](const QUrl &) { return true; };
+    auto *providerNetwork = new QNetworkAccessManager;
+    GitHubReleaseUpdateProvider provider(providerNetwork, providerOptions);
+    delete providerNetwork;
+
+    bool fetchCompleted = false;
+    QString fetchError;
+    provider.fetchManifest(QStringLiteral("stable"), &provider,
+                           [&](std::optional<UpdateManifest> manifest, const QString &message)
+                           {
+                               QVERIFY(!manifest.has_value());
+                               fetchError = message;
+                               fetchCompleted = true;
+                           });
+    QTRY_VERIFY_WITH_TIMEOUT(fetchCompleted, 1000);
+    QVERIFY(fetchError.contains(QStringLiteral("network manager"), Qt::CaseInsensitive));
+
+    auto *downloadNetwork = new QNetworkAccessManager;
+    UpdateDownloadOptions downloadOptions;
+    downloadOptions.urlValidator = [](const QUrl &, bool) { return true; };
+    WindowsNsisUpdateApplier applier(downloadNetwork, downloadOptions);
+    delete downloadNetwork;
+    QSignalSpy finishedSpy(&applier, &IUpdateApplier::installFinished);
+    applier.downloadAndInstall(makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99")),
+                               QStringLiteral("stable"));
+    QCOMPARE(finishedSpy.count(), 1);
+    QVERIFY(finishedSpy.first().at(1).toString().contains(QStringLiteral("network manager"), Qt::CaseInsensitive));
 }
 
 void UpdateServiceTest::installerDownload_rejectsRedirectAndCleansPartial()
@@ -582,7 +643,7 @@ void UpdateServiceTest::installerDownload_rejectsOversizeAndTruncation()
     };
 
     runFailure(ScriptedHttpServer::Behavior::Response, QStringLiteral("size"));
-    clearTestConfig();
+    clearTestUpdateDownloads();
     runFailure(ScriptedHttpServer::Behavior::Truncated, QStringLiteral("truncated"));
 }
 
@@ -616,6 +677,12 @@ void UpdateServiceTest::installerDownload_canRetryAfterFailure()
     UpdateDownloadOptions options;
     options.urlValidator = [](const QUrl &url, bool) { return url.host() == QStringLiteral("127.0.0.1"); };
     WindowsNsisUpdateApplier applier(&network, options);
+#ifdef Q_OS_WIN
+    if (applier.detectEligibility().support == UpdateApplySupport::Supported)
+    {
+        QSKIP("Refusing to launch an installer from a unit test in a registered Bloom installation.");
+    }
+#endif
     QSignalSpy finishedSpy(&applier, &IUpdateApplier::installFinished);
     UpdateManifest manifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
 
@@ -656,6 +723,12 @@ void UpdateServiceTest::installerDownload_finalizesAtomicallyAndCleansObsolete()
     UpdateDownloadOptions options;
     options.urlValidator = [](const QUrl &url, bool) { return url.host() == QStringLiteral("127.0.0.1"); };
     WindowsNsisUpdateApplier applier(&network, options);
+#ifdef Q_OS_WIN
+    if (applier.detectEligibility().support == UpdateApplySupport::Supported)
+    {
+        QSKIP("Refusing to launch an installer from a unit test in a registered Bloom installation.");
+    }
+#endif
     QSignalSpy finishedSpy(&applier, &IUpdateApplier::installFinished);
     UpdateManifest manifest = makeManifest(QStringLiteral("stable"), QStringLiteral("99.99.99"));
     manifest.installer.url = server.baseUrl() + QStringLiteral("/installer.exe");
