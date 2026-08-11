@@ -167,7 +167,7 @@ Display settings
 
 Video settings
 - `settings.video.enable_framerate_matching` (Q_PROPERTY `enableFramerateMatching`): When true, automatically switches the display refresh rate to match the video content framerate. Default: false. Configurable via Settings > Video > Enable Framerate Matching.
-- `settings.video.skip_refresh_rate_on_compatible_multiple` (Q_PROPERTY `skipRefreshRateOnCompatibleMultiple`): When true, Bloom will skip the refresh rate switch if the current display refresh rate is already an integer multiple of the video framerate (for example 120Hz with 23.976/24fps content). When false, Bloom will attempt to switch to the exact video framerate, though DisplayManager::setRefreshRate still skips switching when the current rate already matches the target within a tight tolerance. On Windows, integer-reported fractional modes are matched by family (23Hz for 23.976, 29Hz for 29.97, 59Hz for 59.94) so true 24/30/60Hz modes are not mistaken for fractional targets. Default: false. Configurable via Settings > Video > Skip switch when refresh rate is already a multiple.
+- `settings.video.skip_refresh_rate_on_compatible_multiple` (Q_PROPERTY `skipRefreshRateOnCompatibleMultiple`): When true, Bloom will skip the refresh rate switch if the current display refresh rate is already an integer multiple of the video framerate (for example 120Hz with 23.976/24fps content). When false, Bloom will attempt to switch to the exact video framerate, though `DisplayManager::setRefreshRateAsync` still skips switching when the current rate already matches the target within a tight tolerance. On Windows, integer-reported fractional modes are matched by family (23Hz for 23.976, 29Hz for 29.97, 59Hz for 59.94) so true 24/30/60Hz modes are not mistaken for fractional targets. Default: false. Configurable via Settings > Video > Skip switch when refresh rate is already a multiple.
 - `settings.video.framerate_match_delay` (Q_PROPERTY `framerateMatchDelay`): Seconds to wait after switching refresh rate before starting playback. Range: 0-5 seconds. Default: 1 second.
   - This delay allows the display and GPU to stabilize after the mode switch, preventing dropped frames that can occur if playback starts immediately
   - The delay is only applied when a real refresh-rate mode switch was performed
@@ -191,7 +191,7 @@ Video settings
   - `prefer-compatible-hdr`: use HDR-compatible Dolby Vision profile 7/8 paths as HDR; unsupported profiles locally tone-map to SDR.
   - `tone-map-unsupported`: locally tone-map unsupported Dolby Vision to SDR.
   - `experimental-direct-play`: allow uncertain Dolby Vision direct playback for validation.
-- `settings.video.linux_refresh_rate_command`, `settings.video.linux_hdr_command`, and `settings.video.windows_custom_hdr_command` store the optional OS-specific commands that Bloom executes when switching refresh rate or HDR modes; leave them blank to use the bundled defaults or specify custom commands for your display hardware.
+- `settings.video.linux_refresh_rate_command`, `settings.video.linux_hdr_command`, and `settings.video.windows_custom_hdr_command` store the optional OS-specific commands that Bloom executes when switching refresh rate or HDR modes; leave them blank to use the bundled defaults or specify custom commands for your display hardware. Commands are asynchronous, have a 5-second deadline, and have bounded output capture; a newer display request cancels the older generation.
 # Hero banner
 
 Home hero settings are stored under `settings.ui.hero_banner`: `enabled`, `source`, `max_items`,

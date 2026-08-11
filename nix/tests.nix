@@ -74,6 +74,7 @@ stdenv.mkDerivation {
       InputBindingManagerTest \
       PlayerBackendFactoryTest \
       PlayerProcessManagerTest \
+      DisplayManagerTest \
       PlayerControllerAutoplayContextTest \
       MediaSegmentProviderServiceTest \
       NextEpisodeResolverTest \

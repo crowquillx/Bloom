@@ -633,8 +633,7 @@ private:
     void startDeferredDisplayRestore(bool needsHdrRestore, bool needsRefreshRestore);
     void maybeStartDeferredPostPlaybackDisplayRestore();
     void scheduleDeferredRefreshRestore(quint64 generation, int delayMs);
-    void cancelPendingDisplayRestore(bool applyCurrentPlaybackDisplayState = false,
-                                     bool clearParkedPostPlaybackRestore = true);
+    void cancelPendingDisplayRestore(bool clearParkedPostPlaybackRestore = true);
     void cancelPendingTerminalTransition();
     void scheduleReplacementPlayback(const std::function<void()> &action);
     void finalizeReplacementPlaybackStop();
@@ -970,6 +969,8 @@ private:
     std::function<void()> m_pendingReplacementPlaybackAction;
     quint64 m_displayRestoreGeneration = 0;
     QMetaObject::Connection m_hdrRestoreFinishedConnection;
+    QMetaObject::Connection m_refreshRestoreFinishedConnection;
+    QMetaObject::Connection m_displayPreparationConnection;
     bool m_deferredPostPlaybackDisplayRestorePending = false;
     bool m_deferredPostPlaybackNeedsHdrRestore = false;
     bool m_deferredPostPlaybackNeedsRefreshRestore = false;

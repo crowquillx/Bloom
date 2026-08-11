@@ -926,7 +926,7 @@ void PlayerController::onEnterIdleState()
 
     enterIdleStateImmediate();
     if (m_awaitingNextEpisodeResolution) {
-        cancelPendingDisplayRestore(false, false);
+        cancelPendingDisplayRestore(false);
         m_deferredPostPlaybackDisplayRestorePending = needsHdrRestore || needsRefreshRestore;
         m_deferredPostPlaybackNeedsHdrRestore = needsHdrRestore;
         m_deferredPostPlaybackNeedsRefreshRestore = needsRefreshRestore;
@@ -1931,15 +1931,33 @@ void PlayerController::scheduleDeferredRefreshRestore(quint64 generation, int de
                            qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                                    << "] deferred-display-restore refresh begin"
                                                    << "generation=" << generation;
-                           m_displayManager->restoreRefreshRate();
-                           qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                                   << "] deferred-display-restore refresh done"
-                                                   << "generation=" << generation;
+                           if (m_refreshRestoreFinishedConnection) {
+                               disconnect(m_refreshRestoreFinishedConnection);
+                           }
+                           m_refreshRestoreFinishedConnection = connect(
+                               m_displayManager,
+                               &DisplayManager::refreshRateRestoreFinished,
+                               this,
+                               [this, generation](bool success) {
+                                   if (generation != m_displayRestoreGeneration) {
+                                       return;
+                                   }
+                                   if (m_refreshRestoreFinishedConnection) {
+                                       disconnect(m_refreshRestoreFinishedConnection);
+                                       m_refreshRestoreFinishedConnection = QMetaObject::Connection();
+                                   }
+                                   qCInfo(lcPlaybackTrace)
+                                       << "[attempt" << m_playbackAttemptId
+                                       << "] deferred-display-restore refresh done"
+                                       << "generation=" << generation
+                                       << "success=" << success;
+                               });
+                           m_displayManager->restoreRefreshRateAsync();
                        });
 }
 
-void PlayerController::cancelPendingDisplayRestore(bool applyCurrentPlaybackDisplayState,
-                                                   bool clearParkedPostPlaybackRestore)
+void PlayerController::cancelPendingDisplayRestore(
+    bool clearParkedPostPlaybackRestore)
 {
     qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                             << "] deferred-display-restore cancel"
@@ -1949,29 +1967,21 @@ void PlayerController::cancelPendingDisplayRestore(bool applyCurrentPlaybackDisp
         disconnect(m_hdrRestoreFinishedConnection);
         m_hdrRestoreFinishedConnection = QMetaObject::Connection();
     }
+    if (m_refreshRestoreFinishedConnection) {
+        disconnect(m_refreshRestoreFinishedConnection);
+        m_refreshRestoreFinishedConnection = QMetaObject::Connection();
+    }
+    if (m_displayPreparationConnection) {
+        disconnect(m_displayPreparationConnection);
+        m_displayPreparationConnection = QMetaObject::Connection();
+    }
     if (clearParkedPostPlaybackRestore) {
         m_deferredPostPlaybackDisplayRestorePending = false;
         m_deferredPostPlaybackNeedsHdrRestore = false;
         m_deferredPostPlaybackNeedsRefreshRestore = false;
     }
     if (m_displayManager != nullptr) {
-        m_displayManager->cancelPendingHdrAsync();
-        if (applyCurrentPlaybackDisplayState) {
-            const HdrPlaybackPolicy hdrPolicy = computeEffectiveHdrPlaybackPolicy();
-            const bool shouldEnableHdr = hdrPolicy.shouldToggleDisplayHdr;
-            const bool shouldMatchRefresh = m_config->getEnableFramerateMatching() && m_contentFramerate > 0.0;
-
-            if (!shouldEnableHdr && m_displayManager->needsHdrRestore()) {
-                qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                        << "] applying-immediate-display-sync disable-hdr";
-                m_displayManager->setHDR(false);
-            }
-            if (!shouldMatchRefresh && m_displayManager->needsRefreshRestore()) {
-                qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                        << "] applying-immediate-display-sync restore-refresh";
-                m_displayManager->restoreRefreshRate();
-            }
-        }
+        m_displayManager->cancelPendingOperations();
     }
 }
 
@@ -3600,7 +3610,7 @@ void PlayerController::playTestVideo()
         m_playMethod = QStringLiteral("directPlay");
         m_hasReportedStopForAttempt = false;
         m_hasEvaluatedCompletionForAttempt = false;
-        cancelPendingDisplayRestore(true);
+        cancelPendingDisplayRestore();
         clearPlaybackSegments();
         clearPlaybackChapters();
         if (!m_currentItemId.isEmpty()) {
@@ -3752,7 +3762,7 @@ void PlayerController::playUrl(const QString &url, const QString &itemId, qint64
         m_pinnedSubtitleTrack = requestedPinnedSubtitleTrack;
         m_hasReportedStopForAttempt = false;
         m_hasEvaluatedCompletionForAttempt = false;
-        cancelPendingDisplayRestore(true);
+        cancelPendingDisplayRestore();
         clearPlaybackSegments();
         if (!m_mediaSourceId.isEmpty()) {
             m_mediaSourceId.clear();
@@ -5893,21 +5903,49 @@ void PlayerController::startPlayback(const QString &url)
     
     // Cancel any pending deferred mpv start from previous playback
     m_startDelayTimer->stop();
+    cancelPendingDisplayRestore();
+    const quint64 displayGeneration = m_displayRestoreGeneration;
     
     // Handle Display Settings - HDR FIRST (must be done before refresh rate change)
     // Toggling HDR can reset the display mode, so we set HDR first, then refresh rate
     const HdrPlaybackPolicy hdrPolicy = computeEffectiveHdrPlaybackPolicy();
-    bool hdrEnabled = false;
-    if (hdrPolicy.shouldToggleDisplayHdr) {
+    const bool shouldRestoreHdr = !hdrPolicy.shouldToggleDisplayHdr
+        && m_displayManager->needsHdrRestore();
+    if (hdrPolicy.shouldToggleDisplayHdr || shouldRestoreHdr) {
         // Snapshot refresh before HDR toggle. Some setups force 60Hz in HDR,
         // and we want restore to return to the pre-HDR rate.
-        m_displayManager->captureOriginalRefreshRate();
-        qCDebug(lcPlayback) << "PlayerController: Enabling HDR for HDR content";
+        if (hdrPolicy.shouldToggleDisplayHdr) {
+            m_displayManager->captureOriginalRefreshRate();
+        }
+        const bool requestedHdrState = hdrPolicy.shouldToggleDisplayHdr;
+        qCDebug(lcPlayback) << "PlayerController: Applying HDR state"
+                            << requestedHdrState;
         qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                << "] setHDR(true) begin";
-        hdrEnabled = m_displayManager->setHDR(true);
-        qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                << "] setHDR(true) result=" << hdrEnabled;
+                                << "] set-hdr begin"
+                                << "enabled=" << requestedHdrState
+                                << "generation=" << displayGeneration;
+        m_displayPreparationConnection = connect(
+            m_displayManager,
+            &DisplayManager::hdrChangeFinished,
+            this,
+            [this, displayGeneration, requestedHdrState](bool enabled, bool success) {
+                if (displayGeneration != m_displayRestoreGeneration
+                    || enabled != requestedHdrState) {
+                    return;
+                }
+                if (m_displayPreparationConnection) {
+                    disconnect(m_displayPreparationConnection);
+                    m_displayPreparationConnection = QMetaObject::Connection();
+                }
+                qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                        << "] set-hdr finished"
+                                        << "enabled=" << enabled
+                                        << "success=" << success
+                                        << "generation=" << displayGeneration;
+                applyFramerateMatchingAndStart();
+            });
+        m_displayManager->setHDRAsync(requestedHdrState);
+        return;
     } else if (m_config->getEnableHDR() && !m_contentIsHDR) {
         qCDebug(lcPlayback) << "PlayerController: HDR toggle enabled but content is SDR, not switching display HDR";
     } else if (hdrPolicy.toneMapToSdr) {
@@ -5958,6 +5996,7 @@ void PlayerController::applyFramerateMatchingAndStart()
                             << "contentIsHDR=" << m_contentIsHDR;
 
     m_mpvDisplayFpsOverride = 0.0;
+    const quint64 displayGeneration = m_displayRestoreGeneration;
 
     // Handle Display Settings - Framerate Matching
     if (m_config->getEnableFramerateMatching() && m_contentFramerate > 0) {
@@ -5966,47 +6005,72 @@ void PlayerController::applyFramerateMatchingAndStart()
         qCDebug(lcPlayback) << "PlayerController: Content framerate:" << m_contentFramerate
                  << "-> attempting exact refresh rate match";
         
-        if (m_displayManager->setRefreshRate(m_contentFramerate)) {
-            qCDebug(lcPlayback) << "PlayerController: Successfully set display refresh rate for framerate" << m_contentFramerate;
-            qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                    << "] refresh-rate switch success";
+        const double requestedFramerate = m_contentFramerate;
+        m_displayPreparationConnection = connect(
+            m_displayManager,
+            &DisplayManager::refreshRateChangeFinished,
+            this,
+            [this, displayGeneration, requestedFramerate](double requestedHz,
+                                                          bool success) {
+                if (displayGeneration != m_displayRestoreGeneration
+                    || qAbs(requestedHz - requestedFramerate) >= 0.001) {
+                    return;
+                }
+                if (m_displayPreparationConnection) {
+                    disconnect(m_displayPreparationConnection);
+                    m_displayPreparationConnection = QMetaObject::Connection();
+                }
+                if (!success) {
+                    qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                               << "] refresh-rate switch failed";
+                    initiateMpvStart();
+                    return;
+                }
 
-            const double effectiveRefreshRate = m_displayManager->lastRefreshRateSwitchEffectiveRate();
-            if (!m_displayManager->lastRefreshRateSwitchSkippedCompatibleMultiple()
-                && qAbs(effectiveRefreshRate - m_contentFramerate) < 0.01) {
-                m_mpvDisplayFpsOverride = m_contentFramerate;
-                qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                        << "] mpv display-fps override"
-                                        << "fps=" << m_mpvDisplayFpsOverride
-                                        << "effectiveRefreshRate=" << effectiveRefreshRate;
-            }
-
-            if (m_displayManager->lastRefreshRateSwitchChanged()) {
-                // Wait for display to stabilize after an actual refresh rate change.
-                int delaySeconds = m_config->getFramerateMatchDelay();
-                if (delaySeconds > 0) {
-                    qCDebug(lcPlayback) << "PlayerController: Scheduling mpv start in" << delaySeconds << "seconds for display to stabilize";
-                    m_startDelayTimer->start(delaySeconds * 1000);
+                const double effectiveRefreshRate =
+                    m_displayManager->lastRefreshRateSwitchEffectiveRate();
+                if (!m_displayManager->lastRefreshRateSwitchSkippedCompatibleMultiple()
+                    && qAbs(effectiveRefreshRate - requestedFramerate) < 0.01) {
+                    m_mpvDisplayFpsOverride = requestedFramerate;
+                }
+                if (m_displayManager->lastRefreshRateSwitchChanged()
+                    && m_config->getFramerateMatchDelay() > 0) {
+                    m_startDelayTimer->start(
+                        m_config->getFramerateMatchDelay() * 1000);
                 } else {
                     initiateMpvStart();
                 }
-            } else {
-                // No mode switch happened (already compatible), so start immediately.
-                initiateMpvStart();
-            }
-            return;  // Important: return early to avoid duplicate startMpv calls
-        } else {
-            qCWarning(lcPlayback) << "PlayerController: Failed to set display refresh rate for framerate" << m_contentFramerate;
-            qCWarning(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
-                                       << "] refresh-rate switch failed";
-        }
+            });
+        m_displayManager->setRefreshRateAsync(requestedFramerate);
+        return;
     } else if (m_config->getEnableFramerateMatching()) {
         qCDebug(lcPlayback) << "PlayerController: Framerate matching enabled but no framerate info available (framerate:" << m_contentFramerate << ")";
         qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
                                 << "] framerate-matching enabled but no content framerate";
     }
     
-    // No framerate matching or delay needed - start immediately
+    if (m_displayManager->needsRefreshRestore()) {
+        m_displayPreparationConnection = connect(
+            m_displayManager,
+            &DisplayManager::refreshRateRestoreFinished,
+            this,
+            [this, displayGeneration](bool success) {
+                if (displayGeneration != m_displayRestoreGeneration) {
+                    return;
+                }
+                if (m_displayPreparationConnection) {
+                    disconnect(m_displayPreparationConnection);
+                    m_displayPreparationConnection = QMetaObject::Connection();
+                }
+                qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
+                                        << "] pre-playback refresh restore finished"
+                                        << "success=" << success;
+                initiateMpvStart();
+            });
+        m_displayManager->restoreRefreshRateAsync();
+        return;
+    }
+
     initiateMpvStart();
 }
 

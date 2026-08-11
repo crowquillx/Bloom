@@ -1,6 +1,7 @@
 # Reusable production libraries shared by the application and unit tests.
 # Keep dependency direction acyclic:
-#   Models -> Config / Transport / ImageCache -> Providers -> Network
+#   Models -> Config / Transport / ImageCache / PlayerProcess -> Providers -> Network
+#                     Config -> Display
 
 add_library(BloomModels STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/models/MediaModels.cpp
@@ -41,6 +42,24 @@ target_link_libraries(BloomConfig
         Qt6::Core
         Qt6::Gui
         Qt6::Network
+)
+
+add_library(BloomDisplay STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/DisplayManager.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/utils/DisplayManager.h
+)
+add_library(Bloom::Display ALIAS BloomDisplay)
+target_include_directories(BloomDisplay
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}
+)
+target_link_libraries(BloomDisplay
+    PUBLIC
+        Bloom::Config
+        Qt6::Concurrent
+        Qt6::Core
+        Qt6::Gui
 )
 
 add_library(BloomTransport STATIC
@@ -151,6 +170,7 @@ target_link_libraries(BloomNetwork
 set_target_properties(
     BloomModels
     BloomConfig
+    BloomDisplay
     BloomTransport
     BloomImageCache
     BloomPlayerProcess

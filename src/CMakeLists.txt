@@ -66,8 +66,6 @@ qt_add_executable(Bloom
     utils/InputModeManager.h
     utils/InputBindingManager.cpp
     utils/InputBindingManager.h
-    utils/DisplayManager.cpp
-    utils/DisplayManager.h
     utils/SidebarSettings.h
     utils/SidebarSettings.cpp
     utils/SystemPowerController.h
@@ -412,6 +410,7 @@ endif()
 target_link_libraries(Bloom
     PRIVATE
     Bloom::ImageCache
+    Bloom::Display
     Bloom::Network
     Bloom::PlayerProcess
     Qt6::Core
