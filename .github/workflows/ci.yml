@@ -113,7 +113,7 @@ jobs:
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
-          store_path="$(nix path-info .#bloom)"
+          store_path="$(nix build .#bloom --no-link --print-out-paths)"
           cachix push "$CACHIX_CACHE" "$store_path"
           cachix pin "$CACHIX_CACHE" latest "$store_path" --keep-revisions 1
 
