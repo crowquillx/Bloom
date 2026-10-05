@@ -173,7 +173,7 @@ void ApplicationInitializer::registerServices()
         m_secretStore = SecretStoreFactory::create();
         
         // 3. MockAuthenticationService - Pre-authenticated for testing
-        m_mockAuthService = std::make_unique<MockAuthenticationService>(m_secretStore.get());
+        m_mockAuthService = std::make_unique<MockAuthenticationService>(m_secretStore);
         ServiceLocator::registerService<AuthenticationService>(m_mockAuthService.get());
         
         // 3.1 MockLibraryService - Returns fixture data
@@ -232,7 +232,7 @@ void ApplicationInitializer::registerServices()
 
         // 3.1 AuthenticationService - stable façade over provider boundaries
         m_authService = std::make_unique<AuthenticationService>(
-            m_secretStore.get(),
+            m_secretStore,
             m_httpTransport.get(),
             providerAdapters);
         ServiceLocator::registerService<AuthenticationService>(m_authService.get());

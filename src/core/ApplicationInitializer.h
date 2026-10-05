@@ -106,8 +106,10 @@ private:
     std::unique_ptr<DisplayManager> m_displayManager;
     std::unique_ptr<TrackPreferencesManager> m_trackPreferencesManager;
     std::unique_ptr<IPlayerBackend> m_playerBackend;
-    // Declared before AuthenticationService so transport and adapters outlive its raw pointers.
-    std::unique_ptr<ISecretStore> m_secretStore;
+    // Shared ownership: AuthenticationService hands copies to background
+    // credential tasks so the store outlives stalled work at shutdown.
+    // Declared before AuthenticationService so transport and adapters outlive its pointers.
+    std::shared_ptr<ISecretStore> m_secretStore;
     std::unique_ptr<HttpTransport> m_httpTransport;
     std::unique_ptr<JellyfinProviderAdapter> m_jellyfinProviderAdapter;
     std::unique_ptr<SiloProviderAdapter> m_siloProviderAdapter;

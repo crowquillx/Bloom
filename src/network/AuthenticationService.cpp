@@ -30,6 +30,14 @@ QJsonArray responseArray(const QByteArray &body, const QString &member)
     return {};
 }
 
+namespace {
+// How long shutdown waits for pending keyring tasks before proceeding
+// without them. Normal operations finish in milliseconds; only a stalled
+// platform keyring hits this bound, and stalled tasks keep the store alive
+// via shared ownership until they complete.
+constexpr int kCredentialDrainTimeoutMs = 5000;
+}
+
 QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
 {
     QJsonObject result;
@@ -49,7 +57,8 @@ QJsonObject capabilitiesObject(ProviderCapabilities capabilities)
 }
 }
 
-AuthenticationService::AuthenticationService(ISecretStore *secretStore, QObject *parent)
+AuthenticationService::AuthenticationService(std::shared_ptr<ISecretStore> secretStore,
+                                               QObject *parent)
     : QObject(parent)
     , m_ownedTransport(std::make_unique<HttpTransport>())
     , m_ownedProviderAdapter(std::make_unique<JellyfinProviderAdapter>())
@@ -63,7 +72,7 @@ AuthenticationService::AuthenticationService(ISecretStore *secretStore, QObject 
     configureTransport();
 }
 
-AuthenticationService::AuthenticationService(ISecretStore *secretStore,
+AuthenticationService::AuthenticationService(std::shared_ptr<ISecretStore> secretStore,
                                                HttpTransport *transport,
                                                IProviderAdapter *providerAdapter,
                                                QObject *parent)
@@ -79,7 +88,7 @@ AuthenticationService::AuthenticationService(ISecretStore *secretStore,
 }
 
 AuthenticationService::AuthenticationService(
-    ISecretStore *secretStore,
+    std::shared_ptr<ISecretStore> secretStore,
     HttpTransport *transport,
     const QList<IProviderAdapter *> &providerAdapters,
     QObject *parent)
@@ -103,16 +112,22 @@ AuthenticationService::~AuthenticationService()
         m_transport->setUrlRedactor({});
         m_transport->setUnauthorizedRecovery({});
     }
-    // Drain queued and running keyring tasks before the secret store (owned
-    // by ApplicationInitializer and destroyed right after this service) goes
-    // away. This keeps sign-out's "removed" guarantee: a queued deletion is
-    // executed before shutdown completes instead of being lost at exit.
-    // Queued completions are posted events, so they cannot deadlock this wait;
-    // keyring tasks never block on the UI thread.
+    // Drain queued and running keyring tasks so a sign-out deletion queued
+    // just before quit still executes instead of being lost at exit. The
+    // wait is bounded: a task stalled by an unresponsive keyring must not
+    // hang shutdown forever. Tasks hold a shared store reference (see
+    // persistCredentialsAsync), so one that outlasts this wait still sees a
+    // live store. Queued completions are posted events, so they cannot
+    // deadlock this wait; keyring tasks never block on the UI thread.
     const auto state = m_credentialTasks;
     QMutexLocker locker(&state->mutex);
     while (state->pumpRunning) {
-        state->idle.wait(&state->mutex);
+        if (!state->idle.wait(&state->mutex, kCredentialDrainTimeoutMs)) {
+            qCWarning(lcAuth) << "Credential tasks still pending after"
+                              << kCredentialDrainTimeoutMs
+                              << "ms; continuing shutdown without them";
+            break;
+        }
     }
 }
 
@@ -318,7 +333,9 @@ void AuthenticationService::initialize(ConfigManager *configManager)
         && connection->providerKind == ProviderKind::Jellyfin
         && ServerConnection::normalizeBaseUrl(legacySession.serverUrl) == connection->baseUrl
         && legacySession.userId == connection->accountId;
-    ISecretStore *store = m_secretStore;
+    // Shared copy: a restore still running at shutdown keeps the store
+    // alive instead of racing its destruction.
+    const std::shared_ptr<ISecretStore> store = m_secretStore;
     const QString deviceId = configManager->getDeviceId();
 
     QFuture<RestorationResult> future = QtConcurrent::run(
@@ -336,7 +353,7 @@ void AuthenticationService::initialize(ConfigManager *configManager)
                 return result;
             }
 
-            CredentialStore credentials(store);
+            CredentialStore credentials(store.get());
             if (connection->providerKind == ProviderKind::Jellyfin) {
                 const CredentialReadResult access = credentials.readAccessToken(
                     *connection,
@@ -739,7 +756,7 @@ void AuthenticationService::enqueueCredentialTask(std::function<void()> task)
 
 void AuthenticationService::persistCredentialsAsync(std::function<void()> continuation)
 {
-    ISecretStore *store = m_secretStore;
+    const std::shared_ptr<ISecretStore> store = m_secretStore;
     const ServerConnection connection = m_activeConnection;
     if (!store || !connection.isValid()) {
         if (continuation) {
@@ -767,7 +784,7 @@ void AuthenticationService::persistCredentialsAsync(std::function<void()> contin
     const auto outcome = std::make_shared<CredentialPersistOutcome>();
     const QPointer<AuthenticationService> guard(this);
     enqueueCredentialTask([store, snapshot, outcome, guard, continuation]() {
-        CredentialStore credentials(store);
+        CredentialStore credentials(store.get());
         bool accessStored = true;
         if (!snapshot.accessToken.isEmpty()) {
             accessStored = credentials.write(
@@ -846,24 +863,24 @@ void AuthenticationService::finishCredentialPersist(
 void AuthenticationService::removeCredentialAsync(const ServerConnection &connection,
                                                   CredentialKind kind)
 {
-    ISecretStore *store = m_secretStore;
+    const std::shared_ptr<ISecretStore> store = m_secretStore;
     if (!store || !connection.isValid()) {
         return;
     }
     enqueueCredentialTask([store, connection, kind]() {
-        CredentialStore(store).remove(connection, kind);
+        CredentialStore(store.get()).remove(connection, kind);
     });
 }
 
 void AuthenticationService::removeAllCredentialsAsync(const ServerConnection &connection,
                                                      const QString &deviceId)
 {
-    ISecretStore *store = m_secretStore;
+    const std::shared_ptr<ISecretStore> store = m_secretStore;
     if (!store || !connection.isValid()) {
         return;
     }
     enqueueCredentialTask([store, connection, deviceId]() {
-        CredentialStore(store).removeAll(connection, deviceId);
+        CredentialStore(store.get()).removeAll(connection, deviceId);
     });
 }
 

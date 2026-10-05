@@ -50,12 +50,13 @@ class AuthenticationService : public QObject
     Q_PROPERTY(QString authenticationStep READ authenticationStep NOTIFY authenticationStepChanged)
 
 public:
-    explicit AuthenticationService(ISecretStore *secretStore = nullptr, QObject *parent = nullptr);
-    AuthenticationService(ISecretStore *secretStore,
+    explicit AuthenticationService(std::shared_ptr<ISecretStore> secretStore = nullptr,
+                                     QObject *parent = nullptr);
+    AuthenticationService(std::shared_ptr<ISecretStore> secretStore,
                           HttpTransport *transport,
                           IProviderAdapter *providerAdapter,
                           QObject *parent = nullptr);
-    AuthenticationService(ISecretStore *secretStore,
+    AuthenticationService(std::shared_ptr<ISecretStore> secretStore,
                           HttpTransport *transport,
                           const QList<IProviderAdapter *> &providerAdapters,
                           QObject *parent = nullptr);
@@ -178,7 +179,9 @@ private:
     ProviderDetectionResult m_detectionResult;
     bool m_sessionExpiredPending = false;
     bool m_sessionExpiredEmitted = false;
-    ISecretStore *m_secretStore = nullptr;
+    // Shared ownership: background credential tasks hold a copy, so the
+    // store outlives a stalled task even if shutdown stops waiting for it.
+    std::shared_ptr<ISecretStore> m_secretStore;
     ServerConnection m_activeConnection;
     bool m_isRestoringSession = false;
     ConfigManager *m_configManager = nullptr;
