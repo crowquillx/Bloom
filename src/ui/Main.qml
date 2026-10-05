@@ -687,6 +687,13 @@ Window {
 
         function restoreHomeFocus() {
             Qt.callLater(function() {
+                // The power and sign-out dialogs can open from the expanded
+                // sidebar; cancelling must return focus there, not to the
+                // content behind the overlay sidebar.
+                if (sidebarProxy.expanded) {
+                    sidebarProxy.focusNavigation()
+                    return
+                }
                 var item = stackView.currentItem
                 if (item && item.visible && typeof item["restoreFocusState"] === "function") {
                     item["restoreFocusState"]()
@@ -1654,6 +1661,8 @@ Window {
         enabled: !PlayerController.isPlaybackActive
                  && stackView.depth > 1
                  && !sidebarProxy.expanded
+                 && !homePowerDialog.opened
+                 && !signOutDialog.opened
                  && !(stackView.currentItem && stackView.currentItem["handlesOwnBackNavigation"] === true)
         onActivated: {
             console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "sidebar.expanded:", sidebarProxy.expanded)

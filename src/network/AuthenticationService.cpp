@@ -103,6 +103,17 @@ AuthenticationService::~AuthenticationService()
         m_transport->setUrlRedactor({});
         m_transport->setUnauthorizedRecovery({});
     }
+    // Drain queued and running keyring tasks before the secret store (owned
+    // by ApplicationInitializer and destroyed right after this service) goes
+    // away. This keeps sign-out's "removed" guarantee: a queued deletion is
+    // executed before shutdown completes instead of being lost at exit.
+    // Queued completions are posted events, so they cannot deadlock this wait;
+    // keyring tasks never block on the UI thread.
+    const auto state = m_credentialTasks;
+    QMutexLocker locker(&state->mutex);
+    while (state->pumpRunning) {
+        state->idle.wait(&state->mutex);
+    }
 }
 
 void AuthenticationService::configureTransport()
@@ -715,6 +726,7 @@ void AuthenticationService::enqueueCredentialTask(std::function<void()> task)
                     QMutexLocker locker(&state->mutex);
                     if (state->tasks.isEmpty()) {
                         state->pumpRunning = false;
+                        state->idle.wakeAll();
                         return;
                     }
                     next = state->tasks.dequeue();
@@ -796,18 +808,22 @@ void AuthenticationService::persistCredentialsAsync(std::function<void()> contin
             }
         }
 
-        if (!guard) {
-            return;
+        // Deliver the outcome through the application instance, which outlives
+        // both the service and the pump. Copying the QPointer here is safe;
+        // it is only checked and dereferenced inside the functor, which runs
+        // on the UI thread — the only thread that can destroy the service.
+        // Qt drops the queued call if the dispatcher goes away first.
+        if (QCoreApplication *dispatcher = QCoreApplication::instance()) {
+            QMetaObject::invokeMethod(
+                dispatcher,
+                [guard, outcome, continuation]() {
+                    if (!guard) {
+                        return;
+                    }
+                    guard->finishCredentialPersist(*outcome, continuation);
+                },
+                Qt::QueuedConnection);
         }
-        QMetaObject::invokeMethod(
-            guard,
-            [guard, outcome, continuation]() {
-                if (!guard) {
-                    return;
-                }
-                guard->finishCredentialPersist(*outcome, continuation);
-            },
-            Qt::QueuedConnection);
     });
 }
 

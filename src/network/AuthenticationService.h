@@ -9,6 +9,7 @@
 #include <QNetworkReply>
 #include <QObject>
 #include <QQueue>
+#include <QWaitCondition>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
@@ -201,8 +202,12 @@ private:
     };
     // Shared FIFO state for background keyring tasks. Reference-counted so an
     // in-flight worker never touches destroyed service members at shutdown.
+    // The destructor drains the queue (see ~AuthenticationService) while the
+    // secret store is still alive — ApplicationInitializer destroys this
+    // service before the store — so no task can race store destruction.
     struct CredentialTaskState {
         QMutex mutex;
+        QWaitCondition idle;
         QQueue<std::function<void()>> tasks;
         bool pumpRunning = false;
     };
