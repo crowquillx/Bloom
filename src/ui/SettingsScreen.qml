@@ -17,6 +17,13 @@ FocusScope {
     id: root
     focus: true
     property string navigationId: "settings"
+
+    // Build info from WindowManager context properties. Resolved here because inside
+    // AboutAccountSettings these names would bind to its own same-named properties.
+    readonly property string buildAppVersion: typeof appVersion !== "undefined" ? appVersion : ""
+    readonly property string buildChannel: typeof appBuildChannel !== "undefined" ? appBuildChannel : ""
+    readonly property string buildId: typeof appBuildId !== "undefined" ? appBuildId : ""
+    readonly property string buildQtVersion: typeof qtVersion !== "undefined" ? qtVersion : ""
     property bool focusUpdatesOnActivate: false
     property bool saveToastArmed: false
     property string pendingSettingsToastMessage: qsTr("Settings saved")
@@ -487,10 +494,10 @@ FocusScope {
 
             AboutAccountSettings {
                 id: aboutAccountSection
-                appVersion: typeof appVersion !== "undefined" ? appVersion : ""
-                appBuildChannel: typeof appBuildChannel !== "undefined" ? appBuildChannel : ""
-                appBuildId: typeof appBuildId !== "undefined" ? appBuildId : ""
-                qtVersion: typeof qtVersion !== "undefined" ? qtVersion : ""
+                appVersion: root.buildAppVersion
+                appBuildChannel: root.buildChannel
+                appBuildId: root.buildId
+                qtVersion: root.buildQtVersion
                 onRequestReturnToRail: root.returnToRail()
                 onSignOutRequested: root.signOutRequested()
                 onSessionsRequested: root.openActiveSessions()

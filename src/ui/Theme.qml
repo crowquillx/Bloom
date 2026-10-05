@@ -382,9 +382,11 @@ QtObject {
     property color overlayTextBackground: "#b8000000"
     property color overlayTextBorder: Qt.rgba(1, 1, 1, 0.18)
     property color textOnDarkOverlay: "#ffffff"
-    property color gradientOverlayStart: "#400f3880"
-    property color gradientOverlayMiddle: "#1c0c2099"
-    property color gradientOverlayEnd: "#0a060ccc"
+    // Page backdrop scrim. Backdrops are arbitrary artwork (often bright), so the
+    // scrim is tinted from the theme background and opaque enough for body text.
+    property color gradientOverlayStart: Qt.rgba(backgroundPrimary.r, backgroundPrimary.g, backgroundPrimary.b, 0.65)
+    property color gradientOverlayMiddle: Qt.rgba(backgroundPrimary.r, backgroundPrimary.g, backgroundPrimary.b, 0.75)
+    property color gradientOverlayEnd: Qt.rgba(backgroundPrimary.r, backgroundPrimary.g, backgroundPrimary.b, 0.88)
     property color playbackOverlayTopTint: accentPrimary
     property color playbackOverlayBottomTint: "#000000"
     property color playbackOverlayShadowTint: themeIsLight ? "#000000" : backgroundPrimary

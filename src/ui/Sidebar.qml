@@ -222,14 +222,48 @@ Item {
         }
     }
     
-    /// Focus the hamburger button (called from main content via Left arrow at edge)
-    function focusHamburger() {
-        hamburgerButton.forceActiveFocus()
+    /// Focus the entry for the current page (Home, Search, a library, or Settings).
+    /// Returns false when no matching entry is focusable.
+    function focusActiveItem() {
+        if (currentNavigation === "settings" && settingsButton.visible) {
+            settingsButton.forceActiveFocus()
+            return true
+        }
+        if (currentLibraryId !== "") {
+            for (var i = 0; i < libraryItems.length; ++i) {
+                if (libraryItems[i] && libraryItems[i].itemId === currentLibraryId) {
+                    libraryListView.currentIndex = i
+                    if (libraryListView.currentItem) {
+                        libraryListView.currentItem.forceActiveFocus()
+                        return true
+                    }
+                    break
+                }
+            }
+        }
+        for (var j = 0; j < navigationItems.length; ++j) {
+            if (navigationItems[j].id === currentNavigation) {
+                navListView.currentIndex = j
+                if (navListView.currentItem) {
+                    navListView.currentItem.forceActiveFocus()
+                    return true
+                }
+                break
+            }
+        }
+        return false
+    }
+
+    /// Focus the rail (called from main content via Left arrow at edge). Lands on the
+    /// current page's entry so a single Up/Down reaches neighbouring pages.
+    function focusRail() {
+        if (!focusActiveItem())
+            hamburgerButton.forceActiveFocus()
     }
     
     /// Focus the navigation list (called from main content when sidebar is expanded)
     function focusNavigation() {
-        if (expanded) {
+        if (expanded && !focusActiveItem()) {
             if (navListView.count > 0) {
                 navListView.currentIndex = 0
                 navListView.currentItem.forceActiveFocus()
@@ -1468,8 +1502,10 @@ Item {
     // Focus trap: when expanded, focus the sidebar content
     onExpandedChanged: {
         if (expanded) {
-            // Focus the first nav item when sidebar expands
+            // Focus the current page's entry when the sidebar expands
             Qt.callLater(function() {
+                if (root.focusActiveItem())
+                    return
                 if (navListView.count > 0) {
                     navListView.currentIndex = 0
                     navListView.currentItem.forceActiveFocus()

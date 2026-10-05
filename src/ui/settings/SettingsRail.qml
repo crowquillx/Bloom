@@ -11,7 +11,7 @@ FocusScope {
 
     signal enterContentRequested()
 
-    implicitWidth: Math.round(280 * Theme.layoutScale)
+    implicitWidth: Math.round(320 * Theme.layoutScale)
 
     readonly property var sectionModel: [
         { sectionKey: "playback",        name: qsTr("Playback"),        icon: "\ue037" },

@@ -571,7 +571,9 @@ FocusScope {
                         }
                         
                         onCurrentIndexChanged: {
-                            if (currentItem) {
+                            // currentIndex also changes when results load; only move focus
+                            // if the user is already navigating this grid, never out of the search field.
+                            if (currentItem && seriesGrid.activeFocus) {
                                 const item = currentItem
                                 Qt.callLater(() => {
                                     if (item) {
@@ -697,7 +699,9 @@ FocusScope {
                         }
                         
                         onCurrentIndexChanged: {
-                            if (currentItem) {
+                            // currentIndex also changes when results load; only move focus
+                            // if the user is already navigating this grid, never out of the search field.
+                            if (currentItem && moviesGrid.activeFocus) {
                                 const item = currentItem
                                 Qt.callLater(() => {
                                     if (item) {
@@ -826,7 +830,9 @@ FocusScope {
                         }
 
                         onCurrentIndexChanged: {
-                            if (currentItem) {
+                            // currentIndex also changes when results load; only move focus
+                            // if the user is already navigating this grid, never out of the search field.
+                            if (currentItem && seerrGrid.activeFocus) {
                                 const capturedItem = currentItem
                                 Qt.callLater(() => {
                                     if (capturedItem) {

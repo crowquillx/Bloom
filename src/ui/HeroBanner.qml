@@ -628,9 +628,12 @@ FocusScope {
             radius: Theme.imageRadius
             gradient: Gradient {
                 orientation: Gradient.Horizontal
-                GradientStop { position: 0; color: "#E610141C" }
-                GradientStop { position: 0.58; color: "#8010141C" }
-                GradientStop { position: 1; color: "#2010141C" }
+                // Hold the scrim across the text column (~60% of the card) so the
+                // synopsis stays legible over bright backdrops, then fade out.
+                GradientStop { position: 0; color: "#EB10141C" }
+                GradientStop { position: 0.45; color: "#CC10141C" }
+                GradientStop { position: 0.75; color: "#5910141C" }
+                GradientStop { position: 1; color: "#1A10141C" }
             }
         }
 

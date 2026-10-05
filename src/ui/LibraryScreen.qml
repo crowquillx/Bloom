@@ -1026,7 +1026,7 @@ FocusScope {
 
                     LibraryComboBox {
                         id: orderCombo
-                        Layout.preferredWidth: Math.round(150 * Theme.layoutScale)
+                        Layout.preferredWidth: Math.round(200 * Theme.layoutScale)
                         Layout.preferredHeight: Theme.buttonHeightSmall
                         model: ["Ascending", "Descending"]
                         values: ["ascending", "descending"]
