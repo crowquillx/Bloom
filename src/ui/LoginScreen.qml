@@ -315,6 +315,15 @@ FocusScope {
                 ColumnLayout {
                     spacing: Theme.spacingSmall
 
+                    Text {
+                        text: qsTr("Server type")
+                        color: Theme.textSecondary
+                        font.family: Theme.fontPrimary
+                        font.pixelSize: Theme.fontSizeCaption
+                        Layout.fillWidth: true
+                        horizontalAlignment: Text.AlignLeft
+                    }
+
                     RowLayout {
                         Layout.fillWidth: true
                         spacing: Theme.spacingSmall
@@ -335,7 +344,10 @@ FocusScope {
                             background: Rectangle {
                                 radius: Theme.radiusSmall
                                 color: root.providerSelection === "auto" ? Theme.accentPrimary : Theme.backgroundSecondary
-                                border.color: autoButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                // The accent fill hides an accent focus ring, so selected buttons use the primary focus border.
+                                border.color: autoButton.activeFocus
+                                              ? (root.providerSelection === "auto" ? Theme.buttonPrimaryBorderFocused : Theme.focusBorder)
+                                              : Theme.inputBorder
                                 border.width: autoButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
                             }
                             contentItem: Text {
@@ -364,7 +376,9 @@ FocusScope {
                             background: Rectangle {
                                 radius: Theme.radiusSmall
                                 color: root.providerSelection === "jellyfin" ? Theme.accentPrimary : Theme.backgroundSecondary
-                                border.color: jellyfinButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                border.color: jellyfinButton.activeFocus
+                                              ? (root.providerSelection === "jellyfin" ? Theme.buttonPrimaryBorderFocused : Theme.focusBorder)
+                                              : Theme.inputBorder
                                 border.width: jellyfinButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
                             }
                             contentItem: Text {
@@ -393,7 +407,9 @@ FocusScope {
                             background: Rectangle {
                                 radius: Theme.radiusSmall
                                 color: root.providerSelection === "silo" ? Theme.accentPrimary : Theme.backgroundSecondary
-                                border.color: siloButton.activeFocus ? Theme.focusBorder : Theme.inputBorder
+                                border.color: siloButton.activeFocus
+                                              ? (root.providerSelection === "silo" ? Theme.buttonPrimaryBorderFocused : Theme.focusBorder)
+                                              : Theme.inputBorder
                                 border.width: siloButton.activeFocus ? Theme.buttonFocusBorderWidth : Theme.borderWidth
                             }
                             contentItem: Text {
@@ -405,15 +421,6 @@ FocusScope {
                                 verticalAlignment: Text.AlignVCenter
                             }
                         }
-                    }
-
-                    Text {
-                        text: qsTr("Server type")
-                        color: Theme.textSecondary
-                        font.family: Theme.fontPrimary
-                        font.pixelSize: Theme.fontSizeCaption
-                        Layout.fillWidth: true
-                        horizontalAlignment: Text.AlignHCenter
                     }
 
                     TextField {

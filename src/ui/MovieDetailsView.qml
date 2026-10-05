@@ -1200,7 +1200,8 @@ FocusScope {
                                 text: positionMs > 0 ? qsTr("Resume") : qsTr("Play")
                                 enabled: movieId !== ""
                                 Layout.preferredHeight: Theme.buttonHeightLarge
-                                Layout.preferredWidth: Theme.buttonHeightLarge
+                                Layout.preferredWidth: Math.max(Math.round(200 * Theme.layoutScale),
+                                                                playInnerRow.implicitWidth + Math.round(48 * Theme.layoutScale))
 
                                 Accessible.name: text
 
@@ -1233,10 +1234,6 @@ FocusScope {
 
                                 onClicked: root.startPlaybackWithTracks()
 
-                                ToolTip.visible: hovered && enabled
-                                ToolTip.text: text
-                                ToolTip.delay: 500
-
                                 background: Rectangle {
                                     radius: Theme.radiusMedium
                                     gradient: Gradient {
@@ -1267,15 +1264,37 @@ FocusScope {
                                     Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
                                 }
 
-                                contentItem: Text {
-                                    visible: !playbackInfoLoading
-                                    anchors.centerIn: parent
-                                    text: Icons.playArrow
-                                    font.family: Theme.fontIcon
-                                    font.pixelSize: Theme.fontSizeIcon
-                                    color: Theme.textPrimary
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
+                                contentItem: Item {
+                                    implicitWidth: playInnerRow.implicitWidth
+                                    implicitHeight: playInnerRow.implicitHeight
+
+                                    RowLayout {
+                                        id: playInnerRow
+                                        visible: !playbackInfoLoading
+                                        anchors.centerIn: parent
+                                        spacing: Theme.spacingSmall
+
+                                        Text {
+                                            text: Icons.playArrow
+                                            font.family: Theme.fontIcon
+                                            font.pixelSize: Theme.fontSizeIcon
+                                            color: Theme.textPrimary
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
+
+                                        Text {
+                                            text: playButton.text
+                                            font.pixelSize: Theme.fontSizeBody
+                                            font.family: Theme.fontPrimary
+                                            font.weight: Font.Black
+                                            color: Theme.textPrimary
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
+                                    }
                                 }
 
                                 BusyIndicator {
@@ -1291,9 +1310,7 @@ FocusScope {
                                 id: markWatchedButton
                                 text: isPlayed ? qsTr("Mark Unwatched") : qsTr("Mark Watched")
                                 iconGlyph: isPlayed ? Icons.visibilityOff : Icons.visibility
-                                showLabel: false
                                 Layout.preferredHeight: Theme.buttonHeightLarge
-                                Layout.preferredWidth: Theme.buttonHeightLarge
 
                                 KeyNavigation.left: playButton
                                 KeyNavigation.right: contextMenuButton
@@ -1410,7 +1427,8 @@ FocusScope {
                 id: chapterSection
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
-                visible: movieId !== ""
+                // Hide the whole section rather than showing an empty panel.
+                visible: movieId !== "" && (chaptersLoading || chapters.length > 0)
                 implicitHeight: chapterSectionContent.implicitHeight
 
                 function focusCurrentOrFirst() {

@@ -110,6 +110,8 @@ Use these instead of hardcoded playback overlay colors so built-in themes remain
 
 Artwork overlays (poster badges/labels drawn on top of images) should use `overlayTextBackground`, `overlayTextBorder`, and `textOnDarkOverlay` rather than theme `chip*` / `textPrimary` tokens. Poster artwork can be bright or busy in any theme, so translucent theme chips (especially Rosé Pine / light flavors) lose contrast. `MetadataChip { onArtwork: true }` applies these tokens.
 
+Full-page blurred backdrops (Home, Library) are covered by `gradientOverlayStart` → `gradientOverlayMiddle` → `gradientOverlayEnd`. These are derived from `backgroundPrimary` at 65–88% opacity so page text stays legible over bright artwork and the scrim follows the active theme (light flavors get a light scrim). Note that QML reads 8-digit hex colors as `#AARRGGBB`, not CSS `#RRGGBBAA`; prefer `Qt.rgba()` when a token needs alpha.
+
 ## Layout Patterns
 
 ### Proportional Sizing

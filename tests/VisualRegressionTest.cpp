@@ -428,12 +428,12 @@ void VisualRegressionTest::navigateToScreen(const QString& screenName)
         QVERIFY(finalDepth > initialDepth);
         
     } else if (screenName == "MovieDetailsView") {
-        // Navigate to a movie details view
+        // Navigate to a movie details view (MovieDetailsView.qml takes movieId)
         QVariantMap props;
         props["currentParentId"] = "library-movies";
         props["currentLibraryId"] = "library-movies";
         props["currentLibraryName"] = "Movies";
-        props["itemId"] = "movie-001";
+        props["movieId"] = "movie-001";
         
         int initialDepth = stackView->property("depth").toInt();
         

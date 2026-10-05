@@ -4,9 +4,12 @@
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
+#include <QMutex>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QObject>
+#include <QQueue>
+#include <QWaitCondition>
 #include <QString>
 #include <QStringList>
 #include <QVariantList>
@@ -47,12 +50,13 @@ class AuthenticationService : public QObject
     Q_PROPERTY(QString authenticationStep READ authenticationStep NOTIFY authenticationStepChanged)
 
 public:
-    explicit AuthenticationService(ISecretStore *secretStore = nullptr, QObject *parent = nullptr);
-    AuthenticationService(ISecretStore *secretStore,
+    explicit AuthenticationService(std::shared_ptr<ISecretStore> secretStore = nullptr,
+                                     QObject *parent = nullptr);
+    AuthenticationService(std::shared_ptr<ISecretStore> secretStore,
                           HttpTransport *transport,
                           IProviderAdapter *providerAdapter,
                           QObject *parent = nullptr);
-    AuthenticationService(ISecretStore *secretStore,
+    AuthenticationService(std::shared_ptr<ISecretStore> secretStore,
                           HttpTransport *transport,
                           const QList<IProviderAdapter *> &providerAdapters,
                           QObject *parent = nullptr);
@@ -175,11 +179,41 @@ private:
     ProviderDetectionResult m_detectionResult;
     bool m_sessionExpiredPending = false;
     bool m_sessionExpiredEmitted = false;
-    ISecretStore *m_secretStore = nullptr;
+    // Shared ownership: background credential tasks hold a copy, so the
+    // store outlives a stalled task even if shutdown stops waiting for it.
+    std::shared_ptr<ISecretStore> m_secretStore;
     ServerConnection m_activeConnection;
     bool m_isRestoringSession = false;
     ConfigManager *m_configManager = nullptr;
     quint64 m_stateGeneration = 0;
+
+    // Snapshot of everything a background keyring write needs. Captured on
+    // the UI thread because ConfigManager is not thread-safe.
+    struct CredentialPersistSnapshot {
+        ServerConnection connection;
+        QString accessToken;
+        QString refreshToken;
+        QString profileToken;
+        QString deviceId;
+        QString legacyServerUrl;
+        QString legacyUsername;
+        QString legacyUserId;
+    };
+    struct CredentialPersistOutcome {
+        QString warning;
+        bool legacyVerified = false;
+    };
+    // Shared FIFO state for background keyring tasks. Reference-counted so an
+    // in-flight worker never touches destroyed service members at shutdown.
+    // The destructor drains the queue (see ~AuthenticationService) while the
+    // secret store is still alive — ApplicationInitializer destroys this
+    // service before the store — so no task can race store destruction.
+    struct CredentialTaskState {
+        QMutex mutex;
+        QWaitCondition idle;
+        QQueue<std::function<void()>> tasks;
+        bool pumpRunning = false;
+    };
 
     struct RestorationResult {
         bool success = false;
@@ -196,6 +230,8 @@ private:
     };
 
     QFutureWatcher<RestorationResult> m_restorationWatcher;
+    std::shared_ptr<CredentialTaskState> m_credentialTasks =
+        std::make_shared<CredentialTaskState>();
 
     QString normalizeUrl(const QString &url) const;
     ProviderRequestContext requestContext(bool includeAuthentication = true) const;
@@ -216,7 +252,20 @@ private:
     void refreshAuthentication(std::function<void(bool)> completion);
     void validateAccessToken(std::function<void(bool)> callback);
     void persistConnection();
-    void persistCredentials();
+    // Keyring I/O can block for seconds (locked keyring, unlock prompts), so
+    // every mutation runs on a shared FIFO background queue. Tasks execute in
+    // issue order, which keeps write-then-delete sequences (e.g. login
+    // followed by logout) consistent without ever blocking the UI thread.
+    void enqueueCredentialTask(std::function<void()> task);
+    // Persists the in-memory tokens captured at call time, then invokes the
+    // continuation on the UI thread. The continuation always runs, even when
+    // the keyring write fails, mirroring the previous synchronous behavior.
+    void persistCredentialsAsync(std::function<void()> continuation = {});
+    void finishCredentialPersist(const CredentialPersistOutcome &outcome,
+                                 const std::function<void()> &continuation);
+    void removeCredentialAsync(const ServerConnection &connection, CredentialKind kind);
+    void removeAllCredentialsAsync(const ServerConnection &connection,
+                                    const QString &deviceId);
     void updateAuthenticationStep(const QString &step);
     void replaceProfiles(const QList<ProviderProfile> &profiles);
     void replaceAuthSessions(const QList<ProviderAuthSession> &sessions);

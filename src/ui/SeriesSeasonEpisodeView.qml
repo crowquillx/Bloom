@@ -57,6 +57,17 @@ FocusScope {
     readonly property bool focusedEpisodeDetailsLoading: SeriesDetailsViewModel.focusedEpisodeDetailsLoading
     readonly property var focusedEpisodeChapters: SeriesDetailsViewModel.focusedEpisodeChapters || []
     readonly property bool focusedEpisodeChaptersLoading: SeriesDetailsViewModel.focusedEpisodeChaptersLoading
+    // Remembers whether the last loaded episode had chapters so the section does not
+    // flicker in and out while moving between episodes of a season without chapters.
+    property bool lastEpisodeHadChapters: false
+    onFocusedEpisodeChaptersChanged: {
+        if (focusedEpisodeChapters.length > 0)
+            lastEpisodeHadChapters = true
+    }
+    onFocusedEpisodeChaptersLoadingChanged: {
+        if (!focusedEpisodeChaptersLoading)
+            lastEpisodeHadChapters = focusedEpisodeChapters.length > 0
+    }
     readonly property string selectedEpisodeImageUrl: selectedEpisodeData
                                                      ? (selectedEpisodeData.imageUrl || "")
                                                      : ""
@@ -308,6 +319,8 @@ FocusScope {
                     || SeriesDetailsViewModel.selectedSeasonId !== initialSeasonId) {
                 console.log("[SeriesSeasonEpisodeView] Selecting initial season index:", targetIndex, "ID:", initialSeasonId)
                 SeriesDetailsViewModel.selectSeason(targetIndex)
+            } else {
+                selectInitialEpisodeIfAlreadyLoaded()
             }
             return
         }
@@ -315,7 +328,19 @@ FocusScope {
         if (SeriesDetailsViewModel.selectedSeasonId !== initialSeasonId) {
             console.log("[SeriesSeasonEpisodeView] Initial season index not available yet, loading by ID:", initialSeasonId)
             SeriesDetailsViewModel.loadSeasonEpisodes(initialSeasonId)
+        } else {
+            selectInitialEpisodeIfAlreadyLoaded()
         }
+    }
+
+    // The series page preloads the selected season, so opening that season emits no
+    // episodesLoaded signal. Resolve the initial (next unwatched) episode from the cached model.
+    function selectInitialEpisodeIfAlreadyLoaded() {
+        Qt.callLater(function() {
+            if (initialEpisodeSelectionPending && !userHasInteracted && episodesList.count > 0) {
+                selectInitialEpisode()
+            }
+        })
     }
     
     // Key handling for back navigation
@@ -1542,7 +1567,8 @@ FocusScope {
                                 text: selectedEpisodePlaybackPosition > 0 ? qsTr("Resume Episode") : qsTr("Play Episode")
                                 enabled: selectedEpisodeId !== ""
                                 Layout.preferredHeight: Theme.buttonHeightLarge
-                                Layout.preferredWidth: Theme.buttonHeightLarge
+                                Layout.preferredWidth: Math.max(Math.round(200 * Theme.layoutScale),
+                                                                playResumeInnerRow.implicitWidth + Math.round(48 * Theme.layoutScale))
 
                                 Accessible.name: text
 
@@ -1580,10 +1606,6 @@ FocusScope {
 
                                 onClicked: startPlayback(false, playResumeButton)
 
-                                ToolTip.visible: hovered && enabled
-                                ToolTip.text: text
-                                ToolTip.delay: 500
-
                                 background: Rectangle {
                                     radius: Theme.radiusMedium
                                     gradient: Gradient {
@@ -1614,15 +1636,37 @@ FocusScope {
                                     Behavior on border.color { ColorAnimation { duration: Theme.durationShort } }
                                 }
 
-                                contentItem: Text {
-                                    visible: playbackInfoLoadingItemId !== selectedEpisodeId
-                                    anchors.centerIn: parent
-                                    text: selectedEpisodePlaybackPosition > 0 ? Icons.fastForward : Icons.playArrow
-                                    font.family: Theme.fontIcon
-                                    font.pixelSize: Theme.fontSizeIcon
-                                    color: Theme.textPrimary
-                                    horizontalAlignment: Text.AlignHCenter
-                                    verticalAlignment: Text.AlignVCenter
+                                contentItem: Item {
+                                    implicitWidth: playResumeInnerRow.implicitWidth
+                                    implicitHeight: playResumeInnerRow.implicitHeight
+
+                                    RowLayout {
+                                        id: playResumeInnerRow
+                                        visible: playbackInfoLoadingItemId !== selectedEpisodeId
+                                        anchors.centerIn: parent
+                                        spacing: Theme.spacingSmall
+
+                                        Text {
+                                            text: Icons.playArrow
+                                            font.family: Theme.fontIcon
+                                            font.pixelSize: Theme.fontSizeIcon
+                                            color: Theme.textPrimary
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
+
+                                        Text {
+                                            text: playResumeButton.text
+                                            font.pixelSize: Theme.fontSizeBody
+                                            font.family: Theme.fontPrimary
+                                            font.weight: Font.Black
+                                            color: Theme.textPrimary
+                                            horizontalAlignment: Text.AlignHCenter
+                                            verticalAlignment: Text.AlignVCenter
+                                            Layout.alignment: Qt.AlignVCenter
+                                        }
+                                    }
                                 }
 
                                 BusyIndicator {
@@ -2071,6 +2115,8 @@ FocusScope {
                 Layout.fillWidth: true
                 Layout.preferredHeight: implicitHeight
                 visible: selectedEpisodeId !== ""
+                         && (focusedEpisodeChapters.length > 0
+                             || ((focusedEpisodeChaptersLoading || chapterPreloadTimer.running) && lastEpisodeHadChapters))
                 implicitHeight: chapterSectionContent.implicitHeight
 
                 function focusCurrentOrFirst() {

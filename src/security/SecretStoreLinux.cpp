@@ -28,6 +28,7 @@ SecretStoreLinux::SecretStoreLinux()
 
 bool SecretStoreLinux::setSecret(const QString &service, const QString &account, const QString &secret)
 {
+    QMutexLocker locker(&m_mutex);
     m_lastError.clear();
     
     GError *error = nullptr;
@@ -64,6 +65,7 @@ bool SecretStoreLinux::setSecret(const QString &service, const QString &account,
 
 QString SecretStoreLinux::getSecret(const QString &service, const QString &account)
 {
+    QMutexLocker locker(&m_mutex);
     m_lastError.clear();
     
     GError *error = nullptr;
@@ -97,6 +99,7 @@ QString SecretStoreLinux::getSecret(const QString &service, const QString &accou
 
 bool SecretStoreLinux::deleteSecret(const QString &service, const QString &account)
 {
+    QMutexLocker locker(&m_mutex);
     m_lastError.clear();
     
     GError *error = nullptr;
@@ -127,11 +130,13 @@ bool SecretStoreLinux::deleteSecret(const QString &service, const QString &accou
 
 QString SecretStoreLinux::lastError() const
 {
+    QMutexLocker locker(&m_mutex);
     return m_lastError;
 }
 
 QStringList SecretStoreLinux::listAccounts(const QString &service)
 {
+    QMutexLocker locker(&m_mutex);
     m_lastError.clear();
     QStringList accounts;
 

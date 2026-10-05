@@ -299,11 +299,14 @@ Dialog {
 
     title: qsTr("Request on Seerr")
 
-    Keys.onPressed: function(event) {
-        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
+    // Keys cannot attach to the Dialog (a Popup), so content and footer
+    // forward to this shared handler instead.
+    function handleDialogKey(event) {
+        if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
             close()
-            event.accepted = true
+            return true
         }
+        return false
     }
 
     background: Rectangle {
@@ -332,6 +335,12 @@ Dialog {
     contentItem: Item {
         implicitWidth: Math.round(640 * Theme.layoutScale)
         implicitHeight: Math.round(720 * Theme.layoutScale)
+
+        Keys.onPressed: function(event) {
+            if (dialog.handleDialogKey(event)) {
+                event.accepted = true
+            }
+        }
 
         ScrollView {
             id: contentScroll
@@ -673,6 +682,12 @@ Dialog {
     footer: Item {
         implicitHeight: Theme.buttonHeightSmall + Theme.spacingLarge * 2
         implicitWidth: parent ? parent.width : 400
+
+        Keys.onPressed: function(event) {
+            if (dialog.handleDialogKey(event)) {
+                event.accepted = true
+            }
+        }
 
         RowLayout {
             anchors.fill: parent

@@ -13,7 +13,8 @@ class MockAuthenticationService : public AuthenticationService
     Q_OBJECT
 
 public:
-    explicit MockAuthenticationService(ISecretStore *secretStore = nullptr, QObject *parent = nullptr);
+    explicit MockAuthenticationService(std::shared_ptr<ISecretStore> secretStore = nullptr,
+                                         QObject *parent = nullptr);
     
     /**
      * @brief Initialize the mock service with pre-authenticated state.

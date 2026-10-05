@@ -13,6 +13,9 @@ QML & Focus
 - Settings dropdowns should use `SettingsComboBox` instead of raw `ComboBox` so primitive and role-based models render the selected text reliably after async model/index updates.
 - Settings boolean controls should use `SettingsToggleRow` for consistent focus treatment, accessibility metadata, and keyboard/gamepad toggling.
 - Global app-shell shortcuts live in `Main.qml`; ESC on the root home screen opens the power menu, while deeper screens keep the normal back-stack behavior.
+- The sidebar's Exit entry opens the same power menu, and Sign Out (sidebar or Settings → About & Account) opens a confirmation dialog with Cancel focused, so a stray Select press never signs out or quits.
+- Moving Left into the sidebar (`Sidebar.focusRail()`) or expanding it focuses the current page's entry (Home, Search, the active library, or Settings) rather than the hamburger button.
+- Grids/lists that auto-select an index when their model loads must not move focus unless the view already has active focus; otherwise async results steal focus from text inputs (see `SearchScreen.qml`).
 - The screensaver is controlled by `ScreensaverController` and rendered by `ScreensaverOverlay.qml`. It may activate during app navigation or paused playback, but playing/loading/buffering video must always cancel or block activation.
 
 C++ conventions

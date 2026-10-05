@@ -2,7 +2,8 @@
 #include <QDebug>
 #include "../utils/BloomLogging.h"
 
-MockAuthenticationService::MockAuthenticationService(ISecretStore *secretStore, QObject *parent)
+MockAuthenticationService::MockAuthenticationService(std::shared_ptr<ISecretStore> secretStore,
+                                                       QObject *parent)
     : AuthenticationService(secretStore, parent)
 {
 }

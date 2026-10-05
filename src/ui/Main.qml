@@ -455,12 +455,12 @@ Window {
             if (isLoggedIn) {
                 saveFocusForSidebar()
                 if (sidebarProxy.expanded) {
-                    // When sidebar is expanded, focus first nav item
+                    // When sidebar is expanded, focus the current page entry
                     sidebarProxy.focusNavigation()
                     event.accepted = true
                 } else if (!sidebarProxy.overlayMode) {
-                    // When sidebar is collapsed (rail mode), focus hamburger
-                    sidebarProxy.focusHamburger()
+                    // When sidebar is collapsed (rail mode), focus the current page entry
+                    sidebarProxy.focusRail()
                     event.accepted = true
                 } else {
                     event.accepted = false
@@ -687,6 +687,13 @@ Window {
 
         function restoreHomeFocus() {
             Qt.callLater(function() {
+                // The power and sign-out dialogs can open from the expanded
+                // sidebar; cancelling must return focus there, not to the
+                // content behind the overlay sidebar.
+                if (sidebarProxy.expanded) {
+                    sidebarProxy.focusNavigation()
+                    return
+                }
                 var item = stackView.currentItem
                 if (item && item.visible && typeof item["restoreFocusState"] === "function") {
                     item["restoreFocusState"]()
@@ -710,15 +717,9 @@ Window {
         onClosed: restoreHomeFocus()
         onRejected: close()
 
-        Keys.onPressed: function(event) {
-            if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
-                event.accepted = true
-                close()
-            }
-        }
-
         background: Rectangle {
-            color: Theme.cardBackground
+            // Opaque so page text behind the modal cannot bleed through the dialog copy.
+            color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.97)
             radius: Theme.radiusMedium
             border.color: Theme.cardBorder
             border.width: 1
@@ -757,6 +758,14 @@ Window {
         contentItem: ColumnLayout {
             spacing: Theme.spacingSmall
 
+            // Keys cannot attach to the Dialog (a Popup), so handle dismissal here.
+            Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                    event.accepted = true
+                    homePowerDialog.close()
+                }
+            }
+
             PowerMenuButton {
                 id: quitButton
                 text: qsTr("Quit")
@@ -793,6 +802,101 @@ Window {
                 destructive: true
                 KeyNavigation.up: restartPcButton
                 onClicked: homePowerDialog.runPowerAction(function() { return SystemPowerController.shutdownComputer() })
+            }
+        }
+    }
+
+    Dialog {
+        id: signOutDialog
+        parent: Overlay.overlay
+        modal: true
+        focus: true
+        anchors.centerIn: parent
+        width: Math.min(Math.round(430 * Theme.layoutScale),
+                        Math.max(0, window.width - (Theme.spacingLarge * 2)))
+        padding: Theme.spacingLarge
+
+        property bool confirmed: false
+
+        onOpened: {
+            confirmed = false
+            // Default to Cancel so a stray Select press never signs out.
+            Qt.callLater(function() { signOutCancelButton.forceActiveFocus() })
+        }
+        onClosed: {
+            if (confirmed) {
+                AuthenticationService.logout()
+            } else {
+                homePowerDialog.restoreHomeFocus()
+            }
+        }
+
+        background: Rectangle {
+            // Opaque so page text behind the modal cannot bleed through the dialog copy.
+            color: Qt.rgba(Theme.cardBackground.r, Theme.cardBackground.g, Theme.cardBackground.b, 0.97)
+            radius: Theme.radiusMedium
+            border.color: Theme.cardBorder
+            border.width: 1
+        }
+
+        header: Item {
+            implicitHeight: signOutHeaderColumn.implicitHeight + (Theme.spacingLarge * 2)
+
+            Column {
+                id: signOutHeaderColumn
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.top: parent.top
+                anchors.margins: Theme.spacingLarge
+                spacing: Theme.spacingSmall
+
+                Text {
+                    text: qsTr("Sign out?")
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeTitle
+                    font.weight: Font.DemiBold
+                    color: Theme.textPrimary
+                }
+
+                Text {
+                    width: parent.width
+                    text: qsTr("You will need your server address and password to sign in again.")
+                    font.family: Theme.fontPrimary
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.textSecondary
+                    wrapMode: Text.WordWrap
+                }
+            }
+        }
+
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingSmall
+
+            Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                    event.accepted = true
+                    signOutDialog.close()
+                }
+            }
+
+            PowerMenuButton {
+                id: signOutCancelButton
+                text: qsTr("Cancel")
+                iconText: Icons.close
+                KeyNavigation.down: signOutConfirmButton
+                onClicked: signOutDialog.close()
+            }
+
+            PowerMenuButton {
+                id: signOutConfirmButton
+                text: qsTr("Sign Out")
+                iconText: Icons.logout
+                destructive: true
+                KeyNavigation.up: signOutCancelButton
+                onClicked: {
+                    signOutDialog.confirmed = true
+                    signOutDialog.close()
+                }
             }
         }
     }
@@ -866,6 +970,26 @@ Window {
                 close()
             }
 
+            // Keys cannot attach to the Dialog (a Popup), so content and
+            // footer forward to this shared handler instead.
+            function handleDialogKey(event) {
+                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                    dismissAndClose()
+                    return true
+                }
+                if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                    if (updatePrimaryButton.activeFocus && updateLaterButton.enabled) {
+                        updateLaterButton.forceActiveFocus()
+                    } else if (updatePrimaryButton.enabled) {
+                        updatePrimaryButton.forceActiveFocus()
+                    } else {
+                        updateLaterButton.forceActiveFocus()
+                    }
+                    return true
+                }
+                return false
+            }
+
             onOpened: {
                 setKeyboardNavigationMode()
                 Qt.callLater(focusInitialControl)
@@ -877,22 +1001,6 @@ Window {
             }
 
             onRejected: dismissAndClose()
-
-            Keys.onPressed: function(event) {
-                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
-                    dismissAndClose()
-                    event.accepted = true
-                } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-                    if (updatePrimaryButton.activeFocus && updateLaterButton.enabled) {
-                        updateLaterButton.forceActiveFocus()
-                    } else if (updatePrimaryButton.enabled) {
-                        updatePrimaryButton.forceActiveFocus()
-                    } else {
-                        updateLaterButton.forceActiveFocus()
-                    }
-                    event.accepted = true
-                }
-            }
 
             background: Rectangle {
                 color: Theme.cardBackground
@@ -935,6 +1043,12 @@ Window {
             contentItem: ColumnLayout {
                 spacing: Theme.spacingMedium
 
+                Keys.onPressed: function(event) {
+                    if (updateDialog.handleDialogKey(event)) {
+                        event.accepted = true
+                    }
+                }
+
                 ScrollView {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.min(updateDialogNotesText.implicitHeight + Theme.spacingMedium,
@@ -969,6 +1083,12 @@ Window {
 
             footer: Item {
                 implicitHeight: footerLayout.implicitHeight + (Theme.spacingLarge * 2)
+
+                Keys.onPressed: function(event) {
+                    if (updateDialog.handleDialogKey(event)) {
+                        event.accepted = true
+                    }
+                }
 
                 RowLayout {
                     id: footerLayout
@@ -1146,7 +1266,7 @@ Window {
         property string currentNavigation: "home"
         property string currentLibraryId: ""
         function focusNavigation() {}
-        function focusHamburger() {}
+        function focusRail() {}
         function close() {}
         function toggle() {}
     }
@@ -1204,13 +1324,15 @@ Window {
             }
 
             onSignOutRequested: {
-                // Trigger logout process
-                AuthenticationService.logout()
+                // Signing out clears stored credentials, so confirm first.
+                if (!signOutDialog.opened)
+                    signOutDialog.open()
             }
 
             onExitRequested: {
-                // Exit the application (saves config and quits)
-                ConfigManager.exitApplication()
+                // Offer Quit / Restart / power actions instead of quitting on a single press.
+                if (!homePowerDialog.opened)
+                    homePowerDialog.open()
             }
         }
     }
@@ -1243,7 +1365,8 @@ Window {
             var settingsScreen = stackView.currentItem
             if (settingsScreen && settingsScreen["signOutRequested"]) {
                 settingsScreen["signOutRequested"].connect(function() {
-                    AuthenticationService.logout()
+                    if (!signOutDialog.opened)
+                        signOutDialog.open()
                 })
             }
             if (settingsScreen && options.focusUpdatesOnActivate && typeof settingsScreen["requestUpdateSectionFocus"] === "function") {
@@ -1538,6 +1661,8 @@ Window {
         enabled: !PlayerController.isPlaybackActive
                  && stackView.depth > 1
                  && !sidebarProxy.expanded
+                 && !homePowerDialog.opened
+                 && !signOutDialog.opened
                  && !(stackView.currentItem && stackView.currentItem["handlesOwnBackNavigation"] === true)
         onActivated: {
             console.log("[FocusDebug] Back shortcut activated, stackView.depth:", stackView.depth, "sidebar.expanded:", sidebarProxy.expanded)
@@ -1555,6 +1680,7 @@ Window {
                  && isOnRootHomeScreen()
                  && !sidebarProxy.expanded
                  && !homePowerDialog.opened
+                 && !signOutDialog.opened
                  && !(updateDialogLoader.item && updateDialogLoader.item.visible)
         onActivated: {
             if (InputModeManager.pointerActive) UiSoundController.playBack()
