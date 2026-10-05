@@ -20,6 +20,7 @@ QString SecretStoreWindows::makeTargetName(const QString &service, const QString
 
 bool SecretStoreWindows::setSecret(const QString &service, const QString &account, const QString &secret)
 {
+    QMutexLocker locker(&m_mutex);
     m_lastError.clear();
     
     QString targetName = makeTargetName(service, account);
@@ -47,6 +48,7 @@ bool SecretStoreWindows::setSecret(const QString &service, const QString &accoun
 
 QString SecretStoreWindows::getSecret(const QString &service, const QString &account)
 {
+    QMutexLocker locker(&m_mutex);
     m_lastError.clear();
     
     QString targetName = makeTargetName(service, account);
@@ -76,6 +78,7 @@ QString SecretStoreWindows::getSecret(const QString &service, const QString &acc
 
 bool SecretStoreWindows::deleteSecret(const QString &service, const QString &account)
 {
+    QMutexLocker locker(&m_mutex);
     m_lastError.clear();
     
     QString targetName = makeTargetName(service, account);
@@ -98,11 +101,13 @@ bool SecretStoreWindows::deleteSecret(const QString &service, const QString &acc
 
 QString SecretStoreWindows::lastError() const
 {
+    QMutexLocker locker(&m_mutex);
     return m_lastError;
 }
 
 QStringList SecretStoreWindows::listAccounts(const QString &service)
 {
+    QMutexLocker locker(&m_mutex);
     m_lastError.clear();
     QStringList accounts;
 

@@ -2,6 +2,8 @@
 
 #include "ISecretStore.h"
 
+#include <QMutex>
+
 /**
  * @brief Windows implementation using Windows Credential Manager
  * 
@@ -20,6 +22,9 @@ public:
     QStringList listAccounts(const QString &service) override;
 
 private:
+    // See SecretStoreLinux: keyring calls now run on a background queue while
+    // restoration reads use the thread pool, so guard m_lastError here too.
+    mutable QMutex m_mutex;
     QString m_lastError;
     QString makeTargetName(const QString &service, const QString &account) const;
 };

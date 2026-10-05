@@ -12,6 +12,7 @@
 #include <QDebug>
 #include <QJsonDocument>
 #include <QNetworkRequest>
+#include <QPointer>
 #include <QSysInfo>
 #include <QUrl>
 #include "../utils/BloomLogging.h"
@@ -661,13 +662,20 @@ void AuthenticationService::handleAuthenticationResult(
     m_activeConnection = connection;
 
     persistConnection();
-    persistCredentials();
-
-    if (m_providerAdapter->supportsCapability(ProviderCapability::Profiles)) {
-        loadProfiles(true);
-    } else {
-        finishAuthentication();
-    }
+    // Keyring writes can block on a locked store, so continue the login flow
+    // once the write completes. The UI stays responsive and keeps showing
+    // "Signing in…" until the session finishes authenticating.
+    persistCredentialsAsync([this, generation]() {
+        if (generation != m_stateGeneration) {
+            return;
+        }
+        if (m_providerAdapter
+            && m_providerAdapter->supportsCapability(ProviderCapability::Profiles)) {
+            loadProfiles(true);
+        } else {
+            finishAuthentication();
+        }
+    });
 }
 
 void AuthenticationService::persistConnection()
@@ -683,53 +691,164 @@ void AuthenticationService::persistConnection()
     m_activeConnection = m_configManager->getActiveConnection().value_or(m_activeConnection);
 }
 
-void AuthenticationService::persistCredentials()
+void AuthenticationService::enqueueCredentialTask(std::function<void()> task)
 {
-    if (!m_secretStore || !m_activeConnection.isValid()) {
+    if (!task) {
+        return;
+    }
+    const auto state = m_credentialTasks;
+    bool startPump = false;
+    {
+        QMutexLocker locker(&state->mutex);
+        state->tasks.enqueue(std::move(task));
+        if (!state->pumpRunning) {
+            state->pumpRunning = true;
+            startPump = true;
+        }
+    }
+    if (startPump) {
+        // The pump drains itself; no caller needs the future.
+        static_cast<void>(QtConcurrent::run([state]() {
+            for (;;) {
+                std::function<void()> next;
+                {
+                    QMutexLocker locker(&state->mutex);
+                    if (state->tasks.isEmpty()) {
+                        state->pumpRunning = false;
+                        return;
+                    }
+                    next = state->tasks.dequeue();
+                }
+                next();
+            }
+        }));
+    }
+}
+
+void AuthenticationService::persistCredentialsAsync(std::function<void()> continuation)
+{
+    ISecretStore *store = m_secretStore;
+    const ServerConnection connection = m_activeConnection;
+    if (!store || !connection.isValid()) {
+        if (continuation) {
+            continuation();
+        }
         return;
     }
 
-    CredentialStore credentials(m_secretStore);
-    bool accessStored = true;
-    if (!m_accessToken.isEmpty()) {
-        accessStored = credentials.write(
-            m_activeConnection, CredentialKind::AccessToken, m_accessToken);
-    } else {
-        accessStored = credentials.remove(
-            m_activeConnection, CredentialKind::AccessToken);
+    CredentialPersistSnapshot snapshot;
+    snapshot.connection = connection;
+    snapshot.accessToken = m_accessToken;
+    snapshot.refreshToken = m_refreshToken;
+    snapshot.profileToken = m_profileToken;
+    if (m_configManager) {
+        snapshot.deviceId = m_configManager->getDeviceId();
+        if (connection.providerKind == ProviderKind::Jellyfin) {
+            const ConfigManager::SessionData legacy =
+                m_configManager->getPendingLegacyJellyfinSession();
+            snapshot.legacyServerUrl = legacy.serverUrl;
+            snapshot.legacyUsername = legacy.username;
+            snapshot.legacyUserId = legacy.userId;
+        }
     }
-    const bool refreshStored = !m_refreshToken.isEmpty()
-        ? credentials.write(
-              m_activeConnection, CredentialKind::RefreshToken, m_refreshToken)
-        : credentials.remove(m_activeConnection, CredentialKind::RefreshToken);
-    const bool profileStored = !m_profileToken.isEmpty()
-        ? credentials.write(
-              m_activeConnection, CredentialKind::ProfileToken, m_profileToken)
-        : credentials.remove(m_activeConnection, CredentialKind::ProfileToken);
-    if (!accessStored || !refreshStored || !profileStored) {
+
+    const auto outcome = std::make_shared<CredentialPersistOutcome>();
+    const QPointer<AuthenticationService> guard(this);
+    enqueueCredentialTask([store, snapshot, outcome, guard, continuation]() {
+        CredentialStore credentials(store);
+        bool accessStored = true;
+        if (!snapshot.accessToken.isEmpty()) {
+            accessStored = credentials.write(
+                snapshot.connection, CredentialKind::AccessToken, snapshot.accessToken);
+        } else {
+            accessStored = credentials.remove(
+                snapshot.connection, CredentialKind::AccessToken);
+        }
+        const bool refreshStored = !snapshot.refreshToken.isEmpty()
+            ? credentials.write(
+                  snapshot.connection, CredentialKind::RefreshToken, snapshot.refreshToken)
+            : credentials.remove(snapshot.connection, CredentialKind::RefreshToken);
+        const bool profileStored = !snapshot.profileToken.isEmpty()
+            ? credentials.write(
+                  snapshot.connection, CredentialKind::ProfileToken, snapshot.profileToken)
+            : credentials.remove(snapshot.connection, CredentialKind::ProfileToken);
+        if (!accessStored || !refreshStored || !profileStored) {
+            outcome->warning = store->lastError();
+        }
+
+        if (accessStored && !snapshot.accessToken.isEmpty()
+            && snapshot.connection.providerKind == ProviderKind::Jellyfin
+            && ServerConnection::normalizeBaseUrl(snapshot.legacyServerUrl)
+                   == snapshot.connection.baseUrl
+            && snapshot.legacyUserId == snapshot.connection.accountId) {
+            const CredentialReadResult cleanup = credentials.readAccessToken(
+                snapshot.connection,
+                snapshot.deviceId,
+                snapshot.legacyServerUrl,
+                snapshot.legacyUsername);
+            if (cleanup.secret == snapshot.accessToken && cleanup.error.isEmpty()
+                && cleanup.cleanupError.isEmpty()) {
+                outcome->legacyVerified = true;
+            } else if (!cleanup.error.isEmpty()) {
+                outcome->warning = cleanup.error;
+            } else if (!cleanup.cleanupError.isEmpty()) {
+                outcome->warning = cleanup.cleanupError;
+            }
+        }
+
+        if (!guard) {
+            return;
+        }
+        QMetaObject::invokeMethod(
+            guard,
+            [guard, outcome, continuation]() {
+                if (!guard) {
+                    return;
+                }
+                guard->finishCredentialPersist(*outcome, continuation);
+            },
+            Qt::QueuedConnection);
+    });
+}
+
+void AuthenticationService::finishCredentialPersist(
+    const CredentialPersistOutcome &outcome,
+    const std::function<void()> &continuation)
+{
+    if (!outcome.warning.isEmpty()) {
         qCWarning(lcAuth) << "Failed to persist one or more authentication credentials:"
-                          << m_secretStore->lastError();
+                          << outcome.warning;
     }
-
-    if (!accessStored || m_accessToken.isEmpty() || !m_configManager
-        || m_activeConnection.providerKind != ProviderKind::Jellyfin) {
-        return;
-    }
-    const ConfigManager::SessionData legacy =
-        m_configManager->getPendingLegacyJellyfinSession();
-    if (ServerConnection::normalizeBaseUrl(legacy.serverUrl) != m_activeConnection.baseUrl
-        || legacy.userId != m_activeConnection.accountId) {
-        return;
-    }
-    const CredentialReadResult cleanup = credentials.readAccessToken(
-        m_activeConnection,
-        m_configManager->getDeviceId(),
-        legacy.serverUrl,
-        legacy.username);
-    if (cleanup.secret == m_accessToken && cleanup.error.isEmpty()
-        && cleanup.cleanupError.isEmpty()) {
+    if (outcome.legacyVerified && m_configManager) {
         m_configManager->finalizeLegacyJellyfinMigration();
     }
+    if (continuation) {
+        continuation();
+    }
+}
+
+void AuthenticationService::removeCredentialAsync(const ServerConnection &connection,
+                                                  CredentialKind kind)
+{
+    ISecretStore *store = m_secretStore;
+    if (!store || !connection.isValid()) {
+        return;
+    }
+    enqueueCredentialTask([store, connection, kind]() {
+        CredentialStore(store).remove(connection, kind);
+    });
+}
+
+void AuthenticationService::removeAllCredentialsAsync(const ServerConnection &connection,
+                                                     const QString &deviceId)
+{
+    ISecretStore *store = m_secretStore;
+    if (!store || !connection.isValid()) {
+        return;
+    }
+    enqueueCredentialTask([store, connection, deviceId]() {
+        CredentialStore(store).removeAll(connection, deviceId);
+    });
 }
 
 void AuthenticationService::finishAuthentication()
@@ -846,10 +965,7 @@ void AuthenticationService::selectProfile(const QString &profileId)
 
     if (!m_profileToken.isEmpty()) {
         m_profileToken.clear();
-        if (m_secretStore && m_activeConnection.isValid()) {
-            CredentialStore(m_secretStore).remove(
-                m_activeConnection, CredentialKind::ProfileToken);
-        }
+        removeCredentialAsync(m_activeConnection, CredentialKind::ProfileToken);
     }
     m_pendingProfileId = profileId;
     if (profile->hasPin) {
@@ -875,16 +991,14 @@ void AuthenticationService::verifyProfilePin(const QString &profileId, const QSt
         m_transport->cancelAll();
     }
     ++m_stateGeneration;
+    const quint64 pinGeneration = m_stateGeneration;
     if (profile == m_providerProfiles.cend()) {
         emit loginError(tr("Unknown profile."));
         return;
     }
     if (!m_profileToken.isEmpty()) {
         m_profileToken.clear();
-        if (m_secretStore && m_activeConnection.isValid()) {
-            CredentialStore(m_secretStore).remove(
-                m_activeConnection, CredentialKind::ProfileToken);
-        }
+        removeCredentialAsync(m_activeConnection, CredentialKind::ProfileToken);
     }
     m_pendingProfileId = profileId;
     const auto request = m_providerAuthenticator->createProfileLoginRequest(profileId, pin);
@@ -898,8 +1012,12 @@ void AuthenticationService::verifyProfilePin(const QString &profileId, const QSt
             m_activeConnection.profileId = profileId;
             m_pendingProfileId.clear();
             persistConnection();
-            persistCredentials();
-            finishAuthentication();
+            persistCredentialsAsync([this, pinGeneration]() {
+                if (pinGeneration != m_stateGeneration) {
+                    return;
+                }
+                finishAuthentication();
+            });
             return;
         }
         emit loginError(tr("The provider does not support profile PIN verification."));
@@ -935,8 +1053,12 @@ void AuthenticationService::verifyProfilePin(const QString &profileId, const QSt
             m_activeConnection.profileId = m_pendingProfileId;
             m_pendingProfileId.clear();
             persistConnection();
-            persistCredentials();
-            finishAuthentication();
+            persistCredentialsAsync([this, generation]() {
+                if (generation != m_stateGeneration) {
+                    return;
+                }
+                finishAuthentication();
+            });
         },
         [this, generation](const NetworkError &error) {
             if (generation == m_stateGeneration) {
@@ -1166,7 +1288,9 @@ void AuthenticationService::refreshAuthentication(std::function<void(bool)> comp
             if (!authentication.refreshToken.isEmpty()) {
                 m_refreshToken = authentication.refreshToken;
             }
-            persistCredentials();
+            // Persist in the background: the refreshed tokens are already in
+            // memory, so request recovery must not wait on keyring latency.
+            persistCredentialsAsync();
             complete(true);
         },
         [this, generation, complete](const NetworkError &) {
@@ -1298,15 +1422,17 @@ void AuthenticationService::clearProfileStateInternal(bool persist)
     replaceProfiles({});
     replaceAuthSessions({});
     if (persist && m_activeConnection.isValid()) {
-        if (m_secretStore) {
-            CredentialStore(m_secretStore).remove(
-                m_activeConnection, CredentialKind::ProfileToken);
-        }
+        removeCredentialAsync(m_activeConnection, CredentialKind::ProfileToken);
         persistConnection();
     }
-    m_authenticationStep = m_accessToken.isEmpty()
+    // Only notify when the step actually changes: a redundant emit would make
+    // LoginScreen clear a freshly set "Signing in…" status message.
+    const QString nextStep = m_accessToken.isEmpty()
         ? QStringLiteral("credentials") : QStringLiteral("profiles");
-    emit authenticationStepChanged();
+    if (m_authenticationStep != nextStep) {
+        m_authenticationStep = nextStep;
+        emit authenticationStepChanged();
+    }
     if (wasAuthenticated != isAuthenticated()) {
         emit authenticatedChanged();
     }
@@ -1328,9 +1454,8 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
                ? m_configManager->getActiveConnection().value_or(ServerConnection{})
                : ServerConnection{});
     if (removeCredentials && m_secretStore && connection.isValid()) {
-        CredentialStore credentials(m_secretStore);
         const QString deviceId = m_configManager ? m_configManager->getDeviceId() : QString();
-        credentials.removeAll(connection, deviceId);
+        removeAllCredentialsAsync(connection, deviceId);
     }
     if (m_configManager) {
         if (removeCredentials && connection.providerKind == ProviderKind::Jellyfin) {
@@ -1352,8 +1477,13 @@ void AuthenticationService::clearAccountStateInternal(bool removeCredentials,
     m_sessionExpiredEmitted = false;
     replaceProfiles({});
     replaceAuthSessions({});
-    m_authenticationStep = QStringLiteral("credentials");
-    emit authenticationStepChanged();
+    // Only notify when the step actually changes: authenticate() clears stale
+    // account state right after LoginScreen sets "Signing in…", and a
+    // redundant emit would wipe that status before the login even starts.
+    if (m_authenticationStep != QStringLiteral("credentials")) {
+        m_authenticationStep = QStringLiteral("credentials");
+        emit authenticationStepChanged();
+    }
     emit serverUrlChanged();
     emit userIdChanged();
     if (wasAuthenticated) {

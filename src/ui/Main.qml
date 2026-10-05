@@ -963,6 +963,26 @@ Window {
                 close()
             }
 
+            // Keys cannot attach to the Dialog (a Popup), so content and
+            // footer forward to this shared handler instead.
+            function handleDialogKey(event) {
+                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                    dismissAndClose()
+                    return true
+                }
+                if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
+                    if (updatePrimaryButton.activeFocus && updateLaterButton.enabled) {
+                        updateLaterButton.forceActiveFocus()
+                    } else if (updatePrimaryButton.enabled) {
+                        updatePrimaryButton.forceActiveFocus()
+                    } else {
+                        updateLaterButton.forceActiveFocus()
+                    }
+                    return true
+                }
+                return false
+            }
+
             onOpened: {
                 setKeyboardNavigationMode()
                 Qt.callLater(focusInitialControl)
@@ -974,22 +994,6 @@ Window {
             }
 
             onRejected: dismissAndClose()
-
-            Keys.onPressed: function(event) {
-                if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back) {
-                    dismissAndClose()
-                    event.accepted = true
-                } else if (event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab) {
-                    if (updatePrimaryButton.activeFocus && updateLaterButton.enabled) {
-                        updateLaterButton.forceActiveFocus()
-                    } else if (updatePrimaryButton.enabled) {
-                        updatePrimaryButton.forceActiveFocus()
-                    } else {
-                        updateLaterButton.forceActiveFocus()
-                    }
-                    event.accepted = true
-                }
-            }
 
             background: Rectangle {
                 color: Theme.cardBackground
@@ -1032,6 +1036,12 @@ Window {
             contentItem: ColumnLayout {
                 spacing: Theme.spacingMedium
 
+                Keys.onPressed: function(event) {
+                    if (updateDialog.handleDialogKey(event)) {
+                        event.accepted = true
+                    }
+                }
+
                 ScrollView {
                     Layout.fillWidth: true
                     Layout.preferredHeight: Math.min(updateDialogNotesText.implicitHeight + Theme.spacingMedium,
@@ -1066,6 +1076,12 @@ Window {
 
             footer: Item {
                 implicitHeight: footerLayout.implicitHeight + (Theme.spacingLarge * 2)
+
+                Keys.onPressed: function(event) {
+                    if (updateDialog.handleDialogKey(event)) {
+                        event.accepted = true
+                    }
+                }
 
                 RowLayout {
                     id: footerLayout

@@ -2,6 +2,8 @@
 
 #include "ISecretStore.h"
 
+#include <QMutex>
+
 /**
  * @brief Linux implementation using libsecret (Secret Service API)
  * 
@@ -20,5 +22,9 @@ public:
     QStringList listAccounts(const QString &service) override;
 
 private:
+    // Keyring calls run on AuthenticationService's background queue while
+    // session-restoration reads run on the global thread pool, so every
+    // entry point serializes here to protect m_lastError.
+    mutable QMutex m_mutex;
     QString m_lastError;
 };
