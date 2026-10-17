@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QElapsedTimer>
+#include <QHash>
 #include <QJsonObject>
 #include <QLocalSocket>
 #include <QObject>
@@ -46,6 +47,12 @@ public:
     QString ipcPath() const;
     QVariantMap diagnostics() const;
 
+    // One-shot snapshot of mpv properties over IPC. Each property is fetched
+    // with its own request id; replies (failed properties are omitted) are
+    // emitted together via propertySnapshotReady, or after a bounded deadline.
+    // Dropped when IPC is not connected or the process is replaced.
+    void requestPropertySnapshot(const QString &tag, const QStringList &properties);
+
 signals:
     void stateChanged(bool running);
     void processFinished(int exitCode, bool crashed);
@@ -72,6 +79,9 @@ signals:
 
     // Script message from mpv scripts/extensions (via client-message event).
     void scriptMessage(const QString &messageName, const QStringList &args);
+
+    void fileLoaded();
+    void propertySnapshotReady(const QString &tag, const QVariantMap &properties);
 
 private slots:
     void onProcessStarted();
@@ -111,10 +121,20 @@ private:
     void failIpcConnection(const QString &reason);
     void resetIpcConnection();
 
+    struct PropertySnapshot {
+        QString tag;
+        QVariantMap values;
+        int outstanding = 0;
+    };
+
     bool serializeCommand(const QVariantList &command,
                           QByteArray *payload,
-                          QString *commandName) const;
-    bool writeCommand(const QVariantList &command);
+                          QString *commandName,
+                          qint64 requestId = -1) const;
+    bool writeCommand(const QVariantList &command, qint64 requestId = -1);
+    void handleCommandReply(const QJsonObject &object);
+    void finishPropertySnapshot(quint64 snapshotId);
+    void clearPropertySnapshots();
     void enqueueCommand(const QVariantList &command);
     void flushPendingCommands();
     void handleIpcObject(const QJsonObject &object);
@@ -149,4 +169,9 @@ private:
     qint64 m_lastIpcLatencyMs = -1;
     int m_playlistPosition = -1;
     int m_playlistCount = 0;
+    int m_propertySnapshotDeadlineMs = 2000;
+    qint64 m_nextRequestId = 1;
+    quint64 m_nextSnapshotId = 1;
+    QHash<qint64, std::pair<quint64, QString>> m_pendingPropertyRequests;
+    QHash<quint64, PropertySnapshot> m_propertySnapshots;
 };

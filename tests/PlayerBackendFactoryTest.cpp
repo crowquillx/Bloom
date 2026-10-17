@@ -6,7 +6,10 @@
 #include <QByteArray>
 #include <QDir>
 
+#include "player/backend/ExternalMpvBackend.h"
 #include "player/backend/IPlayerBackend.h"
+#include "player/backend/MpvLibmpvRuntime.h"
+#include "player/backend/MpvNodeUtils.h"
 #include "player/backend/PlayerBackendFactory.h"
 #include "utils/ConfigManager.h"
 #if defined(Q_OS_WIN)
@@ -50,6 +53,9 @@ private slots:
     void windowsEmbeddedSanitizerFiltersRenderBackendOverrides();
     void windowsEmbeddedRenderApiProfilesApplyExpectedOptions();
     void windowsEmbeddedShaderListUsesResolvedGlslShadersOption();
+    void embeddedVideoFilterListOperationsAreDeferred();
+    void linkedRuntimePreservesVideoFilterOrder();
+    void externalBackendRuntimeIsUnknownUntilProbed();
 };
 
 void PlayerBackendFactoryTest::init()
@@ -386,6 +392,83 @@ void PlayerBackendFactoryTest::windowsEmbeddedShaderListUsesResolvedGlslShadersO
 #else
     QSKIP("Windows embedded shader list helper is only compiled on Windows");
 #endif
+}
+
+void PlayerBackendFactoryTest::embeddedVideoFilterListOperationsAreDeferred()
+{
+    QStringList args{
+        QStringLiteral("--vo=gpu-next"),
+        QStringLiteral("--vf=lavfi=[bwdif]"),
+        QStringLiteral("--vf-append=@bloom-dovi:format=dolbyvision=yes:enhancement-layer=yes"),
+        QStringLiteral("--vf-pre=@user:format=colorlevels=full"),
+        QStringLiteral("--vf-clr"),
+        QStringLiteral("--vfoo=bar"),
+        QStringLiteral("--af-append=lavfi=[loudnorm]"),
+    };
+    const QList<BloomBackend::VideoFilterListOperation> operations =
+        BloomBackend::takeVideoFilterListOperations(&args);
+
+    // Replacements and list edits retain their relative order.
+    QCOMPARE(args, QStringList({QStringLiteral("--vo=gpu-next"),
+                                QStringLiteral("--vfoo=bar"),
+                                QStringLiteral("--af-append=lavfi=[loudnorm]")}));
+    QCOMPARE(operations.size(), 4);
+    QCOMPARE(operations.at(0).operation, QStringLiteral("set"));
+    QCOMPARE(operations.at(0).value, QStringLiteral("lavfi=[bwdif]"));
+    QCOMPARE(operations.at(1).operation, QStringLiteral("append"));
+    QCOMPARE(operations.at(1).value,
+             QStringLiteral("@bloom-dovi:format=dolbyvision=yes:enhancement-layer=yes"));
+    QCOMPARE(operations.at(2).operation, QStringLiteral("pre"));
+    QCOMPARE(operations.at(3).operation, QStringLiteral("clr"));
+    QVERIFY(operations.at(3).value.isEmpty());
+
+    args = {QStringLiteral("--vf-append=hflip"), QStringLiteral("--vf=vflip"),
+            QStringLiteral("--vf-append=format=dolbyvision=yes")};
+    const auto ordered = BloomBackend::takeVideoFilterListOperations(&args);
+    QVERIFY(args.isEmpty());
+    QCOMPARE(ordered.size(), 3);
+    QCOMPARE(ordered.at(0).operation, QStringLiteral("append"));
+    QCOMPARE(ordered.at(1).operation, QStringLiteral("set"));
+    QCOMPARE(ordered.at(1).value, QStringLiteral("vflip"));
+    QCOMPARE(ordered.at(2).operation, QStringLiteral("append"));
+}
+
+void PlayerBackendFactoryTest::linkedRuntimePreservesVideoFilterOrder()
+{
+#if defined(BLOOM_HAS_LIBMPV)
+    std::unique_ptr<mpv_handle, decltype(&mpv_terminate_destroy)> handle(mpv_create(), mpv_terminate_destroy);
+    QVERIFY(handle);
+    QVERIFY(mpv_set_option_string(handle.get(), "config", "no") >= 0);
+    QVERIFY(mpv_set_option_string(handle.get(), "vo", "null") >= 0);
+    QVERIFY(mpv_set_option_string(handle.get(), "ao", "null") >= 0);
+    QVERIFY(mpv_initialize(handle.get()) >= 0);
+    QStringList args{QStringLiteral("--vf-append=@discard:format=gamma=pq"),
+                     QStringLiteral("--vf=@user:format=gamma=bt.1886"),
+                     QStringLiteral("--vf-append=@bloom-dovi:format=dolbyvision=yes")};
+    const auto operations = BloomBackend::takeVideoFilterListOperations(&args);
+    QVERIFY(BloomBackend::applyVideoFilterListOperations(handle.get(), operations).isEmpty());
+    QVERIFY(BloomBackend::applyVideoFilterListOperations(handle.get(), {operations.last()}).isEmpty());
+    mpv_node value{};
+    QVERIFY(mpv_get_property(handle.get(), "vf", MPV_FORMAT_NODE, &value) >= 0);
+    const auto filters = BloomBackend::mpvNodeToVariant(&value).toList();
+    mpv_free_node_contents(&value);
+    QCOMPARE(filters.size(), 2);
+    QCOMPARE(filters.first().toMap().value(QStringLiteral("label")).toString(), QStringLiteral("user"));
+    QCOMPARE(filters.last().toMap().value(QStringLiteral("label")).toString(), QStringLiteral("bloom-dovi"));
+#else
+    QSKIP("libmpv is unavailable");
+#endif
+}
+
+void PlayerBackendFactoryTest::externalBackendRuntimeIsUnknownUntilProbed()
+{
+    ExternalMpvBackend backend;
+    const Bloom::PlaybackPolicy::MpvRuntimeInfo info = backend.runtimeInfo();
+    QCOMPARE(info.backend, QStringLiteral("external-mpv-ipc"));
+    QCOMPARE(info.formatFilter, Bloom::PlaybackPolicy::FormatFilterSupport::Unknown);
+    QCOMPARE(backend.rendererKind({QStringLiteral("--vo=gpu-next")}),
+             Bloom::PlaybackPolicy::RendererKind::GpuNext);
+    QCOMPARE(backend.rendererKind({}), Bloom::PlaybackPolicy::RendererKind::Unknown);
 }
 
 QTEST_MAIN(PlayerBackendFactoryTest)

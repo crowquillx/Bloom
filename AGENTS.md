@@ -104,6 +104,7 @@ If unsure whether a change requires `AGENTS.md` or `docs/` updates, open an issu
 See also:
 - docs/build.md     — Nix build, packaging, CI, and Windows instructions
 - docs/playback.md  — mpv and playback/reporting integration
+- docs/dolby-vision.md — pinned mpv stacks, DV/FEL capability checks, renderer limits, and sample verification
 - docs/provider-compatibility.md — provider-neutral server contract matrix, reproducible Jellyfin/Silo pins, and native API assumptions
 - docs/manual-validation.md — v0.8.0 release-graduation ledger, commands, evidence, and unavailable gates
 - docs/provider-architecture.md — connection identity, credential migration, and incremental provider adapter boundaries

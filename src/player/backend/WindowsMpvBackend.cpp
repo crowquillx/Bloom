@@ -208,6 +208,45 @@ QString WindowsMpvBackend::backendName() const
     return QStringLiteral("win-libmpv");
 }
 
+void WindowsMpvBackend::prepareRuntime(const QString &mpvBin)
+{
+    Q_UNUSED(mpvBin);
+#if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
+    if (!m_runtimeInfoFromHandle) {
+        m_runtimeInfo = BloomBackend::readRuntimeInfo(nullptr, backendName());
+        emit runtimeInfoChanged();
+    }
+#endif
+}
+
+Bloom::PlaybackPolicy::MpvRuntimeInfo WindowsMpvBackend::runtimeInfo() const
+{
+    return m_runtimeInfo;
+}
+
+Bloom::PlaybackPolicy::RendererKind WindowsMpvBackend::rendererKind(const QStringList &args) const
+{
+    Q_UNUSED(args);
+    // applyRenderApiOptions() always forces m_effectiveVo (gpu-next).
+    return Bloom::PlaybackPolicy::rendererKindForVo(m_effectiveVo);
+}
+
+void WindowsMpvBackend::scheduleDiagnosticSnapshots()
+{
+#if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
+    const quint64 generation = ++m_diagnosticsGeneration;
+    QStringList properties = Bloom::PlaybackPolicy::runtimeProvenanceProperties();
+    properties << Bloom::PlaybackPolicy::playbackDiagnosticProperties();
+    const auto requestSnapshot = [this, generation, properties](const QString &stage) {
+        if (generation == m_diagnosticsGeneration && m_mpvHandle != nullptr && m_directControlActive) {
+            m_propertySnapshots.request(static_cast<mpv_handle *>(m_mpvHandle), stage, properties);
+        }
+    };
+    QTimer::singleShot(1500, this, [requestSnapshot]() { requestSnapshot(QStringLiteral("startup")); });
+    QTimer::singleShot(8000, this, [requestSnapshot]() { requestSnapshot(QStringLiteral("steady")); });
+#endif
+}
+
 void WindowsMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl)
 {
     Q_UNUSED(mpvBin);
@@ -642,7 +681,8 @@ bool WindowsMpvBackend::isHdrRelatedArg(const QString &arg)
         QStringLiteral("--color-primaries"),
         QStringLiteral("--colorspace"),
         QStringLiteral("--video-output-levels"),
-        QStringLiteral("--vf=format=")
+        QStringLiteral("--vf=format="),
+        QStringLiteral("--vf-append=@bloom-dovi:")
     };
 
     const QString lowered = arg.toLower();
@@ -824,6 +864,15 @@ bool WindowsMpvBackend::initializeMpv(const QStringList &args)
     Logger::instance().flush();
 
     applyEmbeddedShaderList(handle);
+    const QStringList filterFailures =
+        BloomBackend::applyVideoFilterListOperations(handle, m_pendingVideoFilterOperations);
+    for (const QString &failure : filterFailures) {
+        qCWarning(lcWindowsLibmpvBackend) << "Failed to apply video filter operation:" << failure;
+    }
+    m_pendingVideoFilterOperations.clear();
+    m_runtimeInfo = BloomBackend::readRuntimeInfo(handle, backendName());
+    m_runtimeInfoFromHandle = true;
+    emit runtimeInfoChanged();
     observeMpvProperties(handle);
     return true;
 #endif
@@ -849,6 +898,10 @@ void WindowsMpvBackend::teardownMpv()
     m_mpvHandle = nullptr;
     m_eventDispatchQueued.store(false, std::memory_order_release);
     ++m_stopTeardownGeneration;
+    ++m_diagnosticsGeneration;
+#if defined(BLOOM_HAS_LIBMPV)
+    m_propertySnapshots.reset();
+#endif
     m_playlistPosition = -1;
     m_playlistCount = 0;
     m_stopRequested = false;
@@ -1159,6 +1212,13 @@ void WindowsMpvBackend::processMpvEvents()
                 break;
             }
             setDirectRunning(true);
+            scheduleDiagnosticSnapshots();
+            break;
+        case MPV_EVENT_GET_PROPERTY_REPLY:
+            m_propertySnapshots.handleEvent(event, [this](const QString &stage,
+                                                          const QVariantMap &properties) {
+                emit playbackDiagnosticsAvailable(stage, properties);
+            });
             break;
         case MPV_EVENT_SEEK:
             qCInfo(lcWindowsLibmpvBackend)
@@ -1306,8 +1366,10 @@ void WindowsMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
     }
 
     mpv_handle *handle = static_cast<mpv_handle *>(handlePtr);
-    const MpvArgFilter::ShaderArgPartition partitioned =
+    MpvArgFilter::ShaderArgPartition partitioned =
         MpvArgFilter::partitionShaderArgs(MpvArgFilter::sanitizeArgs(args));
+    m_pendingVideoFilterOperations =
+        BloomBackend::takeVideoFilterListOperations(&partitioned.nonShaderArgs);
 
     qCInfo(lcWindowsLibmpvBackend)
         << "Applying direct libmpv startup options"

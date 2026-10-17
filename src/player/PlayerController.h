@@ -580,6 +580,11 @@ private:
      */
     void initiateMpvStart();
     HdrPlaybackPolicy computeEffectiveHdrPlaybackPolicy() const;
+    // Dolby Vision filter handling for the backend's runtime; see
+    // docs/playback.md ("Dolby Vision processing and Profile 7 FEL").
+    QStringList applyDolbyVisionPlaybackArgs(const QStringList &args);
+    void onBackendRuntimeInfoChanged();
+    void onPlaybackDiagnosticsAvailable(const QString &stage, const QVariantMap &properties);
     /**
      * Update the trickplay preview image/URL for the specified playback position.
      * @param seconds Position in seconds for which to update the trickplay preview.
@@ -918,6 +923,9 @@ private:
     QVariantList m_availableAudioTracks;
     QVariantList m_availableSubtitleTracks;
     QVariantMap m_activeMediaSource;
+    Bloom::PlaybackPolicy::DolbyVisionSourceInfo m_activeDolbyVisionSource;
+    Bloom::PlaybackPolicy::RendererKind m_activeRendererKind = Bloom::PlaybackPolicy::RendererKind::Unknown;
+    QString m_loggedRuntimeIdentity;
     bool m_applyingInitialTracks = false;
     bool m_pendingAudioTrackPersistenceFromBackend = false;
     bool m_pendingSubtitleTrackPersistenceFromBackend = false;

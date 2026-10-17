@@ -11,6 +11,7 @@ lib.fileset.toSource {
       ../VERSION
       ../cmake
       ../config
+      ../packaging/dependencies.json
       ../src
       ../third_party/monocypher
     ]

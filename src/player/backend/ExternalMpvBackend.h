@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IPlayerBackend.h"
+#include "../MpvRuntimeProbe.h"
 #include "../PlayerProcessManager.h"
 
 class ExternalMpvBackend : public IPlayerBackend
@@ -26,6 +27,13 @@ public:
     void detachVideoTarget(QObject *target) override;
     void setVideoViewport(const QRectF &viewport) override;
 
+    void prepareRuntime(const QString &mpvBin) override;
+    Bloom::PlaybackPolicy::MpvRuntimeInfo runtimeInfo() const override;
+
 private:
+    void scheduleDiagnosticSnapshots();
+
     PlayerProcessManager *m_processManager;
+    MpvRuntimeProbe *m_runtimeProbe;
+    quint64 m_fileGeneration = 0;
 };

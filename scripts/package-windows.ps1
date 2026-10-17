@@ -10,10 +10,14 @@
 param(
     [string]$InstallDir = "install-windows",
     [string]$OutputDir = "Bloom-Windows",
-    [string]$QtDir = ""
+    [string]$QtDir = "",
+    # Local experiments only: stage a libmpv DLL that is not the verified,
+    # FEL-capable pin (warns instead of failing).
+    [switch]$AllowUnverifiedMpv
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "MpvFelCapability.ps1")
 
 function Resolve-Windeployqt {
     param([string]$QtRoot)
@@ -136,6 +140,27 @@ if (-not $existingMpvDll) {
         Write-Warning "No mpv runtime DLL found in install tree or known system paths."
     }
 }
+
+# Releases must ship the pinned, FEL-capable libmpv (never a PATH/chocolatey
+# DLL). Record its provenance next to Bloom.exe for support/diagnostics.
+$stagedMpvDll = Get-ChildItem -Path $OutputDir -Filter "*mpv*.dll" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $stagedMpvDll) {
+    throw "Bloom-Windows package has no libmpv runtime DLL."
+}
+$mpvCapability = Assert-MpvDllFelCapability -DllPath $stagedMpvDll.FullName -RequirePinned -WarnOnly:$AllowUnverifiedMpv
+$pins = Get-BloomDependencyPins
+$provenance = [ordered]@{
+    dll              = $stagedMpvDll.Name
+    dll_sha256       = (Get-FileHash -Algorithm SHA256 -Path $stagedMpvDll.FullName).Hash.ToLowerInvariant()
+    reported_mpv     = $mpvCapability.MpvVersion
+    libplacebo_api   = $mpvCapability.LibplaceboApi
+    fel_capable      = $mpvCapability.Capable
+    sdk_version      = $pins.mpv.windows_sdk_version
+    sdk_sha256       = $pins.mpv.windows_sdk_sha256
+    mpv_revision     = $pins.mpv.source_revision
+    stack            = $pins.mpv.windows_stack
+}
+$provenance | ConvertTo-Json -Depth 4 | Set-Content -Path (Join-Path $OutputDir "mpv-provenance.json") -Encoding UTF8
 
 # Stage SDL2 when the controller backend was built dynamically.
 $existingSdlDll = Get-ChildItem -Path $OutputDir -Filter "SDL2.dll" -File -ErrorAction SilentlyContinue | Select-Object -First 1

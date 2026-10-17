@@ -106,6 +106,8 @@ jobs:
             .#checks.x86_64-linux.metadata \
             .#checks.x86_64-linux.release-manifest \
             .#checks.x86_64-linux.release-smoke \
+            .#checks.x86_64-linux.mpv-fel-capability \
+            .#checks.x86_64-linux.dependency-pins \
             --print-build-logs --option max-jobs 1 --option cores 4
           retry nix build .#bloom --print-build-logs --option max-jobs 1 --option cores 4
       - name: Pin current main build
@@ -255,7 +257,7 @@ jobs:
             -QtDir "$env:QT_ROOT_DIR" -Generator Ninja `
             -BuildChannel "${{ needs.metadata.outputs.channel }}" `
             -BuildId "${{ needs.metadata.outputs.build_id }}" -BuildTests `
-            -GitSha "${{ needs.metadata.outputs.git_sha }}" -Clean
+            -GitSha "${{ needs.metadata.outputs.git_sha }}" -Clean -RequireFelCapableMpv
       - name: Run tests
         shell: pwsh
         run: |

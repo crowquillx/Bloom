@@ -9,6 +9,7 @@
 #include "../network/AuthenticationService.h"
 #include "../network/Types.h"
 #include <QFile>
+#include <QFileInfo>
 #include <QBuffer>
 #include <QNetworkReply>
 #include <QJsonDocument>
@@ -286,6 +287,9 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
             });
     
     loadConfig();
+    // Non-blocking: external mpv is probed asynchronously, embedded libmpv
+    // reports its linked runtime.
+    m_playerBackend->prepareRuntime(m_mpvBin);
 
     if (m_config) {
         m_volume = m_config->getPlaybackVolume();
@@ -326,6 +330,10 @@ void PlayerController::connectBackendSignals(IPlayerBackend *backend)
 
     connect(backend, &IPlayerBackend::stateChanged,
             this, &PlayerController::onProcessStateChanged);
+    connect(backend, &IPlayerBackend::runtimeInfoChanged,
+            this, &PlayerController::onBackendRuntimeInfoChanged);
+    connect(backend, &IPlayerBackend::playbackDiagnosticsAvailable,
+            this, &PlayerController::onPlaybackDiagnosticsAvailable);
     connect(backend, &IPlayerBackend::errorOccurred,
             this, &PlayerController::onProcessError);
     connect(backend, &IPlayerBackend::positionChanged,
@@ -435,6 +443,7 @@ void PlayerController::finalizeBackendFallback()
 
     m_playerBackend = m_ownedBackend.get();
     connectBackendSignals(m_playerBackend);
+    m_playerBackend->prepareRuntime(m_mpvBin);
     emit supportsEmbeddedVideoChanged();
 
     if (m_playbackState == Loading && !m_pendingUrl.isEmpty()) {
@@ -5409,6 +5418,117 @@ void PlayerController::startPlayback(const QString &url)
     applyFramerateMatchingAndStart();
 }
 
+QStringList PlayerController::applyDolbyVisionPlaybackArgs(const QStringList &args)
+{
+    const PlayerPolicy::HdrContentKind kind = m_activeMediaSource.isEmpty()
+        ? (m_contentIsHDR ? PlayerPolicy::HdrContentKind::Hdr : PlayerPolicy::HdrContentKind::Sdr)
+        : PlayerPolicy::classifyMediaSourceHdr(m_activeMediaSource);
+    m_activeDolbyVisionSource = PlayerPolicy::describeDolbyVisionSource(m_activeMediaSource);
+    m_activeRendererKind = m_playerBackend->rendererKind(args);
+
+    const PlayerPolicy::MpvRuntimeInfo runtime = m_playerBackend->runtimeInfo();
+    const QStringList result =
+        PlayerPolicy::appendDolbyVisionFilterArgs(args, kind, runtime.formatFilter);
+    if (!m_activeDolbyVisionSource.isDolbyVision) {
+        return result;
+    }
+
+    const PlayerPolicy::FelCapability capability =
+        PlayerPolicy::evaluateFelCapability(runtime, m_activeRendererKind);
+    qCInfo(lcPlayback).noquote()
+        << QStringLiteral("Dolby Vision source: %1 hdrKind=%2 backend=%3 formatFilter=%4 dvFilter=%5 %6")
+               .arg(PlayerPolicy::dolbyVisionSourceSummary(m_activeDolbyVisionSource),
+                    PlayerPolicy::hdrContentKindName(kind),
+                    m_playerBackend->backendName(),
+                    PlayerPolicy::formatFilterSupportName(runtime.formatFilter),
+                    result != args ? result.last() : QStringLiteral("none"),
+                    PlayerPolicy::felCapabilitySummary(capability));
+    const QStringList stripping = PlayerPolicy::dolbyVisionStrippingFilterArgs(result);
+    if (!stripping.isEmpty()) {
+        qCWarning(lcPlayback) << "Dolby Vision metadata or enhancement layer disabled by configured filters:"
+                              << stripping;
+    }
+    if (m_activeDolbyVisionSource.dualLayer
+        && capability.overall == PlayerPolicy::Capability::Unsupported) {
+        qCWarning(lcPlayback).noquote()
+            << QStringLiteral("Dolby Vision Profile 7 enhancement-layer (FEL) reconstruction is not available on this runtime; "
+                              "continuing with the available base-layer renderer. %1")
+                   .arg(capability.reasons.join(QStringLiteral("; ")));
+    }
+    return result;
+}
+
+void PlayerController::onBackendRuntimeInfoChanged()
+{
+    const PlayerPolicy::MpvRuntimeInfo runtime = m_playerBackend->runtimeInfo();
+    const QString identity = QStringList{runtime.backend, runtime.executablePath, runtime.libraryPath,
+                                         runtime.mpvVersion,
+                                         PlayerPolicy::formatFilterSupportName(runtime.formatFilter)}
+                                 .join(QLatin1Char('|'));
+    if (identity == m_loggedRuntimeIdentity) {
+        return;
+    }
+    m_loggedRuntimeIdentity = identity;
+    const PlayerPolicy::RendererKind renderer = m_playerBackend->rendererKind(
+        m_config ? m_config->getMpvArgsForProfile(m_config->getDefaultProfileName(), true) : QStringList{});
+    const PlayerPolicy::FelCapability capability = PlayerPolicy::evaluateFelCapability(runtime, renderer);
+    qCInfo(lcPlayback).noquote()
+        << QStringLiteral("mpv runtime: backend=%1 mpv=%2 executable=%3 libmpv=%4 client-api=%5 ffmpeg=%6 libavcodec=%7 libplacebo=%8 "
+                          "verified-pin=%9 format-filter=%10 renderer=%11 %12")
+               .arg(runtime.backend,
+                    runtime.mpvVersion.isEmpty() ? QStringLiteral("unknown") : runtime.mpvVersion,
+                    runtime.executablePath.isEmpty() ? QStringLiteral("n/a") : runtime.executablePath,
+                    runtime.libraryPath.isEmpty() ? QStringLiteral("n/a") : runtime.libraryPath,
+                    runtime.clientApiVersion.isEmpty() ? QStringLiteral("n/a") : runtime.clientApiVersion,
+                    runtime.ffmpegVersion.isEmpty() ? QStringLiteral("unknown") : runtime.ffmpegVersion,
+                    runtime.libavcodecVersion.isNull() ? QStringLiteral("unknown")
+                                                       : runtime.libavcodecVersion.toString(),
+                    runtime.libplaceboVersion.isEmpty() ? QStringLiteral("unknown") : runtime.libplaceboVersion,
+                    runtime.matchesVerifiedPackagedStack ? QStringLiteral("yes") : QStringLiteral("no"))
+               .arg(PlayerPolicy::formatFilterSupportName(runtime.formatFilter),
+                    PlayerPolicy::rendererKindName(renderer),
+                    PlayerPolicy::felCapabilitySummary(capability));
+    if (runtime.formatFilter != PlayerPolicy::FormatFilterSupport::Unknown
+        && capability.overall == PlayerPolicy::Capability::Unsupported) {
+        qCWarning(lcPlayback).noquote()
+            << QStringLiteral("mpv runtime lacks Dolby Vision Profile 7 FEL support: %1")
+                   .arg(capability.reasons.join(QStringLiteral("; ")));
+    }
+}
+
+void PlayerController::onPlaybackDiagnosticsAvailable(const QString &stage, const QVariantMap &properties)
+{
+    const PlayerPolicy::PlaybackDiagnostics diagnostics =
+        PlayerPolicy::evaluatePlaybackDiagnostics(properties);
+    const QString summary = QStringLiteral("Playback diagnostics [%1] backend=%2 mpv=%3 ffmpeg=%4 libplacebo=%5 hdrOutputMode=%6 %7")
+                                .arg(stage,
+                                     m_playerBackend->backendName(),
+                                     properties.value(QStringLiteral("mpv-version")).toString(),
+                                     properties.value(QStringLiteral("ffmpeg-version")).toString(),
+                                     properties.value(QStringLiteral("libplacebo-version")).toString(),
+                                     m_config ? m_config->getHDROutputMode() : QString(),
+                                     PlayerPolicy::playbackDiagnosticsSummary(diagnostics,
+                                                                             m_activeDolbyVisionSource));
+    // HDR/DV playback is where these details matter; keep SDR logs quiet.
+    if (m_contentIsHDR || m_activeDolbyVisionSource.isDolbyVision || diagnostics.dolbyVisionProfile > 0) {
+        qCInfo(lcPlayback).noquote() << summary;
+    } else {
+        qCDebug(lcPlayback).noquote() << summary;
+    }
+
+    const bool profile7 = diagnostics.dolbyVisionProfile == 7 || m_activeDolbyVisionSource.profile == 7;
+    if (stage == QStringLiteral("steady") && profile7 && diagnostics.renderPassesObservable) {
+        if (diagnostics.enhancementLayerRendered) {
+            qCInfo(lcPlayback) << "Dolby Vision Profile 7 FEL: enhancement layer composed by gpu-next/libplacebo";
+        } else {
+            // libplacebo only composes the EL when the RPU enables NLQ (FEL);
+            // MEL streams legitimately render without it.
+            qCInfo(lcPlayback) << "Dolby Vision Profile 7: no enhancement-layer composition observed"
+                               << "(MEL stream, EL disabled, or EL not delivered by this runtime)";
+        }
+    }
+}
+
 PlayerController::HdrPlaybackPolicy PlayerController::computeEffectiveHdrPlaybackPolicy() const
 {
     return PlayerPolicy::evaluateHdrPlayback(
@@ -5613,6 +5733,10 @@ void PlayerController::initiateMpvStart()
     }
 #endif
 
+    // Must run last: the DV filter is appended through mpv's list semantics so
+    // a later `--vf=` (profile deinterlace, user extra args) cannot drop it.
+    finalArgs = applyDolbyVisionPlaybackArgs(finalArgs);
+
     qCDebug(lcPlayback) << "PlayerController: Final mpv args:" << finalArgs;
 
     // The desired audio device is applied via startup args above; the first
@@ -5792,6 +5916,13 @@ void PlayerController::loadConfig()
         m_testVideoUrl = "http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4";
     }
     
+    if (m_mpvBin == QStringLiteral("mpv")) {
+        const QFileInfo bundledMpv(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("mpv")));
+        if (bundledMpv.isFile() && bundledMpv.isExecutable()) {
+            m_mpvBin = bundledMpv.absoluteFilePath();
+        }
+    }
+
     // Log mpv config directory being used
     QString mpvConfigDir = ConfigManager::getMpvConfigDir();
     qCDebug(lcPlayback) << "PlayerController: Bloom mpv config directory:" << mpvConfigDir;

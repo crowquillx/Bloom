@@ -6,13 +6,13 @@ apt-get update
 apt-get install -y --no-install-recommends \
     build-essential ca-certificates cmake curl file fuse3 git libfuse2 \
     libdbus-1-3 libfontconfig1 libfreetype6 libgl1-mesa-dev libglib2.0-0t64 \
-    libgthread-2.0-0 libice6 libmpv-dev libsecret-1-dev libsdl2-dev libsm6 \
+    libgthread-2.0-0 libice6 libsecret-1-dev libsdl2-dev libsm6 \
     libsqlite3-dev libwayland-client0 libwayland-cursor0 libwayland-dev \
     libwayland-egl1 libx11-6 libx11-xcb1 libxdamage1 libxext6 libxfixes3 \
     libxft2 libxi6 libxkbcommon-dev libxkbcommon-x11-0 libxrandr2 libxrender1 \
     libxtst6 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
     libxcb-randr0 libxcb-render-util0 libxcb-render0 libxcb-shape0 libxcb-shm0 \
-    libxcb-sync1 libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 libxcb1 mpv \
+    libxcb-sync1 libxcb-xfixes0 libxcb-xinerama0 libxcb-xkb1 libxcb1 \
     ninja-build patchelf pkg-config python3-pip python3-venv zlib1g zsync
 
 DEPS=/workspace/packaging/dependencies.json
@@ -23,6 +23,10 @@ LINUXDEPLOY_SHA="$(jq_read "['portable']['linuxdeploy_sha256']")"
 QT_PLUGIN_VERSION="$(jq_read "['portable']['linuxdeploy_qt_version']")"
 QT_PLUGIN_SHA="$(jq_read "['portable']['linuxdeploy_qt_sha256']")"
 
+bash /workspace/packaging/portable/build-mpv.sh
+export PATH="/opt/bloom-mpv/bin:$PATH"
+export PKG_CONFIG_PATH="/opt/bloom-mpv/lib/pkgconfig:/opt/bloom-mpv/share/pkgconfig"
+
 python3 -m venv /opt/aqt
 /opt/aqt/bin/pip install --no-cache-dir 'aqtinstall==3.3.*'
 /opt/aqt/bin/aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 \
@@ -32,7 +36,7 @@ python3 -m venv /opt/aqt
 QT_ROOT="/opt/Qt/$QT_VERSION/gcc_64"
 export PATH="$QT_ROOT/bin:$PATH"
 export CMAKE_PREFIX_PATH="$QT_ROOT"
-export LD_LIBRARY_PATH="$QT_ROOT/lib"
+export LD_LIBRARY_PATH="/opt/bloom-mpv/lib:$QT_ROOT/lib"
 export APPIMAGE_EXTRACT_AND_RUN=1
 
 curl -fsSL \
@@ -74,10 +78,18 @@ EXTRA_PLATFORM_PLUGINS="libqoffscreen.so;libqwayland.so" \
 linuxdeploy \
     --appdir "$APPDIR" \
     --executable /build/stage/usr/bin/bloom \
-    --executable /usr/bin/mpv \
+    --executable /opt/bloom-mpv/bin/mpv \
     --desktop-file /build/stage/usr/share/applications/com.github.crowquillx.Bloom.desktop \
     --icon-file /build/stage/usr/share/icons/hicolor/scalable/apps/com.github.crowquillx.Bloom.svg \
     --plugin qt
+
+# linuxdeploy excludes Wayland and Vulkan libraries by default. This mpv
+# needs newer client APIs than Ubuntu 24.04, so ship the compatible clients.
+# GPU drivers and ICDs remain host-owned.
+for library in libwayland-client.so libwayland-cursor.so libwayland-egl.so libvulkan.so; do
+    cp -L "/opt/bloom-mpv/lib/$library" "$APPDIR/usr/lib/$(readelf -d "/opt/bloom-mpv/lib/$library" | sed -n 's/.*SONAME.*\[\(.*\)\].*/\1/p')"
+done
+export LD_LIBRARY_PATH="$APPDIR/usr/lib:$QT_ROOT/lib"
 
 for platform_plugin in libqoffscreen.so libqwayland.so libqxcb.so; do
     test -f "$APPDIR/usr/plugins/platforms/$platform_plugin" || {
@@ -104,7 +116,16 @@ QT_QPA_PLATFORM=offscreen \
 "$APPDIR/usr/bin/bloom" --version
 "$APPDIR/usr/bin/mpv" --version
 
+python3 -I /build/scripts/check-mpv-fel-capability.py \
+    --dependencies "$DEPS" \
+    --mpv "$APPDIR/usr/bin/mpv" \
+    --library "$(find "$APPDIR/usr/lib" -maxdepth 1 -name 'libmpv.so.*' | head -1)" \
+    --library "$(find "$APPDIR/usr/lib" -maxdepth 1 -name 'libavcodec.so.*' | head -1)" \
+    --library "$(find "$APPDIR/usr/lib" -maxdepth 1 -name 'libplacebo.so.*' | head -1)" \
+    --require-fel --require-pin
+
 cp -a /build/stage/usr/share/. "$APPDIR/usr/share/"
+cp -a /opt/bloom-mpv/share/licenses/. "$APPDIR/usr/share/licenses/"
 sed -i 's/^Exec=.*/Exec=bloom/' "$APPDIR/usr/share/applications/com.github.crowquillx.Bloom.desktop"
 
 ARCH=x86_64 OUTPUT="/output/Bloom-${BLOOM_VERSION}-linux-x86_64.AppImage" \

@@ -200,6 +200,22 @@ qt_add_qml_module(Bloom
         ui/TrackUtils.js
 )
 
+# The packaged mpv stack is verified for Dolby Vision Profile 7 FEL when it is
+# packaged (scripts/build.ps1, nix/mpv-stack.nix). Expose the pinned
+# `git describe` so embedded backends can recognise that verified runtime.
+set(_bloom_dependency_pins "${CMAKE_SOURCE_DIR}/packaging/dependencies.json")
+if(EXISTS "${_bloom_dependency_pins}")
+    file(READ "${_bloom_dependency_pins}" _bloom_dependency_pins_json)
+    string(JSON BLOOM_PINNED_MPV_DESCRIBE ERROR_VARIABLE _bloom_pin_error
+        GET "${_bloom_dependency_pins_json}" mpv describe)
+    if(NOT _bloom_pin_error)
+        target_compile_definitions(BloomMpvRuntime PRIVATE
+            BLOOM_PINNED_MPV_DESCRIBE="${BLOOM_PINNED_MPV_DESCRIBE}")
+    endif()
+endif()
+
+target_link_libraries(Bloom PRIVATE Bloom::MpvRuntime)
+
 if(UNIX AND NOT APPLE)
     target_sources(Bloom PRIVATE
         player/backend/LinuxMpvBackend.h
@@ -211,9 +227,9 @@ if(UNIX AND NOT APPLE)
     endif()
 
     if(LIBMPV_FOUND)
-        target_include_directories(Bloom PRIVATE ${LIBMPV_INCLUDE_DIRS})
-        target_link_libraries(Bloom PRIVATE ${LIBMPV_LIBRARIES})
-        target_compile_definitions(Bloom PRIVATE BLOOM_HAS_LIBMPV=1)
+        target_include_directories(BloomMpvRuntime PUBLIC ${LIBMPV_INCLUDE_DIRS})
+        target_link_libraries(BloomMpvRuntime PUBLIC ${LIBMPV_LINK_LIBRARIES})
+        target_compile_definitions(BloomMpvRuntime PUBLIC BLOOM_HAS_LIBMPV=1)
 
         find_library(BLOOM_LINUX_MPV_RUNTIME
             NAMES mpv libmpv.so.2 libmpv.so
@@ -361,9 +377,9 @@ if(WIN32)
     )
 
     if(BLOOM_MPV_INCLUDE_DIR AND BLOOM_MPV_LIBRARY)
-        target_include_directories(Bloom PRIVATE ${BLOOM_MPV_INCLUDE_DIR})
-        target_link_libraries(Bloom PRIVATE ${BLOOM_MPV_LIBRARY})
-        target_compile_definitions(Bloom PRIVATE BLOOM_HAS_LIBMPV=1)
+        target_include_directories(BloomMpvRuntime PUBLIC ${BLOOM_MPV_INCLUDE_DIR})
+        target_link_libraries(BloomMpvRuntime PUBLIC ${BLOOM_MPV_LIBRARY})
+        target_compile_definitions(BloomMpvRuntime PUBLIC BLOOM_HAS_LIBMPV=1)
 
         get_filename_component(_bloom_mpv_lib_dir ${BLOOM_MPV_LIBRARY} DIRECTORY)
         get_filename_component(_bloom_mpv_root ${_bloom_mpv_lib_dir} DIRECTORY)

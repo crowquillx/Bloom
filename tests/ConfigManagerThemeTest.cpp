@@ -7,6 +7,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 
+#include "player/DolbyVisionPolicy.h"
 #include "utils/ConfigManager.h"
 #include "utils/MpvArgFilter.h"
 
@@ -35,6 +36,7 @@ private slots:
     void artMpvProfilesEmitExpectedShaderAndDebandArgs();
     void mpvProfileHdrAndWindowsOutputFieldsDefaultAndPersist();
     void hdrMpvArgsUseProfileMetadataMode();
+    void dolbyVisionArgsComposeWithHdrOutputModes();
     void v23MigrationPreservesCustomizedBuiltInProfiles();
     void v24MigrationAddsScreensaverSettings();
     void v25MigrationAddsHeroEpisodeSynopsisSetting();
@@ -829,6 +831,66 @@ void ConfigManagerThemeTest::hdrMpvArgsUseProfileMetadataMode()
     args = config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), true, true);
     QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
     QVERIFY(!args.contains(QStringLiteral("--target-colorspace-hint-mode=source-dynamic")));
+}
+
+void ConfigManagerThemeTest::dolbyVisionArgsComposeWithHdrOutputModes()
+{
+    namespace Policy = Bloom::PlaybackPolicy;
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+    config.setEnableHDR(true);
+    const QString elFilter =
+        QStringLiteral("--vf-append=@bloom-dovi:format=dolbyvision=yes:enhancement-layer=yes");
+    const auto compose = [&config](bool isHdr, bool toneMap, Policy::HdrContentKind kind) {
+        return Policy::appendDolbyVisionFilterArgs(
+            config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), isHdr, toneMap), kind,
+            Policy::FormatFilterSupport::DolbyVisionAndEnhancementLayer);
+    };
+
+    // SDR: no HDR output hints and no DV processing.
+    QStringList args = compose(false, false, Policy::HdrContentKind::Sdr);
+    QVERIFY(!args.contains(QStringLiteral("--target-colorspace-hint=auto")));
+    QVERIFY(args.filter(QStringLiteral("@bloom-dovi")).isEmpty());
+
+    // HDR10 under match-content: existing HDR path, unchanged by DV policy.
+    const QStringList hdr10 =
+        config.getMpvArgsForProfile(QStringLiteral("Medium Quality"), true, false);
+    QCOMPARE(compose(true, false, Policy::HdrContentKind::Hdr), hdr10);
+
+    // DV (P7/P8) match-content: same HDR output path plus the DV filter last;
+    // the safe metadata mode stays `target` (source-dynamic remains opt-in).
+    args = compose(true, false, Policy::HdrContentKind::DolbyVisionCompatible);
+    QCOMPARE(args.mid(0, hdr10.size()), hdr10);
+    QCOMPARE(args.last(), elFilter);
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint-mode=target")));
+    QVERIFY(!args.contains(QStringLiteral("--target-colorspace-hint-mode=source-dynamic")));
+
+    // DV P5 with the default fallback tone-maps locally: DV metadata/RPU must
+    // still reach libplacebo so the reshaped image is what gets tone-mapped.
+    args = compose(true, true, Policy::HdrContentKind::DolbyVisionUnsupported);
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
+    QVERIFY(args.contains(QStringLiteral("--tone-mapping=auto")));
+    QCOMPARE(args.last(), elFilter);
+
+    // Global tone-map-to-sdr: DV still preserved, HDR output not requested.
+    config.setHDROutputMode(QStringLiteral("tone-map-to-sdr"));
+    args = compose(true, false, Policy::HdrContentKind::DolbyVisionCompatible);
+    QVERIFY(args.contains(QStringLiteral("--target-colorspace-hint=no")));
+    QVERIFY(!args.contains(QStringLiteral("--target-colorspace-hint=auto")));
+    QCOMPARE(args.last(), elFilter);
+
+    // Deinterlacing profiles keep their filter; the DV entry is appended.
+    QVariantMap profile = config.getMpvProfile(QStringLiteral("Medium Quality"));
+    profile[QStringLiteral("deinterlace")] = true;
+    profile[QStringLiteral("deinterlaceMethod")] = QStringLiteral("bwdif");
+    config.setMpvProfile(QStringLiteral("Medium Quality"), profile);
+    args = compose(true, false, Policy::HdrContentKind::DolbyVisionCompatible);
+    QVERIFY(args.contains(QStringLiteral("--vf=lavfi=[bwdif]")));
+    QVERIFY(args.indexOf(QStringLiteral("--vf=lavfi=[bwdif]")) < args.indexOf(elFilter));
 }
 
 void ConfigManagerThemeTest::v23MigrationPreservesCustomizedBuiltInProfiles()

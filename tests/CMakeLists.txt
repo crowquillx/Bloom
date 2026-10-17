@@ -75,6 +75,8 @@ set(BLOOM_LINKED_PRODUCTION_SOURCES
     ${CMAKE_SOURCE_DIR}/src/ui/ImageCacheStore.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.h
     ${CMAKE_SOURCE_DIR}/src/ui/SoftwareRoundedImage.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/DolbyVisionPolicy.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/MpvRuntimeProbe.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlaybackPolicy.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/BloomLogging.cpp
@@ -279,6 +281,7 @@ target_include_directories(ConfigManagerThemeTest PRIVATE
 
 target_link_libraries(ConfigManagerThemeTest
     PRIVATE
+        Bloom::PlayerPolicy
         Qt6::Core
         Qt6::Test
 )
@@ -606,6 +609,7 @@ add_executable(PlayerBackendFactoryTest
     ${CMAKE_SOURCE_DIR}/src/player/backend/PlayerBackendFactory.cpp
     ${CMAKE_SOURCE_DIR}/src/player/backend/ExternalMpvBackend.cpp
     ${CMAKE_SOURCE_DIR}/src/player/PlayerProcessManager.cpp
+    ${CMAKE_SOURCE_DIR}/src/player/MpvRuntimeProbe.cpp
     ${CMAKE_SOURCE_DIR}/src/utils/MpvArgFilter.cpp
     ${CMAKE_SOURCE_DIR}/src/player/backend/MpvEmbeddedShaderUtils.h
     ${CMAKE_SOURCE_DIR}/src/player/backend/MpvEmbeddedShaderUtils.cpp
@@ -631,6 +635,8 @@ target_compile_definitions(PlayerBackendFactoryTest PRIVATE BLOOM_TESTING=1)
 
 target_link_libraries(PlayerBackendFactoryTest
     PRIVATE
+        Bloom::MpvRuntime
+        Bloom::PlayerPolicy
         Qt6::Core
         Qt6::Network
         Qt6::Quick
