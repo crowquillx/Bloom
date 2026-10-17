@@ -173,7 +173,10 @@ environment. Versions, URLs, hashes, and the container digest live in
 
 Portable builds compile the pinned post-FEL mpv, libplacebo, and FFmpeg stack.
 They bundle the required Wayland client libraries and Vulkan loader while
-retaining host GPU drivers. Packaging checks the deployed executable and
+retaining host GPU drivers. The executable linker searches `/opt/bloom-mpv/lib`
+first for indirect dependencies. This prevents the Qt SDK's older Wayland
+client library from replacing the pinned library required by mpv.
+Packaging checks the deployed executable and
 libraries, and fails if the FEL capabilities are absent. See
 [Dolby Vision dependencies](dolby-vision.md#dependency-audit-and-pins).
 
