@@ -86,6 +86,10 @@ constexpr auto kPreFelVersionOutput =
 int runFakeVersionProbe(const QStringList &arguments)
 {
     const QString mode = optionValue(arguments, QStringLiteral("--fake-probe="));
+    const QString readyFile = optionValue(arguments, QStringLiteral("--fake-probe-ready="));
+    if (!readyFile.isEmpty() && !QFileInfo::exists(readyFile)) {
+        return 1;
+    }
     if (mode == QStringLiteral("hang")) {
         return QCoreApplication::exec();
     }
@@ -306,6 +310,7 @@ private slots:
     void runtimeProbeReportsMissingFilterOptions();
     void runtimeProbeStageDeadlineIsBounded();
     void runtimeProbeReportsMissingExecutable();
+    void runtimeProbeRetriesAfterFailure();
 };
 
 void PlayerProcessManagerTest::endpointsAreUniqueAndPrivate()
@@ -653,6 +658,11 @@ void PlayerProcessManagerTest::runtimeProbeReportsMissingFilterOptions()
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, asyncProcessTimeoutMs);
     QCOMPARE(probe.result().formatFilter, Bloom::PlaybackPolicy::FormatFilterSupport::Unsupported);
     QVERIFY(!probe.result().mpvVersion.isEmpty());
+    QVERIFY(probe.failureReason().isEmpty());
+    probe.probe(QCoreApplication::applicationFilePath(),
+                {QStringLiteral("--fake-mpv"), QStringLiteral("--fake-probe=none")});
+    QVERIFY(!probe.isRunning());
+    QCOMPARE(finishedSpy.count(), 1);
 }
 
 void PlayerProcessManagerTest::runtimeProbeStageDeadlineIsBounded()
@@ -679,6 +689,32 @@ void PlayerProcessManagerTest::runtimeProbeReportsMissingExecutable()
     QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, asyncProcessTimeoutMs);
     QCOMPARE(probe.result().formatFilter, Bloom::PlaybackPolicy::FormatFilterSupport::Unknown);
     QVERIFY(probe.failureReason().contains(QStringLiteral("not found")));
+}
+
+void PlayerProcessManagerTest::runtimeProbeRetriesAfterFailure()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString readyPath = directory.filePath(QStringLiteral("ready"));
+    const QStringList arguments{QStringLiteral("--fake-mpv"), QStringLiteral("--fake-probe=el"),
+                                QStringLiteral("--fake-probe-ready=") + readyPath};
+    MpvRuntimeProbe probe;
+    QSignalSpy finishedSpy(&probe, &MpvRuntimeProbe::finished);
+    probe.probe(QCoreApplication::applicationFilePath(), arguments);
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, asyncProcessTimeoutMs * 2);
+    QCOMPARE(probe.result().formatFilter, Bloom::PlaybackPolicy::FormatFilterSupport::Unknown);
+    QVERIFY(!probe.failureReason().isEmpty());
+
+    QFile readyFile(readyPath);
+    QVERIFY(readyFile.open(QIODevice::WriteOnly));
+    readyFile.close();
+    probe.probe(QCoreApplication::applicationFilePath(), arguments);
+    QVERIFY(probe.isRunning());
+    QVERIFY(probe.failureReason().isEmpty());
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 2, asyncProcessTimeoutMs);
+    QCOMPARE(probe.result().formatFilter,
+             Bloom::PlaybackPolicy::FormatFilterSupport::DolbyVisionAndEnhancementLayer);
+    QVERIFY(probe.failureReason().isEmpty());
 }
 
 int main(int argc, char **argv)

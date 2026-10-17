@@ -140,6 +140,8 @@ separate backend change. This change does not replace Bloom's backend design.
 asynchronous probes with `--no-config --version`. It first tests both format
 options, then DV-only, then a plain version query. Each stage has a deadline
 and a bounded output buffer. It does not wait for a child on the UI thread.
+Completed capability results, including unsupported options, are cached.
+Failed queries can retry when playback next prepares the same executable.
 
 Embedded backends test the linked parser with a temporary, uninitialized mpv
 handle. After initialization, they record mpv, FFmpeg, and libplacebo properties,

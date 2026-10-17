@@ -69,7 +69,7 @@ void MpvRuntimeProbe::probe(const QString &executable, const QStringList &extraA
         return;
     }
     if (trimmed == m_executable && extraArguments == m_extraArguments
-        && (m_finished || isRunning())) {
+        && (isRunning() || (m_finished && m_failureReason.isEmpty()))) {
         return;
     }
 

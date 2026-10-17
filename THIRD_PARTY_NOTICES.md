@@ -37,6 +37,12 @@ Portable Wayland and Vulkan clients
   - https://github.com/KhronosGroup/Vulkan-Loader
   - https://github.com/KhronosGroup/Vulkan-Headers
 
+nv-codec-headers
+- Portable Linux builds compile FFmpeg with nv-codec-headers `12.2.72.0` for NVIDIA codec support.
+- These headers use the MIT License and carry individual copyright notices.
+- Portable artifacts include the original headers and their full notices in `share/licenses/nv-codec-headers/`.
+- Source: https://github.com/FFmpeg/nv-codec-headers
+
 Bundled mpv GLSL shaders
 - Bloom bundles these shader files under `src/resources/mpv-shaders/` and copies them to Bloom's mpv config shader directory at runtime:
   - `FSRCNNX_x2_8-0-4-1.glsl`

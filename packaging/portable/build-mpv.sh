@@ -105,6 +105,9 @@ for project in wayland wayland-protocols vulkan-loader vulkan-headers ffmpeg lib
     done
 done
 
+mkdir -p "$PREFIX/share/licenses/nv-codec-headers"
+cp "$SOURCES/nv-codec-headers/include/ffnvcodec/"*.h "$PREFIX/share/licenses/nv-codec-headers/"
+
 python3 -I "$ROOT/scripts/check-mpv-fel-capability.py" --dependencies "$DEPS" \
     --mpv "$PREFIX/bin/mpv" --library "$PREFIX/lib/libmpv.so" \
     --library "$PREFIX/lib/libavcodec.so" --library "$PREFIX/lib/libplacebo.so" \

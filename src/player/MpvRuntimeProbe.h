@@ -30,8 +30,8 @@ public:
     explicit MpvRuntimeProbe(const MpvRuntimeProbeOptions &options, QObject *parent = nullptr);
     ~MpvRuntimeProbe() override;
 
-    // Starts probing `executable` unless the same executable is already
-    // probed or in flight. `extraArguments` are prepended (used by tests).
+    // Starts probing `executable` unless the same query succeeded or is in
+    // flight. Failed queries can retry. `extraArguments` are prepended (used by tests).
     void probe(const QString &executable, const QStringList &extraArguments = {});
 
     bool isFinished() const { return m_finished; }
