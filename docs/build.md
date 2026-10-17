@@ -26,7 +26,8 @@ nix run
 ```
 
 The package installs a lowercase `bloom` executable and desktop metadata. It
-uses the dependency versions pinned by `flake.lock`; it does not use libraries
+uses the dependency versions pinned by `flake.lock` and the mpv stack in
+`packaging/dependencies.json` / `nix/mpv-stack.nix`; it does not use libraries
 from the host distribution.
 
 ## Fast incremental development builds
@@ -65,7 +66,8 @@ nix flake check --print-build-logs \
 
 This builds Bloom and runs the deterministic unit/contract tests, QML lint,
 desktop/AppStream validation, release-manifest validation, and an offscreen
-Release startup/version smoke test. ShellCheck and actionlint also validate the
+Release startup/version smoke test. It also checks the deployed mpv/libmpv FEL
+capabilities and dependency pins. ShellCheck and actionlint also validate the
 deep-analysis scripts and workflow definitions. The CI `nix`
 job builds the same `.#checks.x86_64-linux.tests` derivation alongside the
 other checks, so pull requests and dependency updates exercise automated
@@ -169,6 +171,12 @@ container is a compatibility boundary, not an alternate development
 environment. Versions, URLs, hashes, and the container digest live in
 `packaging/dependencies.json`.
 
+Portable builds compile the pinned post-FEL mpv, libplacebo, and FFmpeg stack.
+They bundle the required Wayland client libraries and Vulkan loader while
+retaining host GPU drivers. Packaging checks the deployed executable and
+libraries, and fails if the FEL capabilities are absent. See
+[Dolby Vision dependencies](dolby-vision.md#dependency-audit-and-pins).
+
 Set `BLOOM_CONTAINER_ENGINE=docker` to use Docker instead of Podman. CI uses
 Docker because rootless Podman re-exec is restricted on GitHub-hosted runners.
 The packaging wrapper converts the manifest's `docker://` transport reference
@@ -182,9 +190,10 @@ nix run .#package-flatpak -- --output dist
 
 The command installs the exact KDE SDK/runtime commits recorded in the
 dependency manifest, builds a temporary local repository, and emits a
-single-file Flatpak bundle. The manifest builds mpv's required libass and
-libplacebo dependencies explicitly instead of relying on incidental SDK
-contents.
+single-file Flatpak bundle. The canonical manifest in `packaging/flatpak/`
+builds the pinned mpv, FFmpeg, libplacebo, and libass dependencies under `/app`.
+It checks FEL support before creating the bundle. The old root-level manifest
+has been removed to prevent builds against a different mpv stack.
 
 The Flatpak supports network access, Secret Service, Wayland/X11, audio, GPU
 rendering, and gamepad devices. Host shutdown/restart and arbitrary display
@@ -205,7 +214,7 @@ Windows remains a native MSVC build because Qt and embedded libmpv are runtime
 validated in that environment:
 
 ```powershell
-.\scripts\build.ps1 -Clean -BuildTests
+.\scripts\build.ps1 -Clean -BuildTests -RequireFelCapableMpv
 .\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure
 .\scripts\package-windows.ps1 -InstallDir install-windows -OutputDir Bloom-Windows
 ```
@@ -224,6 +233,12 @@ Windows CI builds the application and deterministic tests in one CMake graph,
 runs CTest with failure output, and caches the checksum-pinned Qt and mpv SDKs.
 The Windows scripts and workflow read those pins from
 `packaging/dependencies.json`.
+
+The current SDK is `20261017-git-dde0671072`. The build verifies its archive
+SHA-256, ignores stale cached extractions, and checks the DLL's compiled FEL
+support. Packaging checks the staged runtime again and writes
+`mpv-provenance.json`. Exact mpv/FFmpeg/libplacebo revisions and SDK retention
+limits are in [Dolby Vision dependencies](dolby-vision.md#dependency-audit-and-pins).
 
 Windows CI installs NSIS through `.github/actions/setup-nsis`. The action first
 tries Chocolatey, then falls back to the checksum-pinned official NSIS archive

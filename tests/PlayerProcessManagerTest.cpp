@@ -12,8 +12,10 @@
 #include <QPointer>
 #include <QSignalSpy>
 #include <QTemporaryDir>
+#include <QTextStream>
 #include <QTimer>
 
+#include "player/MpvRuntimeProbe.h"
 #include "player/PlayerProcessManager.h"
 
 #ifdef Q_OS_UNIX
@@ -63,8 +65,54 @@ void appendLaunchRecord(const QString &path, const QString &mediaUrl)
     }
 }
 
+constexpr auto kFelVersionOutput =
+    "mpv v0.41.0-1200-gdde067107 Copyright \xC2\xA9 2000-2026 mpv/MPlayer/mplayer2 projects\n"
+    "libplacebo version: v7.376.0\n"
+    "FFmpeg version: 9.0.2\n"
+    "FFmpeg library versions:\n"
+    "   libavcodec      63.1.102\n"
+    "   libavformat     63.1.102\n";
+
+constexpr auto kPreFelVersionOutput =
+    "mpv v0.41.0 Copyright \xC2\xA9 2000-2025 mpv/MPlayer/mplayer2 projects\n"
+    " built on Jan  1 1980 00:00:00\n"
+    "libplacebo version: v7.360.1\n"
+    "FFmpeg version: 8.1\n"
+    "FFmpeg library versions:\n"
+    "   libavcodec      62.28.100\n";
+
+// Emulates mpv's option parsing for `--vf=format=...` followed by --version:
+// unknown filter suboptions make mpv exit with an error before printing.
+int runFakeVersionProbe(const QStringList &arguments)
+{
+    const QString mode = optionValue(arguments, QStringLiteral("--fake-probe="));
+    const QString readyFile = optionValue(arguments, QStringLiteral("--fake-probe-ready="));
+    if (!readyFile.isEmpty() && !QFileInfo::exists(readyFile)) {
+        return 1;
+    }
+    if (mode == QStringLiteral("hang")) {
+        return QCoreApplication::exec();
+    }
+    const bool asksEnhancementLayer = arguments.join(QLatin1Char(' '))
+                                          .contains(QStringLiteral("enhancement-layer="));
+    const bool asksDolbyVision = arguments.join(QLatin1Char(' '))
+                                     .contains(QStringLiteral("dolbyvision="));
+    if ((asksEnhancementLayer && mode != QStringLiteral("el"))
+        || (asksDolbyVision && mode == QStringLiteral("none"))) {
+        QTextStream(stderr) << "Option vf: format doesn't have a enhancement-layer parameter.\n";
+        return 1;
+    }
+    QTextStream(stdout) << QString::fromUtf8(mode == QStringLiteral("el") ? kFelVersionOutput
+                                                                          : kPreFelVersionOutput);
+    return 0;
+}
+
 int runFakeMpv(const QStringList &arguments)
 {
+    if (arguments.contains(QStringLiteral("--version"))) {
+        return runFakeVersionProbe(arguments);
+    }
+
 #ifdef Q_OS_UNIX
     if (arguments.contains(QStringLiteral("--fake-ignore-terminate"))) {
         std::signal(SIGTERM, SIG_IGN);
@@ -95,13 +143,14 @@ int runFakeMpv(const QStringList &arguments)
     const bool acknowledgeCommands = arguments.contains(
         QStringLiteral("--fake-ack-commands"));
     const bool disconnectOnce = arguments.contains(QStringLiteral("--fake-disconnect-once"));
+    const bool answerProperties = arguments.contains(QStringLiteral("--fake-answer-properties"));
     int connectionCount = 0;
     QObject::connect(&server, &QLocalServer::newConnection, &server, [&]() {
         while (server.hasPendingConnections()) {
             QLocalSocket *socket = server.nextPendingConnection();
             ++connectionCount;
             QObject::connect(socket, &QLocalSocket::readyRead, socket,
-                             [socket, ignoreQuit, acknowledgeCommands]() {
+                             [socket, ignoreQuit, acknowledgeCommands, answerProperties]() {
                 QByteArray buffer = socket->property("buffer").toByteArray();
                 buffer.append(socket->readAll());
                 while (true) {
@@ -122,6 +171,31 @@ int runFakeMpv(const QStringList &arguments)
                         && command.first().toString() == QStringLiteral("quit")) {
                         QCoreApplication::quit();
                         return;
+                    }
+                    if (answerProperties && command.size() == 2
+                        && command.first().toString() == QStringLiteral("get_property")) {
+                        const QString name = command.at(1).toString();
+                        QJsonObject reply{
+                            {QStringLiteral("request_id"),
+                             document.object().value(QStringLiteral("request_id"))},
+                        };
+                        if (name == QStringLiteral("mpv-version")) {
+                            reply.insert(QStringLiteral("data"),
+                                         QStringLiteral("mpv v0.41.0-1200-gdde067107"));
+                            reply.insert(QStringLiteral("error"), QStringLiteral("success"));
+                        } else if (name == QStringLiteral("vo-passes")) {
+                            reply.insert(QStringLiteral("data"), QJsonObject{
+                                {QStringLiteral("fresh"), QJsonArray{QJsonObject{
+                                    {QStringLiteral("desc"),
+                                     QStringLiteral("decoding (dovi) + enhancement layer")}}}}});
+                            reply.insert(QStringLiteral("error"), QStringLiteral("success"));
+                        } else {
+                            reply.insert(QStringLiteral("error"),
+                                         QStringLiteral("property unavailable"));
+                        }
+                        socket->write(QJsonDocument(reply).toJson(QJsonDocument::Compact));
+                        socket->write("\n");
+                        continue;
                     }
                     if (acknowledgeCommands && !command.isEmpty()
                         && command.first().toString() == QStringLiteral("script-message")) {
@@ -230,6 +304,13 @@ private slots:
     void disconnectedIpcReconnectsWithinDeadline();
     void malformedIpcIsIgnoredBeforeValidEvent();
     void startupFailureIsClear();
+    void propertySnapshotCollectsRepliesById();
+    void runtimeProbeDetectsEnhancementLayerSupport();
+    void runtimeProbeFallsBackToDolbyVisionOnly();
+    void runtimeProbeReportsMissingFilterOptions();
+    void runtimeProbeStageDeadlineIsBounded();
+    void runtimeProbeReportsMissingExecutable();
+    void runtimeProbeRetriesAfterFailure();
 };
 
 void PlayerProcessManagerTest::endpointsAreUniqueAndPrivate()
@@ -495,6 +576,145 @@ void PlayerProcessManagerTest::startupFailureIsClear()
     QTRY_COMPARE_WITH_TIMEOUT(errorSpy.count(), 1, asyncProcessTimeoutMs);
     QVERIFY(errorSpy.first().first().toString().startsWith(QStringLiteral("Failed to start mpv:")));
     QVERIFY(!manager.isRunning());
+}
+
+void PlayerProcessManagerTest::propertySnapshotCollectsRepliesById()
+{
+    PlayerProcessManager manager(fastOptions());
+    QSignalSpy connectedSpy(&manager, &PlayerProcessManager::ipcConnectionLatencyMeasured);
+    QSignalSpy snapshotSpy(&manager, &PlayerProcessManager::propertySnapshotReady);
+    manager.startMpv(QCoreApplication::applicationFilePath(),
+                     fakeArguments({}, {QStringLiteral("--fake-answer-properties")}),
+                     QStringLiteral("snapshot-media"));
+    QTRY_COMPARE_WITH_TIMEOUT(connectedSpy.count(), 1, asyncProcessTimeoutMs);
+
+    manager.requestPropertySnapshot(QStringLiteral("startup"),
+                                    {QStringLiteral("mpv-version"),
+                                     QStringLiteral("vo-passes"),
+                                     QStringLiteral("hwdec-current")});
+    QTRY_COMPARE_WITH_TIMEOUT(snapshotSpy.count(), 1, asyncProcessTimeoutMs);
+    QCOMPARE(snapshotSpy.first().at(0).toString(), QStringLiteral("startup"));
+    const QVariantMap properties = snapshotSpy.first().at(1).toMap();
+    QCOMPARE(properties.value(QStringLiteral("mpv-version")).toString(),
+             QStringLiteral("mpv v0.41.0-1200-gdde067107"));
+    QVERIFY(properties.contains(QStringLiteral("vo-passes")));
+    // Failed replies are omitted rather than reported as empty values.
+    QVERIFY(!properties.contains(QStringLiteral("hwdec-current")));
+
+    manager.stopMpv();
+    QTRY_VERIFY_WITH_TIMEOUT(!manager.isRunning(), asyncProcessTimeoutMs);
+}
+
+void PlayerProcessManagerTest::runtimeProbeDetectsEnhancementLayerSupport()
+{
+    MpvRuntimeProbe probe;
+    QSignalSpy finishedSpy(&probe, &MpvRuntimeProbe::finished);
+    QElapsedTimer timer;
+    timer.start();
+    probe.probe(QCoreApplication::applicationFilePath(),
+                {QStringLiteral("--fake-mpv"), QStringLiteral("--fake-probe=el")});
+    QVERIFY(timer.elapsed() < nonBlockingCallLimitMs);
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, asyncProcessTimeoutMs);
+
+    const Bloom::PlaybackPolicy::MpvRuntimeInfo info = probe.result();
+    QCOMPARE(info.formatFilter,
+             Bloom::PlaybackPolicy::FormatFilterSupport::DolbyVisionAndEnhancementLayer);
+    QCOMPARE(info.mpvVersion, QStringLiteral("mpv v0.41.0-1200-gdde067107"));
+    QCOMPARE(info.libavcodecVersion, QVersionNumber(63, 1, 102));
+    QCOMPARE(info.executablePath, QFileInfo(QCoreApplication::applicationFilePath()).absoluteFilePath());
+    QCOMPARE(Bloom::PlaybackPolicy::evaluateFelCapability(
+                 info, Bloom::PlaybackPolicy::RendererKind::GpuNext).overall,
+             Bloom::PlaybackPolicy::Capability::Unknown);
+
+    // Re-probing the same executable is a no-op.
+    probe.probe(QCoreApplication::applicationFilePath(),
+                {QStringLiteral("--fake-mpv"), QStringLiteral("--fake-probe=el")});
+    QVERIFY(!probe.isRunning());
+}
+
+void PlayerProcessManagerTest::runtimeProbeFallsBackToDolbyVisionOnly()
+{
+    MpvRuntimeProbe probe;
+    QSignalSpy finishedSpy(&probe, &MpvRuntimeProbe::finished);
+    probe.probe(QCoreApplication::applicationFilePath(),
+                {QStringLiteral("--fake-mpv"), QStringLiteral("--fake-probe=dv")});
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, asyncProcessTimeoutMs);
+    const Bloom::PlaybackPolicy::MpvRuntimeInfo info = probe.result();
+    QCOMPARE(info.formatFilter, Bloom::PlaybackPolicy::FormatFilterSupport::DolbyVisionOnly);
+    QCOMPARE(info.mpvVersion, QStringLiteral("mpv v0.41.0"));
+    const auto capability = Bloom::PlaybackPolicy::evaluateFelCapability(
+        info, Bloom::PlaybackPolicy::RendererKind::GpuNext);
+    QCOMPARE(capability.overall, Bloom::PlaybackPolicy::Capability::Unsupported);
+    QCOMPARE(capability.ffmpegDoviSplit, Bloom::PlaybackPolicy::Capability::Unsupported);
+    QCOMPARE(capability.libplacebo, Bloom::PlaybackPolicy::Capability::Unsupported);
+}
+
+void PlayerProcessManagerTest::runtimeProbeReportsMissingFilterOptions()
+{
+    MpvRuntimeProbe probe;
+    QSignalSpy finishedSpy(&probe, &MpvRuntimeProbe::finished);
+    probe.probe(QCoreApplication::applicationFilePath(),
+                {QStringLiteral("--fake-mpv"), QStringLiteral("--fake-probe=none")});
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, asyncProcessTimeoutMs);
+    QCOMPARE(probe.result().formatFilter, Bloom::PlaybackPolicy::FormatFilterSupport::Unsupported);
+    QVERIFY(!probe.result().mpvVersion.isEmpty());
+    QVERIFY(probe.failureReason().isEmpty());
+    probe.probe(QCoreApplication::applicationFilePath(),
+                {QStringLiteral("--fake-mpv"), QStringLiteral("--fake-probe=none")});
+    QVERIFY(!probe.isRunning());
+    QCOMPARE(finishedSpy.count(), 1);
+}
+
+void PlayerProcessManagerTest::runtimeProbeStageDeadlineIsBounded()
+{
+    MpvRuntimeProbeOptions options;
+    options.stageDeadlineMs = 150;
+    MpvRuntimeProbe probe(options);
+    QSignalSpy finishedSpy(&probe, &MpvRuntimeProbe::finished);
+    QElapsedTimer timer;
+    timer.start();
+    probe.probe(QCoreApplication::applicationFilePath(),
+                {QStringLiteral("--fake-mpv"), QStringLiteral("--fake-probe=hang")});
+    QVERIFY(timer.elapsed() < nonBlockingCallLimitMs);
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, asyncProcessTimeoutMs * 2);
+    QCOMPARE(probe.result().formatFilter, Bloom::PlaybackPolicy::FormatFilterSupport::Unknown);
+    QVERIFY(!probe.failureReason().isEmpty());
+}
+
+void PlayerProcessManagerTest::runtimeProbeReportsMissingExecutable()
+{
+    MpvRuntimeProbe probe;
+    QSignalSpy finishedSpy(&probe, &MpvRuntimeProbe::finished);
+    probe.probe(QStringLiteral("bloom-definitely-missing-mpv"));
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, asyncProcessTimeoutMs);
+    QCOMPARE(probe.result().formatFilter, Bloom::PlaybackPolicy::FormatFilterSupport::Unknown);
+    QVERIFY(probe.failureReason().contains(QStringLiteral("not found")));
+}
+
+void PlayerProcessManagerTest::runtimeProbeRetriesAfterFailure()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString readyPath = directory.filePath(QStringLiteral("ready"));
+    const QStringList arguments{QStringLiteral("--fake-mpv"), QStringLiteral("--fake-probe=el"),
+                                QStringLiteral("--fake-probe-ready=") + readyPath};
+    MpvRuntimeProbe probe;
+    QSignalSpy finishedSpy(&probe, &MpvRuntimeProbe::finished);
+    probe.probe(QCoreApplication::applicationFilePath(), arguments);
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 1, asyncProcessTimeoutMs * 2);
+    QCOMPARE(probe.result().formatFilter, Bloom::PlaybackPolicy::FormatFilterSupport::Unknown);
+    QVERIFY(!probe.failureReason().isEmpty());
+
+    QFile readyFile(readyPath);
+    QVERIFY(readyFile.open(QIODevice::WriteOnly));
+    readyFile.close();
+    probe.probe(QCoreApplication::applicationFilePath(), arguments);
+    QVERIFY(probe.isRunning());
+    QVERIFY(probe.failureReason().isEmpty());
+    QTRY_COMPARE_WITH_TIMEOUT(finishedSpy.count(), 2, asyncProcessTimeoutMs);
+    QCOMPARE(probe.result().formatFilter,
+             Bloom::PlaybackPolicy::FormatFilterSupport::DolbyVisionAndEnhancementLayer);
+    QVERIFY(probe.failureReason().isEmpty());
 }
 
 int main(int argc, char **argv)

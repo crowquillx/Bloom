@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IPlayerBackend.h"
+#include "MpvLibmpvRuntime.h"
 
 #include <QMetaObject>
 #include <QRectF>
@@ -40,6 +41,9 @@ public:
     bool attachVideoTarget(QObject *target) override;
     void detachVideoTarget(QObject *target) override;
     void setVideoViewport(const QRectF &viewport) override;
+    void prepareRuntime(const QString &mpvBin) override;
+    Bloom::PlaybackPolicy::MpvRuntimeInfo runtimeInfo() const override;
+    Bloom::PlaybackPolicy::RendererKind rendererKind(const QStringList &args) const override;
 
 #ifdef BLOOM_TESTING
     QStringList sanitizeStartupArgsForTest(const QStringList &args) const { return sanitizeStartupArgs(args); }
@@ -101,6 +105,7 @@ private:
     void clearVideoTarget();
     bool resolveContainerHandle(QObject *target);
     void scheduleStopTeardownWatchdog(quint64 replyUserdata);
+    void scheduleDiagnosticSnapshots();
 
     class WindowsNativeGeometryFilter;
 
@@ -134,4 +139,11 @@ private:
     int m_playlistPosition = -1;
     int m_playlistCount = 0;
     QStringList m_pendingEmbeddedShaderPaths;
+    QList<BloomBackend::VideoFilterListOperation> m_pendingVideoFilterOperations;
+    Bloom::PlaybackPolicy::MpvRuntimeInfo m_runtimeInfo;
+    bool m_runtimeInfoFromHandle = false;
+    quint64 m_diagnosticsGeneration = 0;
+#if defined(BLOOM_HAS_LIBMPV)
+    BloomBackend::LibmpvPropertySnapshots m_propertySnapshots;
+#endif
 };

@@ -27,11 +27,62 @@ modules:
       - -Dshaderc=disabled
       - -Dmanpage-build=disabled
       - -Dtests=false
+    # Pinned post-PR-#17932 stack (Dolby Vision Profile 7 FEL). Revisions must
+    # match packaging/dependencies.json; `nix flake check` (dependency-pins)
+    # enforces this. A git source keeps `git describe` in `mpv --version`.
     sources:
-      - type: archive
-        url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz
-        sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
+      - type: git
+        url: https://github.com/mpv-player/mpv.git
+        commit: dde0671072723c311df874a32dc4e48b5197ca62
+    post-install:
+      # Fail the build if the runtime cannot parse the FEL option.
+      - /app/bin/mpv --no-config --vf=format=dolbyvision=yes:enhancement-layer=yes --version
     modules:
+      - name: wayland-protocols
+        buildsystem: meson
+        config-opts:
+          - -Dtests=false
+        cleanup:
+          - '*'
+        sources:
+          - type: archive
+            url: https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/1.45/downloads/wayland-protocols-1.45.tar.xz
+            sha256: 4d2b2a9e3e099d017dc8107bf1c334d27bb87d9e4aff19a0c8d856d17cd41ef0
+      - name: nv-codec-headers
+        no-autogen: true
+        make-install-args:
+          - PREFIX=/app
+        cleanup:
+          - '*'
+        sources:
+          - type: archive
+            url: https://github.com/FFmpeg/nv-codec-headers/releases/download/n12.2.72.0/nv-codec-headers-12.2.72.0.tar.gz
+            sha256: c295a2ba8a06434d4bdc5c2208f8a825285210d71d91d572329b2c51fd0d4d03
+      # FFmpeg 9.0 is the first release with the `dovi_split` BSF that mpv
+      # needs to split the Profile 7 EL. Installed under /app with its own
+      # sonames, so it does not replace the runtime FFmpeg used by Qt.
+      - name: ffmpeg
+        config-opts:
+          - --enable-shared
+          - --disable-static
+          - --disable-programs
+          - --disable-doc
+          - --disable-debug
+          - --enable-gnutls
+          - --enable-libdav1d
+          - --enable-libdrm
+          - --enable-vaapi
+          - --enable-ffnvcodec
+          - --enable-nvdec
+          - --disable-vulkan
+        cleanup:
+          - /include
+          - /lib/pkgconfig
+          - /share/ffmpeg
+        sources:
+          - type: archive
+            url: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+            sha256: 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
       - name: libass
         config-opts:
           - --disable-static
@@ -42,6 +93,7 @@ modules:
           - type: archive
             url: https://github.com/libass/libass/releases/download/0.17.4/libass-0.17.4.tar.xz
             sha256: 78f1179b838d025e9c26e8fef33f8092f65611444ffa1bfc0cfac6a33511a05a
+      # libplacebo API >= 370 (FEL composition) is not in a release yet.
       - name: libplacebo
         buildsystem: meson
         config-opts:
@@ -54,8 +106,7 @@ modules:
         sources:
           - type: git
             url: https://github.com/haasn/libplacebo.git
-            tag: v7.360.1
-            commit: cee9b076f2c63104ccfd497fa79c39a867293ec4
+            commit: 0df80ae5229e8e520c0fa4e3d666098a3ffa1cbc
   - name: bloom
     buildsystem: cmake-ninja
     config-opts:

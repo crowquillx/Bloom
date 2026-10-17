@@ -10,16 +10,22 @@
     let
       supportedSystems = [ "x86_64-linux" ];
       forAllSystems = nixpkgs.lib.genAttrs supportedSystems;
+      # Pinned post-PR-#17932 mpv/libmpv stack (see nix/mpv-stack.nix). Every
+      # Bloom derivation receives this mpv so the linked libmpv and the mpv on
+      # the runtime PATH are always the same store path.
+      mpvStackFor = pkgs: pkgs.callPackage ./nix/mpv-stack.nix { };
     in
     {
       packages = forAllSystems (
         system:
         let
           pkgs = import nixpkgs { inherit system; };
-          bloom = pkgs.callPackage ./nix/package.nix { };
+          mpvStack = mpvStackFor pkgs;
+          bloom = pkgs.callPackage ./nix/package.nix { inherit (mpvStack) mpv; };
         in
         {
           inherit bloom;
+          inherit (mpvStack) mpv;
           Bloom = bloom;
           default = bloom;
         }
@@ -82,11 +88,49 @@
         let
           pkgs = import nixpkgs { inherit system; };
           bloom = self.packages.${system}.bloom;
+          inherit (self.packages.${system}) mpv;
         in
         {
           inherit bloom;
-          tests = pkgs.callPackage ./nix/tests.nix { };
-          qml-lint = pkgs.callPackage ./nix/qml-lint.nix { };
+          tests = pkgs.callPackage ./nix/tests.nix { inherit mpv; };
+          qml-lint = pkgs.callPackage ./nix/qml-lint.nix { inherit mpv; };
+          mpv-fel-capability =
+            pkgs.runCommand "bloom-mpv-fel-capability"
+              {
+                nativeBuildInputs = [ pkgs.python3 ];
+              }
+              ''
+                export HOME="$TMPDIR/home"
+                mkdir -p "$HOME"
+                # Probe the exact mpv that Bloom puts on PATH, plus the libmpv it links.
+                bloom_wrapper="${bloom}/bin/bloom"
+                grep -aqF "${mpv}/bin" "$bloom_wrapper" || {
+                  echo "Bloom wrapper does not put the pinned mpv on PATH" >&2
+                  exit 1
+                }
+                python3 -I ${./scripts/check-mpv-fel-capability.py} \
+                  --dependencies ${./packaging/dependencies.json} \
+                  --mpv ${mpv}/bin/mpv \
+                  --library ${mpv}/lib/libmpv.so \
+                  --library ${pkgs.lib.getLib mpv.ffmpeg}/lib/libavcodec.so \
+                  --library ${pkgs.lib.getLib mpv.libplacebo}/lib/libplacebo.so \
+                  --require-fel \
+                  --require-pin
+                touch "$out"
+              '';
+          dependency-pins =
+            pkgs.runCommand "bloom-dependency-pins-check"
+              {
+                nativeBuildInputs = [ pkgs.python3 ];
+              }
+              ''
+                python3 -I ${./scripts/check-mpv-fel-capability.py} \
+                  --dependencies ${./packaging/dependencies.json} \
+                  --flatpak-manifest ${./packaging/flatpak/com.github.crowquillx.Bloom.yml} \
+                  --portable-script ${./packaging/portable/build.sh} \
+                  --check-pins
+                touch "$out"
+              '';
           release-smoke =
             pkgs.runCommand "bloom-release-smoke"
               {
@@ -116,6 +160,9 @@
               }
               ''
                 shellcheck \
+                  ${./packaging/portable/build-mpv.sh} \
+                  ${./packaging/portable/build.sh} \
+                  ${./scripts/package-flatpak.sh} \
                   ${./scripts/run-clang-tidy.sh} \
                   ${./scripts/run-coverage.sh} \
                   ${./scripts/run-sanitizers.sh}
@@ -148,6 +195,9 @@
                   .schema == 1 and
                   (.qt.version | type == "string") and
                   (.mpv.version | type == "string") and
+                  (.mpv.source_revision | length == 40) and
+                  (.mpv.windows_sdk_sha256 | length == 64) and
+                  (.dolby_vision_fel.mpv_merge_commit | length == 40) and
                   (.portable.image | startswith("docker://")) and
                   (.flatpak.sdk_commit | length == 64) and
                   (.flatpak.platform_commit | length == 64) and

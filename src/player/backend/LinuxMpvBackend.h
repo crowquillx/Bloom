@@ -1,6 +1,7 @@
 #pragma once
 
 #include "IPlayerBackend.h"
+#include "MpvLibmpvRuntime.h"
 
 #include <QByteArray>
 #include <QMetaObject>
@@ -38,6 +39,10 @@ public:
     bool attachVideoTarget(QObject *target) override;
     void detachVideoTarget(QObject *target) override;
     void setVideoViewport(const QRectF &viewport) override;
+    void prepareRuntime(const QString &mpvBin) override;
+    Bloom::PlaybackPolicy::MpvRuntimeInfo runtimeInfo() const override;
+    // The OpenGL render API always drives mpv's legacy vo_gpu renderer.
+    Bloom::PlaybackPolicy::RendererKind rendererKind(const QStringList &args) const override;
 
 private:
     enum class RenderMode {
@@ -47,6 +52,7 @@ private:
 
     bool initializeMpv(const QStringList &args);
     void teardownMpv(bool emitStateChange = true);
+    void scheduleDiagnosticSnapshots();
     void processMpvEvents();
     void observeMpvProperties(void *handle);
     void applyMpvArgs(void *handle, const QStringList &args);
@@ -100,4 +106,11 @@ private:
     qint64 m_recentStreamFailureTimeMs = 0;
     QString m_recentStreamFailureText;
     QStringList m_pendingEmbeddedShaderPaths;
+    QList<BloomBackend::VideoFilterListOperation> m_pendingVideoFilterOperations;
+    Bloom::PlaybackPolicy::MpvRuntimeInfo m_runtimeInfo;
+    bool m_runtimeInfoFromHandle = false;
+    quint64 m_diagnosticsGeneration = 0;
+#if defined(BLOOM_HAS_LIBMPV)
+    BloomBackend::LibmpvPropertySnapshots m_propertySnapshots;
+#endif
 };

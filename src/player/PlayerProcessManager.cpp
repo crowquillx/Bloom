@@ -300,6 +300,7 @@ void PlayerProcessManager::launchPending()
     m_playlistPosition = -1;
     m_playlistCount = 0;
     m_pendingCommands.clear();
+    clearPropertySnapshots();
 
     QStringList finalArguments = std::move(request.arguments);
     finalArguments.append(QStringLiteral("--input-ipc-server=%1").arg(m_ipcPath));
@@ -656,7 +657,8 @@ void PlayerProcessManager::sendCommand(const QStringList &command)
 
 bool PlayerProcessManager::serializeCommand(const QVariantList &command,
                                             QByteArray *payload,
-                                            QString *commandName) const
+                                            QString *commandName,
+                                            qint64 requestId) const
 {
     if (command.isEmpty() || command.first().metaType().id() != QMetaType::QString
         || command.first().toString().trimmed().isEmpty()) {
@@ -674,6 +676,9 @@ bool PlayerProcessManager::serializeCommand(const QVariantList &command,
 
     QJsonObject object;
     object.insert(QStringLiteral("command"), commandArray);
+    if (requestId >= 0) {
+        object.insert(QStringLiteral("request_id"), requestId);
+    }
     QByteArray serialized = QJsonDocument(object).toJson(QJsonDocument::Compact);
     if (serialized.size() + 1 > m_options.maximumIpcMessageBytes) {
         return false;
@@ -688,11 +693,11 @@ bool PlayerProcessManager::serializeCommand(const QVariantList &command,
     return true;
 }
 
-bool PlayerProcessManager::writeCommand(const QVariantList &command)
+bool PlayerProcessManager::writeCommand(const QVariantList &command, qint64 requestId)
 {
     QByteArray payload;
     QString commandName;
-    if (!serializeCommand(command, &payload, &commandName)) {
+    if (!serializeCommand(command, &payload, &commandName, requestId)) {
         qCWarning(lcPlaybackIpc) << "Rejected invalid or oversized mpv IPC command";
         return false;
     }
@@ -733,6 +738,82 @@ void PlayerProcessManager::sendVariantCommand(const QVariantList &command)
     if (isRunning() && m_stopStage == StopStage::None) {
         enqueueCommand(command);
     }
+}
+
+void PlayerProcessManager::requestPropertySnapshot(const QString &tag,
+                                                   const QStringList &properties)
+{
+    if (!m_isConnected || m_stopStage != StopStage::None || properties.isEmpty()) {
+        return;
+    }
+
+    const quint64 snapshotId = m_nextSnapshotId++;
+    PropertySnapshot snapshot;
+    snapshot.tag = tag;
+    for (const QString &property : properties) {
+        const qint64 requestId = m_nextRequestId++;
+        if (!writeCommand(QVariantList{QStringLiteral("get_property"), property}, requestId)) {
+            continue;
+        }
+        m_pendingPropertyRequests.insert(requestId, {snapshotId, property});
+        ++snapshot.outstanding;
+    }
+    if (snapshot.outstanding == 0) {
+        return;
+    }
+    m_propertySnapshots.insert(snapshotId, snapshot);
+    QTimer::singleShot(m_propertySnapshotDeadlineMs, this, [this, snapshotId]() {
+        finishPropertySnapshot(snapshotId);
+    });
+}
+
+void PlayerProcessManager::handleCommandReply(const QJsonObject &object)
+{
+    const QJsonValue requestIdValue = object.value(QStringLiteral("request_id"));
+    if (!requestIdValue.isDouble()) {
+        return;
+    }
+    const auto request = m_pendingPropertyRequests.find(
+        static_cast<qint64>(requestIdValue.toDouble()));
+    if (request == m_pendingPropertyRequests.end()) {
+        return;
+    }
+    const quint64 snapshotId = request->first;
+    const QString property = request->second;
+    m_pendingPropertyRequests.erase(request);
+
+    const auto snapshot = m_propertySnapshots.find(snapshotId);
+    if (snapshot == m_propertySnapshots.end()) {
+        return;
+    }
+    if (object.value(QStringLiteral("error")).toString() == QStringLiteral("success")
+        && object.contains(QStringLiteral("data"))) {
+        snapshot->values.insert(property, object.value(QStringLiteral("data")).toVariant());
+    }
+    if (--snapshot->outstanding <= 0) {
+        finishPropertySnapshot(snapshotId);
+    }
+}
+
+void PlayerProcessManager::finishPropertySnapshot(quint64 snapshotId)
+{
+    const auto snapshot = m_propertySnapshots.find(snapshotId);
+    if (snapshot == m_propertySnapshots.end()) {
+        return;
+    }
+    const QString tag = snapshot->tag;
+    const QVariantMap values = snapshot->values;
+    m_propertySnapshots.erase(snapshot);
+    for (auto it = m_pendingPropertyRequests.begin(); it != m_pendingPropertyRequests.end();) {
+        it = it->first == snapshotId ? m_pendingPropertyRequests.erase(it) : std::next(it);
+    }
+    emit propertySnapshotReady(tag, values);
+}
+
+void PlayerProcessManager::clearPropertySnapshots()
+{
+    m_pendingPropertyRequests.clear();
+    m_propertySnapshots.clear();
 }
 
 void PlayerProcessManager::enqueueCommand(const QVariantList &command)
@@ -817,7 +898,9 @@ void PlayerProcessManager::handleIpcObject(const QJsonObject &object)
 {
     const QJsonValue eventValue = object.value(QStringLiteral("event"));
     if (eventValue.isUndefined()) {
-        // Command replies carry request_id/error but no event and need no handling.
+        // Command replies carry request_id/error but no event; only property
+        // snapshot replies are consumed.
+        handleCommandReply(object);
         return;
     }
     if (!eventValue.isString() || eventValue.toString().isEmpty()) {
@@ -906,6 +989,11 @@ void PlayerProcessManager::handleIpcObject(const QJsonObject &object)
             }
             emit audioDeviceListChanged(devices);
         }
+        return;
+    }
+
+    if (event == QStringLiteral("file-loaded")) {
+        emit fileLoaded();
         return;
     }
 

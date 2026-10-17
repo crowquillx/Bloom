@@ -61,12 +61,16 @@ param (
     [string]$BuildId = "",
     [string]$GitSha = "",
     [bool]$AutoFetchMpvSdk = $true,
+    # Fail (instead of warn) when the libmpv runtime lacks Dolby Vision
+    # Profile 7 FEL support or is not the pinned SDK. CI/release builds set it.
+    [switch]$RequireFelCapableMpv,
     [switch]$BuildTests,
     [switch]$BuildVisualTests,
     [switch]$Clean
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "MpvFelCapability.ps1")
 
 if ($BuildChannel -notin @("stable", "dev")) {
     throw "BuildChannel must be 'stable' or 'dev' (got '$BuildChannel')."
@@ -118,6 +122,20 @@ function Get-FirstExistingPath {
     return $null
 }
 
+function Get-PinnedMpvSdkStamp {
+    $pins = Get-BloomDependencyPins
+    return "$($pins.mpv.windows_sdk_version) $($pins.mpv.windows_sdk_sha256)".ToLowerInvariant()
+}
+
+function Test-PinnedMpvSdkStamp {
+    param([string]$SdkRoot)
+    $stampPath = Join-Path $SdkRoot "bloom-mpv-sdk.stamp"
+    if (-not (Test-Path $stampPath)) {
+        return $false
+    }
+    return (Get-Content $stampPath -Raw).Trim() -eq (Get-PinnedMpvSdkStamp)
+}
+
 function Resolve-MpvSdkRoot {
     $roots = @()
     $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
@@ -141,8 +159,15 @@ function Resolve-MpvSdkRoot {
         $roots += (Split-Path -Path $mpvDir -Parent)
     }
 
+    $pinnedSdkRoot = Join-Path $projectRoot "third_party\mpv\mpv-sdk"
+    $staleExtraction = (Test-Path $pinnedSdkRoot) -and -not (Test-PinnedMpvSdkStamp -SdkRoot $pinnedSdkRoot)
     foreach ($root in ($roots | Select-Object -Unique)) {
         if ([string]::IsNullOrWhiteSpace($root) -or -not (Test-Path $root)) {
+            continue
+        }
+        # An extraction left behind by an older pin must never be reused.
+        if ($root -eq $pinnedSdkRoot -and $staleExtraction) {
+            Write-Host "Ignoring stale mpv SDK extraction (pin changed): $root" -ForegroundColor Yellow
             continue
         }
 
@@ -155,6 +180,7 @@ function Resolve-MpvSdkRoot {
         }
 
         $nestedSdk = Get-ChildItem -Path $root -Directory -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { -not ($staleExtraction -and $_.FullName.StartsWith($pinnedSdkRoot, [System.StringComparison]::OrdinalIgnoreCase)) } |
             Where-Object { Test-Path (Join-Path $_.FullName "include\mpv\client.h") } |
             Select-Object -First 1
         if ($nestedSdk) {
@@ -269,17 +295,31 @@ function Fetch-MpvSdk {
     $mpvSdkVersion = $dependencies.mpv.windows_sdk_version
     $mpvSdkSha256 = $dependencies.mpv.windows_sdk_sha256
     $mpvSdkFile = "mpv-dev-x86_64-$mpvSdkVersion.7z"
-    $downloadUrl = "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$mpvReleaseTag/$mpvSdkFile"
+    # shinchiro only keeps about 30 days of releases, so the pin lists a Bloom
+    # mirror first and the upstream release second. Every source is verified
+    # against the same SHA-256 below; the order only affects availability.
+    $downloadUrls = @($dependencies.mpv.windows_sdk_urls)
+    if ($downloadUrls.Count -eq 0) {
+        $downloadUrls = @("https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/$mpvReleaseTag/$mpvSdkFile")
+    }
 
     $downloadPath = Join-Path $DestinationRoot $mpvSdkFile
     if (Test-Path $downloadPath) {
         Write-Host "Using cached pinned mpv-dev SDK archive: $mpvSdkFile" -ForegroundColor Cyan
     } else {
-        Write-Host "Attempting to fetch pinned mpv-dev SDK: $mpvSdkFile" -ForegroundColor Cyan
-        & curl.exe -fL --retry 3 --retry-all-errors --output $downloadPath $downloadUrl
-        if ($LASTEXITCODE -ne 0) {
+        $downloaded = $false
+        foreach ($downloadUrl in $downloadUrls) {
+            Write-Host "Attempting to fetch pinned mpv-dev SDK: $downloadUrl" -ForegroundColor Cyan
+            & curl.exe -fL --proto "=https" --retry 3 --retry-all-errors --output $downloadPath $downloadUrl
+            if ($LASTEXITCODE -eq 0) {
+                $downloaded = $true
+                break
+            }
             Remove-Item -Force $downloadPath -ErrorAction SilentlyContinue
-            throw "Failed to download $mpvSdkFile from $downloadUrl"
+            Write-Warning "Download failed from $downloadUrl"
+        }
+        if (-not $downloaded) {
+            throw "Failed to download $mpvSdkFile from any pinned source: $($downloadUrls -join ', ')"
         }
     }
 
@@ -320,6 +360,7 @@ function Fetch-MpvSdk {
         Where-Object { Test-Path (Join-Path $_.FullName "include\mpv\client.h") } |
         Select-Object -First 1
 
+    Set-Content -Path (Join-Path $extractRoot "bloom-mpv-sdk.stamp") -Value (Get-PinnedMpvSdkStamp) -NoNewline
     if ($mpvRootCandidate) {
         return $mpvRootCandidate.FullName
     }
@@ -349,6 +390,16 @@ function Ensure-MpvSdkEnvironment {
 
     $env:MPV_ROOT = $resolvedRoot
     Write-Host "Using MPV_ROOT: $resolvedRoot" -ForegroundColor Gray
+
+    # Headers, import library and runtime DLL all come from this root, so the
+    # DLL is the single source of truth for the linked stack.
+    $runtimeDll = Resolve-MpvRuntimeDll -MpvRoot $resolvedRoot
+    if ($runtimeDll) {
+        Assert-MpvDllFelCapability -DllPath $runtimeDll -RequirePinned:$RequireFelCapableMpv `
+            -WarnOnly:(-not $RequireFelCapableMpv) | Out-Null
+    } elseif ($RequireFelCapableMpv) {
+        throw "No libmpv runtime DLL found under $resolvedRoot; cannot verify Dolby Vision FEL support."
+    }
 
     $importLib = Ensure-MpvImportLibForMsvc -MpvRoot $resolvedRoot
     if ($importLib) {

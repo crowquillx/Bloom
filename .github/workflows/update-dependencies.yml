@@ -30,6 +30,8 @@ jobs:
             .#checks.x86_64-linux.metadata \
             .#checks.x86_64-linux.release-manifest \
             .#checks.x86_64-linux.release-smoke \
+            .#checks.x86_64-linux.mpv-fel-capability \
+            .#checks.x86_64-linux.dependency-pins \
             .#bloom \
             --print-build-logs --option max-jobs 1 --option cores 2
       - uses: peter-evans/create-pull-request@5f6978faf089d4d20b00c7766989d076bb2fc7f1 # v8

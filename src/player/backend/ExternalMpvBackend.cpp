@@ -1,9 +1,32 @@
 #include "ExternalMpvBackend.h"
 
+#include <QTimer>
+
+namespace PlayerPolicy = Bloom::PlaybackPolicy;
+
+namespace {
+// First snapshot once the first frames have been rendered (vo-passes is
+// populated per rendered frame); second one for steady-state drop counters.
+constexpr int kStartupSnapshotDelayMs = 1500;
+constexpr int kSteadySnapshotDelayMs = 8000;
+}
+
 ExternalMpvBackend::ExternalMpvBackend(QObject *parent)
     : IPlayerBackend(parent)
     , m_processManager(new PlayerProcessManager(this))
+    , m_runtimeProbe(new MpvRuntimeProbe(this))
 {
+    connect(m_runtimeProbe, &MpvRuntimeProbe::finished,
+            this, &ExternalMpvBackend::runtimeInfoChanged);
+    connect(m_processManager, &PlayerProcessManager::fileLoaded,
+            this, &ExternalMpvBackend::scheduleDiagnosticSnapshots);
+    connect(m_processManager, &PlayerProcessManager::propertySnapshotReady,
+            this, &ExternalMpvBackend::playbackDiagnosticsAvailable);
+    connect(m_processManager, &PlayerProcessManager::stateChanged, this, [this](bool running) {
+        if (!running) {
+            ++m_fileGeneration;
+        }
+    });
     connect(m_processManager, &PlayerProcessManager::stateChanged,
             this, &ExternalMpvBackend::stateChanged);
     connect(m_processManager, &PlayerProcessManager::errorOccurred,
@@ -43,7 +66,41 @@ QString ExternalMpvBackend::backendName() const
 
 void ExternalMpvBackend::startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl)
 {
+    prepareRuntime(mpvBin);
+    ++m_fileGeneration;
     m_processManager->startMpv(mpvBin, args, mediaUrl);
+}
+
+void ExternalMpvBackend::prepareRuntime(const QString &mpvBin)
+{
+    m_runtimeProbe->probe(mpvBin);
+}
+
+PlayerPolicy::MpvRuntimeInfo ExternalMpvBackend::runtimeInfo() const
+{
+    if (m_runtimeProbe->isFinished()) {
+        return m_runtimeProbe->result();
+    }
+    PlayerPolicy::MpvRuntimeInfo pending;
+    pending.backend = backendName();
+    pending.executablePath = m_runtimeProbe->executable();
+    return pending;
+}
+
+void ExternalMpvBackend::scheduleDiagnosticSnapshots()
+{
+    const quint64 generation = ++m_fileGeneration;
+    QStringList properties = PlayerPolicy::runtimeProvenanceProperties();
+    properties << PlayerPolicy::playbackDiagnosticProperties();
+    const auto requestSnapshot = [this, generation, properties](const QString &stage) {
+        if (generation == m_fileGeneration) {
+            m_processManager->requestPropertySnapshot(stage, properties);
+        }
+    };
+    QTimer::singleShot(kStartupSnapshotDelayMs, this,
+                       [requestSnapshot]() { requestSnapshot(QStringLiteral("startup")); });
+    QTimer::singleShot(kSteadySnapshotDelayMs, this,
+                       [requestSnapshot]() { requestSnapshot(QStringLiteral("steady")); });
 }
 
 void ExternalMpvBackend::appendUrlsToPlaylist(const QStringList &mediaUrls)

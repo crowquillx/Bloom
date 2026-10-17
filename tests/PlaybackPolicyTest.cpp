@@ -1,5 +1,6 @@
 #include <QtTest/QtTest>
 
+#include "player/DolbyVisionPolicy.h"
 #include "player/PlaybackPolicy.h"
 
 namespace PlayerPolicy = Bloom::PlaybackPolicy;
@@ -50,6 +51,18 @@ QVariantMap videoStream(const QString &range,
     return result;
 }
 
+QVariantMap dolbyVisionSource(int profile, int compatibilityId, const QString &rangeType,
+                              const QString &title = {})
+{
+    QVariantMap stream = videoStream(QStringLiteral("HDR"), profile, compatibilityId, title);
+    stream.insert(QStringLiteral("videoRangeType"), rangeType);
+    return mediaSource(QStringLiteral("dv"), title, QStringLiteral("/media/dv.mkv"), {stream});
+}
+
+const QString kElFilter =
+    QStringLiteral("--vf-append=@bloom-dovi:format=dolbyvision=yes:enhancement-layer=yes");
+const QString kDvOnlyFilter = QStringLiteral("--vf-append=@bloom-dovi:format=dolbyvision=yes");
+
 } // namespace
 
 class PlaybackPolicyTest : public QObject
@@ -67,6 +80,17 @@ private slots:
     void filtersMultipartSourcesAndBuildsSubtitles();
     void evaluatesCompletionAndPrefetchThresholds();
     void validatesPrefetchedEpisodesAndContexts();
+    void describesDolbyVisionProfiles();
+    void dolbyVisionFilterFollowsSourceType_data();
+    void dolbyVisionFilterFollowsSourceType();
+    void dolbyVisionFilterPreservesExistingFilters();
+    void dolbyVisionFilterDegradesWithRuntimeSupport();
+    void detectsFiltersThatStripDolbyVision();
+    void parsesMpvVersionOutput();
+    void evaluatesFelCapabilityByComponent();
+    void evaluatesPlaybackDiagnostics();
+    void diagnosticsDoNotClaimFelWithoutEvidence();
+    void diagnosticsKeepMissingEvidenceUnavailable();
 };
 
 void PlaybackPolicyTest::normalizesLanguageAliases_data()
@@ -415,5 +439,401 @@ void PlaybackPolicyTest::validatesPrefetchedEpisodesAndContexts()
 }
 
 QTEST_APPLESS_MAIN(PlaybackPolicyTest)
+
+void PlaybackPolicyTest::describesDolbyVisionProfiles()
+{
+    const auto p5 = PlayerPolicy::describeDolbyVisionSource(
+        dolbyVisionSource(5, 0, QStringLiteral("DOVI")));
+    QVERIFY(p5.isDolbyVision);
+    QCOMPARE(p5.profile, 5);
+    QCOMPARE(p5.compatibilityId, 0);
+    QVERIFY(!p5.dualLayer);
+
+    const auto p7 = PlayerPolicy::describeDolbyVisionSource(
+        dolbyVisionSource(7, 6, QStringLiteral("DOVIWithHDR10")));
+    QCOMPARE(p7.profile, 7);
+    QVERIFY(p7.dualLayer);
+    // Provider metadata cannot tell MEL from FEL; Bloom must not claim FEL.
+    QVERIFY(p7.enhancementLayerHint.isEmpty());
+
+    const auto p7Fel = PlayerPolicy::describeDolbyVisionSource(
+        dolbyVisionSource(7, 6, QStringLiteral("DOVIWithEL"),
+                          QStringLiteral("Movie (2024) BluRay Remux DV P7 FEL")));
+    QVERIFY(p7Fel.dualLayer);
+    QCOMPARE(p7Fel.enhancementLayerHint, QStringLiteral("fel"));
+
+    const auto p8 = PlayerPolicy::describeDolbyVisionSource(
+        dolbyVisionSource(8, 1, QStringLiteral("DOVIWithHDR10")));
+    QCOMPARE(p8.profile, 8);
+    QCOMPARE(p8.compatibilityId, 1);
+    QVERIFY(!p8.dualLayer);
+
+    QVariantMap codecOnly = videoStream(QStringLiteral("HDR"));
+    codecOnly.insert(QStringLiteral("codecTag"), QStringLiteral("dvhe.08.06"));
+    const auto fromCodec = PlayerPolicy::describeDolbyVisionSource(
+        mediaSource(QStringLiteral("c"), {}, {}, {codecOnly}));
+    QVERIFY(fromCodec.isDolbyVision);
+    QCOMPARE(fromCodec.profile, 8);
+
+    QVERIFY(!PlayerPolicy::describeDolbyVisionSource(
+                 mediaSource(QStringLiteral("hdr10"), {}, {},
+                             {videoStream(QStringLiteral("HDR10"))}))
+                 .isDolbyVision);
+    QVERIFY(!PlayerPolicy::describeDolbyVisionSource(
+                 mediaSource(QStringLiteral("sdr"), {}, {},
+                             {videoStream(QStringLiteral("SDR"))}))
+                 .isDolbyVision);
+}
+
+void PlaybackPolicyTest::dolbyVisionFilterFollowsSourceType_data()
+{
+    QTest::addColumn<QVariantMap>("source");
+    QTest::addColumn<bool>("expectFilter");
+
+    QTest::newRow("SDR") << mediaSource(QStringLiteral("sdr"), {}, {},
+                                        {videoStream(QStringLiteral("SDR"))})
+                         << false;
+    QTest::newRow("HDR10") << mediaSource(QStringLiteral("hdr10"), {}, {},
+                                          {videoStream(QStringLiteral("HDR10"))})
+                           << false;
+    QVariantMap hlg = videoStream(QStringLiteral("HDR"));
+    hlg.insert(QStringLiteral("videoRangeType"), QStringLiteral("HLG"));
+    QTest::newRow("HLG") << mediaSource(QStringLiteral("hlg"), {}, {}, {hlg}) << false;
+    QTest::newRow("DV profile 5") << dolbyVisionSource(5, 0, QStringLiteral("DOVI")) << true;
+    QTest::newRow("DV profile 7 MEL/FEL")
+        << dolbyVisionSource(7, 6, QStringLiteral("DOVIWithHDR10")) << true;
+    QTest::newRow("DV profile 8.1") << dolbyVisionSource(8, 1, QStringLiteral("DOVIWithHDR10"))
+                                    << true;
+    QTest::newRow("DV profile 8.4 HLG") << dolbyVisionSource(8, 4, QStringLiteral("DOVIWithHLG"))
+                                        << true;
+}
+
+void PlaybackPolicyTest::dolbyVisionFilterFollowsSourceType()
+{
+    QFETCH(QVariantMap, source);
+    QFETCH(bool, expectFilter);
+
+    const QStringList base{QStringLiteral("--vo=gpu-next"), QStringLiteral("--hwdec=auto-safe")};
+    const PlayerPolicy::HdrContentKind kind = PlayerPolicy::classifyMediaSourceHdr(source);
+    const QStringList args = PlayerPolicy::appendDolbyVisionFilterArgs(
+        base, kind, PlayerPolicy::FormatFilterSupport::DolbyVisionAndEnhancementLayer);
+    if (expectFilter) {
+        QCOMPARE(args, QStringList(base) << kElFilter);
+    } else {
+        // SDR/HDR10/HLG keep Bloom's existing path byte-for-byte.
+        QCOMPARE(args, base);
+    }
+}
+
+void PlaybackPolicyTest::dolbyVisionFilterPreservesExistingFilters()
+{
+    const QStringList base{
+        QStringLiteral("--vf=lavfi=[bwdif]"),
+        QStringLiteral("--vf-append=@user:format=colorlevels=limited"),
+        QStringLiteral("--glsl-shaders-append=~~/shaders/ArtCNN_C4F16.glsl"),
+        QStringLiteral("--target-colorspace-hint=auto"),
+    };
+    const QStringList args = PlayerPolicy::appendDolbyVisionFilterArgs(
+        base, PlayerPolicy::HdrContentKind::DolbyVisionCompatible,
+        PlayerPolicy::FormatFilterSupport::DolbyVisionAndEnhancementLayer);
+    QCOMPARE(args.mid(0, base.size()), base);
+    QCOMPARE(args.last(), kElFilter);
+    QCOMPARE(args.size(), base.size() + 1);
+
+    // Re-applying (replacement playback, recovery) never duplicates the entry.
+    const QStringList again = PlayerPolicy::appendDolbyVisionFilterArgs(
+        args, PlayerPolicy::HdrContentKind::DolbyVisionCompatible,
+        PlayerPolicy::FormatFilterSupport::DolbyVisionAndEnhancementLayer);
+    QCOMPARE(again, args);
+    QCOMPARE(again.filter(QStringLiteral("@bloom-dovi:")).size(), 1);
+}
+
+void PlaybackPolicyTest::dolbyVisionFilterDegradesWithRuntimeSupport()
+{
+    const QStringList base{QStringLiteral("--vo=gpu-next")};
+    using Support = PlayerPolicy::FormatFilterSupport;
+    QCOMPARE(PlayerPolicy::appendDolbyVisionFilterArgs(
+                 base, PlayerPolicy::HdrContentKind::DolbyVisionCompatible,
+                 Support::DolbyVisionOnly),
+             QStringList(base) << kDvOnlyFilter);
+    // Unknown (probe pending) and Unsupported (very old mpv) emit nothing:
+    // an unknown suboption would make external mpv refuse to start.
+    QCOMPARE(PlayerPolicy::appendDolbyVisionFilterArgs(
+                 base, PlayerPolicy::HdrContentKind::DolbyVisionCompatible, Support::Unknown),
+             base);
+    QCOMPARE(PlayerPolicy::appendDolbyVisionFilterArgs(
+                 base, PlayerPolicy::HdrContentKind::DolbyVisionUnsupported, Support::Unsupported),
+             base);
+}
+
+void PlaybackPolicyTest::detectsFiltersThatStripDolbyVision()
+{
+    const QStringList args{
+        QStringLiteral("--vf=lavfi=[bwdif]"),
+        QStringLiteral("--vf-append=format=dolbyvision=no"),
+        QStringLiteral("--vf-add=format=enhancement-layer=no:hdr10plus=yes"),
+        QStringLiteral("--vf-append=@bloom-dovi:format=dolbyvision=yes:enhancement-layer=yes"),
+        QStringLiteral("--sub-filter-regex-append=dolbyvision=no"),
+    };
+    QCOMPARE(PlayerPolicy::dolbyVisionStrippingFilterArgs(args),
+             QStringList({args.at(1), args.at(2)}));
+}
+
+void PlaybackPolicyTest::parsesMpvVersionOutput()
+{
+    // Captured from a distribution mpv 0.41.0 (pre-PR-#17932).
+    const QString legacy = QStringLiteral(
+        "mpv v0.41.0 Copyright \u00a9 2000-2025 mpv/MPlayer/mplayer2 projects\n"
+        " built on Jan  1 1980 00:00:00\n"
+        "libplacebo version: v7.360.1\n"
+        "FFmpeg version: 9.0.1\n"
+        "FFmpeg library versions:\n"
+        "   libavcodec      63.1.101\n"
+        "   libavdevice     63.1.101\n");
+    const auto legacyInfo = PlayerPolicy::parseMpvVersionOutput(legacy);
+    QCOMPARE(legacyInfo.mpvVersion, QStringLiteral("mpv v0.41.0"));
+    QCOMPARE(legacyInfo.libplaceboVersion, QStringLiteral("v7.360.1"));
+    QCOMPARE(legacyInfo.ffmpegVersion, QStringLiteral("9.0.1"));
+    QCOMPARE(legacyInfo.libavcodecVersion, QVersionNumber(63, 1, 101));
+    QCOMPARE(PlayerPolicy::libplaceboApiVersion(legacyInfo.libplaceboVersion), 360);
+
+    // Runtime FFmpeg differs from the build-time one: the runtime one counts.
+    const QString mixed = QStringLiteral(
+        "mpv v0.41.0-1200-gdde067107 Copyright 2000-2026\n"
+        "libplacebo version: v7.376.0 (v7.360.0-171-g0df80ae-dirty)\n"
+        "FFmpeg version: N-127602-g2d49d0e62 (runtime 8.1.2)\n"
+        "FFmpeg library versions:\n"
+        "   libavcodec      63.1.100 (runtime 62.28.100)\n");
+    const auto mixedInfo = PlayerPolicy::parseMpvVersionOutput(mixed);
+    QCOMPARE(mixedInfo.ffmpegVersion, QStringLiteral("8.1.2"));
+    QCOMPARE(mixedInfo.libavcodecVersion, QVersionNumber(62, 28, 100));
+    QCOMPARE(PlayerPolicy::libplaceboApiVersion(mixedInfo.libplaceboVersion), 376);
+    QVERIFY(PlayerPolicy::ffmpegReleaseVersion(QStringLiteral("N-127602-g2d49d0e62")).isNull());
+    QCOMPARE(PlayerPolicy::ffmpegReleaseVersion(QStringLiteral("n9.0.2")), QVersionNumber(9, 0, 2));
+}
+
+void PlaybackPolicyTest::evaluatesFelCapabilityByComponent()
+{
+    using PlayerPolicy::Capability;
+    using PlayerPolicy::RendererKind;
+
+    PlayerPolicy::MpvRuntimeInfo pinned;
+    pinned.mpvVersion = QStringLiteral("mpv v0.41.0-1200-gdde067107");
+    pinned.libplaceboVersion = QStringLiteral("v7.376.0");
+    pinned.ffmpegVersion = QStringLiteral("9.0.2");
+    pinned.libavcodecVersion = QVersionNumber(63, 1, 102);
+    pinned.formatFilter = PlayerPolicy::FormatFilterSupport::DolbyVisionAndEnhancementLayer;
+    pinned.matchesVerifiedPackagedStack = true;
+    QCOMPARE(PlayerPolicy::evaluateFelCapability(pinned, RendererKind::GpuNext).overall,
+             Capability::Supported);
+
+    // Same runtime, but the libmpv render API (linux-libmpv-opengl) cannot
+    // apply DV reshaping or the EL.
+    const auto renderApi = PlayerPolicy::evaluateFelCapability(pinned, RendererKind::LibmpvRenderApi);
+    QCOMPARE(renderApi.overall, Capability::Unsupported);
+    QCOMPARE(renderApi.renderer, Capability::Unsupported);
+
+    // mpv has PR #17932 but libplacebo is a release without FEL composition.
+    PlayerPolicy::MpvRuntimeInfo oldPlacebo = pinned;
+    oldPlacebo.libplaceboVersion = QStringLiteral("v7.360.1");
+    const auto placebo = PlayerPolicy::evaluateFelCapability(oldPlacebo, RendererKind::GpuNext);
+    QCOMPARE(placebo.overall, Capability::Unsupported);
+    QCOMPARE(placebo.libplacebo, Capability::Unsupported);
+    QCOMPARE(placebo.mpvEnhancementLayer, Capability::Supported);
+
+    // FFmpeg without dovi_split cannot split the in-band EL.
+    PlayerPolicy::MpvRuntimeInfo oldFfmpeg = pinned;
+    oldFfmpeg.libavcodecVersion = QVersionNumber(62, 35, 100);
+    QCOMPARE(PlayerPolicy::evaluateFelCapability(oldFfmpeg, RendererKind::GpuNext).ffmpegDoviSplit,
+             Capability::Unsupported);
+    oldFfmpeg.libavcodecVersion = QVersionNumber(62, 36, 100);
+    QCOMPARE(PlayerPolicy::evaluateFelCapability(oldFfmpeg, RendererKind::GpuNext).ffmpegDoviSplit,
+             Capability::Supported);
+
+    // Embedded libmpv with a git FFmpeg reports no lavc numbers: unknown
+    // unless it is the build-time verified packaged pin.
+    PlayerPolicy::MpvRuntimeInfo embedded = pinned;
+    embedded.libavcodecVersion = {};
+    embedded.ffmpegVersion = QStringLiteral("N-127602-g2d49d0e62");
+    embedded.matchesVerifiedPackagedStack = false;
+    QCOMPARE(PlayerPolicy::evaluateFelCapability(embedded, RendererKind::GpuNext).overall,
+             Capability::Unknown);
+    embedded.matchesVerifiedPackagedStack = true;
+    QCOMPARE(PlayerPolicy::evaluateFelCapability(embedded, RendererKind::GpuNext).overall,
+             Capability::Supported);
+
+    auto unverified = pinned;
+    unverified.matchesVerifiedPackagedStack = false;
+    QCOMPARE(PlayerPolicy::evaluateFelCapability(unverified, RendererKind::GpuNext).overall,
+             Capability::Unknown);
+
+    // Old mpv: no EL option, whatever the libraries are.
+    PlayerPolicy::MpvRuntimeInfo oldMpv = pinned;
+    oldMpv.formatFilter = PlayerPolicy::FormatFilterSupport::DolbyVisionOnly;
+    QCOMPARE(PlayerPolicy::evaluateFelCapability(oldMpv, RendererKind::GpuNext).overall,
+             Capability::Unsupported);
+}
+
+void PlaybackPolicyTest::evaluatesPlaybackDiagnostics()
+{
+    const QVariantMap properties{
+        {QStringLiteral("current-vo"), QStringLiteral("gpu-next")},
+        {QStringLiteral("current-gpu-context"), QStringLiteral("d3d11")},
+        {QStringLiteral("options/hwdec"), QStringLiteral("auto-safe")},
+        {QStringLiteral("hwdec-current"), QStringLiteral("no")},
+        {QStringLiteral("options/target-colorspace-hint"), QStringLiteral("auto")},
+        {QStringLiteral("options/target-colorspace-hint-mode"), QStringLiteral("target")},
+        {QStringLiteral("vf"), QVariantList{
+             QVariantMap{{QStringLiteral("name"), QStringLiteral("lavfi")},
+                         {QStringLiteral("enabled"), true},
+                         {QStringLiteral("params"),
+                          QVariantMap{{QStringLiteral("graph"), QStringLiteral("[bwdif]")}}}},
+             QVariantMap{{QStringLiteral("name"), QStringLiteral("format")},
+                         {QStringLiteral("label"), QStringLiteral("bloom-dovi")},
+                         {QStringLiteral("enabled"), true},
+                         {QStringLiteral("params"),
+                          QVariantMap{{QStringLiteral("dolbyvision"), QStringLiteral("yes")},
+                                      {QStringLiteral("enhancement-layer"), QStringLiteral("yes")}}}},
+         }},
+        {QStringLiteral("track-list"), QVariantList{
+             QVariantMap{{QStringLiteral("type"), QStringLiteral("video")},
+                         {QStringLiteral("selected"), true},
+                         {QStringLiteral("codec"), QStringLiteral("hevc")},
+                         {QStringLiteral("decoder"), QStringLiteral("hevc")},
+                         {QStringLiteral("dolby-vision-profile"), 7}},
+             QVariantMap{{QStringLiteral("type"), QStringLiteral("video")},
+                         {QStringLiteral("dependent"), true},
+                         {QStringLiteral("dolby-vision-profile"), 7}},
+         }},
+        {QStringLiteral("options/show-dependent-tracks"), true},
+        {QStringLiteral("video-dec-params"), QVariantMap{
+             {QStringLiteral("pixelformat"), QStringLiteral("yuv420p10")},
+             {QStringLiteral("gamma"), QStringLiteral("pq")},
+             {QStringLiteral("primaries"), QStringLiteral("bt.2020")},
+             {QStringLiteral("colormatrix"), QStringLiteral("dolbyvision")}}},
+        {QStringLiteral("video-out-params"), QVariantMap{
+             {QStringLiteral("colormatrix"), QStringLiteral("dolbyvision")}}},
+        {QStringLiteral("video-target-params"), QVariantMap{
+             {QStringLiteral("gamma"), QStringLiteral("pq")},
+             {QStringLiteral("primaries"), QStringLiteral("bt.2020")},
+             {QStringLiteral("sig-peak"), 10.0}}},
+        {QStringLiteral("vo-passes"), QVariantMap{
+             {QStringLiteral("fresh"), QVariantList{
+                  QVariantMap{{QStringLiteral("desc"),
+                               QStringLiteral("decoding (dovi) + enhancement layer + tone mapping")}}}}}},
+        {QStringLiteral("frame-drop-count"), 0},
+        {QStringLiteral("decoder-frame-drop-count"), 3},
+    };
+
+    const auto d = PlayerPolicy::evaluatePlaybackDiagnostics(properties);
+    QCOMPARE(d.vo, QStringLiteral("gpu-next"));
+    QVERIFY(d.softwareDecoding);
+    QVERIFY(d.hardwareFallbackToSoftware);
+    QCOMPARE(d.targetColorspaceHintMode, QStringLiteral("target"));
+    QCOMPARE(d.videoFilterChain,
+             QStringLiteral("lavfi=graph=[bwdif],@bloom-dovi:format=dolbyvision=yes:enhancement-layer=yes"));
+    QCOMPARE(d.dolbyVisionProfile, 7);
+    QCOMPARE(d.bitDepth, 10);
+    QVERIFY(d.dolbyVisionMetadataApplied);
+    QVERIFY(!d.dolbyVisionMetadataStripped);
+    QVERIFY(d.enhancementLayerTrackObservable);
+    QVERIFY(d.enhancementLayerTrackPresent);
+    QVERIFY(d.enhancementLayerEnabled);
+    QVERIFY(d.enhancementLayerRendered);
+    QCOMPARE(d.outputTransfer, QStringLiteral("pq"));
+    QCOMPARE(d.decoderDroppedFrames, 3);
+    QCOMPARE(d.delayedFrames, -1);
+
+    const QString summary = PlayerPolicy::playbackDiagnosticsSummary(
+        d, PlayerPolicy::describeDolbyVisionSource(
+               dolbyVisionSource(7, 6, QStringLiteral("DOVIWithHDR10"))));
+    QVERIFY(summary.contains(QStringLiteral("el-rendered=yes")));
+    QVERIFY(summary.contains(QStringLiteral("hwdec=auto-safe->software(fallback)")));
+}
+
+void PlaybackPolicyTest::diagnosticsDoNotClaimFelWithoutEvidence()
+{
+    // EL deliberately disabled and stripped DV metadata: nothing may claim FEL.
+    const QVariantMap properties{
+        {QStringLiteral("current-vo"), QStringLiteral("gpu-next")},
+        {QStringLiteral("hwdec-current"), QStringLiteral("d3d11va")},
+        {QStringLiteral("vf"), QStringLiteral("format=dolbyvision=no:enhancement-layer=no")},
+        {QStringLiteral("video-out-params"),
+         QVariantMap{{QStringLiteral("colormatrix"), QStringLiteral("bt.2020-ncl")}}},
+        {QStringLiteral("vo-passes"), QVariantMap{
+             {QStringLiteral("fresh"), QVariantList{
+                  QVariantMap{{QStringLiteral("desc"), QStringLiteral("decoding + tone mapping")}}}}}},
+        {QStringLiteral("track-list"), QVariantList{
+             QVariantMap{{QStringLiteral("type"), QStringLiteral("video")},
+                         {QStringLiteral("selected"), true},
+                         {QStringLiteral("dolby-vision-profile"), 7}}}},
+    };
+    const auto d = PlayerPolicy::evaluatePlaybackDiagnostics(properties);
+    QVERIFY(!d.softwareDecoding);
+    QVERIFY(d.dolbyVisionMetadataStripped);
+    QVERIFY(!d.dolbyVisionMetadataApplied);
+    QVERIFY(!d.enhancementLayerEnabled);
+    QVERIFY(!d.enhancementLayerRendered);
+    QVERIFY(!d.enhancementLayerTrackObservable);
+    const QString summary = PlayerPolicy::playbackDiagnosticsSummary(d, {});
+    QVERIFY(summary.contains(QStringLiteral("el-rendered=no")));
+    QVERIFY(summary.contains(QStringLiteral("el-track=unobservable")));
+    QVERIFY(summary.contains(QStringLiteral("(stripped-by-filter)")));
+
+    // Without vo-passes the renderer evidence is unobservable, not "no".
+    QVariantMap noPasses = properties;
+    noPasses.remove(QStringLiteral("vo-passes"));
+    QVERIFY(PlayerPolicy::playbackDiagnosticsSummary(
+                PlayerPolicy::evaluatePlaybackDiagnostics(noPasses), {})
+                .contains(QStringLiteral("el-rendered=unobservable")));
+}
+
+void PlaybackPolicyTest::diagnosticsKeepMissingEvidenceUnavailable()
+{
+    const auto source = PlayerPolicy::describeDolbyVisionSource(
+        dolbyVisionSource(7, 6, QStringLiteral("DOVIWithHDR10")));
+    QVariantMap properties{
+        {QStringLiteral("options/hwdec"), QStringLiteral("auto-safe")},
+        {QStringLiteral("video-dec-params"), QVariantMap{
+             {QStringLiteral("colormatrix"), QStringLiteral("dolbyvision")}}},
+    };
+    const auto checkUnavailable = [&source](const QVariantMap &snapshot) {
+        const auto diagnostics = PlayerPolicy::evaluatePlaybackDiagnostics(snapshot);
+        QVERIFY(!diagnostics.hwdecCurrentObservable);
+        QVERIFY(!diagnostics.softwareDecoding);
+        QVERIFY(!diagnostics.hardwareFallbackToSoftware);
+        QVERIFY(!diagnostics.videoFilterChainObservable);
+        QVERIFY(!diagnostics.enhancementLayerEnabled);
+        QVERIFY(!diagnostics.dolbyVisionMetadataObservable);
+        QVERIFY(!diagnostics.dolbyVisionMetadataApplied);
+        const auto summary = PlayerPolicy::playbackDiagnosticsSummary(diagnostics, source);
+        QVERIFY(summary.contains(QStringLiteral("hwdec=auto-safe->unavailable")));
+        QVERIFY(!summary.contains(QStringLiteral("(fallback)")));
+        QVERIFY(summary.contains(QStringLiteral("vf=[unavailable]")));
+        QVERIFY(summary.contains(QStringLiteral("el-enabled=unavailable")));
+        QVERIFY(summary.contains(QStringLiteral("dv-metadata-applied=unavailable")));
+    };
+    checkUnavailable(properties);
+    properties.insert(QStringLiteral("hwdec-current"), QVariant());
+    properties.insert(QStringLiteral("vf"), QVariant());
+    properties.insert(QStringLiteral("video-out-params"), QVariant());
+    checkUnavailable(properties);
+    properties.insert(QStringLiteral("hwdec-current"), QString());
+    properties.insert(QStringLiteral("video-out-params"), QVariantMap{});
+    checkUnavailable(properties);
+
+    properties.insert(QStringLiteral("hwdec-current"), QStringLiteral("no"));
+    properties.insert(QStringLiteral("vf"), QVariantList{});
+    properties.insert(QStringLiteral("video-out-params"), QVariantMap{
+        {QStringLiteral("colormatrix"), QStringLiteral("bt.2020-ncl")}});
+    const auto observed = PlayerPolicy::evaluatePlaybackDiagnostics(properties);
+    QVERIFY(observed.hwdecCurrentObservable);
+    QVERIFY(observed.softwareDecoding);
+    QVERIFY(observed.hardwareFallbackToSoftware);
+    QVERIFY(observed.videoFilterChainObservable);
+    QVERIFY(observed.enhancementLayerEnabled);
+    QVERIFY(observed.dolbyVisionMetadataObservable);
+    QVERIFY(!observed.dolbyVisionMetadataApplied);
+}
 
 #include "PlaybackPolicyTest.moc"

@@ -197,6 +197,18 @@ Startup and IPC connection latency are logged and exposed through
 forced shutdown, replacement ordering, private endpoints, startup/IPC failure,
 reconnection, bounded queues, and malformed JSON without playback hardware.
 
+### Dolby Vision processing and FEL
+
+Bloom appends a labelled `format=dolbyvision=yes:enhancement-layer=yes` filter
+for DV sources when the runtime accepts it. Embedded playback applies filter
+list operations in order through mpv's list commands. Existing filters,
+shaders, HDR output settings, and decoder policy remain in effect.
+The packaged stack and runtime checks are described in
+[Dolby Vision processing and Profile 7 FEL](dolby-vision.md).
+The experimental Linux render API cannot apply FEL; external gpu-next and
+Windows gpu-next can use it with a compatible stack. Successful reconstruction
+requires playback evidence and cannot be inferred from HDR display state.
+
 HDR and Dolby Vision policy
 - Bloom keeps `enableHDR` as the master switch. With `enableHDR=false`, HDR and Dolby Vision sources are direct-played where possible and locally tone-mapped to SDR by mpv/libplacebo.
 - With `enableHDR=true`, the default `hdr_output_mode=match-content` keeps SDR content in SDR and switches HDR-capable content to HDR output when the active backend/display path supports it.

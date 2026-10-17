@@ -64,8 +64,18 @@ flatpak-builder --user --force-clean --repo="$ROOT/.flatpak-builder/repo" \
 flatpak-builder --run "$ROOT/.flatpak-builder/build" \
     "$MANIFEST" \
     env QT_QPA_PLATFORM=offscreen bloom --version
+# The bundled mpv/libmpv must prove Dolby Vision Profile 7 FEL support: mpv
+# parses the EL option, and the built libraries contain the FFmpeg dovi_split
+# BSF and the libplacebo EL renderer.
 flatpak-builder --run "$ROOT/.flatpak-builder/build" \
-    "$MANIFEST" mpv --version
+    "$MANIFEST" mpv --no-config --vf=format=dolbyvision=yes:enhancement-layer=yes --version
+FILES="$ROOT/.flatpak-builder/build/files"
+python3 -I "$ROOT/scripts/check-mpv-fel-capability.py" \
+    --dependencies "$ROOT/packaging/dependencies.json" \
+    --library "$FILES/lib/libmpv.so.2" \
+    --library "$(find "$FILES/lib" -maxdepth 1 -name 'libplacebo.so.*' -type f | head -1)" \
+    --library "$(find "$FILES/lib" -maxdepth 1 -name 'libavcodec.so.*' -type f | head -1)" \
+    --require-fel
 flatpak build-bundle "$ROOT/.flatpak-builder/repo" \
     "$OUTPUT/Bloom-${VERSION}-linux-x86_64.flatpak" com.github.crowquillx.Bloom
 sha256sum "$OUTPUT/Bloom-${VERSION}-linux-x86_64.flatpak" \

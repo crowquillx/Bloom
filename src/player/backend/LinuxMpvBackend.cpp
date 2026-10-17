@@ -14,6 +14,7 @@
 #include <QVector>
 #include <QtGlobal>
 #include <QtMath>
+#include <QTimer>
 #include <clocale>
 #include <algorithm>
 
@@ -464,6 +465,44 @@ void LinuxMpvBackend::setVideoViewport(const QRectF &viewport)
     m_videoViewport = viewport;
 }
 
+void LinuxMpvBackend::prepareRuntime(const QString &mpvBin)
+{
+    Q_UNUSED(mpvBin);
+#if defined(BLOOM_HAS_LIBMPV)
+    if (!m_runtimeInfoFromHandle) {
+        m_runtimeInfo = BloomBackend::readRuntimeInfo(nullptr, backendName());
+        emit runtimeInfoChanged();
+    }
+#endif
+}
+
+Bloom::PlaybackPolicy::MpvRuntimeInfo LinuxMpvBackend::runtimeInfo() const
+{
+    return m_runtimeInfo;
+}
+
+Bloom::PlaybackPolicy::RendererKind LinuxMpvBackend::rendererKind(const QStringList &args) const
+{
+    Q_UNUSED(args);
+    return Bloom::PlaybackPolicy::RendererKind::LibmpvRenderApi;
+}
+
+void LinuxMpvBackend::scheduleDiagnosticSnapshots()
+{
+#if defined(BLOOM_HAS_LIBMPV)
+    const quint64 generation = ++m_diagnosticsGeneration;
+    QStringList properties = Bloom::PlaybackPolicy::runtimeProvenanceProperties();
+    properties << Bloom::PlaybackPolicy::playbackDiagnosticProperties();
+    const auto requestSnapshot = [this, generation, properties](const QString &stage) {
+        if (generation == m_diagnosticsGeneration && m_mpvHandle != nullptr) {
+            m_propertySnapshots.request(static_cast<mpv_handle *>(m_mpvHandle), stage, properties);
+        }
+    };
+    QTimer::singleShot(1500, this, [requestSnapshot]() { requestSnapshot(QStringLiteral("startup")); });
+    QTimer::singleShot(8000, this, [requestSnapshot]() { requestSnapshot(QStringLiteral("steady")); });
+#endif
+}
+
 bool LinuxMpvBackend::initializeMpv(const QStringList &args)
 {
 #if !defined(BLOOM_HAS_LIBMPV)
@@ -497,6 +536,15 @@ bool LinuxMpvBackend::initializeMpv(const QStringList &args)
     }
 
     applyEmbeddedShaderList(handle);
+    const QStringList filterFailures =
+        BloomBackend::applyVideoFilterListOperations(handle, m_pendingVideoFilterOperations);
+    for (const QString &failure : filterFailures) {
+        qCWarning(lcLinuxLibmpvBackend) << "Failed to apply video filter operation:" << failure;
+    }
+    m_pendingVideoFilterOperations.clear();
+    m_runtimeInfo = BloomBackend::readRuntimeInfo(handle, backendName());
+    m_runtimeInfoFromHandle = true;
+    emit runtimeInfoChanged();
     observeMpvProperties(handle);
     return true;
 #endif
@@ -526,6 +574,10 @@ void LinuxMpvBackend::teardownMpv(bool emitStateChange)
     m_eventDispatchQueued.store(false, std::memory_order_release);
     m_playlistPosition = -1;
     m_playlistCount = 0;
+    ++m_diagnosticsGeneration;
+#if defined(BLOOM_HAS_LIBMPV)
+    m_propertySnapshots.reset();
+#endif
     clearRecentStreamFailure();
 
     if (m_running && emitStateChange) {
@@ -608,6 +660,15 @@ void LinuxMpvBackend::processMpvEvents()
             }
             break;
         }
+        case MPV_EVENT_FILE_LOADED:
+            scheduleDiagnosticSnapshots();
+            break;
+        case MPV_EVENT_GET_PROPERTY_REPLY:
+            m_propertySnapshots.handleEvent(event, [this](const QString &stage,
+                                                          const QVariantMap &properties) {
+                emit playbackDiagnosticsAvailable(stage, properties);
+            });
+            break;
         case MPV_EVENT_CLIENT_MESSAGE: {
             mpv_event_client_message *message = static_cast<mpv_event_client_message *>(event->data);
             if (!message || message->num_args <= 0 || !message->args) {
@@ -744,8 +805,10 @@ void LinuxMpvBackend::applyMpvArgs(void *handlePtr, const QStringList &args)
     }
 
     mpv_handle *handle = static_cast<mpv_handle *>(handlePtr);
-    const MpvArgFilter::ShaderArgPartition partitioned =
+    MpvArgFilter::ShaderArgPartition partitioned =
         MpvArgFilter::partitionShaderArgs(MpvArgFilter::sanitizeArgs(args));
+    m_pendingVideoFilterOperations =
+        BloomBackend::takeVideoFilterListOperations(&partitioned.nonShaderArgs);
 
     for (const QString &arg : partitioned.nonShaderArgs) {
         if (!arg.startsWith("--")) {

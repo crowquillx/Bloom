@@ -75,7 +75,11 @@ The SDK must include:
 - import library (`*.lib`)
 - runtime DLL (`libmpv-2.dll` or `mpv-2.dll`)
 
-Windows CI and `scripts/build.ps1` are pinned to `mpv-dev-x86_64-20260610-git-304426c.7z` from [shinchiro/mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20260610).
+Windows CI and `scripts/build.ps1` pin `mpv-dev-x86_64-20261017-git-dde0671072.7z`
+from [shinchiro/mpv-winbuild-cmake](https://github.com/shinchiro/mpv-winbuild-cmake/releases/tag/20261017).
+Nix, portable Linux, and Flatpak use the matching post-merge mpv source stack.
+See [Dolby Vision and FEL](docs/dolby-vision.md) for exact dependency pins,
+capability checks, and backend limits.
 
 ## Known Issues
 

@@ -10,19 +10,38 @@ libmpv / mpv
 - Bloom uses mpv/libmpv for playback.
 - Windows distribution artifacts may bundle a `libmpv` runtime DLL.
 - CI currently sources Windows libmpv SDK/runtime from:
-  - https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20260610/mpv-dev-x86_64-20260610-git-304426c.7z
+  - https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261017/mpv-dev-x86_64-20261017-git-dde0671072.7z
 - Upstream mpv project:
   - https://mpv.io/
   - https://github.com/mpv-player/mpv
 
 Licensing for bundled libmpv
-- Bloom CI and the Windows auto-fetch helper are configured to use the pinned `mpv-dev-x86_64-20260610-git-304426c.7z` SDK artifact from the source above.
+- Bloom CI and the Windows auto-fetch helper use the pinned `mpv-dev-x86_64-20261017-git-dde0671072.7z` SDK artifact from the source above.
+- Its SHA-256 is `d6638b2b40561e6071627f39ad60a38e15721dc87a49f244b897911ea2edfd9f`.
+- That SDK includes mpv `v0.41.0-1200-gdde067107`, FFmpeg `N-127602-g2d49d0e62`, and libplacebo `v7.376.0 (v7.360.0-171-g0df80ae-dirty)`.
+- Linux packages build mpv commit `dde0671072723c311df874a32dc4e48b5197ca62`, libplacebo commit `0df80ae5229e8e520c0fa4e3d666098a3ffa1cbc`, and FFmpeg `9.0.2`. Source locations and hashes are in `packaging/dependencies.json`, `nix/mpv-stack.nix`, and the Flatpak manifest.
 - mpv/libmpv licensing details are defined by the upstream artifact and its included license files.
 - When redistributing Bloom binaries that bundle libmpv, include the corresponding upstream license texts/notices provided with that libmpv artifact.
 
 Important note
 - If a non-LGPL mpv/libmpv artifact is used for packaging, licensing obligations may differ.
 - Verify the exact license metadata of the bundled mpv/libmpv package before distribution.
+
+Portable Wayland and Vulkan clients
+- Portable Linux artifacts also bundle Wayland client libraries from Wayland `1.23.1` and the Vulkan loader from `vulkan-sdk-1.4.309.0`.
+- The build uses matching Vulkan headers and wayland-protocols `1.45`.
+- Source license files are copied to the artifact's `share/licenses/` directory with the playback stack license files.
+- Sources:
+  - https://gitlab.freedesktop.org/wayland/wayland
+  - https://gitlab.freedesktop.org/wayland/wayland-protocols
+  - https://github.com/KhronosGroup/Vulkan-Loader
+  - https://github.com/KhronosGroup/Vulkan-Headers
+
+nv-codec-headers
+- Portable Linux builds compile FFmpeg with nv-codec-headers `12.2.72.0` for NVIDIA codec support.
+- These headers use the MIT License and carry individual copyright notices.
+- Portable artifacts include the original headers and their full notices in `share/licenses/nv-codec-headers/`.
+- Source: https://github.com/FFmpeg/nv-codec-headers
 
 Bundled mpv GLSL shaders
 - Bloom bundles these shader files under `src/resources/mpv-shaders/` and copies them to Bloom's mpv config shader directory at runtime:

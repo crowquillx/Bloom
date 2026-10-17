@@ -4,6 +4,9 @@
 #include <QRectF>
 #include <QStringList>
 #include <QVariantList>
+#include <QVariantMap>
+
+#include "player/DolbyVisionPolicy.h"
 
 class IPlayerBackend : public QObject
 {
@@ -28,6 +31,16 @@ public:
     virtual void detachVideoTarget(QObject *target) = 0;
     virtual void setVideoViewport(const QRectF &viewport) = 0;
 
+    // Starts (or refreshes) non-blocking runtime capability discovery for the
+    // mpv this backend will play with. Safe to call repeatedly.
+    virtual void prepareRuntime(const QString &mpvBin) { Q_UNUSED(mpvBin); }
+    // Best-known provenance and Dolby Vision filter support of that runtime.
+    // `formatFilter` stays Unknown until discovery has completed.
+    virtual Bloom::PlaybackPolicy::MpvRuntimeInfo runtimeInfo() const { return {}; }
+    // Renderer this backend drives (independent of profile `vo` for the
+    // embedded render-API backend, which always uses mpv's legacy renderer).
+    virtual Bloom::PlaybackPolicy::RendererKind rendererKind(const QStringList &args) const;
+
 signals:
     void stateChanged(bool running);
     void errorOccurred(const QString &error);
@@ -49,4 +62,22 @@ signals:
     void audioDeviceListChanged(const QVariantList &devices);
     void playlistPositionChanged(int index);
     void scriptMessage(const QString &messageName, const QStringList &args);
+
+    void runtimeInfoChanged();
+    // Structured mpv property snapshot (names from
+    // PlaybackPolicy::playbackDiagnosticProperties() plus provenance
+    // properties). `stage` is "startup" (first frames) or "steady".
+    void playbackDiagnosticsAvailable(const QString &stage, const QVariantMap &properties);
 };
+
+inline Bloom::PlaybackPolicy::RendererKind IPlayerBackend::rendererKind(const QStringList &args) const
+{
+    QString vo;
+    for (const QString &arg : args) {
+        if (arg.startsWith(QStringLiteral("--vo="))) {
+            vo = arg.mid(5).section(QLatin1Char(','), 0, 0);
+        }
+    }
+    // No explicit --vo: mpv picks its own default, reported at runtime via current-vo.
+    return Bloom::PlaybackPolicy::rendererKindForVo(vo);
+}

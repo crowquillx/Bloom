@@ -5,10 +5,36 @@
     "windows_arch": "win64_msvc2022_64"
   },
   "mpv": {
-    "version": "0.41.0",
-    "windows_release_tag": "20260610",
-    "windows_sdk_version": "20260610-git-304426c",
-    "windows_sdk_sha256": "8cbb25ea784f01afbb3f904217cab1317430a8bcfd5680fd827a866367f71cc9"
+    "version": "0.41.0-1200-gdde067107",
+    "describe": "v0.41.0-1200-gdde067107",
+    "version_nix": "0.41.0-unstable-2026-10-16",
+    "source_revision": "dde0671072723c311df874a32dc4e48b5197ca62",
+    "libplacebo_version": "7.376.0",
+    "libplacebo_revision": "0df80ae5229e8e520c0fa4e3d666098a3ffa1cbc",
+    "linux_ffmpeg_version": "9.0.2",
+    "windows_release_tag": "20261017",
+    "windows_sdk_version": "20261017-git-dde0671072",
+    "windows_sdk_sha256": "d6638b2b40561e6071627f39ad60a38e15721dc87a49f244b897911ea2edfd9f",
+    "windows_sdk_urls": [
+      "https://github.com/crowquillx/Bloom/releases/download/deps-mpv-20261017-git-dde0671072/mpv-dev-x86_64-20261017-git-dde0671072.7z",
+      "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/20261017/mpv-dev-x86_64-20261017-git-dde0671072.7z"
+    ],
+    "windows_stack": {
+      "mpv": "v0.41.0-1200-gdde067107",
+      "ffmpeg": "N-127602-g2d49d0e62",
+      "ffmpeg_revision": "2d49d0e62438507f40409a4d5ca978563202dcf3",
+      "libplacebo": "v7.376.0 (v7.360.0-171-g0df80ae-dirty)"
+    },
+    "source_sha256": "f4f15979ee107f51b17e4283d02da6832aec4b180f4a925292293f45ebcccb20",
+    "linux_ffmpeg_sha256": "8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
+  },
+  "dolby_vision_fel": {
+    "mpv_pull_request": 17932,
+    "mpv_merge_commit": "99b4c12cccb4d8d3f72b41944cb6c640e2156650",
+    "mpv_merged_at": "2026-07-01",
+    "libplacebo_min_api": 370,
+    "libavcodec_min_version": "62.36.100",
+    "ffmpeg_min_release": "9.0"
   },
   "portable": {
     "baseline": "ubuntu-24.04",
@@ -16,7 +42,18 @@
     "linuxdeploy_version": "1-alpha-20251107-1",
     "linuxdeploy_sha256": "c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d",
     "linuxdeploy_qt_version": "1-alpha-20250213-1",
-    "linuxdeploy_qt_sha256": "15106be885c1c48a021198e7e1e9a48ce9d02a86dd0a1848f00bdbf3c1c92724"
+    "linuxdeploy_qt_sha256": "15106be885c1c48a021198e7e1e9a48ce9d02a86dd0a1848f00bdbf3c1c92724",
+    "mpv_source": "pinned-source",
+    "fel_capable": true,
+    "wayland_version": "1.23.1",
+    "wayland_sha256": "864fb2a8399e2d0ec39d56e9d9b753c093775beadc6022ce81f441929a81e5ed",
+    "wayland_protocols_version": "1.45",
+    "wayland_protocols_sha256": "4d2b2a9e3e099d017dc8107bf1c334d27bb87d9e4aff19a0c8d856d17cd41ef0",
+    "vulkan_tag": "vulkan-sdk-1.4.309.0",
+    "vulkan_headers_sha256": "2bc1b4127950badc80212abf1edfa5c3b5032f3425edf37255863ba7592c1969",
+    "vulkan_loader_sha256": "ddfeca84a868899fbb2c7f28b7c8fd1006e34b2b13ce653a63bddfb65cbc8d13",
+    "nvcodec_version": "12.2.72.0",
+    "nvcodec_sha256": "c295a2ba8a06434d4bdc5c2208f8a825285210d71d91d572329b2c51fd0d4d03"
   },
   "flatpak": {
     "runtime": "org.kde.Platform",

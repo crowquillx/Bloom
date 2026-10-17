@@ -97,3 +97,21 @@ Record the date, operator, exact commit, command output path, and a short observ
 Main must attach the commit/build, Linux smoke, and deterministic-test output plus any available live/platform evidence before changing statuses. Until the live Jellyfin preservation, native/compatibility Silo, and Windows runtime gates are observed, first-class labeling is blocked. Missing optional native routes (including trickplay/theme-song surfaces) remain unavailable rather than supported. This release therefore uses only **experimental native Silo support**; it does not claim first-class support.
 
 Trademark review: “Jellyfin” and “Silo” appear only as referential server/provider names in this ledger. Bloom ships no Silo logos, artwork, fonts, or other Silo assets.
+
+## Dolby Vision FEL upgrade
+
+Evidence collected on October 17, 2026. Dependency pins, backend limits, and
+verification commands are in [Dolby Vision and FEL](dolby-vision.md).
+
+| Check | Result | Evidence and limit |
+| --- | --- | --- |
+| Incremental Linux build | PASS | `./scripts/dev-build.sh --build-dir build-fel --tests --jobs 4`. |
+| Local deterministic tests | PASS | 35 tests passed with the same visual/cache exclusions used by the Nix suite. Includes real linked-libmpv filter ordering, duplicate-label checks, and missing/null diagnostic properties. The IPC test covers silent peers, available-byte reads, and child cleanup after a reply timeout. Its native Windows pipe case is skipped on Linux and runs in Windows CI. |
+| Clean Nix build and checks | PASS | `nix build` and `nix flake check` passed. Includes QML lint, deterministic tests, dependency pins, the deployed mpv/library capability check, and offscreen Release smoke. |
+| Windows SDK capability | PASS, STATIC | The pinned archive was downloaded and checked. PowerShell parsed all three changed scripts and accepted the real DLL's mpv splitter, gpu-next EL upload, libplacebo EL renderer, FFmpeg splitter, API floor, and describe. This does not validate Windows playback. |
+| Synthetic PQ negative control | PASS | The FEL script exited 1 for a non-DV HEVC/PQ clip. EL-on/off screenshots at the same frame were identical. No DV profile, RPU, pairing, or EL composition was claimed. Both runs reported realtime playback and zero drop/delay counters. |
+| Real Profile 7 FEL sample | NOT RUN / UNAVAILABLE | The user confirmed that no sample path is available. There is no successful FEL reconstruction claim from this session. |
+| Windows embedded/HDR runtime | NOT RUN / UNAVAILABLE | No Windows runtime or HDR display test was run. The existing Windows validation gates remain open. |
+| Flatpak | PASS, BUILD/SMOKE | The upgraded playback modules and Bloom built, finalized, and exported to a verification bundle. Sandboxed Bloom version smoke, mpv option/version checks, and compiled library checks passed. The host required `--disable-rofiles-fuse` for building, `flatpak build` for smoke commands, and the pinned 64-bit SVG loader for AppStream. The initial AppStream failure also affected unchanged HEAD. This does not validate GPU playback in the sandbox. |
+| Portable Ubuntu playback stack | PASS, STACK ONLY | The pinned mpv, FFmpeg, libplacebo, Wayland clients, and Vulkan loader built against Ubuntu 24.04. The executable accepted the EL option, and all four compiled FEL markers passed. `ldd` resolved the intended libraries. Local single-ID rootless containers could not configure fontconfig ownership, so the stack compilation used the unpacked development packages. Full AppImage/Debian/tar packaging and display playback remain unverified. |
+| Older external mpv | PASS, NEGATIVE | The locked nixpkgs mpv `0.41.0`, FFmpeg `8.1`, and libplacebo `7.360.1` failed the capability check with the missing EL option and insufficient supporting libraries. |

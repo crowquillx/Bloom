@@ -2,7 +2,7 @@
 # Keep dependency direction acyclic:
 #   Models -> Config / Transport / ImageCache / PlayerProcess -> Providers -> Network
 #                     Config -> Display
-#                     Qt Core -> PlayerPolicy
+#                     Qt Core -> PlayerPolicy -> PlayerProcess
 #                     Monocypher -> Updater -> Config
 
 add_library(BloomMonocypher STATIC
@@ -139,6 +139,8 @@ target_link_libraries(BloomSoftwareRoundedImage
 qt_extract_metatypes(BloomSoftwareRoundedImage)
 
 add_library(BloomPlayerProcess STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/MpvRuntimeProbe.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/MpvRuntimeProbe.h
     ${CMAKE_CURRENT_SOURCE_DIR}/player/PlayerProcessManager.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/player/PlayerProcessManager.h
 )
@@ -151,11 +153,14 @@ target_include_directories(BloomPlayerProcess
 target_link_libraries(BloomPlayerProcess
     PUBLIC
         Bloom::Models
+        Bloom::PlayerPolicy
         Qt6::Core
         Qt6::Network
 )
 
 add_library(BloomPlayerPolicy STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/DolbyVisionPolicy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/DolbyVisionPolicy.h
     ${CMAKE_CURRENT_SOURCE_DIR}/player/PlaybackPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/player/PlaybackPolicy.h
 )
@@ -169,6 +174,14 @@ target_link_libraries(BloomPlayerPolicy
     PUBLIC
         Qt6::Core
 )
+
+add_library(BloomMpvRuntime STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/backend/MpvLibmpvRuntime.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/backend/MpvLibmpvRuntime.h
+)
+add_library(Bloom::MpvRuntime ALIAS BloomMpvRuntime)
+target_include_directories(BloomMpvRuntime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(BloomMpvRuntime PUBLIC Bloom::PlayerPolicy Qt6::Core ${CMAKE_DL_LIBS})
 
 add_library(BloomUpdater STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/updates/IUpdateProvider.cpp
