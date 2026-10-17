@@ -124,11 +124,13 @@ struct PlaybackDiagnostics
     QString gpuApi;
     QString hwdecRequested;
     QString hwdecCurrent;
+    bool hwdecCurrentObservable = false;
     bool softwareDecoding = false;
     bool hardwareFallbackToSoftware = false;
     QString targetColorspaceHint;
     QString targetColorspaceHintMode;
     QString videoFilterChain;
+    bool videoFilterChainObservable = false;
 
     QString videoCodec;
     QString videoDecoder;
@@ -143,11 +145,12 @@ struct PlaybackDiagnostics
     double outputSignalPeak = 0.0;
 
     // Dolby Vision evidence (all derived from structured properties).
-    bool dolbyVisionMetadataApplied = false;   // video-params colormatrix=dolbyvision
+    bool dolbyVisionMetadataObservable = false;
+    bool dolbyVisionMetadataApplied = false;   // video-out-params colormatrix=dolbyvision
     bool dolbyVisionMetadataStripped = false;  // filter chain has dolbyvision=no
     bool enhancementLayerTrackPresent = false; // dependent video track in track-list
     bool enhancementLayerTrackObservable = false;
-    bool enhancementLayerEnabled = true;       // no enhancement-layer=no in chain
+    bool enhancementLayerEnabled = false;      // observed chain has no enhancement-layer=no
     bool enhancementLayerRendered = false;     // vo-passes contains "enhancement layer"
     bool renderPassesObservable = false;
 

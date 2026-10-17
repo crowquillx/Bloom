@@ -17,6 +17,7 @@ lib.fileset.toSource {
     ]
     ++ lib.optionals includeTests [
       ../scripts/generate-update-manifest.py
+      ../scripts/verify-dolby-vision-fel.py
       ../tests
     ]
   );

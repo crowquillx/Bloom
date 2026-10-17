@@ -2,6 +2,10 @@ enable_testing()
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(
+    NAME MpvFelVerificationTest
+    COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/MpvFelVerificationTest.py
+)
+add_test(
     NAME ProviderContractValidationTest
     COMMAND ${Python3_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/contracts/provider_contracts_test.py

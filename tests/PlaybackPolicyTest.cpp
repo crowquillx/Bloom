@@ -90,6 +90,7 @@ private slots:
     void evaluatesFelCapabilityByComponent();
     void evaluatesPlaybackDiagnostics();
     void diagnosticsDoNotClaimFelWithoutEvidence();
+    void diagnosticsKeepMissingEvidenceUnavailable();
 };
 
 void PlaybackPolicyTest::normalizesLanguageAliases_data()
@@ -785,6 +786,54 @@ void PlaybackPolicyTest::diagnosticsDoNotClaimFelWithoutEvidence()
     QVERIFY(PlayerPolicy::playbackDiagnosticsSummary(
                 PlayerPolicy::evaluatePlaybackDiagnostics(noPasses), {})
                 .contains(QStringLiteral("el-rendered=unobservable")));
+}
+
+void PlaybackPolicyTest::diagnosticsKeepMissingEvidenceUnavailable()
+{
+    const auto source = PlayerPolicy::describeDolbyVisionSource(
+        dolbyVisionSource(7, 6, QStringLiteral("DOVIWithHDR10")));
+    QVariantMap properties{
+        {QStringLiteral("options/hwdec"), QStringLiteral("auto-safe")},
+        {QStringLiteral("video-dec-params"), QVariantMap{
+             {QStringLiteral("colormatrix"), QStringLiteral("dolbyvision")}}},
+    };
+    const auto checkUnavailable = [&source](const QVariantMap &snapshot) {
+        const auto diagnostics = PlayerPolicy::evaluatePlaybackDiagnostics(snapshot);
+        QVERIFY(!diagnostics.hwdecCurrentObservable);
+        QVERIFY(!diagnostics.softwareDecoding);
+        QVERIFY(!diagnostics.hardwareFallbackToSoftware);
+        QVERIFY(!diagnostics.videoFilterChainObservable);
+        QVERIFY(!diagnostics.enhancementLayerEnabled);
+        QVERIFY(!diagnostics.dolbyVisionMetadataObservable);
+        QVERIFY(!diagnostics.dolbyVisionMetadataApplied);
+        const auto summary = PlayerPolicy::playbackDiagnosticsSummary(diagnostics, source);
+        QVERIFY(summary.contains(QStringLiteral("hwdec=auto-safe->unavailable")));
+        QVERIFY(!summary.contains(QStringLiteral("(fallback)")));
+        QVERIFY(summary.contains(QStringLiteral("vf=[unavailable]")));
+        QVERIFY(summary.contains(QStringLiteral("el-enabled=unavailable")));
+        QVERIFY(summary.contains(QStringLiteral("dv-metadata-applied=unavailable")));
+    };
+    checkUnavailable(properties);
+    properties.insert(QStringLiteral("hwdec-current"), QVariant());
+    properties.insert(QStringLiteral("vf"), QVariant());
+    properties.insert(QStringLiteral("video-out-params"), QVariant());
+    checkUnavailable(properties);
+    properties.insert(QStringLiteral("hwdec-current"), QString());
+    properties.insert(QStringLiteral("video-out-params"), QVariantMap{});
+    checkUnavailable(properties);
+
+    properties.insert(QStringLiteral("hwdec-current"), QStringLiteral("no"));
+    properties.insert(QStringLiteral("vf"), QVariantList{});
+    properties.insert(QStringLiteral("video-out-params"), QVariantMap{
+        {QStringLiteral("colormatrix"), QStringLiteral("bt.2020-ncl")}});
+    const auto observed = PlayerPolicy::evaluatePlaybackDiagnostics(properties);
+    QVERIFY(observed.hwdecCurrentObservable);
+    QVERIFY(observed.softwareDecoding);
+    QVERIFY(observed.hardwareFallbackToSoftware);
+    QVERIFY(observed.videoFilterChainObservable);
+    QVERIFY(observed.enhancementLayerEnabled);
+    QVERIFY(observed.dolbyVisionMetadataObservable);
+    QVERIFY(!observed.dolbyVisionMetadataApplied);
 }
 
 #include "PlaybackPolicyTest.moc"

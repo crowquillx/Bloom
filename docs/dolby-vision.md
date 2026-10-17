@@ -165,7 +165,9 @@ logging. HDR/DV snapshots include:
 Production does not enable `show-dependent-tracks`, because that option changes
 track visibility and selection. Thus the EL track can be unobservable. mpv does
 not independently expose the selected EL decoder through these properties.
-Missing properties are unavailable evidence. Software fallback alone is not
+Missing decoder, filter-chain, or renderer metadata properties remain
+unavailable. Decoded DV metadata alone does not confirm delivery to the renderer.
+Software fallback alone is not
 a failure, and no GPU vendor is required. A render pass proves EL composition
 for the observed frame; a `fel=yes` capability summary alone does not.
 
@@ -188,6 +190,8 @@ the DLL-only SDK is not an executable. This script verifies upstream rendering,
 so also inspect Bloom's own logs with the same source and selected backend.
 
 The script writes `report.json`, logs, and screenshots for EL-on and EL-off.
+IPC reply deadlines apply to both Unix sockets and Windows named pipes. A silent
+or disconnected peer stops the run and enters child-process cleanup.
 It requires Profile 7 detection, BL/EL identification, pairing and renderer
 composition evidence, the effective EL flag, preserved DV metadata, the
 selected output transfer, and observable performance counters. It rejects
@@ -264,6 +268,7 @@ src/player/backend/WindowsMpvBackend.cpp
 src/player/backend/WindowsMpvBackend.h
 tests/CMakeLists.txt
 tests/ConfigManagerThemeTest.cpp
+tests/MpvFelVerificationTest.py
 tests/PlaybackPolicyTest.cpp
 tests/PlayerBackendFactoryTest.cpp
 tests/PlayerProcessManagerTest.cpp

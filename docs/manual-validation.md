@@ -106,7 +106,7 @@ verification commands are in [Dolby Vision and FEL](dolby-vision.md).
 | Check | Result | Evidence and limit |
 | --- | --- | --- |
 | Incremental Linux build | PASS | `./scripts/dev-build.sh --build-dir build-fel --tests --jobs 4`. |
-| Local deterministic tests | PASS | 34 tests passed with the same visual/cache exclusions used by the Nix suite. Includes real linked-libmpv filter ordering and duplicate-label checks. |
+| Local deterministic tests | PASS | 35 tests passed with the same visual/cache exclusions used by the Nix suite. Includes real linked-libmpv filter ordering, duplicate-label checks, and missing/null diagnostic properties. The IPC test covers silent peers, available-byte reads, and child cleanup after a reply timeout. Its native Windows pipe case is skipped on Linux and runs in Windows CI. |
 | Clean Nix build and checks | PASS | `nix build` and `nix flake check` passed. Includes QML lint, deterministic tests, dependency pins, the deployed mpv/library capability check, and offscreen Release smoke. |
 | Windows SDK capability | PASS, STATIC | The pinned archive was downloaded and checked. PowerShell parsed all three changed scripts and accepted the real DLL's mpv splitter, gpu-next EL upload, libplacebo EL renderer, FFmpeg splitter, API floor, and describe. This does not validate Windows playback. |
 | Synthetic PQ negative control | PASS | The FEL script exited 1 for a non-DV HEVC/PQ clip. EL-on/off screenshots at the same frame were identical. No DV profile, RPU, pairing, or EL composition was claimed. Both runs reported realtime playback and zero drop/delay counters. |

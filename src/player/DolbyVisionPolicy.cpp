@@ -501,8 +501,9 @@ PlaybackDiagnostics evaluatePlaybackDiagnostics(const QVariantMap &properties)
     result.gpuApi = nodeString(properties.value(QStringLiteral("options/gpu-api")));
     result.hwdecRequested = nodeString(properties.value(QStringLiteral("options/hwdec")));
     result.hwdecCurrent = properties.value(QStringLiteral("hwdec-current")).toString();
-    result.softwareDecoding = result.hwdecCurrent.isEmpty()
-        || result.hwdecCurrent == QStringLiteral("no");
+    result.hwdecCurrentObservable = !result.hwdecCurrent.isEmpty();
+    result.softwareDecoding = result.hwdecCurrentObservable
+        && result.hwdecCurrent == QStringLiteral("no");
     result.hardwareFallbackToSoftware = result.softwareDecoding
         && !result.hwdecRequested.isEmpty()
         && result.hwdecRequested != QStringLiteral("no");
@@ -510,11 +511,15 @@ PlaybackDiagnostics evaluatePlaybackDiagnostics(const QVariantMap &properties)
         properties.value(QStringLiteral("options/target-colorspace-hint")).toString();
     result.targetColorspaceHintMode =
         properties.value(QStringLiteral("options/target-colorspace-hint-mode")).toString();
-    result.videoFilterChain = describeVideoFilterChain(properties.value(QStringLiteral("vf")));
+    const QVariant filters = properties.value(QStringLiteral("vf"));
+    result.videoFilterChainObservable = filters.isValid() && !filters.isNull()
+        && (filters.typeId() == QMetaType::QString || filters.typeId() == QMetaType::QVariantList);
+    result.videoFilterChain = describeVideoFilterChain(filters);
 
     const QString chain = result.videoFilterChain.toLower();
     result.dolbyVisionMetadataStripped = valueDisables(chain, QStringLiteral("dolbyvision"));
-    result.enhancementLayerEnabled = !valueDisables(chain, QStringLiteral("enhancement-layer"));
+    result.enhancementLayerEnabled = result.videoFilterChainObservable
+        && !valueDisables(chain, QStringLiteral("enhancement-layer"));
 
     result.enhancementLayerTrackObservable =
         properties.value(QStringLiteral("options/show-dependent-tracks")).toBool();
@@ -552,9 +557,9 @@ PlaybackDiagnostics evaluatePlaybackDiagnostics(const QVariantMap &properties)
     result.sourceColormatrix = source.value(QStringLiteral("colormatrix")).toString();
     // video-out-params is what the VO receives after the filter chain; a
     // dolbyvision colormatrix there means the RPU mapping reached the renderer.
-    const QVariantMap delivered = output.isEmpty() ? source : output;
-    result.dolbyVisionMetadataApplied =
-        delivered.value(QStringLiteral("colormatrix")).toString() == QStringLiteral("dolbyvision");
+    const QString deliveredColormatrix = output.value(QStringLiteral("colormatrix")).toString();
+    result.dolbyVisionMetadataObservable = !deliveredColormatrix.isEmpty();
+    result.dolbyVisionMetadataApplied = deliveredColormatrix == QStringLiteral("dolbyvision");
 
     const QVariantMap target = properties.value(QStringLiteral("video-target-params")).toMap();
     result.outputTransfer = target.value(QStringLiteral("gamma")).toString();
@@ -594,11 +599,12 @@ QString playbackDiagnosticsSummary(const PlaybackDiagnostics &d,
         QStringLiteral("gpu-api=%1").arg(orUnavailable(d.gpuApi)),
         QStringLiteral("hwdec=%1->%2%3")
             .arg(orUnavailable(d.hwdecRequested),
-                 d.softwareDecoding ? QStringLiteral("software") : d.hwdecCurrent,
+                 d.softwareDecoding ? QStringLiteral("software") : orUnavailable(d.hwdecCurrent),
                  d.hardwareFallbackToSoftware ? QStringLiteral("(fallback)") : QString()),
         QStringLiteral("target-colorspace-hint=%1/%2")
             .arg(orUnavailable(d.targetColorspaceHint), orUnavailable(d.targetColorspaceHintMode)),
-        QStringLiteral("vf=[%1]").arg(d.videoFilterChain),
+        QStringLiteral("vf=[%1]").arg(d.videoFilterChainObservable
+                                         ? d.videoFilterChain : QStringLiteral("unavailable")),
         QStringLiteral("codec=%1 decoder=%2 depth=%3 pixfmt=%4")
             .arg(orUnavailable(d.videoCodec), orUnavailable(d.videoDecoder),
                  d.bitDepth > 0 ? QString::number(d.bitDepth) : QStringLiteral("unknown"),
@@ -617,7 +623,8 @@ QString playbackDiagnosticsSummary(const PlaybackDiagnostics &d,
                      .arg(dolbyVisionSourceSummary(source))
                      .arg(d.dolbyVisionProfile > 0 ? QString::number(d.dolbyVisionProfile)
                                                    : QStringLiteral("unavailable"))
-                     .arg(d.dolbyVisionMetadataApplied ? QStringLiteral("yes") : QStringLiteral("no"),
+                     .arg(!d.dolbyVisionMetadataObservable ? QStringLiteral("unavailable")
+                              : (d.dolbyVisionMetadataApplied ? QStringLiteral("yes") : QStringLiteral("no")),
                           d.dolbyVisionMetadataStripped ? QStringLiteral(" (stripped-by-filter)") : QString());
         const bool profile7 = d.dolbyVisionProfile == 7 || source.profile == 7;
         if (profile7) {
@@ -626,7 +633,8 @@ QString playbackDiagnosticsSummary(const PlaybackDiagnostics &d,
                                   ? (d.enhancementLayerTrackPresent ? QStringLiteral("detected")
                                                                     : QStringLiteral("absent"))
                                   : QStringLiteral("unobservable"),
-                              d.enhancementLayerEnabled ? QStringLiteral("yes") : QStringLiteral("no"),
+                              !d.videoFilterChainObservable ? QStringLiteral("unavailable")
+                                  : (d.enhancementLayerEnabled ? QStringLiteral("yes") : QStringLiteral("no")),
                               d.renderPassesObservable
                                   ? (d.enhancementLayerRendered ? QStringLiteral("yes")
                                                                 : QStringLiteral("no"))

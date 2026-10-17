@@ -66,6 +66,22 @@ LOG_EVIDENCE = {
 }
 
 
+def windows_pipe_bytes_available(pipe) -> int:
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    peek = ctypes.WinDLL("kernel32", use_last_error=True).PeekNamedPipe
+    peek.argtypes = [wintypes.HANDLE, wintypes.LPVOID, wintypes.DWORD,
+                     ctypes.POINTER(wintypes.DWORD), ctypes.POINTER(wintypes.DWORD),
+                     ctypes.POINTER(wintypes.DWORD)]
+    peek.restype = wintypes.BOOL
+    available = wintypes.DWORD()
+    if not peek(msvcrt.get_osfhandle(pipe.fileno()), None, 0, None, ctypes.byref(available), None):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return available.value
+
+
 class IpcClient:
     def __init__(self, path: str, timeout: float = 20.0):
         deadline = time.monotonic() + timeout
@@ -78,10 +94,12 @@ class IpcClient:
                     self._sock = None
                 else:
                     self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                    self._sock.settimeout(max(0.001, deadline - time.monotonic()))
                     self._sock.connect(path)
-                    self._sock.settimeout(timeout)
                 return
             except OSError:
+                if getattr(self, "_sock", None) is not None:
+                    self._sock.close()
                 if time.monotonic() > deadline:
                     raise
                 time.sleep(0.1)
@@ -92,14 +110,28 @@ class IpcClient:
         else:
             self._pipe.write(data)
 
-    def _read(self) -> bytes:
-        return self._sock.recv(65536) if self._sock else self._pipe.read(65536)
+    def _read(self, deadline: float) -> bytes:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("mpv IPC reply deadline exceeded")
+            if self._sock:
+                self._sock.settimeout(remaining)
+                return self._sock.recv(65536)
+            available = windows_pipe_bytes_available(self._pipe)
+            if available:
+                # This client is the only reader. Read only queued bytes so a
+                # synchronous Windows pipe read cannot wait for more input.
+                return self._pipe.read(min(available, 65536))
+            time.sleep(min(0.01, remaining))
 
     def command(self, *args, timeout: float = 15.0):
         request_id = self._next_id
         self._next_id += 1
-        self._write(json.dumps({"command": list(args), "request_id": request_id}).encode() + b"\n")
         deadline = time.monotonic() + timeout
+        if self._sock:
+            self._sock.settimeout(max(0.001, timeout))
+        self._write(json.dumps({"command": list(args), "request_id": request_id}).encode() + b"\n")
         while time.monotonic() < deadline:
             while b"\n" in self._buffer:
                 line, self._buffer = self._buffer.split(b"\n", 1)
@@ -111,11 +143,11 @@ class IpcClient:
                     if message.get("error") != "success":
                         return None
                     return message.get("data")
-            chunk = self._read()
+            chunk = self._read(deadline)
             if not chunk:
-                break
+                raise ConnectionError("mpv IPC closed before replying")
             self._buffer += chunk
-        return None
+        raise TimeoutError("mpv IPC reply deadline exceeded")
 
     def close(self) -> None:
         try:
