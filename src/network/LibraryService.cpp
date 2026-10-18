@@ -167,6 +167,7 @@ LibraryService::LibraryService(AuthenticationService *authService, QObject *pare
         }
         m_catalogRequests.clear();
         m_etags.clear();
+        m_pageCursors.clear();
         m_lastModified.clear();
         m_inFlightChapterRequests.clear();
     };
@@ -456,6 +457,12 @@ void LibraryService::getItems(const LibraryItemQuery &query)
     ProviderCatalogQuery providerQuery = baseCatalogQuery();
     providerQuery.parentId = query.parentId;
     providerQuery.startIndex = query.startIndex;
+    if (query.startIndex == 0) {
+        m_pageCursors.remove(query.datasetKey());
+    } else {
+        providerQuery.cursor = m_pageCursors.value(query.datasetKey()).value(query.startIndex);
+        providerQuery.windowCursor = m_pageCursors.value(query.datasetKey()).value(0);
+    }
     providerQuery.limit = query.limit;
     providerQuery.searchTerm = query.searchTerm;
     providerQuery.genres = query.genres;
@@ -479,12 +486,25 @@ void LibraryService::getItems(const LibraryItemQuery &query)
         QStringLiteral("getItems"),
         ProviderCatalogOperation::Items,
         providerQuery,
-        [this, parentId, queryKey, connectionId](
+        [this, parentId, queryKey, connectionId, query](
             const ProviderCatalogResponse &response) {
             const QVariantList items =
                 m_authService->mapMediaItems(response.rawItems, connectionId);
+            if (m_pageCursors.size() >= 128 && !m_pageCursors.contains(query.datasetKey())) {
+                m_pageCursors.clear();
+            }
+            if (!response.windowCursor.isEmpty()) m_pageCursors[query.datasetKey()].insert(0, response.windowCursor);
+            if (!response.nextCursor.isEmpty()) {
+                auto &cursors = m_pageCursors[query.datasetKey()];
+                if (cursors.size() >= 256) cursors.clear();
+                cursors.insert(query.startIndex + items.size(), response.nextCursor);
+            }
+            const int total = response.capabilityMetadata.value(QStringLiteral("hasMorePresent")).toBool()
+                ? (response.hasMore ? qMax(response.total, query.startIndex + int(items.size()) + 1)
+                                    : query.startIndex + int(items.size()))
+                : response.total;
             emit canonicalItemsLoadedForConnection(
-                connectionId, parentId, queryKey, items, response.total);
+                connectionId, parentId, queryKey, items, total);
         },
         [this, connectionId, parentId, queryKey](const NetworkError &error) {
             emit canonicalItemsFailedForConnection(

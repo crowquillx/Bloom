@@ -232,9 +232,14 @@ public:
             return {};
         }
 
-        const QJsonValue codeValue = object->value(QStringLiteral("error"));
-        const QJsonValue messageValue = object->value(QStringLiteral("message"));
-        if (!codeValue.isString() || codeValue.toString().isEmpty()
+        const QUrl problemType(object->value(QStringLiteral("type")).toString());
+        const QString code = problemType.path().section(QLatin1Char('/'), -1);
+        const QJsonValue codeValue(code);
+        const QJsonValue messageValue = object->value(QStringLiteral("detail"));
+        if (!problemType.isValid() || problemType.scheme() != QStringLiteral("https")
+            || !object->value(QStringLiteral("status")).isDouble()
+            || !object->value(QStringLiteral("title")).isString()
+            || !codeValue.isString() || codeValue.toString().isEmpty()
             || !messageValue.isString()) {
             return {};
         }
@@ -291,9 +296,9 @@ private:
     static SiloAccountIdentity accountIdentity(const QJsonObject &user,
                                                bool requireAuthorizationFields)
     {
-        const qint64 id = positiveInteger(user.value(QStringLiteral("id")));
+        const QString id = user.value(QStringLiteral("id")).toString();
         const QJsonValue username = user.value(QStringLiteral("username"));
-        if (id <= 0 || !username.isString() || username.toString().isEmpty()) {
+        if (id.isEmpty() || !username.isString() || username.toString().isEmpty()) {
             return {};
         }
 
@@ -306,7 +311,7 @@ private:
         }
 
         SiloAccountIdentity result;
-        result.accountId = QString::number(id);
+        result.accountId = id;
         result.username = username.toString();
         if (role.isString()) {
             result.role = role.toString();

@@ -467,33 +467,9 @@ private:
                                    const ProviderCatalogQuery &query)
     {
         const QJsonArray groups = groupsForPost(query);
-        for (qsizetype groupIndex = 0; groupIndex < groups.size(); ++groupIndex) {
-            const QJsonObject group = groups.at(groupIndex).toObject();
-            const QString groupPrefix = QStringLiteral("groups[%1]").arg(groupIndex);
-            parameters.addQueryItem(groupPrefix + QStringLiteral("[match]"),
-                                    group.value(QStringLiteral("match")).toString());
-            const QJsonArray rules = group.value(QStringLiteral("rules")).toArray();
-            for (qsizetype ruleIndex = 0; ruleIndex < rules.size(); ++ruleIndex) {
-                const QJsonObject rule = rules.at(ruleIndex).toObject();
-                const QString prefix = groupPrefix
-                    + QStringLiteral("[rules][%1]").arg(ruleIndex);
-                parameters.addQueryItem(prefix + QStringLiteral("[field]"),
-                                        rule.value(QStringLiteral("field")).toString());
-                parameters.addQueryItem(prefix + QStringLiteral("[op]"),
-                                        rule.value(QStringLiteral("op")).toString());
-                const QJsonValue value = rule.value(QStringLiteral("value"));
-                if (value.isArray()) {
-                    const QJsonArray values = value.toArray();
-                    for (qsizetype valueIndex = 0; valueIndex < values.size(); ++valueIndex) {
-                        parameters.addQueryItem(
-                            prefix + QStringLiteral("[value][%1]").arg(valueIndex),
-                            values.at(valueIndex).toVariant().toString());
-                    }
-                } else {
-                    parameters.addQueryItem(prefix + QStringLiteral("[value]"),
-                                            value.toVariant().toString());
-                }
-            }
+        if (!groups.isEmpty()) {
+            parameters.addQueryItem(QStringLiteral("groups"),
+                                    QString::fromUtf8(QJsonDocument(groups).toJson(QJsonDocument::Compact)));
         }
     }
 
@@ -514,103 +490,51 @@ private:
             }
             return get(QStringLiteral("/api/v2/home/sections"));
         }
-        bool libraryIdOk = false;
-        const int libraryId = query.parentId.trimmed().toInt(&libraryIdOk);
-        if (!libraryIdOk || libraryId <= 0 || hasCatalogModifiers(query)
-            || !query.itemId.trimmed().isEmpty()) {
-            return unsupported(QStringLiteral(
-                "Silo library section discovery requires only a positive numeric library ID"));
+        if (hasCatalogModifiers(query) || !query.itemId.trimmed().isEmpty()) {
+            return unsupported(QStringLiteral("Silo library sections require only a library ID"));
         }
-        return get(QStringLiteral("/api/v2/library/%1/sections").arg(libraryId));
+        return get(QStringLiteral("/api/v2/library/%1/sections").arg(encodedId(query.parentId)));
     }
 
     static ProviderCatalogRequest createItemsRequest(const ProviderCatalogQuery &query)
     {
-        if (query.parentId.trimmed().compare(
-                QStringLiteral("home"), Qt::CaseInsensitive) == 0
-            && !query.itemId.trimmed().isEmpty()) {
+        if (!query.itemId.isEmpty() && !query.parentId.isEmpty()) {
             if (hasCatalogModifiers(query)) {
-                return unsupported(QStringLiteral(
-                    "Silo home section items do not support catalog modifiers"));
+                return unsupported(QStringLiteral("Silo section items do not accept catalog modifiers"));
             }
-            return get(QStringLiteral("/api/v2/home/sections/%1/items")
-                           .arg(encodedId(query.itemId)));
-        }
-        bool sectionLibraryIdOk = false;
-        const int sectionLibraryId =
-            query.parentId.trimmed().toInt(&sectionLibraryIdOk);
-        if (sectionLibraryIdOk && sectionLibraryId > 0
-            && !query.itemId.trimmed().isEmpty()) {
-            if (hasCatalogModifiers(query)) {
-                return unsupported(QStringLiteral(
-                    "Silo library section items do not support catalog modifiers"));
+            if (query.parentId.compare(QStringLiteral("home"), Qt::CaseInsensitive) == 0) {
+                return get(QStringLiteral("/api/v2/home/sections/%1/items").arg(encodedId(query.itemId)));
             }
             return get(QStringLiteral("/api/v2/library/%1/sections/%2/items")
-                           .arg(sectionLibraryId)
-                           .arg(encodedId(query.itemId)));
+                           .arg(encodedId(query.parentId), encodedId(query.itemId)));
         }
-        if (!query.seriesId.trimmed().isEmpty()) {
+        const QString type = query.includeItemTypes.size() == 1
+            ? normalizedItemType(query.includeItemTypes.first()) : QString();
+        if (!query.seriesId.isEmpty() || type == QStringLiteral("season")
+            || type == QStringLiteral("episode")) {
             if (hasHierarchyModifiers(query)) {
-                return unsupported(QStringLiteral(
-                    "Silo hierarchy routes do not support catalog filters or pagination"));
+                return unsupported(QStringLiteral("Silo hierarchy routes do not accept catalog modifiers"));
             }
-            const QString parent = query.parentId.trimmed();
-            if (!query.includeItemTypes.isEmpty()) {
-                const QString expectedType = parent.isEmpty()
-                    ? QStringLiteral("season")
-                    : QStringLiteral("episode");
-                if (query.includeItemTypes.size() != 1
-                    || normalizedItemType(query.includeItemTypes.first()) != expectedType) {
-                    return unsupported(QStringLiteral(
-                        "Silo hierarchy item type does not match the requested resource"));
+            if (!query.seriesId.isEmpty() && !query.parentId.isEmpty()) {
+                bool numberOk = false;
+                const int number = query.parentId.toInt(&numberOk);
+                if (numberOk && number >= 0) {
+                    const QString route = type == QStringLiteral("episode")
+                        ? QStringLiteral("/api/v2/catalog/series/%1/seasons/%2/episodes")
+                        : QStringLiteral("/api/v2/catalog/series/%1/seasons/%2");
+                    return get(route.arg(encodedId(query.seriesId), QString::number(number)));
                 }
-            }
-            if (!parent.isEmpty()) {
-                bool seasonNumberOk = false;
-                const int seasonNumber = parent.toInt(&seasonNumberOk);
-                if (seasonNumberOk && seasonNumber >= 0) {
-                    const QString route = query.includeItemTypes.isEmpty()
-                        || normalizedItemType(query.includeItemTypes.first())
-                               == QStringLiteral("season")
-                        ? QStringLiteral("/api/v2/catalog/series/%1/seasons/%2")
-                        : QStringLiteral("/api/v2/catalog/series/%1/seasons/%2/episodes");
-                    return get(
-                        route.arg(encodedId(query.seriesId), QString::number(seasonNumber)));
-                }
-                return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1/episodes"),
-                                        parent);
-            }
-            return getWithContentId(QStringLiteral("/api/v2/catalog/series/%1/seasons"),
-                                    query.seriesId);
-        }
-
-        const QString trimmedParentId = query.parentId.trimmed();
-        bool libraryIdOk = true;
-        if (!trimmedParentId.isEmpty()) {
-            static_cast<void>(trimmedParentId.toInt(&libraryIdOk));
-        }
-        if (!libraryIdOk
-            && (query.includeItemTypes.isEmpty() || query.includeItemTypes.size() == 1)) {
-            if (hasHierarchyModifiers(query)) {
-                return unsupported(QStringLiteral(
-                    "Silo hierarchy routes do not support catalog filters or pagination"));
-            }
-            if (query.includeItemTypes.isEmpty()) {
-                return getWithContentId(QStringLiteral("/api/v2/catalog/series/%1/seasons"),
-                                        query.parentId);
-            }
-            const QString type = normalizedItemType(query.includeItemTypes.first());
-            if (type == QStringLiteral("season")) {
-                return getWithContentId(QStringLiteral("/api/v2/catalog/series/%1/seasons"),
-                                        query.parentId);
+                return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1/episodes"), query.parentId);
             }
             if (type == QStringLiteral("episode")) {
-                return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1/episodes"),
-                                        query.parentId);
+                return getWithContentId(QStringLiteral("/api/v2/catalog/items/%1/episodes"), query.parentId);
             }
+            return getWithContentId(QStringLiteral("/api/v2/catalog/series/%1/seasons"),
+                                    query.seriesId.isEmpty() ? query.parentId : query.seriesId);
         }
         return createCatalogRequest(query, true);
     }
+
     static bool hasCatalogModifiers(const ProviderCatalogQuery &query)
     {
         return query.startIndex != 0 || query.limit > 0
@@ -656,22 +580,9 @@ private:
                 "Silo catalog does not expose a recursive-scope switch"));
         }
 
-        const QString trimmedParentId = query.parentId.trimmed();
-        bool libraryIdOk = true;
-        const int libraryId = trimmedParentId.isEmpty()
-            ? 0 : trimmedParentId.toInt(&libraryIdOk);
-        if (!libraryIdOk
-            || (!trimmedParentId.isEmpty() && libraryId <= 0)) {
-            return unsupported(QStringLiteral(
-                "Silo library catalog scope requires a positive numeric library ID"));
-        }
-
+        const QString libraryId = query.parentId.trimmed();
         const QJsonArray groups = groupsForPost(query);
-        const bool hasStructuredFilters = !groups.isEmpty();
-        const bool hasSnapshot = query.snapshot.has_value() && !query.snapshot->isEmpty();
-        const bool usePost = allowPost && hasStructuredFilters
-            && query.searchTerm.trimmed().isEmpty() && query.includeHeavyFields
-            && !hasSnapshot;
+        const bool usePost = allowPost && !groups.isEmpty();
         const std::optional<QString> sort = normalizedSort(query.sortBy);
         QString order = query.sortOrder.trimmed().toLower();
         if (order == QStringLiteral("ascending")) order = QStringLiteral("asc");
@@ -679,9 +590,15 @@ private:
 
         if (usePost) {
             QJsonObject body{{QStringLiteral("match"), QStringLiteral("all")},
-                             {QStringLiteral("groups"), groups},
-                             {QStringLiteral("offset"), query.startIndex}};
-            if (libraryId > 0) {
+                             {QStringLiteral("groups"), groups}};
+            if (!query.cursor.isEmpty()) {
+                body.insert(QStringLiteral("cursor"), query.cursor);
+            } else if (query.startIndex > 0) {
+                body.insert(QStringLiteral("seek"), query.startIndex);
+                if (!query.windowCursor.isEmpty()) body.insert(QStringLiteral("cursor"), query.windowCursor);
+            }
+            if (!query.searchTerm.isEmpty()) body.insert(QStringLiteral("q"), query.searchTerm);
+            if (!libraryId.isEmpty()) {
                 body.insert(QStringLiteral("library_id"), libraryId);
             }
             if (query.limit > 0) {
@@ -706,41 +623,27 @@ private:
 
         QUrlQuery parameters;
         parameters.addQueryItem(QStringLiteral("source"), QStringLiteral("query"));
-        parameters.addQueryItem(
-            QStringLiteral("include_technical"),
-            query.includeHeavyFields ? QStringLiteral("true") : QStringLiteral("false"));
-        if (libraryId > 0) {
-            parameters.addQueryItem(QStringLiteral("library_id"), QString::number(libraryId));
+        if (!libraryId.isEmpty()) {
+            parameters.addQueryItem(QStringLiteral("library_id"), libraryId);
         }
-        if (query.snapshot.has_value() && !query.snapshot->isEmpty()) {
-            parameters.addQueryItem(QStringLiteral("snapshot"), *query.snapshot);
-        }
-        if (query.startIndex > 0) {
-            parameters.addQueryItem(QStringLiteral("offset"), QString::number(query.startIndex));
+        if (!query.cursor.isEmpty()) {
+            parameters.addQueryItem(QStringLiteral("cursor"), query.cursor);
+        } else if (query.startIndex > 0) {
+            parameters.addQueryItem(QStringLiteral("seek"), QString::number(query.startIndex));
+            if (!query.windowCursor.isEmpty()) parameters.addQueryItem(QStringLiteral("cursor"), query.windowCursor);
         }
         appendLimit(parameters, query.limit);
         if (!query.searchTerm.trimmed().isEmpty()) {
             parameters.addQueryItem(QStringLiteral("q"), query.searchTerm.trimmed());
         }
         if (sort && !sort->isEmpty()) {
-            parameters.addQueryItem(QStringLiteral("sort"), *sort);
-        }
-        if (!order.isEmpty()) {
-            parameters.addQueryItem(QStringLiteral("order"), order);
+            parameters.addQueryItem(QStringLiteral("sort"),
+                                    (order == QStringLiteral("desc") ? QStringLiteral("-") : QString()) + *sort);
         }
         appendGroupsForGet(parameters, query);
 
         ProviderCatalogRequest request = get(
             endpointWithQuery(QStringLiteral("/api/v2/catalog"), parameters));
-        if (query.useCacheValidation) {
-            if (!query.etag.isEmpty()) {
-                request.extraHeaders.insert(QByteArrayLiteral("If-None-Match"), query.etag);
-            }
-            if (!query.lastModified.isEmpty()) {
-                request.extraHeaders.insert(QByteArrayLiteral("If-Modified-Since"),
-                                            query.lastModified);
-            }
-        }
         return request;
     }
 
@@ -751,27 +654,16 @@ private:
         if (!error.isEmpty()) {
             return unsupported(error);
         }
-        bool libraryIdOk = true;
-        const int libraryId = query.parentId.trimmed().isEmpty()
-            ? 0 : query.parentId.trimmed().toInt(&libraryIdOk);
-        if (!libraryIdOk
-            || (!query.parentId.trimmed().isEmpty() && libraryId <= 0)) {
-            return unsupported(QStringLiteral(
-                "Silo filter scope requires a positive numeric library ID"));
-        }
-
         QUrlQuery parameters;
         parameters.addQueryItem(QStringLiteral("source"), QStringLiteral("query"));
-        if (libraryId > 0) {
-            parameters.addQueryItem(QStringLiteral("library_id"), QString::number(libraryId));
+        if (!query.parentId.trimmed().isEmpty()) {
+            parameters.addQueryItem(QStringLiteral("library_id"), query.parentId.trimmed());
         }
-        appendGroupsForGet(parameters, query);
-        if (!query.searchTerm.trimmed().isEmpty()) {
-            parameters.addQueryItem(QStringLiteral("q"), query.searchTerm.trimmed());
+        if (query.includeItemTypes.size() == 1) {
+            parameters.addQueryItem(QStringLiteral("type"), normalizedItemType(query.includeItemTypes.first()));
         }
-        parameters.addQueryItem(QStringLiteral("include_technical"),
-                                query.includeHeavyFields ? QStringLiteral("true")
-                                                         : QStringLiteral("false"));
+        parameters.addQueryItem(QStringLiteral("skip_technical"),
+                                query.includeHeavyFields ? QStringLiteral("false") : QStringLiteral("true"));
 
         QString endpoint = QStringLiteral("/api/v2/catalog/filters");
         QString facet = query.filterFacet.trimmed().toLower();
@@ -798,6 +690,7 @@ private:
             }
             endpoint += QStringLiteral("/search");
             parameters.addQueryItem(QStringLiteral("facet"), facet);
+            if (!query.searchTerm.isEmpty()) parameters.addQueryItem(QStringLiteral("q"), query.searchTerm);
             appendLimit(parameters, query.limit);
         }
         return get(endpointWithQuery(endpoint, parameters));

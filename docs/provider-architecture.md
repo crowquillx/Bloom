@@ -128,3 +128,7 @@ nix build
 ```
 
 Silo v2 discovery does not infer features from `server_version` or `contract_digest`. The system document has no installation identity. Connections retain their Bloom connection ID and URL scope until an authenticated capability supplies installation identity.
+
+Silo v2 wire rules use opaque string IDs and RFC 9457 problem documents. Profile and authentication session collections use `items`. Catalog pages use `page.next_cursor`, `page.has_more`, and `window_cursor`. `LibraryService` keeps bounded cursors per connection and query. An uncached window uses the documented `seek` parameter. Structured POST queries have a limit of 100. GET sort direction uses a minus prefix; grouped GET filters use one JSON `groups` parameter.
+
+The Silo operations Bloom currently mutates, watched state, favorites, session revocation, and playback, do not declare `If-Match`. Bloom must not invent a validator for them. Conditional capability reads use the server's opaque ETag. Future writes that declare `If-Match` must first read that resource and preserve its ETag; a 412 requires a fresh read and user reconciliation, not an unconditional replay. HTTP 406 and 415 are terminal request-format failures. The shared bounded retry policy handles 408 and 429 only for operations with explicit replay safety.

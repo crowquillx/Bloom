@@ -368,6 +368,15 @@ NetworkError ErrorHandler::createError(QNetworkReply *reply, const QString &endp
         QJsonObject obj = doc.object();
         error.userMessage = obj["Message"].toString();
         error.providerErrorCode = obj["ErrorCode"].toString();
+        if (reply->header(QNetworkRequest::ContentTypeHeader).toString()
+                .startsWith(QStringLiteral("application/problem+json"))) {
+            const QUrl problemType(obj.value(QStringLiteral("type")).toString());
+            if (problemType.isValid() && !problemType.scheme().isEmpty()) {
+                error.providerErrorCode = problemType.path().section(QLatin1Char('/'), -1);
+                error.userMessage = obj.value(QStringLiteral("detail")).toString(
+                    obj.value(QStringLiteral("title")).toString());
+            }
+        }
         error.technicalDetails = error.providerErrorCode;
     }
     
