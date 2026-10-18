@@ -465,6 +465,25 @@ QVariantList playbackVariants(const QJsonArray &wireVariants,
 }
 } // namespace
 
+TrickplayTileInfoMap SiloModelMapper::trickplayInfo(const QJsonObject &wire)
+{
+    TrickplayTileInfo info;
+    info.width = wire.value("thumbnail_width").toInt();
+    info.height = wire.value("thumbnail_height").toInt();
+    info.tileWidth = wire.value("tile_columns").toInt();
+    info.tileHeight = wire.value("tile_rows").toInt();
+    info.interval = wire.value("interval_ms").toInt();
+    info.thumbnailCount = wire.value("thumbnail_count").toInt();
+    if (info.width <= 0 || info.width > 2048 || info.height <= 0 || info.height > 2048
+        || info.tileWidth <= 0 || info.tileWidth > 256 || info.tileHeight <= 0 || info.tileHeight > 256
+        || qint64(info.width) * info.tileWidth > 32768 || qint64(info.height) * info.tileHeight > 32768
+        || info.interval <= 0 || info.thumbnailCount <= 0 || info.thumbnailCount > 1000000) return {};
+    const qint64 perSheet = qint64(info.tileWidth) * info.tileHeight;
+    const qint64 sheetCount = (info.thumbnailCount + perSheet - 1) / perSheet;
+    if (sheetCount > 10000 || wire.value("sheets").toArray().size() != sheetCount) return {};
+    return {{info.width, info}};
+}
+
 qint64 SiloModelMapper::secondsToMilliseconds(double seconds)
 {
     if (!secondsToMillisecondsRepresentable(seconds) || seconds <= 0.0) {
@@ -954,6 +973,7 @@ QVariantMap SiloModelMapper::mediaVersion(const QJsonObject &wireVersion,
         {QStringLiteral("videoCodec"), wireVersion.value(QStringLiteral("codec_video")).toString()},
         {QStringLiteral("audioCodec"), wireVersion.value(QStringLiteral("codec_audio")).toString()},
         {QStringLiteral("hdr"), wireVersion.value(QStringLiteral("hdr")).toBool()},
+        {QStringLiteral("trickplayAvailable"), wireVersion.value(QStringLiteral("trickplay_available")).toBool()},
         {QStringLiteral("durationMs"), secondsToMilliseconds(
              wireVersion.value(QStringLiteral("duration_seconds")).toDouble(
                  wireVersion.value(QStringLiteral("duration")).toDouble()))},

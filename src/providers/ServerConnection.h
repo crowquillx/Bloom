@@ -34,7 +34,9 @@ enum class ProviderCapability {
     NativeState = 1 << 5,
     MediaSegments = 1 << 6,
     Playback = 1 << 7,
-    PlaybackReporting = 1 << 8
+    PlaybackReporting = 1 << 8,
+    ThemeSongs = 1 << 9,
+    Trickplay = 1 << 10
 };
 Q_DECLARE_FLAGS(ProviderCapabilities, ProviderCapability)
 

@@ -149,6 +149,12 @@ public:
         qint64 startPositionMs,
         const QString &playbackSessionId = QString()) const = 0;
 
+    virtual PlaybackInfoRequest createTrickplayInfoRequest(
+        const PlaybackProviderContext &, const Bloom::MediaRef &, const QString &) const { return {}; }
+    virtual TrickplayTileInfoMap parseTrickplayInfoResponse(
+        const PlaybackProviderContext &, const Bloom::MediaRef &, const QJsonObject &,
+        const QString &) const { return {}; }
+
     virtual QUrl createTrickplayTileUrl(
         const PlaybackProviderContext &context,
         const QString &itemId,

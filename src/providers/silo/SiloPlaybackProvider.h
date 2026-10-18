@@ -2,6 +2,8 @@
 
 #include "providers/IPlaybackProvider.h"
 #include <QHash>
+#include <QSet>
+#include <QDateTime>
 
 class SiloPlaybackProvider final : public IPlaybackProvider
 {
@@ -17,6 +19,13 @@ public:
         int selectedSubtitleTrack,
         qint64 startPositionMs,
         const QString &playbackSessionId = QString()) const override;
+
+    PlaybackInfoRequest createTrickplayInfoRequest(
+        const PlaybackProviderContext &context, const Bloom::MediaRef &media,
+        const QString &fileId) const override;
+    TrickplayTileInfoMap parseTrickplayInfoResponse(
+        const PlaybackProviderContext &context, const Bloom::MediaRef &media,
+        const QJsonObject &wire, const QString &fileId) const override;
 
     QUrl createTrickplayTileUrl(
         const PlaybackProviderContext &context,
@@ -81,6 +90,14 @@ private:
         QJsonObject plan;
         qint64 sequence = 0;
     };
+    struct Previews {
+        int width = 0;
+        QList<QUrl> sheets;
+        QDateTime expiresAt;
+    };
+    mutable QSet<QString> m_previewScopes;
+    mutable QHash<QString, QSet<QString>> m_previewFiles;
+    mutable QHash<QString, Previews> m_previews;
     mutable QHash<QString, QString> m_installations;
     mutable QHash<QString, Session> m_sessions;
 };
