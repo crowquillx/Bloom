@@ -9,6 +9,7 @@
 #include <QSignalSpy>
 #include <QString>
 #include <QTemporaryDir>
+#include <QThreadPool>
 #include <QVariantList>
 #include <QVariantMap>
 #include <QtTest/QtTest>
@@ -166,6 +167,7 @@ class AudioOutputServiceTest : public QObject
 private slots:
     void prepareWaitsForProbe();
     void deadlinePublishesUnknownAndDropsLateResult();
+    void stalledProbeDoesNotBlockGlobalPoolShutdown();
     void staleProbeCannotOverwriteNewDevice();
     void onlyOneProbeRunsAtATime();
     void explicitMpvDeviceDisappearanceAndReconnect();
@@ -236,6 +238,27 @@ void AudioOutputServiceTest::deadlinePublishesUnknownAndDropsLateResult()
     QCOMPARE(callbackCount, 1);
     QCOMPARE(service.capabilities().evidence, QStringLiteral("unknown"));
     QVERIFY(service.capabilities().endpointId.isEmpty());
+}
+
+void AudioOutputServiceTest::stalledProbeDoesNotBlockGlobalPoolShutdown()
+{
+    ConfigFixture fixture;
+    QVERIFY(fixture.valid());
+    auto harness = std::make_shared<ProbeHarness>();
+    auto reply = harness->enqueue(QStringLiteral("auto"),
+        capabilitiesFor(QStringLiteral("auto"), QStringLiteral("stalled-endpoint")), true);
+    ProbeReleaseGuard releaseGuard(harness);
+    auto service = std::make_unique<Bloom::AudioOutputService>(fixture.config.get(),
+        [harness](const QString &device) { return harness->probe(device); }, 50);
+    int callbackCount = 0;
+    service->prepare([&callbackCount] { ++callbackCount; });
+    QTRY_VERIFY_WITH_TIMEOUT(reply->entered.available() > 0, 1000);
+    QTRY_COMPARE_WITH_TIMEOUT(callbackCount, 1, 1000);
+    QCOMPARE(service->capabilities().evidence, QStringLiteral("unknown"));
+    service.reset();
+    // Qt drains its global pool at shutdown, while the simulated driver is still blocked.
+    QVERIFY(QThreadPool::globalInstance()->waitForDone(100));
+    reply->release.release();
 }
 
 void AudioOutputServiceTest::staleProbeCannotOverwriteNewDevice()

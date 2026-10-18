@@ -219,6 +219,24 @@ PlaybackInfoRequest JellyfinPlaybackProvider::createPlaybackInfoRequest(
     request.method = QStringLiteral("POST");
     request.body.insert(QStringLiteral("UserId"), context.profileId);
     const QStringList audioCodecs = Bloom::AudioPolicy::localDecodeCodecs();
+    QStringList fallbackAudioCodecs = audioCodecs;
+    fallbackAudioCodecs.removeAll(QStringLiteral("flac"));
+    fallbackAudioCodecs.prepend(QStringLiteral("flac"));
+    QJsonArray subtitleProfiles;
+    for (const QString &format : {QStringLiteral("ass"), QStringLiteral("ssa"),
+             QStringLiteral("subrip"), QStringLiteral("srt"), QStringLiteral("webvtt"),
+             QStringLiteral("pgssub"), QStringLiteral("dvdsub"),
+             QStringLiteral("dvbsub")}) {
+        subtitleProfiles.append(QJsonObject{
+            {QStringLiteral("Format"), format},
+            {QStringLiteral("Method"), QStringLiteral("Embed")}
+        });
+    }
+    subtitleProfiles.append(QJsonObject{
+        {QStringLiteral("Format"), QStringLiteral("mov_text")},
+        {QStringLiteral("Method"), QStringLiteral("Embed")},
+        {QStringLiteral("Container"), QStringLiteral("mp4,mov")}
+    });
     request.body.insert(QStringLiteral("DeviceProfile"), QJsonObject{
         {QStringLiteral("Name"), QStringLiteral("Bloom")},
         {QStringLiteral("DirectPlayProfiles"), QJsonArray{
@@ -226,7 +244,16 @@ PlaybackInfoRequest JellyfinPlaybackProvider::createPlaybackInfoRequest(
                 {QStringLiteral("Type"), QStringLiteral("Video")},
                 {QStringLiteral("AudioCodec"), audioCodecs.join(QLatin1Char(','))}
             }
-        }}
+        }},
+        {QStringLiteral("TranscodingProfiles"), QJsonArray{QJsonObject{
+            {QStringLiteral("Type"), QStringLiteral("Video")},
+            {QStringLiteral("Context"), QStringLiteral("Streaming")},
+            {QStringLiteral("Container"), QStringLiteral("mkv")},
+            {QStringLiteral("Protocol"), QStringLiteral("http")},
+            // Jellyfin prefers matching source audio; FLAC is the lossless encode fallback.
+            {QStringLiteral("AudioCodec"), fallbackAudioCodecs.join(QLatin1Char(','))}
+        }}},
+        {QStringLiteral("SubtitleProfiles"), subtitleProfiles}
     });
     return request;
 }

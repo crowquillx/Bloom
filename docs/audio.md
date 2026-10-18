@@ -52,8 +52,17 @@ and playlist parts use the same policy.
 The provider transport request uses local decode support. Silo sends that list
 as `audio_decode_codecs` and keeps its transport passthrough claims empty.
 Jellyfin sends the shared list in `DeviceProfile.DirectPlayProfiles.AudioCodec`.
+The declared list includes WMA, MLP, common legacy audio and PCM variants
+supported by the pinned mpv build.
 It leaves container and video codec restrictions unset. An explicit server
-`SupportsDirectPlay` value permits original playback even when a conversion URL
+fallback uses progressive Matroska. Its audio profile permits the same source
+codecs and selects FLAC first if audio conversion is required. Compatible audio
+and video remain eligible for stream copy. The fallback has no channel limit.
+Embedded subtitle profiles keep supported text and bitmap subtitles available
+to mpv without requiring video burn-in. External subtitle delivery is not
+advertised because Bloom does not yet map Jellyfin's delivery URLs.
+The fallback remains subject to server permissions and encoder availability.
+An explicit server `SupportsDirectPlay` value permits original playback even when a conversion URL
 is also present. An unknown value preserves the prior URL selection.
 Neither request removes TrueHD or DTS because the local endpoint lacks encoded
 transport. Server permissions, source access, video constraints and the server's
@@ -84,13 +93,18 @@ The query runs outside the UI thread. Playback preparation has a 1500 ms deadlin
 A timeout supplies unknown capabilities. One active worker prevents an unresponsive
 driver from creating more probe workers. The OS call itself cannot be cancelled;
 the deadline bounds playback preparation, not a stalled driver call's lifetime.
+Native queries use a serialized process-lifetime pool separate from Qt's global
+pool. A blocked query cannot make application shutdown wait. Workers capture
+only the probe function and device value, so late completion does not access a
+destroyed service.
 
 ## Settings and mpv
 
 Settings > Playback has Audio Passthrough modes Auto, Disabled and Custom.
 Custom exposes Dolby Digital, Dolby Digital Plus, Dolby TrueHD, DTS and DTS-HD.
 Atmos and DTS:X are metadata in those transports, not independent codec toggles.
-Existing installations use Auto with no custom formats.
+Existing installations use Auto with no custom formats. Mode and Custom format
+changes use the same saved-settings confirmation as other playback settings.
 
 All three backends receive the same generated audio options after profile options:
 
@@ -209,6 +223,8 @@ and Microsoft's [IEC 61937 format description](https://learn.microsoft.com/en-us
 Jellyfin's [profile matching code](https://github.com/jellyfin/jellyfin/blob/master/MediaBrowser.Model/Extensions/ContainerHelper.cs)
 defines empty container and codec restrictions. API fields remain checked against
 Bloom's pinned provider contract manifests.
+Its [stream builder](https://github.com/jellyfin/jellyfin/blob/v10.11.10/MediaBrowser.Model/Dlna/StreamBuilder.cs)
+prefers matching source codecs in the fallback profile.
 
 ## Change inventory
 
@@ -251,6 +267,7 @@ The following files implement this change and its verification:
 - `src/providers/jellyfin/JellyfinPlaybackProvider.cpp`
 - `src/providers/silo/SiloModelMapper.cpp`
 - `src/providers/silo/SiloPlaybackProvider.cpp`
+- `src/ui/SettingsScreen.qml`
 - `src/ui/settings/PlaybackSettings.qml`
 - `src/utils/ConfigManager.cpp`
 - `src/utils/ConfigManager.h`
@@ -261,6 +278,7 @@ The following files implement this change and its verification:
 - `tests/ConfigManagerThemeTest.cpp`
 - `tests/PlayerControllerAutoplayContextTest.cpp`
 - `tests/ProviderCatalogTest.cpp`
+- `tests/SiloPlaybackProviderTest.cpp`
 
 Automated results and unavailable platform gates are reported with the handoff.
 The codec and recovery tests use synthetic metadata and fake endpoints. They

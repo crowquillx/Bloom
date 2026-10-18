@@ -4,9 +4,14 @@ namespace Bloom::AudioPolicy {
 
 QStringList localDecodeCodecs()
 {
-    return {"aac", "ac3", "eac3", "dts", "dts-hd", "truehd", "flac", "opus",
-            "vorbis", "mp3", "mp2", "alac", "pcm_s16le", "pcm_s24le", "pcm_s32le",
-            "pcm_f32le", "pcm_f64le", "pcm_s16be", "pcm_s24be", "pcm_s32be"};
+    return {"aac", "aac_latm", "ac3", "eac3", "dts", "dts-hd", "truehd", "mlp",
+            "flac", "alac", "ape", "wavpack", "tta", "tak", "shorten",
+            "opus", "vorbis", "speex", "mp1", "mp2", "mp3", "wmav1", "wmav2",
+            "wmapro", "wmalossless", "wmavoice", "atrac3", "atrac3plus",
+            "pcm_alaw", "pcm_mulaw", "pcm_bluray", "pcm_dvd", "pcm_s8", "pcm_u8",
+            "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_s32le",
+            "pcm_s32be", "pcm_s64le", "pcm_s64be", "pcm_f32le", "pcm_f32be",
+            "pcm_f64le", "pcm_f64be"};
 }
 
 QString transportCodec(const AudioSourceMetadata &source)

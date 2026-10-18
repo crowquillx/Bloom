@@ -4,8 +4,24 @@
 #include "utils/ConfigManager.h"
 #include <QDateTime>
 #include <QMediaDevices>
+#include <QThreadPool>
 #include <QtConcurrentRun>
 #include <utility>
+
+namespace {
+QThreadPool *nativeAudioThreadPool()
+{
+    // Native driver calls cannot be cancelled. Keep this serialized pool alive
+    // for the process lifetime so QObject teardown and Qt shutdown never join it.
+    static QThreadPool *pool = [] {
+        auto *created = new QThreadPool;
+        created->setMaxThreadCount(1);
+        created->setExpiryTimeout(-1);
+        return created;
+    }();
+    return pool;
+}
+}
 
 namespace Bloom {
 AudioOutputService::AudioOutputService(ConfigManager *config, QObject *parent)
@@ -81,7 +97,7 @@ void AudioOutputService::refresh()
     m_probeGeneration = ++m_generation;
     m_deadline.start();
     const auto probe = m_probeFunction;
-    m_probe.setFuture(QtConcurrent::run([device, probe] { return probe(device); }));
+    m_probe.setFuture(QtConcurrent::run(nativeAudioThreadPool(), [device, probe] { return probe(device); }));
 }
 
 void AudioOutputService::invalidate()

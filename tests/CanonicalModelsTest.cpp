@@ -694,6 +694,14 @@ void CanonicalModelsTest::jellyfinDirectPlayAvailabilityControlsStaticStreamSele
     QCOMPARE(transcode.stream.method, Bloom::PlaybackMethod::Transcode);
     QCOMPARE(transcode.stream.url.path(), QStringLiteral("/Videos/movie-1/master.m3u8"));
 
+    QVariantMap deniedWithoutUrls = unsupported;
+    deniedWithoutUrls.remove(QStringLiteral("transcodingUrl"));
+    deniedWithoutUrls.remove(QStringLiteral("directStreamUrl"));
+    const Bloom::PlaybackDescriptor denied = provider.createDescriptor(
+        context, media, deniedWithoutUrls, -1, -1, 0);
+    QVERIFY(!denied.isValid());
+    QVERIFY(denied.stream.url.isEmpty());
+
     const PlaybackInfoResponse unknownResponse = JellyfinModelMapper::playbackInfo({
         {QStringLiteral("MediaSources"), QJsonArray{QJsonObject{
             {QStringLiteral("Id"), QStringLiteral("source-1")},
@@ -758,6 +766,35 @@ void CanonicalModelsTest::jellyfinPlaybackInfoRequestUsesBodyUserId()
     QCOMPARE(audioProfile.value(QStringLiteral("Type")).toString(), QStringLiteral("Video"));
     QCOMPARE(audioProfile.value(QStringLiteral("AudioCodec")).toString(),
              Bloom::AudioPolicy::localDecodeCodecs().join(QLatin1Char(',')));
+    const QStringList advertisedAudioCodecs = Bloom::AudioPolicy::localDecodeCodecs();
+    QVERIFY(advertisedAudioCodecs.contains(QStringLiteral("wmav2")));
+    QVERIFY(advertisedAudioCodecs.contains(QStringLiteral("wmapro")));
+    QVERIFY(advertisedAudioCodecs.contains(QStringLiteral("mlp")));
+    QVERIFY(advertisedAudioCodecs.contains(QStringLiteral("pcm_bluray")));
+    const QJsonArray transcodingProfiles = deviceProfile.value(QStringLiteral("TranscodingProfiles")).toArray();
+    QCOMPARE(transcodingProfiles.size(), 1);
+    const QJsonObject fallback = transcodingProfiles.first().toObject();
+    QCOMPARE(fallback.value(QStringLiteral("Type")).toString(), QStringLiteral("Video"));
+    QCOMPARE(fallback.value(QStringLiteral("Context")).toString(), QStringLiteral("Streaming"));
+    QCOMPARE(fallback.value(QStringLiteral("Container")).toString(), QStringLiteral("mkv"));
+    QCOMPARE(fallback.value(QStringLiteral("Protocol")).toString(), QStringLiteral("http"));
+    QVERIFY(!fallback.contains(QStringLiteral("VideoCodec")));
+    QVERIFY(!fallback.contains(QStringLiteral("MaxAudioChannels")));
+    QStringList fallbackAudioCodecs = advertisedAudioCodecs;
+    fallbackAudioCodecs.removeAll(QStringLiteral("flac"));
+    fallbackAudioCodecs.prepend(QStringLiteral("flac"));
+    QCOMPARE(fallback.value(QStringLiteral("AudioCodec")).toString(), fallbackAudioCodecs.join(QLatin1Char(',')));
+    const QJsonArray subtitleProfiles = deviceProfile.value(QStringLiteral("SubtitleProfiles")).toArray();
+    QVERIFY(!subtitleProfiles.isEmpty());
+    QStringList subtitleFormats;
+    for (const QJsonValue &value : subtitleProfiles) {
+        const QJsonObject profile = value.toObject();
+        QCOMPARE(profile.value(QStringLiteral("Method")).toString(), QStringLiteral("Embed"));
+        subtitleFormats.append(profile.value(QStringLiteral("Format")).toString());
+    }
+    QVERIFY(subtitleFormats.contains(QStringLiteral("ass")));
+    QVERIFY(subtitleFormats.contains(QStringLiteral("subrip")));
+    QVERIFY(subtitleFormats.contains(QStringLiteral("pgssub")));
     QVERIFY(!request.endpoint.contains(QStringLiteral("UserId"), Qt::CaseInsensitive));
 
     const PlaybackInfoParseResult parsed = provider.parsePlaybackInfoResponse(

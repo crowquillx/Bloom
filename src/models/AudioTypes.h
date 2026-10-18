@@ -74,7 +74,10 @@ struct AudioSourceMetadata {
             || normalizedCodec.contains(QStringLiteral("mlp"))
             || normalizedCodec.contains(QStringLiteral("flac"))
             || normalizedCodec.contains(QStringLiteral("alac"))
-            || normalizedCodec.contains(QStringLiteral("pcm"))
+            || normalizedCodec == QStringLiteral("wmalossless")
+            || (normalizedCodec.contains(QStringLiteral("pcm"))
+                && normalizedCodec != QStringLiteral("pcm_alaw")
+                && normalizedCodec != QStringLiteral("pcm_mulaw"))
             || dtsMasterAudio;
         const bool lossyCodec = normalizedCodec.contains(QStringLiteral("aac"))
             || normalizedCodec.contains(QStringLiteral("ac3"))
@@ -85,7 +88,9 @@ struct AudioSourceMetadata {
             || normalizedCodec.contains(QStringLiteral("mp3"))
             || normalizedCodec.contains(QStringLiteral("opus"))
             || normalizedCodec.contains(QStringLiteral("vorbis"))
-            || normalizedCodec.contains(QStringLiteral("wma"));
+            || normalizedCodec.contains(QStringLiteral("wma"))
+            || normalizedCodec == QStringLiteral("pcm_alaw")
+            || normalizedCodec == QStringLiteral("pcm_mulaw");
         metadata.fidelity = losslessCodec ? QStringLiteral("lossless")
             : lossyCodec ? QStringLiteral("lossy") : QStringLiteral("unknown");
         return metadata;

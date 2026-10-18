@@ -15,6 +15,7 @@ private slots:
     void pcmPlansPreserveSourceLayout();
     void passthroughPreferencesAndEndpointAvailability();
     void decodeSupportDoesNotRequirePassthrough();
+    void additionalDecodeFormatsKeepAccurateFidelity();
     void dtsHdDoesNotFallBackToDtsCore();
     void mpvArgumentsKeepAutomaticChannelLayout();
     void verifyUsesRuntimeOutputFormat();
@@ -157,6 +158,23 @@ void AudioPolicyTest::decodeSupportDoesNotRequirePassthrough()
 {
     AudioOutputCapabilities output;
     output.evidence = QStringLiteral("unknown");
+    const QStringList regressionCodecs{
+        QStringLiteral("wmav2"), QStringLiteral("wmapro"), QStringLiteral("wmalossless"),
+        QStringLiteral("mlp"), QStringLiteral("pcm_bluray"), QStringLiteral("pcm_dvd"),
+        QStringLiteral("pcm_alaw"), QStringLiteral("pcm_s64le")
+    };
+    const QStringList advertised = AudioPolicy::localDecodeCodecs();
+    for (const QString &codec : regressionCodecs) {
+        QVERIFY2(advertised.contains(codec), qPrintable(codec));
+        const AudioSourceMetadata source = AudioSourceMetadata::fromVariantMap({
+            {QStringLiteral("codec"), codec}
+        });
+        const AudioOutputPlan result = AudioPolicy::plan(source, output, {});
+        QVERIFY2(result.localDecodeSupported, qPrintable(codec));
+        QVERIFY2(!result.providerConversionRequired, qPrintable(codec));
+        QCOMPARE(result.path, QStringLiteral("pcm"));
+    }
+
     for (const QString &codec : AudioPolicy::localDecodeCodecs()) {
         const AudioSourceMetadata source = AudioSourceMetadata::fromVariantMap({
             {QStringLiteral("codec"), codec}
@@ -178,6 +196,15 @@ void AudioPolicyTest::decodeSupportDoesNotRequirePassthrough()
     const AudioOutputPlan noCodec = AudioPolicy::plan(absent, output, {});
     QVERIFY(!noCodec.localDecodeSupported);
     QVERIFY(!noCodec.providerConversionRequired);
+}
+
+void AudioPolicyTest::additionalDecodeFormatsKeepAccurateFidelity()
+{
+    QCOMPARE(AudioSourceMetadata::fromVariantMap({{"codec", "wmalossless"}}).fidelity, QStringLiteral("lossless"));
+    QCOMPARE(AudioSourceMetadata::fromVariantMap({{"codec", "wmapro"}}).fidelity, QStringLiteral("lossy"));
+    QCOMPARE(AudioSourceMetadata::fromVariantMap({{"codec", "pcm_alaw"}}).fidelity, QStringLiteral("lossy"));
+    QCOMPARE(AudioSourceMetadata::fromVariantMap({{"codec", "pcm_mulaw"}}).fidelity, QStringLiteral("lossy"));
+    QCOMPARE(AudioSourceMetadata::fromVariantMap({{"codec", "pcm_s24le"}}).fidelity, QStringLiteral("lossless"));
 }
 
 void AudioPolicyTest::dtsHdDoesNotFallBackToDtsCore()
