@@ -64,7 +64,7 @@ Conditional playback and theme capability reads return ETags. Bloom sends `If-No
 - Themes use `/catalog/themes/capabilities`, detail `themes`, and an owner/theme playback grant. The short-lived URL is never built from an item ID or persisted. Each loop gets a fresh grant. Silo grant audio is fetched once without ranges into a buffer with a 16 MiB limit and a 45-second deadline. Converted audio is progressive AAC in MP4 and has no range or length contract.
 - Previews require `trickplay_v1` and the selected version's `trickplay_available`. `/watch/{id}/trickplay?file_id=...` returns the grid, interval, count, expiring signed sheet URLs, and file identity. Bloom validates these values and keeps a bounded cache scoped to server/account/profile/item. URLs are never reconstructed.
 
-The native client implements theme and trickplay capability flags. A flag does not override server permission or establish live validation. The available server fixture validated theme grants/audio but had no published trickplay version in 100 episode and 100 movie checks. The preview fetch gate remains unavailable.
+The native client implements theme and trickplay capability flags. A flag does not override server permission or establish live validation. The available server fixture validated theme grants/audio but had no published trickplay version in 100 episode and 100 movie checks. The operator confirmed that no previews exist and accepted unit-test coverage for this migration. Live preview delivery remains unverified.
 
 ## Validation and exclusions
 

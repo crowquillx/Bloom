@@ -16,11 +16,11 @@ The [live report](evidence/silo-v2-2026-10-18.json) records the new runner. It r
 | Capability reads | PASS, API | Playback capability allowed protocol 3 and original HTTP. `If-None-Match` returned body-free `304`. Client tests also cover theme capability `304` reuse. |
 | Direct-play lifecycle | PASS, API | Start `201`, range fetch `206` with 4096 bytes, same-attempt replay with the same session, sequenced progress `200`, `track_change` replan `200`, and stop/replayed stop `200`. The signed `st` reference alone gave `401`; the documented account-token fallback made the media fetch succeed. mpv 0.41.0 also decoded 30 frames from the live plan URL with software decode and null video/audio outputs, then stop returned `200`. This is not a GPU or physical-display pass. |
 | Theme audio | PASS, FETCH/DECODE | A series theme produced original MP3 and converted AAC/MP4 grants. Original audio advertised byte ranges; converted audio had no length or range header. Fresh grants fetched both deliveries. FFmpeg 8.1 decoded one second from each downloaded sample without error. Audible QtMultimedia output was not run. |
-| Trickplay metadata and sheet fetch | UNAVAILABLE | The first 100 episode watch responses and first 100 movie watch responses had no version with `trickplay_available: true`. No sheet was fetched. Set `BLOOM_CONTRACT_TRICKPLAY_ITEM_ID` to a prepared title and rerun. Unit tests cover file gating, mapping, bounds, expiry, and signed sheet identity. |
+| Trickplay metadata and sheet fetch | UNAVAILABLE, accepted | The first 100 episode watch responses and first 100 movie watch responses had no version with `trickplay_available: true`. The operator confirmed that no published previews exist and accepted unit-test coverage for this migration. No sheet was fetched and no live delivery pass is claimed. Unit tests cover file gating, mapping, bounds, expiry, and signed sheet identity. |
 | Incremental build and automated checks | PASS | `./scripts/dev-build.sh --tests --jobs 6` passed. Local CTest passed 35/35 with the same visual/cache exclusions as the Nix suite. The provider-contract Python suite passed 34/34. `nix flake check --print-build-logs --option max-jobs 2 --option cores 6` and `nix build --print-build-logs --option max-jobs 2 --option cores 6` exited 0. The clean checks include contract validation, CTest 35/35, QML lint, dependency pins, package, and offscreen Release smoke. |
 | Linux/Windows GPU playback, physical input, HDR, and displays | NOT RUN | These checks need the applicable runtime and hardware. The migration does not change Windows video layering or the Linux backend policy. |
 
-Current limits are explicit. Forward-only remux and HLS/transcode timelines are unavailable. Ebooks, audiobooks, comics, watch-together, notifications, history imports, downloads/offline, and admin operations remain out of scope. First-class native support remains blocked by the unavailable preview and platform gates.
+Current limits are explicit. Forward-only remux and HLS/transcode timelines are unavailable. Ebooks, audiobooks, comics, watch-together, notifications, history imports, downloads/offline, and admin operations remain out of scope. The operator accepted the missing preview fixture for this migration. Native support remains experimental while the platform gates are open.
 
 ## Historical alpha evidence, 2026-08-08
 
@@ -53,7 +53,7 @@ Record the date, operator, exact commit, command output path, and a short observ
 
 ## Graduation decision
 
-The current native v2 gates above supersede alpha evidence. Native and compatibility listeners remain separate. Live Jellyfin preservation, Windows runtime, physical input/display checks, and an available trickplay fixture are required before first-class labeling. Missing runtime evidence must remain unavailable.
+The current native v2 gates above supersede alpha evidence. Native and compatibility listeners remain separate. Live Jellyfin preservation, Windows runtime, and physical input/display checks are required before first-class labeling. The operator accepted the missing trickplay fixture for this migration; live preview delivery remains unverified. Missing runtime evidence must remain unavailable.
 
 ## Dolby Vision FEL upgrade
 
