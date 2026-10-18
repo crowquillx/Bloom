@@ -1,4 +1,5 @@
 #include "WindowsMpvBackend.h"
+#include "player/AudioPolicy.h"
 
 #include <QAbstractNativeEventFilter>
 #include <QCoreApplication>
@@ -229,6 +230,16 @@ Bloom::PlaybackPolicy::RendererKind WindowsMpvBackend::rendererKind(const QStrin
     Q_UNUSED(args);
     // applyRenderApiOptions() always forces m_effectiveVo (gpu-next).
     return Bloom::PlaybackPolicy::rendererKindForVo(m_effectiveVo);
+}
+
+void WindowsMpvBackend::requestAudioDiagnostics(const QString &tag)
+{
+#if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
+    if (m_mpvHandle)
+        m_propertySnapshots.request(static_cast<mpv_handle *>(m_mpvHandle), tag, Bloom::AudioPolicy::diagnosticProperties());
+#else
+    Q_UNUSED(tag);
+#endif
 }
 
 void WindowsMpvBackend::scheduleDiagnosticSnapshots()

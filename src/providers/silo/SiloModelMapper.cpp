@@ -803,11 +803,19 @@ MediaStreamInfo SiloModelMapper::mediaStream(const QJsonObject &wireTrack,
     result.channels = wireTrack.value(QStringLiteral("channels")).toInt();
     result.channelLayout = wireTrack.value(QStringLiteral("layout")).toString();
     result.bitRate = wireTrack.value(QStringLiteral("bitrate")).toInt();
+    result.sampleRate = wireTrack.value(QStringLiteral("sample_rate")).toInt();
+    result.bitDepth = wireTrack.value(QStringLiteral("bit_depth")).toInt();
     result.width = wireTrack.value(QStringLiteral("width")).toInt();
     result.height = wireTrack.value(QStringLiteral("height")).toInt();
     result.averageFrameRate = frameRate(wireTrack.value(QStringLiteral("frame_rate")).toString());
     result.realFrameRate = result.averageFrameRate;
     result.profile = wireTrack.value(QStringLiteral("profile")).toString();
+    if (kind.compare(QStringLiteral("Audio"), Qt::CaseInsensitive) == 0) {
+        const Bloom::AudioSourceMetadata audio =
+            Bloom::AudioSourceMetadata::fromVariantMap(result.toVariantMap());
+        result.atmos = audio.atmos;
+        result.dtsX = audio.dtsX;
+    }
     result.videoRange = wireTrack.value(QStringLiteral("video_range")).toString();
     result.videoRangeType = wireTrack.value(QStringLiteral("video_range_type")).toString();
     result.dolbyVisionProfile = wireTrack.value(QStringLiteral("dv_profile")).toInt();

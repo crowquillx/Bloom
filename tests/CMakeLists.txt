@@ -1232,3 +1232,11 @@ endif()
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/diffs")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/captures")
 endif()
+
+add_executable(AudioPolicyTest AudioPolicyTest.cpp)
+target_link_libraries(AudioPolicyTest PRIVATE Bloom::PlayerPolicy Qt6::Test)
+add_test(NAME AudioPolicyTest COMMAND AudioPolicyTest)
+
+add_executable(AudioOutputServiceTest AudioOutputServiceTest.cpp)
+target_link_libraries(AudioOutputServiceTest PRIVATE Bloom::AudioOutput Qt6::Test)
+add_test(NAME AudioOutputServiceTest COMMAND AudioOutputServiceTest)

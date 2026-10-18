@@ -136,3 +136,14 @@ media fixture described below.
 
 
 See [provider architecture](provider-architecture.md), [playback](playback.md), [media segments](media-segments.md), and the [manual validation ledger](manual-validation.md) for ownership and evidence.
+
+## Local audio decode and encoded output
+
+Both providers use the shared local decode codec list. Endpoint passthrough
+support does not restrict that list. Jellyfin's pinned `PlaybackInfoDto.DeviceProfile`
+accepts `DirectPlayProfiles.AudioCodec`; Bloom sends its local decode list there.
+Silo's `original_http.audio_decode_codecs` carries the same decode semantics.
+Jellyfin's `SampleRate`, `BitDepth`, `AudioSpatialFormat` and `SupportsDirectPlay`
+map to canonical metadata. Silo's pinned audio tracks supply `sample_rate`,
+`bit_depth`, `profile` and `title`. See [Audio output](audio.md) for limitations
+and the manual provider/session checks.

@@ -1,5 +1,8 @@
 #include "PlayerController.h"
 #include "PlaybackPolicy.h"
+#include "AudioPolicy.h"
+#include "audio/AudioOutputService.h"
+#include <QDateTime>
 #include "TrickplayProcessor.h"
 #if !defined(BLOOM_TESTING)
 #include "backend/ExternalMpvBackend.h"
@@ -276,6 +279,19 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
                     m_playerBackend->sendVariantCommand({"set_property", "audio-delay", delaySeconds});
                 }
             });
+
+    connect(m_playbackService->audioOutput(), &Bloom::AudioOutputService::capabilitiesChanged,
+            this, [this] {
+                m_forcePcmAudio = false;
+                if (m_playerBackend->isRunning()) m_audioDeviceReloadTimer->start();
+            });
+    auto *audioVerificationTimer = new QTimer(this);
+    audioVerificationTimer->setInterval(3000);
+    connect(audioVerificationTimer, &QTimer::timeout, this, [this] {
+        if (m_playerBackend->isRunning())
+            m_playerBackend->requestAudioDiagnostics(QStringLiteral("audio|%1").arg(m_audioPlanGeneration));
+    });
+    audioVerificationTimer->start();
 
     // Re-apply the chosen audio output device immediately when the user changes it.
     connect(m_config, &ConfigManager::audioOutputDeviceChanged,
@@ -683,6 +699,11 @@ void PlayerController::enterIdleStateImmediate()
     setBufferingProgress(0);
     
     // Clear track selection state (but keep m_seriesTrackPreferences)
+    m_reopeningAudio = false;
+    ++m_audioPlanGeneration;
+    m_audioDiagnostics.clear();
+    m_preparedAudioPlan.clear();
+    emit audioDiagnosticsChanged();
     m_selectedAudioTrack = -1;
     m_selectedSubtitleTrack = -1;
     m_mpvAudioTrack = -1;
@@ -2014,6 +2035,9 @@ void PlayerController::onPlaybackAudioSwitchedForRequest(const QString &sessionI
     // the end of the active file.
     m_seekTargetWhileBuffering = m_segmentRelativePosition;
     // Keep the logical timeline and state intact while replacing only mpv's URL.
+    m_forcePcmAudio = false;
+    updateAudioPlan();
+    applyAudioPlanOptions();
     m_playerBackend->sendVariantCommand({"loadfile", m_pendingUrl, "replace"});
 }
 
@@ -2029,6 +2053,8 @@ void PlayerController::onPlaybackAudioSwitchFailedForRequest(const QString &sess
     m_pendingAudioSwitchPreviousTrack = -2;
     if (previousAudioTrack != -2 && previousAudioTrack != m_selectedAudioTrack) {
         m_selectedAudioTrack = previousAudioTrack;
+        updateAudioPlan();
+        if (m_playerBackend->isRunning()) applyAudioPlanOptions();
         persistAudioPreferenceForCurrentScope(previousAudioTrack);
         if (m_activePlaybackSegmentIndex >= 0
             && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
@@ -2882,6 +2908,9 @@ void PlayerController::applyPlaybackSegment(int index, bool reportSegmentStart)
     m_mpvSubtitleTrack = -1;
     updateTrackMappings(m_activeMediaSource);
     m_mpvAudioTrack = mpvAudioTrackForSourceIndex(m_selectedAudioTrack);
+    m_forcePcmAudio = false;
+    updateAudioPlan();
+    if (m_playerBackend->isRunning()) applyAudioPlanOptions();
     m_mpvSubtitleTrack = m_selectedSubtitleTrack >= 0 ? mpvSubtitleTrackForSourceIndex(m_selectedSubtitleTrack) : -1;
     queueActiveSegmentExternalSubtitleTracks();
 
@@ -3746,6 +3775,8 @@ void PlayerController::setSelectedAudioTrack(int index)
 
     const int previousAudioTrack = m_selectedAudioTrack;
     m_selectedAudioTrack = index;
+    m_forcePcmAudio = false;
+    updateAudioPlan();
     qCDebug(lcPlayback) << "User audio track selection:"
                         << "sourceIndex=" << index
                         << "previousSourceIndex=" << previousAudioTrack;
@@ -3753,6 +3784,7 @@ void PlayerController::setSelectedAudioTrack(int index)
     bool selectionRolledBackSynchronously = false;
     if (m_playbackState == Playing || m_playbackState == Paused) {
         const auto applyMpvAudioTrack = [this, index]() {
+            applyAudioPlanOptions();
             if (index >= 0) {
                 const int mpvTrackId = mpvAudioTrackForSourceIndex(index);
                 if (mpvTrackId > 0) {
@@ -4480,6 +4512,7 @@ PlayerController::ResolvedTrackSelection PlayerController::resolveTrackSelection
 
 void PlayerController::syncBackendAudioTrack(int mpvTrackId)
 {
+    if (m_reopeningAudio) return;
     if (m_applyingInitialTracks) {
         if (mpvTrackId != m_mpvAudioTrack) {
             qCWarning(lcPlayback) << "mpv reported audio track" << mpvTrackId
@@ -4501,6 +4534,9 @@ void PlayerController::syncBackendAudioTrack(int mpvTrackId)
             m_playbackSegments[m_activePlaybackSegmentIndex][QStringLiteral("audioIndex")] = sourceIndex;
         }
         emit selectedAudioTrackChanged();
+        m_forcePcmAudio = false;
+        updateAudioPlan();
+        applyAudioPlanOptions();
     }
     if (m_pendingAudioTrackPersistenceFromBackend) {
         persistAudioPreferenceForCurrentScope(sourceIndex);
@@ -4568,7 +4604,9 @@ void PlayerController::syncBackendSubtitleTrack(int mpvTrackId)
 
 void PlayerController::onAudioDeviceListChanged(const QVariantList &devices)
 {
+    if (m_availableAudioDevices == devices && m_audioDeviceListInitialized) return;
     m_availableAudioDevices = devices;
+    m_playbackService->audioOutput()->setMpvDevices(devices);
     emit availableAudioDevicesChanged();
 
     if (!m_audioDeviceListInitialized) {
@@ -4580,17 +4618,7 @@ void PlayerController::onAudioDeviceListChanged(const QVariantList &devices)
         return;
     }
 
-    const QString desired = m_config->getAudioOutputDevice();
-    if (desired.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
-        qCDebug(lcPlayback) << "PlayerController: audio device list changed ("
-                            << devices.size()
-                            << "devices ); keeping mpv on automatic audio output";
-        return;
-    }
-
-    // The set of audio output devices changed while running (e.g. a Bluetooth
-    // headset connected/disconnected). Debounce and then re-apply the explicit
-    // device so a reconnected endpoint is used without needing a playback restart.
+    // Debounce endpoint churn before reopening audio on the existing media session.
     qCInfo(lcPlayback) << "PlayerController: audio device list changed ("
                        << devices.size() << "devices ); scheduling audio output reload";
     if (m_playerBackend && m_playerBackend->isRunning()) {
@@ -4622,8 +4650,65 @@ void PlayerController::applyAudioOutputDevice()
         updateTrackMappings(m_activeMediaSource);
         m_mpvAudioTrack = mpvAudioTrackForSourceIndex(m_selectedAudioTrack);
     }
-    m_playerBackend->sendVariantCommand({"set_property", "audio-device", desired});
+    updateAudioPlan();
+    applyAudioPlanOptions();
+    m_reopeningAudio = true;
+    const auto generation = m_audioPlanGeneration;
+    // Reopen the selected decoder without restarting the stream or its provider session.
+    if (m_mpvAudioTrack > 0) {
+        m_playerBackend->sendVariantCommand({"set_property", "aid", "no"});
+        m_playerBackend->sendVariantCommand({"set_property", "aid", m_mpvAudioTrack});
+    }
+    QTimer::singleShot(500, this, [this, generation] {
+        if (generation == m_audioPlanGeneration) m_reopeningAudio = false;
+    });
     m_playerBackend->sendVariantCommand({"ao-reload"});
+}
+
+void PlayerController::updateAudioPlan()
+{
+    auto source = Bloom::AudioPolicy::selectedSource(m_activeMediaSource, m_selectedAudioTrack);
+    if (m_activePlaybackSegmentIndex >= 0 && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
+        const auto descriptor = m_playbackSegments.at(m_activePlaybackSegmentIndex)
+                                    .value(QStringLiteral("descriptor")).value<Bloom::PlaybackDescriptor>();
+        if (descriptor.selectedAudioTrackId == QString::number(m_selectedAudioTrack)
+            && !descriptor.audioOutputPlan.source.codec.isEmpty()
+            && (m_preparedAudioPlan.isEmpty()
+                || m_preparedAudioPlan.value(QStringLiteral("source")).toMap() != descriptor.audioOutputPlan.source.toVariantMap()))
+            m_preparedAudioPlan = descriptor.audioOutputPlan.toVariantMap();
+        for (const auto &track : descriptor.audioTracks) {
+            if (track.trackId == QString::number(m_selectedAudioTrack)) source = track.audio;
+        }
+    }
+    m_audioPlan = m_playbackService->audioOutput()->planForMetadata(source);
+    if (m_preparedAudioPlan.isEmpty()
+        || m_preparedAudioPlan.value(QStringLiteral("source")).toMap() != source.toVariantMap())
+        m_preparedAudioPlan = m_audioPlan.toVariantMap();
+    if (m_forcePcmAudio) {
+        m_audioPlan.path = QStringLiteral("pcm");
+        m_audioPlan.passthroughCodec.clear();
+        m_audioPlan.atmosRetained = false;
+        m_audioPlan.dtsXRetained = false;
+        m_audioPlan.exclusivePcm = false;
+        m_audioPlan.mpvChannels = source.channels == 2 ? QStringLiteral("stereo") : QStringLiteral("auto-safe");
+        m_audioPlan.reason = QStringLiteral("Runtime rejected planned output; local PCM fallback");
+    }
+    m_reopeningAudio = false;
+    ++m_audioPlanGeneration;
+    m_audioDiagnostics = {{QStringLiteral("plan"), m_audioPlan.toVariantMap()},
+                         {QStringLiteral("preparedPlan"), m_preparedAudioPlan},
+                         {QStringLiteral("capabilities"), m_playbackService->audioOutput()->capabilities().toVariantMap()}};
+    emit audioDiagnosticsChanged();
+    qCInfo(lcPlayback) << "Audio output plan" << m_audioDiagnostics;
+}
+
+void PlayerController::applyAudioPlanOptions()
+{
+    const auto args = Bloom::AudioPolicy::mpvArguments(m_audioPlan);
+    for (const auto &arg : args) {
+        const int separator = arg.indexOf(QLatin1Char('='));
+        m_playerBackend->sendVariantCommand({"set_property", arg.mid(2, separator - 2), arg.mid(separator + 1)});
+    }
 }
 
 void PlayerController::applySubtitleDelay()
@@ -5498,6 +5583,39 @@ void PlayerController::onBackendRuntimeInfoChanged()
 
 void PlayerController::onPlaybackDiagnosticsAvailable(const QString &stage, const QVariantMap &properties)
 {
+    if (stage.startsWith(QStringLiteral("audio|"))) {
+        if (stage != QStringLiteral("audio|%1").arg(m_audioPlanGeneration)) return;
+        auto diagnostics = Bloom::AudioPolicy::verify(m_audioPlan, properties);
+        const bool endpointAvailable = m_playbackService->audioOutput()->capabilities().endpointAvailable;
+        diagnostics.insert(QStringLiteral("endpointAvailable"), endpointAvailable);
+        diagnostics.insert(QStringLiteral("effectiveDeviceEvidence"), QStringLiteral("Exact opened device is not exposed by mpv; OS endpoint snapshot only"));
+        if (!endpointAvailable) diagnostics.insert(QStringLiteral("differsFromPlan"), true);
+        diagnostics.insert(QStringLiteral("preparedPlan"), m_preparedAudioPlan);
+        const bool fallbackOccurred = m_forcePcmAudio;
+        diagnostics.insert(QStringLiteral("fallbackOccurred"), fallbackOccurred);
+        diagnostics.insert(QStringLiteral("fallbackReason"), fallbackOccurred ? m_audioPlan.reason : QString());
+        diagnostics.insert(QStringLiteral("differsFromPreparedPlan"), fallbackOccurred
+            || diagnostics.value(QStringLiteral("differsFromPlan")).toBool()
+            || m_preparedAudioPlan.value(QStringLiteral("path")).toString() != m_audioPlan.path
+            || m_preparedAudioPlan.value(QStringLiteral("device")).toString() != m_audioPlan.device);
+        diagnostics.insert(QStringLiteral("capabilities"), m_playbackService->audioOutput()->capabilities().toVariantMap());
+        if (diagnostics != m_audioDiagnostics) {
+            m_audioDiagnostics = diagnostics;
+            emit audioDiagnosticsChanged();
+            qCInfo(lcPlayback) << "Audio runtime verification" << diagnostics;
+        }
+        const bool nullOutput = properties.value(QStringLiteral("current-ao")).toString() == QStringLiteral("null");
+        if (!m_forcePcmAudio && (diagnostics.value(QStringLiteral("needsPcmFallback")).toBool()
+            || (nullOutput && m_audioPlan.exclusivePcm))) {
+            m_forcePcmAudio = true;
+            applyAudioOutputDevice();
+        } else if (nullOutput && QDateTime::currentMSecsSinceEpoch() >= m_nextAudioRetryMs) {
+            m_nextAudioRetryMs = QDateTime::currentMSecsSinceEpoch() + 5000;
+            m_playbackService->audioOutput()->refresh();
+            applyAudioOutputDevice();
+        }
+        return;
+    }
     const PlayerPolicy::PlaybackDiagnostics diagnostics =
         PlayerPolicy::evaluatePlaybackDiagnostics(properties);
     const QString summary = QStringLiteral("Playback diagnostics [%1] backend=%2 mpv=%3 ffmpeg=%4 libplacebo=%5 hdrOutputMode=%6 %7")
@@ -5732,6 +5850,10 @@ void PlayerController::initiateMpvStart()
         finalArgs = filteredArgs;
     }
 #endif
+
+    m_forcePcmAudio = false;
+    updateAudioPlan();
+    finalArgs << Bloom::AudioPolicy::mpvArguments(m_audioPlan);
 
     // Must run last: the DV filter is appended through mpv's list semantics so
     // a later `--vf=` (profile deinterlace, user extra args) cannot drop it.

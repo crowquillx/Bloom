@@ -120,6 +120,11 @@ void SiloPlaybackProviderTest::createsV3StartWithOpaqueIdentity()
     const auto caps = request.body.value("client_capabilities").toObject();
     QCOMPARE(caps.value("video_evidence").toString(), QStringLiteral("declared"));
     QVERIFY(caps.value("codecs_video").toArray().contains(QStringLiteral("hevc")));
+    const QJsonArray audioCodecs = caps.value("codecs_audio").toArray();
+    QVERIFY(audioCodecs.contains(QStringLiteral("wmav2")));
+    QVERIFY(audioCodecs.contains(QStringLiteral("wmapro")));
+    QVERIFY(audioCodecs.contains(QStringLiteral("mlp")));
+    QVERIFY(audioCodecs.contains(QStringLiteral("pcm_bluray")));
     QVERIFY(request.body.value("client_playback_context")
             .toObject()
             .value("deliveries")

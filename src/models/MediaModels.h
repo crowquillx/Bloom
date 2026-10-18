@@ -7,6 +7,7 @@
 #include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+#include "AudioTypes.h"
 
 namespace Bloom {
 
@@ -135,6 +136,7 @@ struct PlaybackTrack {
     bool isForced = false;
     bool isExternal = false;
     bool isHearingImpaired = false;
+    AudioSourceMetadata audio;
     // Transient executable location for external subtitle tracks. This is
     // retained in-process only and is not part of persistent model identity.
     QUrl externalUrl;
@@ -162,6 +164,7 @@ struct PlaybackDescriptor {
     QList<PlaybackTrack> subtitleTracks;
     QString selectedAudioTrackId;
     QString selectedSubtitleTrackId;
+    AudioOutputPlan audioOutputPlan;
     QList<Chapter> chapters;
     PlaybackReportingCapabilities reporting;
 

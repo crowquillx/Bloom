@@ -178,11 +178,20 @@ MediaStreamInfo JellyfinModelMapper::mediaStream(const QJsonObject &wireStream)
     info.channels = wireStream.value(QStringLiteral("Channels")).toInt();
     info.channelLayout = wireStream.value(QStringLiteral("ChannelLayout")).toString();
     info.bitRate = wireStream.value(QStringLiteral("BitRate")).toInt();
+    info.sampleRate = wireStream.value(QStringLiteral("SampleRate")).toInt();
+    info.bitDepth = wireStream.value(QStringLiteral("BitDepth")).toInt();
     info.width = wireStream.value(QStringLiteral("Width")).toInt();
     info.height = wireStream.value(QStringLiteral("Height")).toInt();
     info.averageFrameRate = wireStream.value(QStringLiteral("AverageFrameRate")).toDouble();
     info.realFrameRate = wireStream.value(QStringLiteral("RealFrameRate")).toDouble();
     info.profile = wireStream.value(QStringLiteral("Profile")).toString();
+    const QString spatialFormat = wireStream.value(QStringLiteral("AudioSpatialFormat")).toString();
+    QVariantMap audioMetadata{{QStringLiteral("codec"), info.codec},
+        {QStringLiteral("profile"), info.profile}, {QStringLiteral("title"), info.title},
+        {QStringLiteral("audioSpatialFormat"), spatialFormat}};
+    const Bloom::AudioSourceMetadata audio = Bloom::AudioSourceMetadata::fromVariantMap(audioMetadata);
+    info.atmos = audio.atmos;
+    info.dtsX = audio.dtsX;
     info.videoRange = wireString(wireStream.value(QStringLiteral("VideoRange")));
     info.videoRangeType = wireString(wireStream.value(QStringLiteral("VideoRangeType")));
     info.codecTag = wireString(wireStream.value(QStringLiteral("CodecTag")));
@@ -208,6 +217,8 @@ MediaSourceInfo JellyfinModelMapper::mediaSource(const QJsonObject &wireSource)
     info.path = wireSource.value(QStringLiteral("Path")).toString();
     info.directStreamUrl = wireSource.value(QStringLiteral("DirectStreamUrl")).toString();
     info.transcodingUrl = wireSource.value(QStringLiteral("TranscodingUrl")).toString();
+    info.directPlayAvailabilityKnown = wireSource.contains(QStringLiteral("SupportsDirectPlay"));
+    info.directPlayAvailable = wireSource.value(QStringLiteral("SupportsDirectPlay")).toBool();
     info.container = wireSource.value(QStringLiteral("Container")).toString();
     info.size = wireSource.value(QStringLiteral("Size")).toVariant().toLongLong();
     info.bitRate = wireSource.value(QStringLiteral("Bitrate")).toInt();

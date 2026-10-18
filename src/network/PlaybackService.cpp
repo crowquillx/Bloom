@@ -1,4 +1,5 @@
 #include "PlaybackService.h"
+#include "audio/AudioOutputService.h"
 #include "AuthenticationService.h"
 #include "HttpTransport.h"
 #include "MediaSegmentProviderService.h"
@@ -111,6 +112,7 @@ PlaybackService::PlaybackService(AuthenticationService *authService,
                                  MediaSegmentProviderService *mediaSegmentProviderService,
                                  QObject *parent)
     : QObject(parent)
+    , m_audioOutput(new Bloom::AudioOutputService(configManager ? configManager : (authService ? authService->configManager() : nullptr), this))
     , m_authService(authService)
     , m_transport(authService ? authService->transport() : nullptr)
     , m_configManager(configManager)
@@ -168,6 +170,20 @@ Bloom::PlaybackDescriptor PlaybackService::createPlaybackDescriptor(
         error.userMessage = tr("The playback provider returned an invalid stream request.");
         emitError(error);
     }
+    return withAudioPlan(descriptor);
+}
+
+Bloom::PlaybackDescriptor PlaybackService::withAudioPlan(Bloom::PlaybackDescriptor descriptor) const
+{
+    for (const auto &track : descriptor.audioTracks) {
+        if (track.trackId == descriptor.selectedAudioTrackId
+            || (descriptor.selectedAudioTrackId.isEmpty() && track.isDefault)) {
+            descriptor.audioOutputPlan = m_audioOutput->planForMetadata(track.audio);
+            return descriptor;
+        }
+    }
+    if (!descriptor.audioTracks.isEmpty())
+        descriptor.audioOutputPlan = m_audioOutput->planForMetadata(descriptor.audioTracks.first().audio);
     return descriptor;
 }
 
@@ -357,7 +373,12 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
         media.connectionId = connection->connectionId;
     }
     const PlaybackProviderContext context = providerContext();
-    loadPlaybackCapabilities(provider, context,
+    m_audioOutput->prepare([=, this] {
+        if (!isCurrentRequest(QStringLiteral("descriptor"), itemId, requestContext, generation)) return;
+        const auto audioPlan = m_audioOutput->planForSource(providerSource, selectedAudioTrack);
+        qCInfo(lcPlayback) << "Pre-provider audio plan" << audioPlan.toVariantMap()
+                          << "capabilities" << m_audioOutput->capabilities().toVariantMap();
+        loadPlaybackCapabilities(provider, context,
         [=, this](bool allowed)
         {
             if (!isCurrentRequest(QStringLiteral("descriptor"), itemId, requestContext, generation))
@@ -399,7 +420,7 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                                 tr("The playback provider returned an invalid stream request."));
                             return;
                         }
-                        emit playbackDescriptorLoadedForRequest(itemId, descriptor, requestContext);
+                        emit playbackDescriptorLoadedForRequest(itemId, withAudioPlan(descriptor), requestContext);
                     });
                 return;
             }
@@ -466,7 +487,7 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                     {
                         endRequest(
                             QStringLiteral("descriptor"), itemId, requestContext, generation);
-                        emit playbackDescriptorLoadedForRequest(itemId, descriptor, requestContext);
+                        emit playbackDescriptorLoadedForRequest(itemId, withAudioPlan(descriptor), requestContext);
                     }
                     else
                     {
@@ -491,6 +512,7 @@ void PlaybackService::requestPlaybackDescriptor(const QString &itemId,
                 },
                 0, true, startRequest.replaySafe ? RetrySafety::Idempotent : RetrySafety::Never);
         });
+    });
 }
 
 bool PlaybackService::switchPlaybackAudio(const QString &playbackSessionId,
@@ -724,7 +746,7 @@ void PlaybackService::requestPlaybackRecovery(const QString &itemId,
                             QStringLiteral("recovery"), itemId, requestContext, generation))
                     {
                         endRequest(QStringLiteral("recovery"), itemId, requestContext, generation);
-                        emit playbackRecoveryLoadedForRequest(itemId, descriptor, requestContext);
+                        emit playbackRecoveryLoadedForRequest(itemId, withAudioPlan(descriptor), requestContext);
                     }
                     else
                     {

@@ -348,7 +348,13 @@ void ProviderCatalogTest::siloTrackIndicesAndMultipartFallbackStayContiguous()
         {QStringLiteral("audio_tracks"), QJsonArray{
              QJsonValue(QStringLiteral("malformed")),
              QJsonObject{{QStringLiteral("index"), 7},
-                          {QStringLiteral("language"), QStringLiteral("eng")}},
+                          {QStringLiteral("language"), QStringLiteral("eng")},
+                          {QStringLiteral("codec"), QStringLiteral("truehd")},
+                          {QStringLiteral("profile"), QStringLiteral("Dolby Atmos")},
+                          {QStringLiteral("sample_rate"), 48000},
+                          {QStringLiteral("bit_depth"), 24},
+                          {QStringLiteral("channels"), 8},
+                          {QStringLiteral("bitrate"), 5000000}},
              QJsonObject{{QStringLiteral("language"), QStringLiteral("deu")}}
          }}
     };
@@ -399,6 +405,9 @@ void ProviderCatalogTest::siloTrackIndicesAndMultipartFallbackStayContiguous()
     QCOMPARE(streams.size(), 2);
     QCOMPARE(streams.at(0).index, 7);
     QCOMPARE(streams.at(1).index, 2);
+    QCOMPARE(streams.at(0).sampleRate, 48000);
+    QCOMPARE(streams.at(0).bitDepth, 24);
+    QVERIFY(streams.at(0).atmos);
 
     SiloProviderAdapter adapter;
     QVERIFY(adapter.supportsCapability(ProviderCapability::Catalog));

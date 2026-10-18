@@ -3,6 +3,8 @@
 #include "models/MediaModels.h"
 #include "providers/jellyfin/JellyfinModelMapper.h"
 #include "providers/jellyfin/JellyfinPlaybackProvider.h"
+#include "providers/silo/SiloModelMapper.h"
+#include "player/AudioPolicy.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -17,6 +19,8 @@ class CanonicalModelsTest : public QObject
 private slots:
     void jellyfinTimeConversionUsesMilliseconds();
     void jellyfinPlaybackInfoMapsToMilliseconds();
+    void audioSourceMetadataUsesStructuredProviderEvidence();
+    void jellyfinAndSiloAudioMetadataShareAudioPolicyPlan();
     void jellyfinTrickplayAndSegmentsMapAtProviderBoundary();
     void jellyfinRemoteSessionsMapAtProviderBoundary();
     void jellyfinItemMapsToCanonicalCamelCase();
@@ -26,10 +30,91 @@ private slots:
     void jellyfinArtworkEndpointContainsNoCredential();
     void playbackDescriptorExposesProviderNeutralShape();
     void jellyfinPlaybackProviderFinalizesStreamAtBoundary();
+    void jellyfinDirectPlayAvailabilityControlsStaticStreamSelection();
     void jellyfinPlaybackProviderFinalizesTrickplayUrl();
     void jellyfinPlaybackInfoRequestUsesBodyUserId();
     void jellyfinPlaybackReportsSerializeAtProviderBoundary();
 };
+
+void CanonicalModelsTest::audioSourceMetadataUsesStructuredProviderEvidence()
+{
+    const Bloom::AudioSourceMetadata masterAudio = Bloom::AudioSourceMetadata::fromVariantMap({
+        {QStringLiteral("codec"), QStringLiteral("dts")},
+        {QStringLiteral("profile"), QStringLiteral("DTS-HD MA")},
+        {QStringLiteral("title"), QStringLiteral("DTS:X")}
+    });
+    QCOMPARE(masterAudio.fidelity, QStringLiteral("lossless"));
+    QVERIFY(masterAudio.dtsX);
+
+    const Bloom::AudioSourceMetadata highResolution = Bloom::AudioSourceMetadata::fromVariantMap({
+        {QStringLiteral("codec"), QStringLiteral("dts-hd")},
+        {QStringLiteral("profile"), QStringLiteral("DTS-HD HRA")}
+    });
+    QCOMPARE(highResolution.fidelity, QStringLiteral("lossy"));
+
+    const Bloom::AudioSourceMetadata filenameOnly = Bloom::AudioSourceMetadata::fromVariantMap({
+        {QStringLiteral("codec"), QStringLiteral("truehd")},
+        {QStringLiteral("path"), QStringLiteral("/library/Dolby.Atmos/title.mkv")}
+    });
+    QVERIFY(!filenameOnly.atmos);
+    QCOMPARE(filenameOnly.fidelity, QStringLiteral("lossless"));
+}
+
+void CanonicalModelsTest::jellyfinAndSiloAudioMetadataShareAudioPolicyPlan()
+{
+    const PlaybackInfoResponse jellyfin = JellyfinModelMapper::playbackInfo({
+        {QStringLiteral("MediaSources"), QJsonArray{QJsonObject{
+            {QStringLiteral("Id"), QStringLiteral("jf-source")},
+            {QStringLiteral("MediaStreams"), QJsonArray{QJsonObject{
+                {QStringLiteral("Index"), 0},
+                {QStringLiteral("Type"), QStringLiteral("Audio")},
+                {QStringLiteral("Codec"), QStringLiteral("truehd")},
+                {QStringLiteral("Profile"), QStringLiteral("Dolby Atmos")},
+                {QStringLiteral("AudioSpatialFormat"), QStringLiteral("DolbyAtmos")},
+                {QStringLiteral("Channels"), 8},
+                {QStringLiteral("ChannelLayout"), QStringLiteral("7.1")},
+                {QStringLiteral("SampleRate"), 48000},
+                {QStringLiteral("BitDepth"), 24},
+                {QStringLiteral("BitRate"), 5000000}
+            }}}
+        }}}
+    });
+    const PlaybackInfoResponse silo = SiloModelMapper::playbackInfo({
+        {QStringLiteral("media_sources"), QJsonArray{QJsonObject{
+            {QStringLiteral("file_id"), QStringLiteral("silo-source")},
+            {QStringLiteral("audio_tracks"), QJsonArray{QJsonObject{
+                {QStringLiteral("index"), 0},
+                {QStringLiteral("codec"), QStringLiteral("truehd")},
+                {QStringLiteral("profile"), QStringLiteral("Dolby Atmos")},
+                {QStringLiteral("title"), QStringLiteral("Dolby Atmos")},
+                {QStringLiteral("channels"), 8},
+                {QStringLiteral("layout"), QStringLiteral("7.1")},
+                {QStringLiteral("sample_rate"), 48000},
+                {QStringLiteral("bit_depth"), 24},
+                {QStringLiteral("bitrate"), 5000000}
+            }}}
+        }}}
+    });
+
+    const auto sourceMetadata = [](const PlaybackInfoResponse &response) {
+        const MediaStreamInfo stream = response.mediaSources.first().getAudioStreams().first();
+        return Bloom::AudioSourceMetadata::fromVariantMap(stream.toVariantMap());
+    };
+    const Bloom::AudioSourceMetadata jfAudio = sourceMetadata(jellyfin);
+    const Bloom::AudioSourceMetadata siloAudio = sourceMetadata(silo);
+    QCOMPARE(jfAudio.toVariantMap(), siloAudio.toVariantMap());
+    QVERIFY(jfAudio.atmos);
+
+    const Bloom::AudioOutputCapabilities output{
+        QStringLiteral("hdmi"), QStringLiteral("endpoint-1"),
+        {QStringLiteral("truehd")}, {QStringLiteral("7.1")},
+        QStringLiteral("test"), true
+    };
+    const Bloom::AudioPreferences preferences;
+    const Bloom::AudioOutputPlan jfPlan = Bloom::AudioPolicy::plan(jfAudio, output, preferences);
+    const Bloom::AudioOutputPlan siloPlan = Bloom::AudioPolicy::plan(siloAudio, output, preferences);
+    QCOMPARE(jfPlan.toVariantMap(), siloPlan.toVariantMap());
+}
 
 void CanonicalModelsTest::jellyfinTimeConversionUsesMilliseconds()
 {
@@ -54,6 +139,14 @@ void CanonicalModelsTest::jellyfinPlaybackInfoMapsToMilliseconds()
                           QJsonObject{
                               {QStringLiteral("Index"), 3},
                               {QStringLiteral("Type"), QStringLiteral("Audio")},
+                              {QStringLiteral("Codec"), QStringLiteral("truehd")},
+                              {QStringLiteral("Profile"), QStringLiteral("Dolby Atmos")},
+                              {QStringLiteral("AudioSpatialFormat"), QStringLiteral("DolbyAtmos")},
+                              {QStringLiteral("SampleRate"), 48000},
+                              {QStringLiteral("BitDepth"), 24},
+                              {QStringLiteral("Channels"), 8},
+                              {QStringLiteral("ChannelLayout"), QStringLiteral("7.1")},
+                              {QStringLiteral("BitRate"), 5000000},
                               {QStringLiteral("DisplayTitle"), QStringLiteral("English")},
                               {QStringLiteral("CodecTag"), 4'294'967'295.0}
                           }
@@ -68,6 +161,10 @@ void CanonicalModelsTest::jellyfinPlaybackInfoMapsToMilliseconds()
     QCOMPARE(playbackInfo.mediaSources.first().mediaStreams.first().index, 3);
     QCOMPARE(playbackInfo.mediaSources.first().mediaStreams.first().codecTag,
              QStringLiteral("4294967295"));
+    const MediaStreamInfo audio = playbackInfo.mediaSources.first().mediaStreams.first();
+    QCOMPARE(audio.sampleRate, 48000);
+    QCOMPARE(audio.bitDepth, 24);
+    QVERIFY(audio.atmos);
     const QVariantMap source = playbackInfo.getMediaSourcesVariant().first().toMap();
     QCOMPARE(source.value(QStringLiteral("durationMs")).toLongLong(), 2000);
     QVERIFY(!source.contains(QStringLiteral("runTimeTicks")));
@@ -548,6 +645,7 @@ void CanonicalModelsTest::jellyfinPlaybackProviderFinalizesStreamAtBoundary()
 
     QVariantMap fallbackSource = source;
     fallbackSource.remove(QStringLiteral("directStreamUrl"));
+    fallbackSource[QStringLiteral("directPlayAvailable")] = true;
     const Bloom::PlaybackDescriptor fallback = provider.createDescriptor(
         context, media, fallbackSource, -1, -1, 0);
     QCOMPARE(fallback.stream.method, Bloom::PlaybackMethod::DirectPlay);
@@ -559,6 +657,72 @@ void CanonicalModelsTest::jellyfinPlaybackProviderFinalizesStreamAtBoundary()
     const Bloom::PlaybackDescriptor prefixed = provider.createDescriptor(
         context, media, prefixedSource, -1, -1, 0);
     QCOMPARE(prefixed.stream.url.path(), QStringLiteral("/base/Videos/movie-1/stream"));
+}
+
+void CanonicalModelsTest::jellyfinDirectPlayAvailabilityControlsStaticStreamSelection()
+{
+    const auto parsedSource = [](bool supportsDirectPlay) {
+        const PlaybackInfoResponse parsed = JellyfinModelMapper::playbackInfo({
+            {QStringLiteral("MediaSources"), QJsonArray{QJsonObject{
+                {QStringLiteral("Id"), QStringLiteral("source-1")},
+                {QStringLiteral("SupportsDirectPlay"), supportsDirectPlay},
+                {QStringLiteral("TranscodingUrl"), QStringLiteral("/Videos/movie-1/master.m3u8")}
+            }}}
+        });
+        return parsed;
+    };
+    const PlaybackInfoResponse directPlayResponse = parsedSource(true);
+    const MediaSourceInfo directPlaySource = directPlayResponse.mediaSources.first();
+    QVERIFY(directPlaySource.directPlayAvailable);
+    const QVariantMap canonical = directPlayResponse.getMediaSourcesVariant().first().toMap();
+    QVERIFY(canonical.value(QStringLiteral("directPlayAvailable")).toBool());
+
+    const JellyfinPlaybackProvider provider;
+    const PlaybackProviderContext context{QUrl(QStringLiteral("https://media.example.test/")), {}};
+    const Bloom::MediaRef media{QStringLiteral("connection-1"), QStringLiteral("movie-1")};
+    const Bloom::PlaybackDescriptor directPlay = provider.createDescriptor(
+        context, media, canonical, -1, -1, 0);
+    QCOMPARE(directPlay.stream.method, Bloom::PlaybackMethod::DirectPlay);
+    QCOMPARE(directPlay.stream.url.path(), QStringLiteral("/Videos/movie-1/stream"));
+    QCOMPARE(QUrlQuery(directPlay.stream.url).queryItemValue(QStringLiteral("Static")),
+             QStringLiteral("true"));
+
+    const QVariantMap unsupported = parsedSource(false).getMediaSourcesVariant().first().toMap();
+    QVERIFY(!unsupported.value(QStringLiteral("directPlayAvailable")).toBool());
+    const Bloom::PlaybackDescriptor transcode = provider.createDescriptor(
+        context, media, unsupported, -1, -1, 0);
+    QCOMPARE(transcode.stream.method, Bloom::PlaybackMethod::Transcode);
+    QCOMPARE(transcode.stream.url.path(), QStringLiteral("/Videos/movie-1/master.m3u8"));
+
+    QVariantMap deniedWithoutUrls = unsupported;
+    deniedWithoutUrls.remove(QStringLiteral("transcodingUrl"));
+    deniedWithoutUrls.remove(QStringLiteral("directStreamUrl"));
+    const Bloom::PlaybackDescriptor denied = provider.createDescriptor(
+        context, media, deniedWithoutUrls, -1, -1, 0);
+    QVERIFY(!denied.isValid());
+    QVERIFY(denied.stream.url.isEmpty());
+
+    const PlaybackInfoResponse unknownResponse = JellyfinModelMapper::playbackInfo({
+        {QStringLiteral("MediaSources"), QJsonArray{QJsonObject{
+            {QStringLiteral("Id"), QStringLiteral("source-1")},
+            {QStringLiteral("TranscodingUrl"), QStringLiteral("/Videos/movie-1/master.m3u8")}
+        }}}
+    });
+    QVERIFY(!unknownResponse.mediaSources.first().directPlayAvailabilityKnown);
+    const QVariantMap unknown = unknownResponse.getMediaSourcesVariant().first().toMap();
+    QVERIFY(!unknown.contains(QStringLiteral("directPlayAvailable")));
+    const Bloom::PlaybackDescriptor legacyStatic = provider.createDescriptor(
+        context, media, unknown, -1, -1, 0);
+    QCOMPARE(legacyStatic.stream.method, Bloom::PlaybackMethod::Transcode);
+    QCOMPARE(legacyStatic.stream.url.path(), QStringLiteral("/Videos/movie-1/master.m3u8"));
+
+    QVariantMap unknownWithoutUrls = unknown;
+    unknownWithoutUrls.remove(QStringLiteral("transcodingUrl"));
+    const Bloom::PlaybackDescriptor legacyStaticFallback = provider.createDescriptor(
+        context, media, unknownWithoutUrls, -1, -1, 0);
+    QCOMPARE(legacyStaticFallback.stream.method, Bloom::PlaybackMethod::DirectPlay);
+    QCOMPARE(QUrlQuery(legacyStaticFallback.stream.url).queryItemValue(QStringLiteral("Static")),
+             QStringLiteral("true"));
 }
 
 void CanonicalModelsTest::jellyfinPlaybackProviderFinalizesTrickplayUrl()
@@ -593,6 +757,44 @@ void CanonicalModelsTest::jellyfinPlaybackInfoRequestUsesBodyUserId()
     QCOMPARE(request.endpoint, QStringLiteral("/Items/item%2F1/PlaybackInfo"));
     QCOMPARE(request.body.value(QStringLiteral("UserId")).toString(),
              QStringLiteral("user-1"));
+    const QJsonObject deviceProfile = request.body.value(QStringLiteral("DeviceProfile")).toObject();
+    const QJsonArray directPlayProfiles = deviceProfile.value(QStringLiteral("DirectPlayProfiles")).toArray();
+    QCOMPARE(directPlayProfiles.size(), 1);
+    QVERIFY(!directPlayProfiles.first().toObject().contains(QStringLiteral("Container")));
+    QVERIFY(!directPlayProfiles.first().toObject().contains(QStringLiteral("VideoCodec")));
+    const QJsonObject audioProfile = directPlayProfiles.first().toObject();
+    QCOMPARE(audioProfile.value(QStringLiteral("Type")).toString(), QStringLiteral("Video"));
+    QCOMPARE(audioProfile.value(QStringLiteral("AudioCodec")).toString(),
+             Bloom::AudioPolicy::localDecodeCodecs().join(QLatin1Char(',')));
+    const QStringList advertisedAudioCodecs = Bloom::AudioPolicy::localDecodeCodecs();
+    QVERIFY(advertisedAudioCodecs.contains(QStringLiteral("wmav2")));
+    QVERIFY(advertisedAudioCodecs.contains(QStringLiteral("wmapro")));
+    QVERIFY(advertisedAudioCodecs.contains(QStringLiteral("mlp")));
+    QVERIFY(advertisedAudioCodecs.contains(QStringLiteral("pcm_bluray")));
+    const QJsonArray transcodingProfiles = deviceProfile.value(QStringLiteral("TranscodingProfiles")).toArray();
+    QCOMPARE(transcodingProfiles.size(), 1);
+    const QJsonObject fallback = transcodingProfiles.first().toObject();
+    QCOMPARE(fallback.value(QStringLiteral("Type")).toString(), QStringLiteral("Video"));
+    QCOMPARE(fallback.value(QStringLiteral("Context")).toString(), QStringLiteral("Streaming"));
+    QCOMPARE(fallback.value(QStringLiteral("Container")).toString(), QStringLiteral("mkv"));
+    QCOMPARE(fallback.value(QStringLiteral("Protocol")).toString(), QStringLiteral("http"));
+    QVERIFY(!fallback.contains(QStringLiteral("VideoCodec")));
+    QVERIFY(!fallback.contains(QStringLiteral("MaxAudioChannels")));
+    QStringList fallbackAudioCodecs = advertisedAudioCodecs;
+    fallbackAudioCodecs.removeAll(QStringLiteral("flac"));
+    fallbackAudioCodecs.prepend(QStringLiteral("flac"));
+    QCOMPARE(fallback.value(QStringLiteral("AudioCodec")).toString(), fallbackAudioCodecs.join(QLatin1Char(',')));
+    const QJsonArray subtitleProfiles = deviceProfile.value(QStringLiteral("SubtitleProfiles")).toArray();
+    QVERIFY(!subtitleProfiles.isEmpty());
+    QStringList subtitleFormats;
+    for (const QJsonValue &value : subtitleProfiles) {
+        const QJsonObject profile = value.toObject();
+        QCOMPARE(profile.value(QStringLiteral("Method")).toString(), QStringLiteral("Embed"));
+        subtitleFormats.append(profile.value(QStringLiteral("Format")).toString());
+    }
+    QVERIFY(subtitleFormats.contains(QStringLiteral("ass")));
+    QVERIFY(subtitleFormats.contains(QStringLiteral("subrip")));
+    QVERIFY(subtitleFormats.contains(QStringLiteral("pgssub")));
     QVERIFY(!request.endpoint.contains(QStringLiteral("UserId"), Qt::CaseInsensitive));
 
     const PlaybackInfoParseResult parsed = provider.parsePlaybackInfoResponse(

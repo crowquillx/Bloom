@@ -7,6 +7,7 @@
 #include <QTemporaryDir>
 #include <QUrl>
 #include <QUrlQuery>
+#include <algorithm>
 
 #include "player/PlayerController.h"
 
@@ -38,6 +39,7 @@ public:
     void startMpv(const QString &mpvBin, const QStringList &args, const QString &mediaUrl) override
     {
         Q_UNUSED(mpvBin);
+        ++startCallCount;
         lastStartArgs = args;
         lastStartUrl = mediaUrl;
         m_running = true;
@@ -100,6 +102,11 @@ public:
         Q_UNUSED(viewport);
     }
 
+    void requestAudioDiagnostics(const QString &tag) override
+    {
+        requestedAudioDiagnostics.append(tag);
+    }
+
 private:
     bool m_running = false;
 
@@ -113,6 +120,8 @@ public:
     QStringList appendedUrls;
     QStringList lastStartArgs;
     QString lastStartUrl;
+    int startCallCount = 0;
+    QStringList requestedAudioDiagnostics;
 
     void setRunning(bool running)
     {
@@ -169,6 +178,16 @@ public:
     void emitPausedForCache(bool paused)
     {
         emit pausedForCacheChanged(paused);
+    }
+
+    void emitAudioDevices(const QVariantList &devices)
+    {
+        emit audioDeviceListChanged(devices);
+    }
+
+    void emitPlaybackDiagnostics(const QString &stage, const QVariantMap &properties)
+    {
+        emit playbackDiagnosticsAvailable(stage, properties);
     }
 };
 
@@ -569,6 +588,11 @@ private slots:
     void backendTrackSyncUsesReverseMap();
     void descriptorPinnedTrackIdsDefaultToMinusOne();
     void nativeAudioReloadRetainsTrackMapping();
+    void audioStartupPlanOverridesProfileOutputArgs();
+    void autoAudioDeviceChangesReloadAfterInitialBaseline();
+    void explicitAudioDeviceReloadsOnDisappearAndReconnect();
+    void audioDiagnosticsFallbackToPcmOnceAndThrottleNullRetries();
+    void audioDiagnosticsWithoutOutputEvidenceDoNotFallback();
     void externalSubtitleSelectionReaddsUnresolvedTrack();
 
 private:
@@ -3961,6 +3985,220 @@ void PlayerControllerAutoplayContextTest::nativeAudioReloadRetainsTrackMapping()
 
     QCOMPARE(controller.selectedAudioTrack(), 9);
     QCOMPARE(controller.m_mpvAudioTrack, 2);
+}
+
+void PlayerControllerAutoplayContextTest::audioStartupPlanOverridesProfileOutputArgs()
+{
+    ConfigManager config;
+    QVariantMap profile = config.getMpvProfile(QStringLiteral("Medium Quality"));
+    profile[QStringLiteral("extraArgs")] = QStringList{
+        QStringLiteral("--audio-spdif=ac3"),
+        QStringLiteral("--audio-device=profile-device"),
+        QStringLiteral("--audio-channels=7.1")
+    };
+    config.setMpvProfile(QStringLiteral("Medium Quality"), profile);
+    config.setDefaultProfileName(QStringLiteral("Medium Quality"));
+    config.setAudioPassthroughMode(QStringLiteral("custom"));
+    config.setAudioPassthroughCodecs({QStringLiteral("truehd")});
+
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService, &config);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    const QVariantMap mediaSource = buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")},
+                    {QStringLiteral("index"), 4},
+                    {QStringLiteral("codec"), QStringLiteral("truehd")},
+                    {QStringLiteral("channels"), 8},
+                    {QStringLiteral("channelLayout"), QStringLiteral("7.1")}}
+    });
+    controller.playUrlWithTracks(QStringLiteral("https://example.invalid/truehd"),
+                                 QStringLiteral("truehd-item"), 0, {}, {}, {},
+                                 QStringLiteral("source-truehd"), QStringLiteral("session-truehd"),
+                                 mediaSource, 4, -1);
+
+    QCOMPARE(backend.startCallCount, 1);
+    QCOMPARE(controller.selectedAudioTrack(), 4);
+    QCOMPARE(controller.m_audioPlan.path, QStringLiteral("passthrough"));
+    QCOMPARE(controller.m_audioPlan.passthroughCodec, QStringLiteral("truehd"));
+    QVERIFY(backend.lastStartArgs.indexOf(QStringLiteral("--audio-spdif=ac3"))
+            < backend.lastStartArgs.lastIndexOf(QStringLiteral("--audio-spdif=truehd")));
+    QVERIFY(backend.lastStartArgs.indexOf(QStringLiteral("--audio-device=profile-device"))
+            < backend.lastStartArgs.lastIndexOf(QStringLiteral("--audio-device=auto")));
+    QVERIFY(backend.lastStartArgs.indexOf(QStringLiteral("--audio-channels=7.1"))
+            < backend.lastStartArgs.lastIndexOf(QStringLiteral("--audio-channels=auto-safe")));
+}
+
+void PlayerControllerAutoplayContextTest::autoAudioDeviceChangesReloadAfterInitialBaseline()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService, &config);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_activeMediaSource = buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")},
+                    {QStringLiteral("index"), 1},
+                    {QStringLiteral("codec"), QStringLiteral("aac")}}
+    });
+    controller.m_selectedAudioTrack = 1;
+    controller.updateTrackMappings(controller.m_activeMediaSource);
+
+    backend.setRunning(true);
+    backend.emitAudioDevices({QVariantMap{{QStringLiteral("name"), QStringLiteral("speaker")}}});
+    QVERIFY(!backend.variantCommands.contains(QVariantList{QStringLiteral("ao-reload")}));
+    backend.emitAudioDevices({QVariantMap{{QStringLiteral("name"), QStringLiteral("speaker")}},
+                              QVariantMap{{QStringLiteral("name"), QStringLiteral("headset")}}});
+
+    const auto reloadCount = [&backend] {
+        return std::count(backend.variantCommands.cbegin(), backend.variantCommands.cend(),
+                          QVariantList{QStringLiteral("ao-reload")});
+    };
+    QTRY_VERIFY(reloadCount() >= 1);
+}
+
+void PlayerControllerAutoplayContextTest::explicitAudioDeviceReloadsOnDisappearAndReconnect()
+{
+    ConfigManager config;
+    config.setAudioOutputDevice(QStringLiteral("alsa/device-1"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService, &config);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    controller.m_playbackState = PlayerController::Playing;
+    backend.setRunning(true);
+    backend.emitAudioDevices({QVariantMap{{QStringLiteral("name"), QStringLiteral("alsa/device-1")}}});
+    QVERIFY(!backend.variantCommands.contains(QVariantList{QStringLiteral("ao-reload")}));
+
+    backend.emitAudioDevices({});
+    auto reloadCount = [&backend] {
+        return std::count(backend.variantCommands.cbegin(), backend.variantCommands.cend(),
+                          QVariantList{QStringLiteral("ao-reload")});
+    };
+    QTRY_VERIFY(reloadCount() >= 1);
+    QVERIFY(backend.variantCommands.contains(
+        QVariantList{QStringLiteral("set_property"), QStringLiteral("audio-device"),
+                     QStringLiteral("alsa/device-1")}));
+
+    backend.variantCommands.clear();
+    backend.emitAudioDevices({QVariantMap{{QStringLiteral("name"), QStringLiteral("alsa/device-1")}}});
+    QTRY_VERIFY(reloadCount() >= 1);
+    QVERIFY(backend.variantCommands.contains(
+        QVariantList{QStringLiteral("set_property"), QStringLiteral("audio-device"),
+                     QStringLiteral("alsa/device-1")}));
+}
+
+void PlayerControllerAutoplayContextTest::audioDiagnosticsFallbackToPcmOnceAndThrottleNullRetries()
+{
+    ConfigManager config;
+    config.setAudioPassthroughMode(QStringLiteral("custom"));
+    config.setAudioPassthroughCodecs({QStringLiteral("truehd")});
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService, &config);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    const QVariantMap mediaSource = buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")},
+                    {QStringLiteral("index"), 2},
+                    {QStringLiteral("codec"), QStringLiteral("truehd")}}
+    });
+    controller.playUrlWithTracks(QStringLiteral("https://example.invalid/truehd"),
+                                 QStringLiteral("truehd-item"), 0, {}, {}, {},
+                                 QStringLiteral("source-truehd"), QStringLiteral("session-truehd"),
+                                 mediaSource, 2, -1);
+    QCOMPARE(backend.startCallCount, 1);
+    QCOMPARE(controller.m_audioPlan.path, QStringLiteral("passthrough"));
+    const int stopCalls = backend.stopCallCount;
+
+    const QVariantMap mismatch{{QStringLiteral("current-ao"), QStringLiteral("alsa")},
+                               {QStringLiteral("audio-out-params"),
+                                QVariantMap{{QStringLiteral("format"), QStringLiteral("spdif-ac3")}}}};
+    backend.emitPlaybackDiagnostics(QStringLiteral("audio|%1").arg(controller.m_audioPlanGeneration),
+                                    mismatch);
+    QCOMPARE(controller.m_audioPlan.path, QStringLiteral("pcm"));
+    QVERIFY(controller.m_forcePcmAudio);
+    QVERIFY(backend.variantCommands.contains(
+        QVariantList{QStringLiteral("set_property"), QStringLiteral("audio-spdif"), QString()}));
+    QCOMPARE(backend.startCallCount, 1);
+    QCOMPARE(backend.stopCallCount, stopCalls);
+    QVERIFY(std::none_of(backend.commands.cbegin(), backend.commands.cend(), [](const QStringList &command) {
+        return !command.isEmpty() && command.first() == QStringLiteral("loadfile");
+    }));
+
+    const QVariantMap nullOutput{{QStringLiteral("current-ao"), QStringLiteral("null")},
+                                 {QStringLiteral("audio-out-params"),
+                                  QVariantMap{{QStringLiteral("format"), QStringLiteral("s16")}}}};
+    const auto reloadCount = [&backend] {
+        return std::count(backend.variantCommands.cbegin(), backend.variantCommands.cend(),
+                          QVariantList{QStringLiteral("ao-reload")});
+    };
+    const int fallbackReloads = reloadCount();
+    backend.emitPlaybackDiagnostics(QStringLiteral("audio|%1").arg(controller.m_audioPlanGeneration),
+                                    nullOutput);
+    const int afterFirstNull = reloadCount();
+    QVERIFY(afterFirstNull > fallbackReloads);
+    backend.emitPlaybackDiagnostics(QStringLiteral("audio|%1").arg(controller.m_audioPlanGeneration),
+                                    nullOutput);
+    QCOMPARE(reloadCount(), afterFirstNull);
+    QCOMPARE(backend.startCallCount, 1);
+    QCOMPARE(backend.stopCallCount, stopCalls);
+}
+
+void PlayerControllerAutoplayContextTest::audioDiagnosticsWithoutOutputEvidenceDoNotFallback()
+{
+    ConfigManager config;
+    config.setAudioPassthroughMode(QStringLiteral("custom"));
+    config.setAudioPassthroughCodecs({QStringLiteral("truehd")});
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService, &config);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    const QVariantMap mediaSource = buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")},
+                    {QStringLiteral("index"), 3},
+                    {QStringLiteral("codec"), QStringLiteral("truehd")}}
+    });
+    controller.playUrlWithTracks(QStringLiteral("https://example.invalid/truehd"),
+                                 QStringLiteral("truehd-item"), 0, {}, {}, {},
+                                 QStringLiteral("source-truehd"), QStringLiteral("session-truehd"),
+                                 mediaSource, 3, -1);
+    QCOMPARE(controller.m_audioPlan.path, QStringLiteral("passthrough"));
+
+    backend.emitPlaybackDiagnostics(QStringLiteral("audio|%1").arg(controller.m_audioPlanGeneration),
+                                    {{QStringLiteral("current-ao"), QStringLiteral("alsa")}});
+    QVERIFY(!controller.m_forcePcmAudio);
+    QCOMPARE(controller.audioDiagnostics().value(QStringLiteral("outputObservable")).toBool(), false);
+    QCOMPARE(controller.audioDiagnostics().value(QStringLiteral("passthroughActive")).toBool(), false);
+    QCOMPARE(controller.audioDiagnostics().value(QStringLiteral("objectMetadataEvidence")).toString(),
+             QStringLiteral("not retained by PCM or unverified output"));
+    QVERIFY(!backend.variantCommands.contains(QVariantList{QStringLiteral("ao-reload")}));
+    QCOMPARE(backend.startCallCount, 1);
 }
 
 void PlayerControllerAutoplayContextTest::externalSubtitleSelectionReaddsUnresolvedTrack()

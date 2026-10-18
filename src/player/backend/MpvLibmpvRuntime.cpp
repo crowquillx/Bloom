@@ -185,6 +185,11 @@ void LibmpvPropertySnapshots::request(mpv_handle *handle,
         || properties.size() >= (1 << kSnapshotIndexBits)) {
         return;
     }
+    for (auto it = m_snapshots.begin(); it != m_snapshots.end();) {
+        if (it->deadline.hasExpired()) it = m_snapshots.erase(it);
+        else ++it;
+    }
+    if (m_snapshots.size() >= 4) return;
     const quint64 snapshotId = m_nextSnapshot++;
     Snapshot snapshot;
     snapshot.stage = stage;

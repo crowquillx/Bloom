@@ -59,6 +59,10 @@ QVariantMap MediaStreamInfo::toVariantMap() const
     streamMap["channels"] = channels;
     streamMap["channelLayout"] = channelLayout;
     streamMap["bitRate"] = bitRate;
+    streamMap["sampleRate"] = sampleRate;
+    streamMap["bitDepth"] = bitDepth;
+    streamMap["atmos"] = atmos;
+    streamMap["dtsX"] = dtsX;
     streamMap["width"] = width;
     streamMap["height"] = height;
     streamMap["averageFrameRate"] = averageFrameRate;
@@ -151,6 +155,9 @@ QVariantList PlaybackInfoResponse::getMediaSourcesVariant() const
         sourceMap["path"] = source.path;
         sourceMap["directStreamUrl"] = source.directStreamUrl;
         sourceMap["transcodingUrl"] = source.transcodingUrl;
+        if (source.directPlayAvailabilityKnown) {
+            sourceMap["directPlayAvailable"] = source.directPlayAvailable;
+        }
         sourceMap["container"] = source.container;
         sourceMap["size"] = source.size;
         sourceMap["bitRate"] = source.bitRate;

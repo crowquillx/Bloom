@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QDeadlineTimer>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -66,6 +67,7 @@ public:
 private:
     struct Snapshot
     {
+        QDeadlineTimer deadline{2000};
         QString stage;
         QStringList names;
         QVariantMap values;

@@ -1,4 +1,5 @@
 #include "LinuxMpvBackend.h"
+#include "player/AudioPolicy.h"
 
 #include <QLoggingCategory>
 #include <QMetaObject>
@@ -485,6 +486,16 @@ Bloom::PlaybackPolicy::RendererKind LinuxMpvBackend::rendererKind(const QStringL
 {
     Q_UNUSED(args);
     return Bloom::PlaybackPolicy::RendererKind::LibmpvRenderApi;
+}
+
+void LinuxMpvBackend::requestAudioDiagnostics(const QString &tag)
+{
+#if defined(BLOOM_HAS_LIBMPV)
+    if (m_mpvHandle)
+        m_propertySnapshots.request(static_cast<mpv_handle *>(m_mpvHandle), tag, Bloom::AudioPolicy::diagnosticProperties());
+#else
+    Q_UNUSED(tag);
+#endif
 }
 
 void LinuxMpvBackend::scheduleDiagnosticSnapshots()
