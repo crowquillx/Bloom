@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QLoggingCategory>
+#include <QString>
 
 // Image & disk cache (suppress info/debug by default; warnings/errors always show)
 Q_DECLARE_LOGGING_CATEGORY(lcImageCache)       // bloom.imagecache
@@ -31,3 +32,5 @@ Q_DECLARE_LOGGING_CATEGORY(lcApp)              // bloom.app
 Q_DECLARE_LOGGING_CATEGORY(lcUi)               // bloom.ui
 Q_DECLARE_LOGGING_CATEGORY(lcUiSceneGraph)     // bloom.ui.scenegraph
 Q_DECLARE_LOGGING_CATEGORY(lcTest)             // bloom.test
+
+QString redactNetworkLogText(QString message);

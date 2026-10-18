@@ -3,7 +3,7 @@ Media Segment Providers
 Overview
 - `PlaybackService::getMediaSegments()` is the provider-neutral playback entry point.
 - The active provider's server segments are loaded before any external lookup.
-- Native Silo markers use `/api/v1/markers/files/{file_id}` for the selected playback version or multipart file, falling back to `/api/v1/markers/items/{content_id}` only when no file identity is available. They remain authoritative for every segment type Silo returns.
+- Native Silo markers use `/api/v2/markers/files/{file_id}` for the selected playback version or multipart file, falling back to `/api/v2/markers/items/{content_id}` only when no file identity is available. They remain authoritative for every segment type Silo returns.
 - On Jellyfin, Bloom uses the OpenAPI-listed core `/MediaSegments/{id}` route and maps tick ranges at the provider boundary. It does not probe excluded legacy plugin routes.
 - Only after the server response is normalized does `MediaSegmentProviderService` query configured external providers to fill missing types.
 
@@ -24,3 +24,5 @@ Adding a provider
 - Set `source` to a stable lowercase provider id.
 - Add the provider id to `ConfigManager::getMediaSegmentProviderOrder()` defaults only when it is suitable as a default.
 - Add parser and merge tests in `MediaSegmentProviderServiceTest`.
+
+Silo v2 markers retain opaque string file IDs. Watch state also exposes per-version markers and `marker_segments`. The dedicated marker read remains authoritative for the selected file; this migration does not change external-provider precedence.

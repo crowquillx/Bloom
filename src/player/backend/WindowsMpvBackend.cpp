@@ -993,7 +993,7 @@ void WindowsMpvBackend::processMpvEvents()
             }
             const QString level = QString::fromUtf8(logMessage->level ? logMessage->level : "");
             const QString prefix = QString::fromUtf8(logMessage->prefix ? logMessage->prefix : "");
-            const QString text = QString::fromUtf8(logMessage->text).trimmed();
+            const QString text = redactNetworkLogText(QString::fromUtf8(logMessage->text).trimmed());
             if (text.isEmpty()) {
                 break;
             }

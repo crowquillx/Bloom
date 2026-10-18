@@ -151,7 +151,7 @@ Key components
 - MpvVideoItem / VideoSurface: minimal viewport plumbing for embedded backend integration.
 - PlayerProcessManager: manages external mpv process lifetime, sockets/pipes, scripts and config dir through the reusable `Bloom::PlayerProcess` production target. Observes `time-pos`, `duration`, `pause`, `aid`, `sid`, `paused-for-cache`, `volume`, `mute`, `playlist-pos`, `playlist-count`, `demuxer-cache-time`, and `audio-device-list`.
 - PlayerController: provider-neutral state machine that handles play/pause/resume, listens for backend updates, manages track selection, and sends canonical playback state through `PlaybackService`.
-- `IPlaybackProvider` / `JellyfinPlaybackProvider` / `SiloPlaybackProvider`: finalize provider PlaybackInfo into Bloom `PlaybackDescriptor` values and serialize canonical playback reports into provider endpoints and wire payloads. Silo uses its pinned legacy native envelope; Jellyfin retains its synchronous descriptor path.
+- `IPlaybackProvider` / `JellyfinPlaybackProvider` / `SiloPlaybackProvider`: finalize provider PlaybackInfo into Bloom `PlaybackDescriptor` values and serialize canonical playback reports into provider endpoints and wire payloads. Silo uses the pinned native API v2 and protocol 3; Jellyfin retains its synchronous descriptor path.
 - `PlaybackService`: stable application façade for playback preparation and reporting transport; its public timing contract uses milliseconds.
 - TrackPreferencesManager: persists explicit audio/subtitle user choices to a separate JSON file using a versioned schema.
 
@@ -367,17 +367,28 @@ Playback overlay metadata
   - Episodes: series title + `Sxx Exx - Episode Name`.
 - Fallback behavior still exists (`currentItemId`) when explicit metadata is not provided.
 
-Native Silo playback (pinned legacy envelope)
-- Native playback uses the legacy Silo envelope at revision `8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6` (the same immutable revision documented in [provider compatibility](provider-compatibility.md)). Bloom deliberately omits `protocol_version: 3`: the pinned capability route advertises `media3_only`, which is a Media3/Android contract and is not an mpv wire contract. Bloom must not infer mpv support from a v3 capability response.
-- Start is `POST /api/v1/playback/start`. The body contains numeric `file_id`, the selected `profile_id`, `start_position` in seconds, optional `audio_track_index`, and mpv capabilities for codecs, containers, resolution, HDR, passthrough, and bitmap subtitles. There is no invented native “variant” field: alternate versions are selected by their catalog `file_id`; multipart parts are separate sequential native sessions.
-- The `201` response is mapped into the provider-neutral `PlaybackDescriptor`: `session_id`/`media_file_id`, effective `play_method`, `position`, `stream_url`, `subtitle_urls`, selected audio index, duration, and `playback_info`. Direct play, remux, and HLS/transcode responses are accepted when Silo's policy/runtime permits them. Range-capable direct URLs are passed to mpv unchanged so seeking remains a server capability, not a client URL rewrite.
-- Stream and subtitle URLs are opaque signed locations. Bloom resolves relative URLs against the configured server origin with `QUrl` while preserving absolute URLs and every existing query byte-for-byte; it never appends auth query parameters or reconstructs a URL from IDs.
-- Progress and pause/resume use `POST /api/v1/playback/{session_id}/progress` with `{ "seconds": <seconds>, "is_paused": <bool> }`. Stop uses `DELETE /api/v1/playback/{session_id}`. Playback network calls go through `AuthenticationService`/`HttpTransport`, including the normal refresh-once behavior and current profile headers. State-changing reports, starts, recovery operations, and audio switches are not transiently replayed without an explicit provider idempotency contract.
-- Runtime audio switching uses `PATCH /api/v1/playback/{session_id}/audio` with the selected track index. A successful response supplies a replacement signed reload URL and effective play method; Bloom swaps the mpv stream without inventing a provider variant.
-- PlaybackInfo for native Silo is derived from catalog item/version track data, not Jellyfin `/Items/{id}/PlaybackInfo` or `/Videos/*` endpoints. Direct/remux/HLS capability, subtitle inventory, and version identity therefore remain provider-native.
-- Native multipart playback resolves each catalog part/version by `file_id`, starts one native session per physical file, and reports each session's progress/stop independently while preserving the logical item's aggregate timeline and autoplay context. Native Silo does not use Jellyfin `/AdditionalParts`.
-- A provider request rejected with `401` may be replayed once after bounded, single-flight authentication recovery; this is separate from transient retry policy. Transient stream interruption remains mpv's reconnect/cache path. A failed native start or expired opaque URL is surfaced as playback failure/refetched from its owning catalog resource rather than silently falling back to a Jellyfin stream.
-- Pinned limits are intentional: protocol-v3 is unavailable for mpv, native trickplay and playable theme-song routes are absent, capability discovery does not establish an mpv contract, and transcode/HLS/audio-switch behavior remains conditional on Silo policy and runtime support. The Silo HEAD comparison in the contract matrix is research-only and does not change the pinned release claim.
+
+Silo API v2 playback migration
+- Playback starts only when `/api/v2/playback/capabilities` allows protocol 3, `playback_plan_v3`, and `original_http`. Capability ETags support conditional reads. Build and contract identity fields never enable a feature.
+- Start uses an opaque string file ID, the advertised installation ID, and one playback attempt ID per request. Bloom advertises declared mpv codec capabilities and original HTTP delivery. It does not claim exact hardware or audio passthrough evidence.
+- `PlaybackDecision.playback_plan` supplies the stream URL, selected tracks, source duration, and player start time. Header-authenticated media is not advertised on the URL-only mpv path. Non-empty required stream headers remain unavailable. Unknown outcomes and deliveries fail safely. Bloom preserves the returned stream reference and appends the documented account-token fallback only on the configured API origin. It does not add credentials to other origins.
+- Forward-only remux and HLS plans require server reanchoring and source/player timeline translation. They remain unavailable on the new native path. This migration does not add transcode support.
+- Audio changes use `POST /playback/{session_id}/replan` with `operation: track_change`, the active plan identity, and a new replan request ID. The old audio PATCH route is not in the v2 contract.
+- Progress sends monotonically increasing sequences, installation identity, and position in seconds. Stop sends a stable stop ID and the last position. Provider session state remains in memory and is scoped to the account, profile, and Bloom media connection.
+
+Silo theme audio
+- Theme metadata comes from the detail response's `themes` set. Bloom checks `/api/v2/catalog/themes/capabilities` before requesting a grant for the first theme. Grants use the set's `owner_id`, which can differ from the detail item ID.
+- The grant URL is an expiring credential. Bloom keeps it in memory, resolves it against the server origin, and passes it to `ThemeSongManager`. It does not build an audio URL from an item ID.
+- Converted delivery is progressive AAC in audio-only MP4. Bloom disables media-player looping for Silo grants and requests a fresh grant at each loop. It fetches grant audio once without ranges into a buffer, with a 16 MiB limit and a 45-second deadline, before giving a seekable device to QtMultimedia. QtMultimedia cannot make additional network requests or replay a converted URL. Expired grants and unknown delivery values fail closed.
+
+Silo seek previews
+- `/api/v2/watch/{id}` supplies consolidated versions, tracks, source duration, chapters, and per-version `trickplay_available` state.
+- Bloom requests `/api/v2/watch/{id}/trickplay?file_id=...` only when the playback capability advertises `trickplay_v1` and the selected watch version has published previews.
+- The adapter maps thumbnail size, sheet grid, interval in milliseconds, and thumbnail count. Sheet URLs remain opaque and expire at `expires_at`. A bounded in-memory cache keeps them separate by server, account, profile, and item. Missing or expired sheets produce no preview URL.
+- PlayerController passes the current file ID on every item or multipart transition. Jellyfin preview requests retain their existing route and mapping.
+
+
+Native multipart playback starts and reports one protocol 3 session per physical file. Content identity and the logical aggregate timeline remain separate from file identity. A native failure never falls back to a Jellyfin stream.
 
 Jellyfin and native Silo playback share the provider-neutral descriptor/reporting boundary; only the provider owns endpoint construction and wire serialization.
 
@@ -425,7 +436,7 @@ Playback caching and network resilience
   - When playback hits `Error` because of a network/timeout failure, the controller stashes a `RecoveryContext` with the active connection/provider, canonical media identity, provider source/version, track selections, and last known position.
   - If the backend reports stopped before the recoverable mpv error arrives, `PlayerController` upgrades the pending terminal transition from `Stop` to `Error`, stashes the same recovery context, and keeps playback active so embedded video/overlay surfaces are not torn down during retry.
   - If `autoRecoverPlayback` is enabled (default `true`, stored in `settings.playback.auto_recover_playback`), the controller enters recovery mode and pings the selected provider every 5 seconds via `LibraryService::pingServer()`.
-  - When the ping succeeds, recovery asks the selected `IPlaybackProvider` for fresh playback information: Jellyfin refreshes `/Items/{id}/PlaybackInfo`; native Silo refetches catalog item/version data and starts its pinned legacy native session. Both resume at the last known position with prior track hints.
+  - When the ping succeeds, recovery asks the selected `IPlaybackProvider` for fresh playback information: Jellyfin refreshes `/Items/{id}/PlaybackInfo`; native Silo refetches watch state and capabilities, then starts a protocol 3 session. Both resume at the last known position with prior track hints.
   - Recovery retries indefinitely until the provider returns or the user explicitly stops/retries/clears the error. A failed native start or expired signed URL is surfaced/refetched through Silo's owning catalog resource, never silently replaced with a Jellyfin stream.
   - Manual retry (`retry()` / `Event::Play`) follows the same provider-aware refresh path instead of replaying an old stream URL.
 - `autoRecoverPlayback` is not exposed in the settings UI; it can be toggled by editing `app.json` directly.
@@ -464,21 +475,4 @@ Troubleshooting
 - If track selection doesn't sync, verify that `playSessionId` is being passed correctly in all reporting calls.
 - If track preferences aren't being restored, check that `track_preferences.json` is schema version 4 and that the active connection under `scopes` contains the relevant `episodes` or `movies` entry. Unset preferences intentionally fall back to provider/file defaults and are not written.
 
-Silo API v2 playback migration
-- Playback starts only when `/api/v2/playback/capabilities` allows protocol 3, `playback_plan_v3`, and `original_http`. Capability ETags support conditional reads. Build and contract identity fields never enable a feature.
-- Start uses an opaque string file ID, the advertised installation ID, and one playback attempt ID per request. Bloom advertises declared mpv codec capabilities and original HTTP delivery. It does not claim exact hardware or audio passthrough evidence.
-- `PlaybackDecision.playback_plan` supplies the stream URL, headers, selected tracks, source duration, and player start time. Unknown outcomes and deliveries fail safely. Bloom preserves opaque stream URLs and does not reconstruct them.
-- Forward-only remux and HLS plans require server reanchoring and source/player timeline translation. They remain unavailable on the new native path. This migration does not add transcode support.
-- Audio changes use `POST /playback/{session_id}/replan` with `operation: track_change`, the active plan identity, and a new replan request ID. The old audio PATCH route is not in the v2 contract.
-- Progress sends monotonically increasing sequences, installation identity, and position in seconds. Stop sends a stable stop ID and the last position. Provider session state remains in memory and is scoped to the account, profile, and Bloom media connection.
-
-Silo theme audio
-- Theme metadata comes from the detail response's `themes` set. Bloom checks `/api/v2/catalog/themes/capabilities` before requesting a grant for the first theme. Grants use the set's `owner_id`, which can differ from the detail item ID.
-- The grant URL is an expiring credential. Bloom keeps it in memory, resolves it against the server origin, and passes it to `ThemeSongManager`. It does not build an audio URL from an item ID.
-- Converted delivery is progressive AAC in audio-only MP4. Bloom disables media-player looping for Silo grants and requests a fresh grant at each loop. It fetches grant audio once without ranges into a buffer, with a 16 MiB limit and a 45-second deadline, before giving a seekable device to QtMultimedia. QtMultimedia cannot make additional network requests or replay a converted URL. Expired grants and unknown delivery values fail closed.
-
-Silo seek previews
-- `/api/v2/watch/{id}` supplies consolidated versions, tracks, source duration, chapters, and per-version `trickplay_available` state.
-- Bloom requests `/api/v2/watch/{id}/trickplay?file_id=...` only when the playback capability advertises `trickplay_v1` and the selected watch version has published previews.
-- The adapter maps thumbnail size, sheet grid, interval in milliseconds, and thumbnail count. Sheet URLs remain opaque and expire at `expires_at`. A bounded in-memory cache keeps them separate by server, account, profile, and item. Missing or expired sheets produce no preview URL.
-- PlayerController passes the current file ID on every item or multipart transition. Jellyfin preview requests retain their existing route and mapping.
+Native mpv backend logs and trickplay download errors redact complete HTTP URLs and relative query credentials before logging or emitting error text. External mpv output remains drained without logging.

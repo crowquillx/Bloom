@@ -157,11 +157,11 @@ void TrickplayProcessor::onTileDownloaded(QNetworkReply *reply)
     
     if (reply->error() != QNetworkReply::NoError) {
         qCWarning(lcPlaybackTrickplay) << "TrickplayProcessor: Failed to download tile" << tileIndex
-                   << "for item" << itemId << ":" << reply->errorString();
+                   << "for item" << itemId << ":" << redactNetworkLogText(reply->errorString());
         m_isProcessing = false;
         locker.unlock();
         emit processingFailed(itemId, QString("Failed to download tile %1: %2")
-                              .arg(tileIndex).arg(reply->errorString()));
+                              .arg(tileIndex).arg(redactNetworkLogText(reply->errorString())));
         return;
     }
     

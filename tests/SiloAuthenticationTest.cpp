@@ -109,11 +109,10 @@ protected:
     {
         const QByteArray body = outgoingData ? outgoingData->readAll() : QByteArray{};
         requests.append({operation, request, body});
-        QueuedResponse response{
-            500,
-            QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/test_queue_empty","title":"test_queue_empty","status":400,"detail":"No response queued","instance":"urn:silo:request:test"})"),
-            QNetworkReply::UnknownServerError
-        };
+        QueuedResponse response { 500,
+            QByteArrayLiteral(
+                R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/test_queue_empty","title":"test_queue_empty","status":400,"detail":"No response queued","instance":"urn:silo:request:test"})"),
+            QNetworkReply::UnknownServerError };
         if (!responses.isEmpty()) {
             response = responses.takeFirst();
         }
@@ -147,7 +146,7 @@ QByteArray successfulLogin()
 QByteArray singleUnlockedProfile()
 {
     return QByteArrayLiteral(
-        R"({"profiles":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true}]})");
+        R"({"items":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true}]})");
 }
 
 } // namespace
@@ -158,6 +157,7 @@ class SiloAuthenticationTest : public QObject
 
 private slots:
     void adapterExposesNativeAuthenticationBoundaries();
+    void problemEnvelopesIgnoreExtensionsAndUnknownTypes();
     void healthDetectionAcceptsOmittedIdentityWithoutFabricatingOne();
     void requestFactoryBuildsNativeHeadersAndRedactsSecrets();
     void authenticationEndpointsNeverReceiveBearerAuthentication();
@@ -198,25 +198,23 @@ void SiloAuthenticationTest::healthDetectionAcceptsOmittedIdentityWithoutFabrica
 {
     SiloProviderAdapter adapter;
 
-    const auto detected = adapter.mapDetectionResult(QJsonObject{
-        {QStringLiteral("api_major"), 2},
-        {QStringLiteral("links"), QJsonObject{}},
-        {QStringLiteral("server_version"), QStringLiteral("future-version")},
-        {QStringLiteral("contract_digest"), QStringLiteral("unknown-digest")},
-        {QStringLiteral("unknown_field"), true}
-    });
+    const auto detected = adapter.mapDetectionResult(QJsonObject {
+        { QStringLiteral("api_major"), 2 }, { QStringLiteral("links"), QJsonObject {} },
+        { QStringLiteral("server_version"), QStringLiteral("future-version") },
+        { QStringLiteral("contract_digest"), QStringLiteral("unknown-digest") },
+        { QStringLiteral("unknown_field"), true } });
     QVERIFY(detected.has_value());
     QCOMPARE(detected->providerKind, ProviderKind::Silo);
     QCOMPARE(detected->protocolMode, ProtocolMode::Native);
     QVERIFY(detected->serverId.isEmpty());
     QVERIFY(detected->serverName.isEmpty());
-    QVERIFY(!adapter.mapDetectionResult(QJsonObject{
-        {QStringLiteral("status"), QStringLiteral("ok")}
-    }).has_value());
-    QVERIFY(!adapter.mapDetectionResult(QJsonObject{
-        {QStringLiteral("api_major"), 1},
-        {QStringLiteral("links"), QJsonObject{}}
-    }).has_value());
+    QVERIFY(!adapter
+            .mapDetectionResult(QJsonObject { { QStringLiteral("status"), QStringLiteral("ok") } })
+            .has_value());
+    QVERIFY(!adapter
+            .mapDetectionResult(QJsonObject {
+                { QStringLiteral("api_major"), 1 }, { QStringLiteral("links"), QJsonObject {} } })
+            .has_value());
 }
 
 void SiloAuthenticationTest::requestFactoryBuildsNativeHeadersAndRedactsSecrets()
@@ -233,7 +231,8 @@ void SiloAuthenticationTest::requestFactoryBuildsNativeHeadersAndRedactsSecrets(
     context.deviceName = QStringLiteral("Living Room");
     context.devicePlatform = QStringLiteral("linux");
 
-    const QNetworkRequest request = factory.createRequest(context, QStringLiteral("api/v2/profiles"));
+    const QNetworkRequest request
+        = factory.createRequest(context, QStringLiteral("api/v2/profiles"));
     QCOMPARE(request.url(), QUrl(QStringLiteral("https://silo.example.test/api/v2/profiles")));
     QCOMPARE(request.rawHeader("Authorization"), QByteArrayLiteral("Bearer access-secret"));
     QCOMPARE(request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
@@ -244,8 +243,9 @@ void SiloAuthenticationTest::requestFactoryBuildsNativeHeadersAndRedactsSecrets(
     QCOMPARE(request.rawHeader("X-Silo-Device-Name"), QByteArrayLiteral("Living Room"));
     QCOMPARE(request.rawHeader("X-Silo-Device-Platform"), QByteArrayLiteral("linux"));
 
-    const QString redacted = factory.redactedUrl(QUrl(QStringLiteral(
-        "https://user:password@silo.example.test/api/v2/items?access_token=access-secret&profile_token=profile-secret&q=title")));
+    const QString redacted = factory.redactedUrl(QUrl(
+        QStringLiteral("https://user:password@silo.example.test/api/v2/"
+                       "items?access_token=access-secret&profile_token=profile-secret&q=title")));
     QVERIFY(!redacted.contains(QStringLiteral("access-secret")));
     QVERIFY(!redacted.contains(QStringLiteral("profile-secret")));
     QVERIFY(!redacted.contains(QStringLiteral("user")));
@@ -262,13 +262,14 @@ void SiloAuthenticationTest::authenticationEndpointsNeverReceiveBearerAuthentica
     context.profileId = QStringLiteral("profile-1");
     context.profileToken = QStringLiteral("stale-profile-token");
 
-    const QNetworkRequest login = factory.createRequest(context, QStringLiteral("/api/v2/auth/login"));
-    const QNetworkRequest refresh = factory.createRequest(context, QStringLiteral("/api/v2/auth/refresh"));
+    const QNetworkRequest login
+        = factory.createRequest(context, QStringLiteral("/api/v2/auth/login"));
+    const QNetworkRequest refresh
+        = factory.createRequest(context, QStringLiteral("/api/v2/auth/refresh"));
     QVERIFY(!login.hasRawHeader("Authorization"));
     QVERIFY(!refresh.hasRawHeader("Authorization"));
     QVERIFY(!login.hasRawHeader("X-Profile-Id"));
-    const QNetworkRequest health = factory.createRequest(
-        context, QStringLiteral("/health"));
+    const QNetworkRequest health = factory.createRequest(context, QStringLiteral("/health"));
     QVERIFY(!health.hasRawHeader("Authorization"));
     QVERIFY(!health.hasRawHeader("X-Profile-Id"));
     QVERIFY(!health.hasRawHeader("X-Profile-Token"));
@@ -284,8 +285,8 @@ void SiloAuthenticationTest::profileVerificationNeverReceivesStaleProfileHeaders
     context.profileId = QStringLiteral("new-profile");
     context.profileToken = QStringLiteral("stale-profile-token");
 
-    const QNetworkRequest request = factory.createRequest(
-        context, QStringLiteral("/api/v2/profiles/new-profile/verify-pin"));
+    const QNetworkRequest request
+        = factory.createRequest(context, QStringLiteral("/api/v2/profiles/new-profile/verify-pin"));
     QCOMPARE(request.rawHeader("Authorization"), QByteArrayLiteral("Bearer access-secret"));
     QVERIFY(!request.hasRawHeader("X-Profile-Id"));
     QVERIFY(!request.hasRawHeader("X-Profile-Token"));
@@ -301,8 +302,8 @@ void SiloAuthenticationTest::authenticatorBuildsAndParsesLoginAndRefreshContract
     QCOMPARE(loginBody.value(QStringLiteral("username")).toString(), QStringLiteral("Alice"));
     QCOMPARE(loginBody.value(QStringLiteral("password")).toString(), QStringLiteral("password"));
 
-    const ProviderAuthenticationResult loginResult = authenticator.parseLoginResponse(
-        QByteArrayLiteral(R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"));
+    const ProviderAuthenticationResult loginResult = authenticator.parseLoginResponse(QByteArrayLiteral(
+        R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"));
     QVERIFY(loginResult.isValid());
     QCOMPARE(loginResult.accessToken, QStringLiteral("access-1"));
     QCOMPARE(loginResult.refreshToken, QStringLiteral("refresh-1"));
@@ -387,12 +388,14 @@ void SiloAuthenticationTest::authenticatorRejectsMalformedAndIncompleteResponses
 {
     SiloAuthenticator authenticator;
     QVERIFY(!authenticator.parseLoginResponse(QByteArrayLiteral("not-json")).isValid());
-    QVERIFY(!authenticator.parseLoginResponse(
-                 QByteArrayLiteral(R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":0,"user":{"id":"42","username":"Alice"}})"))
-                 .isValid());
-    QVERIFY(!authenticator.parseLoginResponse(
-                 QByteArrayLiteral(R"({"access_token":"access-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"))
-                 .isValid());
+    QVERIFY(!authenticator
+            .parseLoginResponse(QByteArrayLiteral(
+                R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":0,"user":{"id":"42","username":"Alice"}})"))
+            .isValid());
+    QVERIFY(!authenticator
+            .parseLoginResponse(QByteArrayLiteral(
+                R"({"access_token":"access-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"))
+            .isValid());
     QVERIFY(!authenticator.parseProfileLoginResponse(
                  QByteArrayLiteral(R"({"valid":true})"))
                  .isValid());
@@ -404,15 +407,13 @@ void SiloAuthenticationTest::authenticatorRejectsMalformedAndIncompleteResponses
     QVERIFY(retainedRefresh.isValidRefresh());
     QVERIFY(!authenticator.createRefreshRequest(QString()).has_value());
 
-    const SiloAuthenticationError invalidCredentials =
-        authenticator.parseErrorResponse(QByteArrayLiteral(
-            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_credentials","title":"invalid_credentials","status":401,"detail":"Invalid username or password","instance":"urn:silo:request:test"})"));
+    const SiloAuthenticationError invalidCredentials = authenticator.parseErrorResponse(QByteArrayLiteral(
+        R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_credentials","title":"invalid_credentials","status":401,"detail":"Invalid username or password","instance":"urn:silo:request:test"})"));
     QVERIFY(invalidCredentials.isValid());
     QCOMPARE(invalidCredentials.failure,
              SiloAuthenticationFailure::InvalidCredentials);
-    const SiloAuthenticationError revoked =
-        authenticator.parseErrorResponse(QByteArrayLiteral(
-            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/session_revoked","title":"session_revoked","status":401,"detail":"Session was revoked","instance":"urn:silo:request:test"})"));
+    const SiloAuthenticationError revoked = authenticator.parseErrorResponse(QByteArrayLiteral(
+        R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/session_revoked","title":"session_revoked","status":401,"detail":"Session was revoked","instance":"urn:silo:request:test"})"));
     QVERIFY(revoked.isValid());
     QVERIFY(revoked.isSessionRevoked());
 }
@@ -500,15 +501,11 @@ void SiloAuthenticationTest::adapterExposesProfileAndSessionRoutes()
     QVERIFY(itemMarkers.has_value());
     QVERIFY(fileMarkers.has_value());
     QCOMPARE(*profiles, QStringLiteral("/api/v2/profiles"));
-    QCOMPARE(*pin,
-             QStringLiteral("/api/v2/profiles/profile%2Fwith%20space/verify-pin"));
+    QCOMPARE(*pin, QStringLiteral("/api/v2/profiles/profile%2Fwith%20space/verify-pin"));
     QCOMPARE(*sessions, QStringLiteral("/api/v2/auth/sessions"));
-    QCOMPARE(*revoke,
-             QStringLiteral("/api/v2/auth/sessions/session%2Fwith%20space"));
-    QCOMPARE(*itemMarkers,
-             QStringLiteral("/api/v2/markers/items/content%2Fwith%20space"));
-    QCOMPARE(*fileMarkers,
-             QStringLiteral("/api/v2/markers/files/file%2Fwith%20space"));
+    QCOMPARE(*revoke, QStringLiteral("/api/v2/auth/sessions/session%2Fwith%20space"));
+    QCOMPARE(*itemMarkers, QStringLiteral("/api/v2/markers/items/content%2Fwith%20space"));
+    QCOMPARE(*fileMarkers, QStringLiteral("/api/v2/markers/files/file%2Fwith%20space"));
     QCOMPARE(*health, QStringLiteral("/health"));
     QCOMPARE(*logout, QStringLiteral("/api/v2/auth/logout"));
 }
@@ -519,8 +516,7 @@ void SiloAuthenticationTest::authenticatorDistinguishesIncorrectAndValidProfileP
     const auto request = authenticator.createProfileLoginRequest(
         QStringLiteral("profile/one"), QStringLiteral("1234"));
     QVERIFY(request.has_value());
-    QCOMPARE(request->endpoint,
-             QStringLiteral("/api/v2/profiles/profile%2Fone/verify-pin"));
+    QCOMPARE(request->endpoint, QStringLiteral("/api/v2/profiles/profile%2Fone/verify-pin"));
     QCOMPARE(QJsonDocument::fromJson(request->body).object()
                  .value(QStringLiteral("pin")).toString(),
              QStringLiteral("1234"));
@@ -558,16 +554,16 @@ void SiloAuthenticationTest::unauthorizedRequestRefreshesAndRetriesExactlyOnce()
     QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
 
     const qsizetype initialRequestCount = manager.requests.size();
-    manager.responses.append(response(
-        401,
-        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(401,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         200,
         QByteArrayLiteral(
             R"({"access_token":"access-2","refresh_token":"refresh-2","expires_in":1800})")));
-    manager.responses.append(response(
-        401,
-        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Still unauthorized","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(401,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Still unauthorized","instance":"urn:silo:request:test"})")));
 
     int attempts = 0;
     int successes = 0;
@@ -576,15 +572,13 @@ void SiloAuthenticationTest::unauthorizedRequestRefreshesAndRetriesExactlyOnce()
     HttpRequestOptions options;
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     transport.sendWithRetry(
-        this,
-        QStringLiteral("/api/v2/protected"),
-        [&]() -> QNetworkReply * {
+        this, QStringLiteral("/api/v2/protected"),
+        [&]() -> QNetworkReply *
+        {
             ++attempts;
             return manager.get(service.createRequest(QStringLiteral("/api/v2/protected")));
         },
-        [&](QNetworkReply *) { ++successes; },
-        [&](const NetworkError &) { ++failures; },
-        options);
+        [&](QNetworkReply *) { ++successes; }, [&](const NetworkError &) { ++failures; }, options);
 
     QTRY_COMPARE_WITH_TIMEOUT(failures, 1, 1000);
     QCOMPARE(successes, 0);
@@ -594,7 +588,7 @@ void SiloAuthenticationTest::unauthorizedRequestRefreshesAndRetriesExactlyOnce()
     QCOMPARE(manager.requests.at(initialRequestCount).request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-1"));
     QCOMPARE(manager.requests.at(initialRequestCount + 1).request.url().path(),
-             QStringLiteral("/api/v2/auth/refresh"));
+        QStringLiteral("/api/v2/auth/refresh"));
     QVERIFY(!manager.requests.at(initialRequestCount + 1)
                  .request.hasRawHeader("Authorization"));
     QCOMPARE(QJsonDocument::fromJson(manager.requests.at(initialRequestCount + 1).body)
@@ -621,12 +615,12 @@ void SiloAuthenticationTest::concurrentUnauthorizedRequestsShareOneRefresh()
     QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
 
     const qsizetype initialRequestCount = manager.requests.size();
-    manager.responses.append(response(
-        401,
-        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
-    manager.responses.append(response(
-        401,
-        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(401,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(401,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         200,
         QByteArrayLiteral(
@@ -644,25 +638,21 @@ void SiloAuthenticationTest::concurrentUnauthorizedRequestsShareOneRefresh()
     const auto failure = [&](const NetworkError &) { ++failures; };
 
     transport.sendWithRetry(
-        this,
-        QStringLiteral("/api/v2/first"),
-        [&]() -> QNetworkReply * {
+        this, QStringLiteral("/api/v2/first"),
+        [&]() -> QNetworkReply *
+        {
             ++firstAttempts;
             return manager.get(service.createRequest(QStringLiteral("/api/v2/first")));
         },
-        success,
-        failure,
-        options);
+        success, failure, options);
     transport.sendWithRetry(
-        this,
-        QStringLiteral("/api/v2/second"),
-        [&]() -> QNetworkReply * {
+        this, QStringLiteral("/api/v2/second"),
+        [&]() -> QNetworkReply *
+        {
             ++secondAttempts;
             return manager.get(service.createRequest(QStringLiteral("/api/v2/second")));
         },
-        success,
-        failure,
-        options);
+        success, failure, options);
 
     QTRY_COMPARE_WITH_TIMEOUT(successes, 2, 1000);
     QCOMPARE(failures, 0);
@@ -670,8 +660,8 @@ void SiloAuthenticationTest::concurrentUnauthorizedRequestsShareOneRefresh()
     QCOMPARE(secondAttempts, 2);
     int refreshRequests = 0;
     for (qsizetype i = initialRequestCount; i < manager.requests.size(); ++i) {
-        if (manager.requests.at(i).request.url().path()
-            == QStringLiteral("/api/v2/auth/refresh")) {
+        if (manager.requests.at(i).request.url().path() == QStringLiteral("/api/v2/auth/refresh"))
+        {
             ++refreshRequests;
         }
     }
@@ -697,15 +687,15 @@ void SiloAuthenticationTest::failedSharedRefreshExpiresSessionOnce()
     QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
 
     const qsizetype initialRequestCount = manager.requests.size();
-    manager.responses.append(response(
-        401,
-        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
-    manager.responses.append(response(
-        401,
-        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
-    manager.responses.append(response(
-        401,
-        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Refresh expired","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(401,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(401,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(401,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Refresh expired","instance":"urn:silo:request:test"})")));
 
     int firstAttempts = 0;
     int secondAttempts = 0;
@@ -716,25 +706,21 @@ void SiloAuthenticationTest::failedSharedRefreshExpiresSessionOnce()
     const auto failure = [&](const NetworkError &) { ++failures; };
 
     transport.sendWithRetry(
-        this,
-        QStringLiteral("/api/v2/first"),
-        [&]() -> QNetworkReply * {
+        this, QStringLiteral("/api/v2/first"),
+        [&]() -> QNetworkReply *
+        {
             ++firstAttempts;
             return manager.get(service.createRequest(QStringLiteral("/api/v2/first")));
         },
-        [](QNetworkReply *) {},
-        failure,
-        options);
+        [](QNetworkReply *) {}, failure, options);
     transport.sendWithRetry(
-        this,
-        QStringLiteral("/api/v2/second"),
-        [&]() -> QNetworkReply * {
+        this, QStringLiteral("/api/v2/second"),
+        [&]() -> QNetworkReply *
+        {
             ++secondAttempts;
             return manager.get(service.createRequest(QStringLiteral("/api/v2/second")));
         },
-        [](QNetworkReply *) {},
-        failure,
-        options);
+        [](QNetworkReply *) {}, failure, options);
 
     QTRY_COMPARE_WITH_TIMEOUT(failures, 2, 1000);
     QCOMPARE(firstAttempts, 1);
@@ -742,8 +728,8 @@ void SiloAuthenticationTest::failedSharedRefreshExpiresSessionOnce()
     QCOMPARE(expiredSpy.count(), 1);
     int refreshRequests = 0;
     for (qsizetype i = initialRequestCount; i < manager.requests.size(); ++i) {
-        if (manager.requests.at(i).request.url().path()
-            == QStringLiteral("/api/v2/auth/refresh")) {
+        if (manager.requests.at(i).request.url().path() == QStringLiteral("/api/v2/auth/refresh"))
+        {
             ++refreshRequests;
         }
     }
@@ -755,8 +741,9 @@ void SiloAuthenticationTest::profileTokenIsBoundToSelectionAndClearedOnSwitch()
     FakeNetworkAccessManager manager;
     manager.responses = {
         response(200, successfulLogin()),
-        response(200, QByteArrayLiteral(
-            R"({"profiles":[{"id":"profile-1","name":"Alice","has_pin":true,"is_child":false,"is_primary":true}]})"))
+        response(200,
+            QByteArrayLiteral(
+                R"({"items":[{"id":"profile-1","name":"Alice","has_pin":true,"is_child":false,"is_primary":true}]})"))
     };
     HttpTransport transport(&manager);
     SiloProviderAdapter adapter;
@@ -774,8 +761,7 @@ void SiloAuthenticationTest::profileTokenIsBoundToSelectionAndClearedOnSwitch()
     service.verifyProfilePin(QStringLiteral("profile-1"), QStringLiteral("1234"));
     QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
 
-    const QNetworkRequest selected =
-        service.createRequest(QStringLiteral("/api/v2/catalog"));
+    const QNetworkRequest selected = service.createRequest(QStringLiteral("/api/v2/catalog"));
     QCOMPARE(selected.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-1"));
     QCOMPARE(selected.rawHeader("X-Profile-Id"),
@@ -784,8 +770,7 @@ void SiloAuthenticationTest::profileTokenIsBoundToSelectionAndClearedOnSwitch()
              QByteArrayLiteral("profile-token-1"));
 
     service.clearProfileState();
-    const QNetworkRequest cleared =
-        service.createRequest(QStringLiteral("/api/v2/catalog"));
+    const QNetworkRequest cleared = service.createRequest(QStringLiteral("/api/v2/catalog"));
     QCOMPARE(cleared.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-1"));
     QVERIFY(!cleared.hasRawHeader("X-Profile-Id"));
@@ -809,10 +794,9 @@ void SiloAuthenticationTest::serviceLoadsRevokedSessionsAndCallsRevokeEndpoint()
     QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
 
     const qsizetype initialRequestCount = manager.requests.size();
-    manager.responses.append(response(
-        200,
+    manager.responses.append(response(200,
         QByteArrayLiteral(
-            R"({"sessions":[{"id":"session-current","device_name":"Living Room","ip_address":"192.0.2.1","created_at":"2026-08-01T10:00:00Z","expires_at":"2026-08-08T10:00:00Z","is_current":true},{"id":"session-revoked","device_name":"Bedroom","ip_address":"192.0.2.2","created_at":"2026-07-01T10:00:00Z","expires_at":"2026-07-08T10:00:00Z","revoked_at":"2026-07-02T10:00:00Z","is_current":false}]})")));
+            R"({"items":[{"id":"session-current","device_name":"Living Room","ip_address":"192.0.2.1","created_at":"2026-08-01T10:00:00Z","expires_at":"2026-08-08T10:00:00Z","is_current":true},{"id":"session-revoked","device_name":"Bedroom","ip_address":"192.0.2.2","created_at":"2026-07-01T10:00:00Z","expires_at":"2026-07-08T10:00:00Z","revoked_at":"2026-07-02T10:00:00Z","is_current":false}]})")));
     service.loadAuthSessions();
     QTRY_COMPARE_WITH_TIMEOUT(service.authSessions().size(), 2, 1000);
     QCOMPARE(service.authSessions().at(1).toMap()
@@ -823,21 +807,20 @@ void SiloAuthenticationTest::serviceLoadsRevokedSessionsAndCallsRevokeEndpoint()
     QCOMPARE(manager.requests.at(initialRequestCount).operation,
              QNetworkAccessManager::GetOperation);
     QCOMPARE(manager.requests.at(initialRequestCount).request.url().path(),
-             QStringLiteral("/api/v2/auth/sessions"));
+        QStringLiteral("/api/v2/auth/sessions"));
     QCOMPARE(manager.requests.at(initialRequestCount).request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-1"));
 
     manager.responses.append(response(204, QByteArray{}));
-    manager.responses.append(response(
-        200,
+    manager.responses.append(response(200,
         QByteArrayLiteral(
-            R"({"sessions":[{"id":"session-current","device_name":"Living Room","ip_address":"192.0.2.1","created_at":"2026-08-01T10:00:00Z","expires_at":"2026-08-08T10:00:00Z","is_current":true}]})")));
+            R"({"items":[{"id":"session-current","device_name":"Living Room","ip_address":"192.0.2.1","created_at":"2026-08-01T10:00:00Z","expires_at":"2026-08-08T10:00:00Z","is_current":true}]})")));
     service.revokeAuthSession(QStringLiteral("session-revoked"));
     QTRY_COMPARE_WITH_TIMEOUT(service.authSessions().size(), 1, 1000);
     QCOMPARE(manager.requests.at(initialRequestCount + 1).operation,
              QNetworkAccessManager::DeleteOperation);
     QCOMPARE(manager.requests.at(initialRequestCount + 1).request.url().path(),
-             QStringLiteral("/api/v2/auth/sessions/session-revoked"));
+        QStringLiteral("/api/v2/auth/sessions/session-revoked"));
     QCOMPARE(manager.requests.at(initialRequestCount + 1)
                  .request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-1"));
@@ -859,17 +842,16 @@ void SiloAuthenticationTest::failedSessionLoadPreservesKnownSessions()
                          QStringLiteral("password"));
     QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
 
-    manager.responses.append(response(
-        200,
+    manager.responses.append(response(200,
         QByteArrayLiteral(
-            R"({"sessions":[{"id":"session-current","device_name":"Living Room","is_current":true}]})")));
+            R"({"items":[{"id":"session-current","device_name":"Living Room","is_current":true}]})")));
     service.loadAuthSessions();
     QTRY_COMPARE_WITH_TIMEOUT(service.authSessions().size(), 1, 1000);
 
     QSignalSpy errorSpy(&service, &AuthenticationService::loginError);
-    manager.responses.append(response(
-        400,
-        QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_request","title":"invalid_request","status":400,"detail":"Request rejected","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(400,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_request","title":"invalid_request","status":400,"detail":"Request rejected","instance":"urn:silo:request:test"})")));
     service.loadAuthSessions();
     QTRY_COMPARE_WITH_TIMEOUT(errorSpy.size(), 1, 1000);
     QCOMPARE(service.authSessions().size(), 1);
@@ -893,8 +875,9 @@ void SiloAuthenticationTest::refreshWithoutRotationRetainsPreviousToken()
                          QStringLiteral("password"));
     QTRY_VERIFY_WITH_TIMEOUT(service.isAuthenticated(), 1000);
 
-    manager.responses.append(response(
-        401, QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(401,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         200, QByteArrayLiteral(R"({"access_token":"access-2","expires_in":1800})")));
     manager.responses.append(response(200, QByteArrayLiteral(R"({"ok":true})")));
@@ -902,34 +885,27 @@ void SiloAuthenticationTest::refreshWithoutRotationRetainsPreviousToken()
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     int successes = 0;
     transport.sendWithRetry(
-        this,
-        QStringLiteral("/api/v2/protected"),
+        this, QStringLiteral("/api/v2/protected"),
         [&]() { return manager.get(service.createRequest(QStringLiteral("/api/v2/protected"))); },
-        [&](QNetworkReply *) { ++successes; },
-        [](const NetworkError &) {},
-        options);
+        [&](QNetworkReply *) { ++successes; }, [](const NetworkError &) {}, options);
     QTRY_COMPARE_WITH_TIMEOUT(successes, 1, 1000);
 
-    manager.responses.append(response(
-        401, QByteArrayLiteral(R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
+    manager.responses.append(response(401,
+        QByteArrayLiteral(
+            R"({"type":"https:\/\/siloserver.org/docs/api/v2/problems/invalid_token","title":"invalid_token","status":401,"detail":"Expired","instance":"urn:silo:request:test"})")));
     manager.responses.append(response(
         200, QByteArrayLiteral(R"({"access_token":"access-3","expires_in":1800})")));
     manager.responses.append(response(200, QByteArrayLiteral(R"({"ok":true})")));
     transport.sendWithRetry(
-        this,
-        QStringLiteral("/api/v2/protected-again"),
-        [&]() {
-            return manager.get(service.createRequest(
-                QStringLiteral("/api/v2/protected-again")));
-        },
-        [&](QNetworkReply *) { ++successes; },
-        [](const NetworkError &) {},
-        options);
+        this, QStringLiteral("/api/v2/protected-again"), [&]()
+        { return manager.get(service.createRequest(QStringLiteral("/api/v2/protected-again"))); },
+        [&](QNetworkReply *) { ++successes; }, [](const NetworkError &) {}, options);
     QTRY_COMPARE_WITH_TIMEOUT(successes, 2, 1000);
 
     int refreshRequests = 0;
     for (const RecordedRequest &request : manager.requests) {
-        if (request.request.url().path() == QStringLiteral("/api/v2/auth/refresh")) {
+        if (request.request.url().path() == QStringLiteral("/api/v2/auth/refresh"))
+        {
             ++refreshRequests;
             if (refreshRequests == 2) {
                 QCOMPARE(QJsonDocument::fromJson(request.body).object()
@@ -983,10 +959,8 @@ void SiloAuthenticationTest::emptyProfilesAfterSwitchLeaveVisibleErrorAndAuthent
 void SiloAuthenticationTest::restoreRejectsValidationForAnotherAccount()
 {
     FakeNetworkAccessManager manager;
-    manager.responses = {
-        response(200, QByteArrayLiteral(
-            R"({"id":"43","username":"Bob","role":"user"})"))
-    };
+    manager.responses
+        = { response(200, QByteArrayLiteral(R"({"id":"43","username":"Bob","role":"user"})")) };
     HttpTransport transport(&manager);
     SiloProviderAdapter adapter;
     AuthenticationService service(nullptr, &transport, &adapter);
@@ -997,10 +971,31 @@ void SiloAuthenticationTest::restoreRejectsValidationForAnotherAccount()
                            QStringLiteral("Alice"));
     QTRY_COMPARE_WITH_TIMEOUT(service.getUserId(), QString(), 1000);
     QCOMPARE(manager.requests.size(), 1);
-    QCOMPARE(manager.requests.constFirst().request.url().path(),
-             QStringLiteral("/api/v2/account/me"));
+    QCOMPARE(
+        manager.requests.constFirst().request.url().path(), QStringLiteral("/api/v2/account/me"));
 }
 
+void SiloAuthenticationTest::problemEnvelopesIgnoreExtensionsAndUnknownTypes()
+{
+    SiloAuthenticator authenticator;
+    const auto problem
+        = QJsonObject { { "type", "https://siloserver.org/docs/api/v2/problems/future_problem" },
+              { "title", "Future problem" }, { "status", 429 },
+              { "detail", "Wait before trying again" }, { "instance", "urn:silo:request:test" },
+              { "future_extension", QJsonArray { 1, 2 } } };
+    const auto parsed = authenticator.parseErrorResponse(QJsonDocument(problem).toJson());
+    QVERIFY(parsed.isValid());
+    QCOMPARE(parsed.failure, SiloAuthenticationFailure::Other);
+    QCOMPARE(parsed.code, QStringLiteral("future_problem"));
+    QCOMPARE(parsed.message, QStringLiteral("Wait before trying again"));
+    QVERIFY(!authenticator
+            .parseErrorResponse(
+                QByteArrayLiteral(R"({"error":"invalid_token","message":"old envelope"})"))
+            .isValid());
+    auto malformed = problem;
+    malformed["type"] = 42;
+    QVERIFY(!authenticator.parseErrorResponse(QJsonDocument(malformed).toJson()).isValid());
+}
 
 QTEST_MAIN(SiloAuthenticationTest)
 #include "SiloAuthenticationTest.moc"

@@ -480,6 +480,7 @@ void MockLibraryService::getThemeSongs(const QString &seriesId)
     qCDebug(lcTest) << "MockLibraryService::getThemeSongs(" << seriesId << ")";
     // Return empty list for test mode
     emit themeSongsLoaded(seriesId, QStringList());
+    emit themeSongPlaybackLoaded(seriesId, QStringList(), false);
 }
 
 void MockLibraryService::search(const QString &searchTerm, int limit)

@@ -1,5 +1,7 @@
 #include "BloomLogging.h"
 
+#include <QRegularExpression>
+
 Q_LOGGING_CATEGORY(lcImageCache, "bloom.imagecache")
 Q_LOGGING_CATEGORY(lcLibraryCache, "bloom.librarycache")
 Q_LOGGING_CATEGORY(lcCache, "bloom.cache")
@@ -25,3 +27,14 @@ Q_LOGGING_CATEGORY(lcApp, "bloom.app")
 Q_LOGGING_CATEGORY(lcUi, "bloom.ui")
 Q_LOGGING_CATEGORY(lcUiSceneGraph, "bloom.ui.scenegraph")
 Q_LOGGING_CATEGORY(lcTest, "bloom.test")
+
+QString redactNetworkLogText(QString message)
+{
+    static const QRegularExpression urls(
+        QStringLiteral(R"(https?://[^\s"'<>]+)"), QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression credentials(
+        QStringLiteral(R"(([?&](?:token|st|api_key|apikey|sig|signature|profile_token)=)[^\s&"'<>]+)"),
+        QRegularExpression::CaseInsensitiveOption);
+    message.replace(urls, QStringLiteral("[URL]"));
+    return message.replace(credentials, QStringLiteral("\\1[REDACTED]"));
+}

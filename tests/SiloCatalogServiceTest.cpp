@@ -19,6 +19,7 @@
 #include "network/AuthenticationService.h"
 #include "network/HttpTransport.h"
 #include "network/LibraryService.h"
+#include "network/PlaybackService.h"
 #include "providers/ICatalogProvider.h"
 #include "providers/silo/SiloCatalogProvider.h"
 #include "providers/silo/SiloProviderAdapter.h"
@@ -31,16 +32,15 @@ namespace {
 class ControlledReply final : public QNetworkReply
 {
 public:
-    ControlledReply(const QNetworkRequest &request,
-                    int statusCode,
-                    QByteArray payload,
-                    bool delayed,
-                    QObject *parent)
+    ControlledReply(const QNetworkRequest &request, int statusCode, QByteArray payload,
+        bool delayed, QObject *parent, const QHash<QByteArray, QByteArray> &headers = {})
         : QNetworkReply(parent)
         , m_statusCode(statusCode)
         , m_payload(std::move(payload))
     {
         setRequest(request);
+        for (auto it = headers.cbegin(); it != headers.cend(); ++it)
+            setRawHeader(it.key(), it.value());
         setUrl(request.url());
         setAttribute(QNetworkRequest::HttpStatusCodeAttribute, statusCode);
         if (statusCode >= 400) {
@@ -106,6 +106,7 @@ struct ResponsePlan
     int statusCode;
     QByteArray payload;
     bool delayed = false;
+    QHash<QByteArray, QByteArray> headers;
 };
 
 struct RecordedRequest
@@ -133,7 +134,7 @@ protected:
             ? ResponsePlan{500, QByteArrayLiteral(R"({"error":"queue_empty"})"), false}
             : responses.takeFirst();
         auto *reply = new ControlledReply(
-            request, plan.statusCode, plan.payload, plan.delayed, this);
+            request, plan.statusCode, plan.payload, plan.delayed, this, plan.headers);
         replies.append(reply);
         return reply;
     }
@@ -165,6 +166,9 @@ class SiloCatalogServiceTest : public QObject
 
 private slots:
     void nativeRoutesUseContentIdentityAndCorrectMethods();
+    void themeGrantFlowUsesProfileAndFreshGrant();
+    void playbackSurvivesAccessRefreshDuringCapabilityRead();
+    void staleFirstPageCannotReplaceCurrentCursor();
     void structuredFiltersUseNativeQueryBody();
     void bookQueriesUseEbookType();
     void unsupportedFiltersAreExplicit();
@@ -190,14 +194,12 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     request = provider.createRequest(ProviderCatalogOperation::Items, query);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
-    QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog?source=query"));
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/catalog?source=query"));
 
     request = provider.createRequest(ProviderCatalogOperation::LatestMedia, query);
     QVERIFY(request.supported);
     const QUrlQuery latestParameters{QUrl(request.relativeEndpoint)};
-    QCOMPARE(latestParameters.queryItemValue(QStringLiteral("sort")),
-             QStringLiteral("-added_at"));
+    QCOMPARE(latestParameters.queryItemValue(QStringLiteral("sort")), QStringLiteral("-added_at"));
     QVERIFY(!latestParameters.hasQueryItem(QStringLiteral("order")));
 
     ProviderCatalogQuery paged;
@@ -206,32 +208,32 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     QVERIFY(request.supported);
     const QUrlQuery pagedParameters(QUrl(request.relativeEndpoint));
     QCOMPARE(pagedParameters.queryItemValue(QStringLiteral("cursor")),
-             QStringLiteral("opaque/snapshot + token"));
+        QStringLiteral("opaque/snapshot + token"));
 
     query.itemId = QStringLiteral("content/with space");
     request = provider.createRequest(ProviderCatalogOperation::Item, query);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
-    QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog/items/content%2Fwith%20space"));
+    QCOMPARE(
+        request.relativeEndpoint, QStringLiteral("/api/v2/catalog/items/content%2Fwith%20space"));
 
     request = provider.createRequest(ProviderCatalogOperation::Versions, query);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog/items/content%2Fwith%20space/versions"));
+        QStringLiteral("/api/v2/catalog/items/content%2Fwith%20space/versions"));
 
     ProviderCatalogQuery hierarchy;
     hierarchy.seriesId = QStringLiteral("series/one");
     request = provider.createRequest(ProviderCatalogOperation::Items, hierarchy);
     QVERIFY(request.supported);
-    QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
+    QCOMPARE(
+        request.relativeEndpoint, QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
     hierarchy.parentId = QStringLiteral("season/one");
     request = provider.createRequest(ProviderCatalogOperation::Items, hierarchy);
     QVERIFY(request.supported);
-    QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes"));
+    QCOMPARE(
+        request.relativeEndpoint, QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes"));
 
     ProviderCatalogQuery state;
     state.itemId = QStringLiteral("content-42");
@@ -241,8 +243,8 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     season.includeItemTypes = {QStringLiteral("Season")};
     request = provider.createRequest(ProviderCatalogOperation::Items, season);
     QVERIFY(request.supported);
-    QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
+    QCOMPARE(
+        request.relativeEndpoint, QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
     request = provider.createRequest(ProviderCatalogOperation::SetWatched, state);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Post);
@@ -290,8 +292,8 @@ void SiloCatalogServiceTest::structuredFiltersUseNativeQueryBody()
              QByteArrayLiteral("application/json"));
 
     const QJsonObject body = QJsonDocument::fromJson(request.body).object();
-    QCOMPARE(body.value(QStringLiteral("library_id")).toInt(), 17);
-    QCOMPARE(body.value(QStringLiteral("offset")).toInt(), 40);
+    QCOMPARE(body.value(QStringLiteral("library_id")).toString(), QStringLiteral("17"));
+    QCOMPARE(body.value(QStringLiteral("seek")).toInt(), 40);
     QCOMPARE(body.value(QStringLiteral("limit")).toInt(), 100);
     QCOMPARE(body.value(QStringLiteral("sort")).toString(),
              QStringLiteral("release_date"));
@@ -419,8 +421,7 @@ void SiloCatalogServiceTest::unsupportedFiltersAreExplicit()
         ProviderCatalogOperation::NextUp, query);
     QVERIFY(nextUp.supported);
     QCOMPARE(nextUp.method, ProviderHttpMethod::Get);
-    QCOMPARE(nextUp.relativeEndpoint,
-             QStringLiteral("/api/v2/home/sections/system-next-up/items"));
+    QCOMPARE(nextUp.relativeEndpoint, QStringLiteral("/api/v2/home/sections/system-next-up/items"));
     verifyUnsupported(ProviderCatalogOperation::RandomItems, query);
     verifyUnsupported(ProviderCatalogOperation::ResolveLibrary, query);
 }
@@ -469,13 +470,12 @@ void SiloCatalogServiceTest::sparseNativeMappingsPreserveFallbacksAndState()
 void SiloCatalogServiceTest::responsePreservesSnapshotAndPaginationTruth()
 {
     SiloCatalogProvider provider;
-    const ProviderCatalogResponse page = provider.parseResponse(
-        ProviderCatalogOperation::Items,
+    const ProviderCatalogResponse page = provider.parseResponse(ProviderCatalogOperation::Items,
         QByteArrayLiteral(
             R"({"items":[{"content_id":"content-1"},{"content_id":"content-2"}],"total":912,"total_exact":false,"has_more":true,"window_cursor":"window-1","page":{"has_more":true,"next_cursor":"opaque-next"}})"),
-        {{QByteArrayLiteral("ETAG"), QByteArrayLiteral("\"silo-page-v1\"")},
-         {QByteArrayLiteral("last-modified"),
-          QByteArrayLiteral("Fri, 07 Aug 2026 11:22:33 GMT")}});
+        { { QByteArrayLiteral("ETAG"), QByteArrayLiteral("\"silo-page-v1\"") },
+            { QByteArrayLiteral("last-modified"),
+                QByteArrayLiteral("Fri, 07 Aug 2026 11:22:33 GMT") } });
     QVERIFY(page.valid);
     QCOMPARE(page.rawItems.size(), 2);
     const QString firstId = page.rawItems.at(0).toObject()
@@ -540,8 +540,7 @@ void SiloCatalogServiceTest::nativeResponseShapesPreserveHomeLibrarySearchAndDet
     QCOMPARE(home.rawItems.at(1).toObject().value(QStringLiteral("type")).toString(),
              QStringLiteral("library"));
 
-    const ProviderCatalogResponse library = provider.parseResponse(
-        ProviderCatalogOperation::Items,
+    const ProviderCatalogResponse library = provider.parseResponse(ProviderCatalogOperation::Items,
         QByteArrayLiteral(
             R"({"items":[{"content_id":"content-1","type":"movie","title":"One"},{"content_id":"content-2","type":"movie","title":"Two"}],"total":2,"total_exact":true,"page":{"has_more":false}})"));
     QVERIFY(library.valid);
@@ -590,17 +589,15 @@ void SiloCatalogServiceTest::immediateCatalogRequestSurvivesAuthenticationComple
 
     ControlledNetworkAccessManager manager;
     manager.responses = {
-        {200,
-         QByteArrayLiteral(
-             R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"),
-         false},
-        {200,
-         QByteArrayLiteral(
-             R"({"profiles":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true}]})"),
-         false},
-        {200,
-         QByteArrayLiteral(R"([{"id":"1","name":"Movies"}])"),
-         false}
+        { 200,
+            QByteArrayLiteral(
+                R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"),
+            false },
+        { 200,
+            QByteArrayLiteral(
+                R"({"items":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true}]})"),
+            false },
+        { 200, QByteArrayLiteral(R"([{"id":"1","name":"Movies"}])"), false }
     };
     HttpTransport transport(&manager);
     SiloProviderAdapter adapter;
@@ -628,7 +625,7 @@ void SiloCatalogServiceTest::immediateCatalogRequestSurvivesAuthenticationComple
 
     QTRY_COMPARE_WITH_TIMEOUT(viewsSpy.count(), 1, 1000);
     QCOMPARE(manager.requests.constLast().request.url().path(),
-             QStringLiteral("/api/v2/user/libraries"));
+        QStringLiteral("/api/v2/user/libraries"));
     const QVariantList views = viewsSpy.first().at(1).toList();
     QCOMPARE(views.size(), 1);
     QCOMPARE(views.constFirst().toMap().value(QStringLiteral("itemId")).toString(),
@@ -644,14 +641,14 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
 
     ControlledNetworkAccessManager manager;
     manager.responses = {
-        {200,
-         QByteArrayLiteral(
-             R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"),
-         false},
-        {200,
-         QByteArrayLiteral(
-             R"({"profiles":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true},{"id":"profile-2","name":"Cinema","has_pin":false,"is_child":false,"is_primary":false}]})"),
-         false}
+        { 200,
+            QByteArrayLiteral(
+                R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"42","username":"Alice"}})"),
+            false },
+        { 200,
+            QByteArrayLiteral(
+                R"({"items":[{"id":"profile-1","name":"Alice","has_pin":false,"is_child":false,"is_primary":true},{"id":"profile-2","name":"Cinema","has_pin":false,"is_child":false,"is_primary":false}]})"),
+            false }
     };
     HttpTransport transport(&manager);
     SiloProviderAdapter adapter;
@@ -674,14 +671,13 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     QVERIFY(viewsSpy.isValid());
 
     manager.responses.append(
-        {200, QByteArrayLiteral(R"([{"id":"1","name":"Old account"}])"), true});
+        { 200, QByteArrayLiteral(R"([{"id":"1","name":"Old account"}])"), true });
     const qsizetype oldRequestIndex = manager.requests.size();
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), oldRequestIndex + 1, 1000);
     const RecordedRequest oldRequest = manager.requests.at(oldRequestIndex);
     QCOMPARE(oldRequest.operation, QNetworkAccessManager::GetOperation);
-    QCOMPARE(oldRequest.request.url().path(),
-             QStringLiteral("/api/v2/user/libraries"));
+    QCOMPARE(oldRequest.request.url().path(), QStringLiteral("/api/v2/user/libraries"));
     QCOMPARE(oldRequest.request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-1"));
     QCOMPARE(oldRequest.request.rawHeader("X-Profile-Id"),
@@ -698,14 +694,13 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     QCOMPARE(viewsSpy.count(), 0);
 
     manager.responses.append(
-        {200, QByteArrayLiteral(R"([{"id":"2","name":"New account"}])"), true});
+        { 200, QByteArrayLiteral(R"([{"id":"2","name":"New account"}])"), true });
     const qsizetype newRequestIndex = manager.requests.size();
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), newRequestIndex + 1, 1000);
     const RecordedRequest newRequest = manager.requests.at(newRequestIndex);
     QCOMPARE(newRequest.operation, QNetworkAccessManager::GetOperation);
-    QCOMPARE(newRequest.request.url().path(),
-             QStringLiteral("/api/v2/user/libraries"));
+    QCOMPARE(newRequest.request.url().path(), QStringLiteral("/api/v2/user/libraries"));
     QCOMPARE(newRequest.request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-2"));
     QCOMPARE(newRequest.request.rawHeader("X-Profile-Id"),
@@ -721,7 +716,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
              QStringLiteral("2"));
 
     manager.responses.append(
-        {200, QByteArrayLiteral(R"([{"id":"3","name":"Stale profile"}])"), true});
+        { 200, QByteArrayLiteral(R"([{"id":"3","name":"Stale profile"}])"), true });
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), newRequestIndex + 2, 1000);
     QPointer<ControlledReply> staleProfileReply = manager.replies.constLast();
@@ -737,14 +732,13 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     QCOMPARE(viewsSpy.count(), 1);
 
     manager.responses.append(
-        {200, QByteArrayLiteral(R"([{"id":"4","name":"Current profile"}])"), true});
+        { 200, QByteArrayLiteral(R"([{"id":"4","name":"Current profile"}])"), true });
     const qsizetype profileRequestIndex = manager.requests.size();
     service.getViews();
     QTRY_COMPARE_WITH_TIMEOUT(manager.requests.size(), profileRequestIndex + 1, 1000);
     const RecordedRequest profileRequest = manager.requests.at(profileRequestIndex);
     QCOMPARE(profileRequest.operation, QNetworkAccessManager::GetOperation);
-    QCOMPARE(profileRequest.request.url().path(),
-             QStringLiteral("/api/v2/user/libraries"));
+    QCOMPARE(profileRequest.request.url().path(), QStringLiteral("/api/v2/user/libraries"));
     QCOMPARE(profileRequest.request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-2"));
     QCOMPARE(profileRequest.request.rawHeader("X-Profile-Id"),
@@ -754,6 +748,173 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     QVERIFY(profileReply);
     profileReply->complete();
     QTRY_COMPARE_WITH_TIMEOUT(viewsSpy.count(), 2, 1000);
+}
+
+void SiloCatalogServiceTest::themeGrantFlowUsesProfileAndFreshGrant()
+{
+    QTemporaryDir directory;
+    ScopedConfigIsolation isolation(directory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    const QByteArray grant = QJsonDocument(
+        QJsonObject {
+            { "url", "/api/v2/catalog/items/series-1/themes/theme-1/audio?token=secret%2Bvalue" },
+            { "delivery", "converted" }, { "content_type", "audio/mp4" },
+            { "expires_at",
+                QDateTime::currentDateTimeUtc().addSecs(60).toString(Qt::ISODateWithMs) } })
+                                 .toJson();
+    manager.responses = {
+        { 200,
+            QByteArrayLiteral(
+                R"({"access_token":"token","refresh_token":"refresh","expires_in":900,"user":{"id":"account-1","username":"tester"}})"),
+            false },
+        { 200,
+            QByteArrayLiteral(R"({"items":[{"id":"profile-1","name":"tester","has_pin":false}]})"),
+            false },
+        { 200, QByteArrayLiteral(R"({"state":"available","allowed":true,"delivery":"routed"})"),
+            false, { { "ETag", "opaque-theme-validator" } } },
+        { 200,
+            QByteArrayLiteral(R"({"themes":{"owner_id":"series-1","items":[{"id":"theme-1"}]}})"),
+            false },
+        { 200, grant, false }
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    auth.initialize(&config);
+    QTRY_VERIFY(!auth.isRestoringSession());
+    auth.setProviderSelection(QStringLiteral("silo"));
+    auth.authenticate(QStringLiteral("https://silo.example.test"), QStringLiteral("tester"),
+        QStringLiteral("password"));
+    QTRY_VERIFY(auth.isAuthenticated());
+    LibraryService service(&auth);
+    QSignalSpy loaded(&service, &LibraryService::themeSongPlaybackLoaded);
+    service.getThemeSongs(QStringLiteral("series-1"));
+    QTRY_COMPARE(loaded.count(), 1);
+    QCOMPARE(loaded.first().at(1).toStringList().first(),
+        QStringLiteral("https://silo.example.test/api/v2/catalog/items/series-1/themes/theme-1/"
+                       "audio?token=secret%2Bvalue"));
+    QVERIFY(loaded.first().at(2).toBool());
+    manager.responses = { { 304, {}, false },
+        { 200,
+            QByteArrayLiteral(R"({"themes":{"owner_id":"series-1","items":[{"id":"theme-1"}]}})"),
+            false },
+        { 200, grant, false } };
+    service.getThemeSongs(QStringLiteral("series-1"));
+    QTRY_COMPARE(loaded.count(), 2);
+    QCOMPARE(manager.requests.at(5).request.rawHeader("If-None-Match"),
+        QByteArrayLiteral("opaque-theme-validator"));
+    QCOMPARE(manager.requests.last().operation, QNetworkAccessManager::PostOperation);
+    QCOMPARE(manager.requests.last().request.url().path(),
+        QStringLiteral("/api/v2/catalog/items/series-1/themes/theme-1/playback"));
+    for (int i = 2; i < manager.requests.size(); ++i)
+    {
+        QCOMPARE(manager.requests.at(i).request.rawHeader("X-Profile-Id"),
+            QByteArrayLiteral("profile-1"));
+    }
+}
+
+void SiloCatalogServiceTest::playbackSurvivesAccessRefreshDuringCapabilityRead()
+{
+    QTemporaryDir directory;
+    ScopedConfigIsolation isolation(directory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    manager.responses = {
+        { 200,
+            QByteArrayLiteral(
+                R"({"access_token":"access-1","refresh_token":"refresh-1","expires_in":900,"user":{"id":"account-1","username":"tester"}})"),
+            false },
+        { 200,
+            QByteArrayLiteral(R"({"items":[{"id":"profile-1","name":"tester","has_pin":false}]})"),
+            false }
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    auth.initialize(&config);
+    QTRY_VERIFY(!auth.isRestoringSession());
+    auth.setProviderSelection(QStringLiteral("silo"));
+    auth.authenticate(QStringLiteral("https://silo.example.test"), QStringLiteral("tester"),
+        QStringLiteral("password"));
+    QTRY_VERIFY(auth.isAuthenticated());
+    const QJsonObject decision { { "protocol_version", 3 }, { "outcome", "playable" },
+        { "session_id", "session-1" },
+        { "playback_plan",
+            QJsonObject { { "protocol_version", 3 }, { "plan_id", "plan:00000001" },
+                { "plan_attempt_key", "v3:00000001" }, { "session_id", "session-1" },
+                { "delivery", "original_http" }, { "effective_media_file_id", "file-1" },
+                { "requested_media_file_id", "file-1" },
+                { "stream",
+                    QJsonObject { { "url", "/api/v2/stream/session-1?st=opaque%2Bvalue" },
+                        { "protocol", "http_progressive" }, { "header_refresh", "none" },
+                        { "headers", QJsonObject {} } } },
+                { "timeline",
+                    QJsonObject { { "timeline_offset_seconds", 0 }, { "can_seek_anywhere", true },
+                        { "player_start_seconds", 0 } } },
+                { "subtitle",
+                    QJsonObject { { "mode", "off" }, { "inventory", QJsonArray {} } } } } } };
+    const QJsonObject problem { { "type",
+                                    "https://siloserver.org/docs/api/v2/problems/invalid_token" },
+        { "title", "Invalid token" }, { "status", 401 }, { "detail", "Expired" },
+        { "instance", "urn:silo:request:test" } };
+    manager.responses = { { 401, QJsonDocument(problem).toJson(), false },
+        { 200,
+            QByteArrayLiteral(
+                R"({"access_token":"access-2","refresh_token":"refresh-2","expires_in":900})"),
+            false },
+        { 200,
+            QByteArrayLiteral(
+                R"({"state":"available","allowed":true,"installation_id":"installation-1","protocol_versions":[3],"features":["playback_plan_v3"],"deliveries":["original_http"]})"),
+            false },
+        { 201, QJsonDocument(decision).toJson(), false } };
+    PlaybackService playback(&auth, &config);
+    QSignalSpy loaded(&playback, &PlaybackService::playbackDescriptorLoadedForRequest);
+    QSignalSpy failed(&playback, &PlaybackService::playbackDescriptorFailedForRequest);
+    playback.requestPlaybackDescriptor(QStringLiteral("item-1"), { { "fileId", "file-1" } }, 0, -1,
+        0, QString(), QStringLiteral("refresh-test"));
+    QTRY_COMPARE(loaded.count(), 1);
+    QCOMPARE(failed.count(), 0);
+    QCOMPARE(auth.getAccessToken(), QStringLiteral("access-2"));
+    const auto descriptor = qvariant_cast<Bloom::PlaybackDescriptor>(loaded.first().at(1));
+    QVERIFY(descriptor.stream.url.toEncoded().endsWith("st=opaque%2Bvalue&token=access-2"));
+    QCOMPARE(manager.requests.last().request.rawHeader("Authorization"),
+        QByteArrayLiteral("Bearer access-2"));
+}
+
+void SiloCatalogServiceTest::staleFirstPageCannotReplaceCurrentCursor()
+{
+    QTemporaryDir directory;
+    ScopedConfigIsolation isolation(directory.path());
+    ConfigManager config;
+    ControlledNetworkAccessManager manager;
+    manager.responses = {
+        {200, QByteArrayLiteral(R"({"access_token":"token","refresh_token":"refresh","expires_in":900,"user":{"id":"account-1","username":"tester"}})"), false},
+        {200, QByteArrayLiteral(R"({"items":[{"id":"profile-1","name":"tester","has_pin":false}]})"), false},
+        {200, QByteArrayLiteral(R"({"items":[{"content_id":"old-item","title":"Old"}],"page":{"has_more":true,"next_cursor":"stale-cursor"},"window_cursor":"old-window","total":2})"), true},
+        {200, QByteArrayLiteral(R"({"items":[{"content_id":"new-item","title":"New"}],"page":{"has_more":true,"next_cursor":"current-cursor"},"window_cursor":"new-window","total":2})"), false},
+        {200, QByteArrayLiteral(R"({"items":[{"content_id":"next-item","title":"Next"}],"page":{"has_more":false},"window_cursor":"new-window","total":2})"), false}
+    };
+    HttpTransport transport(&manager);
+    SiloProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    auth.initialize(&config);
+    QTRY_VERIFY(!auth.isRestoringSession());
+    auth.setProviderSelection(QStringLiteral("silo"));
+    auth.authenticate(QStringLiteral("https://silo.example.test"), QStringLiteral("tester"), QStringLiteral("password"));
+    QTRY_VERIFY(auth.isAuthenticated());
+    LibraryService library(&auth);
+    QSignalSpy loaded(&library, &LibraryService::canonicalItemsLoadedForConnection);
+    LibraryItemQuery query; query.parentId = QStringLiteral("opaque-library"); query.limit = 1;
+    library.getItems(query);
+    library.getItems(query);
+    QTRY_COMPARE(loaded.count(), 1);
+    manager.replies.at(2)->complete();
+    QTRY_COMPARE(loaded.count(), 2);
+    query.startIndex = 1;
+    library.getItems(query);
+    QCOMPARE(QUrlQuery(manager.requests.last().request.url()).queryItemValue(QStringLiteral("cursor")), QStringLiteral("current-cursor"));
+    QTRY_COMPARE(loaded.count(), 3);
 }
 
 QTEST_MAIN(SiloCatalogServiceTest)

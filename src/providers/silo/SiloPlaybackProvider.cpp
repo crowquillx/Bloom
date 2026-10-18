@@ -51,43 +51,77 @@ QString relativeOrAbsoluteUrl(const QUrl &serverUrl, const QString &wireUrl)
     return resolved.toString(QUrl::FullyEncoded);
 }
 
+QUrl mediaConsumerUrl(const PlaybackProviderContext &context, const QString &wireUrl)
+{
+    QUrl url(relativeOrAbsoluteUrl(context.serverUrl, wireUrl));
+    if (!isHttpUrl(url))
+        return {};
+    const auto port = [](const QUrl &value)
+    { return value.port(value.scheme() == QStringLiteral("https") ? 443 : 80); };
+    if (url.scheme().compare(context.serverUrl.scheme(), Qt::CaseInsensitive) == 0
+        && url.host().compare(context.serverUrl.host(), Qt::CaseInsensitive) == 0
+        && port(url) == port(context.serverUrl))
+    {
+        // mpv's URL-only path uses the contract's account-token fallback. The st
+        // reference reconstructs a stream but does not authorize the account.
+        if (context.accessToken.isEmpty())
+            return {};
+        if (!QUrlQuery(url).hasQueryItem(QStringLiteral("token")))
+        {
+            QByteArray encoded = url.toEncoded(QUrl::RemoveFragment);
+            encoded += url.hasQuery() ? '&' : '?';
+            encoded += "token=" + QUrl::toPercentEncoding(context.accessToken);
+            url = QUrl::fromEncoded(encoded);
+        }
+    }
+    return url;
+}
+
 QString scopeKey(const PlaybackProviderContext &context)
 {
-    const QByteArray identity = context.serverUrl.toEncoded() + '\0'
-        + context.profileId.toUtf8() + '\0' + context.accountId.toUtf8();
-    return QString::fromLatin1(QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
+    const QByteArray identity = context.serverUrl.toEncoded() + '\0' + context.profileId.toUtf8()
+        + '\0' + context.accountId.toUtf8();
+    return QString::fromLatin1(
+        QCryptographicHash::hash(identity, QCryptographicHash::Sha256).toHex());
 }
 
 QJsonObject capabilities()
 {
-    return {
-        {QStringLiteral("video_evidence"), QStringLiteral("declared")},
-        {QStringLiteral("audio_evidence"), QStringLiteral("declared")},
-        {QStringLiteral("codecs_video"), QJsonArray{"h264", "hevc", "vp8", "vp9", "av1", "mpeg2video", "mpeg4", "vc1", "theora"}},
-        {QStringLiteral("codecs_video_hardware"), QJsonArray{}},
-        {QStringLiteral("codecs_audio"), QJsonArray{"aac", "ac3", "eac3", "dts", "truehd", "flac", "opus", "vorbis", "mp3", "alac", "pcm_s16le", "pcm_s24le"}},
-        {QStringLiteral("containers"), QJsonArray{"mp4", "mkv", "webm", "mov", "ts", "avi", "mpegts", "ogg", "flac"}},
-        {QStringLiteral("max_resolution"), QStringLiteral("8k")},
-        {QStringLiteral("hdr"), true}
-    };
+    return { { QStringLiteral("video_evidence"), QStringLiteral("declared") },
+        { QStringLiteral("audio_evidence"), QStringLiteral("declared") },
+        { QStringLiteral("codecs_video"),
+            QJsonArray {
+                "h264", "hevc", "vp8", "vp9", "av1", "mpeg2video", "mpeg4", "vc1", "theora" } },
+        { QStringLiteral("codecs_video_hardware"), QJsonArray {} },
+        { QStringLiteral("codecs_audio"),
+            QJsonArray { "aac", "ac3", "eac3", "dts", "truehd", "flac", "opus", "vorbis", "mp3",
+                "alac", "pcm_s16le", "pcm_s24le" } },
+        { QStringLiteral("containers"),
+            QJsonArray { "mp4", "mkv", "webm", "mov", "ts", "avi", "mpegts", "ogg", "flac" } },
+        { QStringLiteral("max_resolution"), QStringLiteral("8k") },
+        { QStringLiteral("hdr"), true } };
 }
 
 QJsonObject playbackContext(const PlaybackProviderContext &context)
 {
     const QJsonObject caps = capabilities();
-    const QJsonObject subtitles{{"embedded_text", true}, {"sidecar_text", true},
-        {"ass_styling", true}, {"embedded_bitmap", true}, {"sidecar_bitmap", false},
-        {"font_attachments", true}};
-    const QJsonObject direct{{"enabled", true}, {"supported_on_device", true},
-        {"containers", caps.value("containers")}, {"video_codecs", caps.value("codecs_video")},
-        {"audio_decode_codecs", caps.value("codecs_audio")}, {"audio_passthrough_codecs", QJsonArray{}},
-        {"subtitles", subtitles}, {"features", QJsonArray{}}, {"auth_header_refresh", false},
-        {"validated_claims", QJsonArray{"client_selected_audio_track_v1", "client_managed_dynamic_range_v1"}},
-        {"transformations", QJsonArray{}}};
-    return {{"protocol_version", 3}, {"form_factor", "desktop"},
-        {"app_version", context.clientVersion.isEmpty() ? QStringLiteral("unknown") : context.clientVersion},
-        {"device", QJsonObject{{"platform", context.devicePlatform}}},
-        {"output", QJsonObject{}}, {"deliveries", QJsonObject{{"original_http", direct}}}};
+    const QJsonObject subtitles { { "embedded_text", true }, { "sidecar_text", true },
+        { "ass_styling", true }, { "embedded_bitmap", true }, { "sidecar_bitmap", false },
+        { "font_attachments", true } };
+    const QJsonObject direct { { "enabled", true }, { "supported_on_device", true },
+        { "containers", caps.value("containers") }, { "video_codecs", caps.value("codecs_video") },
+        { "audio_decode_codecs", caps.value("codecs_audio") },
+        { "audio_passthrough_codecs", QJsonArray {} }, { "subtitles", subtitles },
+        { "features", QJsonArray {} }, { "auth_header_refresh", false },
+        { "validated_claims",
+            QJsonArray { "client_selected_audio_track_v1", "client_managed_dynamic_range_v1" } },
+        { "transformations", QJsonArray {} } };
+    return { { "protocol_version", 3 }, { "form_factor", "desktop" },
+        { "app_version",
+            context.clientVersion.isEmpty() ? QStringLiteral("unknown") : context.clientVersion },
+        { "device", QJsonObject { { "platform", context.devicePlatform } } },
+        { "output", QJsonObject {} },
+        { "deliveries", QJsonObject { { "original_http", direct } } } };
 }
 
 QString selectedIndex(const QJsonObject &tracks, const QString &kind)
@@ -98,50 +132,49 @@ QString selectedIndex(const QJsonObject &tracks, const QString &kind)
 }
 
 Bloom::PlaybackDescriptor descriptorFromDecision(const PlaybackProviderContext &context,
-                                                  const Bloom::MediaRef &media,
-                                                  const QJsonObject &wire,
-                                                  const QVariantMap &source)
+    const Bloom::MediaRef &media, const QJsonObject &wire, const QVariantMap &source)
 {
     if (wire.value("protocol_version").toInt() != 3
-        || wire.value("outcome").toString() != QStringLiteral("playable")) return {};
+        || wire.value("outcome").toString() != QStringLiteral("playable"))
+        return {};
     const QJsonObject plan = wire.value("playback_plan").toObject();
     const QJsonObject stream = plan.value("stream").toObject();
     const QJsonObject timeline = plan.value("timeline").toObject();
     const QString delivery = plan.value("delivery").toString();
     // Forward-only plans require reanchoring and source/player timeline translation.
-    if (plan.value("protocol_version").toInt() != 3
-        || delivery != QStringLiteral("original_http")
+    if (plan.value("protocol_version").toInt() != 3 || delivery != QStringLiteral("original_http")
         || stream.value("protocol").toString() != QStringLiteral("http_progressive")
         || stream.value("header_refresh").toString() != QStringLiteral("none")
         || !timeline.value("can_seek_anywhere").toBool()
         || timeline.value("timeline_offset_seconds").toDouble(-1) != 0
         || plan.value("plan_id").toString().isEmpty()
-        || plan.value("plan_attempt_key").toString().isEmpty()) return {};
+        || plan.value("plan_attempt_key").toString().isEmpty())
+        return {};
     Bloom::PlaybackDescriptor descriptor;
     descriptor.media = media;
     descriptor.playbackSessionId = wire.value("session_id").toString();
-    if (descriptor.playbackSessionId.isEmpty()) descriptor.playbackSessionId = plan.value("session_id").toString();
+    if (descriptor.playbackSessionId.isEmpty())
+        descriptor.playbackSessionId = plan.value("session_id").toString();
     if (!plan.value("session_id").toString().isEmpty()
-        && plan.value("session_id").toString() != descriptor.playbackSessionId) return {};
+        && plan.value("session_id").toString() != descriptor.playbackSessionId)
+        return {};
     descriptor.mediaVersionId = plan.value("effective_media_file_id").toString();
     descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
-    descriptor.stream.url = QUrl(relativeOrAbsoluteUrl(context.serverUrl, stream.value("url").toString()));
-    if (!isHttpUrl(descriptor.stream.url)) return {};
-    const QJsonObject headers = stream.value("headers").toObject();
-    for (auto it = headers.constBegin(); it != headers.constEnd(); ++it) {
-        const QString value = it.value().toString();
-        if (!it.value().isString() || it.key().contains('\r') || it.key().contains('\n')
-            || it.key().contains(':') || value.contains('\r') || value.contains('\n')) return {};
-        descriptor.stream.headers.insert(it.key(), value);
-    }
+    descriptor.stream.url = mediaConsumerUrl(context, stream.value("url").toString());
+    if (!isHttpUrl(descriptor.stream.url))
+        return {};
+    if (!stream.value("headers").isObject() || !stream.value("headers").toObject().isEmpty())
+        return {};
     const QJsonObject planSource = plan.value("source").toObject();
     descriptor.durationMs = planSource.value("duration_seconds").isDouble()
         ? SiloModelMapper::secondsToMilliseconds(planSource.value("duration_seconds").toDouble())
         : source.value("durationMs").toLongLong();
     const double start = timeline.value("player_start_seconds").toDouble(-1);
-    if (!std::isfinite(start) || start < 0) return {};
+    if (!std::isfinite(start) || start < 0)
+        return {};
     descriptor.startPositionMs = SiloModelMapper::secondsToMilliseconds(start);
-    for (const QVariant &entry : source.value("mediaStreams").toList()) {
+    for (const QVariant &entry : source.value("mediaStreams").toList())
+    {
         const QVariantMap item = entry.toMap();
         Bloom::PlaybackTrack track;
         track.trackId = QString::number(item.value("index", -1).toInt());
@@ -151,18 +184,22 @@ Bloom::PlaybackDescriptor descriptorFromDecision(const PlaybackProviderContext &
         track.displayTitle = item.value("displayTitle").toString();
         track.isDefault = item.value("isDefault").toBool();
         track.isForced = item.value("isForced").toBool();
-        if (track.kind == QStringLiteral("audio")) descriptor.audioTracks.append(track);
+        if (track.kind == QStringLiteral("audio"))
+            descriptor.audioTracks.append(track);
     }
     const QJsonObject selected = plan.value("selected_tracks").toObject();
     descriptor.selectedAudioTrackId = selectedIndex(selected, QStringLiteral("audio"));
     descriptor.selectedSubtitleTrackId = selectedIndex(selected, QStringLiteral("subtitle"));
     const QJsonObject subtitle = plan.value("subtitle").toObject();
     const QString mode = subtitle.value("mode").toString();
-    if (mode != QStringLiteral("off") && mode != QStringLiteral("render")) return {};
-    for (const QJsonValue &entry : subtitle.value("inventory").toArray()) {
+    if (mode != QStringLiteral("off") && mode != QStringLiteral("render"))
+        return {};
+    for (const QJsonValue &entry : subtitle.value("inventory").toArray())
+    {
         const QJsonObject item = entry.toObject();
         const int index = item.value("combined_index").toInt(-1);
-        if (index < 0) continue;
+        if (index < 0)
+            continue;
         Bloom::PlaybackTrack track;
         track.trackId = QString::number(index);
         track.kind = QStringLiteral("subtitle");
@@ -172,18 +209,21 @@ Bloom::PlaybackDescriptor descriptorFromDecision(const PlaybackProviderContext &
         track.isDefault = item.value("default").toBool();
         track.isForced = item.value("forced").toBool();
         track.isHearingImpaired = item.value("hearing_impaired").toBool();
-        track.externalUrl = QUrl(relativeOrAbsoluteUrl(context.serverUrl, item.value("url").toString()));
+        track.externalUrl = mediaConsumerUrl(context, item.value("url").toString());
         track.isExternal = !track.externalUrl.isEmpty();
-        if (mode == QStringLiteral("render") && item.value("track_id") == subtitle.value("track_id")) {
+        if (mode == QStringLiteral("render")
+            && item.value("track_id") == subtitle.value("track_id"))
+        {
             const QJsonObject artifact = subtitle.value("artifact").toObject();
-            if (!artifact.isEmpty()) {
-                track.externalUrl = QUrl(relativeOrAbsoluteUrl(context.serverUrl, artifact.value("url").toString()));
+            if (!artifact.isEmpty())
+            {
+                track.externalUrl = mediaConsumerUrl(context, artifact.value("url").toString());
                 track.isExternal = true;
             }
         }
         descriptor.subtitleTracks.append(track);
     }
-    descriptor.reporting = {false, true, true, true};
+    descriptor.reporting = { false, true, true, true };
     return descriptor;
 }
 
@@ -194,41 +234,47 @@ QString SiloPlaybackProvider::capabilitiesEndpoint() const
     return QStringLiteral("/api/v2/playback/capabilities");
 }
 
-bool SiloPlaybackProvider::acceptCapabilities(const PlaybackProviderContext &context,
-                                              const QJsonObject &wire) const
+bool SiloPlaybackProvider::acceptCapabilities(
+    const PlaybackProviderContext &context, const QJsonObject &wire) const
 {
     const QString key = scopeKey(context);
     m_installations.remove(key);
     m_previewScopes.remove(key);
     if (wire.value("state").toString() != QStringLiteral("available")
-        || !wire.value("allowed").toBool()
-        || !wire.value("protocol_versions").toArray().contains(3)
+        || !wire.value("allowed").toBool() || !wire.value("protocol_versions").toArray().contains(3)
         || !wire.value("features").toArray().contains(QStringLiteral("playback_plan_v3"))
         || !wire.value("deliveries").toArray().contains(QStringLiteral("original_http"))
-        || wire.value("installation_id").toString().isEmpty()) return false;
-    if (m_installations.size() >= 32) { m_installations.clear(); m_previewScopes.clear(); }
-    if (wire.value("features").toArray().contains(QStringLiteral("trickplay_v1"))) m_previewScopes.insert(key);
+        || wire.value("installation_id").toString().isEmpty())
+        return false;
+    if (m_installations.size() >= 32)
+    {
+        m_installations.clear();
+        m_previewScopes.clear();
+    }
+    if (wire.value("features").toArray().contains(QStringLiteral("trickplay_v1")))
+        m_previewScopes.insert(key);
     m_installations.insert(key, wire.value("installation_id").toString());
     return true;
 }
 
-Bloom::PlaybackDescriptor SiloPlaybackProvider::createDescriptor(
-    const PlaybackProviderContext &, const Bloom::MediaRef &, const QVariantMap &,
-    int, int, qint64, const QString &) const
+Bloom::PlaybackDescriptor SiloPlaybackProvider::createDescriptor(const PlaybackProviderContext &,
+    const Bloom::MediaRef &, const QVariantMap &, int, int, qint64, const QString &) const
 {
     return {};
 }
 
 PlaybackInfoRequest SiloPlaybackProvider::createTrickplayInfoRequest(
-    const PlaybackProviderContext &context, const Bloom::MediaRef &media, const QString &fileId) const
+    const PlaybackProviderContext &context, const Bloom::MediaRef &media,
+    const QString &fileId) const
 {
     PlaybackInfoRequest request;
     const QString key = scopeKey(context) + QLatin1Char('/') + media.itemId;
     m_previews.remove(key);
     if (!m_previewScopes.contains(scopeKey(context)) || fileId.isEmpty()
-        || !m_previewFiles.value(key).contains(fileId)) return request;
+        || !m_previewFiles.value(key).contains(fileId))
+        return request;
     QUrl url(QStringLiteral("/api/v2/watch/%1/trickplay")
-        .arg(QString::fromLatin1(QUrl::toPercentEncoding(media.itemId))));
+            .arg(QString::fromLatin1(QUrl::toPercentEncoding(media.itemId))));
     QUrlQuery query;
     query.addQueryItem(QStringLiteral("file_id"), fileId);
     url.setQuery(query);
@@ -237,27 +283,34 @@ PlaybackInfoRequest SiloPlaybackProvider::createTrickplayInfoRequest(
 }
 
 TrickplayTileInfoMap SiloPlaybackProvider::parseTrickplayInfoResponse(
-    const PlaybackProviderContext &context, const Bloom::MediaRef &media,
-    const QJsonObject &wire, const QString &fileId) const
+    const PlaybackProviderContext &context, const Bloom::MediaRef &media, const QJsonObject &wire,
+    const QString &fileId) const
 {
     const QString key = scopeKey(context) + QLatin1Char('/') + media.itemId;
     m_previews.remove(key);
-    if (wire.value("file_id").toString() != fileId) return {};
+    if (wire.value("file_id").toString() != fileId)
+        return {};
     const auto mapped = SiloModelMapper::trickplayInfo(wire);
-    const QDateTime expiry = QDateTime::fromString(wire.value("expires_at").toString(), Qt::ISODateWithMs);
-    if (mapped.isEmpty() || !expiry.isValid() || expiry <= QDateTime::currentDateTimeUtc()) return {};
+    const QDateTime expiry
+        = QDateTime::fromString(wire.value("expires_at").toString(), Qt::ISODateWithMs);
+    if (mapped.isEmpty() || !expiry.isValid() || expiry <= QDateTime::currentDateTimeUtc())
+        return {};
     const QJsonArray sheets = wire.value("sheets").toArray();
     QList<QUrl> urls(sheets.size());
     QSet<int> seen;
-    for (const auto &entry : sheets) {
+    for (const auto &entry : sheets)
+    {
         const QJsonObject sheet = entry.toObject();
         const int index = sheet.value("index").toInt(-1);
         const QUrl url(relativeOrAbsoluteUrl(context.serverUrl, sheet.value("url").toString()));
-        if (index < 0 || index >= urls.size() || seen.contains(index) || !isHttpUrl(url)) return {};
-        seen.insert(index); urls[index] = url;
+        if (index < 0 || index >= urls.size() || seen.contains(index) || !isHttpUrl(url))
+            return {};
+        seen.insert(index);
+        urls[index] = url;
     }
-    if (m_previews.size() >= 32) m_previews.clear();
-    m_previews.insert(key, {mapped.first().width, urls, expiry});
+    if (m_previews.size() >= 32)
+        m_previews.clear();
+    m_previews.insert(key, { mapped.first().width, urls, expiry });
     return mapped;
 }
 
@@ -265,8 +318,9 @@ QUrl SiloPlaybackProvider::createTrickplayTileUrl(
     const PlaybackProviderContext &context, const QString &itemId, int width, int tileIndex) const
 {
     const auto it = m_previews.constFind(scopeKey(context) + QLatin1Char('/') + itemId);
-    if (it == m_previews.cend() || it->width != width || tileIndex < 0 || tileIndex >= it->sheets.size()
-        || it->expiresAt <= QDateTime::currentDateTimeUtc()) return {};
+    if (it == m_previews.cend() || it->width != width || tileIndex < 0
+        || tileIndex >= it->sheets.size() || it->expiresAt <= QDateTime::currentDateTimeUtc())
+        return {};
     return it->sheets.at(tileIndex);
 }
 
@@ -274,8 +328,9 @@ PlaybackInfoRequest SiloPlaybackProvider::createPlaybackInfoRequest(
     const PlaybackProviderContext &, const Bloom::MediaRef &media, const QVariantMap &) const
 {
     PlaybackInfoRequest request;
-    if (!media.itemId.isEmpty()) request.endpoint = QStringLiteral("/api/v2/watch/%1")
-        .arg(QString::fromLatin1(QUrl::toPercentEncoding(media.itemId)));
+    if (!media.itemId.isEmpty())
+        request.endpoint = QStringLiteral("/api/v2/watch/%1")
+                               .arg(QString::fromLatin1(QUrl::toPercentEncoding(media.itemId)));
     return request;
 }
 
@@ -283,17 +338,21 @@ PlaybackInfoParseResult SiloPlaybackProvider::parsePlaybackInfoResponse(
     const PlaybackProviderContext &context, const Bloom::MediaRef &media, const QJsonObject &wire,
     const QVariantMap &) const
 {
-    if (m_previewFiles.size() >= 64) m_previewFiles.clear();
+    if (m_previewFiles.size() >= 64)
+        m_previewFiles.clear();
     QSet<QString> files;
-    for (const auto &entry : wire.value("versions").toArray()) {
+    for (const auto &entry : wire.value("versions").toArray())
+    {
         const QJsonObject version = entry.toObject();
-        if (version.value("trickplay_available").toBool()) files.insert(version.value("file_id").toString());
+        if (version.value("trickplay_available").toBool())
+            files.insert(version.value("file_id").toString());
     }
     m_previewFiles.insert(scopeKey(context) + QLatin1Char('/') + media.itemId, files);
     PlaybackInfoParseResult result;
     result.response = SiloModelMapper::playbackInfo(wire);
     result.valid = !result.response.mediaSources.isEmpty();
-    if (!result.valid) result.error = QStringLiteral("Silo watch state has no playable files");
+    if (!result.valid)
+        result.error = QStringLiteral("Silo watch state has no playable files");
     return result;
 }
 
@@ -302,67 +361,93 @@ PlaybackStartRequest SiloPlaybackProvider::createPlaybackStartRequest(
     int audio, int subtitle, qint64 positionMs) const
 {
     PlaybackStartRequest request;
-    const QString fileId = source.value("fileId", source.value("id", source.value("mediaVersionId"))).toString();
+    const QString fileId
+        = source.value("fileId", source.value("id", source.value("mediaVersionId"))).toString();
     const QString installation = m_installations.value(scopeKey(context));
+    if (m_sessions.size() >= 64)
+        return request;
     if (fileId.isEmpty() || installation.isEmpty() || context.profileId.isEmpty()
-        || context.playbackAttemptId.isEmpty()) return request;
+        || context.playbackAttemptId.isEmpty())
+        return request;
     request.endpoint = QStringLiteral("/api/v2/playback/start");
     request.replaySafe = true;
-    request.body = {{"installation_id", installation}, {"protocol_version", 3},
-        {"client_features", QJsonArray{"playback_plan_v3", "neutral_playback_v3_contract_v1", "sequenced_progress_v1", "plan_source_duration_v1"}},
-        {"file_id", fileId}, {"profile_id", context.profileId},
-        {"playback_attempt_id", context.playbackAttemptId}, {"allow_alternate_versions", false},
-        {"quality_preference", "auto"}, {"subtitle_fidelity_preference", "compatible"},
-        {"start_position", qMax<qint64>(0, positionMs) / 1000.0},
-        {"client_capabilities", capabilities()}, {"client_playback_context", playbackContext(context)}};
-    if (audio >= 0) request.body.insert(QStringLiteral("audio_track_index"), audio);
-    if (subtitle >= 0) request.body.insert(QStringLiteral("subtitle_track_index"), subtitle);
+    request.body = { { "installation_id", installation }, { "protocol_version", 3 },
+        { "client_features",
+            QJsonArray { "playback_plan_v3", "neutral_playback_v3_contract_v1",
+                "sequenced_progress_v1", "plan_source_duration_v1" } },
+        { "file_id", fileId }, { "profile_id", context.profileId },
+        { "playback_attempt_id", context.playbackAttemptId }, { "allow_alternate_versions", false },
+        { "quality_preference", "auto" }, { "subtitle_fidelity_preference", "compatible" },
+        { "start_position", qMax<qint64>(0, positionMs) / 1000.0 },
+        { "client_capabilities", capabilities() },
+        { "client_playback_context", playbackContext(context) } };
+    if (audio >= 0)
+        request.body.insert(QStringLiteral("audio_track_index"), audio);
+    if (subtitle >= 0)
+        request.body.insert(QStringLiteral("subtitle_track_index"), subtitle);
     return request;
 }
 
 PlaybackStartParseResult SiloPlaybackProvider::parsePlaybackStartResponse(
-    const PlaybackProviderContext &context, const Bloom::MediaRef &media,
-    const QJsonObject &wire, const QVariantMap &source) const
+    const PlaybackProviderContext &context, const Bloom::MediaRef &media, const QJsonObject &wire,
+    const QVariantMap &source) const
 {
     PlaybackStartParseResult result;
     result.descriptor = descriptorFromDecision(context, media, wire, source);
-    result.valid = result.descriptor.isValid() && !m_installations.value(scopeKey(context)).isEmpty()
-        && !context.playbackAttemptId.isEmpty() && m_sessions.size() < 64;
-    if (result.valid) {
-        m_sessions.insert(result.descriptor.playbackSessionId,
-            Session{media, context, m_installations.value(scopeKey(context)), wire.value("playback_plan").toObject(), 0});
-    } else {
-        result.error = QStringLiteral("Silo returned an unsupported or malformed playback decision");
+    const QString sessionId
+        = wire.value("session_id")
+              .toString(wire.value("playback_plan").toObject().value("session_id").toString());
+    const QString installation = m_installations.value(scopeKey(context));
+    const bool knownSession = wire.value("protocol_version").toInt() == 3 && !sessionId.isEmpty()
+        && !installation.isEmpty() && !context.playbackAttemptId.isEmpty()
+        && m_sessions.size() < 64;
+    if (knownSession)
+    {
+        m_sessions.insert(sessionId,
+            Session { media, context, installation, wire.value("playback_plan").toObject(), 0 });
+    }
+    result.valid = result.descriptor.isValid() && knownSession;
+    if (!result.valid) {
+        result.descriptor.media = media;
+        if (knownSession)
+            result.descriptor.playbackSessionId = sessionId;
+        result.error
+            = QStringLiteral("Silo returned an unsupported or malformed playback decision");
     }
     return result;
 }
 
 PlaybackAudioSwitchRequest SiloPlaybackProvider::createAudioSwitchRequest(
-    const PlaybackProviderContext &context, const QString &sessionId, int audio, qint64 positionMs) const
+    const PlaybackProviderContext &context, const QString &sessionId, int audio,
+    qint64 positionMs) const
 {
     PlaybackAudioSwitchRequest request;
     const auto it = m_sessions.constFind(sessionId);
-    if (it == m_sessions.cend() || audio < 0 || scopeKey(it->context) != scopeKey(context)) return request;
+    if (it == m_sessions.cend() || audio < 0 || scopeKey(it->context) != scopeKey(context))
+        return request;
     const Session &session = *it;
     QJsonObject selected = session.plan.value("selected_tracks").toObject();
-    selected.insert(QStringLiteral("audio"), QJsonObject{
-        {"id", QStringLiteral("file:%1:audio:%2").arg(session.plan.value("effective_media_file_id").toString()).arg(audio)},
-        {"index", audio}});
+    selected.insert(QStringLiteral("audio"),
+        QJsonObject { { "id",
+                          QStringLiteral("file:%1:audio:%2")
+                              .arg(session.plan.value("effective_media_file_id").toString())
+                              .arg(audio) },
+            { "index", audio } });
     request.endpoint = QStringLiteral("/api/v2/playback/%1/replan")
-        .arg(QString::fromLatin1(QUrl::toPercentEncoding(sessionId)));
+                           .arg(QString::fromLatin1(QUrl::toPercentEncoding(sessionId)));
     request.method = QStringLiteral("POST");
     request.replaySafe = true;
-    request.body = {{"installation_id", session.installationId}, {"protocol_version", 3},
-        {"playback_attempt_id", session.context.playbackAttemptId},
-        {"replan_request_id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
-        {"failed_plan_id", session.plan.value("plan_id")},
-        {"plan_attempt_id", QUuid::createUuid().toString(QUuid::WithoutBraces)},
-        {"plan_attempt_key", session.plan.value("plan_attempt_key")},
-        {"attempted_plan_keys", QJsonArray{}}, {"attempt_count", 1},
-        {"operation", "track_change"}, {"quality_preference", "auto"},
-        {"position_seconds", qMax<qint64>(0, positionMs) / 1000.0},
-        {"selected_tracks", selected}, {"client_capabilities", capabilities()},
-        {"client_playback_context", playbackContext(context)}};
+    request.body = { { "installation_id", session.installationId }, { "protocol_version", 3 },
+        { "playback_attempt_id", session.context.playbackAttemptId },
+        { "replan_request_id", QUuid::createUuid().toString(QUuid::WithoutBraces) },
+        { "failed_plan_id", session.plan.value("plan_id") },
+        { "plan_attempt_id", QUuid::createUuid().toString(QUuid::WithoutBraces) },
+        { "plan_attempt_key", session.plan.value("plan_attempt_key") },
+        { "attempted_plan_keys", QJsonArray {} }, { "attempt_count", 1 },
+        { "operation", "track_change" }, { "quality_preference", "auto" },
+        { "position_seconds", qMax<qint64>(0, positionMs) / 1000.0 },
+        { "selected_tracks", selected }, { "client_capabilities", capabilities() },
+        { "client_playback_context", playbackContext(context) } };
     return request;
 }
 
@@ -370,32 +455,37 @@ PlaybackAudioSwitchParseResult SiloPlaybackProvider::parseAudioSwitchResponse(
     const PlaybackProviderContext &context, const QJsonObject &wire) const
 {
     PlaybackAudioSwitchParseResult result;
-    const QString sessionId = wire.value("session_id").toString(
-        wire.value("playback_plan").toObject().value("session_id").toString());
+    const QString sessionId
+        = wire.value("session_id")
+              .toString(wire.value("playback_plan").toObject().value("session_id").toString());
     auto it = m_sessions.find(sessionId);
-    if (it == m_sessions.end() || scopeKey(it->context) != scopeKey(context)) return result;
+    if (it == m_sessions.end() || scopeKey(it->context) != scopeKey(context))
+        return result;
     const auto descriptor = descriptorFromDecision(context, it->media, wire, {});
     result.valid = descriptor.isValid();
-    if (result.valid) {
+    if (result.valid)
+    {
         it->plan = wire.value("playback_plan").toObject();
         result.reloadUrl = descriptor.stream.url;
-    } else {
+    }
+    else
+    {
         result.error = QStringLiteral("Silo returned an unsupported audio replan");
     }
     return result;
 }
 
 PlaybackRecoveryRequest SiloPlaybackProvider::createPlaybackRecoveryRequest(
-    const PlaybackProviderContext &context, const Bloom::MediaRef &media,
-    const QVariantMap &source, int audio, qint64 positionMs) const
+    const PlaybackProviderContext &context, const Bloom::MediaRef &media, const QVariantMap &source,
+    int audio, qint64 positionMs) const
 {
     const auto start = createPlaybackStartRequest(context, media, source, audio, -1, positionMs);
-    return {start.endpoint, start.method, start.body, start.replaySafe};
+    return { start.endpoint, start.method, start.body, start.replaySafe };
 }
 
 PlaybackStartParseResult SiloPlaybackProvider::parsePlaybackRecoveryResponse(
-    const PlaybackProviderContext &context, const Bloom::MediaRef &media,
-    const QJsonObject &wire, const QVariantMap &source) const
+    const PlaybackProviderContext &context, const Bloom::MediaRef &media, const QJsonObject &wire,
+    const QVariantMap &source) const
 {
     return parsePlaybackStartResponse(context, media, wire, source);
 }
@@ -405,19 +495,31 @@ PlaybackReportRequest SiloPlaybackProvider::createReportRequest(const PlaybackRe
     PlaybackReportRequest request;
     auto it = m_sessions.find(report.playbackSessionId);
     if (report.event == PlaybackReportEvent::Start || it == m_sessions.end()
-        || it->media.connectionId != report.media.connectionId || it->media.itemId != report.media.itemId) return request;
-    request.endpoint = QStringLiteral("/api/v2/playback/%1")
-        .arg(QString::fromLatin1(QUrl::toPercentEncoding(report.playbackSessionId)));
+        || it->media.connectionId != report.media.connectionId
+        || it->media.itemId != report.media.itemId)
+        return request;
+    request.endpoint
+        = QStringLiteral("/api/v2/playback/%1")
+              .arg(QString::fromLatin1(QUrl::toPercentEncoding(report.playbackSessionId)));
     request.replaySafe = true;
-    request.body = {{"installation_id", it->installationId}, {"sequence", ++it->sequence},
-        {"position", qMax<qint64>(0, report.positionMs) / 1000.0},
-        {"is_paused", report.event == PlaybackReportEvent::Pause || report.isPaused}};
+    request.body = { { "installation_id", it->installationId } };
+    if (report.positionMs >= 0 || report.event != PlaybackReportEvent::Stop)
+    {
+        request.body.insert(QStringLiteral("sequence"), ++it->sequence);
+        request.body.insert(
+            QStringLiteral("position"), qMax<qint64>(0, report.positionMs) / 1000.0);
+        request.body.insert(QStringLiteral("is_paused"),
+            report.event == PlaybackReportEvent::Pause || report.isPaused);
+    }
     if (report.event == PlaybackReportEvent::Stop) {
         request.method = QStringLiteral("DELETE");
         request.deferSessionExpiry = false;
-        request.body.insert(QStringLiteral("stop_id"), QUuid::createUuid().toString(QUuid::WithoutBraces));
+        request.body.insert(
+            QStringLiteral("stop_id"), QUuid::createUuid().toString(QUuid::WithoutBraces));
         m_sessions.erase(it);
-    } else {
+    }
+    else
+    {
         request.endpoint += QStringLiteral("/progress");
     }
     return request;

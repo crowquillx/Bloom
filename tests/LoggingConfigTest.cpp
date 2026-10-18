@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include "utils/LoggingConfig.h"
+#include "utils/BloomLogging.h"
 
 TEST(LoggingConfigTest, levelFromStringRecognizesAliases)
 {
@@ -42,4 +43,14 @@ TEST(LoggingConfigTest, defaultQuietRulesDisableInfoAndDebug)
     EXPECT_EQ(rules, QStringLiteral("*.debug=false\n*.info=false"));
     EXPECT_FALSE(rules.contains(QStringLiteral("bloom.imagecache.debug=true")));
     EXPECT_FALSE(rules.contains(QStringLiteral("*.info=true")));
+}
+
+TEST(LoggingConfigTest, mediaLogsRemoveCredentialUrlsAndRelativeQueryTokens)
+{
+    const auto full = redactNetworkLogText(QStringLiteral("Failed https://media.example/api/opaque-secret?token=account-secret&st=stream-secret HTTP 401"));
+    EXPECT_EQ(full, QStringLiteral("Failed [URL] HTTP 401"));
+    const auto relative = redactNetworkLogText(QStringLiteral("GET /api/v2/stream/id?st=stream-secret&token=account-secret&range=1 HTTP 403"));
+    EXPECT_FALSE(relative.contains(QStringLiteral("stream-secret")));
+    EXPECT_FALSE(relative.contains(QStringLiteral("account-secret")));
+    EXPECT_TRUE(relative.contains(QStringLiteral("range=1 HTTP 403")));
 }

@@ -7,6 +7,9 @@ import argparse
 import json
 import os
 import sys
+import uuid
+import hashlib
+from datetime import datetime, timezone
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -102,9 +105,12 @@ class HttpTransport:
         request = urllib.request.Request(url, data=body, headers=request_headers, method=method)
         try:
             with self._opener.open(request, timeout=self.timeout) as reply:
-                return Response(reply.status, dict(reply.headers.items()), reply.read())
+                payload = reply.read(16 * 1024 * 1024 + 1)
+                if len(payload) > 16 * 1024 * 1024:
+                    return Response(0, {"X-Bloom-Transport-Error": "response size limit exceeded"}, b"")
+                return Response(reply.status, dict(reply.headers.items()), payload)
         except urllib.error.HTTPError as error:
-            return Response(error.code, dict(error.headers.items()), error.read())
+            return Response(error.code, dict(error.headers.items()), error.read(64 * 1024))
         except (urllib.error.URLError, TimeoutError) as error:
             return Response(0, {"X-Bloom-Transport-Error": str(error)}, b"")
 
@@ -581,20 +587,11 @@ class MediaBrowserV1Probe:
         return results
 
 
-class SiloNativeV1Probe:
-    """Probe native Silo reads and an opt-in legacy playback lifecycle."""
-
+class SiloNativeV2Probe:
+    """Probe the stable native contract with a disposable account and media."""
     requires_credentials = False
 
-    def __init__(
-        self,
-        transport: HttpTransport,
-        username: str,
-        password: str,
-        version: str,
-        profile_id: str = "",
-        profile_pin: str = "",
-    ):
+    def __init__(self, transport, username, password, version, profile_id="", profile_pin=""):
         self.transport = transport
         self.username = username
         self.password = password
@@ -604,17 +601,13 @@ class SiloNativeV1Probe:
         self.access_token = ""
         self.refresh_token = ""
         self.profile_token = ""
+        self.system_info = {}
 
-    def headers(self, token: str = "", profile_id: str = "", profile_token: str = ""):
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "X-Silo-Client": "Bloom Contract",
-            "X-Silo-Client-Version": self.version,
-            "X-Silo-Device-Id": "bloom-contract-native",
-            "X-Silo-Device-Name": "Bloom Contract Probe",
-            "X-Silo-Device-Platform": sys.platform,
-        }
+    def headers(self, token="", profile_id="", profile_token=""):
+        headers = {"Accept": "application/json", "Content-Type": "application/json",
+                   "X-Silo-Client": "Bloom Contract", "X-Silo-Client-Version": self.version,
+                   "X-Silo-Device-Id": "bloom-contract-native-v2",
+                   "X-Silo-Device-Name": "Bloom Contract Probe", "X-Silo-Device-Platform": sys.platform}
         if token:
             headers["Authorization"] = f"Bearer {token}"
         if profile_id:
@@ -623,806 +616,282 @@ class SiloNativeV1Probe:
             headers["X-Profile-Token"] = profile_token
         return headers
 
-    def request(
-        self,
-        method: str,
-        path: str,
-        *,
-        token: str = "",
-        profile_id: str = "",
-        profile_token: str = "",
-        json_body: Any = None,
-    ):
-        headers = self.headers(token=token, profile_id=profile_id, profile_token=profile_token)
+    def request(self, method, path, *, token="", profile_id="", profile_token="", json_body=None, extra_headers=None):
+        headers = self.headers(token, profile_id, profile_token)
         if path.startswith(("http://", "https://")) and not self.transport.is_same_origin(path):
-            headers = {"Accept": "application/json"}
+            headers = {"Accept": "*/*"}
+        headers.update(extra_headers or {})
         return self.transport.request(method, path, headers=headers, json_body=json_body)
 
     @staticmethod
-    def _object(payload: Any):
+    def _object(payload):
         return payload if isinstance(payload, dict) else {}
 
     @staticmethod
-    def _array(payload: Any, *keys: str):
-        if isinstance(payload, list):
-            return payload
+    def _array(payload, *keys):
         if isinstance(payload, dict):
-            for key in keys:
+            for key in keys or ("items",):
                 if isinstance(payload.get(key), list):
                     return payload[key]
         return []
 
     @staticmethod
-    def _identity(value: Any):
-        return (isinstance(value, str) and bool(value.strip())) or (
-            isinstance(value, int) and not isinstance(value, bool)
-        )
+    def _identity(value):
+        return isinstance(value, str) and bool(value)
 
     @staticmethod
-    def _non_empty_string(value: Any):
-        return isinstance(value, str) and bool(value.strip())
-    @staticmethod
-    def _numeric_file_id(value: Any):
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value >= 0
-        if not isinstance(value, str) or not value.isascii() or not value.isdecimal():
-            return False
-        try:
-            return int(value) >= 0
-        except ValueError:
-            return False
+    def _playback_version(versions):
+        return next((version for version in versions or []
+                     if isinstance(version, dict) and SiloNativeV2Probe._identity(version.get("file_id"))), None)
 
     @staticmethod
-    def _playback_version(versions: Any):
-        if not isinstance(versions, list):
-            return None
+    def _header(response, name):
+        return next((value for key, value in response.headers.items() if key.lower() == name.lower()), "")
 
-        candidates = [
-            version
-            for version in versions
-            if isinstance(version, dict)
-            and SiloNativeV1Probe._numeric_file_id(version.get("file_id"))
-        ]
-        return next(
-            (
-                version
-                for version in candidates
-                if isinstance(version.get("audio_tracks"), list)
-                and len(version["audio_tracks"]) > 1
-            ),
-            candidates[0] if candidates else None,
-        )
-
-    def _record(self, results: list[ProbeResult], expected: dict[str, str], contract: str, observed: str, evidence: str):
-        wanted = expected.get(contract)
-        if wanted is None:
+    def _record(self, results, expected, contract, observed, evidence):
+        if contract not in expected:
             return
-        passed = observed == "inconclusive" or observed == wanted or (wanted == "partial" and observed == "supported")
+        wanted = expected[contract]
+        passed = observed == wanted or wanted == "partial" and observed == "supported"
         results.append(ProbeResult(contract, wanted, observed, passed, evidence))
 
-    def _health(self, expected: dict[str, str], results: list[ProbeResult]):
-        response = self.request("GET", "/api/v1/health")
-        payload = response.json() if response.status == 200 else None
-        status = payload.get("status") if isinstance(payload, dict) else None
-        server_id_present = isinstance(payload, dict) and "server_id" in payload
-        server_id = payload.get("server_id") if isinstance(payload, dict) else None
-        server_id_valid = not server_id_present or (
-            isinstance(server_id, str) and bool(server_id.strip())
-        )
-        valid = response.status == 200 and status == "ok" and server_id_valid
-        self._record(
-            results,
-            expected,
-            "native.health",
-            expected.get("native.health", "missing") if valid else "missing",
-            f"health returned HTTP {response.status}, status={status!r}, "
-            f"server_id={'present' if server_id_present else 'omitted'}; "
-            "installation uniqueness is intentionally not inferred",
-        )
-    def _cleanup(self):
-        if self.access_token:
-            self.request("POST", "/api/v1/auth/logout", token=self.access_token)
+    def _check(self, results, expected, contract, passed, evidence):
+        self._record(results, expected, contract, "supported" if passed else "missing", evidence)
 
+    def _skip(self, results, expected, contract, evidence):
+        self._record(results, expected, contract, "inconclusive", evidence)
 
-    def run(self, expected: dict[str, str], allow_mutations: bool):
-        results: list[ProbeResult] = []
-        playback_contracts = (
-            "native.playback.capability",
-            "native.playback.start-legacy",
-            "native.playback.progress",
-            "native.playback.stop",
-            "native.playback.track",
-        )
-        state_contracts = (
-            "native.state.watched",
-            "native.state.favorite",
-        )
-        self._health(expected, results)
-        if not allow_mutations:
-            for contract in playback_contracts:
-                self._record(
-                    results,
-                    expected,
-                    contract,
-                    "inconclusive",
-                    "destructive native playback lifecycle probe requires --allow-mutations and fixture credentials",
-                )
-            for contract in state_contracts:
-                self._record(
-                    results,
-                    expected,
-                    contract,
-                    "inconclusive",
-                    "profile state round-trip probe requires --allow-mutations and fixture credentials",
-                )
+    def _health(self, expected, results):
+        health = self.request("GET", "/health")
+        ready = self.request("GET", "/ready")
+        info = self.request("GET", "/api/v2/system/info")
+        self.system_info = self._object(info.json())
+        valid = health.status == 200 and ready.status == 200 and info.status == 200 \
+            and self.system_info.get("api_major") == 2 and isinstance(self.system_info.get("links"), dict)
+        self._check(results, expected, "native.health", valid,
+                    "neutral liveness/readiness and v2 identity; build fields are diagnostic only")
+        return valid
+
+    def run(self, expected, allow_mutations):
+        results = []
+        if not self._health(expected, results):
+            for key in expected:
+                if key != "native.health":
+                    self._skip(results, expected, key, "native v2 discovery failed")
+            return results
         if not self.username or not self.password:
+            for key in expected:
+                if key != "native.health":
+                    self._skip(results, expected, key, "disposable fixture credentials are absent")
             return results
-
-        providers_response = self.request("GET", "/api/v1/auth/providers")
-        providers = self._array(providers_response.json() if providers_response.status == 200 else None, "providers")
-        providers_ok = providers_response.status == 200 and bool(providers) and all(
-            isinstance(provider, dict)
-            and self._non_empty_string(provider.get("id"))
-            and self._non_empty_string(provider.get("display_name"))
-            and self._non_empty_string(provider.get("mode"))
-            and isinstance(provider.get("default"), bool)
-            for provider in providers
-        )
-        self._record(
-            results,
-            expected,
-            "native.auth.providers",
-            "supported" if providers_ok else "partial" if providers_response.status == 200 else "missing",
-            f"provider discovery returned HTTP {providers_response.status} with {len(providers)} shape-valid providers={providers_ok}",
-        )
-
-        unauthenticated = self.request("GET", "/api/v1/auth/me")
-        unauthenticated_payload = self._object(unauthenticated.json())
-        errors_ok = (
-            unauthenticated.status == 401
-            and self._non_empty_string(unauthenticated_payload.get("error"))
-            and self._non_empty_string(unauthenticated_payload.get("message"))
-        )
-        self._record(
-            results,
-            expected,
-            "native.auth.errors",
-            "supported" if errors_ok else "partial",
-            f"missing-bearer auth/me returned HTTP {unauthenticated.status} with error/message envelope={errors_ok}",
-        )
-
-        login = self.request(
-            "POST",
-            "/api/v1/auth/login",
-            json_body={"username": self.username, "password": self.password},
-        )
-        login_payload = self._object(login.json())
-        user = self._object(login_payload.get("user"))
-        self.access_token = login_payload.get("access_token", "")
-        self.refresh_token = login_payload.get("refresh_token", "")
-        login_ok = (
-            login.status == 200
-            and self._non_empty_string(self.access_token)
-            and self._non_empty_string(self.refresh_token)
-            and isinstance(login_payload.get("expires_in"), int)
-            and login_payload["expires_in"] > 0
-            and isinstance(user.get("id"), int)
-            and not isinstance(user.get("id"), bool)
-            and self._non_empty_string(user.get("username"))
-        )
-        self._record(
-            results,
-            expected,
-            "native.auth.login",
-            "supported" if login_ok else "missing" if login.status in {404, 405, 501} else "partial",
-            f"login returned HTTP {login.status} with access/refresh/user identity shape={login_ok}",
-        )
-        if not login_ok:
-            self._cleanup()
-            return results
-
-        refresh = self.request(
-            "POST",
-            "/api/v1/auth/refresh",
-            json_body={"refresh_token": self.refresh_token},
-        )
-        refresh_payload = self._object(refresh.json())
-        refreshed_access = refresh_payload.get("access_token", "")
-        refreshed_refresh = refresh_payload.get("refresh_token", "")
-        refresh_ok = (
-            refresh.status == 200
-            and self._non_empty_string(refreshed_access)
-            and self._non_empty_string(refreshed_refresh)
-            and isinstance(refresh_payload.get("expires_in"), int)
-            and refresh_payload["expires_in"] > 0
-        )
-        if refresh_ok:
-            self.access_token, self.refresh_token = refreshed_access, refreshed_refresh
-        self._record(
-            results,
-            expected,
-            "native.auth.refresh",
-            "supported" if refresh_ok else "partial" if refresh.status == 200 else "missing",
-            f"refresh returned HTTP {refresh.status} with replacement token pair shape={refresh_ok}",
-        )
-
-        me = self.request("GET", "/api/v1/auth/me", token=self.access_token)
-        me_payload = self._object(me.json())
-        me_ok = (
-            me.status == 200
-            and self._non_empty_string(me_payload.get("username"))
-            and me_payload.get("id") is not None
-            and self._non_empty_string(me_payload.get("role"))
-            and isinstance(me_payload.get("permissions"), list)
-            and isinstance(me_payload.get("download_allowed"), bool)
-        )
-        self._record(
-            results,
-            expected,
-            "native.auth.me",
-            "supported" if me_ok else "partial" if me.status == 200 else "missing",
-            f"auth/me returned HTTP {me.status} with account shape={me_ok}",
-        )
-
-        profiles_response = self.request("GET", "/api/v1/profiles", token=self.access_token)
-        profiles_payload = self._object(profiles_response.json())
-        profiles = self._array(profiles_payload, "profiles")
-        profiles_ok = profiles_response.status == 200 and bool(profiles) and all(
-            isinstance(profile, dict)
-            and self._non_empty_string(profile.get("id"))
-            and self._non_empty_string(profile.get("name"))
-            and all(isinstance(profile.get(field), bool) for field in ("has_pin", "is_child", "is_primary"))
-            for profile in profiles
-        )
-        self._record(
-            results,
-            expected,
-            "native.profiles.list",
-            "supported" if profiles_ok else "partial" if profiles_response.status == 200 else "missing",
-            f"profiles returned HTTP {profiles_response.status} with {len(profiles)} shape-valid profiles={profiles_ok}",
-        )
-        if not profiles_ok:
-            self._cleanup()
-            return results
-
-        selected = next((profile for profile in profiles if str(profile.get("id")) == self.profile_id), None)
-        selected = selected or next((profile for profile in profiles if profile.get("is_primary")), profiles[0])
-        profile_id = str(selected["id"])
-        self.profile_id = profile_id
-        if selected.get("has_pin"):
-            if not self.profile_pin:
-                self._cleanup()
-                return results
-            pin_response = self.request(
-                "POST",
-                f"/api/v1/profiles/{urllib.parse.quote(profile_id, safe='')}/verify-pin",
-                token=self.access_token,
-                json_body={"pin": self.profile_pin},
-            )
-            pin_payload = self._object(pin_response.json())
-            self.profile_token = pin_payload.get("profile_token", "")
-            pin_ok = (
-                pin_response.status == 200
-                and pin_payload.get("valid") is True
-                and self._non_empty_string(self.profile_token)
-            )
-            self._record(
-                results,
-                expected,
-                "native.profiles.pin",
-                "supported" if pin_ok else "partial" if pin_response.status == 200 else "missing",
-                f"profile PIN verification returned HTTP {pin_response.status} with token shape={pin_ok}",
-            )
-            if not pin_ok:
-                self._cleanup()
-                return results
-        else:
-            self._record(results, expected, "native.profiles.pin", "inconclusive", "selected profile has no PIN; verification route is conditional")
-
-        scoped = {"token": self.access_token, "profile_id": self.profile_id, "profile_token": self.profile_token}
-        libraries_response = self.request("GET", "/api/v1/user/libraries", **scoped)
-        libraries = self._array(libraries_response.json() if libraries_response.status == 200 else None, "libraries")
-        libraries_ok = libraries_response.status == 200 and all(
-            isinstance(library, dict)
-            and self._non_empty_string(library.get("id"))
-            and self._non_empty_string(library.get("name"))
-            for library in libraries
-        )
-        self._record(
-            results,
-            expected,
-            "native.catalog.libraries",
-            "supported" if libraries_ok else "partial" if libraries_response.status == 200 else "missing",
-            f"libraries returned HTTP {libraries_response.status} with {len(libraries)} stable id/name entries={libraries_ok}",
-        )
-
-        catalog_query = urllib.parse.urlencode({"source": "query", "include_technical": "true", "limit": "5", "offset": "0"})
-        page_response = self.request("GET", f"/api/v1/catalog?{catalog_query}", **scoped)
-        page_payload = self._object(page_response.json() if page_response.status == 200 else None)
-        items = page_payload.get("items")
-        content_ids = [
-            item.get("content_id")
-            for item in items
-            if isinstance(item, dict) and self._non_empty_string(item.get("content_id"))
-        ] if isinstance(items, list) else []
-        page_ok = (
-            page_response.status == 200
-            and isinstance(items, list)
-            and isinstance(page_payload.get("total"), int)
-            and isinstance(page_payload.get("total_exact"), bool)
-            and isinstance(page_payload.get("has_more"), bool)
-            and len(content_ids) == len(items) == len(set(content_ids))
-            and all(
-                isinstance(item, dict)
-                and self._non_empty_string(item.get("content_id"))
-                and self._non_empty_string(item.get("title"))
-                and self._non_empty_string(item.get("type"))
-                for item in items
-            )
-        )
-        if page_ok and page_payload.get("has_more"):
-            page_ok = self._non_empty_string(page_payload.get("snapshot"))
-        self._record(
-            results,
-            expected,
-            "native.catalog.page",
-            "supported" if page_ok else "partial" if page_response.status == 200 else "missing",
-            f"catalog page returned HTTP {page_response.status} with {len(items) if isinstance(items, list) else 0} stable canonical items={page_ok}",
-        )
-        query_response = self.request(
-            "POST",
-            "/api/v1/catalog/query",
-            **scoped,
-            json_body={"limit": 5, "offset": 0},
-        )
-        query_payload = self._object(query_response.json() if query_response.status == 200 else None)
-        query_items = query_payload.get("items")
-        query_ok = (
-            query_response.status == 200
-            and isinstance(query_items, list)
-            and isinstance(query_payload.get("total"), int)
-            and isinstance(query_payload.get("total_exact"), bool)
-            and query_payload.get("total_exact") is False
-            and isinstance(query_payload.get("has_more"), bool)
-            and all(isinstance(item, dict) and self._non_empty_string(item.get("content_id")) for item in query_items)
-        )
-        self._record(
-            results,
-            expected,
-            "native.catalog.query",
-            "supported" if query_ok else "partial" if query_response.status == 200 else "missing",
-            f"catalog query returned HTTP {query_response.status} with response capability truthfulness={query_ok}",
-        )
-        if not page_ok or not content_ids:
-            self._cleanup()
-            return results
-
-        movie_query_response = self.request(
-            "POST",
-            "/api/v1/catalog/query",
-            **scoped,
-            json_body={
-                "match": "all",
-                "groups": [
-                    {
-                        "match": "all",
-                        "rules": [{"field": "type", "op": "is", "value": "movie"}],
-                    }
-                ],
-                "limit": 5,
-                "offset": 0,
-            },
-        )
-        movie_items = self._array(
-            movie_query_response.json() if movie_query_response.status == 200 else None,
-            "items",
-        )
-        detail_candidates = [
-            item.get("content_id")
-            for item in movie_items
-            if isinstance(item, dict) and self._non_empty_string(item.get("content_id"))
-        ]
-        detail_candidates.extend(content_ids)
-        detail_candidates = list(dict.fromkeys(detail_candidates))
-
-        fallback_detail = None
-        playable_detail = None
-        for candidate_id in detail_candidates:
-            candidate_path = (
-                f"/api/v1/catalog/items/{urllib.parse.quote(str(candidate_id), safe='')}"
-            )
-            candidate_response = self.request("GET", candidate_path, **scoped)
-            candidate_detail = self._object(
-                candidate_response.json() if candidate_response.status == 200 else None
-            )
-            candidate_versions = candidate_detail.get("versions")
-            candidate_tuple = (
-                str(candidate_id),
-                candidate_response,
-                candidate_detail,
-                candidate_versions,
-            )
-            if fallback_detail is None:
-                fallback_detail = candidate_tuple
-            playback_version = self._playback_version(candidate_versions)
-            if playback_version is None:
-                continue
-            if playable_detail is None:
-                playable_detail = candidate_tuple
-            audio_tracks = playback_version.get("audio_tracks", [])
-            if isinstance(audio_tracks, list) and len(audio_tracks) > 1:
-                playable_detail = candidate_tuple
-                break
-
-        detail_id, detail_response, detail, versions = playable_detail or fallback_detail
-        detail_path = f"/api/v1/catalog/items/{urllib.parse.quote(detail_id, safe='')}"
-        detail_ok = (
-            detail_response.status == 200
-            and detail.get("content_id") == detail_id
-            and self._non_empty_string(detail.get("title"))
-            and self._non_empty_string(detail.get("type"))
-            and isinstance(detail.get("user_state"), dict)
-            and isinstance(versions, list)
-            and all(
-                isinstance(version, dict) and self._identity(version.get("file_id"))
-                for version in versions
-            )
-            and isinstance(detail.get("playback_variants", []), list)
-        )
-        self._record(
-            results,
-            expected,
-            "native.catalog.detail",
-            "supported" if detail_ok else "partial" if detail_response.status == 200 else "missing",
-            f"catalog detail returned HTTP {detail_response.status} with canonical content/version shape={detail_ok}",
-        )
-        user_state = detail.get("user_state")
-        if allow_mutations and isinstance(user_state, dict):
-            original_played = user_state.get("played")
-            if isinstance(original_played, bool):
-                target_played = not original_played
-                watched_method = "POST" if target_played else "DELETE"
-                watched_restore_method = "POST" if original_played else "DELETE"
-                watched_path = (
-                    f"/api/v1/watched/{urllib.parse.quote(detail_id, safe='')}"
-                )
-                watched_mutation = Response(0, {}, b"")
-                watched_payload: dict[str, Any] = {}
-                watched_detail = Response(0, {}, b"")
-                watched_detail_state: dict[str, Any] = {}
-                watched_restore = Response(0, {}, b"")
-                watched_restored_detail = Response(0, {}, b"")
-                watched_restored_state: dict[str, Any] = {}
-                watched_error = ""
-                try:
-                    watched_mutation = self.request(
-                        watched_method,
-                        watched_path,
-                        **scoped,
-                    )
-                    watched_payload = self._object(watched_mutation.json())
-                    watched_detail = self.request("GET", detail_path, **scoped)
-                    watched_detail_state = self._object(
-                        self._object(watched_detail.json()).get("user_state")
-                    )
-                except Exception as error:
-                    watched_error = type(error).__name__
-                finally:
-                    try:
-                        watched_restore = self.request(
-                            watched_restore_method,
-                            watched_path,
-                            **scoped,
-                        )
-                        watched_restored_detail = self.request(
-                            "GET",
-                            detail_path,
-                            **scoped,
-                        )
-                        watched_restored_state = self._object(
-                            self._object(watched_restored_detail.json()).get("user_state")
-                        )
-                    except Exception as error:
-                        watched_error = watched_error or type(error).__name__
-
-                affected_count = watched_payload.get("affected_count")
-                watched_ok = (
-                    not watched_error
-                    and watched_mutation.status == 200
-                    and watched_payload.get("content_id") == detail_id
-                    and self._non_empty_string(watched_payload.get("type"))
-                    and isinstance(affected_count, int)
-                    and not isinstance(affected_count, bool)
-                    and watched_payload.get("played") is target_played
-                    and watched_detail.status == 200
-                    and watched_detail_state.get("played") is target_played
-                    and watched_restore.status == 200
-                    and watched_restored_detail.status == 200
-                    and watched_restored_state.get("played") is original_played
-                )
-                self._record(
-                    results,
-                    expected,
-                    "native.state.watched",
-                    "supported" if watched_ok else "partial",
-                    "watched mutation/detail/reset statuses="
-                    f"{watched_mutation.status}/{watched_detail.status}/"
-                    f"{watched_restore.status}/{watched_restored_detail.status}; "
-                    "observable played state returned to baseline="
-                    f"{watched_restored_state.get('played') is original_played}; "
-                    f"error={watched_error or 'none'}",
-                )
-            else:
-                self._record(
-                    results,
-                    expected,
-                    "native.state.watched",
-                    "partial",
-                    "selected detail lacks a boolean user_state.played field",
-                )
-
-            original_favorite = user_state.get("is_favorite")
-            if isinstance(original_favorite, bool):
-                target_favorite = not original_favorite
-                favorite_method = "PUT" if target_favorite else "DELETE"
-                favorite_restore_method = "PUT" if original_favorite else "DELETE"
-                favorite_path = (
-                    f"/api/v1/favorites/{urllib.parse.quote(detail_id, safe='')}"
-                )
-                favorite_mutation = Response(0, {}, b"")
-                favorite_probe = Response(0, {}, b"")
-                favorite_detail = Response(0, {}, b"")
-                favorite_detail_state: dict[str, Any] = {}
-                favorite_restore = Response(0, {}, b"")
-                favorite_restored_probe = Response(0, {}, b"")
-                favorite_restored_detail = Response(0, {}, b"")
-                favorite_restored_state: dict[str, Any] = {}
-                favorite_error = ""
-                try:
-                    favorite_mutation = self.request(
-                        favorite_method,
-                        favorite_path,
-                        **scoped,
-                    )
-                    favorite_probe = self.request("GET", favorite_path, **scoped)
-                    favorite_detail = self.request("GET", detail_path, **scoped)
-                    favorite_detail_state = self._object(
-                        self._object(favorite_detail.json()).get("user_state")
-                    )
-                except Exception as error:
-                    favorite_error = type(error).__name__
-                finally:
-                    try:
-                        favorite_restore = self.request(
-                            favorite_restore_method,
-                            favorite_path,
-                            **scoped,
-                        )
-                        favorite_restored_probe = self.request(
-                            "GET",
-                            favorite_path,
-                            **scoped,
-                        )
-                        favorite_restored_detail = self.request(
-                            "GET",
-                            detail_path,
-                            **scoped,
-                        )
-                        favorite_restored_state = self._object(
-                            self._object(favorite_restored_detail.json()).get(
-                                "user_state"
-                            )
-                        )
-                    except Exception as error:
-                        favorite_error = favorite_error or type(error).__name__
-
-                favorite_ok = (
-                    not favorite_error
-                    and favorite_mutation.status == 204
-                    and favorite_probe.status == (204 if target_favorite else 404)
-                    and favorite_detail.status == 200
-                    and favorite_detail_state.get("is_favorite") is target_favorite
-                    and favorite_restore.status == 204
-                    and favorite_restored_probe.status
-                    == (204 if original_favorite else 404)
-                    and favorite_restored_detail.status == 200
-                    and favorite_restored_state.get("is_favorite") is original_favorite
-                )
-                self._record(
-                    results,
-                    expected,
-                    "native.state.favorite",
-                    "supported" if favorite_ok else "partial",
-                    "favorite mutation/probe/detail/reset statuses="
-                    f"{favorite_mutation.status}/{favorite_probe.status}/"
-                    f"{favorite_detail.status}/{favorite_restore.status}/"
-                    f"{favorite_restored_probe.status}/{favorite_restored_detail.status}; "
-                    "observable favorite state returned to baseline="
-                    f"{favorite_restored_state.get('is_favorite') is original_favorite}; "
-                    f"error={favorite_error or 'none'}",
-                )
-            else:
-                self._record(
-                    results,
-                    expected,
-                    "native.state.favorite",
-                    "partial",
-                    "selected detail lacks a boolean user_state.is_favorite field",
-                )
-        elif allow_mutations:
-            for contract in state_contracts:
-                self._record(
-                    results,
-                    expected,
-                    contract,
-                    "partial",
-                    "selected detail lacks an object user_state envelope",
-                )
-
-
-        artwork_urls = [
-            detail.get(field)
-            for field in ("poster_url", "still_url", "backdrop_url", "logo_url")
-            if self._non_empty_string(detail.get(field))
-        ]
-        if not artwork_urls:
-            self._record(results, expected, "native.artwork.refetch", "inconclusive", "selected catalog item has no artwork URL to refetch")
-        else:
-            artwork_url = str(artwork_urls[0])
-            artwork_response = self.request("GET", urllib.parse.urljoin(self.transport.base_url + "/", artwork_url), **scoped)
-            content_type = artwork_response.headers.get("Content-Type", "")
-            artwork_ok = artwork_response.status == 200 and content_type.startswith("image/") and bool(artwork_response.body)
-            self._record(
-                results,
-                expected,
-                "native.artwork.refetch",
-                "supported" if artwork_ok else "partial",
-                f"opaque artwork URL returned HTTP {artwork_response.status}, {content_type!r}, {len(artwork_response.body)} bytes",
-            )
-
-        if not allow_mutations:
-            recorded_contracts = {result.contract for result in results}
-            for contract in playback_contracts:
-                if contract not in recorded_contracts:
-                    self._record(
-                        results,
-                        expected,
-                        contract,
-                        "inconclusive",
-                        "destructive native playback lifecycle probe requires --allow-mutations and fixture credentials",
-                    )
-        else:
-            candidate = self._playback_version(versions)
-            if candidate is None:
-                for contract in playback_contracts:
-                    self._record(results, expected, contract, "inconclusive", "catalog detail has no numeric file_id suitable for a safe playback fixture")
-            else:
-                file_id = int(candidate["file_id"])
-                start_body = {
-                    "file_id": file_id,
-                    "start_position": 0,
-                    "codecs_video": ["h264", "hevc"],
-                    "codecs_audio": ["aac", "ac3"],
-                    "containers": ["mp4", "mkv", "webm"],
-                    "max_resolution": "8k",
-                    "hdr": True,
-                    "audio_passthrough": {
-                        "passthrough_codecs": ["aac", "ac3"],
-                        "spatializer_enabled": False,
-                        "max_channels": 8,
-                    },
-                    "supports_bitmap_subtitle_burn_in": True,
-                }
-                if self.profile_id:
-                    start_body["profile_id"] = self.profile_id
-                start_response = self.request("POST", "/api/v1/playback/start", **scoped, json_body=start_body)
-                start_payload = self._object(start_response.json())
-                session_id = start_payload.get("session_id", "")
-                position = start_payload.get("position", start_payload.get("start_position"))
-                start_ok = (
-                    start_response.status == 201
-                    and self._identity(session_id)
-                    and self._identity(start_payload.get("media_file_id"))
-                    and self._non_empty_string(start_payload.get("play_method"))
-                    and isinstance(position, (int, float))
-                    and self._non_empty_string(start_payload.get("stream_url"))
-                    and isinstance(start_payload.get("subtitle_urls"), (dict, list))
-                    and isinstance(start_payload.get("playback_info"), dict)
-                )
-                self._record(
-                    results,
-                    expected,
-                    "native.playback.start-legacy",
-                    "supported" if start_ok else "partial" if start_response.status == 201 else "missing",
-                    f"legacy start returned HTTP {start_response.status} with session/file/method/URL/playback_info shape={start_ok}",
-                )
-                if not start_ok:
-                    for contract in playback_contracts[2:]:
-                        self._record(results, expected, contract, "inconclusive", "legacy start did not create a session")
-                else:
-                    progress = self.request(
-                        "POST",
-                        f"/api/v1/playback/{urllib.parse.quote(str(session_id), safe='')}/progress",
-                        **scoped,
-                        json_body={"seconds": 0, "is_paused": True},
-                    )
-                    self._record(
-                        results,
-                        expected,
-                        "native.playback.progress",
-                        "supported" if progress.status == 204 else "partial",
-                        f"native progress returned HTTP {progress.status} with position seconds and pause state",
-                    )
-                    audio_tracks = candidate.get("audio_tracks", candidate.get("audioStreams", []))
-                    if isinstance(audio_tracks, list) and len(audio_tracks) > 1:
-                        track = self.request(
-                            "PATCH",
-                            f"/api/v1/playback/{urllib.parse.quote(str(session_id), safe='')}/audio",
-                            **scoped,
-                            json_body={"audio_track_index": 1},
-                        )
-                        track_payload = self._object(track.json())
-                        track_ok = (
-                            track.status == 200
-                            and isinstance(track_payload.get("audio_track_index"), int)
-                            and self._non_empty_string(track_payload.get("stream_url"))
-                            and track_payload.get("switch_mode") == "reload"
-                        )
-                        self._record(
-                            results,
-                            expected,
-                            "native.playback.track",
-                            "supported" if track_ok else "partial",
-                            f"native audio switch returned HTTP {track.status} with reload URL/effective track shape={track_ok}",
-                        )
-                    else:
-                        self._record(results, expected, "native.playback.track", "inconclusive", "selected version exposes fewer than two audio tracks")
-                    stop = self.request(
-                        "DELETE",
-                        f"/api/v1/playback/{urllib.parse.quote(str(session_id), safe='')}",
-                        **scoped,
-                    )
-                    self._record(
-                        results,
-                        expected,
-                        "native.playback.stop",
-                        "supported" if stop.status == 204 else "partial",
-                        f"native stop returned HTTP {stop.status}; session cleanup was requested",
-                    )
-                self._record(results, expected, "native.playback.capability", "inconclusive", "legacy lifecycle probe intentionally does not infer mpv support from protocol-v3 capability")
-
-
-        sessions = self.request("GET", "/api/v1/auth/sessions", token=self.access_token)
-        session_items = self._array(sessions.json() if sessions.status == 200 else None, "sessions")
-        sessions_ok = sessions.status == 200 and all(
-            isinstance(session, dict)
-            and self._non_empty_string(session.get("id"))
-            and self._non_empty_string(session.get("device_name"))
-            and self._non_empty_string(session.get("created_at"))
-            and self._non_empty_string(session.get("expires_at"))
-            for session in session_items
-        )
-        self._record(
-            results,
-            expected,
-            "native.auth.sessions",
-            "supported" if sessions_ok else "partial" if sessions.status == 200 else "missing",
-            f"auth session list returned HTTP {sessions.status} with shape-valid sessions={sessions_ok}",
-        )
-        logout = self.request("POST", "/api/v1/auth/logout", token=self.access_token)
-        self._record(
-            results,
-            expected,
-            "native.auth.logout",
-            "supported" if logout.status == 204 else "partial",
-            f"caller logout returned HTTP {logout.status}; credentials are not written to the report",
-        )
+        try:
+            self._authenticated(expected, results, allow_mutations)
+        finally:
+            if self.access_token:
+                response = self.request("POST", "/api/v2/auth/logout", token=self.access_token)
+                self._check(results, expected, "native.auth.logout", response.status in (200, 204), "caller session cleanup")
+        reported = {result.contract for result in results}
+        for key in expected.keys() - reported:
+            self._skip(results, expected, key, "this fixture did not provide the required resource")
         return results
+
+    def _authenticated(self, expected, results, allow_mutations):
+        error = self.request("GET", "/api/v2/account/me")
+        problem = self._object(error.json())
+        self._check(results, expected, "native.auth.errors", error.status == 401
+                    and self._header(error, "Content-Type").startswith("application/problem+json")
+                    and all(key in problem for key in ("type", "title", "status", "detail", "instance")),
+                    "unauthenticated request returned a structured RFC 9457 problem")
+        login = self.request("POST", "/api/v2/auth/login", json_body={"username": self.username, "password": self.password})
+        body = self._object(login.json())
+        valid = login.status == 200 and all(self._identity(body.get(key)) for key in ("access_token", "refresh_token")) \
+            and self._identity(body.get("user", {}).get("id")) and body.get("expires_in", 0) > 0
+        self._check(results, expected, "native.auth.login", valid, "token pair, expiry and opaque account identity")
+        if not valid:
+            return
+        self.access_token, self.refresh_token = body["access_token"], body["refresh_token"]
+        account_id = body["user"]["id"]
+        refreshed = self.request("POST", "/api/v2/auth/refresh", json_body={"refresh_token": self.refresh_token})
+        refreshed_body = self._object(refreshed.json())
+        valid_refresh = refreshed.status == 200 and self._identity(refreshed_body.get("access_token")) and refreshed_body.get("expires_in", 0) > 0
+        if valid_refresh:
+            self.access_token = refreshed_body["access_token"]
+            self.refresh_token = refreshed_body.get("refresh_token", self.refresh_token)
+        self._check(results, expected, "native.auth.refresh", valid_refresh, "access refresh with optional refresh-token rotation")
+        me = self.request("GET", "/api/v2/account/me", token=self.access_token)
+        account = self._object(me.json())
+        self._check(results, expected, "native.auth.me", me.status == 200 and account.get("id") == account_id
+                    and isinstance(account.get("permissions"), list), "restored account identity and permissions")
+        response = self.request("GET", "/api/v2/profiles", token=self.access_token)
+        profiles = self._array(response.json())
+        profile = next((p for p in profiles if p.get("id") == self.profile_id), None) if self.profile_id else \
+            next((p for p in profiles if p.get("is_primary")), profiles[0] if profiles else None)
+        self._check(results, expected, "native.profiles.list", response.status == 200 and bool(profile)
+                    and all(self._identity(p.get("id")) for p in profiles), "profile items collection with string identities")
+        if not profile:
+            return
+        self.profile_id = profile["id"]
+        if profile.get("has_pin"):
+            if not self.profile_pin:
+                return
+            pin = self.request("POST", f"/api/v2/profiles/{urllib.parse.quote(self.profile_id, safe='')}/verify-pin",
+                               token=self.access_token, json_body={"pin": self.profile_pin})
+            self.profile_token = self._object(pin.json()).get("profile_token", "")
+            if not self.profile_token:
+                return
+        scoped = {"token": self.access_token, "profile_id": self.profile_id, "profile_token": self.profile_token}
+        libraries = self.request("GET", "/api/v2/user/libraries", **scoped)
+        self._check(results, expected, "native.catalog.libraries", libraries.status == 200
+                    and all(self._identity(item.get("id")) for item in self._array(libraries.json())),
+                    "profile-scoped library items with string IDs")
+        first = self.request("GET", "/api/v2/catalog?limit=2", **scoped)
+        page = self._object(first.json())
+        first_items = self._array(page)
+        cursor = page.get("page", {}).get("next_cursor")
+        next_page = self._object(self.request("GET", "/api/v2/catalog?" + urllib.parse.urlencode({"limit": 2, "cursor": cursor}), **scoped).json()) if cursor else {}
+        ids = {item.get("content_id") for item in first_items}
+        paging_ok = first.status == 200 and isinstance(page.get("window_cursor"), str) \
+            and isinstance(page.get("page", {}).get("has_more"), bool) \
+            and (not page["page"]["has_more"] or cursor and bool(next_page.get("items")) and ids.isdisjoint(item.get("content_id") for item in next_page["items"]))
+        self._check(results, expected, "native.catalog.page", paging_ok, "cursor continuation returned distinct items in a catalog window")
+        query = self.request("POST", "/api/v2/catalog/query", **scoped,
+                             json_body={"source": "query", "groups": [], "limit": 2})
+        query_body = self._object(query.json())
+        query_cursor = query_body.get("page", {}).get("next_cursor")
+        query_next = self.request("POST", "/api/v2/catalog/query", **scoped,
+                                  json_body={"source": "query", "groups": [], "limit": 2, "cursor": query_cursor}) if query_cursor else None
+        self._check(results, expected, "native.catalog.query", query.status == 200
+                    and isinstance(query_body.get("items"), list) and (not query_cursor or query_next.status == 200),
+                    "read-only POST query and cursor continuation")
+        if first_items:
+            item_id = first_items[0]["content_id"]
+            detail = self.request("GET", "/api/v2/catalog/items/" + urllib.parse.quote(item_id, safe=""), **scoped)
+            detail_body = self._object(detail.json())
+            self._check(results, expected, "native.catalog.detail", detail.status == 200 and detail_body.get("content_id") == item_id
+                        and isinstance(detail_body.get("versions"), list), "detail retains content identity, user state and versions")
+        caps_response = self.request("GET", "/api/v2/playback/capabilities", **scoped)
+        caps = self._object(caps_response.json())
+        etag = self._header(caps_response, "ETag")
+        conditional = self.request("GET", "/api/v2/playback/capabilities", **scoped,
+                                   extra_headers={"If-None-Match": etag}) if etag else None
+        capable = caps_response.status == 200 and caps.get("state") == "available" and caps.get("allowed") is True \
+            and 3 in caps.get("protocol_versions", []) and "original_http" in caps.get("deliveries", []) and self._identity(caps.get("installation_id"))
+        self._check(results, expected, "native.playback.capability", capable and conditional is not None and conditional.status == 304
+                    and not conditional.body, "protocol 3 capability permission and ETag/304 read")
+        candidates = self._array(self.request("GET", "/api/v2/catalog?type=movie&limit=20", **scoped).json())
+        watch = {}
+        for item in candidates:
+            candidate = self._object(self.request("GET", "/api/v2/watch/" + urllib.parse.quote(item["content_id"], safe=""), **scoped).json())
+            if self._playback_version(candidate.get("versions")):
+                watch = candidate
+                break
+        if capable and watch:
+            if allow_mutations:
+                self._playback(expected, results, scoped, caps, watch)
+            else:
+                for key in ("native.playback.start-v3", "native.playback.progress", "native.playback.stop", "native.playback.track"):
+                    self._skip(results, expected, key, "requires --allow-mutations and a disposable account")
+        self._themes(expected, results, scoped, allow_mutations)
+        preview_item = os.environ.get("BLOOM_CONTRACT_TRICKPLAY_ITEM_ID", "")
+        preview_watch = self._object(self.request("GET", "/api/v2/watch/" + urllib.parse.quote(preview_item, safe=""), **scoped).json()) if preview_item else watch
+        preview = next((v for v in preview_watch.get("versions", []) if v.get("trickplay_available")), None)
+        if preview:
+            path = "/api/v2/watch/" + urllib.parse.quote(preview_watch["content_id"], safe="") + "/trickplay?" + urllib.parse.urlencode({"file_id": preview["file_id"]})
+            metadata = self.request("GET", path, **scoped)
+            wire = self._object(metadata.json())
+            sheets = wire.get("sheets", [])
+            sheet = self.request("GET", sheets[0]["url"], extra_headers={"Accept": "*/*"}) if sheets else None
+            self._check(results, expected, "native.trickplay", metadata.status == 200 and wire.get("file_id") == preview["file_id"]
+                        and wire.get("interval_ms", 0) > 0 and sheet is not None and sheet.status == 200 and sheet.body.startswith(b"\xff\xd8\xff"),
+                        "published preview metadata and a signed JPEG sheet")
+        else:
+            self._skip(results, expected, "native.trickplay", "no published trickplay version; set BLOOM_CONTRACT_TRICKPLAY_ITEM_ID to a prepared fixture")
+
+    def _themes(self, expected, results, scoped, allow_mutations):
+        capability = self._object(self.request("GET", "/api/v2/catalog/themes/capabilities", **scoped).json())
+        if capability.get("state") != "available" or not capability.get("allowed") or not allow_mutations:
+            self._skip(results, expected, "native.theme-songs", "theme capability permission, fixture and --allow-mutations are required")
+            return
+        series = self._array(self.request("GET", "/api/v2/catalog?type=series&limit=20", **scoped).json())
+        for item in series:
+            detail = self._object(self.request("GET", "/api/v2/catalog/items/" + urllib.parse.quote(item["content_id"], safe=""), **scoped).json())
+            themes = detail.get("themes", {})
+            if not themes.get("items"):
+                continue
+            owner = urllib.parse.quote(themes["owner_id"], safe="")
+            theme = urllib.parse.quote(themes["items"][0]["id"], safe="")
+            valid = True
+            deliveries = []
+            formats = [{}, {"accepted_formats": [{"container": "mp4", "audio_codec": "aac"}]}] if capability.get("transcode") else [{}]
+            for body in formats:
+                granted = self.request("POST", f"/api/v2/catalog/items/{owner}/themes/{theme}/playback", **scoped, json_body=body)
+                grant = self._object(granted.json())
+                if granted.status != 200 or not grant.get("url") or not grant.get("expires_at"):
+                    valid = False
+                    break
+                audio = self.request("GET", grant["url"], extra_headers={"Accept": "*/*"})
+                converted = grant.get("delivery") == "converted"
+                valid = valid and audio.status == 200 and bool(audio.body) \
+                    and grant.get("delivery") in ("original", "converted") \
+                    and (not converted or not self._header(audio, "Content-Length") and not self._header(audio, "Accept-Ranges"))
+                deliveries.append(grant.get("delivery"))
+            self._check(results, expected, "native.theme-songs", valid, "fresh grants and bounded audio fetches; deliveries=" + ",".join(deliveries))
+            return
+        self._skip(results, expected, "native.theme-songs", "no series theme fixture is available")
+
+    def _playback(self, expected, results, scoped, capability, watch):
+        version = self._playback_version(watch["versions"])
+        codec = {"video_evidence": "declared", "audio_evidence": "declared", "codecs_video": ["h264", "hevc", "vp8", "vp9", "av1", "mpeg2video", "mpeg4", "vc1", "theora"],
+                 "codecs_video_hardware": [], "codecs_audio": ["aac", "ac3", "eac3", "dts", "truehd", "flac", "opus", "vorbis", "mp3", "alac", "pcm_s16le", "pcm_s24le"],
+                 "containers": ["mp4", "mkv", "webm", "mov", "ts", "avi", "mpegts", "ogg", "flac"], "max_resolution": "8k", "hdr": True}
+        direct = {"enabled": True, "supported_on_device": True, "containers": codec["containers"], "video_codecs": codec["codecs_video"], "audio_decode_codecs": codec["codecs_audio"],
+                  "audio_passthrough_codecs": [], "subtitles": {"embedded_text": True, "sidecar_text": True, "ass_styling": True, "embedded_bitmap": True, "sidecar_bitmap": False, "font_attachments": True},
+                  "features": [], "auth_header_refresh": False, "validated_claims": ["client_selected_audio_track_v1", "client_managed_dynamic_range_v1"], "transformations": []}
+        context = {"protocol_version": 3, "form_factor": "desktop", "app_version": self.version, "device": {"platform": sys.platform}, "output": {}, "deliveries": {"original_http": direct}}
+        body = {"installation_id": capability["installation_id"], "protocol_version": 3, "client_features": ["playback_plan_v3", "neutral_playback_v3_contract_v1", "sequenced_progress_v1", "plan_source_duration_v1"],
+                "file_id": version["file_id"], "profile_id": self.profile_id, "playback_attempt_id": str(uuid.uuid4()), "allow_alternate_versions": False, "quality_preference": "auto",
+                "subtitle_fidelity_preference": "compatible", "start_position": 0, "audio_track_index": 0, "client_capabilities": codec, "client_playback_context": context}
+        response = self.request("POST", "/api/v2/playback/start", **scoped, json_body=body)
+        decision = self._object(response.json())
+        plan = decision.get("playback_plan", {})
+        session_id = decision.get("session_id") or plan.get("session_id")
+        playable = response.status == 201 and decision.get("outcome") == "playable" and plan.get("delivery") == "original_http" and session_id
+        if not session_id:
+            self._check(results, expected, "native.playback.start-v3", False, "no playable session was returned")
+            return
+        session_path = "/api/v2/playback/" + urllib.parse.quote(session_id, safe="")
+        try:
+            stream = plan.get("stream", {})
+            stream_url = stream.get("url", "/invalid")
+            if self.transport.is_same_origin(stream_url):
+                stream_url += ("&" if "?" in stream_url else "?") + urllib.parse.urlencode({"token": self.access_token})
+            fetched = self.request("GET", stream_url, extra_headers={**stream.get("headers", {}), "Range": "bytes=0-4095", "Accept": "*/*"})
+            replay = self.request("POST", "/api/v2/playback/start", **scoped, json_body=body)
+            self._check(results, expected, "native.playback.start-v3", playable and fetched.status == 206 and bool(fetched.body)
+                        and self._object(replay.json()).get("session_id") == session_id,
+                        f"start HTTP {response.status}, range HTTP {fetched.status} bytes={len(fetched.body)}, replay HTTP {replay.status}, same session={self._object(replay.json()).get('session_id') == session_id}")
+            progress_body = {"installation_id": body["installation_id"], "sequence": 1, "position": 1.0, "is_paused": False}
+            progress = self.request("POST", session_path + "/progress", **scoped, json_body=progress_body)
+            self._check(results, expected, "native.playback.progress", progress.status == 200
+                        and self._object(progress.json()).get("accepted", {}).get("sequence") == 1,
+                        "sequenced progress accepted position and pause state")
+            replan = {"installation_id": body["installation_id"], "protocol_version": 3, "playback_attempt_id": body["playback_attempt_id"], "replan_request_id": str(uuid.uuid4()),
+                      "failed_plan_id": plan.get("plan_id"), "plan_attempt_id": str(uuid.uuid4()), "plan_attempt_key": plan.get("plan_attempt_key"), "attempted_plan_keys": [], "attempt_count": 1,
+                      "operation": "track_change", "quality_preference": "auto", "position_seconds": 1, "selected_tracks": plan.get("selected_tracks", {}), "client_capabilities": codec, "client_playback_context": context}
+            switched = self.request("POST", session_path + "/replan", **scoped, json_body=replan)
+            self._check(results, expected, "native.playback.track", switched.status == 200
+                        and self._object(switched.json()).get("outcome") == "playable", "track_change returned a playable replacement decision")
+        finally:
+            stop_body = {"installation_id": body["installation_id"], "stop_id": str(uuid.uuid4()), "sequence": 2, "position": 1.0, "is_paused": False}
+            stop = self.request("DELETE", session_path, **scoped, json_body=stop_body)
+            stopped_again = self.request("DELETE", session_path, **scoped, json_body=stop_body)
+            self._check(results, expected, "native.playback.stop", stop.status == 200 and stopped_again.status == 200
+                        and self._object(stopped_again.json()).get("stop_id") == stop_body["stop_id"], "final position and idempotent stop cleanup")
 
 
 DRIVERS = {
     "mediabrowser-v1": MediaBrowserV1Probe,
-    "silo-native-v1": SiloNativeV1Probe,
+    "silo-native-v2": SiloNativeV2Probe,
 }
 
 def main(argv: list[str] | None = None):
@@ -1456,7 +925,7 @@ def main(argv: list[str] | None = None):
     driver_type = DRIVERS.get(surface)
     if driver_type is None:
         parser.error(f"unsupported protocol surface {surface!r}")
-    if surface == "silo-native-v1":
+    if surface == "silo-native-v2":
         if deployment.get("protocolMode") != "native":
             parser.error(f"deployment {args.deployment!r} is not configured for native Silo mode")
         expected = {
@@ -1473,7 +942,7 @@ def main(argv: list[str] | None = None):
     if not expected:
         parser.error(f"deployment {args.deployment!r} has no live probes for selected surface")
     transport = HttpTransport(args.base_url, args.timeout)
-    if surface == "silo-native-v1":
+    if surface == "silo-native-v2":
         driver = driver_type(
             transport,
             args.username,
@@ -1497,6 +966,10 @@ def main(argv: list[str] | None = None):
         "schemaVersion": 1,
         "deployment": args.deployment,
         "baseUrl": args.base_url,
+        "sourceRevision": data["snapshot"]["siloRevision"] if surface == "silo-native-v2" else None,
+        "systemInfo": driver.system_info if surface == "silo-native-v2" else None,
+        "observedAt": datetime.now(timezone.utc).isoformat(),
+        "clientSourceSha256": hashlib.sha256((Path(__file__).resolve().parents[2] / "src/providers/silo/SiloPlaybackProvider.cpp").read_bytes()).hexdigest() if surface == "silo-native-v2" else None,
         "results": [asdict(result) for result in results],
     }
     if args.output:
@@ -1504,7 +977,7 @@ def main(argv: list[str] | None = None):
 
     failed = [result for result in results if not result.passed]
     inconclusive = [result for result in results if result.observed == "inconclusive"]
-    print(f"\n{len(results) - len(failed) - len(inconclusive)}/{len(results)} probes matched the baseline; {len(inconclusive)} inconclusive")
+    print(f"\n{sum(result.passed for result in results)}/{len(results)} probes matched the baseline; {len(inconclusive)} inconclusive")
     return 1 if failed else 0
 
 
