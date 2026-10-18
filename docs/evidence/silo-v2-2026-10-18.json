@@ -1,0 +1,139 @@
+{
+  "schemaVersion": 1,
+  "deployment": "silo-35ef973-native",
+  "baseUrl": "http://silo",
+  "sourceRevision": "35ef973bc64af293aff76bcd49fa2dcab82a7f74",
+  "systemInfo": {
+    "server_version": "35ef973b",
+    "api_major": 2,
+    "contract_digest": "be30c2f6d2a4dc7fbfef2a9b1438d843b4c25239eb2d637ec09dfef12f1220be",
+    "links": {
+      "openapi": "/api/v2/openapi.json",
+      "capabilities": "/api/v2/capabilities",
+      "identity": "/api/v2/system/identity"
+    }
+  },
+  "observedAt": "2026-10-18T02:10:59.636610+00:00",
+  "clientSourceSha256": "4ce299671f6222dc033f6bc551faeeae486c3bf57234bd0f9f79b94bea98466c",
+  "results": [
+    {
+      "contract": "native.health",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "neutral liveness/readiness and v2 identity; build fields are diagnostic only"
+    },
+    {
+      "contract": "native.auth.errors",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "unauthenticated request returned a structured RFC 9457 problem"
+    },
+    {
+      "contract": "native.auth.login",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "token pair, expiry and opaque account identity"
+    },
+    {
+      "contract": "native.auth.refresh",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "access refresh with optional refresh-token rotation"
+    },
+    {
+      "contract": "native.auth.me",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "restored account identity and permissions"
+    },
+    {
+      "contract": "native.profiles.list",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "profile items collection with string identities"
+    },
+    {
+      "contract": "native.catalog.libraries",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "profile-scoped library items with string IDs"
+    },
+    {
+      "contract": "native.catalog.page",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "cursor continuation returned distinct items in a catalog window"
+    },
+    {
+      "contract": "native.catalog.query",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "read-only POST query and cursor continuation"
+    },
+    {
+      "contract": "native.catalog.detail",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "detail retains content identity, user state and versions"
+    },
+    {
+      "contract": "native.playback.capability",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "protocol 3 capability permission and ETag/304 read"
+    },
+    {
+      "contract": "native.playback.start-v3",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "start HTTP 201, range HTTP 206 bytes=4096, replay HTTP 201, same session=True"
+    },
+    {
+      "contract": "native.playback.progress",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "sequenced progress accepted position and pause state"
+    },
+    {
+      "contract": "native.playback.track",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "track_change returned a playable replacement decision"
+    },
+    {
+      "contract": "native.playback.stop",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "final position and idempotent stop cleanup"
+    },
+    {
+      "contract": "native.theme-songs",
+      "expected": "supported",
+      "observed": "supported",
+      "passed": true,
+      "evidence": "fresh grants and bounded audio fetches; deliveries=original,converted"
+    },
+    {
+      "contract": "native.trickplay",
+      "expected": "partial",
+      "observed": "inconclusive",
+      "passed": false,
+      "evidence": "no published trickplay version; set BLOOM_CONTRACT_TRICKPLAY_ITEM_ID to a prepared fixture"
+    }
+  ]
+}

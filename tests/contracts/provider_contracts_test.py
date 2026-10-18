@@ -17,6 +17,7 @@ from validate_contracts import (
     ContractValidationError,
     load_and_validate,
     load_jellyfin_openapi_manifest,
+    load_silo_openapi_manifest,
     validate_contract_data,
 )
 
@@ -50,7 +51,7 @@ class ProviderContractValidationTest(unittest.TestCase):
 
     def test_rejects_mutable_image_pin(self):
         data = copy.deepcopy(self.valid_data)
-        data["snapshot"]["siloImage"] = "ghcr.io/silo-server/silo-server:latest"
+        data["snapshot"]["siloCompatibilityImage"] = "ghcr.io/silo-server/silo-server:latest"
 
         with self.assertRaisesRegex(ContractValidationError, "immutable sha256 digest"):
             validate_contract_data(data)
@@ -224,68 +225,54 @@ class ProviderContractValidationTest(unittest.TestCase):
         with self.assertRaisesRegex(ContractValidationError, "detection must be an object"):
             validate_contract_data(data)
 
-    def test_native_health_allows_omitted_server_id(self):
-        data = copy.deepcopy(self.valid_data)
-        detection = data["nativeSiloContract"]["detection"]
-        self.assertNotIn("server_id", detection["requiredFields"])
-        self.assertIn("server_id", detection["optionalFields"])
-        validate_contract_data(data)
-    def test_native_playback_routes_and_semantics_are_pinned(self):
-        requirements = {
-            requirement["id"]: requirement
-            for requirement in self.valid_data["nativeSiloContract"]["requirements"]
-        }
-        expected_routes = {
-            "native.playback.capability": ("GET", "/api/v1/playback/capability"),
-            "native.playback.start-legacy": ("POST", "/api/v1/playback/start"),
-            "native.playback.progress": ("POST", "/api/v1/playback/{session_id}/progress"),
-            "native.playback.stop": ("DELETE", "/api/v1/playback/{session_id}"),
-            "native.playback.track": ("PATCH", "/api/v1/playback/{session_id}/audio"),
-        }
-        for contract_id, (expected_method, expected_path) in expected_routes.items():
-            with self.subTest(contract_id=contract_id):
-                requirement = requirements[contract_id]
-                self.assertEqual(requirement["method"], expected_method)
-                self.assertEqual(requirement["path"], expected_path)
-                semantics = " ".join(requirement["requestSemantics"] + requirement["requiredSemantics"]).lower()
-                expected_term = {
-                    "native.playback.capability": "protocol v3",
-                    "native.playback.start-legacy": "file_id",
-                    "native.playback.progress": "seconds",
-                    "native.playback.stop": "tears down",
-                    "native.playback.track": "audio_track_index",
-                }[contract_id]
-                self.assertIn(expected_term, semantics)
+    def test_native_discovery_uses_api_major_and_neutral_probes(self):
+        detection = self.valid_data["nativeSiloContract"]["detection"]
+        self.assertEqual(detection["probes"], ["/health", "/ready"])
+        self.assertEqual(detection["requiredValues"], {"api_major": 2})
+        self.assertEqual(set(detection["requiredFields"]), {"api_major", "links"})
+        validate_contract_data(self.valid_data)
 
-        start = requirements["native.playback.start-legacy"]
-        start_semantics = " ".join(start["requestSemantics"] + start["requiredSemantics"]).lower()
-        for term in ("start_position", "audio_track_index", "codec", "container", "hdr", "subtitle", "stream_url", "playback_info", "range", "multipart"):
-            self.assertIn(term, start_semantics)
+    def test_native_playback_routes_and_semantics_are_pinned(self):
+        requirements = {row["id"]: row for row in self.valid_data["nativeSiloContract"]["requirements"]}
+        routes = {"native.playback.capability": ("GET", "/api/v2/playback/capabilities"),
+                  "native.playback.start-v3": ("POST", "/api/v2/playback/start"),
+                  "native.playback.progress": ("POST", "/api/v2/playback/{session_id}/progress"),
+                  "native.playback.stop": ("DELETE", "/api/v2/playback/{session_id}"),
+                  "native.playback.track": ("POST", "/api/v2/playback/{session_id}/replan")}
+        for key, route in routes.items():
+            self.assertEqual((requirements[key]["method"], requirements[key]["path"]), route)
+        manifest = load_silo_openapi_manifest()
+        start = manifest["schemas"]["PlaybackStartBody"]
+        self.assertEqual(len(start["required"]), 10)
+        self.assertEqual(start["properties"]["file_id"]["type"], "string")
+        self.assertIn("playback_attempt_id", start["required"])
+        self.assertNotIn("offset", manifest["schemas"]["CatalogQuery"]["properties"])
+        self.assertNotIn(("PATCH", "/api/v2/playback/{session_id}/audio"),
+                         {(op["method"], op["path"]) for op in manifest["operations"]})
 
     def test_native_playback_pin_identity_and_implementation_evidence(self):
         native = self.valid_data["nativeSiloContract"]
         snapshot = self.valid_data["snapshot"]
         self.assertEqual(native["sourceRevision"], snapshot["siloRevision"])
-        self.assertEqual(snapshot["siloImageTag"], snapshot["siloRevision"][:7])
+        manifest = load_silo_openapi_manifest()
+        self.assertEqual(manifest["sourceSha256"], snapshot["siloOpenApiSha256"])
+        self.assertEqual(manifest["migrationSha256"], snapshot["siloMigrationSha256"])
+        self.assertEqual(manifest["pathCount"], 707)
         for requirement in native["requirements"]:
-            if requirement["id"] in {"native.playback.start-legacy", "native.playback.progress", "native.playback.stop", "native.playback.track"}:
+            if requirement["id"].startswith("native.playback.") and requirement["capability"]["state"] != "unavailable":
                 self.assertTrue(requirement["implementationEvidence"])
-                self.assertTrue(all(path.startswith("src/") for path in requirement["implementationEvidence"]))
 
     def test_rejects_native_playback_pin_drift(self):
         data = copy.deepcopy(self.valid_data)
         data["nativeSiloContract"]["sourceRevision"] = "0" * 40
         with self.assertRaisesRegex(ContractValidationError, "sourceRevision must match"):
             validate_contract_data(data)
-    def test_native_state_roundtrips_are_opt_in_mutations(self):
-        requirements = {
-            requirement["id"]: requirement
-            for requirement in self.valid_data["nativeSiloContract"]["requirements"]
-        }
-        for contract_id in ("native.state.watched", "native.state.favorite"):
-            with self.subTest(contract_id=contract_id):
-                self.assertTrue(requirements[contract_id]["liveProbe"])
-                self.assertTrue(requirements[contract_id]["requiresMutationFlag"])
+    def test_native_playback_and_theme_probes_are_opt_in_mutations(self):
+        requirements = {row["id"]: row for row in self.valid_data["nativeSiloContract"]["requirements"]}
+        for key in ("native.playback.start-v3", "native.playback.progress", "native.playback.stop", "native.playback.track", "native.theme-songs"):
+            self.assertTrue(requirements[key]["liveProbe"])
+            self.assertTrue(requirements[key]["requiresMutationFlag"])
+
     def test_live_report_fails_when_driver_omits_expected_probe(self):
         results = [
             run_live_contracts.ProbeResult(
@@ -322,7 +309,7 @@ class ProviderContractValidationTest(unittest.TestCase):
             for requirement in data["nativeSiloContract"]["requirements"]
             if requirement["id"] == "native.catalog.page"
         )
-        page["path"] = "/api/v1/catalog/search"
+        page["path"] = "/api/v2/catalog/search"
 
         with self.assertRaisesRegex(
             ContractValidationError,
@@ -339,14 +326,14 @@ class ProviderContractValidationTest(unittest.TestCase):
         )
         login["requiredSemantics"] = ["HTTP 200"]
 
-        with self.assertRaisesRegex(ContractValidationError, "missing deterministic shape semantics"):
+        with self.assertRaisesRegex(ContractValidationError, "behavior semantics|missing deterministic shape semantics"):
             validate_contract_data(data)
 
     def test_native_deployment_is_distinct_from_compatibility_mode(self):
         native = next(
             deployment
             for deployment in self.valid_data["deployments"]
-            if deployment["surface"] == "silo-native-v1"
+            if deployment["surface"] == "silo-native-v2"
         )
         compatibility = next(
             deployment
@@ -376,7 +363,7 @@ class ProviderContractValidationTest(unittest.TestCase):
                 run_live_contracts.main(
                     [
                         "--deployment",
-                        "silo-8044eb8-native",
+                        "silo-35ef973-native",
                         "--base-url",
                         "https://silo.example",
                     ]
@@ -414,14 +401,15 @@ class ProviderContractValidationTest(unittest.TestCase):
             if requirement["id"] == "native.trickplay"
         )
         trickplay["outcome"] = "supported"
+        trickplay["capability"]["state"] = "unavailable"
 
         with self.assertRaisesRegex(ContractValidationError, "unavailable capability cannot be labeled supported"):
             validate_contract_data(data)
 
     def test_live_drivers_are_registered_by_protocol_surface(self):
         self.assertIn("mediabrowser-v1", DRIVERS)
-        self.assertIn("silo-native-v1", DRIVERS)
-        self.assertFalse(DRIVERS["silo-native-v1"].requires_credentials)
+        self.assertIn("silo-native-v2", DRIVERS)
+        self.assertFalse(DRIVERS["silo-native-v2"].requires_credentials)
         self.assertNotIn("jellyfin-supported", DRIVERS)
         self.assertNotIn("silo-8044eb8-compat", DRIVERS)
 
@@ -440,13 +428,13 @@ class ProviderContractValidationTest(unittest.TestCase):
 
             def request(self, method, path, **kwargs):
                 self.calls.append((method, path, kwargs))
-                return Response(200, {"Content-Type": "application/json"}, b'{"status": "ok"}')
+                return Response(200, {"Content-Type": "application/json"}, b'{"api_major": 2, "links": {}}')
 
         transport = RecordingTransport()
-        probe = DRIVERS["silo-native-v1"](transport, "", "", "0.0-contract")
+        probe = DRIVERS["silo-native-v2"](transport, "", "", "0.0-contract")
         results = probe.run({"native.health": "partial"}, allow_mutations=False)
 
-        self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/api/v1/health")])
+        self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/health"), ("GET", "/ready"), ("GET", "/api/v2/system/info")])
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0].passed)
     def test_native_playback_probe_requires_explicit_mutation_flag(self):
@@ -456,50 +444,62 @@ class ProviderContractValidationTest(unittest.TestCase):
 
             def request(self, method, path, **kwargs):
                 self.calls.append((method, path, kwargs))
-                return Response(200, {"Content-Type": "application/json"}, b'{"status": "ok"}')
+                return Response(200, {"Content-Type": "application/json"}, b'{"api_major": 2, "links": {}}')
 
         transport = RecordingTransport()
-        probe = DRIVERS["silo-native-v1"](transport, "", "", "0.0-contract")
+        probe = DRIVERS["silo-native-v2"](transport, "", "", "0.0-contract")
         expected = {
             "native.health": "partial",
-            "native.playback.start-legacy": "supported",
+            "native.playback.start-v3": "supported",
             "native.playback.progress": "supported",
             "native.playback.stop": "supported",
             "native.playback.track": "supported",
         }
         results = probe.run(expected, allow_mutations=False)
 
-        self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/api/v1/health")])
+        self.assertEqual([(call[0], call[1]) for call in transport.calls], [("GET", "/health"), ("GET", "/ready"), ("GET", "/api/v2/system/info")])
         self.assertEqual({result.observed for result in results[1:]}, {"inconclusive"})
-        self.assertTrue(all(result.passed for result in results))
+        self.assertTrue(results[0].passed)
+        self.assertTrue(all(not result.passed for result in results[1:]))
 
-    def test_native_playback_version_accepts_numeric_wire_identity(self):
-        select_version = run_live_contracts.SiloNativeV1Probe._playback_version
-
-        numeric = {"file_id": 17282}
-        numeric_string = {"file_id": "17283"}
-        single_track = {"file_id": 17284, "audio_tracks": [{}]}
-        multi_track = {"file_id": 17285, "audio_tracks": [{}, {}]}
-        self.assertIs(select_version([numeric]), numeric)
+    def test_native_playback_version_preserves_opaque_strings(self):
+        select_version = run_live_contracts.SiloNativeV2Probe._playback_version
+        opaque = {"file_id": "opaque/file:00001"}
+        numeric_string = {"file_id": "9007199254740993000001"}
+        self.assertIs(select_version([opaque]), opaque)
         self.assertIs(select_version([numeric_string]), numeric_string)
-        self.assertIs(select_version([single_track, multi_track]), multi_track)
+        self.assertIsNone(select_version([{"file_id": 17282}]))
         self.assertIsNone(select_version([{"file_id": True}]))
-        self.assertIsNone(select_version([{"file_id": -1}]))
-        self.assertIsNone(select_version([{"file_id": "²"}]))
-        self.assertIsNone(select_version([{"file_id": "9" * 5000}]))
-        self.assertIsNone(select_version([{"file_id": "not-numeric"}]))
-
+        self.assertIsNone(select_version([{"file_id": ""}]))
 
     def test_native_live_probe_rejects_success_shaped_bad_health(self):
         class BadHealthTransport:
             def request(self, method, path, **kwargs):
                 return Response(200, {"Content-Type": "application/json"}, b'{"status": "degraded"}')
 
-        probe = DRIVERS["silo-native-v1"](BadHealthTransport(), "", "", "0.0-contract")
+        probe = DRIVERS["silo-native-v2"](BadHealthTransport(), "", "", "0.0-contract")
         result = probe.run({"native.health": "partial"}, allow_mutations=False)[0]
 
         self.assertEqual(result.observed, "missing")
         self.assertFalse(result.passed)
+
+    def test_silo_manifest_digest_drift_is_rejected(self):
+        data = copy.deepcopy(self.valid_data)
+        data["snapshot"]["siloOpenApiSha256"] = "0" * 64
+        with self.assertRaisesRegex(ContractValidationError, "must match the snapshot"):
+            validate_contract_data(data)
+
+    def test_silo_manifest_generator_rejects_unpinned_artifacts(self):
+        from generate_silo_openapi_manifest import generate
+        with self.assertRaisesRegex(ValueError, "digest does not match"):
+            generate(b"{}", b"{}", self.valid_data)
+
+    def test_silo_source_has_no_frozen_api_calls(self):
+        root = CONTRACT_DIR.parents[1]
+        for path in (root / "src/providers/silo").glob("*"):
+            if path.is_file():
+                self.assertNotIn("api/v1", path.read_text(), path.name)
+
 
     def test_transport_converts_network_failure_to_response(self):
         class FailingOpener:

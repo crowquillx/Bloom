@@ -322,6 +322,8 @@ private:
 
     // Cache validation state (per provider-owned endpoint).
     QHash<QString, QHash<int, QString>> m_pageCursors;
+    QHash<QString, quint64> m_pageCursorEpochs;
+    quint64 m_nextCursorEpoch = 0;
     QHash<QString, ProviderCatalogResponse> m_conditionalResponses;
     quint64 m_themeRequestGeneration = 0;
     QHash<QString, QString> m_etags;

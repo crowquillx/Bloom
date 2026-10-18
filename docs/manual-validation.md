@@ -1,73 +1,32 @@
-# v0.8.0 manual validation ledger
+# Manual validation ledger
 
-This ledger is the release-graduation record for Bloom epic [#73](https://github.com/crowquillx/Bloom/issues/73) / issue [#81](https://github.com/crowquillx/Bloom/issues/81), after PRs #111–#113. It covers the provider-neutral client for Jellyfin and Silo servers while preserving the existing Jellyfin path.
+A live gate passes only when the required behavior is observed. Source inspection, a unit test, and a successful HTTP status do not establish a platform runtime pass. `UNAVAILABLE` and `NOT RUN` are not automated passes. The native release label remains **experimental native Silo support**.
 
-The release label is **experimental native Silo support**. This page records evidence, not expectations: `PENDING` means Main must run and record the check; `NOT RUN` means no check was performed; `UNAVAILABLE` means the required live host, platform runtime, or physical device is not available. A row must not be changed to `PASS` from source inspection or a successful HTTP status alone. Current configuration writes keep credentials and tokens only in `CredentialStore`; `app.json` contains provider-neutral connection metadata, except that legacy `settings.jellyfin` rollback material may remain until a secure-store copy is written and verified.
+## Native Silo v2 migration, 2026-10-18 UTC
 
-## Reproducible setup
+The server at `http://silo` reported source revision `35ef973b`. The full source pin is `35ef973bc64af293aff76bcd49fa2dcab82a7f74`. Its served OpenAPI bytes equal SHA-256 `be30c2f6d2a4dc7fbfef2a9b1438d843b4c25239eb2d637ec09dfef12f1220be`, the pinned artifact with 707 paths. No container-image identity was verified. Checks used the operator-supplied disposable `tester` account. No password, token, signed URL, or PIN is retained here.
 
-Use the exact Silo source revision and immutable image documented in [provider compatibility](provider-compatibility.md): `8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6`. For live checks, use a disposable fixture account and media library. The opt-in watched/favorite probes return the observable boolean state to its baseline, but inverse API operations can still rewrite history, progress, or timestamps; never run them against non-disposable media. Keep the native listener on `8090` and the Jellyfin-compatibility listener on `8096`; never infer native behavior from the compatibility listener. Set `BLOOM_CONTRACT_USERNAME` and `BLOOM_CONTRACT_PASSWORD` in the environment (and `BLOOM_CONTRACT_PROFILE_PIN` only for a PIN profile); never include their values in a command or evidence artifact.
+The [live report](evidence/silo-v2-2026-10-18.json) records the new runner. It returns failure while any required fixture is unavailable. Reproduce with the credential-environment command in [provider compatibility](provider-compatibility.md). `--allow-mutations` permits playback sessions, progress/stop, theme grants, and caller-session cleanup on the disposable account.
 
-From an existing local checkout, pin and start the disposable Silo fixture as follows (the compose file supplies PostgreSQL, Redis, and the native listener; enable the compatibility listener during onboarding only for compatibility checks):
+| Gate | Result | Evidence and limit |
+| --- | --- | --- |
+| Native discovery | PASS, API | `/health` and `/ready` were reachable. This proxy serves HTML on those paths. `/api/v2/system/info` returned `api_major: 2`. Build/digest fields served only to record the pin. |
+| Authentication and profile | PASS, API | Login, token refresh, `/account/me`, RFC 9457 unauthorized error, and an opaque-string profile from `items` passed. The runner cleaned up its caller session. PIN-protected playback was not run. |
+| Catalog paging | PASS, API | GET cursor continuation returned distinct content IDs and a window cursor. POST query and its continuation passed. Profile-scoped libraries and detail/version shapes passed. |
+| Capability reads | PASS, API | Playback capability allowed protocol 3 and original HTTP. `If-None-Match` returned body-free `304`. Client tests also cover theme capability `304` reuse. |
+| Direct-play lifecycle | PASS, API | Start `201`, range fetch `206` with 4096 bytes, same-attempt replay with the same session, sequenced progress `200`, `track_change` replan `200`, and stop/replayed stop `200`. The signed `st` reference alone gave `401`; the documented account-token fallback made the media fetch succeed. mpv 0.41.0 also decoded 30 frames from the live plan URL with software decode and null video/audio outputs, then stop returned `200`. This is not a GPU or physical-display pass. |
+| Theme audio | PASS, FETCH/DECODE | A series theme produced original MP3 and converted AAC/MP4 grants. Original audio advertised byte ranges; converted audio had no length or range header. Fresh grants fetched both deliveries. FFmpeg 8.1 decoded one second from each downloaded sample without error. Audible QtMultimedia output was not run. |
+| Trickplay metadata and sheet fetch | UNAVAILABLE | The first 100 episode watch responses and first 100 movie watch responses had no version with `trickplay_available: true`. No sheet was fetched. Set `BLOOM_CONTRACT_TRICKPLAY_ITEM_ID` to a prepared title and rerun. Unit tests cover file gating, mapping, bounds, expiry, and signed sheet identity. |
+| Incremental build and automated checks | PASS | `./scripts/dev-build.sh --tests --jobs 6` passed. Local CTest passed 35/35 with the same visual/cache exclusions as the Nix suite. The provider-contract Python suite passed 34/34. `nix flake check --print-build-logs --option max-jobs 2 --option cores 6` and `nix build --print-build-logs --option max-jobs 2 --option cores 6` exited 0. The clean checks include contract validation, CTest 35/35, QML lint, dependency pins, package, and offscreen Release smoke. |
+| Linux/Windows GPU playback, physical input, HDR, and displays | NOT RUN | These checks need the applicable runtime and hardware. The migration does not change Windows video layering or the Linux backend policy. |
 
-```fish
-git -C /path/to/silo checkout 8044eb84dd0cfa512ce8f2448cfd51cb7899a4c6
-cd /path/to/silo
-cp .env.example .env
-set fixture_root $PWD/.bloom-fixture
-mkdir -p $fixture_root/media $fixture_root/data
-set fixture_secret (openssl rand -base64 48)
-sed -i \
-  -e "s|^MEDIA_ROOT=.*|MEDIA_ROOT=$fixture_root/media|" \
-  -e "s|^SILO_DATA_ROOT=.*|SILO_DATA_ROOT=$fixture_root/data|" \
-  -e "s|^# SECRET_KEY=.*|SECRET_KEY=$fixture_secret|" \
-  .env
-set -e fixture_secret
-set -x SILO_IMAGE ghcr.io/silo-server/silo-server@sha256:944ee9821de1d6a61876c9b7b06daa358118163d1e5f9b3aa9f5437856fd06e9
-docker compose up -d
-curl --fail --silent http://127.0.0.1:8090/api/v1/health | jq
-cd /path/to/Bloom
-mkdir -p .contract-data
-```
+Current limits are explicit. Forward-only remux and HLS/transcode timelines are unavailable. Ebooks, audiobooks, comics, watch-together, notifications, history imports, downloads/offline, and admin operations remain out of scope. First-class native support remains blocked by the unavailable preview and platform gates.
 
-The stable Linux policy is unchanged: Wayland defaults to `external-mpv-ipc`; embedded libmpv is validation-only and unsupported embedded conditions must fall back to `external-mpv-ipc`. The offscreen smoke below verifies startup/version reporting, not embedded playback or hardware acceleration.
+## Historical alpha evidence, 2026-08-08
 
-The contract runner writes JSON evidence without credentials. Read-only native health:
+The following ledger describes the old `8044eb8` alpha fixture and Bloom `d4b46091a6fcf8dc76e6cb286edfb069cbf1515f`. Its legacy playback, snapshot paging, and old route observations do not validate API v2. Actions and command references in these historical rows describe that run only.
 
-```fish
-python3 tests/contracts/run_live_contracts.py \
-  --deployment silo-8044eb8-native \
-  --base-url http://127.0.0.1:8090 \
-  --output .contract-data/silo-native-health-report.json
-```
-
-Credentialed native lifecycle (only with the disposable fixture):
-
-```fish
-python3 tests/contracts/run_live_contracts.py \
-  --deployment silo-8044eb8-native \
-  --base-url http://127.0.0.1:8090 \
-  --allow-mutations \
-  --output .contract-data/silo-native-playback-report.json
-```
-
-Compatibility and Jellyfin contract runs:
-
-```fish
-python3 tests/contracts/run_live_contracts.py \
-  --deployment silo-8044eb8-compat \
-  --base-url http://127.0.0.1:8096 \
-  --allow-mutations \
-  --output .contract-data/silo-compat-report.json
-
-python3 tests/contracts/run_live_contracts.py \
-  --deployment jellyfin-supported \
-  --base-url http://127.0.0.1:18096 \
-  --allow-mutations \
-  --output .contract-data/jellyfin-report.json
-```
-
-## Evidence ledger
+### Historical release ledger
 
 Record the date, operator, exact commit, command output path, and a short observation in the Evidence column. Keep `NOT RUN` and `UNAVAILABLE` rows when their prerequisites cannot be supplied.
 
@@ -94,9 +53,7 @@ Record the date, operator, exact commit, command output path, and a short observ
 
 ## Graduation decision
 
-Main must attach the commit/build, Linux smoke, and deterministic-test output plus any available live/platform evidence before changing statuses. Until the live Jellyfin preservation, native/compatibility Silo, and Windows runtime gates are observed, first-class labeling is blocked. Missing optional native routes (including trickplay/theme-song surfaces) remain unavailable rather than supported. This release therefore uses only **experimental native Silo support**; it does not claim first-class support.
-
-Trademark review: “Jellyfin” and “Silo” appear only as referential server/provider names in this ledger. Bloom ships no Silo logos, artwork, fonts, or other Silo assets.
+The current native v2 gates above supersede alpha evidence. Native and compatibility listeners remain separate. Live Jellyfin preservation, Windows runtime, physical input/display checks, and an available trickplay fixture are required before first-class labeling. Missing runtime evidence must remain unavailable.
 
 ## Dolby Vision FEL upgrade
 

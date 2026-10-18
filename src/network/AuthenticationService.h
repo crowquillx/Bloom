@@ -63,6 +63,7 @@ public:
     virtual ~AuthenticationService();
 
     virtual void initialize(ConfigManager *configManager);
+    ProviderRequestContext requestContext(bool includeAuthentication = true) const;
     ConfigManager *configManager() const { return m_configManager; }
 
     Q_INVOKABLE virtual void authenticate(const QString &serverUrl,
@@ -234,14 +235,12 @@ private:
         std::make_shared<CredentialTaskState>();
 
     QString normalizeUrl(const QString &url) const;
-    ProviderRequestContext requestContext(bool includeAuthentication = true) const;
     QNetworkRequest createUnauthenticatedRequest(const QString &endpoint) const;
     void configureTransport();
     IProviderAdapter *providerForKind(ProviderKind kind) const;
     bool activateProvider(IProviderAdapter *adapter);
-    void probeProviderAndLogin(const QString &username,
-                               const QString &password,
-                               quint64 generation, int probeStep = 0);
+    void probeProviderAndLogin(
+        const QString &username, const QString &password, quint64 generation, int probeStep = 0);
     void performLogin(const QString &username,
                       const QString &password,
                       quint64 generation);
