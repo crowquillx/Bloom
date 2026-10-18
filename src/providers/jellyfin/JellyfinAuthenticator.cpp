@@ -33,3 +33,15 @@ ProviderAuthenticationResult JellyfinAuthenticator::parseLoginResponse(
     result.username = user.value(QStringLiteral("Name")).toString();
     return result;
 }
+
+ProviderAuthenticationResult JellyfinAuthenticator::parseSessionValidationResponse(
+    const QByteArray &response) const
+{
+    // GET /Users/{userId} returns the bare UserDto, not the login envelope.
+    const QJsonObject user = QJsonDocument::fromJson(response).object();
+
+    ProviderAuthenticationResult result;
+    result.accountId = user.value(QStringLiteral("Id")).toString();
+    result.username = user.value(QStringLiteral("Name")).toString();
+    return result;
+}

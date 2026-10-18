@@ -231,6 +231,15 @@ void ProviderTransportTest::jellyfinAuthenticatorOwnsLoginAndValidationWireContr
     QCOMPARE(result.accountId, QStringLiteral("user-1"));
     QCOMPARE(result.username, QStringLiteral("Alice"));
 
+    // Session restore accepts the stored token only when /Users/{id} echoes
+    // the same account, so the bare UserDto must yield its Id.
+    const ProviderAuthenticationResult identity = authenticator.parseSessionValidationResponse(
+        QByteArrayLiteral(R"({"Id":"user-1","Name":"Alice"})"));
+    QCOMPARE(identity.accountId, QStringLiteral("user-1"));
+    QCOMPARE(identity.username, QStringLiteral("Alice"));
+    QVERIFY(authenticator.parseSessionValidationResponse(
+                QByteArrayLiteral("not-json")).accountId.isEmpty());
+
     QVERIFY(!authenticator.createRefreshRequest(QStringLiteral("refresh-token")).has_value());
     QVERIFY(!authenticator.parseLoginResponse(QByteArrayLiteral("not-json")).isValid());
     QVERIFY(!authenticator.parseLoginResponse(

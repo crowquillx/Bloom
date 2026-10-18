@@ -9,4 +9,6 @@ public:
                                                       const QString &password) const override;
     QString sessionValidationEndpoint(const QString &accountId) const override;
     ProviderAuthenticationResult parseLoginResponse(const QByteArray &response) const override;
+    ProviderAuthenticationResult parseSessionValidationResponse(
+        const QByteArray &response) const override;
 };

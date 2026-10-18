@@ -115,6 +115,8 @@ not branch the core catalog/playback contract by server version. In particular:
 - `PlaybackInfoDto.UserId` is sent in the POST body, playback progress omits
   the unlisted `EventName`, and stopped reports contain only
   `PlaybackStopInfo` fields;
+- session restore validates the stored token with `GET /Users/{userId}` and
+  accepts it only when the returned `UserDto.Id` matches the stored account;
 - Jellyfin media markers use `/MediaSegments/{id}`. Bloom does not call the
   excluded legacy Intro Skipper plugin endpoint;
 - remote session removal resolves the session's device and uses
