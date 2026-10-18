@@ -6,6 +6,7 @@
 #include <QMediaDevices>
 #include <QThreadPool>
 #include <QtConcurrentRun>
+#include <algorithm>
 #include <utility>
 
 namespace {
@@ -20,6 +21,16 @@ QThreadPool *nativeAudioThreadPool()
         return created;
     }();
     return pool;
+}
+
+QString platformDefaultDriver()
+{
+#if defined(Q_OS_WIN)
+    // mpv autoprobes WASAPI first on Windows.
+    return QStringLiteral("wasapi");
+#else
+    return {};
+#endif
 }
 }
 
@@ -37,7 +48,7 @@ AudioOutputService::AudioOutputService(ConfigManager *config, Probe probe, int d
     connect(&m_deadline, &QTimer::timeout, this, [this] {
         ++m_generation;
         AudioOutputCapabilities unknown;
-        unknown.device = m_config ? m_config->getAudioOutputDevice() : QStringLiteral("auto");
+        unknown.device = deviceResolution().device;
         finish(unknown);
     });
     connect(&m_probe, &QFutureWatcher<AudioOutputCapabilities>::finished, this, [this] {
@@ -49,10 +60,23 @@ AudioOutputService::AudioOutputService(ConfigManager *config, Probe probe, int d
         if (std::exchange(m_pendingRefresh, false)) refresh();
     });
     auto *devices = new QMediaDevices(this);
-    connect(devices, &QMediaDevices::audioOutputsChanged, this, [this] { invalidate(); refresh(); });
+    connect(devices, &QMediaDevices::audioOutputsChanged, this, [this] {
+        invalidate();
+        refresh();
+        emit systemOutputsChanged();
+    });
     if (config) {
-        connect(config, &ConfigManager::audioOutputDeviceChanged, this, [this] { invalidate(); refresh(); });
+        connect(config, &ConfigManager::audioOutputDeviceChanged, this, [this] {
+            // A new choice is a new attempt; earlier open failures no longer apply.
+            m_failedDevices.clear();
+            invalidate();
+            refresh();
+            emit devicesChanged();
+        });
         connect(config, &ConfigManager::audioPassthroughChanged, this, [this] {
+            emit capabilitiesChanged();
+        });
+        connect(config, &ConfigManager::audioExclusiveModeChanged, this, [this] {
             emit capabilitiesChanged();
         });
     }
@@ -83,7 +107,7 @@ void AudioOutputService::prepare(std::function<void()> completion)
 
 void AudioOutputService::refresh()
 {
-    const QString device = m_config ? m_config->getAudioOutputDevice() : QStringLiteral("auto");
+    const QString device = deviceResolution().device;
     if (m_probeActive) {
         if (device != m_requestedDevice) {
             ++m_generation;
@@ -105,12 +129,23 @@ void AudioOutputService::invalidate()
     ++m_generation;
     if (m_probeActive) m_pendingRefresh = true;
     m_capabilities = {};
-    m_capabilities.device = m_config ? m_config->getAudioOutputDevice() : QStringLiteral("auto");
+    m_capabilities.device = deviceResolution().device;
     emit capabilitiesChanged();
 }
 
-void AudioOutputService::finish(const AudioOutputCapabilities &capabilities)
+void AudioOutputService::finish(const AudioOutputCapabilities &result)
 {
+    AudioOutputCapabilities capabilities = result;
+    // A driver may reject every format query on an endpoint this process holds
+    // exclusively. An all-negative answer for that endpoint is not evidence that
+    // its formats changed, and acting on it would reopen audio in a loop.
+    if (m_endpointHeld && capabilities.endpointAvailable
+        && capabilities.endpointId == m_capabilities.endpointId
+        && capabilities.evidence == m_capabilities.evidence
+        && capabilities.passthroughCodecs.isEmpty() && capabilities.pcmLayouts.isEmpty()) {
+        capabilities.passthroughCodecs = m_capabilities.passthroughCodecs;
+        capabilities.pcmLayouts = m_capabilities.pcmLayouts;
+    }
     const bool changed = m_capabilities.device != capabilities.device
         || m_capabilities.endpointId != capabilities.endpointId
         || m_capabilities.passthroughCodecs != capabilities.passthroughCodecs
@@ -123,26 +158,87 @@ void AudioOutputService::finish(const AudioOutputCapabilities &capabilities)
     for (const auto &completion : waiters) completion();
 }
 
+AudioDeviceResolution AudioOutputService::deviceResolution() const
+{
+    if (!m_config) return {};
+    return AudioPolicy::resolveDevice(m_config->getAudioOutputDevice(),
+                                      m_config->getAudioOutputDeviceDescription(),
+                                      m_mpvDeviceList, m_mpvDevicesKnown, m_failedDevices);
+}
+
+QString AudioOutputService::activeDriver() const
+{
+    const QString driver = AudioPolicy::activeDriver(m_mpvDeviceList, m_runtimeDriver);
+    return driver.isEmpty() ? platformDefaultDriver() : driver;
+}
+
+QVariantList AudioOutputService::outputOptions() const
+{
+    return AudioPolicy::outputDeviceOptions(m_mpvDeviceList, activeDriver(), deviceResolution(),
+                                            m_config ? m_config->getAudioOutputDeviceDescription()
+                                                     : QString());
+}
+
 AudioOutputCapabilities AudioOutputService::capabilities() const
 {
+    const QString device = deviceResolution().device;
     auto result = m_capabilities;
-    if (m_config && result.device != m_config->getAudioOutputDevice()) {
+    if (result.device != device) {
         result = {};
-        result.device = m_config->getAudioOutputDevice();
+        result.device = device;
     }
-    if (result.device != QStringLiteral("auto") && m_mpvDevicesKnown
-        && !m_mpvDevices.contains(result.device)) result.endpointAvailable = false;
+    if (result.device != QStringLiteral("auto") && m_mpvDevicesKnown) {
+        const bool listed = std::any_of(m_mpvDeviceList.cbegin(), m_mpvDeviceList.cend(),
+                                        [&device](const QVariant &value) {
+                                            return value.toMap().value(QStringLiteral("name")).toString() == device;
+                                        });
+        if (!listed) result.endpointAvailable = false;
+    }
+    const QString driver = AudioPolicy::deviceDriver(device);
+    result.exclusiveModeSupported = AudioPolicy::driverSupportsExclusive(
+        driver.isEmpty() ? activeDriver() : driver);
     return result;
 }
 
 void AudioOutputService::setMpvDevices(const QVariantList &devices)
 {
     const auto previous = capabilities();
-    m_mpvDevices.clear();
-    for (const auto &device : devices) m_mpvDevices.append(device.toMap().value(QStringLiteral("name")).toString());
+    const bool listChanged = !m_mpvDevicesKnown || m_mpvDeviceList != devices;
+    m_mpvDeviceList = devices;
     m_mpvDevicesKnown = true;
-    if (previous.endpointAvailable != capabilities().endpointAvailable) emit capabilitiesChanged();
+    // Hotplug is the signal to retry endpoints that failed to open earlier.
+    if (listChanged) m_failedDevices.clear();
+    const auto current = capabilities();
+    if (previous.endpointAvailable != current.endpointAvailable || previous.device != current.device
+        || previous.exclusiveModeSupported != current.exclusiveModeSupported)
+        emit capabilitiesChanged();
+    if (listChanged) emit devicesChanged();
     refresh();
+}
+
+void AudioOutputService::setRuntimeDriver(const QString &driver)
+{
+    if (driver.isEmpty() || driver == QStringLiteral("null") || driver == m_runtimeDriver) return;
+    m_runtimeDriver = driver;
+    emit devicesChanged();
+}
+
+void AudioOutputService::markDeviceFailed(const QString &device)
+{
+    if (device.isEmpty() || device == QStringLiteral("auto") || m_failedDevices.contains(device)) return;
+    m_failedDevices.append(device);
+    invalidate();
+    refresh();
+    emit devicesChanged();
+}
+
+void AudioOutputService::clearDeviceFailures()
+{
+    if (m_failedDevices.isEmpty()) return;
+    m_failedDevices.clear();
+    invalidate();
+    refresh();
+    emit devicesChanged();
 }
 
 AudioOutputPlan AudioOutputService::planForSource(const QVariantMap &source, int track) const
@@ -150,7 +246,7 @@ AudioOutputPlan AudioOutputService::planForSource(const QVariantMap &source, int
     return planForMetadata(AudioPolicy::selectedSource(source, track));
 }
 
-AudioOutputPlan AudioOutputService::planForMetadata(const AudioSourceMetadata &source) const
+AudioOutputPlan AudioOutputService::planForMetadata(const AudioSourceMetadata &source, bool allowExclusive) const
 {
     AudioPreferences preferences;
     if (m_config) {
@@ -158,6 +254,7 @@ AudioOutputPlan AudioOutputService::planForMetadata(const AudioSourceMetadata &s
         preferences.mode = mode == "disabled" ? AudioPassthroughMode::Disabled
                          : mode == "custom" ? AudioPassthroughMode::Custom : AudioPassthroughMode::Auto;
         preferences.customCodecs = m_config->getAudioPassthroughCodecs();
+        preferences.exclusive = allowExclusive && m_config->getAudioExclusiveMode();
     }
     return AudioPolicy::plan(source, capabilities(), preferences);
 }

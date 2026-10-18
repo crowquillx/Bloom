@@ -109,13 +109,19 @@ changes use the same saved-settings confirmation as other playback settings.
 All three backends receive the same generated audio options after profile options:
 
 - `audio-spdif` is the selected carrier, or empty for local PCM decode.
-- `audio-device` is the saved device or `auto`.
+- `audio-device` is the resolved device (see [Output device selection](#output-device-selection)).
+  It is `auto` while a saved device is missing.
+- `audio-exclusive` is `yes` only for a WASAPI endpoint with Exclusive Mode on.
 - `audio-fallback-to-null=yes` keeps playback alive when the endpoint is missing.
-- Stereo sources request stereo. They do not request surround upmix.
-- A known supported multichannel PCM layout requests that layout with stereo as
-  a fallback. WASAPI uses exclusive PCM access for that case.
-- Unknown multichannel endpoint layouts use `audio-channels=auto-safe`.
-  The system's preferred layout can limit output to stereo.
+- Mono and stereo sources request their own layout. They do not request upmix.
+- In exclusive mode, a multichannel layout that the format query accepted
+  requests that layout with stereo as a fallback. An unverified layout uses
+  `audio-channels=auto`. mpv then queries the driver for each layout and
+  downmixes only to a layout the driver accepts. `auto-safe` would force stereo
+  here, because no system mixer is involved.
+- In shared mode and on Linux, multichannel uses `audio-channels=auto-safe`.
+  The system mixer's layout (Windows speaker setup, PipeWire or PulseAudio sink)
+  decides the output, and mpv downmixes to it when it has fewer channels.
 
 Bloom does not force a sample rate, sample format or lossy intermediate codec.
 mpv negotiates the output format. The source classification does not prove that
@@ -147,16 +153,120 @@ A source codec never proves passthrough. An active non-null AO and a matching
 unverified. A null AO or an unexpected PCM/carrier result for a passthrough plan
 causes local PCM fallback. Bloom clears `audio-spdif` and reopens audio on the
 same source and provider session. The prepared plan remains visible for comparison.
-Fallback changes the active plan and records its reason. It also clears exclusive
-PCM mode if that mode failed, so recovery can use the system mixer.
+Fallback changes the active plan and records its reason. A failed exclusive
+open is handled as a separate step (below), so PCM fallback keeps the mode.
 
 mpv device lists and Qt audio output notifications refresh the endpoint state.
 Both explicit and automatic outputs can reload after a device change. The
 controller debounces device list changes by 500 ms. A five-second endpoint poll
-also detects default endpoint and capability changes. A long wall-clock gap
-invalidates capabilities after resume. A null output triggers rate-limited reopen
-attempts, so a delayed HDMI endpoint can recover while the media session stays open.
-The saved explicit device is retained while disconnected.
+also detects default endpoint and capability changes. A capability refresh
+reopens audio only if the plan or the resolved endpoint changed. A long
+wall-clock gap invalidates capabilities after resume. A null output triggers
+rate-limited reopen attempts, so a delayed HDMI endpoint can recover while the
+media session stays open. The saved explicit device is retained while
+disconnected; playback uses the system default until it returns.
+
+Each verification takes one fallback step, and a check runs about 1.2 seconds
+after every reopen:
+
+1. A rejected encoded carrier falls back to local PCM decode.
+2. A null output with exclusive PCM requested falls back to shared mode for the
+   session. The device may be in use by another exclusive client or reject
+   every exclusive format.
+3. A null output on an explicit endpoint in shared mode marks that endpoint
+   failed. Playback moves to the system default for the session.
+4. A null output on the system default uses the rate-limited reopen attempts.
+
+Steps 2 and 3 show a short notice. Session fallbacks clear when the device list
+changes, when the user picks an output or changes Exclusive Mode, and when the
+next playback starts. Picking the current output again retries it immediately.
+
+While exclusive output is verified active, a probe that rejects every format
+for the same endpoint keeps the previous format lists. A held exclusive stream
+can make a driver reject format queries. Without this rule each probe would
+reopen audio.
+
+## Output device selection
+
+Each backend reports mpv's `audio-device-list`. During playback the list is the
+observed live property. While idle, `IPlayerBackend::refreshAudioDevices`
+enumerates without a media session:
+
+- External mpv runs `mpv --no-config --audio-device=help`. The process is
+  event-driven, has a 4-second deadline and 256 KiB of output. One query runs
+  at a time.
+- Embedded libmpv reads the property from a temporary core with no file, VO,
+  scripts or config. It runs on a serialized worker that is never joined, so a
+  blocked driver cannot delay shutdown.
+
+Bloom enumerates once at startup, when Settings or the playback output list
+opens, and when QtMultimedia reports an OS output change.
+
+mpv lists every compiled driver. A Linux host can list `pipewire/...`,
+`pulse/...` and many raw `alsa/...` devices for one card. The selector shows
+System Default and the endpoints of the active driver only. The active driver
+is mpv's `current-ao` after playback starts. Before that it is the first driver
+in mpv's autoprobe order that lists a device. This prevents a selection from
+bypassing PipeWire or PulseAudio. Bare driver defaults such as `pipewire` are
+hidden because System Default covers them.
+
+Ids are stable mpv device ids, for example `wasapi/{endpoint id}` or
+`pipewire/<node name>`. Bloom stores the id and its label per platform under
+`settings.playback.audio_output_devices.<windows|linux|macos>`. `AudioPolicy::resolveDevice`
+matches the saved id against the live list:
+
+- A listed id is used.
+- A missing id is kept in config, shown as not connected, and resolves to `auto`.
+  It does not change the OS default device.
+- If the id is missing but exactly one listed endpoint under the same driver
+  has the identical saved label, that endpoint is used. Two endpoints with the
+  same label are not guessed.
+- An id from another driver or platform resolves to `auto`.
+
+`PlayerController.audioOutputOptions` and `audioOutputStatus` expose the
+selector rows and the resolved state to QML. `selectAudioOutputDevice(id)` saves
+the choice. It then sets mpv's `audio-device`, `audio-channels`,
+`audio-exclusive` and `audio-spdif`, cycles `aid` and runs `ao-reload`.
+The pinned mpv marks these options as audio-output updates. A runtime change
+reopens only the AO; the demuxer, video, provider session, position, pause
+state and selected tracks remain. A short audio gap is expected.
+
+## Exclusive mode (Windows)
+
+Settings > Playback > Exclusive Mode is shown only when the active driver is
+WASAPI. It is on by default, including for existing installations. It is stored
+as `settings.playback.audio_exclusive_mode`.
+
+With the setting on, Bloom passes `audio-exclusive=yes`. mpv's WASAPI output
+then tries the source rate, sample format and layout as-is. If the driver
+rejects them it searches the formats the driver accepts. It never falls back to
+shared mode itself; it fails, and `audio-fallback-to-null` opens the null
+output. Bloom reports exclusive mode as active only when `current-ao` is
+`wasapi`, `audio-exclusive` reads back as set and `audio-out-params` shows an
+open output. Encoded carriers on WASAPI are always exclusive, independent of
+this setting.
+
+Exclusive mode bypasses the Windows mixer and Windows volume. Other apps cannot
+play sound on that endpoint during playback. Bloom's own interface sounds use
+QtMultimedia in shared mode, so they are also silent on that endpoint while
+exclusive playback runs. If the endpoint's Windows "Allow applications to take
+exclusive control of this device" option is off, the open fails and Bloom
+continues in shared mode. Bloom does not change that or any other Windows
+sound setting. Bloom's volume control still
+applies, because it scales samples in mpv. At 100% and unmuted no gain is
+applied. Changing the setting or the device during playback reopens audio,
+which releases the previous endpoint first.
+
+Exclusive mode is not a bit-perfect guarantee. Lossy codecs are decoded, mpv
+converts to a sample format the driver accepts, and the driver may still
+resample or remap channels. Check `audio-out-params` in the diagnostics for the
+negotiated rate, format and layout.
+
+On Linux, Bloom always passes `audio-exclusive=no`. mpv's PipeWire output does
+implement the flag (`PW_STREAM_FLAG_EXCLUSIVE`). On PipeWire 1.6.9 with the
+pinned mpv, setting it during playback produced `no target node available`,
+repeated reloads and the end of playback. Bloom does not lock ALSA devices or
+bypass the sound server.
 
 ## Windows HTPC validation
 
@@ -213,6 +323,64 @@ Run these recovery checks during PCM and encoded playback, then while paused:
 
 A test passes only with the saved evidence. A missing Windows host, receiver
 indicator or sample is an unavailable manual gate, not an automated pass.
+
+## Output selection validation
+
+Use any two outputs the host has, for example onboard audio and a USB DAC,
+headset or HDMI endpoint. Use stereo and multichannel PCM samples. Record the
+playback log lines `reopening audio output on`, `Audio runtime verification`
+and any `Audio output notice`.
+
+On every platform:
+
+1. Open Settings > Playback. Check that the selector lists System Default and
+   only the active driver's endpoints with readable names.
+2. During playback, open the audio panel, select Output, and switch between the
+   two outputs. Check position, pause state and audio/subtitle tracks before and
+   after. Expect a short audio gap only.
+3. Restart Bloom. Check that the chosen output is still selected and used.
+4. Disconnect the chosen output during playback. Expect the notice, System
+   Default playback and an unchanged saved choice. Reconnect it and check that
+   audio returns to it.
+5. Play stereo and 5.1/7.1 sources. Check `audio-out-params` channel count and
+   rate against the source and the output's capability.
+
+Windows only:
+
+1. With Exclusive Mode on, play stereo and multichannel PCM. Expect
+   "Playing in exclusive mode" and other apps silent on that endpoint.
+2. Turn Exclusive Mode off during playback. Expect shared mode and other apps
+   audible again.
+3. Start another app that holds the endpoint exclusively, then start playback.
+   Expect the shared-mode notice. If shared mode also fails, expect the
+   System Default notice.
+4. Switch devices with Exclusive Mode on. The first device must be released;
+   check that another app can use it afterwards.
+5. Play a rate the endpoint does not accept exclusively, such as 44.1 kHz on a
+   48 kHz-only device. Record the negotiated `audio-out-params`.
+
+Linux only: repeat the general steps on PipeWire and on PulseAudio, and check
+that `current-ao` stays the sound server's driver. Check that the system's own
+routing, per-application volume and sink settings still apply.
+
+Validation performed for this change on 2026-10-18, Linux, PipeWire 1.6.9, the
+pinned mpv `v0.41.0-1200-gdde067107` over IPC, output muted:
+
+| Check | Result |
+| --- | --- |
+| `audio-device` set to another PipeWire sink while paused (video + 5.1 FLAC) | `current-ao` stayed `pipewire`; `time-pos` 10.000 before and after; pause and `aid` unchanged |
+| Same switch during playback | `time-pos` 12.042 to 12.083 across the switch, then normal progress |
+| 5.1 FLAC with `audio-channels=auto-safe` | 6 channels, 48 kHz, `s32` before and after |
+| Mono 96 kHz FLAC with `audio-channels=mono` | 1 channel at 96 kHz kept |
+| `audio-channels=stereo` on the 5.1 source | 2 channels (mpv downmix) |
+| `audio-device` set to a nonexistent PipeWire node | Playback continued on `pipewire` |
+| `audio-exclusive=yes` on PipeWire | Stream error and end of playback; Bloom never sets it on Linux |
+| Audio-only file, switch while paused | About 0.27 s of buffered audio skipped; mpv seeks back only while audio plays |
+
+Windows WASAPI shared and exclusive playback, device contention, unsupported
+exclusive formats, PulseAudio-only hosts, HDMI and Bluetooth endpoints, and the
+Bloom UI on a real display were not validated for this change. They remain
+manual gates.
 
 ## Upstream references
 
@@ -283,3 +451,40 @@ The following files implement this change and its verification:
 Automated results and unavailable platform gates are reported with the handoff.
 The codec and recovery tests use synthetic metadata and fake endpoints. They
 do not certify physical HDMI/eARC output.
+
+### Output selection and exclusive mode
+
+The starting commit was `0f5a00d` on `main`. These files implement output
+selection, exclusive mode and their verification:
+
+- `AGENTS.md`
+- `docs/audio.md`
+- `docs/config.md`
+- `docs/playback.md`
+- `src/audio/AudioOutputService.cpp`
+- `src/audio/AudioOutputService.h`
+- `src/models/AudioTypes.h`
+- `src/player/AudioPolicy.cpp`
+- `src/player/AudioPolicy.h`
+- `src/player/PlayerController.cpp`
+- `src/player/PlayerController.h`
+- `src/player/backend/ExternalMpvBackend.cpp`
+- `src/player/backend/ExternalMpvBackend.h`
+- `src/player/backend/IPlayerBackend.h`
+- `src/player/backend/LinuxMpvBackend.cpp`
+- `src/player/backend/LinuxMpvBackend.h`
+- `src/player/backend/MpvLibmpvRuntime.cpp`
+- `src/player/backend/MpvLibmpvRuntime.h`
+- `src/player/backend/WindowsMpvBackend.cpp`
+- `src/player/backend/WindowsMpvBackend.h`
+- `src/ui/EmbeddedPlaybackOverlay.qml`
+- `src/ui/Icons.qml`
+- `src/ui/SettingsScreen.qml`
+- `src/ui/settings/PlaybackSettings.qml`
+- `src/utils/ConfigManager.cpp`
+- `src/utils/ConfigManager.h`
+- `tests/AudioOutputServiceTest.cpp`
+- `tests/AudioPolicyTest.cpp`
+- `tests/ConfigManagerThemeTest.cpp`
+- `tests/PlayerBackendFactoryTest.cpp`
+- `tests/PlayerControllerAutoplayContextTest.cpp`

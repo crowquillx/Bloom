@@ -56,6 +56,8 @@ private slots:
     void embeddedVideoFilterListOperationsAreDeferred();
     void linkedRuntimePreservesVideoFilterOrder();
     void externalBackendRuntimeIsUnknownUntilProbed();
+    void externalBackendEnumeratesAudioDevicesWhileIdle();
+    void linkedRuntimeEnumeratesAudioDevices();
 };
 
 void PlayerBackendFactoryTest::init()
@@ -469,6 +471,57 @@ void PlayerBackendFactoryTest::externalBackendRuntimeIsUnknownUntilProbed()
     QCOMPARE(backend.rendererKind({QStringLiteral("--vo=gpu-next")}),
              Bloom::PlaybackPolicy::RendererKind::GpuNext);
     QCOMPARE(backend.rendererKind({}), Bloom::PlaybackPolicy::RendererKind::Unknown);
+}
+
+void PlayerBackendFactoryTest::externalBackendEnumeratesAudioDevicesWhileIdle()
+{
+#if defined(Q_OS_UNIX)
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    // Stand-in for `mpv --no-config --audio-device=help`.
+    const QString script = directory.filePath(QStringLiteral("mpv"));
+    QFile file(script);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("#!/bin/sh\n"
+               "[ \"$1\" = --no-config ] && [ \"$2\" = --audio-device=help ] || exit 0\n"
+               "echo 'List of detected audio devices:'\n"
+               "echo \"  'auto' (Autoselect device)\"\n"
+               "echo \"  'pipewire/dac' (USB DAC)\"\n");
+    file.close();
+    QVERIFY(file.setPermissions(QFileDevice::ReadOwner | QFileDevice::WriteOwner | QFileDevice::ExeOwner));
+
+    ExternalMpvBackend backend;
+    QSignalSpy devicesSpy(&backend, &IPlayerBackend::audioDeviceListChanged);
+    backend.refreshAudioDevices(); // No executable yet: nothing to run.
+    backend.prepareRuntime(script);
+    backend.refreshAudioDevices();
+    backend.refreshAudioDevices(); // Coalesced with the in-flight query.
+    QTRY_COMPARE_WITH_TIMEOUT(devicesSpy.count(), 1, 5000);
+    const QVariantList devices = devicesSpy.first().first().toList();
+    QCOMPARE(devices.size(), 2);
+    QCOMPARE(devices.at(1).toMap().value(QStringLiteral("name")).toString(), QStringLiteral("pipewire/dac"));
+    QCOMPARE(devices.at(1).toMap().value(QStringLiteral("description")).toString(), QStringLiteral("USB DAC"));
+    QTest::qWait(100);
+    QCOMPARE(devicesSpy.count(), 1);
+#else
+    QSKIP("Uses a POSIX shell stand-in for mpv");
+#endif
+}
+
+void PlayerBackendFactoryTest::linkedRuntimeEnumeratesAudioDevices()
+{
+#if defined(BLOOM_HAS_LIBMPV)
+    QFuture<QVariantList> first = BloomBackend::enumerateAudioDevicesAsync();
+    QFuture<QVariantList> second = BloomBackend::enumerateAudioDevicesAsync();
+    QTRY_VERIFY_WITH_TIMEOUT(first.isFinished() && second.isFinished(), 10000);
+    const QVariantList devices = first.result();
+    // mpv always offers "auto"; real endpoints depend on the host.
+    QVERIFY(!devices.isEmpty());
+    QCOMPARE(devices.first().toMap().value(QStringLiteral("name")).toString(), QStringLiteral("auto"));
+    QCOMPARE(second.result(), devices);
+#else
+    QSKIP("libmpv is not linked");
+#endif
 }
 
 QTEST_MAIN(PlayerBackendFactoryTest)

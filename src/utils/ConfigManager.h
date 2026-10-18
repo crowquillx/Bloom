@@ -80,6 +80,8 @@ class ConfigManager : public QObject
     Q_PROPERTY(int skipButtonAutoHideSeconds READ getSkipButtonAutoHideSeconds WRITE setSkipButtonAutoHideSeconds NOTIFY skipButtonAutoHideSecondsChanged)
     Q_PROPERTY(int audioDelay READ getAudioDelay WRITE setAudioDelay NOTIFY audioDelayChanged)
     Q_PROPERTY(QString audioOutputDevice READ getAudioOutputDevice WRITE setAudioOutputDevice NOTIFY audioOutputDeviceChanged)
+    Q_PROPERTY(QString audioOutputDeviceDescription READ getAudioOutputDeviceDescription NOTIFY audioOutputDeviceChanged)
+    Q_PROPERTY(bool audioExclusiveMode READ getAudioExclusiveMode WRITE setAudioExclusiveMode NOTIFY audioExclusiveModeChanged)
     Q_PROPERTY(QString audioPassthroughMode READ getAudioPassthroughMode WRITE setAudioPassthroughMode NOTIFY audioPassthroughChanged)
     Q_PROPERTY(QStringList audioPassthroughCodecs READ getAudioPassthroughCodecs WRITE setAudioPassthroughCodecs NOTIFY audioPassthroughChanged)
     Q_PROPERTY(int playbackVolume READ getPlaybackVolume WRITE setPlaybackVolume NOTIFY playbackVolumeChanged)
@@ -254,10 +256,17 @@ public:
     int getAudioDelay() const;
 
     // Audio output device (mpv audio-device id, e.g. "wasapi/{...}" or
-    // "auto"/"" to follow the system default device). When set to a specific
-    // device, Bloom passes --audio-device to mpv and re-applies it on hotplug.
+    // "auto"/"" to follow the system default device), stored per platform with
+    // its display label. A missing device stays saved; playback resolves it to
+    // the system default until it returns (see docs/audio.md).
     void setAudioOutputDevice(const QString &device);
+    Q_INVOKABLE void setAudioOutputDeviceSelection(const QString &device, const QString &description);
     QString getAudioOutputDevice() const;
+    QString getAudioOutputDeviceDescription() const;
+
+    // WASAPI exclusive PCM access (Windows only; ignored by other drivers).
+    void setAudioExclusiveMode(bool enabled);
+    bool getAudioExclusiveMode() const;
 
     void setAudioPassthroughMode(const QString &mode);
     QString getAudioPassthroughMode() const;
@@ -566,6 +575,7 @@ signals:
     void skipButtonAutoHideSecondsChanged();
     void audioDelayChanged();
     void audioOutputDeviceChanged();
+    void audioExclusiveModeChanged();
     void audioPassthroughChanged();
     void playbackVolumeChanged();
     void playbackMutedChanged();

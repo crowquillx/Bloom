@@ -10,7 +10,7 @@ class ExternalMpvBackend : public IPlayerBackend
 
 public:
     explicit ExternalMpvBackend(QObject *parent = nullptr);
-    ~ExternalMpvBackend() override = default;
+    ~ExternalMpvBackend() override;
 
     QString backendName() const override;
 
@@ -28,13 +28,17 @@ public:
     void setVideoViewport(const QRectF &viewport) override;
 
     void requestAudioDiagnostics(const QString &tag) override;
+    void refreshAudioDevices() override;
     void prepareRuntime(const QString &mpvBin) override;
     Bloom::PlaybackPolicy::MpvRuntimeInfo runtimeInfo() const override;
 
 private:
     void scheduleDiagnosticSnapshots();
+    void finishDeviceListProbe(QProcess *process, const QVariantList &devices);
 
     PlayerProcessManager *m_processManager;
     MpvRuntimeProbe *m_runtimeProbe;
     quint64 m_fileGeneration = 0;
+    QString m_mpvBin;
+    QProcess *m_deviceListProcess = nullptr;
 };

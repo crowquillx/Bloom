@@ -40,6 +40,7 @@ public:
     void detachVideoTarget(QObject *target) override;
     void setVideoViewport(const QRectF &viewport) override;
     void requestAudioDiagnostics(const QString &tag) override;
+    void refreshAudioDevices() override;
     void prepareRuntime(const QString &mpvBin) override;
     Bloom::PlaybackPolicy::MpvRuntimeInfo runtimeInfo() const override;
     // The OpenGL render API always drives mpv's legacy vo_gpu renderer.

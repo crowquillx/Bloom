@@ -107,6 +107,11 @@ public:
         requestedAudioDiagnostics.append(tag);
     }
 
+    void refreshAudioDevices() override
+    {
+        ++refreshAudioDevicesCount;
+    }
+
 private:
     bool m_running = false;
 
@@ -122,6 +127,7 @@ public:
     QString lastStartUrl;
     int startCallCount = 0;
     QStringList requestedAudioDiagnostics;
+    int refreshAudioDevicesCount = 0;
 
     void setRunning(bool running)
     {
@@ -591,6 +597,9 @@ private slots:
     void audioStartupPlanOverridesProfileOutputArgs();
     void autoAudioDeviceChangesReloadAfterInitialBaseline();
     void explicitAudioDeviceReloadsOnDisappearAndReconnect();
+    void exclusiveFailureFallsBackToSharedThenSystemDefault();
+    void selectAudioOutputDeviceReopensAudioWithoutRestart();
+    void idleAudioDeviceRefreshUsesBackendEnumeration();
     void audioDiagnosticsFallbackToPcmOnceAndThrottleNullRetries();
     void audioDiagnosticsWithoutOutputEvidenceDoNotFallback();
     void externalSubtitleSelectionReaddsUnresolvedTrack();
@@ -4092,9 +4101,12 @@ void PlayerControllerAutoplayContextTest::explicitAudioDeviceReloadsOnDisappearA
                           QVariantList{QStringLiteral("ao-reload")});
     };
     QTRY_VERIFY(reloadCount() >= 1);
+    // A missing endpoint plays on the system default; the saved choice is kept.
     QVERIFY(backend.variantCommands.contains(
         QVariantList{QStringLiteral("set_property"), QStringLiteral("audio-device"),
-                     QStringLiteral("alsa/device-1")}));
+                     QStringLiteral("auto")}));
+    QCOMPARE(config.getAudioOutputDevice(), QStringLiteral("alsa/device-1"));
+    QVERIFY(!controller.audioOutputStatus().value(QStringLiteral("preferredAvailable")).toBool());
 
     backend.variantCommands.clear();
     backend.emitAudioDevices({QVariantMap{{QStringLiteral("name"), QStringLiteral("alsa/device-1")}}});
@@ -4102,6 +4114,161 @@ void PlayerControllerAutoplayContextTest::explicitAudioDeviceReloadsOnDisappearA
     QVERIFY(backend.variantCommands.contains(
         QVariantList{QStringLiteral("set_property"), QStringLiteral("audio-device"),
                      QStringLiteral("alsa/device-1")}));
+    QVERIFY(controller.audioOutputStatus().value(QStringLiteral("preferredAvailable")).toBool());
+}
+
+void PlayerControllerAutoplayContextTest::exclusiveFailureFallsBackToSharedThenSystemDefault()
+{
+    ConfigManager config;
+    config.setAudioOutputDeviceSelection(QStringLiteral("wasapi/{tv}"), QStringLiteral("TV"));
+    config.setAudioExclusiveMode(true);
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService, &config);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+    QSignalSpy noticeSpy(&controller, &PlayerController::audioOutputNotice);
+
+    backend.emitAudioDevices({QVariantMap{{QStringLiteral("name"), QStringLiteral("auto")}},
+                              QVariantMap{{QStringLiteral("name"), QStringLiteral("wasapi/{tv}")},
+                                          {QStringLiteral("description"), QStringLiteral("TV")}},
+                              QVariantMap{{QStringLiteral("name"), QStringLiteral("wasapi/{spk}")},
+                                          {QStringLiteral("description"), QStringLiteral("Speakers")}}});
+    QVERIFY(controller.audioOutputStatus().value(QStringLiteral("exclusiveSupported")).toBool());
+
+    const QVariantMap mediaSource = buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")},
+                    {QStringLiteral("index"), 1},
+                    {QStringLiteral("codec"), QStringLiteral("aac")},
+                    {QStringLiteral("channels"), 2}}
+    });
+    controller.playUrlWithTracks(QStringLiteral("https://example.invalid/aac"),
+                                 QStringLiteral("aac-item"), 0, {}, {}, {},
+                                 QStringLiteral("source-aac"), QStringLiteral("session-aac"),
+                                 mediaSource, 1, -1);
+    QCOMPARE(backend.startCallCount, 1);
+    QVERIFY(controller.m_audioPlan.exclusivePcm);
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--audio-exclusive=yes")));
+    QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--audio-device=wasapi/{tv}")));
+    const int stopCalls = backend.stopCallCount;
+
+    const QVariantMap pcm{{QStringLiteral("format"), QStringLiteral("s32")}};
+    const QVariantMap active{{QStringLiteral("current-ao"), QStringLiteral("wasapi")},
+                             {QStringLiteral("audio-exclusive"), true},
+                             {QStringLiteral("audio-out-params"), pcm}};
+    backend.emitPlaybackDiagnostics(QStringLiteral("audio|%1").arg(controller.m_audioPlanGeneration), active);
+    QVERIFY(controller.audioOutputStatus().value(QStringLiteral("exclusiveActive")).toBool());
+    QCOMPARE(noticeSpy.count(), 0);
+
+    // Device busy in another app's exclusive stream: mpv falls back to the null AO.
+    QVariantMap nullOutput{{QStringLiteral("current-ao"), QStringLiteral("null")},
+                           {QStringLiteral("audio-exclusive"), true},
+                           {QStringLiteral("audio-out-params"), pcm}};
+    backend.variantCommands.clear();
+    backend.emitPlaybackDiagnostics(QStringLiteral("audio|%1").arg(controller.m_audioPlanGeneration), nullOutput);
+    QVERIFY(controller.m_exclusiveFallback);
+    QVERIFY(!controller.m_audioPlan.exclusivePcm);
+    QCOMPARE(controller.m_audioPlan.device, QStringLiteral("wasapi/{tv}"));
+    QVERIFY(backend.variantCommands.contains(
+        QVariantList{QStringLiteral("set_property"), QStringLiteral("audio-exclusive"), QStringLiteral("no")}));
+    QVERIFY(backend.variantCommands.contains(QVariantList{QStringLiteral("ao-reload")}));
+    QCOMPARE(noticeSpy.count(), 1);
+    QVERIFY(controller.audioOutputStatus().value(QStringLiteral("exclusiveFallback")).toBool());
+
+    // Shared mode on the explicit endpoint also fails: use the system default for the session.
+    nullOutput[QStringLiteral("audio-exclusive")] = false;
+    backend.variantCommands.clear();
+    backend.emitPlaybackDiagnostics(QStringLiteral("audio|%1").arg(controller.m_audioPlanGeneration), nullOutput);
+    QTRY_VERIFY(backend.variantCommands.contains(
+        QVariantList{QStringLiteral("set_property"), QStringLiteral("audio-device"), QStringLiteral("auto")}));
+    QCOMPARE(controller.m_audioPlan.device, QStringLiteral("auto"));
+    QCOMPARE(config.getAudioOutputDevice(), QStringLiteral("wasapi/{tv}"));
+    QCOMPARE(noticeSpy.count(), 2);
+    QCOMPARE(backend.startCallCount, 1);
+    QCOMPARE(backend.stopCallCount, stopCalls);
+    QVERIFY(std::none_of(backend.commands.cbegin(), backend.commands.cend(), [](const QStringList &command) {
+        return !command.isEmpty() && command.first() == QStringLiteral("loadfile");
+    }));
+}
+
+void PlayerControllerAutoplayContextTest::selectAudioOutputDeviceReopensAudioWithoutRestart()
+{
+    ConfigManager config;
+    config.setAudioOutputDevice(QStringLiteral("auto"));
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService, &config);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    backend.emitAudioDevices({QVariantMap{{QStringLiteral("name"), QStringLiteral("auto")}},
+                              QVariantMap{{QStringLiteral("name"), QStringLiteral("pipewire")}},
+                              QVariantMap{{QStringLiteral("name"), QStringLiteral("pipewire/dac")},
+                                          {QStringLiteral("description"), QStringLiteral("USB DAC")}},
+                              QVariantMap{{QStringLiteral("name"), QStringLiteral("alsa/hw:0")},
+                                          {QStringLiteral("description"), QStringLiteral("Raw")}}});
+    // System Default plus the active driver's endpoints only.
+    const QVariantList options = controller.audioOutputOptions();
+    QCOMPARE(options.size(), 2);
+    QCOMPARE(options.at(1).toMap().value(QStringLiteral("id")).toString(), QStringLiteral("pipewire/dac"));
+    QVERIFY(!controller.audioOutputStatus().value(QStringLiteral("exclusiveSupported")).toBool());
+
+    controller.m_playbackState = PlayerController::Playing;
+    controller.m_activeMediaSource = buildMediaSource({
+        QVariantMap{{QStringLiteral("type"), QStringLiteral("Audio")},
+                    {QStringLiteral("index"), 1},
+                    {QStringLiteral("codec"), QStringLiteral("aac")}}
+    });
+    controller.m_selectedAudioTrack = 1;
+    controller.updateTrackMappings(controller.m_activeMediaSource);
+    backend.setRunning(true);
+
+    controller.selectAudioOutputDevice(QStringLiteral("pipewire/dac"));
+    QCOMPARE(config.getAudioOutputDevice(), QStringLiteral("pipewire/dac"));
+    QCOMPARE(config.getAudioOutputDeviceDescription(), QStringLiteral("USB DAC"));
+    QVERIFY(backend.variantCommands.contains(
+        QVariantList{QStringLiteral("set_property"), QStringLiteral("audio-device"),
+                     QStringLiteral("pipewire/dac")}));
+    QVERIFY(backend.variantCommands.contains(QVariantList{QStringLiteral("ao-reload")}));
+    // Only the audio output reopens: no restart, reload, seek or pause change.
+    QCOMPARE(backend.startCallCount, 0);
+    QCOMPARE(backend.stopCallCount, 0);
+    for (const QVariantList &command : std::as_const(backend.variantCommands)) {
+        const QString name = command.value(0).toString();
+        QVERIFY2(name != QStringLiteral("loadfile") && name != QStringLiteral("seek"), qPrintable(name));
+        QVERIFY(command.value(1).toString() != QStringLiteral("pause"));
+        QVERIFY(command.value(1).toString() != QStringLiteral("time-pos"));
+    }
+    QVERIFY(controller.audioOutputOptions().at(1).toMap().value(QStringLiteral("selected")).toBool());
+}
+
+void PlayerControllerAutoplayContextTest::idleAudioDeviceRefreshUsesBackendEnumeration()
+{
+    ConfigManager config;
+    TrackPreferencesManager trackPrefs;
+    DisplayManager displayManager(&config);
+    AuthenticationService authService(nullptr);
+    PlaybackService playbackService(&authService, &config);
+    FakeLibraryService libraryService(&authService);
+    FakePlayerBackend backend;
+    PlayerController controller(&backend, &config, &trackPrefs, &displayManager,
+                                &playbackService, &libraryService, &authService);
+
+    // Startup enumerates once so the saved choice resolves before first playback.
+    QTRY_COMPARE(backend.refreshAudioDevicesCount, 1);
+    controller.refreshAudioOutputDevices();
+    QCOMPARE(backend.refreshAudioDevicesCount, 2);
+
+    // A running player already observes mpv's live list.
+    backend.setRunning(true);
+    controller.refreshAudioOutputDevices();
+    QCOMPARE(backend.refreshAudioDevicesCount, 2);
 }
 
 void PlayerControllerAutoplayContextTest::audioDiagnosticsFallbackToPcmOnceAndThrottleNullRetries()

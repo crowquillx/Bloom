@@ -173,6 +173,8 @@ private slots:
     void explicitMpvDeviceDisappearanceAndReconnect();
     void defaultEndpointChangeEmitsCapabilitiesChanged();
     void refreshCanRecoverEndpointAfterResume();
+    void failedDeviceFallsBackUntilHotplug();
+    void heldEndpointKeepsFormatsWhenQueriesFail();
 };
 
 void AudioOutputServiceTest::prepareWaitsForProbe()
@@ -364,18 +366,107 @@ void AudioOutputServiceTest::explicitMpvDeviceDisappearanceAndReconnect()
 
     QSignalSpy changedSpy(&service, &Bloom::AudioOutputService::capabilitiesChanged);
     service.setMpvDevices({});
-    QVERIFY(!service.capabilities().endpointAvailable);
+    // The saved choice is kept, but playback resolves to the system default.
+    QCOMPARE(fixture.config->getAudioOutputDevice(), device);
+    QVERIFY(!service.deviceResolution().preferredAvailable);
+    QCOMPARE(service.capabilities().device, QStringLiteral("auto"));
     const auto missingPlan = service.planForMetadata(source);
+    QCOMPARE(missingPlan.device, QStringLiteral("auto"));
     QVERIFY(missingPlan.localDecodeSupported);
     QVERIFY(!missingPlan.providerConversionRequired);
     QCOMPARE(missingPlan.path, QStringLiteral("pcm"));
     QVERIFY(changedSpy.count() >= 1);
 
     service.setMpvDevices(QVariantList{QVariantMap{{QStringLiteral("name"), device}}});
+    QVERIFY(service.deviceResolution().preferredAvailable);
+    QCOMPARE(service.capabilities().device, device);
     QVERIFY(service.capabilities().endpointAvailable);
     const auto reconnectedPlan = service.planForMetadata(source);
+    QCOMPARE(reconnectedPlan.device, device);
     QVERIFY(reconnectedPlan.localDecodeSupported);
     QVERIFY(!reconnectedPlan.providerConversionRequired);
+}
+
+void AudioOutputServiceTest::failedDeviceFallsBackUntilHotplug()
+{
+    ConfigFixture fixture;
+    QVERIFY(fixture.valid());
+    const QString device = QStringLiteral("wasapi/tv");
+    fixture.config->setAudioOutputDeviceSelection(device, QStringLiteral("TV"));
+    Bloom::AudioOutputService service(fixture.config.get(),
+                                      [](const QString &requested) {
+                                          Bloom::AudioOutputCapabilities result;
+                                          result.device = requested;
+                                          return result;
+                                      },
+                                      1000);
+    const QVariantList list{QVariantMap{{QStringLiteral("name"), QStringLiteral("auto")}},
+                            QVariantMap{{QStringLiteral("name"), device},
+                                        {QStringLiteral("description"), QStringLiteral("TV")}}};
+    service.setMpvDevices(list);
+    QCOMPARE(service.deviceResolution().device, device);
+    // WASAPI endpoints report exclusive support; the plan follows the preference.
+    QVERIFY(service.capabilities().exclusiveModeSupported);
+    Bloom::AudioSourceMetadata stereo;
+    stereo.codec = QStringLiteral("aac");
+    stereo.channels = 2;
+    QVERIFY(service.planForMetadata(stereo).exclusivePcm);
+    QVERIFY(!service.planForMetadata(stereo, false).exclusivePcm);
+    fixture.config->setAudioExclusiveMode(false);
+    QVERIFY(!service.planForMetadata(stereo).exclusivePcm);
+
+    QSignalSpy devicesSpy(&service, &Bloom::AudioOutputService::devicesChanged);
+    service.markDeviceFailed(device);
+    QCOMPARE(service.deviceResolution().device, QStringLiteral("auto"));
+    QCOMPARE(service.planForMetadata(stereo).device, QStringLiteral("auto"));
+    QCOMPARE(fixture.config->getAudioOutputDevice(), device);
+    QVERIFY(devicesSpy.count() >= 1);
+
+    // An unchanged list keeps the failure; hotplug clears it.
+    service.setMpvDevices(list);
+    QCOMPARE(service.deviceResolution().device, QStringLiteral("auto"));
+    service.setMpvDevices(QVariantList{list.at(1), list.at(0)});
+    QCOMPARE(service.deviceResolution().device, device);
+
+    service.markDeviceFailed(device);
+    service.clearDeviceFailures();
+    QCOMPARE(service.deviceResolution().device, device);
+}
+
+void AudioOutputServiceTest::heldEndpointKeepsFormatsWhenQueriesFail()
+{
+    ConfigFixture fixture;
+    QVERIFY(fixture.valid());
+    auto harness = std::make_shared<ProbeHarness>();
+    auto first = harness->enqueue(QStringLiteral("auto"),
+                                  capabilitiesFor(QStringLiteral("auto"), QStringLiteral("endpoint")), true);
+    Bloom::AudioOutputCapabilities rejected = capabilitiesFor(QStringLiteral("auto"), QStringLiteral("endpoint"));
+    rejected.passthroughCodecs.clear();
+    auto second = harness->enqueue(QStringLiteral("auto"), rejected, true);
+    auto third = harness->enqueue(QStringLiteral("auto"), rejected, true);
+    Bloom::AudioOutputService service(fixture.config.get(),
+                                      [harness](const QString &device) { return harness->probe(device); },
+                                      1000);
+    ProbeReleaseGuard releaseGuard(harness);
+
+    QVERIFY(processInitialRefresh(first));
+    first->release.release();
+    QTRY_COMPARE_WITH_TIMEOUT(service.capabilities().passthroughCodecs, QStringList{QStringLiteral("ac3")}, 1000);
+
+    service.setEndpointHeld(true);
+    service.refresh();
+    QTRY_VERIFY_WITH_TIMEOUT(second->entered.available() > 0, 1000);
+    QVERIFY(second->entered.tryAcquire(1, 0));
+    second->release.release();
+    QTest::qWait(100); // let the watcher deliver the held-endpoint answer
+    QCOMPARE(service.capabilities().passthroughCodecs, QStringList{QStringLiteral("ac3")});
+
+    // Once released, the same answer is taken as real.
+    service.setEndpointHeld(false);
+    QTRY_VERIFY_WITH_TIMEOUT((service.refresh(), third->entered.available() > 0), 1000);
+    QVERIFY(third->entered.tryAcquire(1, 0));
+    third->release.release();
+    QTRY_VERIFY_WITH_TIMEOUT(service.capabilities().passthroughCodecs.isEmpty(), 1000);
 }
 
 void AudioOutputServiceTest::defaultEndpointChangeEmitsCapabilitiesChanged()

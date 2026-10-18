@@ -2,6 +2,7 @@
 
 #include <QHash>
 #include <QDeadlineTimer>
+#include <QFuture>
 #include <QList>
 #include <QString>
 #include <QStringList>
@@ -51,6 +52,12 @@ struct VideoFilterListOperation
 // dolbyvision-only form. Returns human-readable failures (empty on success).
 QStringList applyVideoFilterListOperations(mpv_handle *handle,
                                            const QList<VideoFilterListOperation> &operations);
+
+// Reads audio-device-list from a temporary, unconfigured core (no file, VO or
+// scripts) on a serialized process-lifetime worker, because driver enumeration
+// can block and cannot be cancelled. Callers share an in-flight request.
+// Call from the UI thread.
+[[nodiscard]] QFuture<QVariantList> enumerateAudioDevicesAsync();
 
 // Asynchronous property snapshots (mpv_get_property_async) so diagnostics
 // never block the UI thread on the mpv core lock.

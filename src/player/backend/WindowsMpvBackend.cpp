@@ -242,6 +242,21 @@ void WindowsMpvBackend::requestAudioDiagnostics(const QString &tag)
 #endif
 }
 
+void WindowsMpvBackend::refreshAudioDevices()
+{
+#if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
+    if (m_mpvHandle) {
+        return;
+    }
+    BloomBackend::enumerateAudioDevicesAsync().then(this, [this](const QVariantList &devices) {
+        // A session that started meanwhile publishes its own live list.
+        if (!m_mpvHandle && !devices.isEmpty()) {
+            emit audioDeviceListChanged(devices);
+        }
+    });
+#endif
+}
+
 void WindowsMpvBackend::scheduleDiagnosticSnapshots()
 {
 #if defined(Q_OS_WIN) && defined(BLOOM_HAS_LIBMPV)
