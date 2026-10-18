@@ -504,6 +504,7 @@ void CanonicalModelsTest::jellyfinSeriesFieldsAndChaptersMapCanonically()
             {QStringLiteral("Type"), QStringLiteral("Episode")},
             {QStringLiteral("RecursiveItemCount"), 48},
             {QStringLiteral("Status"), QStringLiteral("Continuing")},
+            {QStringLiteral("DisplayOrder"), QStringLiteral("altdvd")},
             {QStringLiteral("AirsBeforeSeasonNumber"), 2},
             {QStringLiteral("AirsAfterSeasonNumber"), 1},
             {QStringLiteral("AirsBeforeEpisodeNumber"), 4}
@@ -512,6 +513,8 @@ void CanonicalModelsTest::jellyfinSeriesFieldsAndChaptersMapCanonically()
 
     QCOMPARE(episode.value(QStringLiteral("recursiveItemCount")).toInt(), 48);
     QCOMPARE(episode.value(QStringLiteral("status")).toString(), QStringLiteral("Continuing"));
+    QCOMPARE(episode.value(QStringLiteral("episodeOrder")).toString(), QStringLiteral("altdvd"));
+    QVERIFY(!episode.contains(QStringLiteral("DisplayOrder")));
     QCOMPARE(episode.value(QStringLiteral("airsBeforeSeasonNumber")).toInt(), 2);
     QCOMPARE(episode.value(QStringLiteral("airsAfterSeasonNumber")).toInt(), 1);
     QCOMPARE(episode.value(QStringLiteral("airsBeforeEpisodeNumber")).toInt(), 4);

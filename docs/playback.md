@@ -356,7 +356,7 @@ UI Components for Track Selection
     - Popup timing is controlled by `ConfigManager.skipButtonAutoHideSeconds` (`settings.playback.skip_button_auto_hide_seconds`, range 0-120; 0 disables popup only). The popup is still dismissed as soon as the active intro/outro segment ends.
     - Optional automatic skip is controlled by `ConfigManager.autoSkipIntro` and `ConfigManager.autoSkipOutro`; each auto-skip applies at most once per playback item even if the user seeks back.
     - Segment source precedence is provider-neutral: native Silo marker responses win per segment type; when Jellyfin is active, the core `/MediaSegments/{id}` response is the server-marker source and wins per type. External providers are queried only after the active server response and may fill missing types such as recap, intro, credits, or preview.
-    - External provider order defaults to TheIntroDB then IntroDB. Reads are anonymous. TheIntroDB requires TMDB metadata; IntroDB requires series IMDb metadata plus season/episode.
+    - External provider order defaults to TheIntroDB then IntroDB. Reads are anonymous. TheIntroDB v4 prefers TVDB metadata and accepts TMDB or IMDb metadata as a fallback. Episode requests use series IDs, season/episode coordinates, and the server's episode order when available. IntroDB requires series IMDb metadata plus season/episode. See `docs/media-segments.md`.
 
 Playback overlay metadata
 - `PlayerController` exposes `overlayTitle`, `overlaySubtitle`, `overlayBackdropUrl`, and `overlayLogoUrl` for the native overlay (header, buffering card, and backdrop).

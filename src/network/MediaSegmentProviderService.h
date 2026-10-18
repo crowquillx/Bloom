@@ -20,6 +20,7 @@ struct MediaSegmentLookupContext
     QString imdbId;
     QString tmdbId;
     QString tvdbId;
+    QString episodeOrder;
     int seasonNumber = -1;
     int episodeNumber = -1;
     qint64 durationMs = 0;

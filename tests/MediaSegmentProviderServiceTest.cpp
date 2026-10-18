@@ -9,7 +9,9 @@ class MediaSegmentProviderServiceTest : public QObject
     Q_OBJECT
 
 private slots:
-    void parsesTheIntroDbV2Arrays();
+    void parsesTheIntroDbV4Arrays();
+    void rejectsMalformedTheIntroDbTimestamps();
+    void ignoresTheIntroDbNonTimestampResponses();
     void handlesNullStartAndDurationEnd();
     void dropsOpenEndedSegmentsWithoutDuration();
     void parsesIntroDbSegments();
@@ -34,10 +36,14 @@ MediaSegmentLookupContext episodeContext()
 }
 }
 
-void MediaSegmentProviderServiceTest::parsesTheIntroDbV2Arrays()
+void MediaSegmentProviderServiceTest::parsesTheIntroDbV4Arrays()
 {
     const MediaSegmentLookupContext context = episodeContext();
     const QJsonObject payload{
+        {QStringLiteral("tvdb_id"), 81189},
+        {QStringLiteral("type"), QStringLiteral("tv")},
+        {QStringLiteral("season"), 1},
+        {QStringLiteral("episode"), 1},
         {QStringLiteral("intro"), QJsonArray{QJsonObject{
             {QStringLiteral("start_ms"), 30000},
             {QStringLiteral("end_ms"), 90000}
@@ -77,6 +83,55 @@ void MediaSegmentProviderServiceTest::parsesTheIntroDbV2Arrays()
     QCOMPARE(intro.source, QStringLiteral("theintrodb"));
     QCOMPARE(intro.startSeconds(), 30.0);
     QCOMPARE(intro.endSeconds(), 90.0);
+}
+
+void MediaSegmentProviderServiceTest::rejectsMalformedTheIntroDbTimestamps()
+{
+    const QJsonObject payload{
+        {QStringLiteral("intro"), QJsonArray{
+             QJsonObject{{QStringLiteral("end_ms"), 10000}},
+             QJsonObject{{QStringLiteral("start_ms"), 10000}},
+             QJsonObject{{QStringLiteral("start_ms"), QStringLiteral("bad")},
+                         {QStringLiteral("end_ms"), 10000}},
+             QJsonObject{{QStringLiteral("start_ms"), 1000},
+                         {QStringLiteral("end_ms"), false}},
+             QJsonObject{{QStringLiteral("start_ms"), -1},
+                         {QStringLiteral("end_ms"), 10000}},
+             QJsonObject{{QStringLiteral("start_ms"), 1000},
+                         {QStringLiteral("end_ms"), 1000}},
+             QJsonObject{{QStringLiteral("start_ms"), 1.5},
+                         {QStringLiteral("end_ms"), 10000}},
+             QJsonObject{{QStringLiteral("start_ms"), 1000},
+                         {QStringLiteral("end_ms"), 1e100}},
+             QJsonValue::Null,
+             QJsonObject{{QStringLiteral("start_ms"), 1234},
+                         {QStringLiteral("end_ms"), 9876}}}}
+    };
+    const auto segments = MediaSegmentProviderService::parseTheIntroDbSegments(payload, episodeContext());
+    QCOMPARE(segments.size(), 1);
+    QCOMPARE(segments.first().startMs, 1234);
+    QCOMPARE(segments.first().endMs, 9876);
+}
+
+void MediaSegmentProviderServiceTest::ignoresTheIntroDbNonTimestampResponses()
+{
+    const QJsonObject versions{
+        {QStringLiteral("tvdb_id"), 81189},
+        {QStringLiteral("type"), QStringLiteral("tv")},
+        {QStringLiteral("versions"), QJsonArray{QJsonObject{
+             {QStringLiteral("duration_ms"), 3600000},
+             {QStringLiteral("submission_count"), 10}}}}
+    };
+    const QJsonObject episodes{
+        {QStringLiteral("tvdb_id"), 81189},
+        {QStringLiteral("type"), QStringLiteral("tv")},
+        {QStringLiteral("episodes"), QJsonArray{QJsonObject{
+             {QStringLiteral("season"), 1},
+             {QStringLiteral("episode"), 1},
+             {QStringLiteral("intro"), 10}}}}
+    };
+    QVERIFY(MediaSegmentProviderService::parseTheIntroDbSegments(versions, episodeContext()).isEmpty());
+    QVERIFY(MediaSegmentProviderService::parseTheIntroDbSegments(episodes, episodeContext()).isEmpty());
 }
 
 void MediaSegmentProviderServiceTest::handlesNullStartAndDurationEnd()

@@ -164,18 +164,37 @@ void MediaSegmentProviderService::fetchTheIntroDbSegments(const MediaSegmentLook
     MediaSegmentProviderResult result;
     result.providerId = QStringLiteral("theintrodb");
 
-    if (!m_authService || !m_authService->networkManager() || context.tmdbId.trimmed().isEmpty()) {
+    const bool isEpisode = context.type.compare(QStringLiteral("Episode"), Qt::CaseInsensitive) == 0;
+    const bool isMovie = context.type.compare(QStringLiteral("Movie"), Qt::CaseInsensitive) == 0;
+    if (!m_authService || !m_authService->networkManager()
+        || (!isEpisode && !isMovie)
+        || (isEpisode && (context.seasonNumber < 0 || context.seasonNumber > 1000
+                          || context.episodeNumber < 0 || context.episodeNumber > 10000))) {
         callback(result);
         return;
     }
 
-    QUrl url(QStringLiteral("https://api.theintrodb.org/v2/media"));
+    QUrl url(QStringLiteral("https://api.theintrodb.org/v4/media"));
     QUrlQuery query;
-    query.addQueryItem(QStringLiteral("tmdb_id"), context.tmdbId.trimmed());
-    if (context.type.compare(QStringLiteral("Episode"), Qt::CaseInsensitive) == 0
-        && context.seasonNumber > 0 && context.episodeNumber > 0) {
+    if (!context.tvdbId.trimmed().isEmpty()) {
+        query.addQueryItem(QStringLiteral("tvdb_id"), context.tvdbId.trimmed());
+    } else if (!context.tmdbId.trimmed().isEmpty()) {
+        query.addQueryItem(QStringLiteral("tmdb_id"), context.tmdbId.trimmed());
+    } else if (!context.imdbId.trimmed().isEmpty()) {
+        query.addQueryItem(QStringLiteral("imdb_id"), context.imdbId.trimmed());
+    } else {
+        callback(result);
+        return;
+    }
+    if (isEpisode) {
         query.addQueryItem(QStringLiteral("season"), QString::number(context.seasonNumber));
         query.addQueryItem(QStringLiteral("episode"), QString::number(context.episodeNumber));
+        if (!context.episodeOrder.trimmed().isEmpty()) {
+            query.addQueryItem(QStringLiteral("mapping"), context.episodeOrder.trimmed());
+        }
+    }
+    if (context.durationMs > 0) {
+        query.addQueryItem(QStringLiteral("duration_ms"), QString::number(context.durationMs));
     }
     url.setQuery(query);
 
@@ -247,33 +266,23 @@ QList<MediaSegmentInfo> MediaSegmentProviderService::parseTheIntroDbSegments(con
     };
 
     QList<MediaSegmentInfo> segments;
-    const double durationSeconds = context.durationMs > 0
-        ? static_cast<double>(context.durationMs) / 1000.0
-        : 0.0;
-
     for (const Mapping &mapping : mappings) {
-        const QJsonValue value = obj.value(mapping.key);
-        QJsonArray values;
-        if (value.isArray()) {
-            values = value.toArray();
-        } else if (value.isObject()) {
-            values.append(value);
-        }
-
-        for (const QJsonValue &entry : values) {
+        for (const QJsonValue &entry : obj.value(mapping.key).toArray()) {
             const QJsonObject segment = entry.toObject();
-            bool hasStart = false;
-            bool hasEnd = false;
-            double startSeconds = secondsFromMillisecondsValue(segment.value(QStringLiteral("start_ms")), &hasStart);
-            double endSeconds = secondsFromMillisecondsValue(segment.value(QStringLiteral("end_ms")), &hasEnd);
-            if (!hasStart && !hasEnd) continue;
-            if (!hasStart) startSeconds = 0.0;
-            if (!hasEnd && durationSeconds > 0.0) endSeconds = durationSeconds;
-            if (!hasEnd && durationSeconds <= 0.0) continue;
+            const QJsonValue start = segment.value(QStringLiteral("start_ms"));
+            const QJsonValue end = segment.value(QStringLiteral("end_ms"));
+            const qint64 startMs = start.isNull() ? 0 : start.toInteger(-1);
+            const qint64 endMs = end.isNull() ? context.durationMs : end.toInteger(-1);
+            if (startMs < 0 || endMs <= startMs) continue;
 
-            const MediaSegmentInfo info = buildSegment(context, mapping.type, mapping.label, QStringLiteral("theintrodb"),
-                                                       startSeconds, endSeconds);
-            if (info.type != MediaSegmentType::Unknown) segments.append(info);
+            MediaSegmentInfo info;
+            info.itemId = context.itemId;
+            info.type = mapping.type;
+            info.typeString = mapping.label;
+            info.source = QStringLiteral("theintrodb");
+            info.startMs = startMs;
+            info.endMs = endMs;
+            segments.append(info);
         }
     }
 

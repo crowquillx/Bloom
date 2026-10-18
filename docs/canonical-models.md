@@ -32,6 +32,11 @@ The types expose temporary `QVariantMap` projections so existing QML-facing faç
 
 ## Jellyfin conversion
 
+Canonical `episodeOrder` preserves Jellyfin's `DisplayOrder` for external media
+segment requests. Series metadata supplies the order for episode lookups. An
+empty value means the provider did not supply an order. Silo's pinned v2
+contract does not expose one. See [Media segments](media-segments.md).
+
 `JellyfinModelMapper` converts Jellyfin item, user-state, person, artwork, chapter, playback-source, stream, trickplay, core media-segment, remote-session, ancestor, filter-facet, item-list envelope, and tick fields into Bloom canonical values. Jellyfin `PlaybackInfo` DTO parsing and tick conversion occur there; shared playback-source projections expose `durationMs` and must not carry provider time units. Trickplay duration correction, core segment tick-to-millisecond conversion, remote-session PascalCase mapping, and list/facet envelope extraction also remain inside this provider boundary. Production requests use only routes and parameters present and non-obsolete in the pinned Jellyfin 12 OpenAPI document.
 
 `LibraryService` asks the selected `IProviderAdapter` to map item, item-list, similar-item, series, next-episode, and chapter wire DTOs exactly once. Next-episode timeline resolution runs only on canonical episode maps and compares millisecond resume positions. Connection-aware canonical signals carry the `connectionId` captured when the request starts, so asynchronous mapping and consumers never substitute a later active connection.

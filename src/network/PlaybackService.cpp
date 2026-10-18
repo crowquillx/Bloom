@@ -1183,15 +1183,17 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
             context.seasonNumber = item.value(QStringLiteral("parentIndexNumber"), -1).toInt();
             context.episodeNumber = item.value(QStringLiteral("indexNumber"), -1).toInt();
             context.durationMs = item.value(QStringLiteral("durationMs")).toLongLong();
+            context.episodeOrder = item.value(QStringLiteral("episodeOrder")).toString();
 
+            const bool isEpisode = context.type.compare(QStringLiteral("Episode"), Qt::CaseInsensitive) == 0;
             const QVariantMap providerIds = item.value(QStringLiteral("providerIds")).toMap();
-            context.imdbId = providerIds.value(QStringLiteral("Imdb")).toString();
-            context.tmdbId = providerIds.value(QStringLiteral("Tmdb")).toString();
-            context.tvdbId = providerIds.value(QStringLiteral("Tvdb")).toString();
+            if (!isEpisode) {
+                context.imdbId = providerIds.value(QStringLiteral("Imdb")).toString();
+                context.tmdbId = providerIds.value(QStringLiteral("Tmdb")).toString();
+                context.tvdbId = providerIds.value(QStringLiteral("Tvdb")).toString();
+            }
 
-            const bool needsSeriesProviderIds = context.type.compare(QStringLiteral("Episode"), Qt::CaseInsensitive) == 0
-                && !context.seriesId.isEmpty()
-                && (context.imdbId.isEmpty() || context.tmdbId.isEmpty());
+            const bool needsSeriesProviderIds = isEpisode && !context.seriesId.isEmpty();
             if (!needsSeriesProviderIds) {
                 QPointer<PlaybackService> self(this);
                 m_mediaSegmentProviderService->fetchExternalSegments(context, serverSegments,
@@ -1230,12 +1232,14 @@ void PlaybackService::loadMediaSegmentLookupContext(const QString &itemId, const
                 },
                 [this, context, serverSegments, itemId](QNetworkReply *seriesReply) mutable {
                     const QJsonDocument seriesDoc = QJsonDocument::fromJson(seriesReply->readAll());
-                    const QVariantMap seriesProviderIds = m_authService
-                        ->mapMediaItem(firstItem(seriesDoc), QString())
-                        .value(QStringLiteral("providerIds")).toMap();
-                    if (context.imdbId.isEmpty()) context.imdbId = seriesProviderIds.value(QStringLiteral("Imdb")).toString();
-                    if (context.tmdbId.isEmpty()) context.tmdbId = seriesProviderIds.value(QStringLiteral("Tmdb")).toString();
-                    if (context.tvdbId.isEmpty()) context.tvdbId = seriesProviderIds.value(QStringLiteral("Tvdb")).toString();
+                    const QVariantMap series = m_authService->mapMediaItem(firstItem(seriesDoc), QString());
+                    const QVariantMap seriesProviderIds = series.value(QStringLiteral("providerIds")).toMap();
+                    context.imdbId = seriesProviderIds.value(QStringLiteral("Imdb")).toString();
+                    context.tmdbId = seriesProviderIds.value(QStringLiteral("Tmdb")).toString();
+                    context.tvdbId = seriesProviderIds.value(QStringLiteral("Tvdb")).toString();
+                    if (!series.value(QStringLiteral("episodeOrder")).toString().trimmed().isEmpty()) {
+                        context.episodeOrder = series.value(QStringLiteral("episodeOrder")).toString();
+                    }
 
                     QPointer<PlaybackService> self(this);
                     m_mediaSegmentProviderService->fetchExternalSegments(context, serverSegments,

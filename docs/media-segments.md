@@ -13,10 +13,19 @@ Precedence
 - External provider order defaults to TheIntroDB, then IntroDB.
 - `mergeSegmentsByType` keeps the first server segment for each type and only adds a later provider's type when no server segment of that type exists. For example, a server intro plus TheIntroDB intro/credits keeps the server intro and adds only credits.
 Provider parsing
-- TheIntroDB v2 uses `GET https://api.theintrodb.org/v2/media?tmdb_id=...`; TV requests also include `season` and `episode`. Reads are anonymous.
-- TheIntroDB segment arrays map `intro` to Intro, `recap` to Recap, `credits` to Outro, and `preview` to Preview. `start_ms: null` means zero; `end_ms: null` uses the item duration if known or the segment is dropped.
+- TheIntroDB v4 uses `GET https://api.theintrodb.org/v4/media`. Bloom sends one identity in this order of preference: `tvdb_id`, `tmdb_id`, then `imdb_id`. Reads are anonymous and do not send media-server credentials.
+- Episode lookups load the parent series metadata and use its provider IDs. Episode-level provider IDs identify an episode, so Bloom does not use them as series IDs, including when the series lookup fails.
+- TV requests require both `season` and `episode`; zero is valid for specials. Missing or out-of-range coordinates prevent the request. Movie requests omit TV coordinates and `mapping`; other media types are not queried.
+- Jellyfin `DisplayOrder` maps to canonical `episodeOrder`. The series value takes precedence over an episode value, and Bloom sends it as `mapping`. The API accepts Jellyfin aliases such as `altdvd` and `alttwo`. When no order is available, including from the pinned Silo v2 contract, Bloom omits `mapping` and the API uses TVDB default order. Unknown or unavailable orders return an API error; Bloom then continues to the next configured provider.
+- A known positive item duration is sent as `duration_ms` to select the closest release version. An unknown duration is omitted, so the API selects its most popular version.
+- TheIntroDB segment arrays map `intro` to Intro, `recap` to Recap, `credits` to Outro, and `preview` to Preview. Each segment must contain integer millisecond timestamps or explicit null values. `start_ms: null` means zero; `end_ms: null` uses the item duration if known or the segment is dropped. Version-list and episode-count responses provide no skip segments.
 - IntroDB uses `GET https://api.introdb.app/segments?imdb_id=...&season=...&episode=...`. Reads are anonymous. It maps `intro`, `recap`, and `outro` to Bloom segment types.
 - Invalid external segments are dropped when the end is missing, the end is not after the start, or a timestamp is negative.
+
+The v4 request and response contract was checked against the official
+[OpenAPI document](https://theintrodb.org/openapi.yaml) and
+[migration guide](https://theintrodb.org/docs/migration-v4) on 2026-10-18.
+The v2 endpoint is no longer used. Existing provider settings need no migration.
 
 Adding a provider
 - Add request and parser code to `MediaSegmentProviderService`.
@@ -24,5 +33,9 @@ Adding a provider
 - Set `source` to a stable lowercase provider id.
 - Add the provider id to `ConfigManager::getMediaSegmentProviderOrder()` defaults only when it is suitable as a default.
 - Add parser and merge tests in `MediaSegmentProviderServiceTest`.
+
+`SiloCatalogServiceTest` checks v4 requests, identity fallback, specials, movie
+parameters, and the series metadata flow for Jellyfin and Silo with a controlled
+network manager. These tests do not prove live timestamp coverage or playback.
 
 Silo v2 markers retain opaque string file IDs. Watch state also exposes per-version markers and `marker_segments`. The dedicated marker read remains authoritative for the selected file; this migration does not change external-provider precedence.

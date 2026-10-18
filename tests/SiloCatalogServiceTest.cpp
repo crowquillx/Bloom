@@ -19,8 +19,10 @@
 #include "network/AuthenticationService.h"
 #include "network/HttpTransport.h"
 #include "network/LibraryService.h"
+#include "network/MediaSegmentProviderService.h"
 #include "network/PlaybackService.h"
 #include "providers/ICatalogProvider.h"
+#include "providers/jellyfin/JellyfinProviderAdapter.h"
 #include "providers/silo/SiloCatalogProvider.h"
 #include "providers/silo/SiloProviderAdapter.h"
 #include "utils/ConfigManager.h"
@@ -177,7 +179,235 @@ private slots:
     void sparseNativeMappingsPreserveFallbacksAndState();
     void immediateCatalogRequestSurvivesAuthenticationCompletion();
     void requestHeadersAndGenerationSuppressStaleReplies();
+    void theIntroDbV4Requests_data();
+    void theIntroDbV4Requests();
+    void externalSegmentsUseSeriesIdentityAndOrder_data();
+    void externalSegmentsUseSeriesIdentityAndOrder();
+    void externalSegmentsContinueAfterV4Errors_data();
+    void externalSegmentsContinueAfterV4Errors();
 };
+
+void SiloCatalogServiceTest::theIntroDbV4Requests_data()
+{
+    QTest::addColumn<QString>("tvdbId");
+    QTest::addColumn<QString>("tmdbId");
+    QTest::addColumn<QString>("imdbId");
+    QTest::addColumn<QString>("mediaType");
+    QTest::addColumn<int>("season");
+    QTest::addColumn<int>("episode");
+    QTest::addColumn<qint64>("duration");
+    QTest::addColumn<QString>("identityKey");
+    QTest::newRow("tvdb-first") << " 81189 " << "1396" << "tt0903747" << "Episode" << 1 << 1 << qint64(3600000) << "tvdb_id";
+    QTest::newRow("tmdb-fallback") << "" << "1396" << "tt0903747" << "Episode" << 1 << 1 << qint64(3600000) << "tmdb_id";
+    QTest::newRow("imdb-fallback") << "" << "" << "tt0903747" << "Episode" << 1 << 1 << qint64(0) << "imdb_id";
+    QTest::newRow("special") << "81189" << "" << "" << "Episode" << 0 << 1 << qint64(0) << "tvdb_id";
+    QTest::newRow("episode-zero") << "81189" << "" << "" << "Episode" << 1 << 0 << qint64(0) << "tvdb_id";
+    QTest::newRow("movie") << "169" << "" << "" << "Movie" << 1 << 1 << qint64(7200000) << "tvdb_id";
+    QTest::newRow("missing-season") << "81189" << "" << "" << "Episode" << -1 << 1 << qint64(0) << "";
+    QTest::newRow("missing-episode") << "81189" << "" << "" << "Episode" << 1 << -1 << qint64(0) << "";
+    QTest::newRow("invalid-season") << "81189" << "" << "" << "Episode" << 1001 << 1 << qint64(0) << "";
+    QTest::newRow("invalid-episode") << "81189" << "" << "" << "Episode" << 1 << 10001 << qint64(0) << "";
+    QTest::newRow("no-identity") << " " << "" << "" << "Movie" << -1 << -1 << qint64(0) << "";
+    QTest::newRow("unsupported-type") << "81189" << "" << "" << "Series" << -1 << -1 << qint64(0) << "";
+}
+
+void SiloCatalogServiceTest::theIntroDbV4Requests()
+{
+    QFETCH(QString, tvdbId);
+    QFETCH(QString, tmdbId);
+    QFETCH(QString, imdbId);
+    QFETCH(QString, mediaType);
+    QFETCH(int, season);
+    QFETCH(int, episode);
+    QFETCH(qint64, duration);
+    QFETCH(QString, identityKey);
+    QTemporaryDir directory;
+    ScopedConfigIsolation isolation(directory.path());
+    ConfigManager config;
+    config.setMediaSegmentProviderOrder({QStringLiteral("theintrodb")});
+    ControlledNetworkAccessManager manager;
+    manager.responses = {{200, QByteArrayLiteral(R"({"tvdb_id":81189,"type":"tv","intro":[{"start_ms":1000,"end_ms":60000}]})")}};
+    HttpTransport transport(&manager);
+    JellyfinProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    MediaSegmentProviderService service(&auth, &config);
+    MediaSegmentLookupContext context;
+    context.itemId = QStringLiteral("item-1");
+    context.tvdbId = tvdbId;
+    context.tmdbId = tmdbId;
+    context.imdbId = imdbId;
+    context.type = mediaType;
+    context.seasonNumber = season;
+    context.episodeNumber = episode;
+    context.episodeOrder = QStringLiteral("altdvd");
+    context.durationMs = duration;
+    bool completed = false;
+    QList<MediaSegmentInfo> segments;
+    service.fetchExternalSegments(context, {}, [&](const auto &result) {
+        segments = result;
+        completed = true;
+    });
+    QTRY_VERIFY(completed);
+    if (identityKey.isEmpty()) {
+        QVERIFY(manager.requests.isEmpty());
+        QVERIFY(segments.isEmpty());
+        return;
+    }
+    QCOMPARE(manager.requests.size(), 1);
+    const auto request = manager.requests.first().request;
+    QCOMPARE(manager.requests.first().operation, QNetworkAccessManager::GetOperation);
+    QCOMPARE(request.url().scheme(), QStringLiteral("https"));
+    QCOMPARE(request.url().host(), QStringLiteral("api.theintrodb.org"));
+    QCOMPARE(request.url().path(), QStringLiteral("/v4/media"));
+    QVERIFY(!request.hasRawHeader(QByteArrayLiteral("Authorization")));
+    QVERIFY(!request.hasRawHeader(QByteArrayLiteral("X-Emby-Token")));
+    QVERIFY(request.transferTimeout() > 0);
+    const QUrlQuery query(request.url());
+    const QMap<QString, QString> identities{
+        {QStringLiteral("tvdb_id"), tvdbId.trimmed()},
+        {QStringLiteral("tmdb_id"), tmdbId.trimmed()},
+        {QStringLiteral("imdb_id"), imdbId.trimmed()}};
+    for (auto it = identities.cbegin(); it != identities.cend(); ++it) {
+        QCOMPARE(query.hasQueryItem(it.key()), it.key() == identityKey);
+        if (it.key() == identityKey) QCOMPARE(query.queryItemValue(it.key()), it.value());
+    }
+    const bool isEpisode = mediaType == QStringLiteral("Episode");
+    QCOMPARE(query.hasQueryItem(QStringLiteral("season")), isEpisode);
+    QCOMPARE(query.hasQueryItem(QStringLiteral("episode")), isEpisode);
+    QCOMPARE(query.hasQueryItem(QStringLiteral("mapping")), isEpisode);
+    if (isEpisode) {
+        QCOMPARE(query.queryItemValue(QStringLiteral("season")), QString::number(season));
+        QCOMPARE(query.queryItemValue(QStringLiteral("episode")), QString::number(episode));
+        QCOMPARE(query.queryItemValue(QStringLiteral("mapping")), QStringLiteral("altdvd"));
+    }
+    QCOMPARE(query.hasQueryItem(QStringLiteral("duration_ms")), duration > 0);
+    if (duration > 0) QCOMPARE(query.queryItemValue(QStringLiteral("duration_ms")), QString::number(duration));
+    QCOMPARE(segments.size(), 1);
+    QCOMPARE(segments.first().itemId, context.itemId);
+}
+
+void SiloCatalogServiceTest::externalSegmentsUseSeriesIdentityAndOrder_data()
+{
+    QTest::addColumn<bool>("nativeProvider");
+    QTest::addColumn<bool>("seriesAvailable");
+    QTest::newRow("jellyfin") << false << true;
+    QTest::newRow("silo") << true << true;
+    QTest::newRow("jellyfin-missing-series") << false << false;
+    QTest::newRow("silo-missing-series") << true << false;
+}
+
+void SiloCatalogServiceTest::externalSegmentsUseSeriesIdentityAndOrder()
+{
+    QFETCH(bool, nativeProvider);
+    QFETCH(bool, seriesAvailable);
+    QTemporaryDir directory;
+    ScopedConfigIsolation isolation(directory.path());
+    ConfigManager config;
+    config.setMediaSegmentProviderOrder({QStringLiteral("theintrodb")});
+    ControlledNetworkAccessManager manager;
+    manager.responses = {
+        {200, QByteArrayLiteral(R"({"Items":[]})")},
+        {200, nativeProvider
+             ? QByteArrayLiteral(R"({"content_id":"episode-1","type":"episode","series_id":"series-1","season_number":0,"episode_number":1,"tvdb_id":"999999","tmdb_id":"999999","imdb_id":"tt9999999","duration_seconds":3600})")
+             : QByteArrayLiteral(R"({"Items":[{"Id":"episode-1","Type":"Episode","SeriesId":"series-1","ParentIndexNumber":0,"IndexNumber":1,"RunTimeTicks":36000000000,"ProviderIds":{"Tvdb":"999999","Tmdb":"999999","Imdb":"tt9999999"}}]})")},
+        {200, nativeProvider
+             ? QByteArrayLiteral(R"({"content_id":"series-1","type":"series","tvdb_id":"81189","tmdb_id":"1396","imdb_id":"tt0903747"})")
+             : QByteArrayLiteral(R"({"Items":[{"Id":"series-1","Type":"Series","DisplayOrder":"altdvd","ProviderIds":{"Tvdb":"81189","Tmdb":"1396","Imdb":"tt0903747"}}]})")},
+        {200, QByteArrayLiteral(R"({"tvdb_id":81189,"type":"tv","season":0,"episode":1,"intro":[{"start_ms":1000,"end_ms":60000}]})")}
+    };
+    if (!seriesAvailable) {
+        manager.responses[2] = {404, QByteArrayLiteral(R"({"error":"not found"})")};
+    }
+    HttpTransport transport(&manager);
+    SiloProviderAdapter silo;
+    JellyfinProviderAdapter jellyfin;
+    ExposedAuthenticationService auth(&transport, nativeProvider
+        ? static_cast<IProviderAdapter *>(&silo) : &jellyfin);
+    auth.replaceAccount(QStringLiteral("account-1"), QStringLiteral("private-token"));
+    QVERIFY(auth.isAuthenticated());
+    MediaSegmentProviderService external(&auth, &config);
+    PlaybackService service(&auth, &config, &external);
+    QSignalSpy spy(&service, &PlaybackService::mediaSegmentsLoaded);
+    service.getMediaSegments(QStringLiteral("episode-1"));
+    QTRY_COMPARE(spy.size(), 1);
+    const auto segments = qvariant_cast<QList<MediaSegmentInfo>>(spy.first().at(1));
+    if (!seriesAvailable) {
+        QCOMPARE(manager.requests.size(), 3);
+        QVERIFY(segments.isEmpty());
+        return;
+    }
+    QCOMPARE(manager.requests.size(), 4);
+    const QUrl seriesUrl = manager.requests.at(2).request.url();
+    if (nativeProvider) {
+        QVERIFY(seriesUrl.path().contains(QStringLiteral("series-1")));
+    } else {
+        QCOMPARE(QUrlQuery(seriesUrl).queryItemValue(QStringLiteral("Ids")), QStringLiteral("series-1"));
+    }
+    const auto request = manager.requests.last().request;
+    QCOMPARE(request.url().host(), QStringLiteral("api.theintrodb.org"));
+    const QUrlQuery query(request.url());
+    QCOMPARE(query.queryItemValue(QStringLiteral("tvdb_id")), QStringLiteral("81189"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("season")), QStringLiteral("0"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("episode")), QStringLiteral("1"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("mapping")), nativeProvider ? QString() : QStringLiteral("altdvd"));
+    QCOMPARE(query.queryItemValue(QStringLiteral("duration_ms")), QStringLiteral("3600000"));
+    QVERIFY(!request.hasRawHeader(QByteArrayLiteral("Authorization")));
+    QCOMPARE(segments.size(), 1);
+    QCOMPARE(segments.first().itemId, QStringLiteral("episode-1"));
+}
+
+void SiloCatalogServiceTest::externalSegmentsContinueAfterV4Errors_data()
+{
+    QTest::addColumn<int>("statusCode");
+    QTest::newRow("unsupported-mapping") << 400;
+    QTest::newRow("not-found") << 404;
+    QTest::newRow("rate-limited") << 429;
+    QTest::newRow("server-error") << 500;
+}
+
+void SiloCatalogServiceTest::externalSegmentsContinueAfterV4Errors()
+{
+    QFETCH(int, statusCode);
+    QTemporaryDir directory;
+    ScopedConfigIsolation isolation(directory.path());
+    ConfigManager config;
+    config.setMediaSegmentProviderOrder({QStringLiteral("theintrodb"), QStringLiteral("introdb")});
+    ControlledNetworkAccessManager manager;
+    manager.responses = {
+        {statusCode, QByteArrayLiteral(R"({"error":"unavailable"})")},
+        {200, QByteArrayLiteral(R"({"recap":{"start_ms":1000,"end_ms":10000}})")}
+    };
+    HttpTransport transport(&manager);
+    JellyfinProviderAdapter adapter;
+    ExposedAuthenticationService auth(&transport, &adapter);
+    MediaSegmentProviderService service(&auth, &config);
+    MediaSegmentLookupContext context;
+    context.itemId = QStringLiteral("episode-1");
+    context.type = QStringLiteral("Episode");
+    context.tvdbId = QStringLiteral("81189");
+    context.imdbId = QStringLiteral("tt0903747");
+    context.seasonNumber = 1;
+    context.episodeNumber = 1;
+    MediaSegmentInfo serverIntro;
+    serverIntro.type = MediaSegmentType::Intro;
+    serverIntro.source = QStringLiteral("server");
+    serverIntro.startMs = 2000;
+    serverIntro.endMs = 60000;
+    bool completed = false;
+    QList<MediaSegmentInfo> segments;
+    service.fetchExternalSegments(context, {serverIntro}, [&](const auto &result) {
+        segments = result;
+        completed = true;
+    });
+    QTRY_VERIFY(completed);
+    QCOMPARE(manager.requests.size(), 2);
+    QCOMPARE(manager.requests.first().request.url().path(), QStringLiteral("/v4/media"));
+    QCOMPARE(manager.requests.last().request.url().host(), QStringLiteral("api.introdb.app"));
+    QCOMPARE(segments.size(), 2);
+    QCOMPARE(segments.first().source, QStringLiteral("server"));
+    QCOMPARE(segments.first().startMs, 2000);
+    QCOMPARE(segments.last().type, MediaSegmentType::Recap);
+}
 
 void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
 {
