@@ -233,7 +233,7 @@ void SiloAuthenticationTest::requestFactoryBuildsNativeHeadersAndRedactsSecrets(
     context.deviceName = QStringLiteral("Living Room");
     context.devicePlatform = QStringLiteral("linux");
 
-    const QNetworkRequest request = factory.createRequest(context, QStringLiteral("api/v1/profiles"));
+    const QNetworkRequest request = factory.createRequest(context, QStringLiteral("api/v2/profiles"));
     QCOMPARE(request.url(), QUrl(QStringLiteral("https://silo.example.test/api/v2/profiles")));
     QCOMPARE(request.rawHeader("Authorization"), QByteArrayLiteral("Bearer access-secret"));
     QCOMPARE(request.rawHeader("X-Profile-Id"), QByteArrayLiteral("profile-1"));
