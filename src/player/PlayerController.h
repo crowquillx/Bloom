@@ -108,6 +108,10 @@ class PlayerController : public QObject
     Q_PROPERTY(QVariantList availableSubtitleTracks READ availableSubtitleTracks NOTIFY availableTracksChanged)
     Q_PROPERTY(QVariantMap audioDiagnostics READ audioDiagnostics NOTIFY audioDiagnosticsChanged)
     Q_PROPERTY(QVariantList availableAudioDevices READ availableAudioDevices NOTIFY availableAudioDevicesChanged)
+    // Output selector entries (System Default plus the active driver's endpoints)
+    // and the resolved device / exclusive-mode state. See docs/audio.md.
+    Q_PROPERTY(QVariantList audioOutputOptions READ audioOutputOptions NOTIFY audioOutputStatusChanged)
+    Q_PROPERTY(QVariantMap audioOutputStatus READ audioOutputStatus NOTIFY audioOutputStatusChanged)
 
 public:
     /// Playback states for the state machine
@@ -196,6 +200,8 @@ public:
     QVariantList availableSubtitleTracks() const { return m_availableSubtitleTracks; }
     QVariantMap audioDiagnostics() const { return m_audioDiagnostics; }
     QVariantList availableAudioDevices() const { return m_availableAudioDevices; }
+    QVariantList audioOutputOptions() const { return m_audioOutputOptions; }
+    QVariantMap audioOutputStatus() const { return m_audioOutputStatus; }
     
     // Audio Delay (ms)
     int audioDelay() const { return m_config->getAudioDelay(); }
@@ -287,6 +293,9 @@ public:
     // Track selection methods - change tracks during playback via mpv
     Q_INVOKABLE void setSelectedAudioTrack(int index);
     Q_INVOKABLE void setSelectedSubtitleTrack(int index);
+    // Saves the output choice and reopens audio on the running session only.
+    Q_INVOKABLE void selectAudioOutputDevice(const QString &device);
+    Q_INVOKABLE void refreshAudioOutputDevices();
     Q_INVOKABLE void setSubtitleDelayMs(int delayMs);
     Q_INVOKABLE void adjustSubtitleDelayMs(int deltaMs);
     Q_INVOKABLE void resetSubtitleDelay();
@@ -374,6 +383,9 @@ signals:
     void availableTracksChanged();
     void availableAudioDevicesChanged();
     void audioDiagnosticsChanged();
+    void audioOutputStatusChanged();
+    // Short user-facing message about an output fallback.
+    void audioOutputNotice(const QString &message);
     
     /// Emitted when playback has stopped (user stop, playback end, or error)
     /// Use this to refresh UI elements that depend on playback state (e.g., watch progress)
@@ -676,6 +688,11 @@ private:
     void applyAudioOutputDevice();
     void updateAudioPlan();
     void applyAudioPlanOptions();
+    Bloom::AudioOutputPlan computeAudioPlan();
+    void onAudioReloadTimeout();
+    void updateAudioOutputStatus();
+    void reportAudioOutputNotice(const QString &message);
+    QString audioDeviceLabel(const QString &device) const;
     void applySubtitleDelay();
     void persistSubtitleDelayForCurrentScope(int delayMs);
     int subtitleDelayForScope(const QString &seasonId, const QString &itemId, bool isMovie) const;
@@ -819,6 +836,15 @@ private:
     QVariantMap m_audioDiagnostics;
     QVariantMap m_preparedAudioPlan;
     bool m_forcePcmAudio = false;
+    // Session fallback after mpv failed to open the endpoint exclusively.
+    bool m_exclusiveFallback = false;
+    // Next debounced reload must reopen audio even if the plan is unchanged.
+    bool m_audioReloadForced = false;
+    QString m_audioPlanEndpointId;
+    QVariantList m_audioOutputOptions;
+    QVariantMap m_audioOutputStatus;
+    QString m_reportedMissingAudioDevice;
+    QTimer *m_audioDeviceRefreshTimer = nullptr;
     bool m_reopeningAudio = false;
     quint64 m_audioPlanGeneration = 0;
     qint64 m_nextAudioRetryMs = 0;

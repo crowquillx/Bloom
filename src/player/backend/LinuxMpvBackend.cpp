@@ -498,6 +498,21 @@ void LinuxMpvBackend::requestAudioDiagnostics(const QString &tag)
 #endif
 }
 
+void LinuxMpvBackend::refreshAudioDevices()
+{
+#if defined(BLOOM_HAS_LIBMPV)
+    if (m_mpvHandle) {
+        return;
+    }
+    BloomBackend::enumerateAudioDevicesAsync().then(this, [this](const QVariantList &devices) {
+        // A session that started meanwhile publishes its own live list.
+        if (!m_mpvHandle && !devices.isEmpty()) {
+            emit audioDeviceListChanged(devices);
+        }
+    });
+#endif
+}
+
 void LinuxMpvBackend::scheduleDiagnosticSnapshots()
 {
 #if defined(BLOOM_HAS_LIBMPV)

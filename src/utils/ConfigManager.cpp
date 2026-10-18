@@ -563,6 +563,34 @@ void setPlaybackSetting(QJsonObject &config, const QString &key, const QJsonValu
     config[QStringLiteral("settings")] = settings;
 }
 
+// Output device ids are driver-specific ("wasapi/...", "pipewire/..."), so a
+// config file copied between operating systems keeps one choice per platform.
+QString audioOutputPlatformKey()
+{
+#if defined(Q_OS_WIN)
+    return QStringLiteral("windows");
+#elif defined(Q_OS_MACOS)
+    return QStringLiteral("macos");
+#else
+    return QStringLiteral("linux");
+#endif
+}
+
+QJsonObject audioOutputSelection(const QJsonObject &config)
+{
+    const QJsonObject playback = playbackSettingsObject(config);
+    const QJsonObject scoped = playback.value(QStringLiteral("audio_output_devices")).toObject()
+                                   .value(audioOutputPlatformKey()).toObject();
+    if (scoped.contains(QStringLiteral("device"))) {
+        return scoped;
+    }
+    // Pre-scoping configs stored one unqualified id; keep honoring it until
+    // the user makes a new choice on this platform.
+    QJsonObject legacy;
+    legacy[QStringLiteral("device")] = playback.value(QStringLiteral("audio_output_device"));
+    return legacy;
+}
+
 QString preferredConfigDir()
 {
 #ifdef Q_OS_WIN
@@ -729,14 +757,9 @@ QStringList ConfigManager::getMpvConfigArgs() const
     // once a device (re)appears, e.g. when a Bluetooth headset connects after the
     // app/playback has already started.
     args << "--audio-fallback-to-null=yes";
+    // The output device is not added here: PlayerController appends the audio
+    // plan's resolved device, which is "auto" while a saved device is missing.
 
-    // When the user has selected an explicit output device, ask mpv to use it.
-    // "auto" (the default) follows the system default device.
-    const QString audioDevice = getAudioOutputDevice();
-    if (!audioDevice.isEmpty() && audioDevice != QStringLiteral("auto")) {
-        args << "--audio-device=" + audioDevice;
-    }
-    
     QString mpvConfigDir = getMpvConfigDir();
     QDir dir(mpvConfigDir);
     
@@ -1821,50 +1844,73 @@ int ConfigManager::getAudioDelay() const
 
 void ConfigManager::setAudioOutputDevice(const QString &device)
 {
+    const QString current = getAudioOutputDevice();
+    const QString normalized = device.trimmed();
+    // Keep the stored label when the id is unchanged; it is the re-match key.
+    setAudioOutputDeviceSelection(device, normalized == current ? getAudioOutputDeviceDescription()
+                                                                : QString());
+}
+
+void ConfigManager::setAudioOutputDeviceSelection(const QString &device, const QString &description)
+{
     // Normalize empty string to the canonical "auto" so the saved value and the
     // value passed to mpv stay consistent.
     QString normalized = device.trimmed();
     if (normalized.isEmpty() || normalized.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
         normalized = QStringLiteral("auto");
     }
+    const QString label = normalized == QStringLiteral("auto") ? QString() : description.trimmed();
 
-    if (normalized == getAudioOutputDevice()) {
+    if (normalized == getAudioOutputDevice() && label == getAudioOutputDeviceDescription()) {
         return;
     }
 
-    QJsonObject settings;
-    if (m_config.contains("settings") && m_config["settings"].isObject()) {
-        settings = m_config["settings"].toObject();
-    }
-    QJsonObject playback;
-    if (settings.contains("playback") && settings["playback"].isObject()) {
-        playback = settings["playback"].toObject();
-    }
-    playback["audio_output_device"] = normalized;
-    settings["playback"] = playback;
-    m_config["settings"] = settings;
+    QJsonObject settings = m_config.value(QStringLiteral("settings")).toObject();
+    QJsonObject playback = settings.value(QStringLiteral("playback")).toObject();
+    QJsonObject devices = playback.value(QStringLiteral("audio_output_devices")).toObject();
+    QJsonObject selection;
+    selection[QStringLiteral("device")] = normalized;
+    selection[QStringLiteral("description")] = label;
+    devices[audioOutputPlatformKey()] = selection;
+    playback[QStringLiteral("audio_output_devices")] = devices;
+    playback.remove(QStringLiteral("audio_output_device"));
+    settings[QStringLiteral("playback")] = playback;
+    m_config[QStringLiteral("settings")] = settings;
     save();
     emit audioOutputDeviceChanged();
 }
 
 QString ConfigManager::getAudioOutputDevice() const
 {
-    if (m_config.contains("settings") && m_config["settings"].isObject()) {
-        QJsonObject settings = m_config["settings"].toObject();
-        if (settings.contains("playback") && settings["playback"].isObject()) {
-            QJsonObject playback = settings["playback"].toObject();
-            if (playback.contains("audio_output_device")) {
-                QString stored = playback["audio_output_device"].toString().trimmed();
-                if (stored.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
-                    stored = QStringLiteral("auto");
-                }
-                if (!stored.isEmpty()) {
-                    return stored;
-                }
-            }
-        }
+    QString stored = audioOutputSelection(m_config).value(QStringLiteral("device")).toString().trimmed();
+    if (stored.isEmpty() || stored.compare(QStringLiteral("auto"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("auto"); // Follow the system default output device
     }
-    return QStringLiteral("auto"); // Follow the system default output device
+    return stored;
+}
+
+QString ConfigManager::getAudioOutputDeviceDescription() const
+{
+    if (getAudioOutputDevice() == QStringLiteral("auto")) {
+        return QString();
+    }
+    return audioOutputSelection(m_config).value(QStringLiteral("description")).toString().trimmed();
+}
+
+void ConfigManager::setAudioExclusiveMode(bool enabled)
+{
+    if (enabled == getAudioExclusiveMode()) {
+        return;
+    }
+    setPlaybackSetting(m_config, QStringLiteral("audio_exclusive_mode"), enabled);
+    save();
+    emit audioExclusiveModeChanged();
+}
+
+bool ConfigManager::getAudioExclusiveMode() const
+{
+    // Exclusive access is the default where the output driver supports it.
+    return playbackSettingsObject(m_config).value(QStringLiteral("audio_exclusive_mode")).toBool(true);
 }
 
 void ConfigManager::setAudioPassthroughMode(const QString &mode)
@@ -4678,6 +4724,7 @@ QJsonObject ConfigManager::defaultConfig() const
     playback["auto_skip_intro"] = false;
     playback["auto_skip_outro"] = false;
     playback["audio_delay"] = 0;
+    playback["audio_exclusive_mode"] = true;
     playback["audio_passthrough_mode"] = QStringLiteral("auto");
     playback["audio_passthrough_codecs"] = QJsonArray();
     playback["playback_volume"] = 100;

@@ -256,7 +256,15 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     m_audioDeviceReloadTimer->setSingleShot(true);
     m_audioDeviceReloadTimer->setInterval(kAudioDeviceReloadDebounceMs);
     connect(m_audioDeviceReloadTimer, &QTimer::timeout,
-            this, &PlayerController::applyAudioOutputDevice);
+            this, &PlayerController::onAudioReloadTimeout);
+
+    // Idle enumeration keeps the output selector current without playback.
+    m_audioDeviceRefreshTimer = new QTimer(this);
+    m_audioDeviceRefreshTimer->setSingleShot(true);
+    m_audioDeviceRefreshTimer->setInterval(kAudioDeviceReloadDebounceMs);
+    connect(m_audioDeviceRefreshTimer, &QTimer::timeout, this, [this] {
+        if (m_playerBackend && !m_playerBackend->isRunning()) m_playerBackend->refreshAudioDevices();
+    });
 
     m_autoplayPlaybackInfoTimeoutTimer->setSingleShot(true);
     m_autoplayPlaybackInfoTimeoutTimer->setInterval(kAutoplayPlaybackInfoTimeoutMs);
@@ -283,8 +291,24 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     connect(m_playbackService->audioOutput(), &Bloom::AudioOutputService::capabilitiesChanged,
             this, [this] {
                 m_forcePcmAudio = false;
+                // Reopens only if the plan or endpoint changed (onAudioReloadTimeout).
                 if (m_playerBackend->isRunning()) m_audioDeviceReloadTimer->start();
+                updateAudioOutputStatus();
             });
+    connect(m_playbackService->audioOutput(), &Bloom::AudioOutputService::devicesChanged,
+            this, &PlayerController::updateAudioOutputStatus);
+    connect(m_playbackService->audioOutput(), &Bloom::AudioOutputService::systemOutputsChanged,
+            this, [this] {
+                if (!m_playerBackend->isRunning()) m_audioDeviceRefreshTimer->start();
+            });
+    connect(m_config, &ConfigManager::audioExclusiveModeChanged, this, [this] {
+        m_exclusiveFallback = false;
+        updateAudioOutputStatus();
+        if (m_playerBackend && m_playerBackend->isRunning()) {
+            m_audioDeviceReloadTimer->stop();
+            applyAudioOutputDevice();
+        }
+    });
     auto *audioVerificationTimer = new QTimer(this);
     audioVerificationTimer->setInterval(3000);
     connect(audioVerificationTimer, &QTimer::timeout, this, [this] {
@@ -296,6 +320,9 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     // Re-apply the chosen audio output device immediately when the user changes it.
     connect(m_config, &ConfigManager::audioOutputDeviceChanged,
             this, [this]() {
+                m_exclusiveFallback = false;
+                m_reportedMissingAudioDevice.clear();
+                updateAudioOutputStatus();
                 if (m_playerBackend && m_playerBackend->isRunning()) {
                     m_audioDeviceReloadTimer->stop();
                     applyAudioOutputDevice();
@@ -306,6 +333,11 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
     // Non-blocking: external mpv is probed asynchronously, embedded libmpv
     // reports its linked runtime.
     m_playerBackend->prepareRuntime(m_mpvBin);
+    // Resolve the saved output against a real device list before first playback.
+    QTimer::singleShot(0, this, [this] {
+        if (!m_playerBackend->isRunning()) m_playerBackend->refreshAudioDevices();
+    });
+    updateAudioOutputStatus();
 
     if (m_config) {
         m_volume = m_config->getPlaybackVolume();
@@ -703,7 +735,9 @@ void PlayerController::enterIdleStateImmediate()
     ++m_audioPlanGeneration;
     m_audioDiagnostics.clear();
     m_preparedAudioPlan.clear();
+    m_playbackService->audioOutput()->setEndpointHeld(false);
     emit audioDiagnosticsChanged();
+    updateAudioOutputStatus();
     m_selectedAudioTrack = -1;
     m_selectedSubtitleTrack = -1;
     m_mpvAudioTrack = -1;
@@ -1033,6 +1067,7 @@ void PlayerController::onProcessStateChanged(bool running)
         m_playerBackend->appendUrlsToPlaylist(m_pendingPlaylistAppendUrls);
         m_pendingPlaylistAppendUrls.clear();
     }
+    updateAudioOutputStatus();
 
     if (!running) {
         qCInfo(lcPlaybackTrace) << "[attempt" << m_playbackAttemptId
@@ -4619,11 +4654,36 @@ void PlayerController::onAudioDeviceListChanged(const QVariantList &devices)
     }
 
     // Debounce endpoint churn before reopening audio on the existing media session.
-    qCInfo(lcPlayback) << "PlayerController: audio device list changed ("
-                       << devices.size() << "devices ); scheduling audio output reload";
     if (m_playerBackend && m_playerBackend->isRunning()) {
+        qCInfo(lcPlayback) << "PlayerController: audio device list changed ("
+                           << devices.size() << "devices ); scheduling audio output reload";
+        // Hotplug is also the retry point for an endpoint that refused exclusive mode.
+        m_exclusiveFallback = false;
+        m_audioReloadForced = true;
         m_audioDeviceReloadTimer->start();
     }
+}
+
+void PlayerController::onAudioReloadTimeout()
+{
+    if (!m_playerBackend || !m_playerBackend->isRunning()) {
+        m_audioReloadForced = false;
+        return;
+    }
+    // Capability refreshes that leave the plan and endpoint unchanged must not
+    // interrupt audio; hotplug and explicit requests always reopen.
+    if (!std::exchange(m_audioReloadForced, false)) {
+        const auto candidate = computeAudioPlan();
+        const QString endpoint = m_playbackService->audioOutput()->capabilities().endpointId;
+        if (candidate.device == m_audioPlan.device && candidate.path == m_audioPlan.path
+            && candidate.passthroughCodec == m_audioPlan.passthroughCodec
+            && candidate.mpvChannels == m_audioPlan.mpvChannels
+            && candidate.exclusivePcm == m_audioPlan.exclusivePcm
+            && endpoint == m_audioPlanEndpointId) {
+            return;
+        }
+    }
+    applyAudioOutputDevice();
 }
 
 void PlayerController::applyAudioOutputDevice()
@@ -4631,14 +4691,6 @@ void PlayerController::applyAudioOutputDevice()
     if (!m_playerBackend || !m_playerBackend->isRunning()) {
         return;
     }
-
-    QString desired = m_config->getAudioOutputDevice();
-    if (desired.isEmpty()) {
-        desired = QStringLiteral("auto");
-    }
-
-    qCInfo(lcPlayback) << "PlayerController: applying audio output device" << desired
-                       << "and reloading audio output";
 
     // Point mpv at the desired device (a no-op if it already matches), then force
     // the audio output to reinitialize. For "auto" this re-selects the current
@@ -4651,9 +4703,18 @@ void PlayerController::applyAudioOutputDevice()
         m_mpvAudioTrack = mpvAudioTrackForSourceIndex(m_selectedAudioTrack);
     }
     updateAudioPlan();
+    qCInfo(lcPlayback) << "PlayerController: reopening audio output on" << m_audioPlan.device
+                       << "(preferred" << m_config->getAudioOutputDevice() << ") exclusive"
+                       << m_audioPlan.exclusivePcm;
     applyAudioPlanOptions();
     m_reopeningAudio = true;
     const auto generation = m_audioPlanGeneration;
+    // Verify the reopened output sooner than the periodic check so a failed
+    // exclusive or device open falls back within about a second.
+    QTimer::singleShot(1200, this, [this, generation] {
+        if (generation == m_audioPlanGeneration && m_playerBackend->isRunning())
+            m_playerBackend->requestAudioDiagnostics(QStringLiteral("audio|%1").arg(generation));
+    });
     // Reopen the selected decoder without restarting the stream or its provider session.
     if (m_mpvAudioTrack > 0) {
         m_playerBackend->sendVariantCommand({"set_property", "aid", "no"});
@@ -4665,7 +4726,7 @@ void PlayerController::applyAudioOutputDevice()
     m_playerBackend->sendVariantCommand({"ao-reload"});
 }
 
-void PlayerController::updateAudioPlan()
+Bloom::AudioOutputPlan PlayerController::computeAudioPlan()
 {
     auto source = Bloom::AudioPolicy::selectedSource(m_activeMediaSource, m_selectedAudioTrack);
     if (m_activePlaybackSegmentIndex >= 0 && m_activePlaybackSegmentIndex < m_playbackSegments.size()) {
@@ -4680,19 +4741,28 @@ void PlayerController::updateAudioPlan()
             if (track.trackId == QString::number(m_selectedAudioTrack)) source = track.audio;
         }
     }
-    m_audioPlan = m_playbackService->audioOutput()->planForMetadata(source);
+    auto plan = m_playbackService->audioOutput()->planForMetadata(source, !m_exclusiveFallback);
     if (m_preparedAudioPlan.isEmpty()
         || m_preparedAudioPlan.value(QStringLiteral("source")).toMap() != source.toVariantMap())
-        m_preparedAudioPlan = m_audioPlan.toVariantMap();
+        m_preparedAudioPlan = plan.toVariantMap();
     if (m_forcePcmAudio) {
-        m_audioPlan.path = QStringLiteral("pcm");
-        m_audioPlan.passthroughCodec.clear();
-        m_audioPlan.atmosRetained = false;
-        m_audioPlan.dtsXRetained = false;
-        m_audioPlan.exclusivePcm = false;
-        m_audioPlan.mpvChannels = source.channels == 2 ? QStringLiteral("stereo") : QStringLiteral("auto-safe");
-        m_audioPlan.reason = QStringLiteral("Runtime rejected planned output; local PCM fallback");
+        // Channel layout and exclusive access are planned independently of the
+        // carrier, so only the encoded path is dropped here.
+        plan.path = QStringLiteral("pcm");
+        plan.passthroughCodec.clear();
+        plan.atmosRetained = false;
+        plan.dtsXRetained = false;
+        plan.reason = QStringLiteral("Runtime rejected planned output; local PCM fallback");
     }
+    if (m_exclusiveFallback)
+        plan.reason += QStringLiteral("; exclusive open failed, shared mode");
+    return plan;
+}
+
+void PlayerController::updateAudioPlan()
+{
+    m_audioPlan = computeAudioPlan();
+    m_audioPlanEndpointId = m_playbackService->audioOutput()->capabilities().endpointId;
     m_reopeningAudio = false;
     ++m_audioPlanGeneration;
     m_audioDiagnostics = {{QStringLiteral("plan"), m_audioPlan.toVariantMap()},
@@ -4700,6 +4770,7 @@ void PlayerController::updateAudioPlan()
                          {QStringLiteral("capabilities"), m_playbackService->audioOutput()->capabilities().toVariantMap()}};
     emit audioDiagnosticsChanged();
     qCInfo(lcPlayback) << "Audio output plan" << m_audioDiagnostics;
+    updateAudioOutputStatus();
 }
 
 void PlayerController::applyAudioPlanOptions()
@@ -4709,6 +4780,110 @@ void PlayerController::applyAudioPlanOptions()
         const int separator = arg.indexOf(QLatin1Char('='));
         m_playerBackend->sendVariantCommand({"set_property", arg.mid(2, separator - 2), arg.mid(separator + 1)});
     }
+}
+
+QString PlayerController::audioDeviceLabel(const QString &device) const
+{
+    for (const QVariant &value : m_availableAudioDevices) {
+        const QVariantMap entry = value.toMap();
+        if (entry.value(QStringLiteral("name")).toString() == device) {
+            const QString description = entry.value(QStringLiteral("description")).toString();
+            return description.isEmpty() ? device : description;
+        }
+    }
+    if (m_config && device == m_config->getAudioOutputDevice()
+        && !m_config->getAudioOutputDeviceDescription().isEmpty()) {
+        return m_config->getAudioOutputDeviceDescription();
+    }
+    return device;
+}
+
+void PlayerController::updateAudioOutputStatus()
+{
+    auto *service = m_playbackService->audioOutput();
+    const Bloom::AudioDeviceResolution resolution = service->deviceResolution();
+    const bool running = m_playerBackend && m_playerBackend->isRunning();
+    const QVariantMap runtime = m_audioDiagnostics.value(QStringLiteral("runtime")).toMap();
+    const QString ao = runtime.value(QStringLiteral("current-ao")).toString();
+    const bool observable = m_audioDiagnostics.value(QStringLiteral("outputObservable")).toBool();
+    const QVariantMap status{
+        {QStringLiteral("preferredDevice"), resolution.preferred},
+        {QStringLiteral("preferredDescription"), resolution.preferred == QStringLiteral("auto")
+             ? QString() : audioDeviceLabel(resolution.preferred)},
+        {QStringLiteral("preferredAvailable"), resolution.preferredAvailable},
+        {QStringLiteral("device"), resolution.device},
+        {QStringLiteral("description"), resolution.device == QStringLiteral("auto")
+             ? QString() : audioDeviceLabel(resolution.device)},
+        {QStringLiteral("rematched"), resolution.rematched},
+        {QStringLiteral("usingFallback"), resolution.preferred != resolution.device && !resolution.rematched},
+        {QStringLiteral("driver"), service->activeDriver()},
+        {QStringLiteral("exclusiveSupported"), service->capabilities().exclusiveModeSupported},
+        {QStringLiteral("exclusiveEnabled"), m_config && m_config->getAudioExclusiveMode()},
+        {QStringLiteral("exclusiveRequested"), running && m_audioPlan.exclusivePcm},
+        {QStringLiteral("exclusiveActive"), running
+             && m_audioDiagnostics.value(QStringLiteral("exclusiveActive")).toBool()},
+        {QStringLiteral("exclusiveFallback"), running && m_exclusiveFallback},
+        {QStringLiteral("outputOpen"), running && observable && ao != QStringLiteral("null")},
+        {QStringLiteral("currentAo"), running ? ao : QString()},
+    };
+    if (resolution.preferredAvailable) {
+        m_reportedMissingAudioDevice.clear();
+    } else if (running && m_reportedMissingAudioDevice != resolution.preferred) {
+        // Once per device per session; the saved preference is left unchanged.
+        m_reportedMissingAudioDevice = resolution.preferred;
+        reportAudioOutputNotice(tr("%1 is unavailable. Using System Default.")
+                                    .arg(audioDeviceLabel(resolution.preferred)));
+    }
+
+    const QVariantList options = service->outputOptions();
+    if (status == m_audioOutputStatus && options == m_audioOutputOptions) return;
+    m_audioOutputStatus = status;
+    m_audioOutputOptions = options;
+    emit audioOutputStatusChanged();
+}
+
+void PlayerController::reportAudioOutputNotice(const QString &message)
+{
+    qCInfo(lcPlayback) << "Audio output notice:" << message;
+    emit audioOutputNotice(message);
+    // External mpv covers Bloom's window, so mirror the notice on mpv's OSD.
+    if (m_playerBackend && m_playerBackend->isRunning() && !m_playerBackend->supportsEmbeddedVideo())
+        m_playerBackend->sendVariantCommand({QStringLiteral("show-text"), message, 4000});
+}
+
+void PlayerController::selectAudioOutputDevice(const QString &device)
+{
+    QString id = device.trimmed();
+    if (id.isEmpty()) id = QStringLiteral("auto");
+    QString description;
+    for (const QVariant &value : m_availableAudioDevices) {
+        const QVariantMap entry = value.toMap();
+        if (entry.value(QStringLiteral("name")).toString() == id)
+            description = entry.value(QStringLiteral("description")).toString();
+    }
+    if (description.isEmpty() && id == m_config->getAudioOutputDevice())
+        description = m_config->getAudioOutputDeviceDescription();
+    const bool unchanged = id == m_config->getAudioOutputDevice()
+        && description == m_config->getAudioOutputDeviceDescription();
+    m_config->setAudioOutputDeviceSelection(id, description);
+    if (!unchanged) return; // audioOutputDeviceChanged reopens audio on the new device.
+
+    // Choosing the current output again retries it after a session fallback.
+    m_exclusiveFallback = false;
+    m_reportedMissingAudioDevice.clear();
+    m_playbackService->audioOutput()->clearDeviceFailures();
+    if (m_playerBackend->isRunning()) {
+        m_audioDeviceReloadTimer->stop();
+        m_audioReloadForced = false;
+        applyAudioOutputDevice();
+    }
+}
+
+void PlayerController::refreshAudioOutputDevices()
+{
+    m_playbackService->audioOutput()->refresh();
+    // A running player already observes mpv's live list.
+    if (!m_playerBackend->isRunning()) m_playerBackend->refreshAudioDevices();
 }
 
 void PlayerController::applySubtitleDelay()
@@ -5604,11 +5779,31 @@ void PlayerController::onPlaybackDiagnosticsAvailable(const QString &stage, cons
             emit audioDiagnosticsChanged();
             qCInfo(lcPlayback) << "Audio runtime verification" << diagnostics;
         }
-        const bool nullOutput = properties.value(QStringLiteral("current-ao")).toString() == QStringLiteral("null");
-        if (!m_forcePcmAudio && (diagnostics.value(QStringLiteral("needsPcmFallback")).toBool()
-            || (nullOutput && m_audioPlan.exclusivePcm))) {
+        auto *audioOutput = m_playbackService->audioOutput();
+        const QString currentAo = properties.value(QStringLiteral("current-ao")).toString();
+        audioOutput->setRuntimeDriver(currentAo);
+        audioOutput->setEndpointHeld(diagnostics.value(QStringLiteral("exclusiveActive")).toBool());
+        updateAudioOutputStatus();
+        const bool nullOutput = currentAo == QStringLiteral("null");
+        // Fallback ladder, one step per verification: encoded carrier -> PCM,
+        // exclusive -> shared, explicit endpoint -> System Default, then
+        // rate-limited reopen attempts.
+        if (!m_forcePcmAudio && diagnostics.value(QStringLiteral("needsPcmFallback")).toBool()) {
             m_forcePcmAudio = true;
             applyAudioOutputDevice();
+        } else if (nullOutput && m_audioPlan.exclusivePcm && !m_exclusiveFallback && endpointAvailable) {
+            // Device in use by another exclusive client, or no exclusive format.
+            m_exclusiveFallback = true;
+            reportAudioOutputNotice(tr("Exclusive mode is unavailable for this output. Using shared mode."));
+            applyAudioOutputDevice();
+        } else if (nullOutput && m_audioPlan.device != QStringLiteral("auto")) {
+            const QString failed = m_audioPlan.device;
+            reportAudioOutputNotice(tr("%1 could not be opened. Using System Default.")
+                                        .arg(audioDeviceLabel(failed)));
+            // Resolution changes to auto; capabilitiesChanged schedules the reopen.
+            m_reportedMissingAudioDevice = m_config->getAudioOutputDevice();
+            m_audioReloadForced = true;
+            audioOutput->markDeviceFailed(failed);
         } else if (nullOutput && QDateTime::currentMSecsSinceEpoch() >= m_nextAudioRetryMs) {
             m_nextAudioRetryMs = QDateTime::currentMSecsSinceEpoch() + 5000;
             m_playbackService->audioOutput()->refresh();
@@ -5852,6 +6047,10 @@ void PlayerController::initiateMpvStart()
 #endif
 
     m_forcePcmAudio = false;
+    // Each playback session retries exclusive access and failed endpoints.
+    m_exclusiveFallback = false;
+    m_reportedMissingAudioDevice.clear();
+    m_playbackService->audioOutput()->clearDeviceFailures();
     updateAudioPlan();
     finalArgs << Bloom::AudioPolicy::mpvArguments(m_audioPlan);
 

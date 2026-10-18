@@ -62,6 +62,8 @@ FocusScope {
         function onSkipButtonAutoHideSecondsChanged() { root.scheduleSettingsSavedToast() }
         function onAudioDelayChanged() { root.scheduleSettingsSavedToast() }
         function onAudioPassthroughChanged() { root.scheduleSettingsSavedToast() }
+        function onAudioExclusiveModeChanged() { root.scheduleSettingsSavedToast() }
+        function onAudioOutputDeviceChanged() { root.scheduleSettingsSavedToast() }
         function onAutoplayNextEpisodeChanged() { root.scheduleSettingsSavedToast() }
         function onAutoplayCountdownSecondsChanged() { root.scheduleSettingsSavedToast() }
         function onAutoSkipIntroChanged() { root.scheduleSettingsSavedToast() }

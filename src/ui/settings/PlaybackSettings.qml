@@ -41,27 +41,30 @@ FocusScope {
         return 0
     }
 
-    // Builds the option list for the audio output device selector. The first
-    // entry always follows the system default; live devices reported by mpv are
-    // appended. A currently-saved device that is not present in the live list
-    // (e.g. a Bluetooth headset that is powered off) is still shown so the
-    // preference remains visible and selectable.
+    // Builds the option list for the audio output device selector from
+    // PlayerController.audioOutputOptions: System Default, the active audio
+    // driver's endpoints, and a saved device that is currently missing (shown
+    // so the preference stays visible instead of being replaced).
     function audioOutputDeviceOptions() {
-        var options = [{ label: qsTr("System Default (Automatic)"), value: "auto" }]
-        var seen = { "auto": true }
-        var devices = PlayerController.availableAudioDevices
-        for (var i = 0; i < devices.length; ++i) {
-            var name = devices[i].name
-            if (!name || seen[name]) continue
-            seen[name] = true
-            var description = devices[i].description
-            options.push({ label: (description && description.length > 0) ? description : name, value: name })
+        var source = PlayerController.audioOutputOptions
+        var options = []
+        for (var i = 0; i < source.length; ++i) {
+            var entry = source[i]
+            var label = entry.kind === "default"
+                    ? qsTr("System Default")
+                    : ((entry.description && entry.description.length > 0) ? entry.description : entry.id)
+            if (!entry.available) label = qsTr("%1 (not connected)").arg(label)
+            options.push({ label: label, value: entry.id, selected: entry.selected })
         }
-        var saved = ConfigManager.audioOutputDevice
-        if (saved && saved.length > 0 && saved !== "auto" && !seen[saved]) {
-            options.push({ label: qsTr("%1 (not connected)").arg(saved), value: saved })
-        }
+        if (options.length === 0) options.push({ label: qsTr("System Default"), value: "auto", selected: true })
         return options
+    }
+
+    function selectedOptionIndex(options) {
+        for (var i = 0; i < options.length; ++i) {
+            if (options[i].selected) return i
+        }
+        return 0
     }
 
     function setAudioPassthroughCodec(codec, enabled) {
@@ -549,7 +552,7 @@ FocusScope {
                         }
 
                         Text {
-                            text: qsTr("Choose where audio plays. \"System Default\" follows the system and switches automatically when devices connect or disconnect.")
+                            text: qsTr("Choose where audio plays. \"System Default\" follows the system. A saved device that is disconnected is kept, and playback uses the system default until it returns.")
                             font.pixelSize: Theme.fontSizeSmall
                             font.family: Theme.fontPrimary
                             color: Theme.textSecondary
@@ -564,22 +567,19 @@ FocusScope {
                         model: options
                         textRole: "label"
                         valueRole: "value"
-                        currentIndex: root.optionIndexForValue(options, ConfigManager.audioOutputDevice)
+                        currentIndex: root.selectedOptionIndex(options)
                         Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
-                        property bool initialized: false
-                        property bool updatingSelection: false
 
                         function refreshOptions() {
-                            updatingSelection = true
                             options = root.audioOutputDeviceOptions()
-                            currentIndex = root.optionIndexForValue(options, ConfigManager.audioOutputDevice)
-                            updatingSelection = false
+                            currentIndex = root.selectedOptionIndex(options)
                         }
 
                         Component.onCompleted: {
                             refreshOptions()
-                            initialized = true
+                            // Re-enumerate so endpoints connected since startup appear.
+                            PlayerController.refreshAudioOutputDevices()
                         }
 
                         Connections {
@@ -591,9 +591,15 @@ FocusScope {
 
                         Connections {
                             target: PlayerController
-                            function onAvailableAudioDevicesChanged() {
-                                audioOutputDeviceCombo.refreshOptions()
+                            function onAudioOutputStatusChanged() {
+                                if (!audioOutputDeviceCombo.popup.visible) audioOutputDeviceCombo.refreshOptions()
                             }
+                        }
+
+                        Connections {
+                            target: audioOutputDeviceCombo.popup
+                            function onAboutToShow() { PlayerController.refreshAudioOutputDevices() }
+                            function onClosed() { audioOutputDeviceCombo.refreshOptions() }
                         }
 
                         onActiveFocusChanged: {
@@ -608,12 +614,9 @@ FocusScope {
                             }
                         }
 
-                        onCurrentIndexChanged: {
-                            if (!initialized || updatingSelection || currentIndex < 0) return
-                            var value = options[currentIndex].value
-                            if (value !== ConfigManager.audioOutputDevice) {
-                                ConfigManager.audioOutputDevice = value
-                            }
+                        onSelectionAccepted: function(index) {
+                            if (index < 0 || index >= options.length) return
+                            PlayerController.selectAudioOutputDevice(options[index].value)
                         }
 
                         Keys.onUpPressed: function(event) {
@@ -624,11 +627,29 @@ FocusScope {
                         }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
-                                audioPassthroughModeCombo.forceActiveFocus()
+                                if (audioExclusiveToggle.visible) {
+                                    audioExclusiveToggle.forceActiveFocus()
+                                } else {
+                                    audioPassthroughModeCombo.forceActiveFocus()
+                                }
                                 event.accepted = true
                             }
                         }
                     }
+                }
+
+                SettingsToggleRow {
+                    id: audioExclusiveToggle
+                    label: qsTr("Exclusive Mode")
+                    description: qsTr("Bloom takes sole control of the output during playback and bypasses the Windows mixer, so other apps are silent. The original format is used when the device accepts it; this is not a guarantee of bit-perfect output. If the device refuses, playback continues in shared mode.")
+                    checked: ConfigManager.audioExclusiveMode
+                    visible: PlayerController.audioOutputStatus.exclusiveSupported === true
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.up: audioOutputDeviceCombo
+                    KeyNavigation.down: audioPassthroughModeCombo
+                    onToggled: function(value) { ConfigManager.audioExclusiveMode = value }
                 }
 
                 RowLayout {
@@ -711,7 +732,7 @@ FocusScope {
                             }
                         }
 
-                        KeyNavigation.up: audioOutputDeviceCombo
+                        KeyNavigation.up: audioExclusiveToggle.visible ? audioExclusiveToggle : audioOutputDeviceCombo
                         KeyNavigation.down: ConfigManager.audioPassthroughMode === "custom"
                             ? audioPassthroughAc3Toggle : defaultAudioTrackCombo
                     }

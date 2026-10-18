@@ -51,6 +51,7 @@ QtObject {
     readonly property string volumeDown: "\ue04d"
     readonly property string volumeMute: "\ue04e"
     readonly property string volumeOff: "\ue04f"
+    readonly property string speaker: "\ue32d"
     readonly property string fullscreen: "\ue5d0"
     readonly property string fullscreenExit: "\ue5d1"
     readonly property string subtitles: "\ue048"

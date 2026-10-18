@@ -25,6 +25,7 @@ private slots:
     void immediateSettingsFlushPendingPersistence();
     void destructorFlushesPendingPersistence();
     void audioPassthroughDefaultsSanitizeAndPersist();
+    void audioOutputSelectionIsPlatformScopedAndPersists();
     void persistenceFailuresAreReportedAndRetryable();
     void corruptBackupFilenameIsPortable();
     void saveDoesNotRunLoadTimeMigrations();
@@ -496,6 +497,79 @@ void ConfigManagerThemeTest::audioPassthroughDefaultsSanitizeAndPersist()
     QCOMPARE(reloaded.getAudioPassthroughCodecs(),
              QStringList({QStringLiteral("ac3"), QStringLiteral("dts-hd"),
                           QStringLiteral("truehd"), QStringLiteral("eac3")}));
+}
+
+void ConfigManagerThemeTest::audioOutputSelectionIsPlatformScopedAndPersists()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    {
+        ConfigManager config;
+        config.load();
+        QCOMPARE(config.getAudioOutputDevice(), QStringLiteral("auto"));
+        QVERIFY(config.getAudioOutputDeviceDescription().isEmpty());
+        QVERIFY(config.getAudioExclusiveMode());
+        QVERIFY(config.flushPendingSave());
+    }
+
+    // Configs written before platform scoping stored one unqualified id.
+    QFile file(ConfigManager::getConfigPath());
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    QJsonObject settings = root.value(QStringLiteral("settings")).toObject();
+    QJsonObject playback = settings.value(QStringLiteral("playback")).toObject();
+    playback.remove(QStringLiteral("audio_exclusive_mode"));
+    playback.insert(QStringLiteral("audio_output_device"), QStringLiteral("legacy/device"));
+    settings.insert(QStringLiteral("playback"), playback);
+    root.insert(QStringLiteral("settings"), settings);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write(QJsonDocument(root).toJson());
+    file.close();
+
+    ConfigManager config;
+    config.load();
+    QCOMPARE(config.getAudioOutputDevice(), QStringLiteral("legacy/device"));
+    // Missing exclusive key keeps the default-on behavior for existing installs.
+    QVERIFY(config.getAudioExclusiveMode());
+
+    QSignalSpy deviceSpy(&config, &ConfigManager::audioOutputDeviceChanged);
+    QSignalSpy exclusiveSpy(&config, &ConfigManager::audioExclusiveModeChanged);
+    config.setAudioOutputDeviceSelection(QStringLiteral(" wasapi/{tv} "), QStringLiteral(" TV "));
+    QCOMPARE(config.getAudioOutputDevice(), QStringLiteral("wasapi/{tv}"));
+    QCOMPARE(config.getAudioOutputDeviceDescription(), QStringLiteral("TV"));
+    config.setAudioOutputDeviceSelection(QStringLiteral("wasapi/{tv}"), QStringLiteral("TV"));
+    QCOMPARE(deviceSpy.count(), 1);
+    // The property setter keeps the stored label for an unchanged id.
+    config.setAudioOutputDevice(QStringLiteral("wasapi/{tv}"));
+    QCOMPARE(config.getAudioOutputDeviceDescription(), QStringLiteral("TV"));
+    config.setAudioExclusiveMode(false);
+    config.setAudioExclusiveMode(false);
+    QCOMPARE(exclusiveSpy.count(), 1);
+    QVERIFY(config.flushPendingSave());
+
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    const QJsonObject saved = QJsonDocument::fromJson(file.readAll()).object()
+                                  .value(QStringLiteral("settings")).toObject()
+                                  .value(QStringLiteral("playback")).toObject();
+    file.close();
+    QVERIFY(!saved.contains(QStringLiteral("audio_output_device")));
+    const QJsonObject scoped = saved.value(QStringLiteral("audio_output_devices")).toObject();
+    QCOMPARE(scoped.size(), 1);
+    QCOMPARE(scoped.constBegin().value().toObject().value(QStringLiteral("device")).toString(),
+             QStringLiteral("wasapi/{tv}"));
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getAudioOutputDevice(), QStringLiteral("wasapi/{tv}"));
+    QCOMPARE(reloaded.getAudioOutputDeviceDescription(), QStringLiteral("TV"));
+    QVERIFY(!reloaded.getAudioExclusiveMode());
+
+    reloaded.setAudioOutputDeviceSelection(QStringLiteral("AUTO"), QStringLiteral("ignored"));
+    QCOMPARE(reloaded.getAudioOutputDevice(), QStringLiteral("auto"));
+    QVERIFY(reloaded.getAudioOutputDeviceDescription().isEmpty());
 }
 
 void ConfigManagerThemeTest::persistenceFailuresAreReportedAndRetryable()

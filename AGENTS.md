@@ -41,8 +41,11 @@ HDR-before-refresh startup plus HDR-before-refresh restoration ordering.
 
 Audio output policy is owned by `Bloom::PlayerPolicy`; endpoint discovery is
 owned by `Bloom::AudioOutput`. Keep provider decode claims independent from
-encoded output support. See `docs/audio.md` for planning, runtime checks and
-hotplug/resume validation.
+encoded output support. Output selectors list only the active mpv driver's
+endpoints (never raw ALSA under a sound server); a missing saved device resolves
+to `auto` without being overwritten. Exclusive access is WASAPI-only; keep
+`audio-exclusive=no` for every other driver. See `docs/audio.md` for planning,
+device selection, runtime checks and hotplug/resume validation.
 
 Pure playback decisions are owned by the Qt-Core-only `Bloom::PlayerPolicy`
 target. Keep language, track, HDR, version, completion, and autoplay policy free

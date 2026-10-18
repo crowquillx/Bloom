@@ -3,6 +3,12 @@
 #include "MpvNodeUtils.h"
 #include "utils/BloomLogging.h"
 
+#include <QPromise>
+#include <QThreadPool>
+
+#include <memory>
+#include <utility>
+
 #if defined(BLOOM_HAS_LIBMPV)
 #if defined(Q_OS_WIN)
 #include <windows.h>
@@ -147,6 +153,45 @@ PlayerPolicy::MpvRuntimeInfo readRuntimeInfo(mpv_handle *handle, const QString &
         info.mpvVersion == QStringLiteral("mpv ") + QStringLiteral(BLOOM_PINNED_MPV_DESCRIBE);
 #endif
     return info;
+}
+
+QFuture<QVariantList> enumerateAudioDevicesAsync()
+{
+    // Leaked on purpose: a blocked driver call must never make shutdown join it.
+    static QThreadPool *pool = [] {
+        auto *created = new QThreadPool;
+        created->setMaxThreadCount(1);
+        created->setExpiryTimeout(-1);
+        return created;
+    }();
+    static QFuture<QVariantList> inFlight;
+    if (inFlight.isRunning()) {
+        return inFlight;
+    }
+    auto promise = std::make_shared<QPromise<QVariantList>>();
+    inFlight = promise->future();
+    promise->start();
+    pool->start([promise]() {
+        QVariantList devices;
+        if (mpv_handle *handle = mpv_create()) {
+            static constexpr std::pair<const char *, const char *> kOptions[] = {
+                {"config", "no"}, {"terminal", "no"}, {"idle", "yes"},
+                {"load-scripts", "no"}, {"ytdl", "no"}, {"input-default-bindings", "no"}};
+            for (const auto &[name, value] : kOptions) {
+                mpv_set_option_string(handle, name, value);
+            }
+            mpv_node node{};
+            if (mpv_initialize(handle) >= 0
+                && mpv_get_property(handle, "audio-device-list", MPV_FORMAT_NODE, &node) >= 0) {
+                devices = parseMpvAudioDeviceList(&node);
+                mpv_free_node_contents(&node);
+            }
+            mpv_terminate_destroy(handle);
+        }
+        promise->addResult(devices);
+        promise->finish();
+    });
+    return inFlight;
 }
 
 QStringList applyVideoFilterListOperations(mpv_handle *handle,

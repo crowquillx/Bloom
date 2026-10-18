@@ -104,6 +104,8 @@ struct AudioOutputCapabilities {
     QStringList pcmLayouts;
     QString evidence = QStringLiteral("unknown");
     bool endpointAvailable = true;
+    // The mpv audio driver for this endpoint implements exclusive access (WASAPI).
+    bool exclusiveModeSupported = false;
 
     QVariantMap toVariantMap() const
     {
@@ -112,7 +114,28 @@ struct AudioOutputCapabilities {
                 {QStringLiteral("passthroughCodecs"), passthroughCodecs},
                 {QStringLiteral("pcmLayouts"), pcmLayouts},
                 {QStringLiteral("evidence"), evidence},
-                {QStringLiteral("endpointAvailable"), endpointAvailable}};
+                {QStringLiteral("endpointAvailable"), endpointAvailable},
+                {QStringLiteral("exclusiveModeSupported"), exclusiveModeSupported}};
+    }
+};
+
+// Saved output preference matched against the current mpv device list.
+struct AudioDeviceResolution {
+    QString preferred = QStringLiteral("auto");
+    QString device = QStringLiteral("auto");
+    QString description;
+    bool preferredAvailable = true;
+    bool rematched = false;
+    QString reason;
+
+    QVariantMap toVariantMap() const
+    {
+        return {{QStringLiteral("preferred"), preferred},
+                {QStringLiteral("device"), device},
+                {QStringLiteral("description"), description},
+                {QStringLiteral("preferredAvailable"), preferredAvailable},
+                {QStringLiteral("rematched"), rematched},
+                {QStringLiteral("reason"), reason}};
     }
 };
 
@@ -121,6 +144,8 @@ enum class AudioPassthroughMode { Auto, Disabled, Custom };
 struct AudioPreferences {
     AudioPassthroughMode mode = AudioPassthroughMode::Auto;
     QStringList customCodecs;
+    // Request exclusive PCM access where the endpoint driver supports it.
+    bool exclusive = false;
 
     QVariantMap toVariantMap() const
     {
@@ -130,7 +155,8 @@ struct AudioPreferences {
         else if (mode == AudioPassthroughMode::Custom)
             modeName = QStringLiteral("custom");
         return {{QStringLiteral("mode"), modeName},
-                {QStringLiteral("customCodecs"), customCodecs}};
+                {QStringLiteral("customCodecs"), customCodecs},
+                {QStringLiteral("exclusive"), exclusive}};
     }
 };
 

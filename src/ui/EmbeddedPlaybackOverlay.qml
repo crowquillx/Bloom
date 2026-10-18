@@ -39,6 +39,9 @@ FocusScope {
     property bool chapterMode: false
     property int focusedChapterIndex: -1
     property bool audioSelectorOpen: false
+    // The audio panel lists output devices instead of tracks.
+    property bool audioOutputMode: false
+    property string audioNoticeText: ""
     property bool subtitleSelectorOpen: false
     property bool volumeSelectorOpen: false
     property bool volumeOsdVisible: false
@@ -276,14 +279,79 @@ FocusScope {
         return ""
     }
 
+    function audioOutputPrimaryLabel(entry) {
+        if (!entry) return ""
+        if (entry.kind === "default") return qsTr("System Default")
+        return (entry.description && entry.description.length > 0) ? entry.description : entry.id
+    }
+
+    function audioOutputSecondaryLabel(entry) {
+        if (!entry) return ""
+        var status = PlayerController.audioOutputStatus
+        if (!entry.available) return qsTr("Not connected")
+        if (entry.selected && !entry.active) return qsTr("Unavailable, using System Default")
+        if (!entry.active) return ""
+        if (status.exclusiveActive) return qsTr("Playing in exclusive mode")
+        if (status.exclusiveFallback) return qsTr("Playing in shared mode (exclusive unavailable)")
+        return qsTr("Playing")
+    }
+
+    function audioOutputSummary() {
+        var status = PlayerController.audioOutputStatus
+        if (!status.device || status.device === "auto") return qsTr("System Default")
+        return (status.description && status.description.length > 0) ? status.description : status.device
+    }
+
+    function audioOutputDetail() {
+        var status = PlayerController.audioOutputStatus
+        if (status.usingFallback) {
+            return qsTr("%1 unavailable").arg(status.preferredDescription || status.preferredDevice)
+        }
+        if (status.exclusiveActive) return qsTr("Exclusive")
+        if (status.exclusiveFallback) return qsTr("Shared, exclusive unavailable")
+        return ""
+    }
+
+    function audioOutputSelectedIndex() {
+        var entries = PlayerController.audioOutputOptions
+        for (var i = 0; i < entries.length; i++) {
+            if (entries[i].selected) return i
+        }
+        return 0
+    }
+
+    function openAudioOutputList() {
+        audioOutputMode = true
+        PlayerController.refreshAudioOutputDevices()
+        var idx = audioOutputSelectedIndex()
+        audioOutputList.currentIndex = idx
+        Qt.callLater(function() {
+            audioOutputList.positionViewAtIndex(idx, ListView.Contain)
+            audioOutputList.forceActiveFocus()
+        })
+    }
+
+    function closeAudioOutputList() {
+        audioOutputMode = false
+        Qt.callLater(function() { audioOutputRow.forceActiveFocus() })
+    }
+
+    function selectAudioOutputAt(index) {
+        var entries = PlayerController.audioOutputOptions
+        if (index < 0 || index >= entries.length) return
+        PlayerController.selectAudioOutputDevice(entries[index].id)
+        audioOutputMode = false
+        audioSelectorOpen = false
+        Qt.callLater(function() { audioButton.forceActiveFocus() })
+    }
+
     function openAudioSelector() {
         if (audioSelectorOpen) {
             audioSelectorOpen = false
+            audioOutputMode = false
             return
         }
-        if (!PlayerController.availableAudioTracks || PlayerController.availableAudioTracks.length === 0) {
-            return
-        }
+        audioOutputMode = false
         subtitleSelectorOpen = false
         volumeSelectorOpen = false
         hideVolumeOsd()
@@ -295,7 +363,11 @@ FocusScope {
             if (idx >= 0) {
                 audioList.positionViewAtIndex(idx, ListView.Contain)
             }
-            audioList.forceActiveFocus()
+            if (audioList.count > 0) {
+                audioList.forceActiveFocus()
+            } else {
+                audioOutputRow.forceActiveFocus()
+            }
         })
     }
 
@@ -330,6 +402,7 @@ FocusScope {
         }
         var wasOpen = selectorOpen
         audioSelectorOpen = false
+        audioOutputMode = false
         subtitleSelectorOpen = false
         volumeSelectorOpen = false
         if (wasOpen) {
@@ -343,6 +416,10 @@ FocusScope {
     function tryDismissPlaybackOverlayBeforeStop() {
         if (!overlayActive) {
             return false
+        }
+        if (audioSelectorOpen && audioOutputMode) {
+            closeAudioOutputList()
+            return true
         }
         if (closeSelectors()) {
             return true
@@ -459,14 +536,32 @@ FocusScope {
 
     function handleSelectorDirection(direction) {
         if (audioSelectorOpen) {
+            if (audioOutputMode) {
+                if (direction === "up") {
+                    audioOutputList.currentIndex = Math.max(0, audioOutputList.currentIndex - 1)
+                    audioOutputList.positionViewAtIndex(audioOutputList.currentIndex, ListView.Contain)
+                } else if (direction === "down") {
+                    audioOutputList.currentIndex = Math.min(audioOutputList.count - 1, audioOutputList.currentIndex + 1)
+                    audioOutputList.positionViewAtIndex(audioOutputList.currentIndex, ListView.Contain)
+                }
+                return true
+            }
+            if (root.Window.activeFocusItem === audioOutputRow) {
+                if (direction === "up" && audioList.count > 0) audioList.forceActiveFocus()
+                return true
+            }
             if (direction === "up") {
                 audioList.currentIndex = Math.max(0, audioList.currentIndex - 1)
                 audioList.positionViewAtIndex(audioList.currentIndex, ListView.Contain)
                 return true
             }
             if (direction === "down") {
-                audioList.currentIndex = Math.min(audioList.count - 1, audioList.currentIndex + 1)
-                audioList.positionViewAtIndex(audioList.currentIndex, ListView.Contain)
+                if (audioList.currentIndex >= audioList.count - 1) {
+                    audioOutputRow.forceActiveFocus()
+                } else {
+                    audioList.currentIndex = Math.min(audioList.count - 1, audioList.currentIndex + 1)
+                    audioList.positionViewAtIndex(audioList.currentIndex, ListView.Contain)
+                }
                 return true
             }
             return true
@@ -541,6 +636,14 @@ FocusScope {
             return true
         }
         if (audioSelectorOpen) {
+            if (audioOutputMode) {
+                selectAudioOutputAt(audioOutputList.currentIndex)
+                return true
+            }
+            if (root.Window.activeFocusItem === audioOutputRow) {
+                openAudioOutputList()
+                return true
+            }
             if (audioList.currentIndex >= 0 && audioList.currentIndex < audioList.count) {
                 var audioTracks = PlayerController.availableAudioTracks
                 PlayerController.setSelectedAudioTrack(audioTracks[audioList.currentIndex].index)
@@ -2344,7 +2447,7 @@ FocusScope {
             anchors.margins: Math.round(28 * Theme.layoutScale)
             spacing: Math.round(16 * Theme.layoutScale)
             Text {
-                text: qsTr("Audio Track")
+                text: root.audioOutputMode ? qsTr("Audio Output") : qsTr("Audio Track")
                 color: Theme.textPrimary
                 font.family: Theme.fontPrimary
                 font.pixelSize: Math.round(42 * Theme.layoutScale * 0.6)
@@ -2352,11 +2455,12 @@ FocusScope {
             }
             ListView {
                 id: audioList
+                visible: !root.audioOutputMode
                 Layout.fillWidth: true
                 Layout.fillHeight: true
                 clip: true
                 model: PlayerController.availableAudioTracks
-                focus: root.audioSelectorOpen
+                focus: root.audioSelectorOpen && !root.audioOutputMode
                 spacing: Math.round(10 * Theme.layoutScale)
                 delegate: Rectangle {
                     required property int index
@@ -2414,8 +2518,12 @@ FocusScope {
                         positionViewAtIndex(currentIndex, ListView.Contain)
                     } else if (event.key === Qt.Key_Down) {
                         event.accepted = true
-                        currentIndex = Math.min(count - 1, currentIndex + 1)
-                        positionViewAtIndex(currentIndex, ListView.Contain)
+                        if (currentIndex >= count - 1) {
+                            audioOutputRow.forceActiveFocus()
+                        } else {
+                            currentIndex = Math.min(count - 1, currentIndex + 1)
+                            positionViewAtIndex(currentIndex, ListView.Contain)
+                        }
                     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
                         event.accepted = true
                         if (currentIndex >= 0 && currentIndex < count) {
@@ -2433,6 +2541,214 @@ FocusScope {
                     }
                 }
                 ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            }
+
+            ListView {
+                id: audioOutputList
+                visible: root.audioOutputMode
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                model: PlayerController.audioOutputOptions
+                focus: root.audioSelectorOpen && root.audioOutputMode
+                spacing: Math.round(10 * Theme.layoutScale)
+                Accessible.role: Accessible.List
+                Accessible.name: qsTr("Audio output devices")
+                delegate: Rectangle {
+                    required property int index
+                    required property var modelData
+                    width: audioOutputList.width
+                    height: Math.round(72 * Theme.layoutScale)
+                    color: audioOutputList.currentIndex === index ? Theme.hoverOverlay : "transparent"
+                    radius: Theme.radiusMedium
+                    Accessible.role: Accessible.ListItem
+                    Accessible.name: root.audioOutputPrimaryLabel(modelData)
+                    Accessible.description: root.audioOutputSecondaryLabel(modelData)
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: root.selectAudioOutputAt(index)
+                    }
+                    Column {
+                        anchors.left: parent.left
+                        anchors.leftMargin: Math.round(10 * Theme.layoutScale)
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: Math.round(3 * Theme.layoutScale)
+                        width: parent.width - Math.round(64 * Theme.layoutScale)
+                        Text {
+                            text: root.audioOutputPrimaryLabel(modelData)
+                            color: modelData.available ? Theme.textPrimary : Theme.textSecondary
+                            font.family: Theme.fontPrimary
+                            font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                        Text {
+                            text: root.audioOutputSecondaryLabel(modelData)
+                            color: Theme.textSecondary
+                            font.family: Theme.fontPrimary
+                            font.pixelSize: Math.round(28 * Theme.layoutScale * 0.58)
+                            visible: text.length > 0
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                    }
+                    Text {
+                        anchors.right: parent.right
+                        anchors.rightMargin: Math.round(8 * Theme.layoutScale)
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: modelData.selected ? Icons.check : ""
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
+                        color: Theme.textPrimary
+                    }
+                }
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Up) {
+                        event.accepted = true
+                        currentIndex = Math.max(0, currentIndex - 1)
+                        positionViewAtIndex(currentIndex, ListView.Contain)
+                    } else if (event.key === Qt.Key_Down) {
+                        event.accepted = true
+                        currentIndex = Math.min(count - 1, currentIndex + 1)
+                        positionViewAtIndex(currentIndex, ListView.Contain)
+                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                        event.accepted = true
+                        root.selectAudioOutputAt(currentIndex)
+                    } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                        event.accepted = true
+                        root.closeAudioOutputList()
+                    } else if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+                        event.accepted = true
+                    }
+                }
+                ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+            }
+
+            // Compact output summary; activating it swaps the list to devices.
+            Rectangle {
+                id: audioOutputRow
+                visible: !root.audioOutputMode
+                activeFocusOnTab: true
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.round(84 * Theme.layoutScale)
+                radius: Theme.radiusMedium
+                color: activeFocus ? Theme.hoverOverlay : "transparent"
+                border.width: activeFocus ? 2 : 1
+                border.color: activeFocus ? Theme.focusBorder : Theme.cardBorder
+                Accessible.role: Accessible.Button
+                Accessible.name: qsTr("Audio output: %1").arg(root.audioOutputSummary())
+                Accessible.description: root.audioOutputDetail()
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: root.openAudioOutputList()
+                }
+
+                RowLayout {
+                    anchors.fill: parent
+                    anchors.leftMargin: Math.round(14 * Theme.layoutScale)
+                    anchors.rightMargin: Math.round(10 * Theme.layoutScale)
+                    spacing: Math.round(12 * Theme.layoutScale)
+
+                    Text {
+                        text: Icons.speaker
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Math.round(26 * Theme.layoutScale)
+                        color: Theme.textSecondary
+                    }
+
+                    Column {
+                        Layout.fillWidth: true
+                        spacing: Math.round(2 * Theme.layoutScale)
+                        Text {
+                            text: root.audioOutputSummary()
+                            color: Theme.textPrimary
+                            font.family: Theme.fontPrimary
+                            font.pixelSize: Math.round(36 * Theme.layoutScale * 0.58)
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                        Text {
+                            text: root.audioOutputDetail()
+                            color: Theme.textSecondary
+                            font.family: Theme.fontPrimary
+                            font.pixelSize: Math.round(28 * Theme.layoutScale * 0.58)
+                            visible: text.length > 0
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                    }
+
+                    Text {
+                        text: Icons.chevronRight
+                        font.family: Theme.fontIcon
+                        font.pixelSize: Math.round(28 * Theme.layoutScale)
+                        color: Theme.textSecondary
+                    }
+                }
+
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Up) {
+                        event.accepted = true
+                        if (audioList.count > 0) audioList.forceActiveFocus()
+                    } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+                        event.accepted = true
+                        root.openAudioOutputList()
+                    } else if (event.key === Qt.Key_Escape || event.key === Qt.Key_Back || event.key === Qt.Key_Backspace) {
+                        event.accepted = true
+                        root.audioSelectorOpen = false
+                        Qt.callLater(function() { audioButton.forceActiveFocus() })
+                    } else if (event.key === Qt.Key_Down || event.key === Qt.Key_Left || event.key === Qt.Key_Right) {
+                        event.accepted = true
+                    }
+                }
+            }
+        }
+    }
+
+    // Transient notice for output fallbacks (device missing, exclusive refused).
+    Rectangle {
+        id: audioNotice
+        z: 1300
+        visible: opacity > 0
+        opacity: root.overlayActive && root.audioNoticeText.length > 0 ? 1.0 : 0.0
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.top: parent.top
+        anchors.topMargin: Math.round(48 * Theme.layoutScale)
+        width: Math.min(audioNoticeLabel.implicitWidth + Math.round(48 * Theme.layoutScale),
+                        root.width - Math.round(96 * Theme.layoutScale))
+        height: audioNoticeLabel.implicitHeight + Math.round(28 * Theme.layoutScale)
+        radius: Theme.radiusMedium
+        color: Qt.rgba(0.01, 0.02, 0.05, 0.92)
+        border.width: 1
+        border.color: Theme.cardBorder
+        Accessible.role: Accessible.AlertMessage
+        Accessible.name: root.audioNoticeText
+        Behavior on opacity { NumberAnimation { duration: Theme.durationShort } }
+
+        Text {
+            id: audioNoticeLabel
+            anchors.centerIn: parent
+            width: Math.min(implicitWidth, root.width - Math.round(144 * Theme.layoutScale))
+            text: root.audioNoticeText
+            color: Theme.textPrimary
+            font.family: Theme.fontPrimary
+            font.pixelSize: Math.round(22 * Theme.layoutScale)
+            wrapMode: Text.WordWrap
+            horizontalAlignment: Text.AlignHCenter
+        }
+
+        Timer {
+            id: audioNoticeTimer
+            interval: 5000
+            onTriggered: root.audioNoticeText = ""
+        }
+
+        Connections {
+            target: PlayerController
+            function onAudioOutputNotice(message) {
+                root.audioNoticeText = message
+                audioNoticeTimer.restart()
             }
         }
     }
