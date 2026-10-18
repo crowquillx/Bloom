@@ -161,6 +161,7 @@ target_link_libraries(BloomPlayerProcess
 add_library(BloomPlayerPolicy STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/player/DolbyVisionPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/player/DolbyVisionPolicy.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/player/AudioPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/player/PlaybackPolicy.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/player/PlaybackPolicy.h
 )
@@ -239,10 +240,23 @@ target_include_directories(BloomProviders
 target_link_libraries(BloomProviders
     PUBLIC
         Bloom::Config
+        Bloom::PlayerPolicy
         Bloom::Transport
         Qt6::Core
         Qt6::Network
 )
+
+add_library(BloomAudioOutput STATIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/AudioOutputService.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/AudioOutputService.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/audio/AudioEndpointProbe.cpp
+)
+add_library(Bloom::AudioOutput ALIAS BloomAudioOutput)
+target_include_directories(BloomAudioOutput PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(BloomAudioOutput PUBLIC Bloom::Config Bloom::PlayerPolicy Qt6::Concurrent Qt6::Multimedia)
+if(WIN32)
+    target_link_libraries(BloomAudioOutput PRIVATE ole32)
+endif()
 
 add_library(BloomNetwork STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/providers/ActiveArtworkProvider.cpp
@@ -266,6 +280,7 @@ target_include_directories(BloomNetwork
 target_link_libraries(BloomNetwork
     PUBLIC
         Bloom::Providers
+        Bloom::AudioOutput
         Qt6::Concurrent
         Qt6::Core
         Qt6::Network

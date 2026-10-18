@@ -1,6 +1,7 @@
 #include "SiloPlaybackProvider.h"
 
 #include "providers/silo/SiloModelMapper.h"
+#include "player/AudioPolicy.h"
 
 #include <QJsonArray>
 #include <QCryptographicHash>
@@ -94,8 +95,7 @@ QJsonObject capabilities()
                 "h264", "hevc", "vp8", "vp9", "av1", "mpeg2video", "mpeg4", "vc1", "theora" } },
         { QStringLiteral("codecs_video_hardware"), QJsonArray {} },
         { QStringLiteral("codecs_audio"),
-            QJsonArray { "aac", "ac3", "eac3", "dts", "truehd", "flac", "opus", "vorbis", "mp3",
-                "alac", "pcm_s16le", "pcm_s24le" } },
+            QJsonArray::fromStringList(Bloom::AudioPolicy::localDecodeCodecs()) },
         { QStringLiteral("containers"),
             QJsonArray { "mp4", "mkv", "webm", "mov", "ts", "avi", "mpegts", "ogg", "flac" } },
         { QStringLiteral("max_resolution"), QStringLiteral("8k") },
@@ -184,8 +184,10 @@ Bloom::PlaybackDescriptor descriptorFromDecision(const PlaybackProviderContext &
         track.displayTitle = item.value("displayTitle").toString();
         track.isDefault = item.value("isDefault").toBool();
         track.isForced = item.value("isForced").toBool();
-        if (track.kind == QStringLiteral("audio"))
+        if (track.kind == QStringLiteral("audio")) {
+            track.audio = Bloom::AudioSourceMetadata::fromVariantMap(item);
             descriptor.audioTracks.append(track);
+        }
     }
     const QJsonObject selected = plan.value("selected_tracks").toObject();
     descriptor.selectedAudioTrackId = selectedIndex(selected, QStringLiteral("audio"));

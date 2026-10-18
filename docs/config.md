@@ -202,3 +202,12 @@ milliseconds. An empty `library_ids` list means all libraries. Placement values 
 camelCase strings (`bottomLeft`, `topRight`, `center`, `centerLarge` for logo only); unknown values
 fall back to `bottomLeft`. `episode_synopsis_enabled` defaults to false, so episode hero items use
 series synopsis text unless episode synopsis display is explicitly enabled.
+
+## Audio passthrough
+
+`settings.playback.audio_passthrough_mode` accepts `auto`, `disabled` or `custom`.
+The default is `auto`. `audio_passthrough_codecs` stores the Custom allowlist.
+Settings show named Dolby and DTS formats. See [Audio output](audio.md) for
+capability detection, PCM fallback and diagnostics. Existing configurations use
+Auto without a migration. Bloom applies the selected audio plan after mpv profile
+arguments. Use the Audio Passthrough controls to change encoded transport.

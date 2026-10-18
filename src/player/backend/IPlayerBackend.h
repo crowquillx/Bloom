@@ -33,6 +33,8 @@ public:
 
     // Starts (or refreshes) non-blocking runtime capability discovery for the
     // mpv this backend will play with. Safe to call repeatedly.
+    virtual void requestAudioDiagnostics(const QString &tag) { Q_UNUSED(tag); }
+
     virtual void prepareRuntime(const QString &mpvBin) { Q_UNUSED(mpvBin); }
     // Best-known provenance and Dolby Vision filter support of that runtime.
     // `formatFilter` stays Unknown until discovery has completed.

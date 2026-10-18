@@ -84,3 +84,11 @@ A `PlaybackDescriptor` is valid when it has a valid `MediaRef` and finalized `St
 wire-field access and provider-adapter includes. It also prevents removed raw
 `LibraryService` DTO signals from being declared or emitted again and keeps
 provider-native sort values out of library QML/view-model state.
+
+## Audio planning
+
+`PlaybackTrack.audio` preserves canonical audio source metadata.
+`PlaybackDescriptor.audioOutputPlan` carries the selected local output plan.
+`MediaSourceInfo.directPlayAvailable` preserves a provider's explicit permission
+to play the original source. See [Audio output](audio.md) for the metadata fields
+and the separation between decode support and encoded transport.

@@ -41,6 +41,7 @@ public:
     bool attachVideoTarget(QObject *target) override;
     void detachVideoTarget(QObject *target) override;
     void setVideoViewport(const QRectF &viewport) override;
+    void requestAudioDiagnostics(const QString &tag) override;
     void prepareRuntime(const QString &mpvBin) override;
     Bloom::PlaybackPolicy::MpvRuntimeInfo runtimeInfo() const override;
     Bloom::PlaybackPolicy::RendererKind rendererKind(const QStringList &args) const override;

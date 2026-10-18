@@ -39,6 +39,11 @@ and restoration asynchronous and generation-safe; external display commands
 must retain deadlines and bounded output, and `PlayerController` must preserve
 HDR-before-refresh startup plus HDR-before-refresh restoration ordering.
 
+Audio output policy is owned by `Bloom::PlayerPolicy`; endpoint discovery is
+owned by `Bloom::AudioOutput`. Keep provider decode claims independent from
+encoded output support. See `docs/audio.md` for planning, runtime checks and
+hotplug/resume validation.
+
 Pure playback decisions are owned by the Qt-Core-only `Bloom::PlayerPolicy`
 target. Keep language, track, HDR, version, completion, and autoplay policy free
 of I/O and `QObject`; `PlayerController` remains the stable QML-facing facade
@@ -103,6 +108,7 @@ If unsure whether a change requires `AGENTS.md` or `docs/` updates, open an issu
 
 See also:
 - docs/build.md     — Nix build, packaging, CI, and Windows instructions
+- docs/audio.md — audio metadata, early output policy, endpoint detection and HTPC validation
 - docs/playback.md  — mpv and playback/reporting integration
 - docs/dolby-vision.md — pinned mpv stacks, DV/FEL capability checks, renderer limits, and sample verification
 - docs/provider-compatibility.md — provider-neutral server contract matrix, reproducible Jellyfin/Silo pins, and native API assumptions

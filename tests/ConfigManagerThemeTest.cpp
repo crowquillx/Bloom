@@ -24,6 +24,7 @@ private slots:
     void rapidSettingsCoalescePersistence();
     void immediateSettingsFlushPendingPersistence();
     void destructorFlushesPendingPersistence();
+    void audioPassthroughDefaultsSanitizeAndPersist();
     void persistenceFailuresAreReportedAndRetryable();
     void corruptBackupFilenameIsPortable();
     void saveDoesNotRunLoadTimeMigrations();
@@ -458,6 +459,43 @@ void ConfigManagerThemeTest::destructorFlushesPendingPersistence()
     ConfigManager reloaded;
     reloaded.load();
     QCOMPARE(reloaded.getAudioDelay(), 275);
+}
+
+void ConfigManagerThemeTest::audioPassthroughDefaultsSanitizeAndPersist()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    ScopedConfigIsolation configIsolation(tempDir.path());
+
+    ConfigManager config;
+    config.load();
+
+    QCOMPARE(config.getAudioPassthroughMode(), QStringLiteral("auto"));
+    QVERIFY(config.getAudioPassthroughCodecs().isEmpty());
+
+    QSignalSpy changedSpy(&config, &ConfigManager::audioPassthroughChanged);
+    config.setAudioPassthroughMode(QStringLiteral(" CuStOm "));
+    config.setAudioPassthroughCodecs({QStringLiteral(" AC3 "), QStringLiteral("dts-hd"),
+                                      QStringLiteral("ac3"), QStringLiteral("TrueHD"),
+                                      QStringLiteral("unknown"), QStringLiteral("eac3")});
+
+    QCOMPARE(config.getAudioPassthroughMode(), QStringLiteral("custom"));
+    QCOMPARE(config.getAudioPassthroughCodecs(),
+             QStringList({QStringLiteral("ac3"), QStringLiteral("dts-hd"),
+                          QStringLiteral("truehd"), QStringLiteral("eac3")}));
+    QCOMPARE(changedSpy.count(), 2);
+
+    config.setAudioPassthroughMode(QStringLiteral("unsupported"));
+    QCOMPARE(config.getAudioPassthroughMode(), QStringLiteral("auto"));
+    QCOMPARE(changedSpy.count(), 3);
+    QVERIFY(config.flushPendingSave());
+
+    ConfigManager reloaded;
+    reloaded.load();
+    QCOMPARE(reloaded.getAudioPassthroughMode(), QStringLiteral("auto"));
+    QCOMPARE(reloaded.getAudioPassthroughCodecs(),
+             QStringList({QStringLiteral("ac3"), QStringLiteral("dts-hd"),
+                          QStringLiteral("truehd"), QStringLiteral("eac3")}));
 }
 
 void ConfigManagerThemeTest::persistenceFailuresAreReportedAndRetryable()

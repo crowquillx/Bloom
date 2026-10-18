@@ -10,6 +10,7 @@
 #include <QMap>
 #include <QList>
 #include <QMetaType>
+#include "models/AudioTypes.h"
 
 // ============================================================================
 // Media Stream / Source / Playback Info
@@ -31,6 +32,10 @@ struct MediaStreamInfo
     Q_PROPERTY(int channels MEMBER channels)
     Q_PROPERTY(QString channelLayout MEMBER channelLayout)
     Q_PROPERTY(int bitRate MEMBER bitRate)
+    Q_PROPERTY(int sampleRate MEMBER sampleRate)
+    Q_PROPERTY(int bitDepth MEMBER bitDepth)
+    Q_PROPERTY(bool atmos MEMBER atmos)
+    Q_PROPERTY(bool dtsX MEMBER dtsX)
     Q_PROPERTY(int width MEMBER width)
     Q_PROPERTY(int height MEMBER height)
     Q_PROPERTY(double averageFrameRate MEMBER averageFrameRate)
@@ -60,6 +65,10 @@ public:
     int channels = 0;
     QString channelLayout;
     int bitRate = 0;
+    int sampleRate = 0;
+    int bitDepth = 0;
+    bool atmos = false;
+    bool dtsX = false;
     int width = 0;
     int height = 0;
     double averageFrameRate = 0.0;
@@ -86,6 +95,7 @@ struct MediaSourceInfo
     Q_PROPERTY(QString path MEMBER path)
     Q_PROPERTY(QString directStreamUrl MEMBER directStreamUrl)
     Q_PROPERTY(QString transcodingUrl MEMBER transcodingUrl)
+    Q_PROPERTY(bool directPlayAvailable MEMBER directPlayAvailable)
     Q_PROPERTY(QString container MEMBER container)
     Q_PROPERTY(qint64 size MEMBER size)
     Q_PROPERTY(int bitRate MEMBER bitRate)
@@ -104,6 +114,8 @@ public:
     QString path;
     QString directStreamUrl;
     QString transcodingUrl;
+    bool directPlayAvailable = false;
+    bool directPlayAvailabilityKnown = false;
     QString container;
     qint64 size = 0;
     int bitRate = 0;

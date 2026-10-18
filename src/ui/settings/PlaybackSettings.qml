@@ -64,6 +64,17 @@ FocusScope {
         return options
     }
 
+    function setAudioPassthroughCodec(codec, enabled) {
+        var codecs = ConfigManager.audioPassthroughCodecs.slice()
+        var index = codecs.indexOf(codec)
+        if (enabled && index < 0) {
+            codecs.push(codec)
+        } else if (!enabled && index >= 0) {
+            codecs.splice(index, 1)
+        }
+        ConfigManager.audioPassthroughCodecs = codecs
+    }
+
     readonly property var globalStartupBufferingOptions: [
         { label: qsTr("Normal"), value: "normal" },
         { label: qsTr("Remote Mount"), value: "remote-mount" }
@@ -517,7 +528,7 @@ FocusScope {
                     }
                 }
 
-                // ── Group 3b: Audio output device ──
+                // ── Group 3b: Audio output ──
 
                 SettingsGroupDivider { Layout.fillWidth: true }
 
@@ -613,11 +624,167 @@ FocusScope {
                         }
                         Keys.onDownPressed: function(event) {
                             if (!popup.visible) {
-                                defaultAudioTrackCombo.forceActiveFocus()
+                                audioPassthroughModeCombo.forceActiveFocus()
                                 event.accepted = true
                             }
                         }
                     }
+                }
+
+                RowLayout {
+                    id: audioPassthroughRow
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingMedium
+
+                    ColumnLayout {
+                        spacing: Math.round(4 * Theme.layoutScale)
+                        Layout.fillWidth: true
+
+                        Text {
+                            text: qsTr("Audio Passthrough")
+                            font.pixelSize: Theme.fontSizeBody
+                            font.family: Theme.fontPrimary
+                            color: Theme.textPrimary
+                        }
+
+                        Text {
+                            text: qsTr("Choose which surround sound formats Bloom can send directly to your audio device.")
+                            font.pixelSize: Theme.fontSizeSmall
+                            font.family: Theme.fontPrimary
+                            color: Theme.textSecondary
+                            wrapMode: Text.WordWrap
+                            Layout.fillWidth: true
+                        }
+                    }
+
+                    SettingsComboBox {
+                        id: audioPassthroughModeCombo
+                        readonly property var options: [
+                            { label: qsTr("Automatic"), value: "auto" },
+                            { label: qsTr("Disabled"), value: "disabled" },
+                            { label: qsTr("Custom"), value: "custom" }
+                        ]
+                        model: options
+                        textRole: "label"
+                        valueRole: "value"
+                        currentIndex: root.optionIndexForValue(options, ConfigManager.audioPassthroughMode)
+                        Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
+                        focusPolicy: Qt.StrongFocus
+                        property bool initialized: false
+                        property bool updatingSelection: false
+
+                        function refreshSelection() {
+                            updatingSelection = true
+                            currentIndex = root.optionIndexForValue(options, ConfigManager.audioPassthroughMode)
+                            updatingSelection = false
+                        }
+
+                        Component.onCompleted: {
+                            refreshSelection()
+                            initialized = true
+                        }
+
+                        Connections {
+                            target: ConfigManager
+                            function onAudioPassthroughChanged() {
+                                audioPassthroughModeCombo.refreshSelection()
+                            }
+                        }
+
+                        onActiveFocusChanged: {
+                            if (activeFocus) {
+                                root._lastFocusedItem = this
+                                flickable.ensureFocusVisible(this)
+                                InputModeManager.setNavigationMode("keyboard")
+                                InputModeManager.hideCursor(true)
+                            } else if (!popup.visible) {
+                                InputModeManager.setNavigationMode("pointer")
+                                InputModeManager.hideCursor(false)
+                            }
+                        }
+
+                        onCurrentIndexChanged: {
+                            if (!initialized || updatingSelection || currentIndex < 0) return
+                            var value = options[currentIndex].value
+                            if (value !== ConfigManager.audioPassthroughMode) {
+                                ConfigManager.audioPassthroughMode = value
+                            }
+                        }
+
+                        KeyNavigation.up: audioOutputDeviceCombo
+                        KeyNavigation.down: ConfigManager.audioPassthroughMode === "custom"
+                            ? audioPassthroughAc3Toggle : defaultAudioTrackCombo
+                    }
+                }
+
+                SettingsToggleRow {
+                    id: audioPassthroughAc3Toggle
+                    label: qsTr("Dolby Digital")
+                    description: qsTr("Allow Dolby Digital audio passthrough")
+                    checked: ConfigManager.audioPassthroughCodecs.indexOf("ac3") >= 0
+                    visible: ConfigManager.audioPassthroughMode === "custom"
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.up: audioPassthroughModeCombo
+                    KeyNavigation.down: audioPassthroughEac3Toggle
+                    onToggled: function(value) { root.setAudioPassthroughCodec("ac3", value) }
+                }
+
+                SettingsToggleRow {
+                    id: audioPassthroughEac3Toggle
+                    label: qsTr("Dolby Digital Plus")
+                    description: qsTr("Allow Dolby Digital Plus audio passthrough")
+                    checked: ConfigManager.audioPassthroughCodecs.indexOf("eac3") >= 0
+                    visible: ConfigManager.audioPassthroughMode === "custom"
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.up: audioPassthroughAc3Toggle
+                    KeyNavigation.down: audioPassthroughTruehdToggle
+                    onToggled: function(value) { root.setAudioPassthroughCodec("eac3", value) }
+                }
+
+                SettingsToggleRow {
+                    id: audioPassthroughTruehdToggle
+                    label: qsTr("Dolby TrueHD")
+                    description: qsTr("Allow Dolby TrueHD audio passthrough")
+                    checked: ConfigManager.audioPassthroughCodecs.indexOf("truehd") >= 0
+                    visible: ConfigManager.audioPassthroughMode === "custom"
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.up: audioPassthroughEac3Toggle
+                    KeyNavigation.down: audioPassthroughDtsToggle
+                    onToggled: function(value) { root.setAudioPassthroughCodec("truehd", value) }
+                }
+
+                SettingsToggleRow {
+                    id: audioPassthroughDtsToggle
+                    label: qsTr("DTS")
+                    description: qsTr("Allow DTS audio passthrough")
+                    checked: ConfigManager.audioPassthroughCodecs.indexOf("dts") >= 0
+                    visible: ConfigManager.audioPassthroughMode === "custom"
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.up: audioPassthroughTruehdToggle
+                    KeyNavigation.down: audioPassthroughDtshdToggle
+                    onToggled: function(value) { root.setAudioPassthroughCodec("dts", value) }
+                }
+
+                SettingsToggleRow {
+                    id: audioPassthroughDtshdToggle
+                    label: qsTr("DTS-HD")
+                    description: qsTr("Allow DTS-HD audio passthrough")
+                    checked: ConfigManager.audioPassthroughCodecs.indexOf("dts-hd") >= 0
+                    visible: ConfigManager.audioPassthroughMode === "custom"
+                    Layout.fillWidth: true
+                    ensureVisible: function(item) { flickable.ensureFocusVisible(item) }
+                    onActiveFocusChanged: { if (activeFocus) root._lastFocusedItem = this }
+                    KeyNavigation.up: audioPassthroughDtsToggle
+                    KeyNavigation.down: defaultAudioTrackCombo
+                    onToggled: function(value) { root.setAudioPassthroughCodec("dts-hd", value) }
                 }
 
                 // ── Group 4: Default audio/subtitle fallback tracks ──
@@ -704,7 +871,11 @@ FocusScope {
 
                         Keys.onUpPressed: function(event) {
                             if (!popup.visible) {
-                                audioOutputDeviceCombo.forceActiveFocus()
+                                if (ConfigManager.audioPassthroughMode === "custom") {
+                                    audioPassthroughDtshdToggle.forceActiveFocus()
+                                } else {
+                                    audioPassthroughModeCombo.forceActiveFocus()
+                                }
                                 event.accepted = true
                             }
                         }

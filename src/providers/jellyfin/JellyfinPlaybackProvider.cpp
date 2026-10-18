@@ -1,8 +1,10 @@
 #include "JellyfinPlaybackProvider.h"
 
 #include "providers/jellyfin/JellyfinModelMapper.h"
+#include "player/AudioPolicy.h"
 
 #include <QUrlQuery>
+#include <QJsonArray>
 
 namespace {
 
@@ -46,6 +48,8 @@ Bloom::PlaybackTrack mapTrack(const QVariantMap &stream)
     track.isForced = stream.value(QStringLiteral("isForced")).toBool();
     track.isExternal = stream.value(QStringLiteral("isExternal")).toBool();
     track.isHearingImpaired = stream.value(QStringLiteral("isHearingImpaired")).toBool();
+    if (track.kind == QStringLiteral("audio"))
+        track.audio = Bloom::AudioSourceMetadata::fromVariantMap(stream);
     return track;
 }
 
@@ -110,13 +114,25 @@ Bloom::PlaybackDescriptor JellyfinPlaybackProvider::createDescriptor(
     QString selectedUrl = providerSource.value(QStringLiteral("directStreamUrl")).toString().trimmed();
     descriptor.stream.method = Bloom::PlaybackMethod::DirectStream;
     if (selectedUrl.isEmpty()) {
-        selectedUrl = providerSource.value(QStringLiteral("transcodingUrl")).toString().trimmed();
-        descriptor.stream.method = Bloom::PlaybackMethod::Transcode;
+        const bool directPlayAvailabilityKnown = providerSource.contains(
+            QStringLiteral("directPlayAvailable"));
+        if (directPlayAvailabilityKnown
+            && providerSource.value(QStringLiteral("directPlayAvailable")).toBool()) {
+            selectedUrl = QStringLiteral("/Videos/%1/stream?Container=mp4,mkv&Static=true")
+                              .arg(media.itemId);
+            descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
+        } else {
+            selectedUrl = providerSource.value(QStringLiteral("transcodingUrl")).toString().trimmed();
+            descriptor.stream.method = Bloom::PlaybackMethod::Transcode;
+            if (selectedUrl.isEmpty() && !directPlayAvailabilityKnown) {
+                selectedUrl = QStringLiteral("/Videos/%1/stream?Container=mp4,mkv&Static=true")
+                                  .arg(media.itemId);
+                descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
+            }
+        }
     }
     if (selectedUrl.isEmpty()) {
-        selectedUrl = QStringLiteral("/Videos/%1/stream?Container=mp4,mkv&Static=true")
-                          .arg(media.itemId);
-        descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
+        return descriptor;
     }
 
     QUrl url(selectedUrl);
@@ -202,6 +218,16 @@ PlaybackInfoRequest JellyfinPlaybackProvider::createPlaybackInfoRequest(
                            .arg(QString::fromLatin1(QUrl::toPercentEncoding(media.itemId)));
     request.method = QStringLiteral("POST");
     request.body.insert(QStringLiteral("UserId"), context.profileId);
+    const QStringList audioCodecs = Bloom::AudioPolicy::localDecodeCodecs();
+    request.body.insert(QStringLiteral("DeviceProfile"), QJsonObject{
+        {QStringLiteral("Name"), QStringLiteral("Bloom")},
+        {QStringLiteral("DirectPlayProfiles"), QJsonArray{
+            QJsonObject{
+                {QStringLiteral("Type"), QStringLiteral("Video")},
+                {QStringLiteral("AudioCodec"), audioCodecs.join(QLatin1Char(','))}
+            }
+        }}
+    });
     return request;
 }
 

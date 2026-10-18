@@ -43,6 +43,33 @@ QString normalizeLogLevelValue(const QString &level)
     return QStringLiteral("info");
 }
 
+QString normalizeAudioPassthroughMode(const QString &mode)
+{
+    const QString normalized = mode.trimmed().toLower();
+    if (normalized == QStringLiteral("disabled") || normalized == QStringLiteral("custom")) {
+        return normalized;
+    }
+    return QStringLiteral("auto");
+}
+
+QStringList normalizeAudioPassthroughCodecs(const QStringList &codecs)
+{
+    static const QSet<QString> allowed{
+        QStringLiteral("ac3"), QStringLiteral("eac3"), QStringLiteral("truehd"),
+        QStringLiteral("dts"), QStringLiteral("dts-hd")};
+
+    QStringList normalized;
+    QSet<QString> seen;
+    for (const QString &codec : codecs) {
+        const QString value = codec.trimmed().toLower();
+        if (allowed.contains(value) && !seen.contains(value)) {
+            normalized.append(value);
+            seen.insert(value);
+        }
+    }
+    return normalized;
+}
+
 QString normalizeHeroBannerSourceValue(const QString &source)
 {
     const QString normalized = source.trimmed().toLower();
@@ -1838,6 +1865,55 @@ QString ConfigManager::getAudioOutputDevice() const
         }
     }
     return QStringLiteral("auto"); // Follow the system default output device
+}
+
+void ConfigManager::setAudioPassthroughMode(const QString &mode)
+{
+    const QString normalized = normalizeAudioPassthroughMode(mode);
+    if (normalized == getAudioPassthroughMode()) {
+        return;
+    }
+
+    setPlaybackSetting(m_config, QStringLiteral("audio_passthrough_mode"), normalized);
+    save();
+    emit audioPassthroughChanged();
+}
+
+QString ConfigManager::getAudioPassthroughMode() const
+{
+    const QJsonObject playback = playbackSettingsObject(m_config);
+    return normalizeAudioPassthroughMode(
+        playback.value(QStringLiteral("audio_passthrough_mode")).toString());
+}
+
+void ConfigManager::setAudioPassthroughCodecs(const QStringList &codecs)
+{
+    const QStringList normalized = normalizeAudioPassthroughCodecs(codecs);
+    if (normalized == getAudioPassthroughCodecs()) {
+        return;
+    }
+
+    QJsonArray values;
+    for (const QString &codec : normalized) {
+        values.append(codec);
+    }
+    setPlaybackSetting(m_config, QStringLiteral("audio_passthrough_codecs"), values);
+    save();
+    emit audioPassthroughChanged();
+}
+
+QStringList ConfigManager::getAudioPassthroughCodecs() const
+{
+    const QJsonArray values = playbackSettingsObject(m_config)
+        .value(QStringLiteral("audio_passthrough_codecs")).toArray();
+    QStringList codecs;
+    codecs.reserve(values.size());
+    for (const QJsonValue &value : values) {
+        if (value.isString()) {
+            codecs.append(value.toString());
+        }
+    }
+    return normalizeAudioPassthroughCodecs(codecs);
 }
 
 void ConfigManager::setPlaybackVolume(int volume)
@@ -4602,6 +4678,8 @@ QJsonObject ConfigManager::defaultConfig() const
     playback["auto_skip_intro"] = false;
     playback["auto_skip_outro"] = false;
     playback["audio_delay"] = 0;
+    playback["audio_passthrough_mode"] = QStringLiteral("auto");
+    playback["audio_passthrough_codecs"] = QJsonArray();
     playback["playback_volume"] = 100;
     playback["playback_muted"] = false;
     playback["skip_button_auto_hide_seconds"] = 6;

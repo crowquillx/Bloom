@@ -14,6 +14,7 @@
 struct PlaybackProviderContext;
 struct PlaybackReportRequest;
 class IPlaybackProvider;
+namespace Bloom { class AudioOutputService; }
 class AuthenticationService;
 class ConfigManager;
 class HttpTransport;
@@ -42,6 +43,8 @@ public:
                              MediaSegmentProviderService *mediaSegmentProviderService = nullptr,
                              QObject *parent = nullptr);
     ~PlaybackService() override;
+
+    Bloom::AudioOutputService *audioOutput() const { return m_audioOutput; }
 
     virtual Bloom::PlaybackDescriptor createPlaybackDescriptor(
         const QString &itemId,
@@ -178,6 +181,8 @@ signals:
     void itemMarkedPlayed(const QString &itemId);
 
 private:
+    Bloom::PlaybackDescriptor withAudioPlan(Bloom::PlaybackDescriptor descriptor) const;
+    Bloom::AudioOutputService *m_audioOutput;
     AuthenticationService *m_authService;
     HttpTransport *m_transport = nullptr;
     ConfigManager *m_configManager = nullptr;

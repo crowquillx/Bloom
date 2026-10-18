@@ -1,4 +1,5 @@
 #include "ExternalMpvBackend.h"
+#include "player/AudioPolicy.h"
 
 #include <QTimer>
 
@@ -69,6 +70,11 @@ void ExternalMpvBackend::startMpv(const QString &mpvBin, const QStringList &args
     prepareRuntime(mpvBin);
     ++m_fileGeneration;
     m_processManager->startMpv(mpvBin, args, mediaUrl);
+}
+
+void ExternalMpvBackend::requestAudioDiagnostics(const QString &tag)
+{
+    m_processManager->requestPropertySnapshot(tag, Bloom::AudioPolicy::diagnosticProperties());
 }
 
 void ExternalMpvBackend::prepareRuntime(const QString &mpvBin)

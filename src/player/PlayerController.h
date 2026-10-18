@@ -106,6 +106,7 @@ class PlayerController : public QObject
     Q_PROPERTY(QString playSessionId READ playSessionId NOTIFY playSessionIdChanged)
     Q_PROPERTY(QVariantList availableAudioTracks READ availableAudioTracks NOTIFY availableTracksChanged)
     Q_PROPERTY(QVariantList availableSubtitleTracks READ availableSubtitleTracks NOTIFY availableTracksChanged)
+    Q_PROPERTY(QVariantMap audioDiagnostics READ audioDiagnostics NOTIFY audioDiagnosticsChanged)
     Q_PROPERTY(QVariantList availableAudioDevices READ availableAudioDevices NOTIFY availableAudioDevicesChanged)
 
 public:
@@ -193,6 +194,7 @@ public:
     QString playSessionId() const { return m_playSessionId; }
     QVariantList availableAudioTracks() const { return m_availableAudioTracks; }
     QVariantList availableSubtitleTracks() const { return m_availableSubtitleTracks; }
+    QVariantMap audioDiagnostics() const { return m_audioDiagnostics; }
     QVariantList availableAudioDevices() const { return m_availableAudioDevices; }
     
     // Audio Delay (ms)
@@ -371,6 +373,7 @@ signals:
     void playSessionIdChanged();
     void availableTracksChanged();
     void availableAudioDevicesChanged();
+    void audioDiagnosticsChanged();
     
     /// Emitted when playback has stopped (user stop, playback end, or error)
     /// Use this to refresh UI elements that depend on playback state (e.g., watch progress)
@@ -671,6 +674,8 @@ private:
     void syncBackendSubtitleTrack(int mpvTrackId);
     void onAudioDeviceListChanged(const QVariantList &devices);
     void applyAudioOutputDevice();
+    void updateAudioPlan();
+    void applyAudioPlanOptions();
     void applySubtitleDelay();
     void persistSubtitleDelayForCurrentScope(int delayMs);
     int subtitleDelayForScope(const QString &seasonId, const QString &itemId, bool isMovie) const;
@@ -810,6 +815,13 @@ private:
     QTimer *m_autoplayPlaybackInfoTimeoutTimer;
 
     // Audio output device hotplug handling
+    Bloom::AudioOutputPlan m_audioPlan;
+    QVariantMap m_audioDiagnostics;
+    QVariantMap m_preparedAudioPlan;
+    bool m_forcePcmAudio = false;
+    bool m_reopeningAudio = false;
+    quint64 m_audioPlanGeneration = 0;
+    qint64 m_nextAudioRetryMs = 0;
     QVariantList m_availableAudioDevices;
     QTimer *m_audioDeviceReloadTimer = nullptr;
     bool m_audioDeviceListInitialized = false;

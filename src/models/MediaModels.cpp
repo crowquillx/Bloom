@@ -289,6 +289,7 @@ QVariantMap PlaybackTrack::toVariantMap() const
         {QStringLiteral("isForced"), isForced},
         {QStringLiteral("isExternal"), isExternal},
         {QStringLiteral("isHearingImpaired"), isHearingImpaired},
+        {QStringLiteral("audio"), audio.toVariantMap()},
         {QStringLiteral("externalUrl"), externalUrl}
     };
 }
@@ -334,6 +335,7 @@ QVariantMap PlaybackDescriptor::toVariantMap() const
         {QStringLiteral("subtitleTracks"), subtitles},
         {QStringLiteral("selectedAudioTrackId"), selectedAudioTrackId},
         {QStringLiteral("selectedSubtitleTrackId"), selectedSubtitleTrackId},
+        {QStringLiteral("audioOutputPlan"), audioOutputPlan.toVariantMap()},
         {QStringLiteral("chapters"), chapterMaps},
         {QStringLiteral("reporting"), reporting.toVariantMap()}
     };
