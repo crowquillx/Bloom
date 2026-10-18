@@ -471,3 +471,8 @@ Silo API v2 playback migration
 - Forward-only remux and HLS plans require server reanchoring and source/player timeline translation. They remain unavailable on the new native path. This migration does not add transcode support.
 - Audio changes use `POST /playback/{session_id}/replan` with `operation: track_change`, the active plan identity, and a new replan request ID. The old audio PATCH route is not in the v2 contract.
 - Progress sends monotonically increasing sequences, installation identity, and position in seconds. Stop sends a stable stop ID and the last position. Provider session state remains in memory and is scoped to the account, profile, and Bloom media connection.
+
+Silo theme audio
+- Theme metadata comes from the detail response's `themes` set. Bloom checks `/api/v2/catalog/themes/capabilities` before requesting a grant for the first theme. Grants use the set's `owner_id`, which can differ from the detail item ID.
+- The grant URL is an expiring credential. Bloom keeps it in memory, resolves it against the server origin, and passes it to `ThemeSongManager`. It does not build an audio URL from an item ID.
+- Converted delivery is progressive AAC in audio-only MP4. Bloom disables media-player looping for Silo grants and requests a fresh grant at each loop. It fetches grant audio once without ranges into a buffer, with a 16 MiB limit and a 45-second deadline, before giving a seekable device to QtMultimedia. QtMultimedia cannot make additional network requests or replay a converted URL. Expired grants and unknown delivery values fail closed.

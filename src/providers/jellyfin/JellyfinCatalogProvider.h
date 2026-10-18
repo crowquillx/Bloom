@@ -60,6 +60,9 @@ public:
             return versionsRequest(query);
         case ProviderCatalogOperation::ThemeSongs:
             return themeSongsRequest(query);
+        case ProviderCatalogOperation::ThemeSongsCapability:
+        case ProviderCatalogOperation::ThemeSongPlayback:
+            return unsupported(QStringLiteral("Jellyfin theme songs do not use grants"));
         }
         return unsupported(QStringLiteral("Unknown Jellyfin catalog operation"));
     }
@@ -840,6 +843,8 @@ private:
         case ProviderCatalogOperation::HeroOverviews: return QStringLiteral("hero overviews");
         case ProviderCatalogOperation::Versions: return QStringLiteral("versions");
         case ProviderCatalogOperation::ThemeSongs: return QStringLiteral("theme songs");
+        case ProviderCatalogOperation::ThemeSongsCapability: return QStringLiteral("theme capability");
+        case ProviderCatalogOperation::ThemeSongPlayback: return QStringLiteral("theme playback");
         }
         return QStringLiteral("catalog");
     }

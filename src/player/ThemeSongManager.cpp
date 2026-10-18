@@ -7,6 +7,9 @@
 #include <QUrl>
 #include <QAbstractAnimation>
 #include <algorithm>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QTimer>
 
 #include "../network/LibraryService.h"
 #include "../utils/ConfigManager.h"
@@ -25,6 +28,7 @@ ThemeSongManager::ThemeSongManager(LibraryService *libraryService,
     , m_audioOutput(std::make_unique<QAudioOutput>())
     , m_fadeAnimation(std::make_unique<QPropertyAnimation>())
 {
+    m_themeNetwork = new QNetworkAccessManager(this);
     m_mediaPlayer->setAudioOutput(m_audioOutput.get());
     // Keep theme-song audio routed to the chosen / current default output
     // device, including devices hotplugged after launch. Owned via QObject
@@ -45,13 +49,21 @@ ThemeSongManager::ThemeSongManager(LibraryService *libraryService,
             m_isPlaying = playing;
             emit isPlayingChanged();
         }
-        if (state == QMediaPlayer::StoppedState && !m_isFading) {
+        if (state == QMediaPlayer::StoppedState && !m_isFading && !m_isLoadingTheme
+            && !(m_requiresFreshGrant && m_loopEnabled)) {
             resetState(false);
         }
     });
     
+    connect(m_mediaPlayer.get(), &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
+        if (status == QMediaPlayer::EndOfMedia && m_requiresFreshGrant && m_loopEnabled
+            && !m_isFading && !m_currentSeriesId.isEmpty()) {
+            m_pendingSeriesId = m_currentSeriesId;
+            m_libraryService->getThemeSongs(m_pendingSeriesId);
+        }
+    });
     if (m_libraryService) {
-        connect(m_libraryService, &LibraryService::themeSongsLoaded, this, &ThemeSongManager::handleThemeSongsLoaded);
+        connect(m_libraryService, &LibraryService::themeSongPlaybackLoaded, this, &ThemeSongManager::handleThemeSongsLoaded);
     }
     if (m_config) {
         connect(m_config, &ConfigManager::themeSongVolumeChanged, this, &ThemeSongManager::handleConfigVolumeChanged);
@@ -120,12 +132,12 @@ void ThemeSongManager::setLoopEnabled(bool enabled)
     if (m_loopEnabled == enabled) return;
     m_loopEnabled = enabled;
     if (m_mediaPlayer) {
-        m_mediaPlayer->setLoops(m_loopEnabled ? QMediaPlayer::Infinite : 1);
+        m_mediaPlayer->setLoops(m_loopEnabled && !m_requiresFreshGrant ? QMediaPlayer::Infinite : 1);
     }
     emit loopEnabledChanged();
 }
 
-void ThemeSongManager::handleThemeSongsLoaded(const QString &seriesId, const QStringList &urls)
+void ThemeSongManager::handleThemeSongsLoaded(const QString &seriesId, const QStringList &urls, bool requiresFreshGrant)
 {
     if (seriesId != m_pendingSeriesId) {
         return;
@@ -137,6 +149,7 @@ void ThemeSongManager::handleThemeSongsLoaded(const QString &seriesId, const QSt
         return;
     }
     
+    m_requiresFreshGrant = requiresFreshGrant;
     startPlayback(urls, seriesId);
 }
 
@@ -185,15 +198,55 @@ void ThemeSongManager::startPlayback(const QStringList &urls, const QString &ser
     
     double vol = volumeForLevel(m_volumeLevel);
     m_audioOutput->setVolume(vol);
-    m_mediaPlayer->setLoops(m_loopEnabled ? QMediaPlayer::Infinite : 1);
-    m_mediaPlayer->setSource(QUrl::fromUserInput(urls.first()));
-    m_mediaPlayer->play();
-    
+    m_mediaPlayer->setLoops(m_loopEnabled && !m_requiresFreshGrant ? QMediaPlayer::Infinite : 1);
     if (m_currentSeriesId != seriesId) {
         m_currentSeriesId = seriesId;
         emit currentSeriesIdChanged();
     }
-    
+    const quint64 generation = ++m_sourceGeneration;
+    m_isLoadingTheme = true;
+    if (m_themeReply) m_themeReply->abort();
+    m_mediaPlayer->stop();
+    m_mediaPlayer->setSource(QUrl());
+    m_themeBuffer.reset();
+    if (m_requiresFreshGrant) {
+        QNetworkRequest request{QUrl(urls.first())};
+        request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::ManualRedirectPolicy);
+        auto *reply = m_themeNetwork->get(request);
+        m_themeReply = reply;
+        reply->setReadBufferSize(64 * 1024);
+        auto bytes = std::make_shared<QByteArray>();
+        const auto read = [reply, bytes]() {
+            constexpr qsizetype maximumBytes = 16 * 1024 * 1024;
+            bytes->append(reply->readAll());
+            if (bytes->size() > maximumBytes) reply->abort();
+        };
+        connect(reply, &QIODevice::readyRead, this, read);
+        QTimer::singleShot(45000, reply, [reply]() { reply->abort(); });
+        connect(reply, &QNetworkReply::finished, this, [this, reply, bytes, generation, read]() {
+            read();
+            reply->deleteLater();
+            if (generation != m_sourceGeneration) return;
+            m_themeReply.clear();
+            if (reply->error() != QNetworkReply::NoError
+                || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200
+                || bytes->isEmpty() || bytes->size() > 16 * 1024 * 1024) {
+                resetState(true);
+                return;
+            }
+            m_themeBuffer = std::make_unique<QBuffer>();
+            m_themeBuffer->setData(*bytes);
+            m_themeBuffer->open(QIODevice::ReadOnly);
+            m_mediaPlayer->setSourceDevice(m_themeBuffer.get());
+            m_mediaPlayer->play();
+            m_isLoadingTheme = false;
+        });
+        return;
+    }
+    m_mediaPlayer->setSource(QUrl::fromUserInput(urls.first()));
+    m_mediaPlayer->play();
+    m_isLoadingTheme = false;
+
     if (!m_isPlaying) {
         m_isPlaying = true;
         emit isPlayingChanged();
@@ -228,7 +281,7 @@ void ThemeSongManager::applyLoopFromConfig()
     }
     m_loopEnabled = loop;
     if (m_mediaPlayer) {
-        m_mediaPlayer->setLoops(m_loopEnabled ? QMediaPlayer::Infinite : 1);
+        m_mediaPlayer->setLoops(m_loopEnabled && !m_requiresFreshGrant ? QMediaPlayer::Infinite : 1);
     }
     emit loopEnabledChanged();
 }
@@ -246,9 +299,16 @@ double ThemeSongManager::volumeForLevel(int level) const
 
 void ThemeSongManager::resetState(bool clearSeriesId)
 {
+    ++m_sourceGeneration;
+    m_isLoadingTheme = false;
+    if (m_themeReply) m_themeReply->abort();
+    m_themeReply.clear();
+    m_requiresFreshGrant = false;
     if (m_mediaPlayer) {
         m_mediaPlayer->stop();
     }
+    if (m_mediaPlayer) m_mediaPlayer->setSource(QUrl());
+    m_themeBuffer.reset();
     bool wasPlaying = m_isPlaying;
     m_isPlaying = false;
     m_pendingSeriesId.clear();

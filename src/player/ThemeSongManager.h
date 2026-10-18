@@ -4,6 +4,11 @@
 #include <QString>
 #include <QStringList>
 #include <memory>
+#include <QBuffer>
+#include <QPointer>
+
+class QNetworkAccessManager;
+class QNetworkReply;
 
 #include <QtMultimedia/QMediaPlayer>
 #include <QtMultimedia/QAudioOutput>
@@ -47,7 +52,7 @@ signals:
     void loopEnabledChanged();
 
 private slots:
-    void handleThemeSongsLoaded(const QString &seriesId, const QStringList &urls);
+    void handleThemeSongsLoaded(const QString &seriesId, const QStringList &urls, bool requiresFreshGrant);
     void handlePlaybackActiveChanged();
     void handleConfigVolumeChanged();
     void handleConfigLoopChanged();
@@ -68,6 +73,12 @@ private:
     QString m_currentSeriesId;
     bool m_isPlaying = false;
     bool m_loopEnabled = false;
+    bool m_requiresFreshGrant = false;
+    bool m_isLoadingTheme = false;
+    quint64 m_sourceGeneration = 0;
+    QNetworkAccessManager *m_themeNetwork = nullptr;
+    QPointer<QNetworkReply> m_themeReply;
+    std::unique_ptr<QBuffer> m_themeBuffer;
     int m_volumeLevel = 0;
     bool m_isFading = false;
 

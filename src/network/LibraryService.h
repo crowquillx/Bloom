@@ -253,6 +253,7 @@ signals:
     void itemPlayedStatusChanged(const QString &itemId, bool isPlayed);
     void favoriteStatusChanged(const QString &itemId, bool isFavorite);
     void themeSongsLoaded(const QString &seriesId, const QStringList &urls);
+    void themeSongPlaybackLoaded(const QString &seriesId, const QStringList &urls, bool requiresFreshGrant);
     void canonicalSearchResultsLoaded(const QString &connectionId,
                                       const QString &searchTerm,
                                       const QVariantList &movies,
@@ -321,6 +322,8 @@ private:
 
     // Cache validation state (per provider-owned endpoint).
     QHash<QString, QHash<int, QString>> m_pageCursors;
+    QHash<QString, ProviderCatalogResponse> m_conditionalResponses;
+    quint64 m_themeRequestGeneration = 0;
     QHash<QString, QString> m_etags;
     QHash<QString, QString> m_lastModified;
 };
