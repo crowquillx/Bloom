@@ -634,7 +634,7 @@ void ProviderCatalogTest::canonicalArtworkAndPlaybackChapterMetadataRemainProvid
     artwork.tag = QStringLiteral("file-99");
     artwork.requestedWidth = 640;
     artwork.sourceUrl = QStringLiteral(
-        "https://silo.example.test/api/v1/artwork/file-99/4?signature=rotating");
+        "https://silo.example.test/api/v2/artwork/file-99/4?signature=rotating");
 
     const QString cacheKey = artwork.cacheKey();
     const Bloom::ArtworkRef restored = Bloom::ArtworkRef::fromCacheKey(cacheKey);
@@ -675,7 +675,7 @@ void ProviderCatalogTest::canonicalArtworkAndPlaybackChapterMetadataRemainProvid
     descriptor.durationMs = 123456;
     descriptor.startPositionMs = 98765;
     descriptor.stream.url = QUrl(QStringLiteral(
-        "https://silo.example.test/api/v1/playback/file-99"));
+        "https://silo.example.test/api/v2/playback/file-99"));
     descriptor.stream.method = Bloom::PlaybackMethod::DirectPlay;
     descriptor.chapters.append(chapter);
     QVERIFY(descriptor.isValid());
@@ -759,7 +759,7 @@ void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
         provider.createRequest(ProviderCatalogOperation::Items, parentOnlyQuery);
     QVERIFY(seasonsRequest.supported);
     QCOMPARE(seasonsRequest.relativeEndpoint,
-             QStringLiteral("/api/v1/catalog/series/series%2Fone/seasons"));
+             QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
 
     ProviderCatalogQuery query;
     query.seriesId = QStringLiteral("series/one");
@@ -769,7 +769,7 @@ void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
         provider.createRequest(ProviderCatalogOperation::Items, query);
     QVERIFY(request.supported);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v1/catalog/series/series%2Fone/seasons/0"));
+             QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons/0"));
 
     const ProviderCatalogResponse season = provider.parseResponse(
         ProviderCatalogOperation::Items,
@@ -785,7 +785,7 @@ void ProviderCatalogTest::siloNumericSeasonRoutesAndEnvelopeOperation()
     request = provider.createRequest(ProviderCatalogOperation::Items, query);
     QVERIFY(request.supported);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v1/catalog/series/series%2Fone/seasons/0/episodes"));
+             QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons/0/episodes"));
 
     query.includeItemTypes = {QStringLiteral("Movie")};
     request = provider.createRequest(ProviderCatalogOperation::Items, query);

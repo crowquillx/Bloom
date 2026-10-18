@@ -241,7 +241,7 @@ private:
     bool activateProvider(IProviderAdapter *adapter);
     void probeProviderAndLogin(const QString &username,
                                const QString &password,
-                               quint64 generation);
+                               quint64 generation, int probeStep = 0);
     void performLogin(const QString &username,
                       const QString &password,
                       quint64 generation);

@@ -99,42 +99,46 @@ public:
     {
         switch (route) {
         case ProviderRoute::Health:
-            return QStringLiteral("/api/v1/health");
+            return QStringLiteral("/health");
+        case ProviderRoute::Ready:
+            return QStringLiteral("/ready");
+        case ProviderRoute::SystemInfo:
+            return QStringLiteral("/api/v2/system/info");
         case ProviderRoute::CallerLogout:
-            return QStringLiteral("/api/v1/auth/logout");
+            return QStringLiteral("/api/v2/auth/logout");
         case ProviderRoute::Profiles:
-            return QStringLiteral("/api/v1/profiles");
+            return QStringLiteral("/api/v2/profiles");
         case ProviderRoute::VerifyProfilePin:
-            return endpointWithId(QStringLiteral("/api/v1/profiles/%1/verify-pin"),
+            return endpointWithId(QStringLiteral("/api/v2/profiles/%1/verify-pin"),
                                   context.profileId);
         case ProviderRoute::AuthSessions:
-            return QStringLiteral("/api/v1/auth/sessions");
+            return QStringLiteral("/api/v2/auth/sessions");
         case ProviderRoute::RevokeAuthSession:
-            return endpointWithId(QStringLiteral("/api/v1/auth/sessions/%1"),
+            return endpointWithId(QStringLiteral("/api/v2/auth/sessions/%1"),
                                   context.sessionId);
         case ProviderRoute::CatalogItems:
-            return QStringLiteral("/api/v1/catalog");
+            return QStringLiteral("/api/v2/catalog");
         case ProviderRoute::CatalogItem:
-            return endpointWithId(QStringLiteral("/api/v1/catalog/items/%1"),
+            return endpointWithId(QStringLiteral("/api/v2/catalog/items/%1"),
                                   context.itemId);
         case ProviderRoute::NativeState:
             // Detail is the authoritative profile-scoped read for user state.
-            return endpointWithId(QStringLiteral("/api/v1/catalog/items/%1"),
+            return endpointWithId(QStringLiteral("/api/v2/catalog/items/%1"),
                                   context.itemId);
         case ProviderRoute::UpdateNativeState:
-            return endpointWithId(QStringLiteral("/api/v1/watched/%1"),
+            return endpointWithId(QStringLiteral("/api/v2/watched/%1"),
                                   context.itemId);
         case ProviderRoute::MediaSegments:
             return context.fileId.isEmpty()
-                ? endpointWithId(QStringLiteral("/api/v1/markers/items/%1"),
+                ? endpointWithId(QStringLiteral("/api/v2/markers/items/%1"),
                                  context.itemId)
-                : endpointWithId(QStringLiteral("/api/v1/markers/files/%1"),
+                : endpointWithId(QStringLiteral("/api/v2/markers/files/%1"),
                                  context.fileId);
         case ProviderRoute::PlaybackInfo:
-            return endpointWithId(QStringLiteral("/api/v1/catalog/items/%1"),
+            return endpointWithId(QStringLiteral("/api/v2/catalog/items/%1"),
                                   context.itemId);
         case ProviderRoute::PlaybackCapability:
-            return QStringLiteral("/api/v1/playback/capability");
+            return QStringLiteral("/api/v2/playback/capabilities");
         }
         return std::nullopt;
     }
@@ -142,30 +146,14 @@ public:
     std::optional<ProviderDetectionResult> mapDetectionResult(
         const QJsonObject &wireResult) const override
     {
-        const QJsonValue status = wireResult.value(QStringLiteral("status"));
-        if (!status.isString() || status.toString() != QStringLiteral("ok")) {
+        if (wireResult.value(QStringLiteral("api_major")).toInt() != 2
+            || !wireResult.value(QStringLiteral("links")).isObject()) {
             return std::nullopt;
-        }
-
-        const QJsonValue serverIdValue = wireResult.value(QStringLiteral("server_id"));
-        const QJsonValue serverNameValue = wireResult.value(QStringLiteral("server_name"));
-        if ((!serverIdValue.isUndefined() && !serverIdValue.isString())
-            || (!serverNameValue.isUndefined() && !serverNameValue.isString())) {
-            return std::nullopt;
-        }
-        QString serverId = serverIdValue.toString().trimmed();
-        // This is Silo 8044eb84's configured deterministic default. It cannot identify
-        // an installation, so leaving it empty forces connection identity to stay URL-scoped.
-        if (serverId.compare(QStringLiteral("b2d9e6c9-1237-5add-a687-5dae547ece33"),
-                             Qt::CaseInsensitive) == 0) {
-            serverId.clear();
         }
 
         ProviderDetectionResult result;
         result.providerKind = ProviderKind::Silo;
         result.protocolMode = ProtocolMode::Native;
-        result.serverId = serverId;
-        result.serverName = serverNameValue.toString().trimmed();
         result.capabilities = implementedCapabilities();
         return result;
     }

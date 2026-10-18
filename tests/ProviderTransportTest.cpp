@@ -589,15 +589,15 @@ void ProviderTransportTest::transportCoalescesUnauthorizedRecovery()
 
     transport.sendWithRetry(
         this,
-        QStringLiteral("/api/v1/first"),
-        [&]() { return factory(firstAttempts, QStringLiteral("/api/v1/first")); },
+        QStringLiteral("/api/v2/first"),
+        [&]() { return factory(firstAttempts, QStringLiteral("/api/v2/first")); },
         success,
         failure,
         options);
     transport.sendWithRetry(
         this,
-        QStringLiteral("/api/v1/second"),
-        [&]() { return factory(secondAttempts, QStringLiteral("/api/v1/second")); },
+        QStringLiteral("/api/v2/second"),
+        [&]() { return factory(secondAttempts, QStringLiteral("/api/v2/second")); },
         success,
         failure,
         options);
@@ -640,11 +640,11 @@ void ProviderTransportTest::transportCapsUnauthorizedRetryAtOne()
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     transport.sendWithRetry(
         this,
-        QStringLiteral("/api/v1/protected"),
+        QStringLiteral("/api/v2/protected"),
         [&]() -> QNetworkReply * {
             ++attempts;
             return new FakeReply(
-                requestFor(QStringLiteral("/api/v1/protected")),
+                requestFor(QStringLiteral("/api/v2/protected")),
                 QNetworkReply::AuthenticationRequiredError,
                 401,
                 QByteArray(),
@@ -685,10 +685,10 @@ void ProviderTransportTest::transportBoundsUnauthorizedRecovery()
     options.unauthorizedRecoveryTimeoutMs = 20;
     transport.sendWithRetry(
         this,
-        QStringLiteral("/api/v1/recovery-timeout"),
+        QStringLiteral("/api/v2/recovery-timeout"),
         [&]() -> QNetworkReply * {
             return new FakeReply(
-                requestFor(QStringLiteral("/api/v1/recovery-timeout")),
+                requestFor(QStringLiteral("/api/v2/recovery-timeout")),
                 QNetworkReply::AuthenticationRequiredError,
                 401,
                 QByteArray(),
@@ -733,11 +733,11 @@ void ProviderTransportTest::transportTreatsRefreshFailureAsTerminal()
     options.unauthorizedPolicy = UnauthorizedPolicy::ExpireSession;
     transport.sendWithRetry(
         this,
-        QStringLiteral("/api/v1/protected"),
+        QStringLiteral("/api/v2/protected"),
         [&]() -> QNetworkReply * {
             ++attempts;
             return new FakeReply(
-                requestFor(QStringLiteral("/api/v1/protected")),
+                requestFor(QStringLiteral("/api/v2/protected")),
                 QNetworkReply::NoError,
                 401,
                 QByteArray(),

@@ -4,7 +4,7 @@ Bloom is migrating from one implicit Jellyfin session to provider-neutral, conne
 
 Native Silo is implemented behind the provider adapter boundary and is released as **experimental native Silo support**. It is not first-class support: the pinned native contract and platform/runtime gates still leave optional capabilities unavailable. Use the support labels defined in [provider compatibility](provider-compatibility.md).
 
-The native Silo path is selected only after deterministic health detection (`GET /api/v1/health` with `status: "ok"`). A compatibility connection remains a separate MediaBrowser/Jellyfin surface and never silently upgrades to native.
+The native Silo path is selected only after version-neutral `GET /health` and `GET /ready` probes, followed by `GET /api/v2/system/info` with `api_major: 2`. A compatibility connection remains a separate MediaBrowser/Jellyfin surface and never silently upgrades to native.
 
 ## Server connections
 
@@ -91,7 +91,7 @@ Provider conversion belongs inside provider adapters. `JellyfinModelMapper` is t
 
 ## Request, authentication, and transport boundaries
 
-`SiloProviderAdapter` exposes `SiloAuthenticator`, `SiloRequestFactory`, `SiloCatalogProvider`, `SiloArtworkProvider`, and `SiloPlaybackProvider` for the native `/api/v1` surface. `SiloAuthenticator` owns login, refresh, `/auth/me`, and profile-PIN request/response wire contracts; the adapter's route mapping and model mapper supply provider discovery, caller logout, auth-session list/revoke, and profile listing. Access, refresh, and profile tokens are supplied from `CredentialStore` and never from QML or connection metadata.
+`SiloProviderAdapter` exposes `SiloAuthenticator`, `SiloRequestFactory`, `SiloCatalogProvider`, `SiloArtworkProvider`, and `SiloPlaybackProvider` for the native `/api/v2` surface. `SiloAuthenticator` owns login, refresh, `/account/me`, and profile-PIN request/response wire contracts; the adapter's route mapping and model mapper supply provider discovery, caller logout, auth-session list/revoke, and profile listing. Access, refresh, and profile tokens are supplied from `CredentialStore` and never from QML or connection metadata.
 
 `IProviderAdapter` bundles the provider implementation consumed by stable application façades. `JellyfinProviderAdapter` exposes the Jellyfin authenticator, request factory, catalog, artwork, and playback providers while identifying its provider/protocol mode; login, restore, browse, artwork, playback, and remote-session traffic therefore share one selected provider boundary without changing QML APIs.
 
@@ -99,7 +99,7 @@ Provider conversion belongs inside provider adapters. `JellyfinModelMapper` is t
 
 `IProviderAuthenticator` owns provider login payloads, response parsing, and validation routes. `JellyfinAuthenticator` implements the existing AuthenticateByName flow while `SiloAuthenticator` validates access/refresh pairs, account identity, profile tokens, and typed error envelopes. Silo profile-PIN success requires `valid: true` and a non-empty `profile_token`; `expires_at` is optional because current native servers can issue tokens scoped to the access-token session without a separate expiry field. `AuthenticationService` remains the stable QML-facing session façade.
 
-The login screen's `Auto` / `Jellyfin` / `Silo` choice selects Bloom's server protocol adapter; it is not a Silo authentication-provider identifier. Native `/api/v1/auth/login` therefore omits the optional `provider` field so Silo can use its configured/default authentication provider. Authentication completion publishes server/account identity changes before the `authenticated` transition. `LibraryService` invalidates catalog work when authentication becomes unavailable, but not while entering `authenticated`, because QML may synchronously issue the first Home request from that same notification.
+The login screen's `Auto` / `Jellyfin` / `Silo` choice selects Bloom's server protocol adapter; it is not a Silo authentication-provider identifier. Native `/api/v2/auth/login` therefore omits the optional `provider` field so Silo can use its configured/default authentication provider. Authentication completion publishes server/account identity changes before the `authenticated` transition. `LibraryService` invalidates catalog work when authentication becomes unavailable, but not while entering `authenticated`, because QML may synchronously issue the first Home request from that same notification.
 
 `HttpTransport` owns the shared `QNetworkAccessManager` and centralizes bounded per-attempt deadlines, cancellation, error mapping, redacted request logging, and unauthorized policy. Retry safety is explicit per operation: requests default to never replaying, idempotent reads may retry, and a caller may opt into replay only when it supplies a stable idempotency mechanism. Retry policies express total attempts, use capped exponential backoff with jitter, honor bounded `Retry-After` values, and cover transport failures plus HTTP 408, 429, 500, 502, 503, and 504. Unauthorized recovery remains single-flight but has its own deadline; a successful recovery may replay the original operation once because the rejected `401` did not apply it. Catalog and remote-session `401` responses expire immediately, while playback reads can defer expiry until playback stops. Canceled work is never retried.
 
@@ -126,3 +126,5 @@ Use the blessed project checks:
 nix flake check
 nix build
 ```
+
+Silo v2 discovery does not infer features from `server_version` or `contract_digest`. The system document has no installation identity. Connections retain their Bloom connection ID and URL scope until an authenticated capability supplies installation identity.

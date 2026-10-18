@@ -184,14 +184,14 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
         ProviderCatalogOperation::Views, query);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v1/user/libraries"));
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/user/libraries"));
     QVERIFY(request.body.isEmpty());
 
     request = provider.createRequest(ProviderCatalogOperation::Items, query);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v1/catalog?source=query&include_technical=true"));
+             QStringLiteral("/api/v2/catalog?source=query&include_technical=true"));
 
     request = provider.createRequest(ProviderCatalogOperation::LatestMedia, query);
     QVERIFY(request.supported);
@@ -214,25 +214,25 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v1/catalog/items/content%2Fwith%20space"));
+             QStringLiteral("/api/v2/catalog/items/content%2Fwith%20space"));
 
     request = provider.createRequest(ProviderCatalogOperation::Versions, query);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Get);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v1/catalog/items/content%2Fwith%20space/versions"));
+             QStringLiteral("/api/v2/catalog/items/content%2Fwith%20space/versions"));
 
     ProviderCatalogQuery hierarchy;
     hierarchy.seriesId = QStringLiteral("series/one");
     request = provider.createRequest(ProviderCatalogOperation::Items, hierarchy);
     QVERIFY(request.supported);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v1/catalog/series/series%2Fone/seasons"));
+             QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
     hierarchy.parentId = QStringLiteral("season/one");
     request = provider.createRequest(ProviderCatalogOperation::Items, hierarchy);
     QVERIFY(request.supported);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v1/catalog/items/season%2Fone/episodes"));
+             QStringLiteral("/api/v2/catalog/items/season%2Fone/episodes"));
 
     ProviderCatalogQuery state;
     state.itemId = QStringLiteral("content-42");
@@ -243,24 +243,24 @@ void SiloCatalogServiceTest::nativeRoutesUseContentIdentityAndCorrectMethods()
     request = provider.createRequest(ProviderCatalogOperation::Items, season);
     QVERIFY(request.supported);
     QCOMPARE(request.relativeEndpoint,
-             QStringLiteral("/api/v1/catalog/series/series%2Fone/seasons"));
+             QStringLiteral("/api/v2/catalog/series/series%2Fone/seasons"));
     request = provider.createRequest(ProviderCatalogOperation::SetWatched, state);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Post);
     QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Never);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v1/watched/content-42"));
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/watched/content-42"));
     request = provider.createRequest(ProviderCatalogOperation::SetFavorite, state);
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Put);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v1/favorites/content-42"));
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/favorites/content-42"));
 
     state.stateValue = false;
     request = provider.createRequest(ProviderCatalogOperation::SetWatched, state);
     QCOMPARE(request.method, ProviderHttpMethod::Delete);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v1/watched/content-42"));
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/watched/content-42"));
     request = provider.createRequest(ProviderCatalogOperation::SetFavorite, state);
     QCOMPARE(request.method, ProviderHttpMethod::Delete);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v1/favorites/content-42"));
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/favorites/content-42"));
     QVERIFY(provider.parseResponse(ProviderCatalogOperation::SetWatched, {}).valid);
     QVERIFY(provider.parseResponse(ProviderCatalogOperation::SetFavorite, {}).valid);
 }
@@ -286,7 +286,7 @@ void SiloCatalogServiceTest::structuredFiltersUseNativeQueryBody()
     QVERIFY(request.supported);
     QCOMPARE(request.method, ProviderHttpMethod::Post);
     QCOMPARE(request.retrySafety, ProviderCatalogRetrySafety::Idempotent);
-    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v1/catalog/query"));
+    QCOMPARE(request.relativeEndpoint, QStringLiteral("/api/v2/catalog/query"));
     QCOMPARE(request.extraHeaders.value(QByteArrayLiteral("Content-Type")),
              QByteArrayLiteral("application/json"));
 
@@ -342,7 +342,7 @@ void SiloCatalogServiceTest::structuredFiltersUseNativeQueryBody()
     QVERIFY(searchRequest.body.isEmpty());
     const QUrl searchUrl(searchRequest.relativeEndpoint);
     const QUrlQuery parameters(searchUrl);
-    QCOMPARE(searchUrl.path(), QStringLiteral("/api/v1/catalog"));
+    QCOMPARE(searchUrl.path(), QStringLiteral("/api/v2/catalog"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("source")), QStringLiteral("query"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("library_id")), QStringLiteral("17"));
     QCOMPARE(parameters.queryItemValue(QStringLiteral("q")), QStringLiteral("Alien & Aliens"));
@@ -421,7 +421,7 @@ void SiloCatalogServiceTest::unsupportedFiltersAreExplicit()
     QVERIFY(nextUp.supported);
     QCOMPARE(nextUp.method, ProviderHttpMethod::Get);
     QCOMPARE(nextUp.relativeEndpoint,
-             QStringLiteral("/api/v1/home/sections/system-next-up/items"));
+             QStringLiteral("/api/v2/home/sections/system-next-up/items"));
     verifyUnsupported(ProviderCatalogOperation::RandomItems, query);
     verifyUnsupported(ProviderCatalogOperation::ResolveLibrary, query);
 }
@@ -630,7 +630,7 @@ void SiloCatalogServiceTest::immediateCatalogRequestSurvivesAuthenticationComple
 
     QTRY_COMPARE_WITH_TIMEOUT(viewsSpy.count(), 1, 1000);
     QCOMPARE(manager.requests.constLast().request.url().path(),
-             QStringLiteral("/api/v1/user/libraries"));
+             QStringLiteral("/api/v2/user/libraries"));
     const QVariantList views = viewsSpy.first().at(1).toList();
     QCOMPARE(views.size(), 1);
     QCOMPARE(views.constFirst().toMap().value(QStringLiteral("itemId")).toString(),
@@ -683,7 +683,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     const RecordedRequest oldRequest = manager.requests.at(oldRequestIndex);
     QCOMPARE(oldRequest.operation, QNetworkAccessManager::GetOperation);
     QCOMPARE(oldRequest.request.url().path(),
-             QStringLiteral("/api/v1/user/libraries"));
+             QStringLiteral("/api/v2/user/libraries"));
     QCOMPARE(oldRequest.request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-1"));
     QCOMPARE(oldRequest.request.rawHeader("X-Profile-Id"),
@@ -707,7 +707,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     const RecordedRequest newRequest = manager.requests.at(newRequestIndex);
     QCOMPARE(newRequest.operation, QNetworkAccessManager::GetOperation);
     QCOMPARE(newRequest.request.url().path(),
-             QStringLiteral("/api/v1/user/libraries"));
+             QStringLiteral("/api/v2/user/libraries"));
     QCOMPARE(newRequest.request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-2"));
     QCOMPARE(newRequest.request.rawHeader("X-Profile-Id"),
@@ -746,7 +746,7 @@ void SiloCatalogServiceTest::requestHeadersAndGenerationSuppressStaleReplies()
     const RecordedRequest profileRequest = manager.requests.at(profileRequestIndex);
     QCOMPARE(profileRequest.operation, QNetworkAccessManager::GetOperation);
     QCOMPARE(profileRequest.request.url().path(),
-             QStringLiteral("/api/v1/user/libraries"));
+             QStringLiteral("/api/v2/user/libraries"));
     QCOMPARE(profileRequest.request.rawHeader("Authorization"),
              QByteArrayLiteral("Bearer access-2"));
     QCOMPARE(profileRequest.request.rawHeader("X-Profile-Id"),

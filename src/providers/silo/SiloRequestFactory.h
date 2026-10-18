@@ -17,15 +17,17 @@ public:
 
         const QString path = request.url().path();
         const bool authenticationRoute =
-            path.contains(QStringLiteral("/api/v1/auth/"));
-        const bool loginRoute = path.endsWith(QStringLiteral("/api/v1/auth/login"));
+            path.contains(QStringLiteral("/api/v2/auth/"));
+        const bool loginRoute = path.endsWith(QStringLiteral("/api/v2/auth/login"));
         const bool publicAuthenticationRoute =
             loginRoute
-            || path.endsWith(QStringLiteral("/api/v1/auth/refresh"))
-            || path.endsWith(QStringLiteral("/api/v1/auth/providers"))
-            || path.endsWith(QStringLiteral("/api/v1/health"));
+            || path.endsWith(QStringLiteral("/api/v2/auth/refresh"))
+            || path.endsWith(QStringLiteral("/api/v2/auth/providers"))
+            || path.endsWith(QStringLiteral("/health"))
+            || path.endsWith(QStringLiteral("/ready"))
+            || path.endsWith(QStringLiteral("/api/v2/system/info"));
         const bool profileVerificationRoute =
-            path.contains(QStringLiteral("/api/v1/profiles/"))
+            path.contains(QStringLiteral("/api/v2/profiles/"))
             && path.endsWith(QStringLiteral("/verify-pin"));
         if (sameOrigin(context.baseUrl, request.url())) {
             if (!publicAuthenticationRoute && !context.accessToken.isEmpty()) {

@@ -53,7 +53,7 @@ struct SiloAccountIdentity {
     }
 };
 
-/** Native Silo /api/v1 authentication wire contract. */
+/** Native Silo /api/v2 authentication wire contract. */
 class SiloAuthenticator final : public IProviderAuthenticator
 {
 public:
@@ -75,7 +75,7 @@ public:
             body[QStringLiteral("provider")] = provider.trimmed();
         }
         return {
-            QStringLiteral("/api/v1/auth/login"),
+            QStringLiteral("/api/v2/auth/login"),
             QJsonDocument(body).toJson(QJsonDocument::Compact)
         };
     }
@@ -83,7 +83,7 @@ public:
     QString sessionValidationEndpoint(const QString &accountId) const override
     {
         Q_UNUSED(accountId)
-        return QStringLiteral("/api/v1/auth/me");
+        return QStringLiteral("/api/v2/account/me");
     }
 
     ProviderAuthenticationResult parseLoginResponse(const QByteArray &response) const override
@@ -124,7 +124,7 @@ public:
             return std::nullopt;
         }
         return ProviderAuthenticationRequest{
-            QStringLiteral("/api/v1/auth/refresh"),
+            QStringLiteral("/api/v2/auth/refresh"),
             QJsonDocument(QJsonObject{
                 {QStringLiteral("refresh_token"), refreshToken}
             }).toJson(QJsonDocument::Compact),
@@ -168,7 +168,7 @@ public:
         const QString encodedProfileId = QString::fromLatin1(
             QUrl::toPercentEncoding(profileId.trimmed()));
         ProviderAuthenticationRequest request;
-        request.endpoint = QStringLiteral("/api/v1/profiles/%1/verify-pin")
+        request.endpoint = QStringLiteral("/api/v2/profiles/%1/verify-pin")
                                .arg(encodedProfileId);
         request.body = QJsonDocument(QJsonObject{
             {QStringLiteral("pin"), pin}

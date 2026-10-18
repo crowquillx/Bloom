@@ -505,7 +505,7 @@ PlaybackInfoRequest SiloPlaybackProvider::createPlaybackInfoRequest(
 {
     PlaybackInfoRequest request;
     if (!media.itemId.isEmpty()) {
-        request.endpoint = QStringLiteral("/api/v1/catalog/items/%1")
+        request.endpoint = QStringLiteral("/api/v2/catalog/items/%1")
                                .arg(QString::fromLatin1(QUrl::toPercentEncoding(media.itemId)));
     }
     return request;
@@ -529,7 +529,7 @@ PlaybackStartRequest SiloPlaybackProvider::createPlaybackStartRequest(
     int selectedAudioTrack, int selectedSubtitleTrack, qint64 startPositionMs) const
 {
     PlaybackStartRequest request;
-    request.endpoint = QStringLiteral("/api/v1/playback/start");
+    request.endpoint = QStringLiteral("/api/v2/playback/start");
     addNumeric(request.body, QStringLiteral("file_id"), source.value(
         QStringLiteral("fileId"), source.value(QStringLiteral("id"),
         source.value(QStringLiteral("mediaVersionId"), source.value(QStringLiteral("file_id"))))));
@@ -573,7 +573,7 @@ PlaybackAudioSwitchRequest SiloPlaybackProvider::createAudioSwitchRequest(
     if (sessionId.isEmpty() || audioTrackIndex < 0) {
         return request;
     }
-    request.endpoint = QStringLiteral("/api/v1/playback/%1/audio")
+    request.endpoint = QStringLiteral("/api/v2/playback/%1/audio")
                            .arg(QString::fromLatin1(QUrl::toPercentEncoding(sessionId)));
     request.body.insert(QStringLiteral("audio_track_index"), audioTrackIndex);
     request.body.insert(QStringLiteral("position"), qMax<qint64>(0, positionMs) / 1000.0);
@@ -622,7 +622,7 @@ PlaybackReportRequest SiloPlaybackProvider::createReportRequest(const PlaybackRe
         return request;
     }
     const QString session = QString::fromLatin1(QUrl::toPercentEncoding(report.playbackSessionId));
-    request.endpoint = QStringLiteral("/api/v1/playback/%1").arg(session);
+    request.endpoint = QStringLiteral("/api/v2/playback/%1").arg(session);
     if (report.event == PlaybackReportEvent::Stop) {
         request.method = QStringLiteral("DELETE");
         request.deferSessionExpiry = false;
