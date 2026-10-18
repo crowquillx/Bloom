@@ -200,6 +200,10 @@ private:
                                bool deferSessionExpiry = true,
                                RetrySafety retrySafety = RetrySafety::Never);
     PlaybackProviderContext providerContext() const;
+    void loadPlaybackCapabilities(const IPlaybackProvider *provider,
+                                  const PlaybackProviderContext &context,
+                                  std::function<void(bool)> completion);
+    QHash<QString, QPair<QByteArray, QJsonObject>> m_playbackCapabilities;
     quint64 beginRequest(const QString &operation,
                          const QString &itemId,
                          const QString &requestContext);

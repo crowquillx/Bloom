@@ -135,7 +135,7 @@ public:
                 : endpointWithId(QStringLiteral("/api/v2/markers/files/%1"),
                                  context.fileId);
         case ProviderRoute::PlaybackInfo:
-            return endpointWithId(QStringLiteral("/api/v2/catalog/items/%1"),
+            return endpointWithId(QStringLiteral("/api/v2/watch/%1"),
                                   context.itemId);
         case ProviderRoute::PlaybackCapability:
             return QStringLiteral("/api/v2/playback/capabilities");

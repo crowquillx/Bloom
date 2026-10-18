@@ -463,3 +463,11 @@ Troubleshooting
 - Test playback flows with typical server and client device combinations to ensure direct play vs transcode logic works.
 - If track selection doesn't sync, verify that `playSessionId` is being passed correctly in all reporting calls.
 - If track preferences aren't being restored, check that `track_preferences.json` is schema version 4 and that the active connection under `scopes` contains the relevant `episodes` or `movies` entry. Unset preferences intentionally fall back to provider/file defaults and are not written.
+
+Silo API v2 playback migration
+- Playback starts only when `/api/v2/playback/capabilities` allows protocol 3, `playback_plan_v3`, and `original_http`. Capability ETags support conditional reads. Build and contract identity fields never enable a feature.
+- Start uses an opaque string file ID, the advertised installation ID, and one playback attempt ID per request. Bloom advertises declared mpv codec capabilities and original HTTP delivery. It does not claim exact hardware or audio passthrough evidence.
+- `PlaybackDecision.playback_plan` supplies the stream URL, headers, selected tracks, source duration, and player start time. Unknown outcomes and deliveries fail safely. Bloom preserves opaque stream URLs and does not reconstruct them.
+- Forward-only remux and HLS plans require server reanchoring and source/player timeline translation. They remain unavailable on the new native path. This migration does not add transcode support.
+- Audio changes use `POST /playback/{session_id}/replan` with `operation: track_change`, the active plan identity, and a new replan request ID. The old audio PATCH route is not in the v2 contract.
+- Progress sends monotonically increasing sequences, installation identity, and position in seconds. Stop sends a stable stop ID and the last position. Provider session state remains in memory and is scoped to the account, profile, and Bloom media connection.

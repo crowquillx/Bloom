@@ -1,10 +1,14 @@
 #pragma once
 
 #include "providers/IPlaybackProvider.h"
+#include <QHash>
 
 class SiloPlaybackProvider final : public IPlaybackProvider
 {
 public:
+    QString capabilitiesEndpoint() const override;
+    bool acceptCapabilities(const PlaybackProviderContext &context,
+                            const QJsonObject &wire) const override;
     Bloom::PlaybackDescriptor createDescriptor(
         const PlaybackProviderContext &context,
         const Bloom::MediaRef &media,
@@ -69,4 +73,14 @@ public:
         const Bloom::MediaRef &media,
         const QJsonObject &wireResponse,
         const QVariantMap &providerSource = {}) const override;
+private:
+    struct Session {
+        Bloom::MediaRef media;
+        PlaybackProviderContext context;
+        QString installationId;
+        QJsonObject plan;
+        qint64 sequence = 0;
+    };
+    mutable QHash<QString, QString> m_installations;
+    mutable QHash<QString, Session> m_sessions;
 };

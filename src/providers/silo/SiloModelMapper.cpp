@@ -818,7 +818,8 @@ PlaybackInfoResponse SiloModelMapper::playbackInfoFromVersions(const QJsonArray 
         source.size = jsonInteger(wire.value(QStringLiteral("file_size")));
         source.bitRate = wire.value(QStringLiteral("bitrate")).toInt();
         source.videoType = wire.value(QStringLiteral("codec_video")).toString();
-        source.durationMs = secondsToMilliseconds(wire.value(QStringLiteral("duration")).toDouble());
+        source.durationMs = secondsToMilliseconds(wire.value(QStringLiteral("duration_seconds")).toDouble(
+            wire.value(QStringLiteral("duration")).toDouble()));
         source.playbackVariantId =
             wire.value(QStringLiteral("playback_variant_id")).toString();
         source.presentationPartIndex =
@@ -954,7 +955,8 @@ QVariantMap SiloModelMapper::mediaVersion(const QJsonObject &wireVersion,
         {QStringLiteral("audioCodec"), wireVersion.value(QStringLiteral("codec_audio")).toString()},
         {QStringLiteral("hdr"), wireVersion.value(QStringLiteral("hdr")).toBool()},
         {QStringLiteral("durationMs"), secondsToMilliseconds(
-             wireVersion.value(QStringLiteral("duration")).toDouble())},
+             wireVersion.value(QStringLiteral("duration_seconds")).toDouble(
+                 wireVersion.value(QStringLiteral("duration")).toDouble()))},
         {QStringLiteral("hdrType"), wireVersion.value(QStringLiteral("hdr_type")).toString(
              wireVersion.value(QStringLiteral("video_range_type")).toString())},
         {QStringLiteral("dolbyVision"), wireVersion.value(QStringLiteral("dolby_vision")).toString()},

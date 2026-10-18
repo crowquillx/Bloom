@@ -31,6 +31,8 @@ struct PlaybackStartRequest
     QString method = QStringLiteral("POST");
     QJsonObject body;
 
+    bool replaySafe = false;
+
     [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
 };
 
@@ -47,6 +49,8 @@ struct PlaybackAudioSwitchRequest
     QString method = QStringLiteral("PATCH");
     QJsonObject body;
 
+    bool replaySafe = false;
+
     [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
 };
 
@@ -62,6 +66,8 @@ struct PlaybackRecoveryRequest
     QString endpoint;
     QString method = QStringLiteral("POST");
     QJsonObject body;
+
+    bool replaySafe = false;
 
     [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
 };
@@ -98,6 +104,8 @@ struct PlaybackReportRequest
     QJsonObject body;
     bool deferSessionExpiry = true;
 
+    bool replaySafe = false;
+
     [[nodiscard]] bool isValid() const { return !endpoint.isEmpty(); }
 };
 
@@ -105,6 +113,7 @@ struct PlaybackProviderContext
 {
     QUrl serverUrl;
     QString accessToken;
+    QString accountId;
     QString profileId;
     QString profileToken;
     QString clientName;
@@ -112,6 +121,7 @@ struct PlaybackProviderContext
     QString deviceId;
     QString deviceName;
     QString devicePlatform;
+    QString playbackAttemptId;
 };
 
 /**
@@ -123,6 +133,12 @@ class IPlaybackProvider
 {
 public:
     virtual ~IPlaybackProvider() = default;
+
+    virtual QString capabilitiesEndpoint() const { return {}; }
+    virtual bool acceptCapabilities(const PlaybackProviderContext &, const QJsonObject &) const
+    {
+        return true;
+    }
 
     virtual Bloom::PlaybackDescriptor createDescriptor(
         const PlaybackProviderContext &context,
