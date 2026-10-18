@@ -15,10 +15,8 @@
 #include <QList>
 #include <QHash>
 #include <QPointer>
-#ifdef BLOOM_TESTING
 #include <QSemaphore>
 #include <QSharedPointer>
-#endif
 #include <atomic>
 #include <memory>
 #include <optional>
@@ -326,11 +324,12 @@ private:
     QHash<QString, KnownBaseImage> m_knownBaseImages;
     QHash<QString, quint64> m_roundedTouchesInFlight;
     mutable QMutex m_pendingMutex;
-#ifdef BLOOM_TESTING
+    // Test-hook state stays unconditional: Bloom::ImageCache is compiled with a
+    // PRIVATE BLOOM_TESTING define, so guarding members here would give its
+    // consumers a smaller class layout and heap-overrun on construction.
     QSharedPointer<QSemaphore> m_roundedLookupEnteredForTest;
     QSharedPointer<QSemaphore> m_roundedLookupReleaseForTest;
     QMutex m_testHookMutex;
-#endif
 };
 
 #endif // IMAGECACHEPROVIDER_H

@@ -130,7 +130,11 @@ compiled through reusable `Bloom::*` CMake libraries. Tests link those targets
 instead of recompiling the same `.cpp` files into every executable. Keep new
 production sources in the narrowest reusable layer and link tests to production
 targets; do not add a second test-only compilation of shared implementation
-files. Clean Nix builds use Ninja, matching the incremental development path.
+files. A `PRIVATE BLOOM_TESTING` define on a production library may add test
+hook methods, but must never change data members in a header other targets
+include: consumers compiled without the define allocate a smaller object, and
+the library's constructor overruns the heap in any `BUILD_TESTING=ON` build.
+Clean Nix builds use Ninja, matching the incremental development path.
 The Nix source sets contain only build inputs, so documentation and workflow
 changes do not invalidate unrelated C++ derivations.
 
@@ -152,6 +156,11 @@ uses two compile jobs and serializes derivations, preventing concurrent flake
 checks from saturating interactive workstations. CI uses four compile jobs to
 match the hosted runner; controlled builders can choose another value with
 `--option cores`.
+
+The portable Linux, Flatpak, and Windows packaging jobs start as soon as build
+metadata is resolved and run in parallel with the `nix` validation job. The
+`release` job depends on all of them, so a failing check still blocks
+publishing without serializing validation ahead of packaging.
 
 ## Portable Linux artifacts
 
@@ -232,8 +241,10 @@ something to run. Environment-sensitive visual tests remain opt-in through
 .\scripts\run-windows-tests.ps1 -Config Release -OutputOnFailure
 ```
 
-Windows CI builds the application and deterministic tests in one CMake graph,
-runs CTest with failure output, and caches the checksum-pinned Qt and mpv SDKs.
+Windows CI builds and packages only the application (`BUILD_TESTING=OFF`), so
+shipped binaries never contain test-only code paths; run the Windows test suite
+locally with the commands above when touching Windows-specific code. CI caches
+the checksum-pinned Qt and mpv SDKs.
 The Windows scripts and workflow read those pins from
 `packaging/dependencies.json`.
 
