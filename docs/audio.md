@@ -215,13 +215,14 @@ Ids are stable mpv device ids, for example `wasapi/{endpoint id}` or
 `settings.playback.audio_output_devices.<windows|linux|macos>`. `AudioPolicy::resolveDevice`
 matches the saved id against the live list:
 
-- A listed id is used.
+- A listed id is used only when its driver is active.
 - A missing id is kept in config, shown as not connected, and resolves to `auto`.
   It does not change the OS default device.
 - If the id is missing but exactly one listed endpoint under the same driver
   has the identical saved label, that endpoint is used. Two endpoints with the
   same label are not guessed.
-- An id from another driver or platform resolves to `auto`.
+- An id from another driver or platform resolves to `auto`. The saved row stays
+  selected but unavailable, even if mpv lists the endpoint.
 
 `PlayerController.audioOutputOptions` and `audioOutputStatus` expose the
 selector rows and the resolved state to QML. `selectAudioOutputDevice(id)` saves
@@ -230,6 +231,12 @@ the choice. It then sets mpv's `audio-device`, `audio-channels`,
 The pinned mpv marks these options as audio-output updates. A runtime change
 reopens only the AO; the demuxer, video, provider session, position, pause
 state and selected tracks remain. A short audio gap is expected.
+
+Selecting the current output again in Settings or the playback panel retries
+the saved output after a session fallback. The playback output picker remains
+available when no audio tracks are listed. Keyboard focus then starts on the
+output row. Changing Exclusive Mode during playback reapplies the audio plan
+and reopens the output immediately.
 
 ## Exclusive mode (Windows)
 

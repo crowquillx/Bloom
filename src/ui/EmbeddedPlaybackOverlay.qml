@@ -351,9 +351,6 @@ FocusScope {
             audioOutputMode = false
             return
         }
-        if (!PlayerController.availableAudioTracks || PlayerController.availableAudioTracks.length === 0) {
-            return
-        }
         audioOutputMode = false
         subtitleSelectorOpen = false
         volumeSelectorOpen = false
@@ -366,7 +363,11 @@ FocusScope {
             if (idx >= 0) {
                 audioList.positionViewAtIndex(idx, ListView.Contain)
             }
-            audioList.forceActiveFocus()
+            if (audioList.count > 0) {
+                audioList.forceActiveFocus()
+            } else {
+                audioOutputRow.forceActiveFocus()
+            }
         })
     }
 
@@ -546,7 +547,7 @@ FocusScope {
                 return true
             }
             if (root.Window.activeFocusItem === audioOutputRow) {
-                if (direction === "up") audioList.forceActiveFocus()
+                if (direction === "up" && audioList.count > 0) audioList.forceActiveFocus()
                 return true
             }
             if (direction === "up") {
@@ -2689,7 +2690,7 @@ FocusScope {
                 Keys.onPressed: function(event) {
                     if (event.key === Qt.Key_Up) {
                         event.accepted = true
-                        audioList.forceActiveFocus()
+                        if (audioList.count > 0) audioList.forceActiveFocus()
                     } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
                         event.accepted = true
                         root.openAudioOutputList()

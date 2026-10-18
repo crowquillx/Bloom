@@ -454,11 +454,12 @@ void AudioOutputServiceTest::heldEndpointKeepsFormatsWhenQueriesFail()
     QTRY_COMPARE_WITH_TIMEOUT(service.capabilities().passthroughCodecs, QStringList{QStringLiteral("ac3")}, 1000);
 
     service.setEndpointHeld(true);
-    service.refresh();
+    bool delivered = false;
+    service.prepare([&delivered] { delivered = true; });
     QTRY_VERIFY_WITH_TIMEOUT(second->entered.available() > 0, 1000);
     QVERIFY(second->entered.tryAcquire(1, 0));
     second->release.release();
-    QTest::qWait(100); // let the watcher deliver the held-endpoint answer
+    QTRY_VERIFY_WITH_TIMEOUT(delivered, 1000);
     QCOMPARE(service.capabilities().passthroughCodecs, QStringList{QStringLiteral("ac3")});
 
     // Once released, the same answer is taken as real.

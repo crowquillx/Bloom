@@ -4007,6 +4007,7 @@ void PlayerControllerAutoplayContextTest::audioStartupPlanOverridesProfileOutput
     };
     config.setMpvProfile(QStringLiteral("Medium Quality"), profile);
     config.setDefaultProfileName(QStringLiteral("Medium Quality"));
+    config.setAudioExclusiveMode(false);
     config.setAudioPassthroughMode(QStringLiteral("custom"));
     config.setAudioPassthroughCodecs({QStringLiteral("truehd")});
 
@@ -4154,6 +4155,20 @@ void PlayerControllerAutoplayContextTest::exclusiveFailureFallsBackToSharedThenS
     QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--audio-exclusive=yes")));
     QVERIFY(backend.lastStartArgs.contains(QStringLiteral("--audio-device=wasapi/{tv}")));
     const int stopCalls = backend.stopCallCount;
+
+    for (bool exclusive : {false, true}) {
+        backend.variantCommands.clear();
+        controller.m_audioDeviceReloadTimer->start();
+        config.setAudioExclusiveMode(exclusive);
+        QVERIFY(!controller.m_audioDeviceReloadTimer->isActive());
+        QCOMPARE(controller.m_audioPlan.exclusivePcm, exclusive);
+        QVERIFY(backend.variantCommands.contains(
+            QVariantList{QStringLiteral("set_property"), QStringLiteral("audio-exclusive"),
+                         exclusive ? QStringLiteral("yes") : QStringLiteral("no")}));
+        QVERIFY(backend.variantCommands.contains(QVariantList{QStringLiteral("ao-reload")}));
+        QCOMPARE(backend.startCallCount, 1);
+        QCOMPARE(backend.stopCallCount, stopCalls);
+    }
 
     const QVariantMap pcm{{QStringLiteral("format"), QStringLiteral("s32")}};
     const QVariantMap active{{QStringLiteral("current-ao"), QStringLiteral("wasapi")},

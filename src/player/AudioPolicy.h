@@ -29,7 +29,8 @@ AudioDeviceResolution resolveDevice(const QString &preferred,
                                     const QString &preferredDescription,
                                     const QVariantList &devices,
                                     bool devicesKnown,
-                                    const QStringList &unusableDevices = {});
+                                    const QStringList &unusableDevices = {},
+                                    const QString &runtimeDriver = {});
 // Selector entries: System Default, the active driver's endpoints, and a saved
 // preference that is currently missing. Each entry has id, description, kind
 // ("default"/"device"), available, selected and active.

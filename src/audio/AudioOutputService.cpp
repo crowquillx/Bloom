@@ -163,7 +163,7 @@ AudioDeviceResolution AudioOutputService::deviceResolution() const
     if (!m_config) return {};
     return AudioPolicy::resolveDevice(m_config->getAudioOutputDevice(),
                                       m_config->getAudioOutputDeviceDescription(),
-                                      m_mpvDeviceList, m_mpvDevicesKnown, m_failedDevices);
+                                      m_mpvDeviceList, m_mpvDevicesKnown, m_failedDevices, m_runtimeDriver);
 }
 
 QString AudioOutputService::activeDriver() const

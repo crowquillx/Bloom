@@ -302,9 +302,12 @@ PlayerController::PlayerController(IPlayerBackend *playerBackend, ConfigManager 
                 if (!m_playerBackend->isRunning()) m_audioDeviceRefreshTimer->start();
             });
     connect(m_config, &ConfigManager::audioExclusiveModeChanged, this, [this] {
-        // A changed preference is a fresh attempt; the service reports the plan change.
         m_exclusiveFallback = false;
         updateAudioOutputStatus();
+        if (m_playerBackend && m_playerBackend->isRunning()) {
+            m_audioDeviceReloadTimer->stop();
+            applyAudioOutputDevice();
+        }
     });
     auto *audioVerificationTimer = new QTimer(this);
     audioVerificationTimer->setInterval(3000);

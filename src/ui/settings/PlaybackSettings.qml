@@ -570,19 +570,14 @@ FocusScope {
                         currentIndex: root.selectedOptionIndex(options)
                         Layout.preferredWidth: Math.round(260 * Theme.layoutScale)
                         focusPolicy: Qt.StrongFocus
-                        property bool initialized: false
-                        property bool updatingSelection: false
 
                         function refreshOptions() {
-                            updatingSelection = true
                             options = root.audioOutputDeviceOptions()
                             currentIndex = root.selectedOptionIndex(options)
-                            updatingSelection = false
                         }
 
                         Component.onCompleted: {
                             refreshOptions()
-                            initialized = true
                             // Re-enumerate so endpoints connected since startup appear.
                             PlayerController.refreshAudioOutputDevices()
                         }
@@ -619,12 +614,9 @@ FocusScope {
                             }
                         }
 
-                        onCurrentIndexChanged: {
-                            if (!initialized || updatingSelection || currentIndex < 0) return
-                            var option = options[currentIndex]
-                            if (!option.selected) {
-                                PlayerController.selectAudioOutputDevice(option.value)
-                            }
+                        onSelectionAccepted: function(index) {
+                            if (index < 0 || index >= options.length) return
+                            PlayerController.selectAudioOutputDevice(options[index].value)
                         }
 
                         Keys.onUpPressed: function(event) {

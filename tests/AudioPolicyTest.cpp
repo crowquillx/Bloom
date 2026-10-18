@@ -502,11 +502,23 @@ void AudioPolicyTest::outputOptionsFilterToActiveDriver()
     QVERIFY(!missing.value(QStringLiteral("active")).toBool());
     QVERIFY(options.first().toMap().value(QStringLiteral("active")).toBool());
 
-    // A saved endpoint of another driver remains visible instead of being replaced.
+    // An inactive driver keeps its saved row but cannot bypass the sound server.
     resolution = AudioPolicy::resolveDevice(QStringLiteral("alsa/hw:CARD=DAC"), {}, list, true);
     options = AudioPolicy::outputDeviceOptions(list, QStringLiteral("pipewire"), resolution, {});
-    QVERIFY(options.last().toMap().value(QStringLiteral("available")).toBool());
-    QVERIFY(options.last().toMap().value(QStringLiteral("active")).toBool());
+    QCOMPARE(resolution.preferred, QStringLiteral("alsa/hw:CARD=DAC"));
+    QCOMPARE(resolution.device, QStringLiteral("auto"));
+    QVERIFY(!resolution.preferredAvailable);
+    QVERIFY(!options.last().toMap().value(QStringLiteral("available")).toBool());
+    QVERIFY(!options.last().toMap().value(QStringLiteral("active")).toBool());
+    QVERIFY(options.first().toMap().value(QStringLiteral("active")).toBool());
+
+    resolution = AudioPolicy::resolveDevice(QStringLiteral("pipewire/dac"), {}, list, true,
+                                           {}, QStringLiteral("pulse"));
+    QCOMPARE(resolution.device, QStringLiteral("auto"));
+    QVERIFY(!resolution.preferredAvailable);
+    resolution = AudioPolicy::resolveDevice(QStringLiteral("alsa/old-dac"), QStringLiteral("DAC raw"), list, true);
+    QCOMPARE(resolution.device, QStringLiteral("auto"));
+    QVERIFY(!resolution.rematched);
 
     resolution = AudioPolicy::resolveDevice(QStringLiteral("pipewire/old-dac"), QStringLiteral("USB DAC"), list, true);
     options = AudioPolicy::outputDeviceOptions(list, QStringLiteral("pipewire"), resolution, QStringLiteral("USB DAC"));

@@ -193,7 +193,8 @@ AudioDeviceResolution resolveDevice(const QString &preferred,
                                     const QString &preferredDescription,
                                     const QVariantList &devices,
                                     bool devicesKnown,
-                                    const QStringList &unusableDevices)
+                                    const QStringList &unusableDevices,
+                                    const QString &runtimeDriver)
 {
     AudioDeviceResolution result;
     const QString wanted = preferred.trimmed();
@@ -205,12 +206,18 @@ AudioDeviceResolution resolveDevice(const QString &preferred,
         result.reason = "Preferred output failed to open; using system default";
         return result;
     }
+    const QString driver = deviceDriver(wanted);
+    const QString currentDriver = activeDriver(devices, runtimeDriver);
+    if (!currentDriver.isEmpty() && driver != currentDriver) {
+        result.preferredAvailable = false;
+        result.reason = "Preferred output driver inactive; using system default";
+        return result;
+    }
     if (!devicesKnown) {
         result.device = wanted;
         result.reason = "Device list unknown; using preferred output";
         return result;
     }
-    const QString driver = deviceDriver(wanted);
     QVariantMap match;
     int matches = 0;
     for (const QVariant &value : devices) {
@@ -249,11 +256,9 @@ QVariantList outputDeviceOptions(const QVariantList &devices,
                                      {"kind", "default"}, {"available", true},
                                      {"selected", preferAuto}, {"active", resolution.device == "auto"}}};
     bool preferredListed = preferAuto;
-    bool preferredReported = false;
     for (const QVariant &value : devices) {
         const QVariantMap device = value.toMap();
         const QString name = device.value("name").toString();
-        if (name == resolution.preferred) preferredReported = true;
         // Bare driver defaults duplicate System Default; other drivers would
         // bypass the system's routing (for example raw ALSA under PipeWire).
         if (!name.contains('/') || (!driver.isEmpty() && deviceDriver(name) != driver))
@@ -269,8 +274,8 @@ QVariantList outputDeviceOptions(const QVariantList &devices,
         // Keep a saved endpoint visible while it is disconnected or belongs to
         // another driver so the preference is not silently replaced.
         options.append(QVariantMap{{"id", resolution.preferred}, {"description", preferredDescription},
-                                   {"kind", "device"}, {"available", preferredReported},
-                                   {"selected", true}, {"active", resolution.device == resolution.preferred}});
+                                   {"kind", "device"}, {"available", false},
+                                   {"selected", true}, {"active", false}});
     }
     return options;
 }
